@@ -1,0 +1,229 @@
+import Foundation
+@testable import OrbitDock
+import Testing
+
+@MainActor
+struct SessionStoreReconnectRecoveryTests {
+  @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
+    let counter = RequestCounter()
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 3
+
+    async let first = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 3)
+    async let second = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 3)
+    let firstBootstrap = await first
+    let secondBootstrap = await second
+
+    #expect(firstBootstrap != nil)
+    #expect(secondBootstrap != nil)
+    #expect(await counter.bootstrapRequestCount == 1)
+    #expect(store.session("session-1").conversationLoaded == true)
+    #expect(store.session("session-1").rowEntries.isEmpty)
+  }
+
+  @Test func recoveryHelperSendsSubscribeOnceForTheSameGeneration() async throws {
+    let counter = RequestCounter()
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(loader: { request in try await counter.loader(request) }, connection: connection)
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 4
+
+    async let first: Void = store.ensureSessionRecovery("session-1", generation: 4)
+    async let second: Void = store.ensureSessionRecovery("session-1", generation: 4)
+    _ = await (first, second)
+
+    #expect(await counter.bootstrapRequestCount == 1)
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.sessionId == "session-1")
+    #expect(store.recoveredSessionGenerations["session-1"] == 4)
+  }
+
+  @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
+    let fixture = BlockingBootstrapFixture()
+    let store = try makeStore(
+      loader: { request in try await fixture.loader(request: request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 8
+
+    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 8)
+    await fixture.waitForBootstrapStart()
+    store.unsubscribeFromSession("session-1")
+    await fixture.releaseBootstrap()
+    let result = await bootstrap
+
+    #expect(result == nil)
+    #expect(store.session("session-1").rowEntries.isEmpty)
+    #expect(store.session("session-1").conversationLoaded == false)
+  }
+
+  @Test func generationChangesDropStaleBootstrapResults() async throws {
+    let fixture = BlockingBootstrapFixture()
+    let store = try makeStore(
+      loader: { request in try await fixture.loader(request: request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 11
+
+    async let bootstrap = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 11)
+    await fixture.waitForBootstrapStart()
+    store.connectionGeneration = 12
+    await fixture.releaseBootstrap()
+    let result = await bootstrap
+
+    #expect(result == nil)
+    #expect(store.session("session-1").rowEntries.isEmpty)
+    #expect(store.session("session-1").conversationLoaded == false)
+  }
+
+  private func makeStore(
+    loader: @escaping ServerClients.DataLoader,
+    connection: any SessionStoreConnection
+  ) throws -> SessionStore {
+    let baseURL = try #require(URL(string: "http://127.0.0.1:4000"))
+    let clients = ServerClients(serverURL: baseURL, authToken: nil, dataLoader: loader)
+    return SessionStore(
+      clients: clients,
+      connection: connection,
+      endpointId: UUID()
+    )
+  }
+
+  fileprivate nonisolated static func makeHTTPResponse(for url: URL, json: String) -> (Data, URLResponse) {
+    let response = HTTPURLResponse(
+      url: url,
+      statusCode: 200,
+      httpVersion: nil,
+      headerFields: ["Content-Type": "application/json"]
+    )!
+    return (Data(json.utf8), response)
+  }
+
+  fileprivate nonisolated static var bootstrapResponseJSON: String {
+    """
+    {
+      "session": {
+        "id": "session-1",
+        "provider": "claude",
+        "project_path": "/tmp/project",
+        "status": "active",
+        "work_status": "waiting",
+        "messages": [],
+        "token_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cached_tokens": 0,
+          "context_window": 0
+        },
+        "token_usage_snapshot_kind": "unknown",
+        "turn_count": 0,
+        "has_pending_approval": false,
+        "claude_integration_mode": "direct"
+      },
+      "rows": [],
+      "total_row_count": 0,
+      "has_more_before": false
+    }
+    """
+  }
+}
+
+@MainActor
+final class SessionStoreConnectionSpy: SessionStoreConnection {
+  struct SubscribeCall {
+    let sessionId: String
+    let sinceRevision: UInt64?
+    let includeSnapshot: Bool
+  }
+
+  var connectionStatus: ConnectionStatus = .connected
+  var isRemote: Bool = false
+  private(set) var subscribeCalls: [SubscribeCall] = []
+  private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
+
+  func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
+    unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
+  }
+
+  func removeListener(_ token: ServerConnectionListenerToken) {}
+
+  func subscribeList() {}
+
+  func subscribeSession(_ sessionId: String, sinceRevision: UInt64?, includeSnapshot: Bool) {
+    subscribeCalls.append(SubscribeCall(
+      sessionId: sessionId,
+      sinceRevision: sinceRevision,
+      includeSnapshot: includeSnapshot
+    ))
+  }
+
+  func unsubscribeSession(_ sessionId: String) {}
+
+  func applySessionsList(_ sessions: [ServerSessionListItem]) {
+    appliedSessionLists.append(sessions)
+  }
+}
+
+actor RequestCounter {
+  private(set) var bootstrapRequestCount = 0
+
+  func loader(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    if request.url?.path.contains("/conversation") == true {
+      bootstrapRequestCount += 1
+    }
+    return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+      for: request.url!,
+      json: SessionStoreReconnectRecoveryTests.bootstrapResponseJSON
+    )
+  }
+}
+
+actor BlockingBootstrapFixture {
+  private var bootstrapStarted = false
+  private var bootstrapStartWaiters: [CheckedContinuation<Void, Never>] = []
+  private var bootstrapReleased = false
+  private var bootstrapReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func loader(request: URLRequest) async throws -> (Data, URLResponse) {
+    bootstrapStarted = true
+    for waiter in bootstrapStartWaiters {
+      waiter.resume()
+    }
+    bootstrapStartWaiters.removeAll()
+
+    if !bootstrapReleased {
+      await withCheckedContinuation { continuation in
+        bootstrapReleaseWaiters.append(continuation)
+      }
+    }
+
+    return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+      for: request.url!,
+      json: SessionStoreReconnectRecoveryTests.bootstrapResponseJSON
+    )
+  }
+
+  func waitForBootstrapStart() async {
+    if bootstrapStarted {
+      return
+    }
+
+    await withCheckedContinuation { continuation in
+      bootstrapStartWaiters.append(continuation)
+    }
+  }
+
+  func releaseBootstrap() {
+    bootstrapReleased = true
+    for waiter in bootstrapReleaseWaiters {
+      waiter.resume()
+    }
+    bootstrapReleaseWaiters.removeAll()
+  }
+}

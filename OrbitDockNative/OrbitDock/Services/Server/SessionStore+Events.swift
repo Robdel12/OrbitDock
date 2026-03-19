@@ -347,7 +347,11 @@ extension SessionStore {
 
   func handleConnectionStatusChanged(_ status: ConnectionStatus) {
     guard status == .connected else { return }
+    connectionGeneration &+= 1
+    let generation = connectionGeneration
+
     netLog(.info, cat: .store, "Connected — fetching sessions + re-subscribing", data: [
+      "generation": generation,
       "subscribedSessionCount": subscribedSessions.count,
     ])
 
@@ -358,10 +362,11 @@ extension SessionStore {
 
     // Cancel any in-flight reconnect work from a previous connection cycle.
     // Without this, a flapping connection spawns parallel reconnect Tasks.
-    reconnectTask?.cancel()
+    connectionRecoveryTask?.task.cancel()
+    connectionRecoveryTask = nil
 
     let sessionsToResubscribe = subscribedSessions
-    reconnectTask = Task {
+    let task = Task<Void, Never> {
       // Fetch sessions list via REST (WS subscribeList is called in completeConnection)
       do {
         let items = try await clients.sessions.fetchSessionsList()
@@ -376,15 +381,10 @@ extension SessionStore {
       // Re-subscribe all active sessions sequentially.
       for sessionId in sessionsToResubscribe {
         guard !Task.isCancelled else { return }
-        let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
-        guard !Task.isCancelled else { return }
-        connection.subscribeSession(
-          sessionId,
-          sinceRevision: bootstrap?.session.revision,
-          includeSnapshot: false
-        )
+        await ensureSessionRecovery(sessionId, generation: generation)
       }
     }
+    connectionRecoveryTask = GenerationTask(generation: generation, task: task)
   }
 
   func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {

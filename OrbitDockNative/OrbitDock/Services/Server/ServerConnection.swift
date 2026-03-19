@@ -178,6 +178,8 @@ final class ServerConnection {
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
   private var keepAliveTask: Task<Void, Never>?
+  private var connectionProbeTask: Task<Void, Never>?
+  private var connectionProbeGeneration: UInt64?
   private let circuitBreaker: ConnectionCircuitBreaker
   private var stableConnectionTask: Task<Void, Never>?
   private var lastConnectedAt: Date?
@@ -260,16 +262,21 @@ final class ServerConnection {
       case .connected:
         guard connectTask == nil, reconnectTask == nil else { return }
         let generation = connectionGeneration
+        pruneStaleConnectionProbe(for: generation)
+        guard connectionProbeTask == nil else {
+          netLog(.debug, cat: .ws, "Reconnect probe already in flight", data: [
+            "generation": generation,
+          ])
+          return
+        }
         guard let socket = webSocket else {
+          netLog(.warning, cat: .ws, "Reconnect probe missing socket", data: [
+            "generation": generation,
+          ])
           handleDisconnect(expectedGeneration: generation)
           return
         }
-        // Verify the connection is still alive
-        Task { [weak self] in
-          guard let self else { return }
-          do { try await ping(on: socket) }
-          catch { handleDisconnect(expectedGeneration: generation) }
-        }
+        startConnectionProbe(expectedGeneration: generation, socket: socket)
       case .connecting:
         break // already attempting
       case .disconnected, .failed:
@@ -423,6 +430,58 @@ final class ServerConnection {
   private func stopKeepAlive() {
     keepAliveTask?.cancel()
     keepAliveTask = nil
+  }
+
+  private func stopConnectionProbe() {
+    connectionProbeTask?.cancel()
+    connectionProbeTask = nil
+    connectionProbeGeneration = nil
+  }
+
+  private func pruneStaleConnectionProbe(for generation: UInt64) {
+    guard let probeGeneration = connectionProbeGeneration else { return }
+    guard probeGeneration != generation else { return }
+    netLog(.debug, cat: .ws, "Cancelling stale reconnect probe", data: [
+      "probeGeneration": probeGeneration,
+      "currentGeneration": generation,
+    ])
+    stopConnectionProbe()
+  }
+
+  private func startConnectionProbe(expectedGeneration generation: UInt64, socket: URLSessionWebSocketTask) {
+    connectionProbeGeneration = generation
+    netLog(.debug, cat: .ws, "Reconnect probe started", data: [
+      "generation": generation,
+    ])
+    connectionProbeTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await self.ping(on: socket)
+        guard !Task.isCancelled else { return }
+        self.finishConnectionProbe(expectedGeneration: generation, outcome: "success")
+      } catch {
+        guard !Task.isCancelled else { return }
+        self.finishConnectionProbe(expectedGeneration: generation, outcome: "failure")
+        self.handleDisconnect(expectedGeneration: generation)
+      }
+    }
+  }
+
+  private func finishConnectionProbe(expectedGeneration generation: UInt64, outcome: String) {
+    guard connectionProbeGeneration == generation else {
+      netLog(.debug, cat: .ws, "Ignored stale reconnect probe completion", data: [
+        "generation": generation,
+        "currentGeneration": connectionProbeGeneration as Any,
+        "outcome": outcome,
+      ])
+      return
+    }
+    connectionProbeTask = nil
+    connectionProbeGeneration = nil
+    netLog(.debug, cat: .ws, "Reconnect probe finished", data: [
+      "generation": generation,
+      "outcome": outcome,
+    ])
   }
 
   private func startReceiving(on socket: URLSessionWebSocketTask, generation: UInt64) {
@@ -708,6 +767,7 @@ final class ServerConnection {
 
   private func teardownConnectionTasks() {
     stopKeepAlive()
+    stopConnectionProbe()
     stableConnectionTask?.cancel()
     stableConnectionTask = nil
     connectTask?.cancel()

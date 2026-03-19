@@ -9,6 +9,31 @@
 
 import Foundation
 
+@MainActor
+protocol SessionStoreConnection: AnyObject {
+  var connectionStatus: ConnectionStatus { get }
+  var isRemote: Bool { get }
+
+  func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken
+  func removeListener(_ token: ServerConnectionListenerToken)
+  func subscribeList()
+  func subscribeSession(_ sessionId: String, sinceRevision: UInt64?, includeSnapshot: Bool)
+  func unsubscribeSession(_ sessionId: String)
+  func applySessionsList(_ sessions: [ServerSessionListItem])
+}
+
+extension ServerConnection: SessionStoreConnection {}
+
+struct SessionGenerationKey: Hashable {
+  let sessionId: String
+  let generation: UInt64
+}
+
+struct GenerationTask<Value> {
+  let generation: UInt64
+  let task: Task<Value, Never>
+}
+
 // MARK: - SessionStore
 
 @Observable
@@ -24,7 +49,7 @@ final class SessionStore {
   }
 
   let clients: ServerClients
-  let connection: ServerConnection
+  let connection: any SessionStoreConnection
   let endpointId: UUID
   var endpointName: String?
 
@@ -62,8 +87,11 @@ final class SessionStore {
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
-  @ObservationIgnored var inFlightBootstraps: [String: Task<ServerConversationBootstrap?, Never>] = [:]
-  @ObservationIgnored var reconnectTask: Task<Void, Never>?
+  @ObservationIgnored var connectionGeneration: UInt64 = 0
+  @ObservationIgnored var inFlightBootstraps: [SessionGenerationKey: GenerationTask<ServerConversationBootstrap?>] = [:]
+  @ObservationIgnored var inFlightSessionRecoveries: [SessionGenerationKey: GenerationTask<Void>] = [:]
+  @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
+  @ObservationIgnored var connectionRecoveryTask: GenerationTask<Void>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
   @ObservationIgnored private var connectionListenerToken: ServerConnectionListenerToken?
@@ -72,7 +100,7 @@ final class SessionStore {
   /// Shared project file index for @ mention completions.
   let projectFileIndex = ProjectFileIndex()
 
-  init(clients: ServerClients, connection: ServerConnection, endpointId: UUID, endpointName: String? = nil) {
+  init(clients: ServerClients, connection: any SessionStoreConnection, endpointId: UUID, endpointName: String? = nil) {
     var selectionRequestContinuation: AsyncStream<SessionRef>.Continuation!
     self.selectionRequests = AsyncStream { selectionRequestContinuation = $0 }
     self.selectionRequestContinuation = selectionRequestContinuation
@@ -131,12 +159,16 @@ final class SessionStore {
   func stopProcessingEvents() {
     eventProcessingTask?.cancel()
     eventProcessingTask = nil
-    reconnectTask?.cancel()
-    reconnectTask = nil
+    connectionRecoveryTask?.task.cancel()
+    connectionRecoveryTask = nil
     for task in inFlightBootstraps.values {
-      task.cancel()
+      task.task.cancel()
     }
     inFlightBootstraps.removeAll()
+    for task in inFlightSessionRecoveries.values {
+      task.task.cancel()
+    }
+    inFlightSessionRecoveries.removeAll()
     if let connectionListenerToken {
       connection.removeListener(connectionListenerToken)
       self.connectionListenerToken = nil
@@ -154,18 +186,7 @@ final class SessionStore {
     netLog(.info, cat: .store, "Subscribe: HTTP bootstrap + WS", sid: sessionId)
 
     Task {
-      let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
-      let sinceRev = bootstrap?.session.revision
-      netLog(.info, cat: .store, "WS subscribeSession", sid: sessionId, data: [
-        "sinceRevision": sinceRev as Any,
-        "bootstrapRowCount": bootstrap?.rows.count as Any,
-        "connectionStatus": String(describing: connection.connectionStatus),
-      ])
-      connection.subscribeSession(
-        sessionId,
-        sinceRevision: sinceRev,
-        includeSnapshot: false
-      )
+      await ensureSessionRecovery(sessionId, generation: connectionGeneration)
     }
 
     Task {
@@ -186,38 +207,24 @@ final class SessionStore {
 
   @discardableResult
   func hydrateSessionFromHTTPBootstrap(
-    sessionId: String
+    sessionId: String,
+    generation: UInt64? = nil
   ) async -> ServerConversationBootstrap? {
-    if let existing = inFlightBootstraps[sessionId] {
-      return await existing.value
+    let targetGeneration = generation ?? connectionGeneration
+    let key = SessionGenerationKey(sessionId: sessionId, generation: targetGeneration)
+
+    if let existing = inFlightBootstraps[key] {
+      return await existing.task.value
     }
 
-    let task = Task<ServerConversationBootstrap?, Never> {
-      netLog(.info, cat: .conv, "Fetching bootstrap", sid: sessionId)
-      do {
-        let bootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
-        netLog(.info, cat: .conv, "Bootstrap fetched", sid: sessionId, data: ["rows": bootstrap.rows.count])
-
-        handleConversationBootstrap(
-          bootstrap.session,
-          ServerConversationHistoryPage(
-            rows: bootstrap.rows,
-            totalRowCount: bootstrap.totalRowCount,
-            hasMoreBefore: bootstrap.hasMoreBefore,
-            oldestSequence: bootstrap.oldestSequence,
-            newestSequence: bootstrap.newestSequence
-          )
-        )
-        return bootstrap
-      } catch {
-        netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: sessionId, data: ["error": error.localizedDescription])
-        return nil
-      }
+    let task = Task<ServerConversationBootstrap?, Never> { [weak self] in
+      guard let self else { return nil }
+      return await self.loadSessionBootstrap(sessionId: sessionId, generation: targetGeneration)
     }
 
-    inFlightBootstraps[sessionId] = task
+    inFlightBootstraps[key] = GenerationTask(generation: targetGeneration, task: task)
     let result = await task.value
-    inFlightBootstraps.removeValue(forKey: sessionId)
+    inFlightBootstraps.removeValue(forKey: key)
     return result
   }
 
@@ -225,8 +232,8 @@ final class SessionStore {
     netLog(.info, cat: .store, "Unsubscribe", sid: sessionId)
     subscribedSessions.remove(sessionId)
     autoMarkReadSessions.remove(sessionId)
-    inFlightBootstraps[sessionId]?.cancel()
-    inFlightBootstraps.removeValue(forKey: sessionId)
+    recoveredSessionGenerations.removeValue(forKey: sessionId)
+    cancelInFlightSessionTasks(sessionId)
     connection.unsubscribeSession(sessionId)
     trimInactiveSessionPayload(sessionId)
   }
@@ -286,5 +293,118 @@ final class SessionStore {
 
   var isRemoteConnection: Bool {
     connection.isRemote
+  }
+
+  func ensureSessionRecovery(_ sessionId: String, generation: UInt64) async {
+    let key = SessionGenerationKey(sessionId: sessionId, generation: generation)
+
+    if recoveredSessionGenerations[sessionId] == generation {
+      netLog(.debug, cat: .store, "Session already recovered for generation", sid: sessionId, data: [
+        "generation": generation,
+      ])
+      return
+    }
+
+    if let existing = inFlightSessionRecoveries[key] {
+      await existing.task.value
+      return
+    }
+
+    let task = Task<Void, Never> { [weak self] in
+      guard let self else { return }
+      await self.performSessionRecovery(sessionId: sessionId, generation: generation)
+    }
+
+    inFlightSessionRecoveries[key] = GenerationTask(generation: generation, task: task)
+    await task.value
+    inFlightSessionRecoveries.removeValue(forKey: key)
+  }
+
+  private func loadSessionBootstrap(sessionId: String, generation: UInt64) async -> ServerConversationBootstrap? {
+    netLog(.info, cat: .conv, "Fetching bootstrap", sid: sessionId, data: [
+      "generation": generation,
+    ])
+    do {
+      let bootstrap = try await clients.conversation.fetchConversationBootstrap(sessionId, limit: 50)
+      guard subscribedSessions.contains(sessionId), connectionGeneration == generation else {
+        netLog(.debug, cat: .conv, "Bootstrap became stale before apply", sid: sessionId, data: [
+          "generation": generation,
+          "currentGeneration": connectionGeneration,
+          "subscribed": subscribedSessions.contains(sessionId),
+          "rows": bootstrap.rows.count,
+        ])
+        return nil
+      }
+
+      netLog(.info, cat: .conv, "Bootstrap fetched", sid: sessionId, data: [
+        "rows": bootstrap.rows.count,
+        "generation": generation,
+      ])
+
+      handleConversationBootstrap(
+        bootstrap.session,
+        ServerConversationHistoryPage(
+          rows: bootstrap.rows,
+          totalRowCount: bootstrap.totalRowCount,
+          hasMoreBefore: bootstrap.hasMoreBefore,
+          oldestSequence: bootstrap.oldestSequence,
+          newestSequence: bootstrap.newestSequence
+        )
+      )
+      return bootstrap
+    } catch {
+      netLog(.error, cat: .conv, "Bootstrap fetch failed", sid: sessionId, data: ["error": error.localizedDescription])
+      return nil
+    }
+  }
+
+  private func performSessionRecovery(sessionId: String, generation: UInt64) async {
+    guard subscribedSessions.contains(sessionId) else { return }
+
+    let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId, generation: generation)
+    guard subscribedSessions.contains(sessionId), connectionGeneration == generation else {
+      netLog(.debug, cat: .store, "Recovery became stale before subscribe", sid: sessionId, data: [
+        "generation": generation,
+        "currentGeneration": connectionGeneration,
+        "subscribed": subscribedSessions.contains(sessionId),
+      ])
+      return
+    }
+
+    guard recoveredSessionGenerations[sessionId] != generation else { return }
+    guard connection.connectionStatus == .connected else {
+      netLog(.debug, cat: .store, "Recovery waiting for active connection", sid: sessionId, data: [
+        "generation": generation,
+      ])
+      return
+    }
+
+    let sinceRevision = bootstrap?.session.revision
+    netLog(.info, cat: .store, "WS subscribeSession", sid: sessionId, data: [
+      "sinceRevision": sinceRevision as Any,
+      "bootstrapRowCount": bootstrap?.rows.count as Any,
+      "generation": generation,
+      "connectionStatus": String(describing: connection.connectionStatus),
+    ])
+    connection.subscribeSession(
+      sessionId,
+      sinceRevision: sinceRevision,
+      includeSnapshot: false
+    )
+    recoveredSessionGenerations[sessionId] = generation
+  }
+
+  private func cancelInFlightSessionTasks(_ sessionId: String) {
+    let bootstrapKeys = inFlightBootstraps.keys.filter { $0.sessionId == sessionId }
+    for key in bootstrapKeys {
+      inFlightBootstraps[key]?.task.cancel()
+      inFlightBootstraps.removeValue(forKey: key)
+    }
+
+    let recoveryKeys = inFlightSessionRecoveries.keys.filter { $0.sessionId == sessionId }
+    for key in recoveryKeys {
+      inFlightSessionRecoveries[key]?.task.cancel()
+      inFlightSessionRecoveries.removeValue(forKey: key)
+    }
   }
 }
