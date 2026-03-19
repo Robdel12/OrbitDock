@@ -51,3 +51,22 @@ enum OrchestrationState: String, Codable {
     }
   }
 }
+
+import SwiftUI
+
+extension MissionIssueItem {
+  var providerColor: Color {
+    provider == "codex" ? Color.feedbackPositive : Color.accent
+  }
+}
+
+extension OrchestrationState {
+  var color: Color {
+    switch self {
+    case .queued, .retryQueued: Color.feedbackCaution
+    case .claimed, .running: Color.statusWorking
+    case .completed: Color.feedbackPositive
+    case .failed: Color.feedbackNegative
+    }
+  }
+}

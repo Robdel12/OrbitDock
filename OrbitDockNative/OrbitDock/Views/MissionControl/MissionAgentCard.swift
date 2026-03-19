@@ -20,7 +20,7 @@ struct MissionAgentCard: View {
   }
 
   private var providerColor: Color {
-    issue.provider == "codex" ? Color.feedbackPositive : Color.accent
+    issue.providerColor
   }
 
   var body: some View {
@@ -156,7 +156,7 @@ struct MissionAgentCard: View {
 
       HStack(spacing: 0) {
         if let session, session.totalTokens > 0 {
-          Text(formatTokens(session.totalTokens) + " tok")
+          Text(DashboardFormatters.tokens(session.totalTokens) + " tok")
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }
@@ -168,7 +168,7 @@ struct MissionAgentCard: View {
             .foregroundStyle(Color.textQuaternary)
         }
 
-        if let duration = formatDuration(session?.startedAt) {
+        if let duration = DashboardFormatters.duration(since: session?.startedAt) {
           metricSeparator
           Text(duration)
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -303,22 +303,6 @@ struct MissionAgentCard: View {
   }
 
   // MARK: - Helpers
-
-  private func formatTokens(_ count: Int) -> String {
-    if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
-    if count >= 1_000 { return String(format: "%.1fk", Double(count) / 1_000) }
-    return "\(count)"
-  }
-
-  private func formatDuration(_ start: Date?) -> String? {
-    guard let start else { return nil }
-    let elapsed = Int(Date().timeIntervalSince(start))
-    if elapsed < 60 { return "\(elapsed)s" }
-    if elapsed < 3600 { return "\(elapsed / 60)m" }
-    let h = elapsed / 3600
-    let m = (elapsed % 3600) / 60
-    return m > 0 ? "\(h)h \(m)m" : "\(h)h"
-  }
 
   private func recentToolRows(from entries: [ServerConversationRowEntry], limit: Int) -> [ServerConversationRowEntry] {
     let toolEntries = entries.filter { entry in

@@ -151,7 +151,7 @@ struct MissionIssueRow: View {
           HStack(spacing: Spacing.sm) {
             Text(issue.orchestrationState.displayLabel)
               .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(stateColor(issue.orchestrationState))
+              .foregroundStyle(issue.orchestrationState.color)
 
             Text(issue.trackerState)
               .font(.system(size: TypeScale.micro))
@@ -316,12 +316,4 @@ struct MissionIssueRow: View {
     }
   }
 
-  private func stateColor(_ state: OrchestrationState) -> Color {
-    switch state {
-    case .queued, .retryQueued: return Color.feedbackCaution
-    case .claimed, .running: return Color.statusWorking
-    case .completed: return Color.feedbackPositive
-    case .failed: return Color.feedbackNegative
-    }
-  }
 }

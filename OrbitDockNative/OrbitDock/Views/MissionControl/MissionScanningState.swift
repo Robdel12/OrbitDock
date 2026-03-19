@@ -39,12 +39,12 @@ struct MissionScanningState: View {
       let now = context.date
       if let next = nextTickAt, next > now {
         let remaining = Int(next.timeIntervalSince(now))
-        Text("Next scan in \(formatRemaining(remaining))")
+        Text("Next scan in \(DashboardFormatters.remaining(remaining))")
           .font(.system(size: TypeScale.subhead, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.accent)
       } else if let last = lastTickAt {
         let elapsed = Int(now.timeIntervalSince(last))
-        Text("Last scan \(formatElapsed(elapsed))")
+        Text("Last scan \(DashboardFormatters.elapsed(elapsed))")
           .font(.system(size: TypeScale.subhead, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       } else {
@@ -98,21 +98,4 @@ struct MissionScanningState: View {
     }
   }
 
-  // MARK: - Formatting
-
-  private func formatRemaining(_ seconds: Int) -> String {
-    if seconds >= 60 {
-      let m = seconds / 60
-      let s = seconds % 60
-      return s > 0 ? "\(m)m \(s)s" : "\(m)m"
-    }
-    return "\(seconds)s"
-  }
-
-  private func formatElapsed(_ seconds: Int) -> String {
-    if seconds < 5 { return "just now" }
-    if seconds < 60 { return "\(seconds)s ago" }
-    if seconds < 3600 { return "\(seconds / 60)m ago" }
-    return "\(seconds / 3600)h ago"
-  }
 }

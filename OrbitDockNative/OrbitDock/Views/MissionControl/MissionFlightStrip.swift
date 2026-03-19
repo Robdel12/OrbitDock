@@ -28,24 +28,8 @@ struct MissionFlightStrip: View {
     mission.enabled && mission.paused
   }
 
-  // MARK: - Status Mapping
-
-  private var statusLabel: String {
-    if !mission.enabled { return "Disabled" }
-    if mission.paused { return "Paused" }
-    if isPolling && mission.activeCount > 0 { return "In Flight" }
-    if isPolling { return "Scanning" }
-    if isIdle { return "Docked" }
-    return "Docked"
-  }
-
-  private var statusColor: Color {
-    if !mission.enabled { return Color.textQuaternary }
-    if mission.paused { return Color.feedbackCaution }
-    if isPolling && mission.activeCount > 0 { return Color.feedbackPositive }
-    if isPolling { return Color.accent }
-    return Color.textTertiary
-  }
+  private var statusLabel: String { mission.flightStatus }
+  private var statusColor: Color { mission.flightStatusColor }
 
   // MARK: - Body
 

@@ -76,4 +76,21 @@ extension MissionSummary {
   var resolvedProvider: Provider {
     Provider(rawValue: primaryProvider) ?? .claude
   }
+
+  /// Flight-strip labels account for activeCount to distinguish "In Flight" vs "Scanning".
+  var flightStatus: String {
+    if !enabled { return "Disabled" }
+    if paused { return "Paused" }
+    if orchestratorStatus == "polling" && activeCount > 0 { return "In Flight" }
+    if orchestratorStatus == "polling" { return "Scanning" }
+    return "Docked"
+  }
+
+  var flightStatusColor: Color {
+    if !enabled { return Color.textQuaternary }
+    if paused { return Color.feedbackCaution }
+    if orchestratorStatus == "polling" && activeCount > 0 { return Color.feedbackPositive }
+    if orchestratorStatus == "polling" { return Color.accent }
+    return Color.textTertiary
+  }
 }

@@ -20,7 +20,7 @@ struct MissionPollCountdown: View {
         Image(systemName: "timer")
           .font(.system(size: 9, weight: .medium))
           .foregroundStyle(Color.accent)
-        Text("Next poll in \(formatRemaining(remaining))")
+        Text("Next poll in \(DashboardFormatters.remaining(remaining))")
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.accent)
       }
@@ -30,26 +30,10 @@ struct MissionPollCountdown: View {
         Image(systemName: "clock")
           .font(.system(size: 9, weight: .medium))
           .foregroundStyle(Color.textTertiary)
-        Text("Last polled \(formatElapsed(elapsed))")
+        Text("Last polled \(DashboardFormatters.elapsed(elapsed))")
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
       }
     }
-  }
-
-  private func formatRemaining(_ seconds: Int) -> String {
-    if seconds >= 60 {
-      let m = seconds / 60
-      let s = seconds % 60
-      return s > 0 ? "\(m)m \(s)s" : "\(m)m"
-    }
-    return "\(seconds)s"
-  }
-
-  private func formatElapsed(_ seconds: Int) -> String {
-    if seconds < 5 { return "just now" }
-    if seconds < 60 { return "\(seconds)s ago" }
-    if seconds < 3600 { return "\(seconds / 60)m ago" }
-    return "\(seconds / 3600)h ago"
   }
 }

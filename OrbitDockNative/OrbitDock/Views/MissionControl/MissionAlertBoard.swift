@@ -40,9 +40,7 @@ struct MissionAlertBoard: View {
   // MARK: - Alert Row
 
   private func alertRow(_ issue: MissionIssueItem) -> some View {
-    let providerColor: Color = issue.provider == "codex" ? Color.feedbackPositive : Color.accent
-
-    return HStack(spacing: Spacing.sm) {
+    HStack(spacing: Spacing.sm) {
       // Left edge bar
       RoundedRectangle(cornerRadius: 1.5, style: .continuous)
         .fill(Color.feedbackNegative)
@@ -91,7 +89,7 @@ struct MissionAlertBoard: View {
         HStack(spacing: Spacing.sm) {
           Text(issue.provider.capitalized)
             .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(providerColor)
+            .foregroundStyle(issue.providerColor)
 
           Spacer()
 

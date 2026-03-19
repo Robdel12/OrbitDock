@@ -83,4 +83,32 @@ enum DashboardFormatters {
     if projectedAtReset >= 90 { return .feedbackCaution }
     return .feedbackPositive
   }
+
+  // MARK: - Elapsed / Remaining Time
+
+  static func elapsed(_ seconds: Int) -> String {
+    if seconds < 5 { return "just now" }
+    if seconds < 60 { return "\(seconds)s ago" }
+    if seconds < 3600 { return "\(seconds / 60)m ago" }
+    return "\(seconds / 3600)h ago"
+  }
+
+  static func remaining(_ seconds: Int) -> String {
+    if seconds >= 60 {
+      let m = seconds / 60
+      let s = seconds % 60
+      return s > 0 ? "\(m)m \(s)s" : "\(m)m"
+    }
+    return "\(seconds)s"
+  }
+
+  static func duration(since start: Date?) -> String? {
+    guard let start else { return nil }
+    let elapsed = Int(Date().timeIntervalSince(start))
+    if elapsed < 60 { return "\(elapsed)s" }
+    if elapsed < 3600 { return "\(elapsed / 60)m" }
+    let h = elapsed / 3600
+    let m = (elapsed % 3600) / 60
+    return m > 0 ? "\(h)h \(m)m" : "\(h)h"
+  }
 }
