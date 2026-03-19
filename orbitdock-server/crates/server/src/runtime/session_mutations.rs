@@ -152,7 +152,7 @@ pub(crate) async fn update_session_config(
 
         let source = current_summary
             .codex_config_source
-            .unwrap_or(orbitdock_protocol::CodexConfigSource::Orbitdock);
+            .unwrap_or(orbitdock_protocol::CodexConfigSource::User);
         let resolved =
             resolve_codex_settings(&current_summary.project_path, source, overrides.clone())
                 .await

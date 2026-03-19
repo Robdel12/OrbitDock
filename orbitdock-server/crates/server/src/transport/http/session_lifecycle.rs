@@ -2,8 +2,8 @@ use super::errors::{conflict, internal, unprocessable};
 use super::*;
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::codex_config::{
-    codex_default_config_source, codex_preferences_response, resolve_codex_settings,
-    CodexConfigInspectorResponse, CodexConfigPreferencesResponse,
+    codex_preferences_response, resolve_codex_settings, CodexConfigInspectorResponse,
+    CodexConfigPreferencesResponse,
 };
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_creation::{
@@ -215,10 +215,7 @@ pub async fn create_session(
         body.append_system_prompt.clone(),
     );
     let codex_config_source = if body.provider == Provider::Codex {
-        Some(
-            body.codex_config_source
-                .unwrap_or_else(codex_default_config_source),
-        )
+        Some(body.codex_config_source.unwrap_or(CodexConfigSource::User))
     } else {
         None
     };
@@ -381,8 +378,7 @@ pub async fn inspect_codex_config(
 ) -> Result<Json<CodexConfigInspectorResponse>, (StatusCode, Json<ApiErrorResponse>)> {
     let response = resolve_codex_settings(
         &body.cwd,
-        body.codex_config_source
-            .unwrap_or_else(codex_default_config_source),
+        body.codex_config_source.unwrap_or(CodexConfigSource::User),
         CodexSessionOverrides {
             model: body.model,
             approval_policy: body.approval_policy,

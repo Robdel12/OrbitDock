@@ -77,7 +77,7 @@ extension DirectSessionComposer {
       )
     }
     .buttonStyle(.plain)
-    .help("Codex collaboration and session settings")
+    .help("Codex config and session overrides")
     .platformPopover(isPresented: $composerState.showCodexSettingsPopover) {
       #if os(iOS)
         NavigationStack {
@@ -88,7 +88,9 @@ extension DirectSessionComposer {
             personality: currentCodexPersonality,
             serviceTier: currentCodexServiceTier,
             developerInstructions: obs.developerInstructions,
-            onApply: applyCodexSessionSettings
+            onApply: applyCodexSessionSettings,
+            onReset: resetCodexSessionOverrides,
+            onInspect: inspectCodexConfig
           )
           .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -104,7 +106,9 @@ extension DirectSessionComposer {
           personality: currentCodexPersonality,
           serviceTier: currentCodexServiceTier,
           developerInstructions: obs.developerInstructions,
-          onApply: applyCodexSessionSettings
+          onApply: applyCodexSessionSettings,
+          onReset: resetCodexSessionOverrides,
+          onInspect: inspectCodexConfig
         )
       #endif
     }
@@ -137,6 +141,8 @@ private struct CodexSessionSettingsPopover: View {
     CodexServiceTierPreset,
     String?
   ) async -> Void
+  let onReset: @MainActor @Sendable () async -> Void
+  let onInspect: @MainActor @Sendable () -> Void
 
   @State private var draftCollaborationMode: CodexCollaborationMode
   @State private var draftMultiAgentEnabled: Bool
@@ -182,7 +188,9 @@ private struct CodexSessionSettingsPopover: View {
       CodexPersonalityPreset,
       CodexServiceTierPreset,
       String?
-    ) async -> Void
+    ) async -> Void,
+    onReset: @escaping @MainActor @Sendable () async -> Void,
+    onInspect: @escaping @MainActor @Sendable () -> Void
   ) {
     self.modelOption = modelOption
     self.collaborationMode = collaborationMode
@@ -191,6 +199,8 @@ private struct CodexSessionSettingsPopover: View {
     self.serviceTier = serviceTier
     self.developerInstructions = developerInstructions
     self.onApply = onApply
+    self.onReset = onReset
+    self.onInspect = onInspect
     _draftCollaborationMode = State(initialValue: collaborationMode)
     _draftMultiAgentEnabled = State(initialValue: multiAgentEnabled)
     _draftPersonality = State(initialValue: personality)
@@ -200,9 +210,25 @@ private struct CodexSessionSettingsPopover: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      Text("Codex Session Settings")
+      Text("Codex Session Overrides")
         .font(.system(size: TypeScale.subhead, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
+
+      Text("This session starts from the Codex config for the project folder. Change anything here to override it for this session only, or reset back to the Codex config.")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      HStack {
+        Spacer()
+
+        Button("Inspect Codex Config") {
+          onInspect()
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.accent)
+      }
 
       VStack(alignment: .leading, spacing: Spacing.sm) {
         composerFieldLabel("Collaboration", icon: draftCollaborationMode.icon, tint: draftCollaborationMode.color)
@@ -355,6 +381,18 @@ private struct CodexSessionSettingsPopover: View {
       }
 
       HStack {
+        Button("Reset to Codex Config") {
+          Task {
+            await MainActor.run { isApplying = true }
+            await onReset()
+            await MainActor.run { isApplying = false }
+          }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.accent)
+        .disabled(isApplying)
+
         Spacer()
 
         Button {

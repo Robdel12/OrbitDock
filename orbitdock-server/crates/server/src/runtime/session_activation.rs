@@ -240,7 +240,7 @@ async fn start_lazy_codex_connector(
         };
         let resolved = resolve_codex_settings(
             &project,
-            codex_config_source.unwrap_or(CodexConfigSource::Orbitdock),
+            codex_config_source.unwrap_or(CodexConfigSource::User),
             codex_config_overrides.unwrap_or(fallback_overrides),
         )
         .await

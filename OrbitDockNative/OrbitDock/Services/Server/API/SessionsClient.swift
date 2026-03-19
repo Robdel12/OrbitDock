@@ -1,6 +1,36 @@
 import Foundation
 
 struct SessionsClient: Sendable {
+  enum OptionalStringPatch: Encodable, Sendable {
+    case set(String)
+    case clear
+
+    func encode(to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      switch self {
+        case let .set(value):
+          try container.encode(value)
+        case .clear:
+          try container.encodeNil()
+      }
+    }
+  }
+
+  enum OptionalBoolPatch: Encodable, Sendable {
+    case set(Bool)
+    case clear
+
+    func encode(to encoder: Encoder) throws {
+      var container = encoder.singleValueContainer()
+      switch self {
+        case let .set(value):
+          try container.encode(value)
+        case .clear:
+          try container.encodeNil()
+      }
+    }
+  }
+
   struct SessionsListResponse: Decodable {
     let sessions: [ServerSessionListItem]
   }
@@ -183,6 +213,22 @@ struct SessionsClient: Sendable {
     var developerInstructions: String?
   }
 
+  struct UpdateCodexSessionOverridesRequest: Encodable {
+    var collaborationMode: OptionalStringPatch?
+    var multiAgent: OptionalBoolPatch?
+    var personality: OptionalStringPatch?
+    var serviceTier: OptionalStringPatch?
+    var developerInstructions: OptionalStringPatch?
+
+    enum CodingKeys: String, CodingKey {
+      case collaborationMode = "collaboration_mode"
+      case multiAgent = "multi_agent"
+      case personality
+      case serviceTier = "service_tier"
+      case developerInstructions = "developer_instructions"
+    }
+  }
+
   struct ForkRequest: Encodable {
     var nthUserMessage: UInt32?
     var model: String?
@@ -302,6 +348,17 @@ struct SessionsClient: Sendable {
   }
 
   func updateSessionConfig(_ sessionId: String, config: UpdateSessionConfigRequest) async throws {
+    let _: ServerAcceptedResponse = try await http.request(
+      path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/config",
+      method: "PATCH",
+      body: config
+    )
+  }
+
+  func updateCodexSessionOverrides(
+    _ sessionId: String,
+    config: UpdateCodexSessionOverridesRequest
+  ) async throws {
     let _: ServerAcceptedResponse = try await http.request(
       path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/config",
       method: "PATCH",

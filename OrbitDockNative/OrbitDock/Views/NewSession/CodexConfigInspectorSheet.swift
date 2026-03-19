@@ -60,7 +60,6 @@ struct CodexConfigInspectorSheet: View {
   private func effectiveSettingsSection(_ response: SessionsClient.CodexInspectorResponse) -> some View {
     inspectorCard(title: "Effective Settings") {
       VStack(alignment: .leading, spacing: Spacing.sm) {
-        settingRow("Source", value: response.effectiveSettings.configSource == .user ? "My Codex Config" : "OrbitDock")
         settingRow("Model", value: response.effectiveSettings.model)
         settingRow("Approval", value: response.effectiveSettings.approvalPolicy)
         settingRow("Sandbox", value: response.effectiveSettings.sandboxMode)

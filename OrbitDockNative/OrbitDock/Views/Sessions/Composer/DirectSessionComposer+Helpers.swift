@@ -242,18 +242,101 @@ extension DirectSessionComposer {
     developerInstructions: String?
   ) async {
     do {
-      try await serverState.updateSessionConfig(
+      let currentInstructions = normalizedCodexInstructions(obs.developerInstructions)
+      let nextInstructions = normalizedCodexInstructions(developerInstructions)
+
+      try await serverState.updateCodexSessionOverrides(
         sessionId,
-        collaborationMode: collaborationMode.rawValue,
-        multiAgent: multiAgentEnabled,
-        personality: personality.requestValue,
-        serviceTier: serviceTier.requestValue,
-        developerInstructions: developerInstructions
+        collaborationMode: collaborationMode != currentCodexCollaborationMode
+          ? .set(collaborationMode.rawValue)
+          : nil,
+        multiAgent: multiAgentEnabled != currentCodexMultiAgentEnabled
+          ? .set(multiAgentEnabled)
+          : nil,
+        personality: personality != currentCodexPersonality
+          ? codexStringPatch(for: personality.requestValue)
+          : nil,
+        serviceTier: serviceTier != currentCodexServiceTier
+          ? codexStringPatch(for: serviceTier.requestValue)
+          : nil,
+        developerInstructions: nextInstructions != currentInstructions
+          ? codexStringPatch(for: nextInstructions)
+          : nil
       )
       Platform.services.playHaptic(.action)
     } catch {
       Platform.services.playHaptic(.error)
       errorMessage = "Couldn't update Codex session settings just now."
+    }
+  }
+
+  @MainActor
+  func resetCodexSessionOverrides() async {
+    do {
+      try await serverState.updateCodexSessionOverrides(
+        sessionId,
+        collaborationMode: .clear,
+        multiAgent: .clear,
+        personality: .clear,
+        serviceTier: .clear,
+        developerInstructions: .clear
+      )
+      Platform.services.playHaptic(.action)
+    } catch {
+      Platform.services.playHaptic(.error)
+      errorMessage = "Couldn't reset Codex config overrides just now."
+    }
+  }
+
+  private func codexStringPatch(for value: String?) -> SessionsClient.OptionalStringPatch {
+    guard let value else { return .clear }
+    return .set(value)
+  }
+
+  private func normalizedCodexInstructions(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  func inspectCodexConfig() {
+    showCodexSettingsPopover = false
+
+    guard let projectPath else {
+      codexInspectorError =
+        "This session needs a project folder before OrbitDock can resolve the Codex config layers that apply here."
+      codexInspectorResponse = nil
+      showCodexInspector = true
+      return
+    }
+
+    codexInspectorLoading = true
+    codexInspectorError = nil
+    showCodexInspector = true
+
+    let overrides = currentCodexOverrides
+    let request = SessionsClient.CodexInspectRequest(
+      cwd: projectPath,
+      codexConfigSource: currentCodexConfigSource,
+      model: overrides.model,
+      approvalPolicy: overrides.approvalPolicy,
+      sandboxMode: overrides.sandboxMode,
+      collaborationMode: overrides.collaborationMode,
+      multiAgent: overrides.multiAgent,
+      personality: overrides.personality,
+      serviceTier: overrides.serviceTier,
+      developerInstructions: overrides.developerInstructions,
+      effort: overrides.effort
+    )
+
+    Task {
+      do {
+        codexInspectorResponse = try await serverState.clients.sessions.inspectCodexConfig(request)
+      } catch {
+        codexInspectorResponse = nil
+        codexInspectorError = "Couldn't load the Codex config inspector right now."
+      }
+      codexInspectorLoading = false
     }
   }
 

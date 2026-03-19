@@ -42,6 +42,8 @@ extension ServerSessionState {
       personality: personality,
       serviceTier: serviceTier,
       developerInstructions: developerInstructions,
+      codexConfigSource: codexConfigSource,
+      codexConfigOverrides: codexConfigOverrides,
       summary: summary,
       customName: customName,
       firstPrompt: firstPrompt,

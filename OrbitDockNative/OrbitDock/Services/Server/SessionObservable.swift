@@ -39,6 +39,8 @@ final class SessionObservable {
   var personality: String?
   var serviceTier: String?
   var developerInstructions: String?
+  var codexConfigSource: ServerCodexConfigSource?
+  var codexConfigOverrides: ServerCodexSessionOverrides?
   var permissionRules: ServerSessionPermissionRules?
   var permissionRulesLoading: Bool = false
   var skills: [ServerSkillMetadata] = []
@@ -377,13 +379,8 @@ final class SessionObservable {
       rowEntries = rows
     } else {
       for entry in rows {
-        if let idx = rowEntries.firstIndex(where: { $0.id == entry.id }) {
-          rowEntries[idx] = entry
-        } else {
-          rowEntries.append(entry)
-        }
+        upsertRow(entry)
       }
-      rowEntries.sort { $0.sequence < $1.sequence }
     }
     hasMoreHistoryBefore = hasMoreBefore
     oldestLoadedSequence = rowEntries.first.map(\.sequence)
@@ -400,13 +397,8 @@ final class SessionObservable {
       rowEntries.removeAll { removed.contains($0.id) }
     }
     for entry in upserted {
-      if let idx = rowEntries.firstIndex(where: { $0.id == entry.id }) {
-        rowEntries[idx] = entry
-      } else {
-        rowEntries.append(entry)
-      }
+      upsertRow(entry)
     }
-    rowEntries.sort { $0.sequence < $1.sequence }
     rowEntriesRevision += 1
   }
 
@@ -456,6 +448,46 @@ final class SessionObservable {
     pendingShellContext = []
     reviewComments = []
     clearConversation()
+  }
+
+  private func upsertRow(_ entry: ServerConversationRowEntry) {
+    if let existingIndex = rowEntries.firstIndex(where: { $0.id == entry.id }) {
+      rowEntries[existingIndex] = entry
+      return
+    }
+
+    guard !rowEntries.isEmpty else {
+      rowEntries.append(entry)
+      return
+    }
+
+    if let firstSequence = rowEntries.first?.sequence, entry.sequence < firstSequence {
+      rowEntries.insert(entry, at: 0)
+      return
+    }
+
+    if let lastSequence = rowEntries.last?.sequence, entry.sequence > lastSequence {
+      rowEntries.append(entry)
+      return
+    }
+
+    rowEntries.insert(entry, at: insertionIndex(for: entry.sequence))
+  }
+
+  private func insertionIndex(for sequence: UInt64) -> Int {
+    var low = 0
+    var high = rowEntries.count
+
+    while low < high {
+      let mid = (low + high) / 2
+      if rowEntries[mid].sequence < sequence {
+        low = mid + 1
+      } else {
+        high = mid
+      }
+    }
+
+    return low
   }
 }
 

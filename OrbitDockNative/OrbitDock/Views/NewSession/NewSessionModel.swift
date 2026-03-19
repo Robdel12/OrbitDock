@@ -23,7 +23,6 @@ struct NewSessionModel {
   var selectedEffort: ClaudeEffortLevel
 
   var codexModel: String
-  var codexConfigSource: ServerCodexConfigSource
   var codexUseOrbitDockOverrides: Bool
   var selectedAutonomy: AutonomyLevel
   var codexCollaborationMode: CodexCollaborationMode
@@ -53,7 +52,6 @@ struct NewSessionModel {
     self.showToolConfig = false
     self.selectedEffort = .default
     self.codexModel = ""
-    self.codexConfigSource = .user
     self.codexUseOrbitDockOverrides = false
     self.selectedAutonomy = .autonomous
     self.codexCollaborationMode = .default
@@ -87,7 +85,6 @@ struct NewSessionModel {
         showToolConfig: showToolConfig,
         selectedEffort: selectedEffort,
         codexModel: codexModel,
-        codexConfigSource: codexConfigSource,
         codexUseOrbitDockOverrides: codexUseOrbitDockOverrides,
         selectedAutonomy: selectedAutonomy,
         codexCollaborationMode: codexCollaborationMode,
@@ -116,7 +113,6 @@ struct NewSessionModel {
       disallowedToolsText: disallowedToolsText,
       claudeEffort: selectedEffort.serialized,
       codexModel: codexModel,
-      codexConfigSource: codexConfigSource,
       codexUseOrbitDockOverrides: codexUseOrbitDockOverrides,
       codexAutonomy: selectedAutonomy,
       codexCollaborationMode: codexCollaborationMode.rawValue,
@@ -140,7 +136,7 @@ struct NewSessionModel {
       case .claude:
         return pathReady && worktreeReady && !isCreating && isEndpointConnected && continuationReady
       case .codex:
-        let modelReady = codexConfigSource == .orbitdock || codexUseOrbitDockOverrides ? !codexModel.isEmpty : true
+        let modelReady = codexUseOrbitDockOverrides ? !codexModel.isEmpty : true
         return pathReady && modelReady && worktreeReady && !isCreating && !requiresCodexLogin
           && isEndpointConnected && continuationReady
     }
@@ -161,7 +157,6 @@ struct NewSessionModel {
     showToolConfig = providerState.showToolConfig
     selectedEffort = providerState.selectedEffort
     codexModel = providerState.codexModel
-    codexConfigSource = providerState.codexConfigSource
     codexUseOrbitDockOverrides = providerState.codexUseOrbitDockOverrides
     selectedAutonomy = providerState.selectedAutonomy
     codexCollaborationMode = providerState.codexCollaborationMode
@@ -189,7 +184,6 @@ struct NewSessionModel {
     showToolConfig = state.showToolConfig
     selectedEffort = state.selectedEffort
     codexModel = state.codexModel
-    codexConfigSource = state.codexConfigSource
     codexUseOrbitDockOverrides = state.codexUseOrbitDockOverrides
     selectedAutonomy = state.selectedAutonomy
     codexCollaborationMode = state.codexCollaborationMode
@@ -213,7 +207,7 @@ struct NewSessionModel {
   mutating func syncCodexModelSelection(models: [ServerCodexModelOption]) {
     codexModel = NewSessionProviderStatePlanner.syncCodexModelSelection(
       currentModel: codexModel,
-      shouldPreferDefaultModel: codexConfigSource == .orbitdock || codexUseOrbitDockOverrides,
+      shouldPreferDefaultModel: codexUseOrbitDockOverrides,
       models: models
     )
   }

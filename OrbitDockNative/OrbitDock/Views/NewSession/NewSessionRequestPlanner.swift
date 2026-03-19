@@ -9,7 +9,6 @@ struct NewSessionProviderConfiguration: Equatable, Sendable {
   let disallowedToolsText: String
   let claudeEffort: String?
   let codexModel: String
-  let codexConfigSource: ServerCodexConfigSource
   let codexUseOrbitDockOverrides: Bool
   let codexAutonomy: AutonomyLevel
   let codexCollaborationMode: String?
@@ -35,7 +34,6 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
   )
   case codex(
     model: String?,
-    codexConfigSource: ServerCodexConfigSource,
     approvalPolicy: String?,
     sandboxMode: String?,
     collaborationMode: String?,
@@ -60,7 +58,6 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
         )
       case let .codex(
       model,
-      codexConfigSource,
       approvalPolicy,
       sandboxMode,
       collaborationMode,
@@ -80,7 +77,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           personality: personality,
           serviceTier: serviceTier,
           developerInstructions: developerInstructions,
-          codexConfigSource: codexConfigSource
+          codexConfigSource: .user
         )
     }
   }
@@ -148,14 +145,12 @@ enum NewSessionRequestPlanner {
         )
       case .codex:
         let normalizedModel = configuration.codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldApplyOverrides =
-          configuration.codexConfigSource == .orbitdock || configuration.codexUseOrbitDockOverrides
+        let shouldApplyOverrides = configuration.codexUseOrbitDockOverrides
         if shouldApplyOverrides, normalizedModel.isEmpty {
           return nil
         }
         return .codex(
           model: shouldApplyOverrides ? normalizedModel : nil,
-          codexConfigSource: configuration.codexConfigSource,
           approvalPolicy: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicy : nil,
           sandboxMode: shouldApplyOverrides ? configuration.codexAutonomy.sandboxMode : nil,
           collaborationMode: shouldApplyOverrides

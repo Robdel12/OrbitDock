@@ -15,7 +15,6 @@ struct NewSessionProviderStatePlannerTests {
     #expect(state.showToolConfig == false)
     #expect(state.selectedEffort == .default)
     #expect(state.codexModel.isEmpty)
-    #expect(state.codexConfigSource == .user)
     #expect(state.codexUseOrbitDockOverrides == false)
     #expect(state.selectedAutonomy == .autonomous)
     #expect(state.codexCollaborationMode == .default)

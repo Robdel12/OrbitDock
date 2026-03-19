@@ -13,7 +13,6 @@ struct NewSessionConfigurationCard: View {
   @Binding var allowBypassPermissions: Bool
   @Binding var selectedEffort: ClaudeEffortLevel
   @Binding var codexModel: String
-  @Binding var codexConfigSource: ServerCodexConfigSource
   @Binding var codexUseOrbitDockOverrides: Bool
   @Binding var selectedAutonomy: AutonomyLevel
   @Binding var codexCollaborationMode: CodexCollaborationMode
@@ -52,7 +51,7 @@ struct NewSessionConfigurationCard: View {
   }
 
   private var inheritsFromCodexConfig: Bool {
-    codexConfigSource == .user && !codexUseOrbitDockOverrides
+    !codexUseOrbitDockOverrides
   }
 
   var body: some View {
@@ -74,14 +73,12 @@ struct NewSessionConfigurationCard: View {
           claudeEffortRow
 
         case .codex:
-          codexConfigSourceRow
+          codexInheritanceRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+          if !inheritsFromCodexConfig {
+            Divider()
+              .padding(.horizontal, Spacing.lg)
 
-          if inheritsFromCodexConfig {
-            codexInheritanceRow
-          } else {
             codexAutonomyRow
 
             Divider()
@@ -108,49 +105,35 @@ struct NewSessionConfigurationCard: View {
     )
   }
 
-  private var codexConfigSourceRow: some View {
+  private var codexInheritanceRow: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       HStack {
         HStack(spacing: Spacing.sm) {
-          Image(systemName: codexConfigSource == .user ? "person.crop.circle" : "slider.horizontal.3")
+          Image(systemName: "doc.text.magnifyingglass")
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(codexConfigSource == .user ? Color.providerCodex : Color.textTertiary)
-          Text("Config Source")
+            .foregroundStyle(Color.providerCodex)
+          Text("Codex Config")
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textSecondary)
         }
 
         Spacer()
-
-        Picker("Config Source", selection: $codexConfigSource) {
-          Text("My Codex Config").tag(ServerCodexConfigSource.user)
-          Text("OrbitDock").tag(ServerCodexConfigSource.orbitdock)
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .fixedSize()
       }
 
-      Text(
-        codexConfigSource == .user
-          ? "OrbitDock starts from your Codex config files and only layers on explicit overrides from this form."
-          : "OrbitDock owns the session defaults and sends its current Codex controls as runtime overrides."
-      )
+      Text("OrbitDock resolves the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config.")
       .font(.system(size: TypeScale.caption))
       .foregroundStyle(Color.textTertiary)
       .fixedSize(horizontal: false, vertical: true)
 
       HStack(spacing: Spacing.md) {
-        if codexConfigSource == .user {
-          Toggle("Customize in OrbitDock", isOn: $codexUseOrbitDockOverrides)
-            .toggleStyle(.switch)
-            .tint(Color.providerCodex)
-        }
+        Toggle("Customize for this session", isOn: $codexUseOrbitDockOverrides)
+          .toggleStyle(.switch)
+          .tint(Color.providerCodex)
 
         Spacer()
 
         if let onInspectCodexConfig {
-          Button("Inspect Effective Config") {
+          Button("Inspect Codex Config") {
             onInspectCodexConfig()
           }
           .buttonStyle(.plain)
@@ -161,17 +144,6 @@ struct NewSessionConfigurationCard: View {
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
-    .onChange(of: codexConfigSource) { _, newValue in
-      if newValue == .orbitdock {
-        codexUseOrbitDockOverrides = true
-        if codexModel.isEmpty {
-          codexModel = currentCodexModelOption?.model
-            ?? codexModels.first(where: \.isDefault)?.model
-            ?? codexModels.first(where: { !$0.model.isEmpty })?.model
-            ?? ""
-        }
-      }
-    }
     .onChange(of: codexUseOrbitDockOverrides) { _, newValue in
       if newValue && codexModel.isEmpty {
         codexModel = currentCodexModelOption?.model
@@ -241,7 +213,7 @@ struct NewSessionConfigurationCard: View {
   @ViewBuilder
   private var codexModelPicker: some View {
     if inheritsFromCodexConfig {
-      Text("Inherited from Codex")
+      Text("From Codex config")
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
     } else if !codexModel.isEmpty {
@@ -257,36 +229,6 @@ struct NewSessionConfigurationCard: View {
       ProgressView()
         .controlSize(.small)
     }
-  }
-
-  private var codexInheritanceRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(alignment: .top, spacing: Spacing.md) {
-        Image(systemName: "square.stack.3d.up.badge.automatic")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(Color.providerCodex)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text("Using Codex file settings")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-          Text("Model, autonomy, collaboration, workers, personality, tier, and durable instructions will all inherit from your active Codex config layers for this project.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        Spacer()
-      }
-      .padding(Spacing.md)
-      .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .stroke(Color.surfaceBorder, lineWidth: 1)
-      )
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
   }
 
   private var claudePermissionRow: some View {

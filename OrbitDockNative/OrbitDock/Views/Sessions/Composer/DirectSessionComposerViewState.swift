@@ -202,6 +202,24 @@ extension DirectSessionComposer {
     CodexServiceTierPreset.from(serverValue: obs.serviceTier)
   }
 
+  var currentCodexConfigSource: ServerCodexConfigSource {
+    obs.codexConfigSource ?? .user
+  }
+
+  var currentCodexOverrides: ServerCodexSessionOverrides {
+    obs.codexConfigOverrides ?? ServerCodexSessionOverrides(
+      model: nil,
+      approvalPolicy: nil,
+      sandboxMode: nil,
+      collaborationMode: nil,
+      multiAgent: nil,
+      personality: nil,
+      serviceTier: nil,
+      developerInstructions: nil,
+      effort: nil
+    )
+  }
+
   var hasCodexControlOverrides: Bool {
     currentCodexCollaborationMode != .default
       || currentCodexMultiAgentEnabled

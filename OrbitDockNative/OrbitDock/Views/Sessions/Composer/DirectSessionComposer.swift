@@ -27,6 +27,10 @@ struct DirectSessionComposer: View {
 
   @State var composerState = DirectSessionComposerState()
   @State var inputState = DirectSessionComposerInputState()
+  @State var codexInspectorResponse: SessionsClient.CodexInspectorResponse?
+  @State var codexInspectorError: String?
+  @State var codexInspectorLoading = false
+  @State var showCodexInspector = false
 
   /// Attachments
   @State var attachmentState = DirectSessionComposerAttachmentState()
@@ -146,6 +150,16 @@ struct DirectSessionComposer: View {
     }
     .sheet(isPresented: $composerState.showForkToExistingWorktreeSheet) {
       forkToExistingWorktreeSheet
+    }
+    .sheet(isPresented: $showCodexInspector) {
+      CodexConfigInspectorSheet(
+        response: codexInspectorResponse,
+        errorMessage: codexInspectorError,
+        isLoading: codexInspectorLoading,
+        onRefresh: {
+          inspectCodexConfig()
+        }
+      )
     }
     #if os(iOS)
     .photosPicker(

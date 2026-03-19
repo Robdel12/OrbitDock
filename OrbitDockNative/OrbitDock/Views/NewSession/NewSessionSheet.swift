@@ -166,7 +166,6 @@ struct NewSessionSheet: View {
       )
     }
     .onAppear {
-      refreshCodexPreferences()
       applyLifecyclePlan(
         NewSessionLifecyclePlanner.onAppear(
           current: lifecycleState,
@@ -256,17 +255,10 @@ struct NewSessionSheet: View {
     )
   }
 
-  private func refreshCodexPreferences() {
-    Task {
-      guard let preferences = try? await endpointAppState.clients.sessions.fetchCodexPreferences() else { return }
-      model.codexConfigSource = preferences.defaultConfigSource
-      model.codexUseOrbitDockOverrides = preferences.defaultConfigSource == .orbitdock
-    }
-  }
-
   private func inspectCodexConfig() {
     guard !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      codexInspectorError = "Choose a project folder first so OrbitDock can resolve the active Codex config layers."
+      codexInspectorError =
+        "Choose a project folder first so OrbitDock can resolve the Codex config that applies there, including user and project-level layers."
       codexInspectorResponse = nil
       showCodexInspector = true
       return
@@ -276,10 +268,10 @@ struct NewSessionSheet: View {
     codexInspectorError = nil
     showCodexInspector = true
 
-    let shouldApplyOverrides = model.codexConfigSource == .orbitdock || model.codexUseOrbitDockOverrides
+    let shouldApplyOverrides = model.codexUseOrbitDockOverrides
     let request = SessionsClient.CodexInspectRequest(
       cwd: model.selectedPath,
-      codexConfigSource: model.codexConfigSource,
+      codexConfigSource: .user,
       model: shouldApplyOverrides ? model.codexModel : nil,
       approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
       sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
@@ -399,7 +391,6 @@ struct NewSessionSheet: View {
       allowBypassPermissions: $model.allowBypassPermissions,
       selectedEffort: $model.selectedEffort,
       codexModel: $model.codexModel,
-      codexConfigSource: $model.codexConfigSource,
       codexUseOrbitDockOverrides: $model.codexUseOrbitDockOverrides,
       selectedAutonomy: $model.selectedAutonomy,
       codexCollaborationMode: $model.codexCollaborationMode,

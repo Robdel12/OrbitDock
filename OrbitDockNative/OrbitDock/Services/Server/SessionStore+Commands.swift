@@ -166,6 +166,24 @@ extension SessionStore {
     try await clients.sessions.updateSessionConfig(sessionId, config: config)
   }
 
+  func updateCodexSessionOverrides(
+    _ sessionId: String,
+    collaborationMode: SessionsClient.OptionalStringPatch? = nil,
+    multiAgent: SessionsClient.OptionalBoolPatch? = nil,
+    personality: SessionsClient.OptionalStringPatch? = nil,
+    serviceTier: SessionsClient.OptionalStringPatch? = nil,
+    developerInstructions: SessionsClient.OptionalStringPatch? = nil
+  ) async throws {
+    let config = SessionsClient.UpdateCodexSessionOverridesRequest(
+      collaborationMode: collaborationMode,
+      multiAgent: multiAgent,
+      personality: personality,
+      serviceTier: serviceTier,
+      developerInstructions: developerInstructions
+    )
+    try await clients.sessions.updateCodexSessionOverrides(sessionId, config: config)
+  }
+
   func forkSession(sessionId: String, nthUserMessage: UInt32?) async throws {
     session(sessionId).forkInProgress = true
     do {

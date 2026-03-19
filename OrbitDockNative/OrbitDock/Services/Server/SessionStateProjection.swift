@@ -35,6 +35,8 @@ struct SessionDetailSnapshotProjection {
   let personality: String?
   let serviceTier: String?
   let developerInstructions: String?
+  let codexConfigSource: ServerCodexConfigSource?
+  let codexConfigOverrides: ServerCodexSessionOverrides?
   let summary: String?
   let customName: String?
   let firstPrompt: String?
@@ -92,6 +94,8 @@ struct SessionDetailSnapshotProjection {
       personality: session.personality,
       serviceTier: session.serviceTier,
       developerInstructions: session.developerInstructions,
+      codexConfigSource: nil,
+      codexConfigOverrides: nil,
       summary: session.summary,
       customName: session.customName,
       firstPrompt: session.firstPrompt,
@@ -165,6 +169,8 @@ struct SessionStateProjection {
   let personality: String??
   let serviceTier: String??
   let developerInstructions: String??
+  let codexConfigSource: ServerCodexConfigSource??
+  let codexConfigOverrides: ServerCodexSessionOverrides??
   let lastActivityAt: Date?
   let repositoryRoot: String??
   let isWorktree: Bool?
@@ -198,6 +204,8 @@ struct SessionStateProjection {
       personality: changes.personality,
       serviceTier: changes.serviceTier,
       developerInstructions: changes.developerInstructions,
+      codexConfigSource: changes.codexConfigSource,
+      codexConfigOverrides: changes.codexConfigOverrides,
       lastActivityAt: parseLastActivityAt(changes.lastActivityAt),
       repositoryRoot: changes.repositoryRoot,
       isWorktree: changes.isWorktree,
@@ -383,6 +391,8 @@ extension SessionObservable {
     personality = projection.personality
     serviceTier = projection.serviceTier
     developerInstructions = projection.developerInstructions
+    codexConfigSource = projection.codexConfigSource
+    codexConfigOverrides = projection.codexConfigOverrides
     summary = projection.summary
     customName = projection.customName
     firstPrompt = projection.firstPrompt
@@ -512,6 +522,12 @@ extension SessionObservable {
     }
     if let developerInstructions = projection.developerInstructions {
       self.developerInstructions = developerInstructions
+    }
+    if let codexConfigSource = projection.codexConfigSource {
+      self.codexConfigSource = codexConfigSource
+    }
+    if let codexConfigOverrides = projection.codexConfigOverrides {
+      self.codexConfigOverrides = codexConfigOverrides
     }
     if let lastActivityAt = projection.lastActivityAt {
       self.lastActivityAt = lastActivityAt

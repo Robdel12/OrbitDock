@@ -282,7 +282,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
             };
             let resolved = resolve_codex_settings(
                 &project_path,
-                codex_config_source.unwrap_or(CodexConfigSource::Orbitdock),
+                codex_config_source.unwrap_or(CodexConfigSource::User),
                 codex_config_overrides.unwrap_or(fallback_overrides),
             )
             .await
