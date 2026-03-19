@@ -92,14 +92,17 @@ fn row_append_stores_correct_sequence() {
     let batch = vec![
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("row-0", 0),
         },
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: assistant_entry("row-1", 1),
         },
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("row-2", 2),
         },
     ];
@@ -124,10 +127,12 @@ fn row_append_with_zero_sequence_gets_db_assigned_sequence() {
     let batch = vec![
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("row-a", 0),
         },
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("row-b", 0),
         },
     ];
@@ -151,6 +156,7 @@ fn row_upsert_preserves_original_sequence_on_conflict() {
     // First: insert a row — DB assigns sequence=0
     let batch = vec![PersistCommand::RowAppend {
         session_id: "test-session".to_string(),
+        sequence_tx: None,
         entry: user_entry("row-0", 0),
     }];
     super::writer::flush_batch_for_test(&db_path, batch).unwrap();
@@ -158,6 +164,7 @@ fn row_upsert_preserves_original_sequence_on_conflict() {
     // Then: upsert the same row — sequence should be preserved (not overwritten)
     let batch = vec![PersistCommand::RowUpsert {
         session_id: "test-session".to_string(),
+        sequence_tx: None,
         entry: user_entry("row-0", 5),
     }];
     super::writer::flush_batch_for_test(&db_path, batch).unwrap();
@@ -180,6 +187,7 @@ fn row_upsert_inserts_when_not_existing() {
 
     let batch = vec![PersistCommand::RowUpsert {
         session_id: "test-session".to_string(),
+        sequence_tx: None,
         entry: user_entry("new-row", 3),
     }];
     super::writer::flush_batch_for_test(&db_path, batch).unwrap();
@@ -202,6 +210,7 @@ fn batch_of_appends_preserves_insertion_order() {
     let batch: Vec<PersistCommand> = (0..10)
         .map(|i| PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: assistant_entry(&format!("msg-{i}"), i as u64),
         })
         .collect();
@@ -236,10 +245,12 @@ fn row_append_ignore_deduplicates_by_id() {
     let batch = vec![
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("dup-id", 0),
         },
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
+            sequence_tx: None,
             entry: user_entry("dup-id", 5), // Same id, different sequence
         },
     ];

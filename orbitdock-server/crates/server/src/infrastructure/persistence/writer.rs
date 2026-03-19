@@ -46,9 +46,10 @@ impl PersistenceWriter {
         loop {
             tokio::select! {
                 Some(cmd) = self.rx.recv() => {
+                    let needs_flush_now = cmd.has_response_channel();
                     self.batch.push(cmd);
 
-                    if self.batch.len() >= self.batch_size {
+                    if needs_flush_now || self.batch.len() >= self.batch_size {
                         self.flush().await;
                     }
                 }

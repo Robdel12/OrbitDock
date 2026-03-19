@@ -332,14 +332,22 @@ pub async fn handle_session_command(
             let previous_last_message = handle.to_snapshot().last_message.clone();
 
             let entry = handle.add_row(entry);
+            let row_id = entry.id().to_string();
 
-            // Persist with the correctly-sequenced entry (single-writer principle)
+            // Persist-first: send to DB with response channel, await DB-assigned sequence.
+            let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
             let _ = persist_tx
                 .send(PersistCommand::RowAppend {
                     session_id: session_id.clone(),
                     entry: entry.clone(),
+                    sequence_tx: Some(seq_tx),
                 })
                 .await;
+
+            // Update in-memory row with DB-authoritative sequence before broadcasting.
+            if let Ok(db_seq) = seq_rx.await {
+                handle.set_row_sequence(&row_id, db_seq);
+            }
 
             let observability_changes = row_append_delta(
                 previous_last_message.as_deref(),
@@ -351,7 +359,11 @@ pub async fn handle_session_command(
                     handle.set_last_message(Some(snippet.clone()));
                 }
             }
-            let summary = entry.to_summary();
+            // Re-derive summary from the now-updated in-memory row.
+            let summary = handle
+                .row_by_id(&row_id)
+                .map(|r| r.to_summary())
+                .unwrap_or_else(|| entry.to_summary());
             let upserted = vec![summary];
             if handle.should_emit_streaming_row_update(&upserted) {
                 handle.broadcast(ServerMessage::ConversationRowsChanged {
@@ -371,18 +383,31 @@ pub async fn handle_session_command(
         SessionCommand::UpsertRowAndBroadcast { entry } => {
             let session_id = handle.id().to_string();
             let entry = handle.upsert_row(entry);
+            let row_id = entry.id().to_string();
 
-            // Persist with the correctly-sequenced entry (single-writer principle)
+            // Persist-first: send to DB with response channel, await DB-assigned sequence.
+            let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
             let _ = persist_tx
                 .send(PersistCommand::RowUpsert {
                     session_id: session_id.clone(),
                     entry: entry.clone(),
+                    sequence_tx: Some(seq_tx),
                 })
                 .await;
 
+            // Update in-memory row with DB-authoritative sequence before broadcasting.
+            if let Ok(db_seq) = seq_rx.await {
+                handle.set_row_sequence(&row_id, db_seq);
+            }
+
+            // Re-derive summary from the now-updated in-memory row.
+            let summary = handle
+                .row_by_id(&row_id)
+                .map(|r| r.to_summary())
+                .unwrap_or_else(|| entry.to_summary());
             let rows_changed = ServerMessage::ConversationRowsChanged {
                 session_id,
-                upserted: vec![entry.to_summary()],
+                upserted: vec![summary],
                 removed_row_ids: vec![],
                 total_row_count: handle.message_count() as u64,
             };
@@ -536,33 +561,76 @@ pub(crate) async fn dispatch_transition_input(
         handle.set_last_message(Some(snippet));
     }
 
+    // Pass 1: Send all persist ops, collecting sequence receivers for row ops.
+    let mut sequence_futures: Vec<(String, tokio::sync::oneshot::Receiver<u64>)> = Vec::new();
+    let mut deferred_emits: Vec<ServerMessage> = Vec::new();
+
     for effect in effects {
         match effect {
             transition::Effect::Persist(op) => {
-                let _ = persist_tx
-                    .send(transition::persist_op_to_command(*op))
-                    .await;
+                let mut cmd = transition::persist_op_to_command(*op);
+                // Attach a response channel to row persist ops so we get DB-assigned sequences.
+                match &mut cmd {
+                    PersistCommand::RowAppend {
+                        ref entry,
+                        ref mut sequence_tx,
+                        ..
+                    }
+                    | PersistCommand::RowUpsert {
+                        ref entry,
+                        ref mut sequence_tx,
+                        ..
+                    } => {
+                        let row_id = entry.id().to_string();
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        *sequence_tx = Some(tx);
+                        sequence_futures.push((row_id, rx));
+                    }
+                    _ => {}
+                }
+                let _ = persist_tx.send(cmd).await;
             }
             transition::Effect::Emit(msg) => {
-                let mut msg = *msg;
-                if let ServerMessage::ConversationRowsChanged { ref upserted, .. } = msg {
-                    for entry in upserted {
-                        if handle.note_transition_row_append(entry) {
-                            unread_count_delta = Some(handle.unread_count());
-                        }
-                    }
-                }
-                inject_approval_version(&mut msg, handle.approval_version());
-                let should_emit = match &msg {
-                    ServerMessage::ConversationRowsChanged { upserted, .. } => {
-                        handle.should_emit_streaming_row_update(upserted)
-                    }
-                    _ => true,
-                };
-                if should_emit {
-                    handle.broadcast(msg);
+                deferred_emits.push(*msg);
+            }
+        }
+    }
+
+    // Pass 2: Await DB-assigned sequences and update in-memory rows.
+    for (row_id, rx) in sequence_futures {
+        if let Ok(db_seq) = rx.await {
+            handle.set_row_sequence(&row_id, db_seq);
+        }
+    }
+
+    // Pass 3: Broadcast with DB-assigned sequences.
+    for msg in deferred_emits {
+        let mut msg = msg;
+        if let ServerMessage::ConversationRowsChanged {
+            ref mut upserted, ..
+        } = msg
+        {
+            // Re-derive summaries from now-updated in-memory rows.
+            for summary in upserted.iter_mut() {
+                if let Some(row) = handle.row_by_id(summary.id()) {
+                    *summary = row.to_summary();
                 }
             }
+            for entry in upserted.iter() {
+                if handle.note_transition_row_append(entry) {
+                    unread_count_delta = Some(handle.unread_count());
+                }
+            }
+        }
+        inject_approval_version(&mut msg, handle.approval_version());
+        let should_emit = match &msg {
+            ServerMessage::ConversationRowsChanged { upserted, .. } => {
+                handle.should_emit_streaming_row_update(upserted)
+            }
+            _ => true,
+        };
+        if should_emit {
+            handle.broadcast(msg);
         }
     }
 

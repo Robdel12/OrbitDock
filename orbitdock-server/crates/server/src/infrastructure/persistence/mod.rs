@@ -329,7 +329,11 @@ pub(super) fn execute_command(
             )?;
         }
 
-        PersistCommand::RowAppend { session_id, entry } => {
+        PersistCommand::RowAppend {
+            session_id,
+            entry,
+            sequence_tx,
+        } => {
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
@@ -354,6 +358,16 @@ pub(super) fn execute_command(
                 ],
             )?;
 
+            // Read back DB-assigned sequence and send to caller if requested.
+            if let Some(tx) = sequence_tx {
+                let db_seq: i64 = conn.query_row(
+                    "SELECT sequence FROM messages WHERE id = ?1",
+                    params![row_id],
+                    |row| row.get(0),
+                )?;
+                let _ = tx.send(db_seq as u64);
+            }
+
             // Update last_message for dashboard context lines (user + assistant only)
             if matches!(
                 &entry.row,
@@ -377,7 +391,11 @@ pub(super) fn execute_command(
             }
         }
 
-        PersistCommand::RowUpsert { session_id, entry } => {
+        PersistCommand::RowUpsert {
+            session_id,
+            entry,
+            sequence_tx,
+        } => {
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
@@ -401,6 +419,16 @@ pub(super) fn execute_command(
                     row_data,
                 ],
             )?;
+
+            // Read back DB-assigned sequence and send to caller if requested.
+            if let Some(tx) = sequence_tx {
+                let db_seq: i64 = conn.query_row(
+                    "SELECT sequence FROM messages WHERE id = ?1",
+                    params![row_id],
+                    |row| row.get(0),
+                )?;
+                let _ = tx.send(db_seq as u64);
+            }
 
             // Update last_message for completed user/assistant rows
             if matches!(

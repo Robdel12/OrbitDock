@@ -335,31 +335,70 @@ mod tests {
         }
     }
 
-    /// Extracts (row_id, sequence) from RowAppend persist commands on the channel.
-    fn drain_row_appends(persist_rx: &mut mpsc::Receiver<PersistCommand>) -> Vec<(String, u64)> {
-        let mut result = Vec::new();
-        while let Ok(cmd) = persist_rx.try_recv() {
-            if let PersistCommand::RowAppend { entry, .. } = cmd {
-                result.push((entry.id().to_string(), entry.sequence));
-            }
-        }
-        result
-    }
+    /// Spawn a mock persistence writer that simulates DB-assigned sequences.
+    /// Returns the persist_tx for the actor and a join handle that resolves
+    /// to all (row_id, db_assigned_sequence) pairs once the sender is dropped.
+    fn spawn_mock_writer() -> (
+        mpsc::Sender<PersistCommand>,
+        tokio::task::JoinHandle<Vec<(String, u64)>>,
+    ) {
+        let (persist_tx, mut persist_rx) = mpsc::channel::<PersistCommand>(64);
+        let handle = tokio::spawn(async move {
+            let mut seq_counters: std::collections::HashMap<String, u64> =
+                std::collections::HashMap::new();
+            // Track assigned sequences for upsert lookups
+            let mut assigned: std::collections::HashMap<String, u64> =
+                std::collections::HashMap::new();
+            let mut result = Vec::new();
 
-    /// Extracts (row_id, sequence) from RowUpsert persist commands on the channel.
-    fn drain_row_upserts(persist_rx: &mut mpsc::Receiver<PersistCommand>) -> Vec<(String, u64)> {
-        let mut result = Vec::new();
-        while let Ok(cmd) = persist_rx.try_recv() {
-            if let PersistCommand::RowUpsert { entry, .. } = cmd {
-                result.push((entry.id().to_string(), entry.sequence));
+            while let Some(cmd) = persist_rx.recv().await {
+                match cmd {
+                    PersistCommand::RowAppend {
+                        session_id,
+                        entry,
+                        sequence_tx,
+                    } => {
+                        let counter = seq_counters.entry(session_id).or_insert(0);
+                        let db_seq = *counter;
+                        *counter += 1;
+                        assigned.insert(entry.id().to_string(), db_seq);
+                        result.push((entry.id().to_string(), db_seq));
+                        if let Some(tx) = sequence_tx {
+                            let _ = tx.send(db_seq);
+                        }
+                    }
+                    PersistCommand::RowUpsert {
+                        session_id,
+                        entry,
+                        sequence_tx,
+                    } => {
+                        let row_id = entry.id().to_string();
+                        // Preserve original sequence on conflict (like the real DB)
+                        let db_seq = if let Some(&existing) = assigned.get(&row_id) {
+                            existing
+                        } else {
+                            let counter = seq_counters.entry(session_id).or_insert(0);
+                            let seq = *counter;
+                            *counter += 1;
+                            assigned.insert(row_id.clone(), seq);
+                            seq
+                        };
+                        result.push((row_id, db_seq));
+                        if let Some(tx) = sequence_tx {
+                            let _ = tx.send(db_seq);
+                        }
+                    }
+                    _ => {} // Ignore non-row commands
+                }
             }
-        }
-        result
+            result
+        });
+        (persist_tx, handle)
     }
 
     #[tokio::test]
-    async fn add_row_and_broadcast_persists_with_correct_sequences() {
-        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+    async fn add_row_and_broadcast_assigns_contiguous_sequences() {
+        let (persist_tx, writer_handle) = spawn_mock_writer();
         let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
 
         // Send a burst of rows all with sequence=0 (the pattern that caused the bug)
@@ -371,14 +410,10 @@ mod tests {
                 .await;
         }
 
-        // Let the actor process all commands
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
+        // Drop the actor so the persist channel closes and the mock writer finishes
+        drop(actor);
+        let persisted = writer_handle.await.unwrap();
 
-        let persisted = drain_row_appends(&mut persist_rx);
-
-        // Every row should arrive at persistence with a unique, monotonically
-        // increasing sequence — never the original 0 (except the very first row)
         assert_eq!(persisted.len(), 5);
         for (i, (id, seq)) in persisted.iter().enumerate() {
             assert_eq!(id, &format!("row-{i}"));
@@ -387,8 +422,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn burst_of_mixed_row_types_persists_monotonic_sequences() {
-        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+    async fn burst_of_mixed_row_types_has_monotonic_sequences() {
+        let (persist_tx, writer_handle) = spawn_mock_writer();
         let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
 
         // Simulate a realistic burst: user message, then rapid assistant + user
@@ -410,29 +445,31 @@ mod tests {
             })
             .await;
 
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
+        // Query in-memory state before dropping
+        let page = actor.conversation_page(None, 100).await.unwrap();
+        let in_memory_seqs: Vec<u64> = page.rows.iter().map(|r| r.sequence).collect();
 
-        let persisted = drain_row_appends(&mut persist_rx);
-        assert_eq!(persisted.len(), 5);
+        drop(actor);
+        let persisted = writer_handle.await.unwrap();
+        let persisted_seqs: Vec<u64> = persisted.iter().map(|(_, seq)| *seq).collect();
 
-        // Verify strictly increasing sequences
-        let sequences: Vec<u64> = persisted.iter().map(|(_, seq)| *seq).collect();
-        for pair in sequences.windows(2) {
+        // Both must be strictly increasing
+        for pair in in_memory_seqs.windows(2) {
             assert!(
                 pair[1] > pair[0],
-                "sequences must be strictly increasing: got {:?}",
-                sequences
+                "in-memory sequences must be strictly increasing: got {in_memory_seqs:?}"
             );
         }
+        // In-memory sequences match what the mock DB assigned
+        assert_eq!(in_memory_seqs, persisted_seqs);
     }
 
     #[tokio::test]
-    async fn upsert_row_and_broadcast_persists_with_correct_sequence() {
-        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+    async fn upsert_preserves_original_sequence() {
+        let (persist_tx, writer_handle) = spawn_mock_writer();
         let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
 
-        // First add two rows so we have something to upsert
+        // Add two rows
         actor
             .send(SessionCommand::AddRowAndBroadcast {
                 entry: user_row("row-0"),
@@ -444,34 +481,31 @@ mod tests {
             })
             .await;
 
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-
-        // Drain the appends
-        let _ = drain_row_appends(&mut persist_rx);
-
-        // Now upsert asst-1 with sequence=0 (simulating transcript sync)
+        // Upsert asst-1 with sequence=0 (simulating transcript sync — caller doesn't know seq)
         let mut updated = assistant_row("asst-1");
-        updated.sequence = 0; // Callers don't know the correct sequence
+        updated.sequence = 0;
         actor
             .send(SessionCommand::UpsertRowAndBroadcast { entry: updated })
             .await;
 
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
+        // Check in-memory: asst-1 should still be at sequence=1
+        let page = actor.conversation_page(None, 100).await.unwrap();
+        let asst_row = page.rows.iter().find(|r| r.id() == "asst-1").unwrap();
+        assert_eq!(
+            asst_row.sequence, 1,
+            "upserted row should keep its original DB-assigned sequence"
+        );
 
-        let upserted = drain_row_upserts(&mut persist_rx);
-        assert_eq!(upserted.len(), 1);
-
-        // The upsert should preserve the original sequence (1), not persist 0
-        let (id, seq) = &upserted[0];
-        assert_eq!(id, "asst-1");
-        assert_eq!(*seq, 1, "upserted row should keep its assigned sequence");
+        drop(actor);
+        let persisted = writer_handle.await.unwrap();
+        // The upsert should have preserved sequence=1 (from the mock DB's perspective)
+        let upsert_entry = persisted.iter().find(|(id, _)| id == "asst-1").unwrap();
+        assert_eq!(upsert_entry.1, 1);
     }
 
     #[tokio::test]
-    async fn in_memory_and_persisted_sequences_agree() {
-        let (persist_tx, mut persist_rx) = mpsc::channel(64);
+    async fn in_memory_sequences_match_db_assigned_sequences() {
+        let (persist_tx, writer_handle) = spawn_mock_writer();
         let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
 
         for i in 0..3 {
@@ -482,10 +516,6 @@ mod tests {
                 .await;
         }
 
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-
-        let persisted = drain_row_appends(&mut persist_rx);
         let page = actor.conversation_page(None, 100).await.unwrap();
         let in_memory: Vec<(String, u64)> = page
             .rows
@@ -493,13 +523,16 @@ mod tests {
             .map(|r| (r.id().to_string(), r.sequence))
             .collect();
 
-        // In-memory and persisted must be identical
+        drop(actor);
+        let persisted = writer_handle.await.unwrap();
+
+        // In-memory and DB-assigned must be identical
         assert_eq!(in_memory, persisted);
     }
 
     #[tokio::test]
     async fn actor_throttles_streaming_row_update_broadcasts_but_emits_final_row() {
-        let (persist_tx, _persist_rx) = mpsc::channel(64);
+        let (persist_tx, _writer_handle) = spawn_mock_writer();
         let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
 
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();

@@ -1169,6 +1169,18 @@ impl SessionHandle {
         &self.rows
     }
 
+    /// Update a row's sequence to the DB-assigned value (single source of truth).
+    pub fn set_row_sequence(&mut self, row_id: &str, sequence: u64) {
+        if let Some(entry) = self.rows.iter_mut().find(|e| e.id() == row_id) {
+            entry.sequence = sequence;
+        }
+    }
+
+    /// Look up a row by ID.
+    pub fn row_by_id(&self, row_id: &str) -> Option<&ConversationRowEntry> {
+        self.rows.iter().find(|e| e.id() == row_id)
+    }
+
     /// Get first prompt
     #[allow(dead_code)]
     pub fn first_prompt(&self) -> Option<&str> {

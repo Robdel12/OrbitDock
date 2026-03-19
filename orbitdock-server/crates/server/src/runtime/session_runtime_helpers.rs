@@ -394,6 +394,7 @@ pub(crate) async fn sync_transcript_messages(
                         crate::infrastructure::persistence::PersistCommand::RowUpsert {
                             session_id: session_id.clone(),
                             entry: entry.clone(),
+                            sequence_tx: None,
                         },
                     )
                     .await;

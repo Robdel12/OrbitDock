@@ -20,12 +20,16 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             last_activity_at,
         },
         PersistOp::SessionEnd { id, reason } => PersistCommand::SessionEnd { id, reason },
-        PersistOp::RowAppend { session_id, entry } => {
-            PersistCommand::RowAppend { session_id, entry }
-        }
-        PersistOp::RowUpsert { session_id, entry } => {
-            PersistCommand::RowUpsert { session_id, entry }
-        }
+        PersistOp::RowAppend { session_id, entry } => PersistCommand::RowAppend {
+            session_id,
+            entry,
+            sequence_tx: None,
+        },
+        PersistOp::RowUpsert { session_id, entry } => PersistCommand::RowUpsert {
+            session_id,
+            entry,
+            sequence_tx: None,
+        },
         PersistOp::TokensUpdate {
             session_id,
             usage,

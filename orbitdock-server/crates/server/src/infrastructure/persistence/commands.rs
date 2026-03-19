@@ -1,4 +1,5 @@
 use serde_json::Value;
+use tokio::sync::oneshot;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -7,7 +8,7 @@ use orbitdock_protocol::{
 };
 
 /// Commands that can be persisted.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum PersistCommand {
     /// Create a new session
     SessionCreate {
@@ -45,12 +46,16 @@ pub enum PersistCommand {
     RowAppend {
         session_id: String,
         entry: ConversationRowEntry,
+        /// When set, the DB-assigned sequence is sent back after INSERT.
+        sequence_tx: Option<oneshot::Sender<u64>>,
     },
 
     /// Upsert a conversation row (update existing or insert new)
     RowUpsert {
         session_id: String,
         entry: ConversationRowEntry,
+        /// When set, the DB-assigned sequence is sent back after INSERT/UPDATE.
+        sequence_tx: Option<oneshot::Sender<u64>>,
     },
 
     /// Update token usage
@@ -436,4 +441,21 @@ pub enum PersistCommand {
         started_at: Option<Option<String>>,
         completed_at: Option<Option<String>>,
     },
+}
+
+impl PersistCommand {
+    /// Returns true if this command has a response channel that the caller is awaiting.
+    /// The writer should flush immediately when any batched command needs a response.
+    pub fn has_response_channel(&self) -> bool {
+        matches!(
+            self,
+            PersistCommand::RowAppend {
+                sequence_tx: Some(_),
+                ..
+            } | PersistCommand::RowUpsert {
+                sequence_tx: Some(_),
+                ..
+            }
+        )
+    }
 }

@@ -449,6 +449,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                         .send(crate::infrastructure::persistence::PersistCommand::RowAppend {
                                             session_id: session_id.clone(),
                                             entry: entry.clone(),
+                                            sequence_tx: None,
                                         })
                                         .await;
                                 }
