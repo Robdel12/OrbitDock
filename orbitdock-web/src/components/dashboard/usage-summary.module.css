@@ -38,11 +38,27 @@
   transform: rotate(270deg);
 }
 
+.bodyWrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease-out;
+  overflow: hidden;
+}
+
+.bodyWrap[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+
 .body {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  padding: 0 var(--space-lg) var(--space-md);
+  padding: 0 var(--space-lg);
+  min-height: 0;
+}
+
+.bodyWrap[data-open='true'] .body {
+  padding-bottom: var(--space-md);
 }
 
 .providerBlock {

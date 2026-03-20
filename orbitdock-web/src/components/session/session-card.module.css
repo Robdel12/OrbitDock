@@ -7,7 +7,7 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
   font-family: var(--font-system);
   color: var(--color-text-primary);
   padding: 0;
@@ -126,6 +126,8 @@
 .cardAttention:hover {
   border-color: color-mix(in srgb, var(--card-status-color) 35%, transparent);
   background: color-mix(in srgb, var(--card-status-color) 7%, transparent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--card-status-color) 10%, transparent);
 }
 
 .actionRow {
@@ -165,6 +167,8 @@
 .cardWorking:hover {
   border-color: color-mix(in srgb, var(--color-status-working) 25%, transparent);
   background: var(--color-surface-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 200, 255, 0.06);
 }
 
 .cardWorking .cardContent {

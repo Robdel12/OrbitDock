@@ -360,7 +360,7 @@ const ReviewPanel = ({ sessionId, onClose }) => {
             <span class={styles.hint}><kbd>j</kbd><kbd>k</kbd> nav</span>
           </div>
           <button class={styles.closeBtn} onClick={handleClose} aria-label="Close review panel">
-            ✕
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>
           </button>
         </div>
 

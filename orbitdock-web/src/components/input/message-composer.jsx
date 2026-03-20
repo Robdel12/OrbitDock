@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'preact/hooks'
 import { Button } from '../ui/button.jsx'
-import { ProviderControls } from './provider-controls.jsx'
 import { MentionCompletions } from './mention-completions.jsx'
 import { SlashCompletions } from './slash-completions.jsx'
 import { SkillCompletions } from './skill-completions.jsx'
@@ -108,14 +107,17 @@ const setCursorOffset = (el, offset) => {
 
 // ── Token formatting ─────────────────────────────────────────────────────────
 
+const formatK = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+
 const formatTokenUsage = (usage) => {
   if (!usage) return null
   const total = (usage.input_tokens || 0) + (usage.output_tokens || 0)
   if (total === 0) return null
-  const display = total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total)
-  const pct = usage.context_window_total
-    ? Math.round((total / usage.context_window_total) * 100)
-    : null
+  const ctxTotal = usage.context_window_total || 0
+  const pct = ctxTotal ? Math.round((total / ctxTotal) * 100) : null
+  const display = ctxTotal
+    ? `${formatK(total)}/${formatK(ctxTotal)}`
+    : formatK(total)
   return { display, pct }
 }
 
@@ -601,18 +603,6 @@ const MessageComposer = ({
 
       {/* Main composer surface */}
       <div class={`${styles.surface} ${focused ? styles.surfaceFocused : ''} ${isWorking ? styles.surfaceWorking : ''}`}>
-        {/* Provider controls inside the surface */}
-        {provider && (
-          <div class={styles.surfaceControls}>
-            <ProviderControls
-              provider={provider}
-              effort={effort}
-              onEffortChange={setEffort}
-              approvalPolicy={approvalPolicy}
-              onApprovalPolicyChange={onApprovalPolicyChange}
-            />
-          </div>
-        )}
 
         {/* Input area with completions */}
         <div class={styles.inputWrap}>
@@ -812,7 +802,7 @@ const MessageComposer = ({
               )}
               {tokenInfo && (
                 <span class={`${styles.statusItem} ${styles.statusMono} ${tokenColorClass(tokenInfo.pct)}`}>
-                  {tokenInfo.pct != null ? `${tokenInfo.pct}%` : tokenInfo.display}
+                  {tokenInfo.pct != null ? `${tokenInfo.pct}%` : ''}{tokenInfo.pct != null && tokenInfo.display ? ' · ' : ''}{tokenInfo.display}
                 </span>
               )}
               {model && (

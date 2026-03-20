@@ -169,22 +169,22 @@ The shell is polished but functionality is shallow. Missing quick launch, inline
 
 Systematic pass to replace rough edges and align with native design language.
 
-- [ ] **7.1 — Replace all text glyphs with SVGs**
+- [x] **7.1 — Replace all text glyphs with SVGs**
   Audit all Unicode text glyphs used as icons (▸, ▾, ⑂, ✕, ›, ⌕, ···) and replace with proper SVG icons from lucide or custom paths.
 
-- [ ] **7.2 — Replace emoji file/folder icons**
+- [x] **7.2 — Replace emoji file/folder icons**
   In mention completions, replace 📁/📄 emoji with proper SVG folder/file icons matching the design system.
 
-- [ ] **7.3 — Dashboard card hover microanimations**
+- [x] **7.3 — Dashboard card hover microanimations**
   Add hover feedback to dashboard session cards: subtle background tint + slight elevation change. Match native's surfaceHover + Motion.hover pattern.
 
-- [ ] **7.4 — Component-level loading skeletons**
+- [x] **7.4 — Component-level loading skeletons**
   Add skeleton loading states within components (session header, conversation rows, dashboard cards) not just page-level skeletons. Pulsing animation on backgroundTertiary rounded rects.
 
-- [ ] **7.5 — UsageSummary expand animation**
+- [x] **7.5 — UsageSummary expand animation**
   Add smooth height transition to the usage summary collapse/expand (currently instant show/hide).
 
-- [ ] **7.6 — Prompt suggestion chips**
+- [x] **7.6 — Prompt suggestion chips**
   When composer is empty and session is active (not working), show a horizontal row of prompt suggestion chips above the composer surface. Chips are tappable — tap sends the suggestion as a message.
 
 ---
@@ -218,6 +218,6 @@ Systematic pass to replace rough edges and align with native design language.
 | 4. Conversation Polish | 6 | 6 | Complete |
 | 5. Session Lifecycle | 5 | 5 | Complete |
 | 6. Command Palette | 5 | 5 | Complete |
-| 7. Visual Polish | 6 | 0 | Not started |
+| 7. Visual Polish | 6 | 6 | Complete |
 | 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **34** | |
+| **Total** | **46** | **40** | |

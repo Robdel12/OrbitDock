@@ -252,7 +252,7 @@ const SettingsPage = () => {
           aria-expanded={diagOpen}
         >
           <span class={`${styles.diagnosticsChevron} ${diagOpen ? styles.diagnosticsChevronOpen : ''}`}>
-            &#9658;
+            <svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l5 5-5 5"/></svg>
           </span>
           Diagnostics
         </button>

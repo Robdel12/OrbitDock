@@ -171,17 +171,6 @@
   border-color: rgba(84, 174, 229, 0.30);
 }
 
-/* Provider controls row inside the surface */
-.surfaceControls {
-  padding: var(--space-xs) var(--space-sm) 0;
-}
-
-@media (min-width: 768px) {
-  .surfaceControls {
-    padding: var(--space-sm) 10px 0;
-  }
-}
-
 /* ── Input area ─────────────────────────────────────────────────────────── */
 
 .inputWrap {
@@ -697,3 +686,4 @@
   align-items: center;
   gap: var(--space-sm);
 }
+

@@ -12,7 +12,7 @@ import styles from './tool-row.module.css'
 
 const InlinePreview = ({ display }) => {
   // Diff preview: show first line of diff in mono with +/- coloring
-  if (display.diff_preview) {
+  if (display.diff_preview && typeof display.diff_preview === 'string') {
     const firstLine = display.diff_preview.trim().split('\n')[0] || ''
     const isDeletion = firstLine.startsWith('-')
     const isAddition = firstLine.startsWith('+')

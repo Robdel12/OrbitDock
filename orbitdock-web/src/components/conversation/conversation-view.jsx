@@ -4,6 +4,7 @@ import { viewMode } from '../../stores/view-mode.js'
 import { groupToolRuns } from '../../lib/group-tool-runs.js'
 import { RowDispatcher } from './row-dispatcher.jsx'
 import { Spinner } from '../ui/spinner.jsx'
+import { Skeleton } from '../ui/skeleton.jsx'
 import styles from './conversation-view.module.css'
 
 // ---------------------------------------------------------------------------
@@ -127,7 +128,13 @@ const ConversationView = ({
         </div>
       )}
       <div class={styles.rows}>
-        {displayRows.map((entry) => (
+        {displayRows.length === 0 ? (
+          <div class={styles.rowsSkeleton}>
+            <div class={styles.skeletonRow}><Skeleton width="60%" height="14px" /><Skeleton width="90%" height="14px" /><Skeleton width="45%" height="14px" /></div>
+            <div class={styles.skeletonRow}><Skeleton width="50%" height="14px" /></div>
+            <div class={styles.skeletonRow}><Skeleton width="85%" height="14px" /><Skeleton width="70%" height="14px" /></div>
+          </div>
+        ) : displayRows.map((entry) => (
           <RowDispatcher key={`${entry.sequence}-${entry.row?.id || ''}`} entry={entry} />
         ))}
       </div>

@@ -246,7 +246,7 @@ const IssueCard = ({ issue, missionId, onReload }) => {
               <span class={styles.attempt}>×{issue.attempt}</span>
             )}
             {canExpand && (
-              <span class={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`} aria-hidden="true">›</span>
+              <span class={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`} aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l5 5-5 5"/></svg></span>
             )}
           </div>
         </div>
