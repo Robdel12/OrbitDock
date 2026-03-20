@@ -22,6 +22,33 @@ struct ServerHTTPClient: Sendable {
     return String(text.prefix(maxCharacters)) + "…"
   }
 
+  private func describeDecodingError(_ error: Error) -> String {
+    func pathString(_ path: [CodingKey]) -> String {
+      guard !path.isEmpty else { return "<root>" }
+      return path.map { key in
+        if let index = key.intValue {
+          return "[\(index)]"
+        }
+        return key.stringValue
+      }
+      .joined(separator: ".")
+      .replacingOccurrences(of: ".[", with: "[")
+    }
+
+    switch error {
+      case let DecodingError.keyNotFound(key, context):
+        return "Missing key '\(key.stringValue)' at \(pathString(context.codingPath)): \(context.debugDescription)"
+      case let DecodingError.typeMismatch(type, context):
+        return "Type mismatch for \(type) at \(pathString(context.codingPath)): \(context.debugDescription)"
+      case let DecodingError.valueNotFound(type, context):
+        return "Missing value for \(type) at \(pathString(context.codingPath)): \(context.debugDescription)"
+      case let DecodingError.dataCorrupted(context):
+        return "Data corrupted at \(pathString(context.codingPath)): \(context.debugDescription)"
+      default:
+        return error.localizedDescription
+    }
+  }
+
   func get<R: Decodable>(
     _ path: String,
     query: [URLQueryItem] = []
@@ -49,9 +76,10 @@ struct ServerHTTPClient: Sendable {
     do {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      let detailedError = describeDecodingError(error)
+      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
       print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Error: \(detailedError)")
       print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }
@@ -76,9 +104,10 @@ struct ServerHTTPClient: Sendable {
     do {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      let detailedError = describeDecodingError(error)
+      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
       print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Error: \(detailedError)")
       print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }
@@ -105,9 +134,10 @@ struct ServerHTTPClient: Sendable {
     do {
       return try Self.decoder.decode(R.self, from: response.body)
     } catch {
-      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": error.localizedDescription])
+      let detailedError = describeDecodingError(error)
+      netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
       print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(error.localizedDescription)")
+      print("[OrbitDock][HTTP] Error: \(detailedError)")
       print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
       throw error
     }

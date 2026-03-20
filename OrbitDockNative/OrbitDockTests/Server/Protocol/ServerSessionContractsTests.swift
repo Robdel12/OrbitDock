@@ -140,4 +140,139 @@ struct ServerSessionContractsTests {
     #expect(row.renderHints.canExpand == true)
     #expect(row.operation == "spawned")
   }
+
+  @Test func conversationBootstrapDefaultsMissingQuestionPromptsAndActivityChildren() throws {
+    let data = Data(
+      """
+      {
+        "session": {
+          "id": "session-compat",
+          "provider": "claude",
+          "project_path": "/tmp/orbitdock",
+          "project_name": "OrbitDock",
+          "status": "active",
+          "work_status": "permission",
+          "token_usage": {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "cached_tokens": 0,
+            "context_window": 200000
+          },
+          "rows": [
+            {
+              "session_id": "session-compat",
+              "sequence": 1,
+              "row": {
+                "row_type": "question",
+                "id": "question-row-1",
+                "title": "Need guidance",
+                "render_hints": {
+                  "can_expand": false,
+                  "default_expanded": false,
+                  "emphasized": false,
+                  "monospace_summary": false
+                }
+              }
+            },
+            {
+              "session_id": "session-compat",
+              "sequence": 2,
+              "row": {
+                "row_type": "activity_group",
+                "id": "group-row-1",
+                "group_kind": "tool_block",
+                "title": "Grouped tools",
+                "child_count": 0,
+                "status": "completed",
+                "render_hints": {
+                  "can_expand": true,
+                  "default_expanded": false,
+                  "emphasized": false,
+                  "monospace_summary": false
+                }
+              }
+            }
+          ],
+          "total_row_count": 2,
+          "has_more_before": false,
+          "oldest_sequence": 1,
+          "newest_sequence": 2
+        },
+        "total_row_count": 2,
+        "has_more_before": false,
+        "oldest_sequence": 1,
+        "newest_sequence": 2
+      }
+      """.utf8
+    )
+
+    let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
+
+    guard case let .question(questionRow) = bootstrap.rows.first?.row else {
+      Issue.record("Expected question row in bootstrap payload")
+      return
+    }
+    #expect(questionRow.prompts.isEmpty)
+
+    guard case let .activityGroup(groupRow) = bootstrap.rows.last?.row else {
+      Issue.record("Expected activity group row in bootstrap payload")
+      return
+    }
+    #expect(groupRow.children.isEmpty)
+    #expect(groupRow.childCount == 0)
+  }
+
+  @Test func conversationBootstrapDefaultsMissingShellCommandArgs() throws {
+    let data = Data(
+      """
+      {
+        "session": {
+          "id": "session-shell-compat",
+          "provider": "claude",
+          "project_path": "/tmp/orbitdock",
+          "project_name": "OrbitDock",
+          "status": "active",
+          "work_status": "working",
+          "token_usage": {
+            "input_tokens": 3,
+            "output_tokens": 5,
+            "cached_tokens": 0,
+            "context_window": 200000
+          },
+          "rows": [
+            {
+              "session_id": "session-shell-compat",
+              "sequence": 4,
+              "row": {
+                "row_type": "shell_command",
+                "id": "shell-row-1",
+                "kind": "bash",
+                "title": "git status",
+                "command": "git status"
+              }
+            }
+          ],
+          "total_row_count": 1,
+          "has_more_before": false,
+          "oldest_sequence": 4,
+          "newest_sequence": 4
+        },
+        "total_row_count": 1,
+        "has_more_before": false,
+        "oldest_sequence": 4,
+        "newest_sequence": 4
+      }
+      """.utf8
+    )
+
+    let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
+
+    guard case let .shellCommand(shellRow) = bootstrap.rows.first?.row else {
+      Issue.record("Expected shell command row in bootstrap payload")
+      return
+    }
+
+    #expect(shellRow.args.isEmpty)
+    #expect(shellRow.command == "git status")
+  }
 }

@@ -312,6 +312,52 @@ struct ServerConversationActivityGroupRow: Codable {
     case family
     case renderHints = "render_hints"
   }
+
+  init(
+    id: String,
+    groupKind: ServerConversationActivityGroupKind,
+    title: String,
+    subtitle: String?,
+    summary: String?,
+    childCount: Int,
+    children: [ServerConversationToolRow],
+    turnId: String?,
+    groupingKey: String?,
+    status: ServerConversationToolStatus,
+    family: ServerConversationToolFamily?,
+    renderHints: ServerConversationRenderHints
+  ) {
+    self.id = id
+    self.groupKind = groupKind
+    self.title = title
+    self.subtitle = subtitle
+    self.summary = summary
+    self.childCount = childCount
+    self.children = children
+    self.turnId = turnId
+    self.groupingKey = groupingKey
+    self.status = status
+    self.family = family
+    self.renderHints = renderHints
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    groupKind = try container.decode(ServerConversationActivityGroupKind.self, forKey: .groupKind)
+    title = try container.decode(String.self, forKey: .title)
+    subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+    summary = try container.decodeIfPresent(String.self, forKey: .summary)
+    childCount = try container.decode(Int.self, forKey: .childCount)
+    children = try container.decodeIfPresent([ServerConversationToolRow].self, forKey: .children) ?? []
+    turnId = try container.decodeIfPresent(String.self, forKey: .turnId)
+    groupingKey = try container.decodeIfPresent(String.self, forKey: .groupingKey)
+    status = try container.decode(ServerConversationToolStatus.self, forKey: .status)
+    family = try container.decodeIfPresent(ServerConversationToolFamily.self, forKey: .family)
+    renderHints =
+      try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
+      ?? ServerConversationRenderHints()
+  }
 }
 
 struct ServerConversationQuestionRow: Codable {
@@ -331,6 +377,37 @@ struct ServerConversationQuestionRow: Codable {
     case prompts
     case response
     case renderHints = "render_hints"
+  }
+
+  init(
+    id: String,
+    title: String,
+    subtitle: String?,
+    summary: String?,
+    prompts: [ServerApprovalQuestionPrompt],
+    response: ServerQuestionResponseValue?,
+    renderHints: ServerConversationRenderHints
+  ) {
+    self.id = id
+    self.title = title
+    self.subtitle = subtitle
+    self.summary = summary
+    self.prompts = prompts
+    self.response = response
+    self.renderHints = renderHints
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    title = try container.decode(String.self, forKey: .title)
+    subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+    summary = try container.decodeIfPresent(String.self, forKey: .summary)
+    prompts = try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .prompts) ?? []
+    response = try container.decodeIfPresent(ServerQuestionResponseValue.self, forKey: .response)
+    renderHints =
+      try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
+      ?? ServerConversationRenderHints()
   }
 }
 
@@ -499,6 +576,52 @@ struct ServerConversationShellCommandRow: Codable {
     case durationSeconds = "duration_seconds"
     case cwd
     case renderHints = "render_hints"
+  }
+
+  init(
+    id: String,
+    kind: ServerConversationShellCommandKind,
+    title: String,
+    summary: String?,
+    command: String?,
+    args: [String],
+    stdout: String?,
+    stderr: String?,
+    exitCode: Int?,
+    durationSeconds: Double?,
+    cwd: String?,
+    renderHints: ServerConversationRenderHints
+  ) {
+    self.id = id
+    self.kind = kind
+    self.title = title
+    self.summary = summary
+    self.command = command
+    self.args = args
+    self.stdout = stdout
+    self.stderr = stderr
+    self.exitCode = exitCode
+    self.durationSeconds = durationSeconds
+    self.cwd = cwd
+    self.renderHints = renderHints
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    kind = try container.decode(ServerConversationShellCommandKind.self, forKey: .kind)
+    title = try container.decode(String.self, forKey: .title)
+    summary = try container.decodeIfPresent(String.self, forKey: .summary)
+    command = try container.decodeIfPresent(String.self, forKey: .command)
+    args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
+    stdout = try container.decodeIfPresent(String.self, forKey: .stdout)
+    stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
+    exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+    durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
+    cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+    renderHints =
+      try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
+      ?? ServerConversationRenderHints()
   }
 }
 
