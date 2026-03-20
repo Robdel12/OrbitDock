@@ -1,7 +1,5 @@
 import { signal, computed } from '@preact/signals'
-import { createHttpClient } from '../api/http.js'
-
-const http = createHttpClient('')
+import { http } from './connection.js'
 
 // ---------------------------------------------------------------------------
 // State signals

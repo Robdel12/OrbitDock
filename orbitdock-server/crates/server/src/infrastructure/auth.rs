@@ -1,6 +1,8 @@
 //! Optional auth token middleware.
 //!
-//! All authenticated requests must include `Authorization: Bearer <token>`.
+//! Authenticated requests should include `Authorization: Bearer <token>`.
+//! As a fallback (for browser WebSocket connections that cannot set headers),
+//! the `?token=<token>` query parameter is also accepted.
 //! The `/health` endpoint remains unauthenticated for simple liveness probes.
 
 use axum::{
@@ -60,7 +62,7 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
-    let Some(token) = bearer_token(&req) else {
+    let Some(token) = extract_token(&req) else {
         return Err(StatusCode::UNAUTHORIZED);
     };
 
@@ -87,14 +89,32 @@ pub async fn auth_middleware(
     Err(StatusCode::UNAUTHORIZED)
 }
 
-fn bearer_token(req: &Request<Body>) -> Option<&str> {
-    let header = req.headers().get("authorization")?;
-    let value = header.to_str().ok()?;
-    let token = value.strip_prefix("Bearer ")?;
-    if token.len() > MAX_BEARER_TOKEN_LEN {
-        return None;
+/// Extract token from Authorization header first, then fall back to `?token=` query param.
+/// The query-param fallback exists because browser WebSocket API cannot set custom headers.
+fn extract_token(req: &Request<Body>) -> Option<&str> {
+    // Prefer Authorization header
+    if let Some(header) = req.headers().get("authorization") {
+        if let Ok(value) = header.to_str() {
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                if token.len() <= MAX_BEARER_TOKEN_LEN {
+                    return Some(token);
+                }
+            }
+        }
     }
-    Some(token)
+
+    // Fall back to ?token= query parameter (for WebSocket upgrade requests)
+    if let Some(query) = req.uri().query() {
+        for pair in query.split('&') {
+            if let Some(token) = pair.strip_prefix("token=") {
+                if !token.is_empty() && token.len() <= MAX_BEARER_TOKEN_LEN {
+                    return Some(token);
+                }
+            }
+        }
+    }
+
+    None
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {

@@ -1,10 +1,8 @@
 import { useState } from 'preact/hooks'
 import { CommentInput } from './comment-input.jsx'
 import { addComment, updateComment, removeComment } from '../../stores/review.js'
-import { createHttpClient } from '../../api/http.js'
+import { http } from '../../stores/connection.js'
 import styles from './comment-thread.module.css'
-
-const http = createHttpClient('')
 
 // ---------------------------------------------------------------------------
 // Helpers

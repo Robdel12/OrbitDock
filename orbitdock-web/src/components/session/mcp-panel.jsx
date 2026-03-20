@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from 'preact/hooks'
-import { createHttpClient } from '../../api/http.js'
+import { http } from '../../stores/connection.js'
 import { Badge } from '../ui/badge.jsx'
 import { Button } from '../ui/button.jsx'
 import { Spinner } from '../ui/spinner.jsx'
 import styles from './mcp-panel.module.css'
-
-const http = createHttpClient('')
 
 // ---------------------------------------------------------------------------
 // Helpers

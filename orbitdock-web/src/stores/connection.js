@@ -3,6 +3,7 @@ import { createActor } from 'xstate'
 import { connectionMachine } from '../machines/connection.machine.js'
 import { createWsClient } from '../api/ws.js'
 import { createHttpClient } from '../api/http.js'
+import { clearToken } from './auth.js'
 import {
   handleSessionsList,
   handleSessionCreated,
@@ -15,10 +16,13 @@ import {
 import { addToast } from './toasts.js'
 
 const wsClient = createWsClient()
-const http = createHttpClient('')
+// Token accessor reads fresh on every request — no rebuild needed on token change.
+// on401 clears the stored token so the auth gate re-appears.
+const http = createHttpClient('', () => localStorage.getItem('orbitdock_auth_token') || '', { on401: clearToken })
 const connectionState = signal('disconnected')
 const connectionActor = createActor(connectionMachine)
 const serverInfo = signal({ isPrimary: false })
+const authRequired = signal(null) // null = unknown, true/false once probed
 
 let conversationHandler = null
 const subscribedSessions = new Set()
@@ -127,10 +131,7 @@ wsClient.status.subscribe((status) => {
   switch (status) {
     case 'connected':
       connectionActor.send({ type: 'WS_OPEN' })
-      // WS subscribe_list only delivers incremental updates —
-      // initial list must be fetched via REST
       wsClient.send({ type: 'subscribe_list' })
-      // Re-subscribe any active session subscriptions (lost on reconnect)
       for (const sid of subscribedSessions) {
         wsClient.send({ type: 'subscribe_session', session_id: sid, include_snapshot: false })
       }
@@ -150,11 +151,47 @@ wsClient.status.subscribe((status) => {
 connectionActor.subscribe((snapshot) => {
   if (snapshot.value === 'connecting') {
     const url = snapshot.context.url
-    if (url) wsClient.connect(url)
+    if (url) {
+      // Append token as query param for WS auth (browsers can't set headers on WebSocket)
+      const tok = localStorage.getItem('orbitdock_auth_token') || ''
+      const wsUrl = tok ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(tok)}` : url
+      wsClient.connect(wsUrl)
+    }
   }
 })
 
 connectionActor.start()
+
+/** Probe the server: returns 'ok' | 'auth_required' | 'unreachable' */
+const probeAuth = async () => {
+  try {
+    const res = await fetch('/health')
+    if (!res.ok) {
+      authRequired.value = false
+      return 'unreachable'
+    }
+  } catch {
+    authRequired.value = false
+    return 'unreachable'
+  }
+
+  // Server is up — try an authenticated call to see if auth is needed
+  try {
+    const tok = localStorage.getItem('orbitdock_auth_token') || ''
+    const res = await fetch('/api/sessions', {
+      headers: tok ? { Authorization: `Bearer ${tok}` } : {},
+    })
+    if (res.status === 401) {
+      authRequired.value = true
+      return 'auth_required'
+    }
+    authRequired.value = tok ? true : false
+    return 'ok'
+  } catch {
+    authRequired.value = false
+    return 'unreachable'
+  }
+}
 
 const connect = (url) => {
   connectionActor.send({ type: 'CONNECT', url })
@@ -163,6 +200,16 @@ const connect = (url) => {
 const disconnect = () => {
   wsClient.disconnect()
   connectionActor.send({ type: 'DISCONNECT' })
+}
+
+/** Disconnect and reconnect (e.g. after token change) */
+const reconnect = () => {
+  const snap = connectionActor.getSnapshot()
+  const url = snap.context.url
+  if (url) {
+    disconnect()
+    connect(url)
+  }
 }
 
 const sendWs = (msg) => wsClient.send(msg)
@@ -174,9 +221,12 @@ export {
   http,
   connect,
   disconnect,
+  reconnect,
   sendWs,
   subscribeSession,
   unsubscribeSession,
   setConversationHandler,
   serverInfo,
+  authRequired,
+  probeAuth,
 }

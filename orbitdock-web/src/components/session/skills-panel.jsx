@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'preact/hooks'
-import { createHttpClient } from '../../api/http.js'
+import { http } from '../../stores/connection.js'
 import { Card } from '../ui/card.jsx'
 import { Badge } from '../ui/badge.jsx'
 import { Button } from '../ui/button.jsx'
 import { Spinner } from '../ui/spinner.jsx'
 import styles from './skills-panel.module.css'
-
-const http = createHttpClient('')
 
 // ---------------------------------------------------------------------------
 // SkillRow — a single installed skill with an enable/disable toggle

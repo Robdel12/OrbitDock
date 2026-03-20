@@ -1,9 +1,11 @@
 import { render } from 'preact'
 import { App } from './app.jsx'
-import { connect } from './stores/connection.js'
+import { AuthGate } from './components/auth/auth-gate.jsx'
 import './styles/global.css'
 
-const wsUrl = `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
-connect(wsUrl)
-
-render(<App />, document.getElementById('app'))
+render(
+  <AuthGate>
+    <App />
+  </AuthGate>,
+  document.getElementById('app'),
+)

@@ -18,8 +18,7 @@ import { CapabilitiesPanel } from '../components/session/capabilities-panel.jsx'
 import { SessionSkeleton } from '../components/session/session-skeleton.jsx'
 import { ReviewPanel } from '../components/review/review-panel.jsx'
 import { ApprovalBanner } from '../components/approval/approval-banner.jsx'
-import { createHttpClient } from '../api/http.js'
-import { connectionState } from '../stores/connection.js'
+import { connectionState, http } from '../stores/connection.js'
 import { useMachine } from '../hooks/use-machine.js'
 import { useKeyboard } from '../hooks/use-keyboard.js'
 import { approvalMachine } from '../machines/approval.machine.js'
@@ -31,8 +30,6 @@ import {
   handleReviewWsEvent,
 } from '../stores/review.js'
 import styles from './session.module.css'
-
-const http = createHttpClient('')
 
 const SessionPage = () => {
   const [, params] = useRoute('/session/:id')

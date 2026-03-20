@@ -4,11 +4,9 @@ import { sessions, selected } from '../../stores/sessions.js'
 import { StatusDot } from '../ui/status-dot.jsx'
 import { Badge } from '../ui/badge.jsx'
 import { formatRelativeTime } from '../../lib/format.js'
-import { createHttpClient } from '../../api/http.js'
+import { http } from '../../stores/connection.js'
 import { addToast } from '../../stores/toasts.js'
 import styles from './command-palette.module.css'
-
-const http = createHttpClient('')
 
 // ---------------------------------------------------------------------------
 // Fuzzy match: returns true if every character in `needle` appears in `haystack`
