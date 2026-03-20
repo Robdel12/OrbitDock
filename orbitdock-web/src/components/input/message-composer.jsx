@@ -4,6 +4,7 @@ import { MentionCompletions } from './mention-completions.jsx'
 import { SlashCompletions } from './slash-completions.jsx'
 import { SkillCompletions } from './skill-completions.jsx'
 import { addToast } from '../../stores/toasts.js'
+import { http } from '../../stores/connection.js'
 import { saveDraft, loadDraft, clearDraft } from '../../lib/draft-store.js'
 import styles from './message-composer.module.css'
 
@@ -130,7 +131,7 @@ const tokenColorClass = (pct) => {
 
 // ── Workflow overflow menu ────────────────────────────────────────────────────
 
-const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onContinueInNew, onCompact, isActive }) => {
+const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onContinueInNew, onCompact, isActive, shellMode, onToggleShell }) => {
   if (!open) return null
 
   return (
@@ -161,6 +162,97 @@ const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onConti
           </button>
         )}
       </div>
+      {onToggleShell && (
+        <>
+          <div class={styles.overflowDivider} />
+          <div class={styles.overflowSection}>
+            <span class={styles.overflowSectionLabel}>Mode</span>
+            <button class={styles.overflowItem} onClick={() => { onToggleShell(); onClose() }}>
+              {shellMode ? 'Disable Shell Mode' : 'Enable Shell Mode'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Model/effort popover ─────────────────────────────────────────────────
+
+const EFFORT_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+]
+
+const shortModelName = (model) => {
+  if (!model) return null
+  const lower = model.toLowerCase()
+  if (lower.includes('opus')) return 'Opus'
+  if (lower.includes('sonnet')) return 'Sonnet'
+  if (lower.includes('haiku')) return 'Haiku'
+  if (lower.includes('gpt-4o-mini')) return '4o-mini'
+  if (lower.includes('gpt-4o')) return 'GPT-4o'
+  if (lower.includes('gpt-4')) return 'GPT-4'
+  if (lower.includes('o3')) return 'o3'
+  if (lower.includes('o1')) return 'o1'
+  // Fallback: last segment after dash
+  const parts = model.split('-')
+  return parts[parts.length - 1]
+}
+
+const ModelEffortPopover = ({ open, onClose, provider, models, currentModel, onModelChange, effort, onEffortChange }) => {
+  if (!open) return null
+
+  return (
+    <div class={styles.modelPopover} onClick={(e) => e.stopPropagation()}>
+      {/* Model selection */}
+      <div class={styles.overflowSection}>
+        <span class={styles.overflowSectionLabel}>Model</span>
+        {models.length === 0 && (
+          <span class={styles.modelEmpty}>Loading models…</span>
+        )}
+        {models.map((m) => {
+          const id = m.value || m.id || m.model
+          const display = m.display_name || m.label || id
+          const isActive = id === currentModel
+          return (
+            <button
+              key={id}
+              class={`${styles.overflowItem} ${isActive ? styles.modelItemActive : ''}`}
+              onClick={() => { onModelChange(id); onClose() }}
+            >
+              <span class={styles.modelItemLabel}>{display}</span>
+              {isActive && (
+                <svg class={styles.modelCheck} width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2.5 6l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Effort picker for Codex */}
+      {provider === 'codex' && (
+        <>
+          <div class={styles.overflowDivider} />
+          <div class={styles.overflowSection}>
+            <span class={styles.overflowSectionLabel}>Effort</span>
+            <div class={styles.effortPicker}>
+              {EFFORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  class={`${styles.effortOption} ${effort === opt.value ? styles.effortOptionActive : ''}`}
+                  onClick={() => onEffortChange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -201,6 +293,15 @@ const MoreIcon = () => (
     <circle cx="3" cy="7" r="1.2" fill="currentColor" />
     <circle cx="7" cy="7" r="1.2" fill="currentColor" />
     <circle cx="11" cy="7" r="1.2" fill="currentColor" />
+  </svg>
+)
+
+const TuneIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+    <line x1="2" y1="4" x2="12" y2="4" />
+    <line x1="2" y1="10" x2="12" y2="10" />
+    <circle cx="5" cy="4" r="1.5" fill="var(--color-bg-secondary)" />
+    <circle cx="9" cy="10" r="1.5" fill="var(--color-bg-secondary)" />
   </svg>
 )
 
@@ -247,10 +348,17 @@ const FolderIcon = () => (
 
 // ── MessageComposer ──────────────────────────────────────────────────────────
 
+const TerminalIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+  </svg>
+)
+
 const MessageComposer = ({
   sessionId,
   onSend,
   onSteer,
+  onShellExec,
   onInterrupt,
   onResume,
   onContinueInNew,
@@ -274,6 +382,7 @@ const MessageComposer = ({
   isPinned,
   unreadCount,
   onScrollToBottom,
+  onModelChange,
 }) => {
   const [value, setValue] = useState('')
   const [attachments, setAttachments] = useState([])
@@ -282,12 +391,16 @@ const MessageComposer = ({
   const [cursorPos, setCursorPos] = useState(0)
   const [focused, setFocused] = useState(false)
   const [workflowOpen, setWorkflowOpen] = useState(false)
+  const [shellMode, setShellMode] = useState(false)
+  const [modelPopoverOpen, setModelPopoverOpen] = useState(false)
+  const [availableModels, setAvailableModels] = useState([])
   const editorRef = useRef(null)
   const fileInputRef = useRef(null)
   const mentionRef = useRef(null)
   const slashRef = useRef(null)
   const skillRef = useRef(null)
   const workflowRef = useRef(null)
+  const modelRef = useRef(null)
   // Guard against recursive sync between state and DOM.
   const suppressSync = useRef(false)
 
@@ -328,6 +441,29 @@ const MessageComposer = ({
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [workflowOpen])
+
+  // Close model popover on outside click
+  useEffect(() => {
+    if (!modelPopoverOpen) return
+    const handleClick = (e) => {
+      if (modelRef.current && !modelRef.current.contains(e.target)) {
+        setModelPopoverOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [modelPopoverOpen])
+
+  // Fetch available models when the popover opens
+  useEffect(() => {
+    if (!modelPopoverOpen || !provider) return
+    const endpoint = provider === 'codex' ? '/api/models/codex' : '/api/models/claude'
+    http.get(endpoint).then((res) => {
+      setAvailableModels(res?.models || [])
+    }).catch(() => {
+      // Silently fail — the popover will show "Loading models…"
+    })
+  }, [modelPopoverOpen, provider])
 
   const syncFromDom = useCallback(() => {
     const el = editorRef.current
@@ -449,6 +585,25 @@ const MessageComposer = ({
     const text = value.trim()
     if ((!text && !attachments.length) || disabled) return
 
+    // Shell mode — send as shell command and exit shell mode
+    if (shellMode && onShellExec && text) {
+      onShellExec(text)
+      setValue('')
+      setShellMode(false)
+      clearDraft(sessionId)
+      if (editorRef.current) editorRef.current.textContent = ''
+      return
+    }
+
+    // Inline shell shortcut: ! prefix runs a one-off shell command
+    if (text.startsWith('!') && text.length > 1 && onShellExec && !attachments.length) {
+      onShellExec(text.slice(1))
+      setValue('')
+      clearDraft(sessionId)
+      if (editorRef.current) editorRef.current.textContent = ''
+      return
+    }
+
     // When the agent is actively working, steer the current turn instead of
     // queuing a new user message — unless there's no steer handler.
     if (isWorking && onSteer && text && !attachments.length) {
@@ -520,10 +675,11 @@ const MessageComposer = ({
       resume: onResume,
       fork: () => onFork?.(),
       end: onEnd,
+      shell: onShellExec ? () => setShellMode((v) => !v) : null,
     }
     const handler = actions[action]
     if (handler) handler()
-  }, [onCompact, onUndo, onResume, onFork, onEnd])
+  }, [onCompact, onUndo, onResume, onFork, onEnd, onShellExec])
 
   // ── Ended state ────────────────────────────────────────────────────────────
 
@@ -564,8 +720,23 @@ const MessageComposer = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Shell mode indicator above the surface */}
+      {shellMode && (
+        <div class={styles.shellStrip}>
+          <TerminalIcon />
+          <span class={styles.shellLabel}>Shell Command</span>
+          <button
+            type="button"
+            class={styles.shellExit}
+            onClick={() => setShellMode(false)}
+          >
+            Exit
+          </button>
+        </div>
+      )}
+
       {/* Steer mode indicator above the surface */}
-      {isSteering && (
+      {isSteering && !shellMode && (
         <div class={styles.steerStrip}>
           <span class={styles.steerDot} />
           <span class={styles.steerLabel}>Steering Active Turn</span>
@@ -602,7 +773,7 @@ const MessageComposer = ({
       )}
 
       {/* Main composer surface */}
-      <div class={`${styles.surface} ${focused ? styles.surfaceFocused : ''} ${isWorking ? styles.surfaceWorking : ''}`}>
+      <div class={`${styles.surface} ${focused ? styles.surfaceFocused : ''} ${isWorking ? styles.surfaceWorking : ''} ${shellMode ? styles.surfaceShell : ''}`}>
 
         {/* Input area with completions */}
         <div class={styles.inputWrap}>
@@ -637,8 +808,8 @@ const MessageComposer = ({
             contentEditable
             role="textbox"
             aria-multiline="true"
-            aria-placeholder={isWorking ? 'Steer the agent...' : 'Send a message...'}
-            data-placeholder={isWorking ? 'Steer the agent...' : 'Send a message...'}
+            aria-placeholder={shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'}
+            data-placeholder={shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -664,6 +835,28 @@ const MessageComposer = ({
                 <StopIcon />
               </button>
             )}
+            {/* Model/effort control */}
+            <div class={styles.workflowAnchor} ref={modelRef}>
+              <button
+                type="button"
+                class={`${styles.ghostAction} ${modelPopoverOpen ? styles.ghostActionActive : ''}`}
+                onClick={() => setModelPopoverOpen((v) => !v)}
+                aria-label="Model & settings"
+                title={session?.model ? shortModelName(session.model) : 'Model & settings'}
+              >
+                <TuneIcon />
+              </button>
+              <ModelEffortPopover
+                open={modelPopoverOpen}
+                onClose={() => setModelPopoverOpen(false)}
+                provider={provider}
+                models={availableModels}
+                currentModel={session?.model}
+                onModelChange={(model) => onModelChange?.(model)}
+                effort={effort}
+                onEffortChange={setEffort}
+              />
+            </div>
             <button
               type="button"
               class={styles.ghostAction}
@@ -734,6 +927,8 @@ const MessageComposer = ({
                 onContinueInNew={onContinueInNew}
                 onCompact={onCompact}
                 isActive={isActive}
+                shellMode={shellMode}
+                onToggleShell={onShellExec ? () => setShellMode((v) => !v) : null}
               />
             </div>
           </div>

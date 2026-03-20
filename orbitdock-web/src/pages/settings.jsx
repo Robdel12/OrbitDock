@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks'
-import { connectionState, serverInfo, http, reconnect } from '../stores/connection.js'
+import { connectionState, serverInfo, http, reconnect, authRequired } from '../stores/connection.js'
+import { token as authToken, clearToken } from '../stores/auth.js'
 import { sessions } from '../stores/sessions.js'
 import { Button } from '../components/ui/button.jsx'
 import { Card } from '../components/ui/card.jsx'
@@ -32,6 +33,7 @@ const PANES = [
   { id: 'models', label: 'Models', icon: ModelsIcon },
   { id: 'usage', label: 'Usage', icon: UsageIcon },
   { id: 'preferences', label: 'Preferences', icon: PrefsIcon },
+  { id: 'notifications', label: 'Notifications', icon: BellIcon },
   { id: 'diagnostics', label: 'Diagnostics', icon: DiagIcon },
 ]
 
@@ -73,6 +75,14 @@ function PrefsIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z" />
+    </svg>
+  )
+}
+
+function BellIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
     </svg>
   )
 }
@@ -199,6 +209,7 @@ const SettingsPage = () => {
           <UsagePane claudeUsage={claudeUsage} codexUsage={codexUsage} />
         )}
         {pane === 'preferences' && <PreferencesPane />}
+        {pane === 'notifications' && <NotificationsPane />}
         {pane === 'diagnostics' && (
           <DiagnosticsPane connState={connState} info={info} sessionCount={sessionCount} />
         )}
@@ -337,22 +348,139 @@ const UsagePane = ({ claudeUsage, codexUsage }) => (
   </div>
 )
 
-const PreferencesPane = () => (
-  <div class={styles.pane}>
-    <PaneHeader title="Preferences" />
-    <Card>
-      <div class={styles.preferenceRow}>
-        <div>
-          <div class={styles.preferenceLabel}>Theme</div>
-          <div class={styles.preferenceHint}>Light theme coming soon</div>
+const PreferencesPane = () => {
+  const tok = authToken.value
+  const masked = tok ? `${tok.slice(0, 8)}${'·'.repeat(12)}${tok.slice(-4)}` : null
+
+  const handleLogout = () => {
+    clearToken()
+    location.reload()
+  }
+
+  return (
+    <div class={styles.pane}>
+      <PaneHeader title="Preferences" />
+
+      <Card>
+        <div class={styles.preferenceRow}>
+          <div>
+            <div class={styles.preferenceLabel}>Theme</div>
+            <div class={styles.preferenceHint}>Light theme coming soon</div>
+          </div>
+          <div class={styles.preferenceControl}>
+            <Badge variant="status" color="accent">Dark</Badge>
+          </div>
         </div>
-        <div class={styles.preferenceControl}>
-          <Badge variant="status" color="accent">Dark</Badge>
+      </Card>
+
+      {authRequired.value && (
+        <>
+          <h3 class={`${styles.sectionTitle} ${styles.sectionTitleSpaced}`}>Authentication</h3>
+          <Card>
+            <div class={styles.preferenceRow}>
+              <div>
+                <div class={styles.preferenceLabel}>Auth Token</div>
+                <div class={styles.preferenceHint}>
+                  {masked ? (
+                    <code class={styles.maskedToken}>{masked}</code>
+                  ) : (
+                    'No token set'
+                  )}
+                </div>
+              </div>
+              <div class={styles.preferenceControl}>
+                {tok && (
+                  <Button variant="danger" size="sm" onClick={handleLogout}>
+                    Log Out
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
+const NotificationsPane = () => {
+  const [permission, setPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied',
+  )
+  const [soundEnabled, setSoundEnabled] = useState(
+    () => localStorage.getItem('orbitdock_sound_enabled') !== 'false',
+  )
+
+  const handleRequestPermission = async () => {
+    if (typeof Notification === 'undefined') return
+    const result = await Notification.requestPermission()
+    setPermission(result)
+  }
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled
+    setSoundEnabled(next)
+    localStorage.setItem('orbitdock_sound_enabled', String(next))
+  }
+
+  const notificationsSupported = typeof Notification !== 'undefined'
+
+  return (
+    <div class={styles.pane}>
+      <PaneHeader title="Notifications" />
+
+      <h3 class={styles.sectionTitle}>Browser Notifications</h3>
+      <Card>
+        <div class={styles.preferenceRow}>
+          <div>
+            <div class={styles.preferenceLabel}>Desktop Notifications</div>
+            <div class={styles.preferenceHint}>
+              {!notificationsSupported
+                ? 'Not supported in this browser'
+                : permission === 'granted'
+                  ? 'Enabled — you\'ll receive alerts when sessions need attention'
+                  : permission === 'denied'
+                    ? 'Blocked — update your browser site settings to allow notifications'
+                    : 'Allow notifications for session alerts'}
+            </div>
+          </div>
+          <div class={styles.preferenceControl}>
+            {notificationsSupported && permission === 'granted' && (
+              <Badge variant="status" color="feedback-positive">Enabled</Badge>
+            )}
+            {notificationsSupported && permission === 'denied' && (
+              <Badge variant="status" color="feedback-negative">Blocked</Badge>
+            )}
+            {notificationsSupported && permission === 'default' && (
+              <Button variant="secondary" size="sm" onClick={handleRequestPermission}>
+                Enable
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
-    </Card>
-  </div>
-)
+      </Card>
+
+      <h3 class={`${styles.sectionTitle} ${styles.sectionTitleSpaced}`}>Sound</h3>
+      <Card>
+        <div class={styles.preferenceRow}>
+          <div>
+            <div class={styles.preferenceLabel}>Notification Sounds</div>
+            <div class={styles.preferenceHint}>Play a sound when a session needs attention</div>
+          </div>
+          <div class={styles.preferenceControl}>
+            <Button
+              variant={soundEnabled ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={handleToggleSound}
+            >
+              {soundEnabled ? 'On' : 'Off'}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
+}
 
 const DiagnosticsPane = ({ connState, info, sessionCount }) => (
   <div class={styles.pane}>

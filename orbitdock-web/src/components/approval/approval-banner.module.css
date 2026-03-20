@@ -332,3 +332,35 @@
 .otherInput:focus {
   border-color: var(--color-status-question);
 }
+
+/* ── MCP Elicitation ───────────────────────────────────────── */
+
+.badgeMcp {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.mcpIcon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: var(--space-xs);
+  color: var(--color-text-tertiary);
+}
+
+.authLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--type-body);
+  color: var(--color-accent);
+  text-decoration: none;
+  padding: var(--space-xs) var(--space-sm);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.authLink:hover {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}

@@ -171,6 +171,48 @@
   border-color: rgba(84, 174, 229, 0.30);
 }
 
+.surfaceShell {
+  border-color: var(--color-feedback-positive);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-feedback-positive) 6%, transparent) 0%, transparent 100%),
+    color-mix(in srgb, var(--color-feedback-positive) 3%, transparent);
+}
+
+/* ── Shell mode strip ──────────────────────────────────────────────────── */
+
+.shellStrip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+  color: var(--color-feedback-positive);
+}
+
+.shellLabel {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: var(--letter-spacing-wide);
+  flex: 1;
+}
+
+.shellExit {
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--space-xxs) var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.shellExit:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-hover);
+}
+
 /* ── Input area ─────────────────────────────────────────────────────────── */
 
 .inputWrap {
@@ -199,6 +241,12 @@
   white-space: pre-wrap;
   caret-color: var(--color-accent);
   -webkit-user-modify: read-write-plaintext-only;
+}
+
+.surfaceShell .editor {
+  font-family: var(--font-mono);
+  font-size: var(--type-code);
+  caret-color: var(--color-feedback-positive);
 }
 
 /* Placeholder via ::before pseudo-element */
@@ -389,6 +437,91 @@
   height: 1px;
   background: var(--color-surface-border);
   margin: var(--space-xxs) var(--space-md);
+}
+
+/* ── Ghost action active state ────────────────────────────────────────── */
+
+.ghostActionActive {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+/* ── Model/effort popover ────────────────────────────────────────────── */
+
+.modelPopover {
+  position: absolute;
+  bottom: calc(100% + var(--space-xs));
+  left: 0;
+  min-width: 200px;
+  max-width: 260px;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-surface-border-accent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(12px);
+  z-index: var(--z-popover);
+  padding: var(--space-xs) 0;
+  animation: menuIn var(--transition-fast) ease;
+}
+
+.modelEmpty {
+  display: block;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-caption);
+  color: var(--color-text-quaternary);
+}
+
+.modelItemActive {
+  color: var(--color-accent) !important;
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.modelItemLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelCheck {
+  flex-shrink: 0;
+  color: var(--color-accent);
+  margin-left: var(--space-sm);
+}
+
+.effortPicker {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-xs) var(--space-md) var(--space-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-md);
+  margin: 0 var(--space-sm);
+}
+
+.effortOption {
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--type-caption);
+  font-weight: var(--font-weight-medium);
+  font-family: inherit;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: center;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.effortOption:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-surface-hover);
+}
+
+.effortOptionActive {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
 /* ── Follow / pin controls ──────────────────────────────────────────────── */

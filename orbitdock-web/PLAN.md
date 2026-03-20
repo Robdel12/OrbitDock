@@ -32,7 +32,7 @@ The web currently has provider controls + text area + toolbar. Missing: status b
 - [x] **1.4 — Workflow overflow menu**
   Add an ellipsis (⋯) ghost button in the toolbar left side, after the existing controls + separator. Menu contains: Undo Last Turn, Fork Conversation, Compact Context (initial set — more items added in Phase 5).
 
-- [ ] **1.5 — Model/effort control button**
+- [x] **1.5 — Model/effort control button**
   Add a slider/tune icon ghost button in the toolbar left side (before image attach). Opens a popover with model selector (fetched from `/api/models/{provider}`) and effort picker for Codex. For Claude, shows model list only.
 
 - [x] **1.6 — Replace toolbar icons with proper SVGs**
@@ -191,19 +191,19 @@ Systematic pass to replace rough edges and align with native design language.
 
 ## Phase 8: Settings & Remaining Pages
 
-- [ ] **8.1 — Settings sidebar navigation**
+- [x] **8.1 — Settings sidebar navigation**
   Replace single-page scroll with sidebar-navigated panes: Connection, API Keys, Models, Usage, Preferences, Diagnostics. Use a 220px sidebar on desktop, tab chips on mobile.
 
-- [ ] **8.2 — Workspace preferences**
+- [x] **8.2 — Workspace preferences**
   Add workspace pane: default editor picker, session naming preferences.
 
-- [ ] **8.3 — Notifications settings**
+- [x] **8.3 — Notifications settings**
   Add notifications pane: browser notification permission, sound selection (if applicable).
 
-- [ ] **8.4 — MCP elicitation UI**
+- [x] **8.4 — MCP elicitation UI**
   Handle MCP elicitation approval subtypes: URL auth flow (show URL, text input for code) and form-based elicitation (render form fields from server payload).
 
-- [ ] **8.5 — Shell mode**
+- [x] **8.5 — Shell mode**
   Add shell mode toggle (accessible from workflow overflow menu). When active, show a colored strip "Shell Command" above the composer, change input styling, send raw text as shell commands.
 
 ---
@@ -212,12 +212,12 @@ Systematic pass to replace rough edges and align with native design language.
 
 | Phase | Items | Done | Status |
 |-------|-------|------|--------|
-| 1. Composer & Footer | 7 | 6 | In progress (1.5 remaining) |
+| 1. Composer & Footer | 7 | 7 | Complete |
 | 2. Dashboard Zones | 7 | 7 | Complete |
 | 3. Session Header | 5 | 5 | Complete |
 | 4. Conversation Polish | 6 | 6 | Complete |
 | 5. Session Lifecycle | 5 | 5 | Complete |
 | 6. Command Palette | 5 | 5 | Complete |
 | 7. Visual Polish | 6 | 6 | Complete |
-| 8. Settings & Pages | 5 | 0 | Not started |
-| **Total** | **46** | **40** | |
+| 8. Settings & Pages | 5 | 5 | Complete |
+| **Total** | **46** | **46** | Complete |

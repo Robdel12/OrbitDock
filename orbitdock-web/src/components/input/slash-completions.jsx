@@ -14,7 +14,7 @@ const SLASH_COMMANDS = [
   { name: '/cost',         description: 'Show token usage and cost estimate' },
   { name: '/reset',        description: 'Reset session context' },
   { name: '/resume',       description: 'Resume a paused or ended session', action: 'resume' },
-  { name: '/shell',        description: 'Run a shell command directly' },
+  { name: '/shell',        description: 'Toggle shell mode for running commands', action: 'shell' },
   { name: '/undo',         description: 'Undo the last turn', action: 'undo' },
   { name: '/end',          description: 'End the current session', action: 'end' },
   { name: '/fork',         description: 'Fork the conversation', action: 'fork' },

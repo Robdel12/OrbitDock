@@ -220,6 +220,13 @@ const SessionPage = () => {
     })
   }
 
+  const handleModelChange = (model) => {
+    http.patch(`/api/sessions/${sessionId}/config`, { model }).catch((err) => {
+      console.warn('[session] model change failed:', err.message)
+      addToast({ title: 'Model change failed', body: err.message, type: 'error' })
+    })
+  }
+
   const handleDecide = (decision) => {
     if (!pendingRequest) return
     sendApproval({ type: 'DECIDE', decision })
@@ -323,6 +330,13 @@ const SessionPage = () => {
   const handleSteer = (content) => {
     http.post(`/api/sessions/${sessionId}/steer`, { content }).catch((err) => {
       console.warn('[session] steer failed:', err.message)
+    })
+  }
+
+  const handleShellExec = (command) => {
+    http.post(`/api/sessions/${sessionId}/shell/exec`, { command, timeout_secs: 120 }).catch((err) => {
+      console.warn('[session] shell exec failed:', err.message)
+      addToast({ title: 'Shell exec failed', body: err.message, type: 'error' })
     })
   }
 
@@ -436,6 +450,7 @@ const SessionPage = () => {
           sessionId={sessionId}
           onSend={handleSend}
           onSteer={handleSteer}
+          onShellExec={handleShellExec}
           onInterrupt={handleInterrupt}
           onResume={handleResume}
           onContinueInNew={handleContinueInNew}
@@ -459,6 +474,7 @@ const SessionPage = () => {
           isPinned={scrollAnchor.isPinned.value}
           unreadCount={unreadCount}
           onScrollToBottom={scrollAnchor.scrollToBottom}
+          onModelChange={handleModelChange}
         />
         <CapabilitiesPanel
           open={capabilitiesOpen}

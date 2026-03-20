@@ -265,6 +265,13 @@
   gap: var(--space-xs);
 }
 
+.maskedToken {
+  font-family: var(--font-mono);
+  font-size: var(--type-caption);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.02em;
+}
+
 /* ── Diagnostics ─────────────────────────────────────────────────────────── */
 
 .diagRow {
