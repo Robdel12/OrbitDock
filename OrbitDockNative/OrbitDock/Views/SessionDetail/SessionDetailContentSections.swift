@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionDetailConversationSection: View {
   let sessionId: String
+  let sessionStore: SessionStore
   let endpointId: UUID
   let isSessionActive: Bool
   let displayStatus: SessionDisplayStatus
@@ -17,6 +18,7 @@ struct SessionDetailConversationSection: View {
   var body: some View {
     ConversationView(
       sessionId: sessionId,
+      sessionStore: sessionStore,
       endpointId: endpointId,
       isSessionActive: isSessionActive,
       displayStatus: displayStatus,
@@ -35,6 +37,7 @@ struct SessionDetailConversationSection: View {
 
 struct SessionDetailReviewSection: View {
   let sessionId: String
+  let sessionStore: SessionStore
   let projectPath: String
   let isSessionActive: Bool
   let compact: Bool
@@ -46,6 +49,7 @@ struct SessionDetailReviewSection: View {
   var body: some View {
     ReviewCanvas(
       sessionId: sessionId,
+      sessionStore: sessionStore,
       projectPath: projectPath,
       isSessionActive: isSessionActive,
       compact: compact,

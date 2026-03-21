@@ -3,67 +3,36 @@
 //  OrbitDock
 //
 
-import OSLog
 import SwiftUI
 
 struct SessionDetailView: View {
-  @Environment(SessionStore.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
   @Environment(\.modelPricingService) var modelPricingService
   @Environment(AppRouter.self) var router
   let sessionId: String
   let endpointId: UUID
+  let sessionStore: SessionStore
 
   var scopedServerState: SessionStore {
-    runtimeRegistry.sessionStore(for: endpointId, fallback: serverState)
+    viewModel.sessionStore
   }
 
-  var obs: SessionObservable {
-    scopedServerState.session(sessionId)
-  }
-
-  @State var copiedResume = false
-  @State var selectedWorkerId: String?
-  @State var conversationJumpTarget: ConversationJumpTarget?
-
-  // Chat scroll state
-  @State var isPinned = true
-  @State var unreadCount = 0
-  @State var scrollToBottomTrigger = 0
+  @State var viewModel = SessionDetailViewModel()
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
-  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
-  @State var selectedSkills: Set<String> = []
-
-  // Layout state for review canvas
-  @State var layoutConfig: LayoutConfiguration = .conversationOnly
-  @State var showDiffBanner = false
-  @State var reviewFileId: String?
-  @State var navigateToComment: ServerReviewComment?
-  @State var selectedCommentIds: Set<String> = []
-  @State var pendingApprovalPanelOpenSignal = 0
-
-  // Worktree cleanup state
-  @State var worktreeCleanupDismissed = false
-  @State var deleteBranchOnCleanup = true
-  @State var isCleaningUpWorktree = false
-  @State var worktreeCleanupError: String?
 
   var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
 
   var actionBarState: SessionDetailActionBarState {
-    SessionDetailActionBarPlanner.state(
-      branch: obs.branch,
-      projectPath: obs.projectPath,
-      usageStats: usageStats,
-      isPinned: isPinned,
-      unreadCount: unreadCount,
-      lastActivityAt: obs.lastActivityAt
-    )
+    viewModel.actionBarState
+  }
+
+  var screenPresentation: SessionDetailScreenPresentation {
+    viewModel.screenPresentation
   }
 
   var body: some View {
@@ -73,22 +42,13 @@ struct SessionDetailView: View {
         HeaderView(
           sessionId: sessionId,
           endpointId: endpointId,
-          onEndSession: obs.isDirect ? { endDirectSession() } : nil,
-          layoutConfig: obs.isDirect ? $layoutConfig : nil,
+          presentation: screenPresentation,
+          codexAccountStatus: scopedServerState.codexAccountStatus,
+          onEndSession: screenPresentation.isDirect ? { viewModel.endDirectSession() } : nil,
+          layoutConfig: screenPresentation.isDirect ? $viewModel.layoutConfig : nil,
           chatViewMode: $chatViewMode,
           workerPanelVisible: $showWorkerPanel,
-          hasWorkerPanelContent: workerRosterPresentation != nil,
-          selectedCommentIds: $selectedCommentIds,
-          onNavigateToComment: { comment in
-            navigateToComment = comment
-            withAnimation(Motion.gentle) {
-              layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-                currentLayout: layoutConfig,
-                intent: .revealReviewSplit
-              )
-            }
-          },
-          onSendReview: { sendReviewToModel() }
+          hasWorkerPanelContent: workerRosterPresentation != nil
         )
 
         Divider()
@@ -102,7 +62,7 @@ struct SessionDetailView: View {
       #endif
 
       // Diff-available banner
-      if showDiffBanner, layoutConfig == .conversationOnly {
+      if viewModel.showDiffBanner, viewModel.layoutConfig == .conversationOnly {
         diffAvailableBanner
       }
 
@@ -112,11 +72,11 @@ struct SessionDetailView: View {
       }
 
       // Mission context banner
-      if let issueId = obs.issueIdentifier {
-        missionContextBanner(issueIdentifier: issueId)
+      if let issueId = screenPresentation.issueIdentifier {
+        missionContextBanner(issueIdentifier: issueId, missionId: screenPresentation.missionId)
       }
 
-      SessionDetailMainContentArea(layoutConfig: layoutConfig) {
+      SessionDetailMainContentArea(layoutConfig: viewModel.layoutConfig) {
         conversationContent
       } review: {
         reviewCanvas
@@ -127,11 +87,12 @@ struct SessionDetailView: View {
       SessionDetailFooter(mode: footerMode) {
         DirectSessionComposer(
           sessionId: sessionId,
-          selectedSkills: $selectedSkills,
-          pendingPanelOpenSignal: pendingApprovalPanelOpenSignal,
-          isPinned: $isPinned,
-          unreadCount: $unreadCount,
-          scrollToBottomTrigger: $scrollToBottomTrigger
+          sessionStore: scopedServerState,
+          selectedSkills: $viewModel.selectedSkills,
+          pendingPanelOpenSignal: viewModel.pendingApprovalPanelOpenSignal,
+          isPinned: $viewModel.isPinned,
+          unreadCount: $viewModel.unreadCount,
+          scrollToBottomTrigger: $viewModel.scrollToBottomTrigger
         )
       } takeOverBar: {
         TakeOverInputBar(
@@ -149,60 +110,64 @@ struct SessionDetailView: View {
       }
     }
     .background(Color.backgroundPrimary)
+    .task(id: "\(endpointId.uuidString):\(sessionId)") {
+      viewModel.bind(
+        sessionId: sessionId,
+        endpointId: endpointId,
+        runtimeRegistry: runtimeRegistry,
+        fallbackStore: sessionStore,
+        modelPricingService: modelPricingService
+      )
+    }
     #if os(iOS)
-      .navigationTitle(obs.displayName)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-          Button { router.openQuickSwitcher() } label: {
-            Image(systemName: "magnifyingglass")
-          }
-          iOSOverflowMenu
+    .navigationTitle(screenPresentation.displayName)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Button { router.openQuickSwitcher() } label: {
+          Image(systemName: "magnifyingglass")
         }
+        iOSOverflowMenu
       }
+    }
     #endif
-      .environment(scopedServerState)
-      .onAppear(perform: handleOnAppear)
-      .onDisappear(perform: handleOnDisappear)
-      .onChange(of: isPinned) { _, pinned in
-        handlePinnedChange(pinned)
+    .environment(scopedServerState)
+    .onAppear(perform: handleOnAppear)
+    .onDisappear(perform: handleOnDisappear)
+    .onChange(of: viewModel.isPinned) { _, pinned in
+      viewModel.handlePinnedChange(pinned)
+    }
+    // Layout keyboard shortcuts
+    .onKeyPress(phases: .down) { keyPress in
+      guard let command = SessionDetailShortcutPlanner.command(
+        isDirect: screenPresentation.isDirect,
+        modifiers: keyPress.modifiers,
+        key: keyPress.key
+      ) else {
+        return .ignored
       }
-      // Layout keyboard shortcuts
-      .onKeyPress(phases: .down) { keyPress in
-        guard let command = SessionDetailShortcutPlanner.command(
-          isDirect: obs.isDirect,
-          modifiers: keyPress.modifiers,
-          key: keyPress.key
-        ) else {
-          return .ignored
-        }
 
-        withAnimation(Motion.gentle) {
-          layoutConfig = SessionDetailShortcutPlanner.nextLayout(
-            currentLayout: layoutConfig,
+      withAnimation(Motion.gentle) {
+        viewModel.selectLayout(
+          SessionDetailShortcutPlanner.nextLayout(
+            currentLayout: viewModel.layoutConfig,
             command: command
           )
-        }
-        return .handled
+        )
       }
-      // Diff-available banner trigger
-      .onChange(of: scopedServerState.session(sessionId).diff) { oldDiff, newDiff in
-        handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
-      }
-      .onChange(of: workerSelectionSignature) { _, _ in
-        syncSelectedWorker()
-      }
+      return .handled
+    }
+    // Diff-available banner trigger
+    .onChange(of: viewModel.reviewState.diff) { oldDiff, newDiff in
+      handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
+    }
+    .onChange(of: workerSelectionSignature) { _, _ in
+      viewModel.syncSelectedWorker()
+    }
   }
 
   var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
-    SessionDetailWorktreeCleanupPlanner.bannerState(
-      status: obs.status,
-      isWorktree: obs.isWorktree,
-      dismissed: worktreeCleanupDismissed,
-      worktree: worktreeForSession,
-      branch: obs.branch,
-      isCleaningUp: isCleaningUpWorktree
-    )
+    viewModel.sessionDetailWorktreeCleanupState
   }
 
   // MARK: - iOS Native Nav Bar
@@ -212,10 +177,10 @@ struct SessionDetailView: View {
       HStack(spacing: Spacing.sm) {
         HeaderCompactStatusBadge(
           presentation: HeaderCompactPresentation.build(
-            workStatus: obs.workStatus,
-            provider: obs.provider,
-            model: obs.model,
-            effort: obs.effort
+            workStatus: screenPresentation.workStatus,
+            provider: screenPresentation.provider,
+            model: screenPresentation.model,
+            effort: screenPresentation.effort
           )
         )
         .layoutPriority(1)
@@ -235,10 +200,10 @@ struct SessionDetailView: View {
     private var iOSOverflowMenu: some View {
       Menu {
         // Session info
-        if let endpointName = obs.endpointName {
+        if let endpointName = screenPresentation.endpointName {
           Text("Endpoint: \(endpointName)")
         }
-        ForEach(SessionCapability.capabilities(for: obs)) { cap in
+        ForEach(screenPresentation.capabilities) { cap in
           if let icon = cap.icon {
             Label(cap.label, systemImage: icon)
           } else {
@@ -249,12 +214,12 @@ struct SessionDetailView: View {
         Divider()
 
         // Layout (only for direct sessions)
-        if obs.isDirect {
+        if screenPresentation.isDirect {
           Section("Layout") {
             ForEach(LayoutConfiguration.allCases, id: \.self) { config in
               Button {
                 withAnimation(Motion.gentle) {
-                  layoutConfig = config
+                  viewModel.selectLayout(config)
                 }
               } label: {
                 Label(config.label, systemImage: config.icon)
@@ -264,32 +229,24 @@ struct SessionDetailView: View {
         }
 
         HeaderContinuationMenuSection(
-          continuation: SessionContinuation(
-            endpointId: endpointId,
-            sessionId: sessionId,
-            provider: obs.provider,
-            displayName: obs.displayName,
-            projectPath: obs.projectPath,
-            model: obs.model,
-            hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
-          )
+          continuation: screenPresentation.continuation
         )
 
         Divider()
 
         HeaderDebugContextMenu(
-          sessionId: sessionId,
-          threadId: obs.codexThreadId,
-          projectPath: obs.projectPath,
-          provider: obs.provider,
-          codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
-          claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+          sessionId: screenPresentation.debugContext.sessionId,
+          threadId: screenPresentation.debugContext.threadId,
+          projectPath: screenPresentation.debugContext.projectPath,
+          provider: screenPresentation.debugContext.provider,
+          codexIntegrationMode: screenPresentation.debugContext.codexIntegrationMode,
+          claudeIntegrationMode: screenPresentation.debugContext.claudeIntegrationMode
         )
 
-        if obs.isDirect, obs.isActive {
+        if screenPresentation.isDirect, screenPresentation.isActive {
           Divider()
           Button(role: .destructive) {
-            endDirectSession()
+            viewModel.endDirectSession()
           } label: {
             Label("End Session", systemImage: "stop.circle")
           }
@@ -317,7 +274,7 @@ struct SessionDetailView: View {
 
   // MARK: - Mission Context Banner
 
-  func missionContextBanner(issueIdentifier: String) -> some View {
+  func missionContextBanner(issueIdentifier: String, missionId: String?) -> some View {
     HStack(spacing: Spacing.sm) {
       Image(systemName: "target")
         .font(.system(size: TypeScale.caption, weight: .bold))
@@ -333,7 +290,7 @@ struct SessionDetailView: View {
 
       Spacer()
 
-      if let missionId = obs.missionId {
+      if let missionId {
         Button {
           router.navigateToMission(missionId: missionId, endpointId: endpointId)
         } label: {
@@ -352,35 +309,18 @@ struct SessionDetailView: View {
   // MARK: - Helpers
 
   var shouldSubscribeToServerSession: Bool {
-    // The selected route is authoritative. Loading should not depend on the
-    // sessions list already being hydrated on this client.
-    !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    viewModel.shouldSubscribeToServerSession
   }
 
   var conversationChromeState: SessionDetailConversationChromeState {
-    SessionDetailConversationChromeState(
-      isPinned: isPinned,
-      unreadCount: unreadCount,
-      scrollToBottomTrigger: scrollToBottomTrigger,
-      pendingApprovalPanelOpenSignal: pendingApprovalPanelOpenSignal
-    )
+    viewModel.conversationChromeState
   }
 
   func applyConversationChromeState(
     _ state: SessionDetailConversationChromeState,
     animatePendingApprovalPanel: Bool = false
   ) {
-    if animatePendingApprovalPanel {
-      withAnimation(Motion.standard) {
-        pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
-      }
-    } else {
-      pendingApprovalPanelOpenSignal = state.pendingApprovalPanelOpenSignal
-    }
-
-    isPinned = state.isPinned
-    unreadCount = state.unreadCount
-    scrollToBottomTrigger = state.scrollToBottomTrigger
+    viewModel.applyConversationChromeState(state, animatePendingApprovalPanel: animatePendingApprovalPanel)
   }
 
 }
@@ -388,9 +328,9 @@ struct SessionDetailView: View {
 #Preview {
   SessionDetailView(
     sessionId: "preview-123",
-    endpointId: UUID()
+    endpointId: UUID(),
+    sessionStore: SessionStore.preview()
   )
-  .environment(SessionStore.preview())
   .environment(AttentionService())
   .environment(AppRouter())
   .frame(width: 800, height: 600)

@@ -2,34 +2,16 @@ import SwiftUI
 
 extension SessionDetailView {
   var workerRosterPresentation: SessionWorkerRosterPresentation? {
-    SessionWorkerRosterPlanner.presentation(subagents: obs.subagents)
+    viewModel.workerRosterPresentation
   }
 
   var workerDetailPresentation: SessionWorkerDetailPresentation? {
-    guard showWorkerPanel, let selectedWorkerId else { return nil }
-
-    let hasLoadedWorkerPayload =
-      obs.subagentTools[selectedWorkerId] != nil || obs.subagentMessages[selectedWorkerId] != nil
-
-    guard hasLoadedWorkerPayload else { return nil }
-
-    return SessionWorkerRosterPlanner.detailPresentation(
-      subagents: obs.subagents,
-      selectedWorkerID: selectedWorkerId,
-      toolsByWorker: obs.subagentTools,
-      messagesByWorker: obs.subagentMessages,
-      timelineEntries: obs.rowEntries
-    )
+    guard showWorkerPanel else { return nil }
+    return viewModel.workerDetailPresentation
   }
 
   var workerSelectionSignature: [String] {
-    obs.subagents.map {
-      [
-        $0.id,
-        $0.status?.rawValue ?? "none",
-        $0.lastActivityAt ?? "",
-      ].joined(separator: "|")
-    }
+    viewModel.workerSelectionSignature
   }
 
   @ViewBuilder
@@ -41,18 +23,14 @@ extension SessionDetailView {
       SessionWorkerCompanionPanel(
         rosterPresentation: workerRosterPresentation,
         detailPresentation: workerDetailPresentation,
-        selectedWorkerID: selectedWorkerId,
+        selectedWorkerID: viewModel.selectedWorkerId,
         onSelectWorker: { workerId in
           selectWorkerInPanel(workerId)
         },
         onRevealConversationEvent: { messageId in
-          if layoutConfig == .reviewOnly {
-            withAnimation(Motion.gentle) {
-              layoutConfig = .split
-            }
+          withAnimation(Motion.gentle) {
+            viewModel.revealWorkerConversationEvent(messageId)
           }
-          isPinned = false
-          conversationJumpTarget = .init(messageID: messageId, nonce: (conversationJumpTarget?.nonce ?? 0) + 1)
         }
       )
       .frame(width: 320)
@@ -113,10 +91,10 @@ extension SessionDetailView {
       state: actionBarState,
       usageStats: usageStats,
       canRevealInFileBrowser: Platform.services.capabilities.canRevealInFileBrowser,
-      copiedResume: copiedResume,
-      onCopyResume: copyResumeCommand,
+      copiedResume: viewModel.copiedResume,
+      onCopyResume: viewModel.copyResumeCommand,
       onRevealInFinder: {
-        _ = Platform.services.revealInFileBrowser(obs.projectPath)
+        _ = Platform.services.revealInFileBrowser(screenPresentation.projectPath)
       },
       jumpToLatest: jumpConversationToLatest,
       togglePinned: toggleConversationPinnedState
@@ -124,49 +102,46 @@ extension SessionDetailView {
   }
 
   var conversationContent: some View {
-    SessionDetailConversationSection(
-      sessionId: sessionId,
-      endpointId: endpointId,
-      isSessionActive: obs.isActive,
-      displayStatus: obs.displayStatus,
-      currentTool: currentTool,
+    let presentation = viewModel.conversationPresentation
+
+    return SessionDetailConversationSection(
+      sessionId: presentation.sessionId,
+      sessionStore: scopedServerState,
+      endpointId: presentation.endpointId,
+      isSessionActive: presentation.isSessionActive,
+      displayStatus: presentation.displayStatus,
+      currentTool: presentation.currentTool,
       chatViewMode: chatViewMode,
-      openFileInReview: obs.isDirect ? { filePath in
-        let plan = SessionDetailLayoutPlanner.openFileInReviewPlan(
-          projectPath: obs.projectPath,
-          currentLayout: layoutConfig,
-          filePath: filePath
-        )
-        reviewFileId = plan.reviewFileId
+      openFileInReview: presentation.canOpenFileInReview ? { filePath in
         withAnimation(Motion.gentle) {
-          layoutConfig = plan.layoutConfig
+          viewModel.openFileInReview(projectPath: presentation.projectPath, filePath: filePath)
         }
       } : nil,
       focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
         focusWorkerInDeck(workerId)
       } : nil,
-      jumpToMessageTarget: $conversationJumpTarget,
-      isPinned: $isPinned,
-      unreadCount: $unreadCount,
-      scrollToBottomTrigger: $scrollToBottomTrigger
+      jumpToMessageTarget: $viewModel.conversationJumpTarget,
+      isPinned: $viewModel.isPinned,
+      unreadCount: $viewModel.unreadCount,
+      scrollToBottomTrigger: $viewModel.scrollToBottomTrigger
     )
   }
 
   var reviewCanvas: some View {
-    SessionDetailReviewSection(
-      sessionId: sessionId,
-      projectPath: obs.projectPath,
-      isSessionActive: obs.isActive,
-      compact: layoutConfig == .split,
-      reviewFileId: $reviewFileId,
-      selectedCommentIds: $selectedCommentIds,
-      navigateToComment: $navigateToComment,
+    let presentation = viewModel.reviewPresentation
+
+    return SessionDetailReviewSection(
+      sessionId: presentation.sessionId,
+      sessionStore: scopedServerState,
+      projectPath: presentation.projectPath,
+      isSessionActive: presentation.isSessionActive,
+      compact: presentation.compact,
+      reviewFileId: $viewModel.reviewFileId,
+      selectedCommentIds: $viewModel.selectedCommentIds,
+      navigateToComment: $viewModel.navigateToComment,
       onDismiss: {
         withAnimation(Motion.gentle) {
-          layoutConfig = SessionDetailLayoutPlanner.nextLayout(
-            currentLayout: layoutConfig,
-            intent: .dismissReview
-          )
+          viewModel.dismissReview()
         }
       }
     )
@@ -176,73 +151,49 @@ extension SessionDetailView {
     SessionDetailDiffAvailableBanner(
       fileCount: diffFileCount,
       onRevealReview: {
-        let nextLayout = SessionDetailLayoutPlanner.nextLayout(
-          currentLayout: layoutConfig,
-          intent: .revealReviewSplit
-        )
         withAnimation(Motion.gentle) {
-          layoutConfig = nextLayout
-          showDiffBanner = false
+          viewModel.revealReview()
         }
       }
     )
   }
 
   var diffFileCount: Int {
-    SessionDetailDiffPlanner.fileCount(
-      turnDiffs: obs.turnDiffs,
-      currentDiff: obs.diff
-    )
+    viewModel.diffFileCount
   }
 
   var showWorktreeCleanupBanner: Bool {
-    sessionDetailWorktreeCleanupState != nil
+    viewModel.showWorktreeCleanupBanner
   }
 
   var worktreeForSession: ServerWorktreeSummary? {
-    SessionDetailWorktreeCleanupPlanner.resolveWorktree(
-      worktreesByRepo: scopedServerState.worktreesByRepo,
-      worktreeId: obs.worktreeId,
-      projectPath: obs.projectPath
-    )
+    viewModel.worktreeForSession
   }
 
   var worktreeCleanupBanner: some View {
     SessionDetailWorktreeCleanupBanner(
       bannerState: sessionDetailWorktreeCleanupState,
-      errorMessage: worktreeCleanupError,
-      deleteBranchOnCleanup: $deleteBranchOnCleanup,
-      isCleaningUp: isCleaningUpWorktree,
+      errorMessage: viewModel.worktreeCleanupError,
+      deleteBranchOnCleanup: $viewModel.deleteBranchOnCleanup,
+      isCleaningUp: viewModel.isCleaningUpWorktree,
       onKeep: {
         withAnimation(Motion.gentle) {
-          worktreeCleanupDismissed = true
+          viewModel.worktreeCleanupDismissed = true
         }
       },
-      onCleanUp: cleanUpWorktree
+      onCleanUp: viewModel.cleanUpWorktree
     )
   }
 
   var currentTool: String? {
-    obs.lastTool
+    viewModel.currentTool
   }
 
   var usageStats: TranscriptUsageStats {
-    SessionDetailUsagePlanner.makeStats(
-      model: obs.model,
-      inputTokens: obs.inputTokens,
-      outputTokens: obs.outputTokens,
-      cachedTokens: obs.cachedTokens,
-      contextUsed: obs.effectiveContextInputTokens,
-      totalTokens: obs.totalTokens,
-      costCalculator: modelPricingService.calculatorSnapshot
-    )
+    viewModel.usageStats
   }
 
   var footerMode: SessionDetailFooterMode {
-    SessionDetailFooterPlanner.mode(
-      isDirect: obs.isDirect,
-      canTakeOver: obs.canTakeOver,
-      needsApprovalOverlay: obs.needsApprovalOverlay
-    )
+    viewModel.footerMode
   }
 }

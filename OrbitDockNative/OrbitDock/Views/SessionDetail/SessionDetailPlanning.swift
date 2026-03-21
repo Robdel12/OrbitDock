@@ -148,13 +148,10 @@ enum SessionDetailStatusStripPlanner {
 
 struct SessionDetailOnAppearPlan: Equatable {
   let shouldSubscribe: Bool
-  let autoMarkReadEnabled: Bool
   let shouldLoadApprovalHistory: Bool
 }
 
 struct SessionDetailOnDisappearPlan: Equatable {
-  let shouldSetAutoMarkRead: Bool
-  let autoMarkReadEnabled: Bool
   let shouldUnsubscribe: Bool
 }
 
@@ -162,11 +159,10 @@ enum SessionDetailLifecyclePlanner {
   static func onAppearPlan(
     shouldSubscribeToServerSession: Bool,
     isDirect: Bool,
-    isPinned: Bool
+    isPinned _: Bool
   ) -> SessionDetailOnAppearPlan {
     SessionDetailOnAppearPlan(
       shouldSubscribe: shouldSubscribeToServerSession,
-      autoMarkReadEnabled: isPinned,
       shouldLoadApprovalHistory: shouldSubscribeToServerSession && isDirect
     )
   }
@@ -175,18 +171,8 @@ enum SessionDetailLifecyclePlanner {
     shouldSubscribeToServerSession: Bool
   ) -> SessionDetailOnDisappearPlan {
     SessionDetailOnDisappearPlan(
-      shouldSetAutoMarkRead: shouldSubscribeToServerSession,
-      autoMarkReadEnabled: false,
       shouldUnsubscribe: shouldSubscribeToServerSession
     )
-  }
-
-  static func autoMarkReadEnabled(
-    shouldSubscribeToServerSession: Bool,
-    isPinned: Bool
-  ) -> Bool? {
-    guard shouldSubscribeToServerSession else { return nil }
-    return isPinned
   }
 
   static func shouldRevealDiffBanner(

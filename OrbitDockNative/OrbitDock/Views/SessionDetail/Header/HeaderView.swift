@@ -1,42 +1,27 @@
-//
-//  HeaderView.swift
-//  OrbitDock
-//
-//  Compact header bar for session detail view
-//
-
 import SwiftUI
 
 struct HeaderView: View {
   @Environment(AppRouter.self) private var router
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let sessionId: String
   let endpointId: UUID
+  let presentation: SessionDetailScreenPresentation
+  let codexAccountStatus: ServerCodexAccountStatus?
   var onEndSession: (() -> Void)?
   var layoutConfig: Binding<LayoutConfiguration>?
   var chatViewMode: Binding<ChatViewMode>?
   var workerPanelVisible: Binding<Bool>?
   var hasWorkerPanelContent = false
-  @Binding var selectedCommentIds: Set<String>
-  var onNavigateToComment: ((ServerReviewComment) -> Void)?
-  var onSendReview: (() -> Void)?
 
-  @Environment(SessionStore.self) private var serverState
   @State private var isHoveringBack = false
-  @State private var isHoveringProject = false
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
-  private var obs: SessionObservable {
-    serverState.session(sessionId)
-  }
 
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
 
-  private var presentation: HeaderViewPresentation {
+  private var chromePresentation: HeaderViewPresentation {
     HeaderViewPlanner.presentation(
-      effort: obs.effort,
       hasLayoutToggle: layoutConfig != nil,
       hasChatModeToggle: chatViewMode != nil,
       compactLayout: layoutConfig?.wrappedValue
@@ -44,81 +29,63 @@ struct HeaderView: View {
   }
 
   private var currentContinuation: SessionContinuation {
-    SessionContinuation(
-      endpointId: endpointId,
-      sessionId: sessionId,
-      provider: obs.provider,
-      displayName: agentName,
-      projectPath: obs.projectPath,
-      model: obs.model,
-      hasGitRepository: obs.branch != nil || obs.repositoryRoot != nil || obs.isWorktree
-    )
+    presentation.continuation
   }
 
   var body: some View {
     HeaderShell {
-      if isCompactLayout {
-        compactHeader
-      } else {
-        regularHeader
+      Group {
+        if isCompactLayout {
+          compactHeader
+        } else {
+          regularHeader
+        }
       }
     }
   }
 
-  // MARK: - Layouts
-
   private var regularHeader: some View {
-    HeaderRegularShell(
-      leading: {
-        backButton
-        SessionStatusDot(status: obs.displayStatus, size: 10)
-        sessionTitleDropdown
-        UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
-        if shouldShowCodexAccountBadge {
-          codexAccountBadge
-        }
-        if let effort = presentation.effortLabel {
-          Text(effort)
-            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-            .foregroundStyle(presentation.effortColor)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xxs)
-            .background(presentation.effortColor.opacity(0.12), in: Capsule())
-        }
-      },
-      intelligence: {
-        if let layoutBinding = layoutConfig {
-          ContextualStatusStrip(
-            sessionId: sessionId,
-            layoutConfig: layoutBinding,
-            selectedCommentIds: $selectedCommentIds,
-            onNavigateToComment: onNavigateToComment,
-            onSendReview: onSendReview
-          )
-        }
-      },
-      controls: {
-        if let chatModeBinding = chatViewMode {
-          ConversationViewModeToggle(chatViewMode: chatModeBinding)
-        }
+    HStack(alignment: .center, spacing: Spacing.md) {
+      backButton
 
-        if let layoutBinding = layoutConfig {
-          layoutToggle(layoutBinding)
-        }
+      titleRow
+        .frame(maxWidth: .infinity, alignment: .leading)
 
-        if let workerPanelVisible, hasWorkerPanelContent {
-          workerPanelToggle(workerPanelVisible)
-        }
-
-        HStack(spacing: Spacing.xxs) {
-          navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
-          overflowMenu
-        }
-      }
+      controlTray
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.xs)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.panelBorder.opacity(0.55), lineWidth: 1)
     )
   }
 
-  // MARK: - Back Button
+  private var compactHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      compactBackButton
+
+      compactTitleRow
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      compactControlCluster
+      compactOverflowMenu
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.xs)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.panelBorder.opacity(0.55), lineWidth: 1)
+    )
+  }
 
   private var backButton: some View {
     Button(action: {
@@ -132,49 +99,50 @@ struct HeaderView: View {
           .font(.system(size: TypeScale.body, weight: .medium))
       }
       .foregroundStyle(isHoveringBack ? Color.textPrimary : Color.textSecondary)
-      .padding(.vertical, Spacing.xs)
       .padding(.horizontal, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(isHoveringBack ? Color.surfaceHover : Color.clear)
-      )
+      .padding(.vertical, Spacing.xs)
+      .background(isHoveringBack ? Color.surfaceHover : Color.clear, in: RoundedRectangle(cornerRadius: Radius.md))
     }
     .buttonStyle(.plain)
     .onHover { isHoveringBack = $0 }
     .help("Go to dashboard (⌘0)")
   }
 
-  // MARK: - Session Title Dropdown
+  private var compactBackButton: some View {
+    Button(action: { router.goToDashboard(source: .sessionHeader) }) {
+      Image(systemName: "chevron.left")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textSecondary)
+        .frame(width: 28, height: 28)
+        .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
+    }
+    .buttonStyle(.plain)
+    .help("Dashboard (⌘0)")
+  }
 
-  private var sessionTitleDropdown: some View {
-    Button(action: {
-      Platform.services.playHaptic(.selection)
-      router.openQuickSwitcher()
-    }) {
-      HStack(spacing: Spacing.xs) {
-        Text(agentName)
+  private var titleRow: some View {
+    Button(action: { router.openQuickSwitcher() }) {
+      HStack(spacing: Spacing.sm) {
+        SessionStatusDot(status: presentation.displayStatus, size: 9)
+
+        Text(presentation.displayName)
           .font(.system(size: 17, weight: .semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(Color.textPrimary)
           .lineLimit(1)
 
         Image(systemName: "chevron.down")
           .font(.system(size: TypeScale.micro, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
       }
-      .padding(.vertical, Spacing.xs)
-      .padding(.horizontal, Spacing.sm)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
-      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
-    .onHover { isHoveringProject = $0 }
     .contextMenu {
-      if obs.endpointName != nil {
-        Text("Endpoint: \(obs.endpointName ?? "")")
+      if let endpointName = presentation.endpointName {
+        Text("Endpoint: \(endpointName)")
       }
-      ForEach(SessionCapability.capabilities(for: obs)) { cap in
+      ForEach(presentation.capabilities) { cap in
         if let icon = cap.icon {
           Label(cap.label, systemImage: icon)
         } else {
@@ -183,23 +151,76 @@ struct HeaderView: View {
       }
       Divider()
       HeaderDebugContextMenu(
-        sessionId: sessionId,
-        threadId: obs.codexThreadId,
-        projectPath: obs.projectPath,
-        provider: obs.provider,
-        codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
-        claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
+        sessionId: presentation.debugContext.sessionId,
+        threadId: presentation.debugContext.threadId,
+        projectPath: presentation.debugContext.projectPath,
+        provider: presentation.debugContext.provider,
+        codexIntegrationMode: presentation.debugContext.codexIntegrationMode,
+        claudeIntegrationMode: presentation.debugContext.claudeIntegrationMode
       )
     }
   }
 
-  // MARK: - Overflow Menu
+  private var compactTitleRow: some View {
+    HStack(spacing: Spacing.sm) {
+      SessionStatusDot(status: presentation.displayStatus, size: 8)
+      Text(presentation.displayName)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+        .lineLimit(1)
+      Image(systemName: "chevron.down")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+    }
+  }
+
+  private var controlTray: some View {
+    HStack(spacing: Spacing.xs) {
+      if let chatModeBinding = chatViewMode {
+        ConversationViewModeToggle(
+          chatViewMode: chatModeBinding,
+          presentation: .compactLabeled,
+          showsContainerChrome: false
+        )
+      }
+
+      if let layoutBinding = layoutConfig {
+        layoutToggle(layoutBinding)
+      }
+
+      if let workerPanelVisible, hasWorkerPanelContent {
+        workerPanelToggle(workerPanelVisible)
+      }
+
+      navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
+      overflowMenu
+    }
+  }
+
+  private var compactControlCluster: some View {
+    HStack(spacing: Spacing.xs) {
+      if let layoutBinding = layoutConfig {
+        compactLayoutToggle(layoutBinding)
+      }
+
+      if let workerPanelVisible, hasWorkerPanelContent {
+        compactWorkerPanelToggle(workerPanelVisible)
+      }
+
+      if chromePresentation.showsConversationModeToggleInCompact, let chatModeBinding = chatViewMode {
+        ConversationViewModeToggle(
+          chatViewMode: chatModeBinding,
+          showsContainerChrome: false
+        )
+      }
+    }
+  }
 
   private var overflowMenu: some View {
     Menu {
       HeaderContinuationMenuSection(continuation: currentContinuation)
 
-      if obs.isDirect, obs.isActive, let onEnd = onEndSession {
+      if presentation.isDirect, presentation.isActive, let onEnd = onEndSession {
         Divider()
         Button(role: .destructive) {
           onEnd()
@@ -211,129 +232,93 @@ struct HeaderView: View {
       Image(systemName: "ellipsis.circle")
         .font(.system(size: TypeScale.body, weight: .medium))
         .foregroundStyle(Color.textTertiary)
-        .frame(width: 26, height: 26)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+        .frame(width: 28, height: 28)
+        .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md)
+            .strokeBorder(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
+        )
     }
     .menuStyle(.borderlessButton)
     .help("More options")
   }
 
-  private var compactHeader: some View {
-    HeaderCompactShell(
-      primaryRow: { compactPrimaryRow },
-      controlRow: { compactControlRow }
-    )
-  }
-
-  private var compactPrimaryRow: some View {
-    HStack(spacing: Spacing.xs) {
-      Button(action: { router.goToDashboard(source: .sessionHeader) }) {
-        Image(systemName: "chevron.left")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-          .frame(width: 26, height: 26)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-      }
-      .buttonStyle(.plain)
-      .help("Dashboard (⌘0)")
-
-      Button(action: { router.openQuickSwitcher() }) {
-        HStack(spacing: Spacing.xs) {
-          SessionStatusDot(status: obs.displayStatus, size: 10)
-
-          Text(agentName)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-
-          Image(systemName: "chevron.down")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-        }
-        .padding(.vertical, Spacing.xs)
-        .padding(.horizontal, Spacing.sm)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
-        )
-      }
-      .buttonStyle(.plain)
-      .onHover { isHoveringProject = $0 }
-      .contextMenu {
-        HeaderDebugContextMenu(
-          sessionId: sessionId,
-          threadId: obs.codexThreadId,
-          projectPath: obs.projectPath,
-          provider: obs.provider,
-          codexIntegrationMode: obs.codexIntegrationMode.map { String(describing: $0) },
-          claudeIntegrationMode: obs.claudeIntegrationMode.map { String(describing: $0) }
-        )
-      }
-      .layoutPriority(1)
-
-      Spacer(minLength: 0)
-
-      navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
-
-      compactOverflowMenu
-    }
-    .padding(.horizontal, Spacing.md)
-  }
-
-  private var compactControlRow: some View {
-    HStack(spacing: Spacing.sm) {
-      compactStatusSummaryBadge
-        .layoutPriority(1)
-
-      Spacer(minLength: 0)
-
-      if hasCompactModeControls {
-        compactModeControls
-      }
-    }
-    .padding(.horizontal, Spacing.md)
-  }
-
-  private var compactStatusSummaryBadge: some View {
-    HStack(spacing: Spacing.xs) {
-      HeaderCompactStatusBadge(
-        presentation: HeaderCompactPresentation.build(
-          workStatus: obs.workStatus,
-          provider: obs.provider,
-          model: obs.model,
-          effort: obs.effort
-        )
-      )
-
-      if shouldShowCodexAccountBadge {
-        codexAccountBadge
-      }
-    }
-  }
-
-  private var compactModeControls: some View {
-    HStack(spacing: Spacing.xs) {
+  private var compactOverflowMenu: some View {
+    Menu {
       if let layoutBinding = layoutConfig {
-        compactLayoutToggle(layoutBinding)
+        Section("Layout") {
+          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+            Button {
+              withAnimation(Motion.gentle) {
+                layoutBinding.wrappedValue = config
+              }
+            } label: {
+              Label(config.label, systemImage: config.icon)
+            }
+          }
+        }
       }
 
-      if let workerPanelVisible, hasWorkerPanelContent {
-        compactWorkerPanelToggle(workerPanelVisible)
-      }
+      HeaderContinuationMenuSection(continuation: currentContinuation)
 
-      if showsConversationModeToggleInCompact, let chatModeBinding = chatViewMode {
-        ConversationViewModeToggle(
-          chatViewMode: chatModeBinding,
-          showsContainerChrome: false
+      if presentation.isDirect, presentation.isActive, let onEnd = onEndSession {
+        Divider()
+        Button(role: .destructive) {
+          onEnd()
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+        .font(.system(size: TypeScale.subhead, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 28, height: 28)
+        .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
+    }
+    .menuStyle(.borderlessButton)
+    .help("More")
+  }
+
+  private func navButton(icon: String, action: @escaping () -> Void, help: String) -> some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: TypeScale.body, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 28, height: 28)
+        .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md)
+            .strokeBorder(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
         )
+    }
+    .buttonStyle(.plain)
+    .help(help)
+  }
+
+  private func layoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
+    HStack(spacing: Spacing.xxs) {
+      ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+        let isSelected = binding.wrappedValue == config
+        Button {
+          withAnimation(Motion.gentle) {
+            binding.wrappedValue = isSelected ? .conversationOnly : config
+          }
+        } label: {
+          Image(systemName: config.icon)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+            .frame(width: 26, height: 22)
+            .background(
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
       }
     }
     .padding(Spacing.xxs)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundTertiary.opacity(0.58))
-    )
-    .themeShadow(Shadow.md)
+    .background(Color.surfaceHover.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.md))
   }
 
   private func compactLayoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
@@ -359,131 +344,6 @@ struct HeaderView: View {
     }
   }
 
-  private var hasCompactModeControls: Bool {
-    layoutConfig != nil || showsConversationModeToggleInCompact
-  }
-
-  private var showsConversationModeToggleInCompact: Bool {
-    presentation.showsConversationModeToggleInCompact
-  }
-
-  private var compactOverflowMenu: some View {
-    Menu {
-      if let layoutBinding = layoutConfig {
-        Section("Layout") {
-          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
-            Button {
-              withAnimation(Motion.gentle) {
-                layoutBinding.wrappedValue = config
-              }
-            } label: {
-              Label(config.label, systemImage: config.icon)
-            }
-          }
-        }
-      }
-
-      HeaderContinuationMenuSection(continuation: currentContinuation)
-
-      if obs.isDirect, obs.isActive, let onEnd = onEndSession {
-        Divider()
-        Button(role: .destructive) {
-          onEnd()
-        } label: {
-          Label("End Session", systemImage: "stop.circle")
-        }
-      }
-    } label: {
-      Image(systemName: "ellipsis.circle")
-        .font(.system(size: TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 26, height: 26)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-    }
-    .menuStyle(.borderlessButton)
-    .help("More")
-  }
-
-  private var shouldShowCodexAccountBadge: Bool {
-    obs.provider == .codex && serverState.codexAccountStatus != nil
-  }
-
-  @ViewBuilder
-  private var codexAccountBadge: some View {
-    if let status = serverState.codexAccountStatus {
-      switch status.account {
-        case .apiKey?:
-          CapabilityBadge(label: "API Key", icon: "key.fill", color: .feedbackCaution)
-            .help(
-              "This Codex session is using API key auth. Some app-backed MCP capabilities may only appear with ChatGPT sign-in."
-            )
-        case .chatgpt?:
-          CapabilityBadge(label: "ChatGPT", icon: "sparkles", color: .feedbackPositive)
-            .help("This Codex session is using ChatGPT sign-in, which unlocks Codex-managed apps and MCP capabilities.")
-        case .none:
-          if status.requiresOpenaiAuth {
-            CapabilityBadge(
-              label: "Sign In",
-              icon: "person.crop.circle.badge.exclamationmark",
-              color: .statusPermission
-            )
-            .help("Sign in with ChatGPT to unlock Codex-managed apps and MCP capabilities.")
-          }
-      }
-    }
-  }
-
-  // MARK: - Nav Button Helper
-
-  private func navButton(
-    icon: String,
-    action: @escaping () -> Void,
-    help: String
-  ) -> some View {
-    Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 26, height: 26)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .help(help)
-  }
-
-  // MARK: - Layout Toggle
-
-  private func layoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
-    HStack(spacing: Spacing.xxs) {
-      ForEach(LayoutConfiguration.allCases, id: \.self) { config in
-        let isSelected = binding.wrappedValue == config
-
-        Button {
-          withAnimation(Motion.gentle) {
-            // Clicking the active button toggles back to conversation-only
-            binding.wrappedValue = isSelected ? .conversationOnly : config
-          }
-        } label: {
-          Image(systemName: config.icon)
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(isSelected ? Color.accent : .secondary)
-            .frame(width: 26, height: 22)
-            .background(
-              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            )
-        }
-        .buttonStyle(.plain)
-        .help(config.label)
-      }
-    }
-    .padding(Spacing.xxs)
-    .background(
-      Color.backgroundTertiary.opacity(0.5),
-      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-    )
-  }
-
   private func workerPanelToggle(_ binding: Binding<Bool>) -> some View {
     let isVisible = binding.wrappedValue
     return Button {
@@ -494,10 +354,11 @@ struct HeaderView: View {
       Image(systemName: "person.2.crop.square.stack.fill")
         .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(isVisible ? Color.accent : Color.textSecondary)
-        .frame(width: 26, height: 22)
-        .background(
-          isVisible ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .frame(width: 28, height: 28)
+        .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md)
+            .strokeBorder(isVisible ? Color.accent.opacity(0.55) : Color.surfaceBorder.opacity(0.3), lineWidth: 1)
         )
     }
     .buttonStyle(.plain)
@@ -523,24 +384,50 @@ struct HeaderView: View {
     .buttonStyle(.plain)
     .help(isVisible ? "Hide workers" : "Show workers")
   }
-
-  // MARK: - Helpers
-
-  private var agentName: String {
-    obs.displayName
-  }
-
 }
 
-// MARK: - Preview
-
 #Preview {
-  @Previewable @State var commentIds: Set<String> = []
+  let store = SessionStore.preview()
+  let session = store.session("test-123")
+  let headerPresentation = SessionDetailScreenPresentation(
+    displayName: session.displayName,
+    isDirect: session.isDirect,
+    isActive: session.isActive,
+    displayStatus: session.displayStatus,
+    workStatus: session.workStatus,
+    provider: session.provider,
+    model: session.model,
+    effort: session.effort,
+    endpointName: session.endpointName,
+    projectPath: session.projectPath,
+    issueIdentifier: session.issueIdentifier,
+    missionId: session.missionId,
+    capabilities: session.isDirect ? [.direct] : (session.provider == .codex ? [.passive] : []),
+    continuation: SessionContinuation(
+      endpointId: UUID(),
+      sessionId: "test-123",
+      provider: session.provider,
+      displayName: session.displayName,
+      projectPath: session.projectPath,
+      model: session.model,
+      hasGitRepository: session.branch != nil || session.repositoryRoot != nil || session.isWorktree
+    ),
+    debugContext: SessionDetailDebugContext(
+      sessionId: "test-123",
+      threadId: session.codexThreadId,
+      projectPath: session.projectPath,
+      provider: session.provider,
+      codexIntegrationMode: session.codexIntegrationMode.map { String(describing: $0) },
+      claudeIntegrationMode: session.claudeIntegrationMode.map { String(describing: $0) }
+    )
+  )
+
   VStack(spacing: 0) {
     HeaderView(
       sessionId: "test-123",
       endpointId: UUID(),
-      selectedCommentIds: $commentIds
+      presentation: headerPresentation,
+      codexAccountStatus: nil
     )
     .environment(AppRouter())
 
@@ -551,5 +438,4 @@ struct HeaderView: View {
   }
   .frame(width: 900)
   .background(Color.backgroundPrimary)
-  .environment(SessionStore.preview())
 }

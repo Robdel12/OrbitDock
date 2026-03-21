@@ -1,15 +1,12 @@
 import SwiftUI
 
 struct HeaderViewPresentation: Equatable {
-  let effortLabel: String?
-  let effortColor: Color
   let showsConversationModeToggleInCompact: Bool
   let hasCompactModeControls: Bool
 }
 
 enum HeaderViewPlanner {
   static func presentation(
-    effort: String?,
     hasLayoutToggle: Bool,
     hasChatModeToggle: Bool,
     compactLayout: LayoutConfiguration?
@@ -24,8 +21,6 @@ enum HeaderViewPlanner {
       }
 
     return HeaderViewPresentation(
-      effortLabel: HeaderCompactPresentation.effortLabel(for: effort),
-      effortColor: HeaderCompactPresentation.effortColor(for: effort),
       showsConversationModeToggleInCompact: showsConversationModeToggleInCompact,
       hasCompactModeControls: hasLayoutToggle || showsConversationModeToggleInCompact
     )

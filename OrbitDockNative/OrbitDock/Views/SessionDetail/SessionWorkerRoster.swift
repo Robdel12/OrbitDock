@@ -605,41 +605,41 @@ enum SessionWorkerRosterPlanner {
   private static func matchesWorker(_ entry: ServerConversationRowEntry, workerID: String) -> Bool {
     switch entry.row {
       case let .worker(worker):
-        return worker.worker.id == workerID
+        worker.worker.id == workerID
       case let .tool(tool):
-        return linkedWorkerID(for: tool) == workerID
+        linkedWorkerID(for: tool) == workerID
       case let .activityGroup(group):
-        return group.children.contains { linkedWorkerID(for: $0) == workerID }
+        group.children.contains { linkedWorkerID(for: $0) == workerID }
       default:
-        return false
+        false
     }
   }
 
   private static func workerEventTitle(for entry: ServerConversationRowEntry) -> String {
     switch entry.row {
       case let .worker(worker):
-        return worker.operation?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        worker.operation?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? worker.title
       case let .tool(tool):
-        return toolDisplayName(tool.title)
+        toolDisplayName(tool.title)
       case let .activityGroup(group):
-        return group.title
+        group.title
       case .assistant:
-        return "Assistant Update"
+        "Assistant Update"
       case .thinking:
-        return "Reasoning"
+        "Reasoning"
       case .shellCommand:
-        return "Shell"
+        "Shell"
       case .plan:
-        return "Plan"
+        "Plan"
       case .hook:
-        return "Hook"
+        "Hook"
       case .handoff:
-        return "Handoff"
+        "Handoff"
       case .system, .context, .notice, .task, .approval, .question:
-        return "System"
+        "System"
       case .user:
-        return "User"
+        "User"
     }
   }
 
@@ -687,27 +687,27 @@ enum SessionWorkerRosterPlanner {
   private static func workerEventIcon(for entry: ServerConversationRowEntry) -> String {
     switch entry.row {
       case let .tool(tool):
-        return ToolCardStyle.icon(for: tool.title)
+        ToolCardStyle.icon(for: tool.title)
       case let .activityGroup(group):
-        return group.children.first.map { ToolCardStyle.icon(for: $0.title) } ?? "square.stack.3d.up.fill"
+        group.children.first.map { ToolCardStyle.icon(for: $0.title) } ?? "square.stack.3d.up.fill"
       case let .worker(worker):
-        return visuals(for: worker.worker.agentType ?? "worker").iconName
+        visuals(for: worker.worker.agentType ?? "worker").iconName
       case .assistant:
-        return "bubble.left.and.text.bubble.right.fill"
+        "bubble.left.and.text.bubble.right.fill"
       case .thinking:
-        return "brain"
+        "brain"
       case .shellCommand:
-        return "terminal"
+        "terminal"
       case .system, .context, .notice, .task, .approval, .question:
-        return "gearshape.2.fill"
+        "gearshape.2.fill"
       case .user:
-        return "person.fill"
+        "person.fill"
       case .plan:
-        return "map.fill"
+        "map.fill"
       case .hook:
-        return "bolt.horizontal.fill"
+        "bolt.horizontal.fill"
       case .handoff:
-        return "arrow.left.arrow.right.circle.fill"
+        "arrow.left.arrow.right.circle.fill"
     }
   }
 
@@ -718,40 +718,40 @@ enum SessionWorkerRosterPlanner {
       case let .worker(worker):
         switch worker.worker.status {
           case .failed, .blocked:
-            return ("Error", .feedbackNegative)
+            ("Error", .feedbackNegative)
           case .running, .pending, .needsInput:
-            return ("Live", .statusWorking)
+            ("Live", .statusWorking)
           case .completed:
-            return ("Captured", .feedbackPositive)
+            ("Captured", .feedbackPositive)
           case .cancelled:
-            return ("Cancelled", .feedbackWarning)
+            ("Cancelled", .feedbackWarning)
         }
       case let .tool(tool):
         switch tool.status {
           case .failed, .blocked:
-            return ("Error", .feedbackNegative)
+            ("Error", .feedbackNegative)
           case .running, .pending, .needsInput:
-            return ("Live", .statusWorking)
+            ("Live", .statusWorking)
           case .completed:
-            return ("Captured", .textSecondary)
+            ("Captured", .textSecondary)
           case .cancelled:
-            return ("Cancelled", .feedbackWarning)
+            ("Cancelled", .feedbackWarning)
         }
       case let .activityGroup(group):
         switch group.status {
           case .failed, .blocked:
-            return ("Error", .feedbackNegative)
+            ("Error", .feedbackNegative)
           case .running, .pending, .needsInput:
-            return ("Live", .statusWorking)
+            ("Live", .statusWorking)
           case .completed:
-            return ("Captured", .textSecondary)
+            ("Captured", .textSecondary)
           case .cancelled:
-            return ("Cancelled", .feedbackWarning)
+            ("Cancelled", .feedbackWarning)
         }
       case .thinking:
-        return ("Reasoning", .statusQuestion)
+        ("Reasoning", .statusQuestion)
       default:
-        return ("Captured", .textSecondary)
+        ("Captured", .textSecondary)
     }
   }
 
@@ -795,21 +795,21 @@ enum SessionWorkerRosterPlanner {
   private static func assignmentPreview(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .worker(worker):
-        return worker.worker.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        worker.worker.taskSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? worker.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? worker.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .tool(tool):
-        return parsedStringValue(
+        parsedStringValue(
           from: tool.toolDisplay.inputDisplay,
           keys: ["description", "task_description", "prompt", "task_prompt", "message", "input"]
         )
-        ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
-        return group.children.lazy.compactMap { assignmentPreview(for: $0) }.first
+        group.children.lazy.compactMap { assignmentPreview(for: $0) }.first
           ?? group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       default:
-        return nil
+        nil
     }
   }
 
@@ -818,27 +818,27 @@ enum SessionWorkerRosterPlanner {
       from: tool.toolDisplay.inputDisplay,
       keys: ["description", "task_description", "prompt", "task_prompt", "message", "input"]
     )
-    ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
   }
 
   private static func reportPreview(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .worker(worker):
-        return worker.worker.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        worker.worker.resultSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? worker.worker.errorSummary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? worker.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .tool(tool):
-        return tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
-        return group.children.lazy.compactMap { reportPreview(for: $0) }.first
+        group.children.lazy.compactMap { reportPreview(for: $0) }.first
       case let .task(task):
-        return task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? task.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       default:
-        return nil
+        nil
     }
   }
 
@@ -873,17 +873,17 @@ enum SessionWorkerRosterPlanner {
            let .assistant(message),
            let .thinking(message),
            let .system(message):
-        return parseDate(message.timestamp)
+        parseDate(message.timestamp)
       case let .tool(tool):
-        return parseDate(tool.startedAt) ?? parseDate(tool.endedAt)
+        parseDate(tool.startedAt) ?? parseDate(tool.endedAt)
       case let .worker(worker):
-        return parseDate(worker.worker.lastActivityAt)
+        parseDate(worker.worker.lastActivityAt)
           ?? parseDate(worker.worker.startedAt)
           ?? parseDate(worker.worker.endedAt)
       case .shellCommand:
-        return nil
+        nil
       case .activityGroup, .context, .notice, .task, .question, .approval, .plan, .hook, .handoff:
-        return nil
+        nil
     }
   }
 }
