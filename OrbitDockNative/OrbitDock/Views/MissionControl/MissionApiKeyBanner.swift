@@ -2,8 +2,15 @@ import SwiftUI
 
 struct MissionApiKeyBanner: View {
   let missionId: String
+  let trackerKind: String
   let http: ServerHTTPClient?
   let onKeySet: () async -> Void
+
+  private var isGitHub: Bool { trackerKind == "github" }
+  private var trackerLabel: String { isGitHub ? "GitHub Token" : "Linear API Key" }
+  private var envVarName: String { isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY" }
+  private var keyEndpoint: String { isGitHub ? "/api/server/github-key" : "/api/server/linear-key" }
+  private var placeholder: String { isGitHub ? "ghp_..." : "lin_api_..." }
 
   @State private var apiKey = ""
   @State private var isSaving = false
@@ -49,13 +56,13 @@ struct MissionApiKeyBanner: View {
         HStack(spacing: Spacing.sm) {
           Image(systemName: "exclamationmark.triangle.fill")
             .foregroundStyle(Color.feedbackCaution)
-          Text("Linear API Key Required")
+          Text("\(trackerLabel) Required")
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.feedbackCaution)
         }
 
         Text(
-          "A Linear API key is needed to poll for issues. Enter it below or set the LINEAR_API_KEY environment variable before starting the server."
+          "A \(trackerLabel.lowercased()) is needed to poll for issues. Enter it below or set the \(envVarName) environment variable before starting the server."
         )
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textSecondary)
@@ -67,7 +74,7 @@ struct MissionApiKeyBanner: View {
           .fixedSize(horizontal: false, vertical: true)
 
         HStack(spacing: Spacing.sm) {
-          SecureField("lin_api_...", text: $apiKey)
+          SecureField(placeholder, text: $apiKey)
             .textFieldStyle(.plain)
             .font(.system(size: TypeScale.caption, design: .monospaced))
             .padding(Spacing.sm)
@@ -101,7 +108,7 @@ struct MissionApiKeyBanner: View {
         }
 
         // API key can also be managed in app Settings > Mission Control,
-        // or via the LINEAR_API_KEY environment variable.
+        // or via the environment variable.
       }
 
       if let error {
@@ -120,9 +127,9 @@ struct MissionApiKeyBanner: View {
     error = nil
 
     do {
-      let _: LinearKeyResponse = try await http.post(
-        "/api/server/linear-key",
-        body: SetLinearKeyBody(key: apiKey)
+      let _: TrackerKeyResponse = try await http.post(
+        keyEndpoint,
+        body: SetTrackerKeyBody(key: apiKey)
       )
       apiKey = ""
       keySaved = true

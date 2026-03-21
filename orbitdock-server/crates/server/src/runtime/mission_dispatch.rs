@@ -137,7 +137,14 @@ pub async fn dispatch_issue(
     };
 
     // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
-    if let Some(linear_api_key) = crate::support::api_keys::resolve_linear_api_key() {
+    let tracker_kind = tracker.kind();
+    let api_key_for_mcp = crate::support::api_keys::resolve_tracker_api_key(tracker_kind);
+    if let Some(api_key_value) = api_key_for_mcp {
+        let (api_key_env, tracker_kind_str) = match tracker_kind {
+            "github" => ("GITHUB_TOKEN", "github"),
+            _ => ("LINEAR_API_KEY", "linear"),
+        };
+
         let orbitdock_bin = std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "orbitdock".to_string());
@@ -148,7 +155,8 @@ pub async fn dispatch_issue(
                     "command": orbitdock_bin,
                     "args": ["mcp-mission-tools"],
                     "env": {
-                        "LINEAR_API_KEY": linear_api_key,
+                        api_key_env: api_key_value,
+                        "ORBITDOCK_TRACKER_KIND": tracker_kind_str,
                         "ORBITDOCK_ISSUE_ID": issue.id,
                         "ORBITDOCK_ISSUE_IDENTIFIER": issue.identifier,
                         "ORBITDOCK_MISSION_ID": mission_id,

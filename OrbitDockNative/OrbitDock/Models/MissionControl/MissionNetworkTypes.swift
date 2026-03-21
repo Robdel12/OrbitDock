@@ -32,11 +32,11 @@ struct MigrateResponse: Decodable {
   let summary: MissionSummary
 }
 
-struct SetLinearKeyBody: Encodable {
+struct SetTrackerKeyBody: Encodable {
   let key: String
 }
 
-struct LinearKeyResponse: Decodable {
+struct TrackerKeyResponse: Decodable {
   let configured: Bool
 }
 

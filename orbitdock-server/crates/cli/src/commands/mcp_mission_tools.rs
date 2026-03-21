@@ -4,12 +4,15 @@
 //! the `.mcp.json` written into the worktree by mission dispatch.
 //!
 //! Env vars:
-//!   LINEAR_API_KEY            — Linear API key for GraphQL calls
-//!   ORBITDOCK_ISSUE_ID        — Linear internal issue ID
-//!   ORBITDOCK_ISSUE_IDENTIFIER — Human-readable identifier (e.g. VIZ-240)
-//!   ORBITDOCK_MISSION_ID      — OrbitDock mission ID
+//!   ORBITDOCK_TRACKER_KIND     — Tracker kind: "linear" (default) or "github"
+//!   LINEAR_API_KEY             — Linear API key (when tracker_kind = linear)
+//!   GITHUB_TOKEN               — GitHub token (when tracker_kind = github)
+//!   ORBITDOCK_ISSUE_ID         — Tracker internal issue ID
+//!   ORBITDOCK_ISSUE_IDENTIFIER — Human-readable identifier (e.g. VIZ-240 or owner/repo#42)
+//!   ORBITDOCK_MISSION_ID       — OrbitDock mission ID
 
 use std::io::{self, BufRead, Write};
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
@@ -17,11 +20,34 @@ use orbitdock_server::linear::LinearClient;
 use orbitdock_server::mission_tools::{
     execute_mission_tool, mission_tool_definitions, MissionToolContext,
 };
+use orbitdock_server::tracker::Tracker;
+
+/// Build the appropriate tracker client based on env vars.
+fn build_tracker() -> anyhow::Result<Arc<dyn Tracker>> {
+    let tracker_kind = std::env::var("ORBITDOCK_TRACKER_KIND").unwrap_or_else(|_| "linear".into());
+
+    match tracker_kind.as_str() {
+        "linear" => {
+            let api_key = std::env::var("LINEAR_API_KEY")
+                .map_err(|_| anyhow::anyhow!("LINEAR_API_KEY not set"))?;
+            Ok(Arc::new(LinearClient::new(api_key)))
+        }
+        "github" => {
+            let token = std::env::var("GITHUB_TOKEN")
+                .map_err(|_| anyhow::anyhow!("GITHUB_TOKEN not set"))?;
+            // GitHubClient will be added in a later step — for now fall through
+            // to avoid blocking the refactor
+            Ok(Arc::new(
+                orbitdock_server::github::GitHubClient::new(token),
+            ))
+        }
+        other => anyhow::bail!("Unknown tracker kind: {other}"),
+    }
+}
 
 /// Entry point — runs a blocking JSON-RPC loop on stdin/stdout.
 pub fn run() -> anyhow::Result<()> {
-    let api_key =
-        std::env::var("LINEAR_API_KEY").map_err(|_| anyhow::anyhow!("LINEAR_API_KEY not set"))?;
+    let tracker = build_tracker()?;
     let issue_id = std::env::var("ORBITDOCK_ISSUE_ID")
         .map_err(|_| anyhow::anyhow!("ORBITDOCK_ISSUE_ID not set"))?;
     let issue_identifier = std::env::var("ORBITDOCK_ISSUE_IDENTIFIER")
@@ -29,7 +55,6 @@ pub fn run() -> anyhow::Result<()> {
     let mission_id =
         std::env::var("ORBITDOCK_MISSION_ID").unwrap_or_else(|_| "unknown".to_string());
 
-    let client = LinearClient::new(api_key);
     let ctx = MissionToolContext {
         issue_id,
         issue_identifier,
@@ -57,14 +82,13 @@ pub fn run() -> anyhow::Result<()> {
 
         // Notifications (no id) — acknowledge silently
         if id.is_none() {
-            // notifications/initialized, notifications/cancelled, etc.
             continue;
         }
 
         let response = match method {
             "initialize" => handle_initialize(),
             "tools/list" => handle_tools_list(),
-            "tools/call" => rt.block_on(handle_tools_call(&client, &ctx, &msg)),
+            "tools/call" => rt.block_on(handle_tools_call(tracker.as_ref(), &ctx, &msg)),
             "ping" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
             _ => json!({
                 "jsonrpc": "2.0",
@@ -73,7 +97,6 @@ pub fn run() -> anyhow::Result<()> {
             }),
         };
 
-        // Inject the request id into the response
         let mut resp = response;
         if let Some(id_val) = id {
             resp["id"] = id_val;
@@ -122,12 +145,16 @@ fn handle_tools_list() -> Value {
     })
 }
 
-async fn handle_tools_call(client: &LinearClient, ctx: &MissionToolContext, msg: &Value) -> Value {
+async fn handle_tools_call(
+    tracker: &dyn Tracker,
+    ctx: &MissionToolContext,
+    msg: &Value,
+) -> Value {
     let params = msg.get("params").cloned().unwrap_or(json!({}));
     let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
-    let result = execute_mission_tool(client, ctx, tool_name, arguments).await;
+    let result = execute_mission_tool(tracker, ctx, tool_name, arguments).await;
 
     if result.success {
         json!({

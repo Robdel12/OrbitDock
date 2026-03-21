@@ -22,7 +22,7 @@ pub(crate) fn compute_orchestrator_status(
     if row.parse_error.is_some() {
         return Some("config_error".to_string());
     }
-    if crate::support::api_keys::resolve_linear_api_key().is_none() {
+    if crate::support::api_keys::resolve_tracker_api_key(&row.tracker_kind).is_none() {
         return Some("no_api_key".to_string());
     }
     if !orchestrator_running {

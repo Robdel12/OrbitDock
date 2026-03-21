@@ -153,7 +153,7 @@ struct NewMissionSheet: View {
 
       HStack(spacing: Spacing.sm) {
         trackerOption("Linear", value: "linear", icon: "link", enabled: true)
-        trackerOption("GitHub", value: "github", icon: "chevron.left.forwardslash.chevron.right", enabled: false)
+        trackerOption("GitHub", value: "github", icon: "chevron.left.forwardslash.chevron.right", enabled: true)
       }
     }
   }

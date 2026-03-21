@@ -4,7 +4,6 @@
 use serde_json::Value;
 
 use crate::domain::mission_control::tracker::Tracker;
-use crate::infrastructure::linear::client::LinearClient;
 
 use super::tools::MissionToolContext;
 
@@ -17,22 +16,22 @@ pub struct MissionToolResult {
     pub blocked: bool,
 }
 
-/// Execute a mission tool call against the Linear API.
+/// Execute a mission tool call against the tracker API.
 pub async fn execute_mission_tool(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     tool_name: &str,
     arguments: Value,
 ) -> MissionToolResult {
     match tool_name {
-        "mission_get_issue" => exec_get_issue(client, ctx).await,
-        "mission_post_update" => exec_post_update(client, ctx, &arguments).await,
-        "mission_update_comment" => exec_update_comment(client, &arguments).await,
-        "mission_get_comments" => exec_get_comments(client, ctx, &arguments).await,
-        "mission_set_status" => exec_set_status(client, ctx, &arguments).await,
-        "mission_link_pr" => exec_link_pr(client, ctx, &arguments).await,
-        "mission_create_followup" => exec_create_followup(client, ctx, &arguments).await,
-        "mission_report_blocked" => exec_report_blocked(client, ctx, &arguments).await,
+        "mission_get_issue" => exec_get_issue(tracker, ctx).await,
+        "mission_post_update" => exec_post_update(tracker, ctx, &arguments).await,
+        "mission_update_comment" => exec_update_comment(tracker, &arguments).await,
+        "mission_get_comments" => exec_get_comments(tracker, ctx, &arguments).await,
+        "mission_set_status" => exec_set_status(tracker, ctx, &arguments).await,
+        "mission_link_pr" => exec_link_pr(tracker, ctx, &arguments).await,
+        "mission_create_followup" => exec_create_followup(tracker, ctx, &arguments).await,
+        "mission_report_blocked" => exec_report_blocked(tracker, ctx, &arguments).await,
         _ => MissionToolResult {
             success: false,
             output: serde_json::json!({ "error": format!("Unknown tool: {tool_name}") })
@@ -44,8 +43,8 @@ pub async fn execute_mission_tool(
 
 // ── Individual tool handlers ────────────────────────────────────────
 
-async fn exec_get_issue(client: &LinearClient, ctx: &MissionToolContext) -> MissionToolResult {
-    match client
+async fn exec_get_issue(tracker: &dyn Tracker, ctx: &MissionToolContext) -> MissionToolResult {
+    match tracker
         .fetch_issue_by_identifier(&ctx.issue_identifier)
         .await
     {
@@ -75,7 +74,7 @@ async fn exec_get_issue(client: &LinearClient, ctx: &MissionToolContext) -> Miss
 }
 
 async fn exec_post_update(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -84,13 +83,13 @@ async fn exec_post_update(
         None => return missing_field("body"),
     };
 
-    match client.create_comment(&ctx.issue_id, body).await {
+    match tracker.create_comment(&ctx.issue_id, body).await {
         Ok(()) => ok_json(serde_json::json!({ "posted": true })),
         Err(e) => err(e),
     }
 }
 
-async fn exec_update_comment(client: &LinearClient, args: &Value) -> MissionToolResult {
+async fn exec_update_comment(tracker: &dyn Tracker, args: &Value) -> MissionToolResult {
     let comment_id = match args.get("comment_id").and_then(|v| v.as_str()) {
         Some(id) => id,
         None => return missing_field("comment_id"),
@@ -100,14 +99,14 @@ async fn exec_update_comment(client: &LinearClient, args: &Value) -> MissionTool
         None => return missing_field("body"),
     };
 
-    match client.update_comment(comment_id, body).await {
+    match tracker.update_comment(comment_id, body).await {
         Ok(()) => ok_json(serde_json::json!({ "updated": true })),
         Err(e) => err(e),
     }
 }
 
 async fn exec_get_comments(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -117,14 +116,14 @@ async fn exec_get_comments(
         .unwrap_or(20)
         .min(50) as u32;
 
-    match client.list_comments(&ctx.issue_id, first).await {
+    match tracker.list_comments(&ctx.issue_id, first).await {
         Ok(comments) => ok_json(serde_json::json!({ "comments": comments })),
         Err(e) => err(e),
     }
 }
 
 async fn exec_set_status(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -133,14 +132,14 @@ async fn exec_set_status(
         None => return missing_field("state"),
     };
 
-    match client.update_issue_state(&ctx.issue_id, state).await {
+    match tracker.update_issue_state(&ctx.issue_id, state).await {
         Ok(()) => ok_json(serde_json::json!({ "state": state, "updated": true })),
         Err(e) => err(e),
     }
 }
 
 async fn exec_link_pr(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -153,14 +152,14 @@ async fn exec_link_pr(
         .and_then(|v| v.as_str())
         .unwrap_or("Pull Request");
 
-    match client.create_attachment(&ctx.issue_id, url, title).await {
+    match tracker.link_url(&ctx.issue_id, url, title).await {
         Ok(()) => ok_json(serde_json::json!({ "linked": true, "url": url })),
         Err(e) => err(e),
     }
 }
 
 async fn exec_create_followup(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -173,19 +172,13 @@ async fn exec_create_followup(
         None => return missing_field("description"),
     };
 
-    // Resolve team from current issue
-    let team_id = match client.resolve_team_id(&ctx.issue_id).await {
-        Ok(id) => id,
-        Err(e) => return err(e),
-    };
-
     let desc_with_link = format!(
         "{description}\n\n---\nFollow-up from {}: {}",
         ctx.issue_identifier, ctx.issue_id
     );
 
-    match client
-        .create_issue(&team_id, title, &desc_with_link, Some(&ctx.issue_id))
+    match tracker
+        .create_issue(&ctx.issue_id, title, &desc_with_link)
         .await
     {
         Ok(created) => ok_json(serde_json::json!({
@@ -198,7 +191,7 @@ async fn exec_create_followup(
 }
 
 async fn exec_report_blocked(
-    client: &LinearClient,
+    tracker: &dyn Tracker,
     ctx: &MissionToolContext,
     args: &Value,
 ) -> MissionToolResult {
@@ -210,7 +203,7 @@ async fn exec_report_blocked(
     let comment = format!("**Blocked** — agent reported a blocker:\n\n{reason}");
 
     // Best-effort: post the blocker as a comment on the issue
-    let _ = client.create_comment(&ctx.issue_id, &comment).await;
+    let _ = tracker.create_comment(&ctx.issue_id, &comment).await;
 
     MissionToolResult {
         success: true,
@@ -249,6 +242,7 @@ fn missing_field(field: &str) -> MissionToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infrastructure::linear::client::LinearClient;
     use serde_json::json;
 
     fn test_ctx() -> MissionToolContext {
@@ -258,10 +252,6 @@ mod tests {
             mission_id: "mission-xyz".into(),
         }
     }
-
-    // We can't call execute_mission_tool for tools that hit Linear without a real
-    // client, but we CAN test the dispatch for unknown tools and the input
-    // validation paths (missing required fields) by calling the helpers directly.
 
     #[tokio::test]
     async fn unknown_tool_returns_error() {

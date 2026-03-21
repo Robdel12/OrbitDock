@@ -38,7 +38,7 @@ struct MissionSetupFlow: View {
       }
 
       if mission.orchestratorStatus == "no_api_key" {
-        MissionApiKeyBanner(missionId: missionId, http: http) {
+        MissionApiKeyBanner(missionId: missionId, trackerKind: mission.trackerKind, http: http) {
           await onRefresh()
         }
       }

@@ -118,12 +118,20 @@ struct MissionsClient: Sendable {
     try await http.get("/api/server/tracker-keys")
   }
 
-  func setLinearKey(_ key: String) async throws -> LinearKeyResponse {
-    try await http.post("/api/server/linear-key", body: SetLinearKeyBody(key: key))
+  func setLinearKey(_ key: String) async throws -> TrackerKeyResponse {
+    try await http.post("/api/server/linear-key", body: SetTrackerKeyBody(key: key))
   }
 
-  func deleteLinearKey() async throws -> LinearKeyResponse {
+  func deleteLinearKey() async throws -> TrackerKeyResponse {
     try await http.request(path: "/api/server/linear-key", method: "DELETE")
+  }
+
+  func setGitHubKey(_ key: String) async throws -> TrackerKeyResponse {
+    try await http.post("/api/server/github-key", body: SetTrackerKeyBody(key: key))
+  }
+
+  func deleteGitHubKey() async throws -> TrackerKeyResponse {
+    try await http.request(path: "/api/server/github-key", method: "DELETE")
   }
 
   // MARK: - Mission Defaults

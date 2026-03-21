@@ -6,8 +6,15 @@ struct MissionTrackerSection: View {
   @Binding var newApiKey: String
   @Binding var isSavingKey: Bool
   @Binding var keyError: String?
+  let trackerKind: String
   let http: ServerHTTPClient?
   let onUpdated: () async -> Void
+
+  private var isGitHub: Bool { trackerKind == "github" }
+  private var trackerLabel: String { isGitHub ? "GitHub token" : "Linear API key" }
+  private var envVarName: String { isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY" }
+  private var keyEndpoint: String { isGitHub ? "/api/server/github-key" : "/api/server/linear-key" }
+  private var placeholder: String { isGitHub ? "ghp_..." : "lin_api_..." }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -31,12 +38,12 @@ struct MissionTrackerSection: View {
             .foregroundStyle(Color.feedbackPositive)
 
           VStack(alignment: .leading, spacing: 2) {
-            Text("Linear API key configured")
+            Text("\(trackerLabel) configured")
               .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(Color.textPrimary)
 
             if let source = trackerKeySource {
-              Text("Source: \(source == "env" ? "LINEAR_API_KEY environment variable" : "saved in OrbitDock")")
+              Text("Source: \(source == "env" ? "\(envVarName) environment variable" : "saved in OrbitDock")")
                 .font(.system(size: TypeScale.micro))
                 .foregroundStyle(Color.textTertiary)
             }
@@ -60,13 +67,13 @@ struct MissionTrackerSection: View {
           Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 12))
             .foregroundStyle(Color.feedbackCaution)
-          Text("Linear API key required to poll for issues")
+          Text("\(trackerLabel) required to poll for issues")
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textSecondary)
         }
 
         HStack(spacing: Spacing.sm) {
-          SecureField("lin_api_...", text: $newApiKey)
+          SecureField(placeholder, text: $newApiKey)
             .textFieldStyle(.plain)
             .font(.system(size: TypeScale.caption, design: .monospaced))
             .padding(Spacing.sm)
@@ -121,9 +128,9 @@ struct MissionTrackerSection: View {
     isSavingKey = true
     keyError = nil
     do {
-      let _: LinearKeyResponse = try await http.post(
-        "/api/server/linear-key",
-        body: SetLinearKeyBody(key: newApiKey)
+      let _: TrackerKeyResponse = try await http.post(
+        keyEndpoint,
+        body: SetTrackerKeyBody(key: newApiKey)
       )
       newApiKey = ""
       trackerKeyConfigured = true
@@ -138,8 +145,8 @@ struct MissionTrackerSection: View {
   private func deleteTrackerKey() async {
     guard let http else { return }
     do {
-      let _: LinearKeyResponse = try await http.request(
-        path: "/api/server/linear-key",
+      let _: TrackerKeyResponse = try await http.request(
+        path: keyEndpoint,
         method: "DELETE"
       )
       trackerKeyConfigured = false

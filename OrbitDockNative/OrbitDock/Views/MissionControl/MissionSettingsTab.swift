@@ -4,6 +4,7 @@ struct MissionSettingsTab: View {
   let settings: MissionSettings?
   let repoRoot: String
   let missionId: String
+  let trackerKind: String
   let http: ServerHTTPClient?
   let isCompact: Bool
   let onUpdated: () async -> Void
@@ -68,6 +69,7 @@ struct MissionSettingsTab: View {
         newApiKey: $newApiKey,
         isSavingKey: $isSavingKey,
         keyError: $keyError,
+        trackerKind: trackerKind,
         http: http,
         onUpdated: onUpdated
       )
@@ -144,6 +146,7 @@ struct MissionSettingsTab: View {
       editStates: $editStates,
       editProject: $editProject,
       editTeam: $editTeam,
+      trackerKind: trackerKind,
       isCompact: isCompact
     )
   }
@@ -407,6 +410,7 @@ struct MissionSettingsTab: View {
     guard let http else { return }
     struct TrackerKeysResponse: Decodable {
       let linear: TrackerKeyInfo
+      let github: TrackerKeyInfo
       struct TrackerKeyInfo: Decodable {
         let configured: Bool
         let source: String?
@@ -414,8 +418,9 @@ struct MissionSettingsTab: View {
     }
     do {
       let response: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
-      trackerKeyConfigured = response.linear.configured
-      trackerKeySource = response.linear.source
+      let info = trackerKind == "github" ? response.github : response.linear
+      trackerKeyConfigured = info.configured
+      trackerKeySource = info.source
     } catch {
       // Non-critical — status just won't show
     }

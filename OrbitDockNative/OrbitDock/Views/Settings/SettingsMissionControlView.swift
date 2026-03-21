@@ -10,6 +10,13 @@ struct MissionControlDefaultsView: View {
   @State private var isDeletingKey = false
   @State private var keyError: String?
 
+  @State private var githubKeyConfigured = false
+  @State private var githubKeySource: String?
+  @State private var githubToken = ""
+  @State private var isSavingGithubKey = false
+  @State private var isDeletingGithubKey = false
+  @State private var githubKeyError: String?
+
   @State private var defaultStrategy = "single"
   @State private var defaultPrimary = "claude"
   @State private var defaultSecondary = ""
@@ -143,19 +150,85 @@ struct MissionControlDefaultsView: View {
       Divider().foregroundStyle(Color.surfaceBorder)
 
       // GitHub
-      HStack(spacing: Spacing.sm) {
-        Text("GitHub")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textQuaternary)
+      VStack(alignment: .leading, spacing: Spacing.md) {
+        HStack(spacing: Spacing.sm) {
+          Text("GitHub")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
 
-        Spacer()
+          Spacer()
 
-        Text("Coming soon")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(Color.backgroundTertiary, in: Capsule())
+          if githubKeyConfigured {
+            HStack(spacing: Spacing.xs) {
+              Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.feedbackPositive)
+              Text("Configured")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.feedbackPositive)
+              if let source = githubKeySource {
+                Text("via \(source)")
+                  .font(.system(size: TypeScale.micro))
+                  .foregroundStyle(Color.textQuaternary)
+              }
+            }
+          }
+        }
+
+        if githubKeyConfigured {
+          Button {
+            Task { await deleteGitHubKey() }
+          } label: {
+            HStack(spacing: Spacing.xs) {
+              if isDeletingGithubKey {
+                ProgressView().controlSize(.mini)
+              }
+              Text("Remove Token")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+            }
+            .foregroundStyle(Color.feedbackNegative)
+          }
+          .buttonStyle(.plain)
+          .disabled(isDeletingGithubKey)
+        } else {
+          HStack(spacing: Spacing.sm) {
+            SecureField("ghp_...", text: $githubToken)
+              .textFieldStyle(.plain)
+              .font(.system(size: TypeScale.caption, design: .monospaced))
+              .padding(Spacing.sm)
+              .background(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                  .fill(Color.backgroundTertiary)
+              )
+
+            Button {
+              Task { await saveGitHubKey() }
+            } label: {
+              Group {
+                if isSavingGithubKey {
+                  ProgressView().controlSize(.mini)
+                } else {
+                  Text("Save")
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                }
+              }
+              .foregroundStyle(githubToken.isEmpty ? Color.textTertiary : .white)
+              .padding(.horizontal, Spacing.lg)
+              .padding(.vertical, Spacing.sm)
+              .background(
+                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                  .fill(githubToken.isEmpty ? Color.backgroundTertiary : Color.accent)
+              )
+            }
+            .buttonStyle(.plain)
+            .disabled(githubToken.isEmpty || isSavingGithubKey)
+          }
+        }
+
+        if let githubKeyError {
+          Text(githubKeyError)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.feedbackNegative)
+        }
       }
     }
     .padding(Spacing.lg)
@@ -241,6 +314,8 @@ struct MissionControlDefaultsView: View {
       let keys: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
       linearKeyConfigured = keys.linear.configured
       linearKeySource = keys.linear.source
+      githubKeyConfigured = keys.github.configured
+      githubKeySource = keys.github.source
     } catch {
       // Fallback — try old endpoint
       if let status: LinearKeyStatus = try? await http.get("/api/server/linear-key") {
@@ -266,7 +341,7 @@ struct MissionControlDefaultsView: View {
     do {
       let _: LinearKeyStatus = try await http.post(
         "/api/server/linear-key",
-        body: SetKeyBody(key: linearApiKey)
+        body: SetTrackerKeyBody(key: linearApiKey)
       )
       linearApiKey = ""
       linearKeyConfigured = true
@@ -296,6 +371,44 @@ struct MissionControlDefaultsView: View {
     isDeletingKey = false
   }
 
+  private func saveGitHubKey() async {
+    guard let http, !githubToken.isEmpty else { return }
+    isSavingGithubKey = true
+    githubKeyError = nil
+
+    do {
+      let _: LinearKeyStatus = try await http.post(
+        "/api/server/github-key",
+        body: SetTrackerKeyBody(key: githubToken)
+      )
+      githubToken = ""
+      githubKeyConfigured = true
+      githubKeySource = "settings"
+    } catch {
+      githubKeyError = "Failed: \(error.localizedDescription)"
+    }
+
+    isSavingGithubKey = false
+  }
+
+  private func deleteGitHubKey() async {
+    guard let http else { return }
+    isDeletingGithubKey = true
+
+    do {
+      let _: LinearKeyStatus = try await http.request(
+        path: "/api/server/github-key",
+        method: "DELETE"
+      )
+      githubKeyConfigured = false
+      githubKeySource = nil
+    } catch {
+      githubKeyError = "Failed: \(error.localizedDescription)"
+    }
+
+    isDeletingGithubKey = false
+  }
+
   private func saveDefaults() async {
     guard let http else { return }
     isSavingDefaults = true
@@ -320,10 +433,6 @@ struct MissionControlDefaultsView: View {
 
 private struct LinearKeyStatus: Decodable {
   let configured: Bool
-}
-
-private struct SetKeyBody: Encodable {
-  let key: String
 }
 
 private struct UpdateDefaultsBody: Encodable {

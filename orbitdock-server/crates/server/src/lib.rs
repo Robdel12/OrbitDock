@@ -39,3 +39,13 @@ pub mod mission_tools {
 pub mod linear {
     pub use crate::infrastructure::linear::client::LinearClient;
 }
+
+/// GitHub client for direct API access (used by the MCP mission-tools server).
+pub mod github {
+    pub use crate::infrastructure::github::client::GitHubClient;
+}
+
+/// Tracker trait for pluggable issue trackers.
+pub mod tracker {
+    pub use crate::domain::mission_control::tracker::Tracker;
+}

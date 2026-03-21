@@ -372,6 +372,12 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
                 .post(super::set_linear_key)
                 .delete(super::delete_linear_key),
         )
+        .route(
+            "/api/server/github-key",
+            get(super::check_github_key)
+                .post(super::set_github_key)
+                .delete(super::delete_github_key),
+        )
         .route("/api/server/tracker-keys", get(super::get_tracker_keys))
         .route(
             "/api/server/mission-defaults",
