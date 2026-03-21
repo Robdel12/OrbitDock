@@ -446,7 +446,7 @@ pub async fn scaffold_mission_file(
 
     // Generate scaffold via domain logic
     let (file_content, config, prompt_template) =
-        generate_scaffold(&mission.provider).map_err(|e| {
+        generate_scaffold(&mission.provider, &mission.tracker_kind).map_err(|e| {
             internal(
                 "scaffold_error",
                 format!("Failed to generate scaffold: {e}"),
@@ -598,7 +598,7 @@ pub async fn get_default_template(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let full_template = default_mission_template(&mission.provider);
+    let full_template = default_mission_template(&mission.provider, &mission.tracker_kind);
     let template_body = parse_mission_file(&full_template)
         .map(|def| def.prompt_template)
         .unwrap_or_default();

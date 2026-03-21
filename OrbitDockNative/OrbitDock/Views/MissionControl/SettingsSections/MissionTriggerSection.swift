@@ -15,8 +15,13 @@ struct MissionTriggerSection: View {
   private var projectPlaceholder: String { isGitHub ? "1" : "PROJ" }
   private var teamLabel: String { isGitHub ? "Owner" : "Team" }
   private var teamPlaceholder: String { isGitHub ? "robdel12" : "Engineering" }
+  private var statesPlaceholder: String {
+    isGitHub ? "Ready, Backlog" : "Todo, In Progress"
+  }
   private var statesHint: String {
-    isGitHub ? "Common statuses: Todo, In Progress, Done" : "Common states: Todo, In Progress, Done, Canceled"
+    isGitHub
+      ? "Default statuses: Backlog, Ready, In progress, In review, Done"
+      : "Common states: Todo, In Progress, Done, Canceled"
   }
 
   var body: some View {
@@ -67,7 +72,7 @@ struct MissionTriggerSection: View {
           }
 
           missionCompactField("Labels", placeholder: "bug, agent-ready", text: $editLabels)
-          missionCompactField("States", placeholder: "Todo, In Progress", text: $editStates)
+          missionCompactField("States", placeholder: statesPlaceholder, text: $editStates)
 
           Text(statesHint)
             .font(.system(size: TypeScale.micro))

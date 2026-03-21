@@ -159,6 +159,7 @@ struct MissionSettingsTab: View {
       worktreeRootDir: $worktreeRootDir,
       stateOnDispatch: $stateOnDispatch,
       stateOnComplete: $stateOnComplete,
+      trackerKind: trackerKind,
       repoRoot: repoRoot,
       isCompact: isCompact
     )

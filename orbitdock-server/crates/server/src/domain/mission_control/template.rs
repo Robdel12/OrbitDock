@@ -3,13 +3,29 @@
 /// The template uses Liquid syntax (`{{ }}` / `{% %}`) for variable interpolation
 /// at dispatch time. The YAML front matter configures the orchestrator with
 /// `MissionConfig` keys at the top level.
-pub fn default_mission_template(provider: &str) -> String {
-    let body = r#"---
-tracker: linear
+pub fn default_mission_template(provider: &str, tracker: &str) -> String {
+    let (states_hint, dispatch_state, complete_state, issue_label) = match tracker {
+        "github" => (
+            r#"[Ready, Backlog]"#,
+            "In progress",
+            "In review",
+            "GitHub issue",
+        ),
+        _ => (
+            r#"[Todo, "In Progress"]"#,
+            "In Progress",
+            "In Review",
+            "Linear issue",
+        ),
+    };
+
+    format!(
+        r#"---
+tracker: {tracker}
 
 provider:
   strategy: single
-  primary: PROVIDER_PLACEHOLDER
+  primary: {provider}
   max_concurrent: 3
 
 # agent:
@@ -28,7 +44,7 @@ trigger:
   interval: 60
   # filters:
   #   labels: []
-  #   states: [Todo, "In Progress"]
+  #   states: {states_hint}
   #   project: YOUR_PROJECT
   #   team: YOUR_TEAM
 
@@ -36,34 +52,34 @@ orchestration:
   max_retries: 3
   stall_timeout: 600
   base_branch: main
-  # state_on_dispatch: "In Progress"   # tracker state when issue is dispatched
-  # state_on_complete: "In Review"     # tracker state when session completes (PR awaits human review)
+  # state_on_dispatch: "{dispatch_state}"   # tracker state when issue is dispatched
+  # state_on_complete: "{complete_state}"     # tracker state when session completes (PR awaits human review)
 ---
 
-You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}
+You are working on {issue_label} `{{{{ issue.identifier }}}}`: {{{{ issue.title }}}}
 
-{% if attempt > 1 %}
-This is retry attempt #{{ attempt }}. Resume from the current workspace state.
-{% endif %}
+{{% if attempt > 1 %}}
+This is retry attempt #{{{{ attempt }}}}. Resume from the current workspace state.
+{{% endif %}}
 
 ## Issue Context
 
-- Identifier: {{ issue.identifier }}
-- Title: {{ issue.title }}
-- Status: {{ issue.state }}
-- URL: {{ issue.url }}
+- Identifier: {{{{ issue.identifier }}}}
+- Title: {{{{ issue.title }}}}
+- Status: {{{{ issue.state }}}}
+- URL: {{{{ issue.url }}}}
 
-{% if issue.description %}
+{{% if issue.description %}}
 ## Description
 
-{{ issue.description }}
-{% else %}
+{{{{ issue.description }}}}
+{{% else %}}
 No description provided.
-{% endif %}
+{{% endif %}}
 
 ## Git Workflow
 
-You are working in a git worktree. Your branch is `mission/{{ issue.identifier | downcase }}`.
+You are working in a git worktree. Your branch is `mission/{{{{ issue.identifier | downcase }}}}`.
 Create a PR targeting `main` when complete.
 
 ## Getting Started
@@ -75,10 +91,10 @@ You have full CLI access — use `git`, build tools, test runners, and any proje
 
 1. Work autonomously end-to-end. Do not ask for human follow-up.
 2. Stop early only for true blockers (missing auth, permissions, secrets).
-3. Create a PR when complete and comment on the Linear issue with the PR link.
+3. Create a PR when complete and comment on the issue with the PR link.
 4. Keep commits clean and focused.
-"#;
-    body.replace("PROVIDER_PLACEHOLDER", provider)
+"#
+    )
 }
 
 #[cfg(test)]
@@ -87,21 +103,21 @@ mod tests {
 
     #[test]
     fn template_includes_provider() {
-        let tmpl = default_mission_template("codex");
+        let tmpl = default_mission_template("codex", "linear");
         assert!(tmpl.contains("primary: codex"));
         assert!(!tmpl.contains("PROVIDER_PLACEHOLDER"));
     }
 
     #[test]
     fn template_has_front_matter() {
-        let tmpl = default_mission_template("claude");
+        let tmpl = default_mission_template("claude", "linear");
         assert!(tmpl.starts_with("---\n"));
         assert!(tmpl.matches("---").count() >= 2);
     }
 
     #[test]
     fn template_has_top_level_schema() {
-        let tmpl = default_mission_template("claude");
+        let tmpl = default_mission_template("claude", "linear");
         assert!(!tmpl.contains("orbitdock:"));
         assert!(tmpl.contains("provider:"));
         assert!(tmpl.contains("strategy: single"));
@@ -111,7 +127,7 @@ mod tests {
 
     #[test]
     fn template_has_liquid_variables() {
-        let tmpl = default_mission_template("claude");
+        let tmpl = default_mission_template("claude", "linear");
         assert!(tmpl.contains("{{ issue.identifier }}"));
         assert!(tmpl.contains("{{ issue.title }}"));
         assert!(tmpl.contains("{% if attempt > 1 %}"));
@@ -119,7 +135,7 @@ mod tests {
 
     #[test]
     fn template_parses_as_valid_mission_file() {
-        let tmpl = default_mission_template("claude");
+        let tmpl = default_mission_template("claude", "linear");
         let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
         assert_eq!(def.config.tracker, "linear");
         assert_eq!(def.config.provider.strategy, "single");

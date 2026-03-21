@@ -807,8 +807,8 @@ impl MissionConfig {
 /// Generate a scaffold MISSION.md for a given provider.
 ///
 /// Returns `(file_content, parsed_config, prompt_template)`.
-pub fn generate_scaffold(provider: &str) -> Result<(String, MissionConfig, String)> {
-    let file_content = default_mission_template(provider);
+pub fn generate_scaffold(provider: &str, tracker: &str) -> Result<(String, MissionConfig, String)> {
+    let file_content = default_mission_template(provider, tracker);
     let parsed = parse_mission_file(&file_content).context("parse scaffolded template")?;
     let prompt_template = parsed.prompt_template.clone();
     Ok((file_content, parsed.config, prompt_template))
@@ -843,7 +843,7 @@ pub fn migrate_workflow_content(
         };
 
         if body.is_empty() {
-            let full_template = default_mission_template(fallback_provider);
+            let full_template = default_mission_template(fallback_provider, &config.tracker);
             parse_mission_file(&full_template)
                 .map(|def| def.prompt_template)
                 .unwrap_or_default()
