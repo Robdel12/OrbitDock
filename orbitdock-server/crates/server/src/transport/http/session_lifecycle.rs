@@ -2,8 +2,11 @@ use super::errors::{conflict, internal, unprocessable};
 use super::*;
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::codex_config::{
-    codex_preferences_response, resolve_codex_settings, CodexConfigInspectorResponse,
-    CodexConfigPreferencesResponse,
+    codex_config_batch_write, codex_config_catalog, codex_config_documents,
+    codex_config_write_value, codex_preferences_response, resolve_codex_settings,
+    CodexConfigBatchWriteRequest, CodexConfigCatalogResponse, CodexConfigDocumentsResponse,
+    CodexConfigInspectorResponse, CodexConfigPreferencesResponse, CodexConfigSelection,
+    CodexConfigValueWriteRequest, CodexConfigWriteResponseData,
 };
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_creation::{
@@ -25,7 +28,9 @@ use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError}
 use crate::runtime::session_takeover::{
     takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
-use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage};
+use orbitdock_protocol::{
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage,
+};
 use tracing::error;
 
 fn resolve_developer_instructions(
@@ -110,6 +115,12 @@ pub struct UpdateSessionConfigRequest {
     pub model: Option<Option<String>>,
     #[serde(default)]
     pub effort: Option<Option<String>>,
+    #[serde(default)]
+    pub codex_config_mode: Option<Option<CodexConfigMode>>,
+    #[serde(default)]
+    pub codex_config_profile: Option<Option<String>>,
+    #[serde(default)]
+    pub codex_model_provider: Option<Option<String>>,
 }
 
 pub async fn rename_session(
@@ -143,6 +154,9 @@ pub async fn update_session_config(
             developer_instructions: body.developer_instructions,
             model: body.model,
             effort: body.effort,
+            codex_config_mode: body.codex_config_mode,
+            codex_config_profile: body.codex_config_profile,
+            codex_model_provider: body.codex_model_provider,
         },
     )
     .await
@@ -195,6 +209,12 @@ pub struct CreateSessionRequest {
     #[serde(default)]
     pub allow_bypass_permissions: bool,
     #[serde(default)]
+    pub codex_config_mode: Option<CodexConfigMode>,
+    #[serde(default)]
+    pub codex_config_profile: Option<String>,
+    #[serde(default)]
+    pub codex_model_provider: Option<String>,
+    #[serde(default)]
     pub codex_config_source: Option<CodexConfigSource>,
 }
 
@@ -222,6 +242,7 @@ pub async fn create_session(
     let codex_overrides = if body.provider == Provider::Codex {
         Some(CodexSessionOverrides {
             model: body.model.clone(),
+            model_provider: body.codex_model_provider.clone(),
             approval_policy: body.approval_policy.clone(),
             sandbox_mode: body.sandbox_mode.clone(),
             collaboration_mode: body.collaboration_mode.clone(),
@@ -237,8 +258,24 @@ pub async fn create_session(
     let resolved_codex = if let (Provider::Codex, Some(source), Some(overrides)) =
         (body.provider, codex_config_source, codex_overrides.clone())
     {
+        let selection = CodexConfigSelection {
+            config_source: source,
+            config_mode: body.codex_config_mode.unwrap_or({
+                if body.codex_config_profile.is_some() {
+                    CodexConfigMode::Profile
+                } else if body.codex_model_provider.is_some() {
+                    CodexConfigMode::Custom
+                } else {
+                    CodexConfigMode::Inherit
+                }
+            }),
+            config_profile: body.codex_config_profile.clone(),
+            model_provider: body.codex_model_provider.clone(),
+            overrides,
+        }
+        .normalized();
         Some(
-            resolve_codex_settings(&body.cwd, source, overrides)
+            resolve_codex_settings(&body.cwd, selection.clone())
                 .await
                 .map_err(|error| unprocessable("invalid_codex_config", error))?,
         )
@@ -294,6 +331,21 @@ pub async fn create_session(
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: body.allow_bypass_permissions,
+            codex_config_mode: resolved_codex
+                .as_ref()
+                .map(|resolved| resolved.effective_settings.config_mode),
+            codex_config_profile: resolved_codex.as_ref().and_then(|resolved| {
+                match resolved.effective_settings.config_mode {
+                    CodexConfigMode::Profile => resolved.effective_settings.config_profile.clone(),
+                    _ => None,
+                }
+            }),
+            codex_model_provider: resolved_codex.as_ref().and_then(|resolved| {
+                match resolved.effective_settings.config_mode {
+                    CodexConfigMode::Custom => resolved.effective_settings.model_provider.clone(),
+                    _ => None,
+                }
+            }),
             codex_config_source,
             codex_config_overrides: codex_overrides,
         },
@@ -344,11 +396,27 @@ pub struct InspectCodexConfigRequest {
     pub developer_instructions: Option<String>,
     #[serde(default)]
     pub effort: Option<String>,
+    #[serde(default)]
+    pub codex_config_mode: Option<CodexConfigMode>,
+    #[serde(default)]
+    pub codex_config_profile: Option<String>,
+    #[serde(default)]
+    pub codex_model_provider: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateCodexPreferencesRequest {
     pub default_config_source: CodexConfigSource,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodexConfigCatalogQuery {
+    pub cwd: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodexConfigDocumentsQuery {
+    pub cwd: String,
 }
 
 pub async fn get_codex_preferences() -> Json<CodexConfigPreferencesResponse> {
@@ -378,21 +446,71 @@ pub async fn inspect_codex_config(
 ) -> Result<Json<CodexConfigInspectorResponse>, (StatusCode, Json<ApiErrorResponse>)> {
     let response = resolve_codex_settings(
         &body.cwd,
-        body.codex_config_source.unwrap_or(CodexConfigSource::User),
-        CodexSessionOverrides {
-            model: body.model,
-            approval_policy: body.approval_policy,
-            sandbox_mode: body.sandbox_mode,
-            collaboration_mode: body.collaboration_mode,
-            multi_agent: body.multi_agent,
-            personality: body.personality,
-            service_tier: body.service_tier,
-            developer_instructions: body.developer_instructions,
-            effort: body.effort,
+        CodexConfigSelection {
+            config_source: body.codex_config_source.unwrap_or(CodexConfigSource::User),
+            config_mode: body.codex_config_mode.unwrap_or({
+                if body.codex_config_profile.is_some() {
+                    CodexConfigMode::Profile
+                } else if body.codex_model_provider.is_some() {
+                    CodexConfigMode::Custom
+                } else {
+                    CodexConfigMode::Inherit
+                }
+            }),
+            config_profile: body.codex_config_profile,
+            model_provider: body.codex_model_provider.clone(),
+            overrides: CodexSessionOverrides {
+                model: body.model,
+                model_provider: body.codex_model_provider,
+                approval_policy: body.approval_policy,
+                sandbox_mode: body.sandbox_mode,
+                collaboration_mode: body.collaboration_mode,
+                multi_agent: body.multi_agent,
+                personality: body.personality,
+                service_tier: body.service_tier,
+                developer_instructions: body.developer_instructions,
+                effort: body.effort,
+            },
         },
     )
     .await
     .map_err(|error| unprocessable("invalid_codex_config", error))?;
+    Ok(Json(response))
+}
+
+pub async fn get_codex_config_catalog(
+    Query(query): Query<CodexConfigCatalogQuery>,
+) -> Result<Json<CodexConfigCatalogResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let response = codex_config_catalog(&query.cwd)
+        .await
+        .map_err(|error| unprocessable("invalid_codex_config", error))?;
+    Ok(Json(response))
+}
+
+pub async fn get_codex_config_documents(
+    Query(query): Query<CodexConfigDocumentsQuery>,
+) -> Result<Json<CodexConfigDocumentsResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    let response = codex_config_documents(&query.cwd)
+        .await
+        .map_err(|error| unprocessable("invalid_codex_config", error))?;
+    Ok(Json(response))
+}
+
+pub async fn write_codex_config_value(
+    Json(body): Json<CodexConfigValueWriteRequest>,
+) -> Result<Json<CodexConfigWriteResponseData>, (StatusCode, Json<ApiErrorResponse>)> {
+    let response = codex_config_write_value(body)
+        .await
+        .map_err(|error| unprocessable("invalid_codex_config_write", error))?;
+    Ok(Json(response))
+}
+
+pub async fn batch_write_codex_config(
+    Json(body): Json<CodexConfigBatchWriteRequest>,
+) -> Result<Json<CodexConfigWriteResponseData>, (StatusCode, Json<ApiErrorResponse>)> {
+    let response = codex_config_batch_write(body)
+        .await
+        .map_err(|error| unprocessable("invalid_codex_config_write", error))?;
     Ok(Json(response))
 }
 

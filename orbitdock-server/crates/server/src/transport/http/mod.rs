@@ -82,9 +82,11 @@ pub use session_actions::{
     upload_session_image_attachment, AcceptedResponse,
 };
 pub use session_lifecycle::{
-    create_session, end_session, fork_session, fork_session_to_existing_worktree,
-    fork_session_to_worktree, get_codex_preferences, inspect_codex_config, rename_session,
+    batch_write_codex_config, create_session, end_session, fork_session,
+    fork_session_to_existing_worktree, fork_session_to_worktree, get_codex_config_catalog,
+    get_codex_config_documents, get_codex_preferences, inspect_codex_config, rename_session,
     resume_session, takeover_session, update_codex_preferences, update_session_config,
+    write_codex_config_value,
 };
 pub use sessions::{
     get_conversation_bootstrap, get_conversation_history, get_row_content, get_session,

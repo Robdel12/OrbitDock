@@ -4,12 +4,16 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use codex_app_server_protocol::{
-    AskForApproval, Config, ConfigLayer, ConfigLayerMetadata, ConfigLayerSource, ConfigReadParams,
-    ConfigReadResponse, SandboxMode,
+    Config, ConfigBatchWriteParams, ConfigEdit, ConfigLayer, ConfigLayerMetadata,
+    ConfigLayerSource, ConfigReadParams, ConfigReadResponse, ConfigValueWriteParams,
+    ConfigWriteResponse, MergeStrategy, OverriddenMetadata, WriteStatus,
 };
-use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides};
-use serde::Serialize;
-use serde_json::Value;
+use codex_core::config::Config as CoreConfig;
+use orbitdock_connector_codex::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
+use orbitdock_protocol::{CodexConfigMode, CodexConfigSource, CodexSessionOverrides};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use std::fmt;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdout, Command};
 
@@ -24,8 +28,13 @@ pub struct CodexConfigPreferencesResponse {
 #[derive(Debug, Clone, Serialize)]
 pub struct CodexResolvedSettings {
     pub config_source: CodexConfigSource,
+    pub config_mode: CodexConfigMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_profile: Option<String>,
     pub overrides: CodexSessionOverrides,
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub collaboration_mode: Option<String>,
@@ -64,17 +73,219 @@ pub struct CodexConfigInspectorResponse {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CodexConfigSelection {
+    pub config_source: CodexConfigSource,
+    pub config_mode: CodexConfigMode,
+    pub config_profile: Option<String>,
+    pub model_provider: Option<String>,
+    pub overrides: CodexSessionOverrides,
+}
+
+impl CodexConfigSelection {
+    pub fn normalized(mut self) -> Self {
+        match self.config_mode {
+            CodexConfigMode::Inherit => {
+                self.config_profile = None;
+                self.model_provider = None;
+                self.overrides.model_provider = None;
+            }
+            CodexConfigMode::Profile => {
+                self.model_provider = None;
+                self.overrides.model_provider = None;
+            }
+            CodexConfigMode::Custom => {
+                self.config_profile = None;
+            }
+        }
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigProfileSummary {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexProviderSummary {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wire_api: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_custom: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigCatalogResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effective_settings: Option<CodexResolvedSettings>,
+    pub profiles: Vec<CodexConfigProfileSummary>,
+    pub providers: Vec<CodexProviderSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexConfigDocumentScope {
+    User,
+    Project,
+}
+
+impl fmt::Display for CodexConfigDocumentScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::User => write!(f, "user"),
+            Self::Project => write!(f, "project"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigProfileDocument {
+    pub name: String,
+    pub config: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexProviderDocument {
+    pub id: String,
+    pub config: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wire_api: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_custom: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigDocument {
+    pub scope: CodexConfigDocumentScope,
+    pub exists: bool,
+    pub writable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_warning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub config: Value,
+    pub profiles: Vec<CodexConfigProfileDocument>,
+    pub providers: Vec<CodexProviderDocument>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigDocumentsResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    pub user: CodexConfigDocument,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projects: Vec<CodexConfigDocument>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodexConfigValueWriteRequest {
+    pub cwd: String,
+    #[serde(default)]
+    pub key_path: String,
+    pub value: Value,
+    #[serde(default)]
+    pub merge_strategy: Option<CodexConfigMergeStrategy>,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub expected_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodexConfigBatchWriteRequest {
+    pub cwd: String,
+    #[serde(default)]
+    pub edits: Vec<CodexConfigEditRequest>,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    #[serde(default)]
+    pub expected_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodexConfigEditRequest {
+    pub key_path: String,
+    pub value: Value,
+    #[serde(default)]
+    pub merge_strategy: Option<CodexConfigMergeStrategy>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexConfigMergeStrategy {
+    Replace,
+    Upsert,
+}
+
+impl From<CodexConfigMergeStrategy> for MergeStrategy {
+    fn from(value: CodexConfigMergeStrategy) -> Self {
+        match value {
+            CodexConfigMergeStrategy::Replace => MergeStrategy::Replace,
+            CodexConfigMergeStrategy::Upsert => MergeStrategy::Upsert,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigWriteResponseData {
+    pub status: String,
+    pub version: String,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overridden_metadata: Option<CodexConfigOverriddenMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CodexConfigOverriddenMetadata {
+    pub message: String,
+    pub overriding_layer: CodexInspectorOrigin,
+    pub effective_value: Value,
+}
+
 pub async fn resolve_codex_settings(
     cwd: &str,
-    config_source: CodexConfigSource,
-    overrides: CodexSessionOverrides,
+    selection: CodexConfigSelection,
 ) -> Result<CodexConfigInspectorResponse, String> {
+    let selection = selection.normalized();
     let config_response = read_codex_config(cwd).await?;
-    let effective_settings = effective_settings(&config_response.config, config_source, &overrides);
+    let effective_config = build_effective_codex_config(cwd, &selection).await?;
+    let effective_settings = effective_settings(&effective_config, &selection);
 
     let mut origins = inspector_origins(&config_response.origins);
-    apply_runtime_origin_overrides(&mut origins, &overrides);
-    let layers = inspector_layers(config_response.layers.unwrap_or_default(), &overrides);
+    apply_runtime_origin_overrides(&mut origins, &selection);
+    let layers = inspector_layers(config_response.layers.unwrap_or_default(), &selection);
 
     Ok(CodexConfigInspectorResponse {
         effective_settings,
@@ -82,6 +293,91 @@ pub async fn resolve_codex_settings(
         layers,
         warnings: Vec::new(),
     })
+}
+
+pub async fn codex_config_catalog(cwd: &str) -> Result<CodexConfigCatalogResponse, String> {
+    let config_response = read_codex_config(cwd).await?;
+    let selection = CodexConfigSelection {
+        config_source: CodexConfigSource::User,
+        config_mode: CodexConfigMode::Inherit,
+        config_profile: None,
+        model_provider: None,
+        overrides: CodexSessionOverrides::default(),
+    };
+    let effective_config = build_effective_codex_config(cwd, &selection).await?;
+    Ok(CodexConfigCatalogResponse {
+        cwd: Some(cwd.to_string()),
+        effective_settings: Some(effective_settings(&effective_config, &selection)),
+        profiles: config_profiles(&config_response.config),
+        providers: config_providers(&config_response.config),
+        warnings: Vec::new(),
+    })
+}
+
+pub async fn codex_config_documents(cwd: &str) -> Result<CodexConfigDocumentsResponse, String> {
+    let config_response = read_codex_config(cwd).await?;
+    let user = user_document(&config_response);
+    let projects = project_documents(&config_response);
+
+    Ok(CodexConfigDocumentsResponse {
+        cwd: Some(cwd.to_string()),
+        user,
+        projects,
+        warnings: Vec::new(),
+    })
+}
+
+pub async fn codex_config_write_value(
+    request: CodexConfigValueWriteRequest,
+) -> Result<CodexConfigWriteResponseData, String> {
+    let response: ConfigWriteResponse = call_codex_app_server(
+        &request.cwd,
+        2,
+        "config/value/write",
+        ConfigValueWriteParams {
+            key_path: request.key_path,
+            value: request.value,
+            merge_strategy: request
+                .merge_strategy
+                .unwrap_or(CodexConfigMergeStrategy::Replace)
+                .into(),
+            file_path: request.file_path,
+            expected_version: request.expected_version,
+        },
+    )
+    .await?;
+
+    Ok(write_response(response))
+}
+
+pub async fn codex_config_batch_write(
+    request: CodexConfigBatchWriteRequest,
+) -> Result<CodexConfigWriteResponseData, String> {
+    let response: ConfigWriteResponse = call_codex_app_server(
+        &request.cwd,
+        2,
+        "config/batchWrite",
+        ConfigBatchWriteParams {
+            edits: request
+                .edits
+                .into_iter()
+                .map(|edit| ConfigEdit {
+                    key_path: edit.key_path,
+                    value: edit.value,
+                    merge_strategy: edit
+                        .merge_strategy
+                        .unwrap_or(CodexConfigMergeStrategy::Replace)
+                        .into(),
+                })
+                .collect(),
+            file_path: request.file_path,
+            expected_version: request.expected_version,
+            reload_user_config: true,
+        },
+    )
+    .await?;
+
+    Ok(write_response(response))
 }
 
 pub fn codex_default_config_source() -> CodexConfigSource {
@@ -139,56 +435,43 @@ pub fn serialize_codex_overrides(overrides: &CodexSessionOverrides) -> Option<St
 }
 
 fn effective_settings(
-    config: &Config,
-    config_source: CodexConfigSource,
-    overrides: &CodexSessionOverrides,
+    config: &CoreConfig,
+    selection: &CodexConfigSelection,
 ) -> CodexResolvedSettings {
     CodexResolvedSettings {
-        config_source,
-        overrides: overrides.clone(),
-        model: overrides.model.clone().or_else(|| config.model.clone()),
-        approval_policy: overrides
-            .approval_policy
-            .clone()
-            .or_else(|| config.approval_policy.map(approval_policy_to_string)),
-        sandbox_mode: overrides
-            .sandbox_mode
-            .clone()
-            .or_else(|| config.sandbox_mode.map(sandbox_mode_to_string)),
-        collaboration_mode: overrides
-            .collaboration_mode
-            .clone()
-            .or_else(|| config_string(config, "collaboration_mode")),
-        multi_agent: overrides
-            .multi_agent
-            .or_else(|| config_bool(config, &["features", "multi_agent"])),
-        personality: overrides
-            .personality
-            .clone()
-            .or_else(|| config_string(config, "personality")),
-        service_tier: overrides
-            .service_tier
-            .clone()
-            .or_else(|| config.service_tier.map(service_tier_to_string)),
-        developer_instructions: overrides
+        config_source: selection.config_source,
+        config_mode: selection.config_mode,
+        config_profile: config.active_profile.clone(),
+        overrides: selection.overrides.clone(),
+        model: config.model.clone(),
+        model_provider: Some(config.model_provider_id.clone()),
+        approval_policy: Some(core_approval_policy_to_string(
+            *config.permissions.approval_policy.get(),
+        )),
+        sandbox_mode: Some(core_sandbox_policy_to_string(
+            &config.permissions.sandbox_policy,
+        )),
+        collaboration_mode: selection.overrides.collaboration_mode.clone(),
+        multi_agent: selection.overrides.multi_agent,
+        personality: selection.overrides.personality.clone(),
+        service_tier: config.service_tier.map(service_tier_to_string),
+        developer_instructions: config
             .developer_instructions
             .clone()
-            .or_else(|| config.developer_instructions.clone()),
-        effort: overrides.effort.clone().or_else(|| {
-            config
-                .model_reasoning_effort
-                .map(reasoning_effort_to_string)
-        }),
+            .or(selection.overrides.developer_instructions.clone()),
+        effort: config
+            .model_reasoning_effort
+            .map(reasoning_effort_to_string),
     }
 }
 
 fn inspector_layers(
     layers: Vec<ConfigLayer>,
-    overrides: &CodexSessionOverrides,
+    selection: &CodexConfigSelection,
 ) -> Vec<CodexInspectorLayer> {
     let mut mapped = Vec::new();
 
-    if let Some(runtime_layer) = runtime_override_layer(overrides) {
+    if let Some(runtime_layer) = runtime_override_layer(selection) {
         mapped.push(runtime_layer);
     }
 
@@ -223,7 +506,7 @@ fn inspector_origins(
 
 fn apply_runtime_origin_overrides(
     origins: &mut HashMap<String, CodexInspectorOrigin>,
-    overrides: &CodexSessionOverrides,
+    selection: &CodexConfigSelection,
 ) {
     let runtime_origin = |path: &str| CodexInspectorOrigin {
         source_kind: "orbitdock_runtime".to_string(),
@@ -231,43 +514,52 @@ fn apply_runtime_origin_overrides(
         version: "runtime".to_string(),
     };
 
-    if overrides.collaboration_mode.is_some() {
+    if selection.config_profile.is_some() {
+        origins.insert("profile".to_string(), runtime_origin("profile"));
+    }
+    if selection.model_provider.is_some() || selection.overrides.model_provider.is_some() {
+        origins.insert(
+            "model_provider".to_string(),
+            runtime_origin("model_provider"),
+        );
+    }
+    if selection.overrides.collaboration_mode.is_some() {
         origins.insert(
             "collaboration_mode".to_string(),
             runtime_origin("collaboration_mode"),
         );
     }
-    if overrides.model.is_some() {
+    if selection.overrides.model.is_some() {
         origins.insert("model".to_string(), runtime_origin("model"));
     }
-    if overrides.approval_policy.is_some() {
+    if selection.overrides.approval_policy.is_some() {
         origins.insert(
             "approval_policy".to_string(),
             runtime_origin("approval_policy"),
         );
     }
-    if overrides.sandbox_mode.is_some() {
+    if selection.overrides.sandbox_mode.is_some() {
         origins.insert("sandbox_mode".to_string(), runtime_origin("sandbox_mode"));
     }
-    if overrides.multi_agent.is_some() {
+    if selection.overrides.multi_agent.is_some() {
         origins.insert(
             "features.multi_agent".to_string(),
             runtime_origin("features.multi_agent"),
         );
     }
-    if overrides.personality.is_some() {
+    if selection.overrides.personality.is_some() {
         origins.insert("personality".to_string(), runtime_origin("personality"));
     }
-    if overrides.service_tier.is_some() {
+    if selection.overrides.service_tier.is_some() {
         origins.insert("service_tier".to_string(), runtime_origin("service_tier"));
     }
-    if overrides.developer_instructions.is_some() {
+    if selection.overrides.developer_instructions.is_some() {
         origins.insert(
             "developer_instructions".to_string(),
             runtime_origin("developer_instructions"),
         );
     }
-    if overrides.effort.is_some() {
+    if selection.overrides.effort.is_some() {
         origins.insert(
             "model_reasoning_effort".to_string(),
             runtime_origin("model_reasoning_effort"),
@@ -275,55 +567,68 @@ fn apply_runtime_origin_overrides(
     }
 }
 
-fn runtime_override_layer(overrides: &CodexSessionOverrides) -> Option<CodexInspectorLayer> {
+fn runtime_override_layer(selection: &CodexConfigSelection) -> Option<CodexInspectorLayer> {
     let mut config = serde_json::Map::new();
 
-    if let Some(model) = &overrides.model {
+    if let Some(profile) = &selection.config_profile {
+        config.insert("profile".to_string(), Value::String(profile.clone()));
+    }
+    if let Some(model_provider) = selection
+        .model_provider
+        .as_ref()
+        .or(selection.overrides.model_provider.as_ref())
+    {
+        config.insert(
+            "model_provider".to_string(),
+            Value::String(model_provider.clone()),
+        );
+    }
+    if let Some(model) = &selection.overrides.model {
         config.insert("model".to_string(), Value::String(model.clone()));
     }
-    if let Some(approval_policy) = &overrides.approval_policy {
+    if let Some(approval_policy) = &selection.overrides.approval_policy {
         config.insert(
             "approval_policy".to_string(),
             Value::String(approval_policy.clone()),
         );
     }
-    if let Some(sandbox_mode) = &overrides.sandbox_mode {
+    if let Some(sandbox_mode) = &selection.overrides.sandbox_mode {
         config.insert(
             "sandbox_mode".to_string(),
             Value::String(sandbox_mode.clone()),
         );
     }
-    if let Some(collaboration_mode) = &overrides.collaboration_mode {
+    if let Some(collaboration_mode) = &selection.overrides.collaboration_mode {
         config.insert(
             "collaboration_mode".to_string(),
             Value::String(collaboration_mode.clone()),
         );
     }
-    if let Some(multi_agent) = overrides.multi_agent {
+    if let Some(multi_agent) = selection.overrides.multi_agent {
         config.insert(
             "features".to_string(),
             serde_json::json!({ "multi_agent": multi_agent }),
         );
     }
-    if let Some(personality) = &overrides.personality {
+    if let Some(personality) = &selection.overrides.personality {
         config.insert(
             "personality".to_string(),
             Value::String(personality.clone()),
         );
     }
-    if let Some(service_tier) = &overrides.service_tier {
+    if let Some(service_tier) = &selection.overrides.service_tier {
         config.insert(
             "service_tier".to_string(),
             Value::String(service_tier.clone()),
         );
     }
-    if let Some(developer_instructions) = &overrides.developer_instructions {
+    if let Some(developer_instructions) = &selection.overrides.developer_instructions {
         config.insert(
             "developer_instructions".to_string(),
             Value::String(developer_instructions.clone()),
         );
     }
-    if let Some(effort) = &overrides.effort {
+    if let Some(effort) = &selection.overrides.effort {
         config.insert(
             "model_reasoning_effort".to_string(),
             Value::String(effort.clone()),
@@ -344,6 +649,28 @@ fn runtime_override_layer(overrides: &CodexSessionOverrides) -> Option<CodexInsp
 }
 
 async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, String> {
+    call_codex_app_server(
+        cwd,
+        2,
+        "config/read",
+        ConfigReadParams {
+            include_layers: true,
+            cwd: Some(cwd.to_string()),
+        },
+    )
+    .await
+}
+
+async fn call_codex_app_server<TParams, TResponse>(
+    cwd: &str,
+    request_id: i64,
+    method: &str,
+    params: TParams,
+) -> Result<TResponse, String>
+where
+    TParams: Serialize,
+    TResponse: serde::de::DeserializeOwned,
+{
     let codex_path = find_codex_binary().ok_or_else(|| "Codex CLI not installed".to_string())?;
     let path_env = resolved_path_env_for_binary(&codex_path);
 
@@ -404,33 +731,210 @@ async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, String> {
         send_json_rpc(
             &mut stdin,
             serde_json::json!({
-                "method": "config/read",
-                "id": 2,
-                "params": ConfigReadParams {
-                    include_layers: true,
-                    cwd: Some(cwd.to_string()),
-                }
+                "method": method,
+                "id": request_id,
+                "params": params,
             }),
         )
         .await?;
 
-        let config_response = read_json_rpc_response(&mut lines, 2).await?;
-        if let Some(error) = config_response.get("error") {
-            return Err(json_rpc_error_message("config/read", error));
+        let response = read_json_rpc_response(&mut lines, request_id).await?;
+        if let Some(error) = response.get("error") {
+            return Err(json_rpc_error_message(method, error));
         }
 
-        let result = config_response
+        let result = response
             .get("result")
             .cloned()
-            .ok_or_else(|| "config/read returned no result".to_string())?;
-        serde_json::from_value::<ConfigReadResponse>(result)
-            .map_err(|error| format!("Failed to decode config/read response: {error}"))
+            .ok_or_else(|| format!("{method} returned no result"))?;
+        serde_json::from_value::<TResponse>(result)
+            .map_err(|error| format!("Failed to decode {method} response: {error}"))
     }
     .await;
 
     let _ = child.kill().await;
     let _ = child.wait().await;
     result
+}
+
+fn user_document(config_response: &ConfigReadResponse) -> CodexConfigDocument {
+    let Some(layer) = config_response.layers.as_ref().and_then(|layers| {
+        layers
+            .iter()
+            .find(|layer| matches!(layer.name, ConfigLayerSource::User { .. }))
+    }) else {
+        return CodexConfigDocument {
+            scope: CodexConfigDocumentScope::User,
+            exists: false,
+            writable: true,
+            write_warning: None,
+            file_path: default_user_config_path(),
+            version: None,
+            config: Value::Object(Map::new()),
+            profiles: Vec::new(),
+            providers: Vec::new(),
+        };
+    };
+
+    config_document_from_layer(layer, CodexConfigDocumentScope::User, true, None)
+}
+
+fn project_documents(config_response: &ConfigReadResponse) -> Vec<CodexConfigDocument> {
+    let mut documents: Vec<_> = config_response
+        .layers
+        .as_ref()
+        .into_iter()
+        .flat_map(|layers| layers.iter())
+        .filter(|layer| matches!(layer.name, ConfigLayerSource::Project { .. }))
+        .map(|layer| {
+            config_document_from_layer(
+                layer,
+                CodexConfigDocumentScope::Project,
+                false,
+                Some("Codex currently only supports writes to the user config layer.".to_string()),
+            )
+        })
+        .collect();
+    documents.sort_by(|a, b| a.file_path.cmp(&b.file_path));
+    documents
+}
+
+fn config_document_from_layer(
+    layer: &ConfigLayer,
+    scope: CodexConfigDocumentScope,
+    writable: bool,
+    write_warning: Option<String>,
+) -> CodexConfigDocument {
+    CodexConfigDocument {
+        scope,
+        exists: true,
+        writable,
+        write_warning,
+        file_path: source_path(&layer.name),
+        version: Some(layer.version.clone()),
+        config: layer.config.clone(),
+        profiles: config_profile_documents(&layer.config),
+        providers: config_provider_documents(&layer.config),
+    }
+}
+
+fn config_profile_documents(config: &Value) -> Vec<CodexConfigProfileDocument> {
+    let mut profiles: Vec<_> = config
+        .get("profiles")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|profiles| profiles.iter())
+        .map(|(name, profile)| CodexConfigProfileDocument {
+            name: name.clone(),
+            config: profile.clone(),
+            model: profile
+                .get("model")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            model_provider: profile
+                .get("model_provider")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
+        .collect();
+    profiles.sort_by(|a, b| a.name.cmp(&b.name));
+    profiles
+}
+
+fn config_provider_documents(config: &Value) -> Vec<CodexProviderDocument> {
+    let mut providers: Vec<_> = config
+        .get("model_providers")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|providers| providers.iter())
+        .map(|(id, provider)| CodexProviderDocument {
+            id: id.clone(),
+            config: provider.clone(),
+            display_name: Some(id.clone()),
+            base_url: provider
+                .get("base_url")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            wire_api: provider
+                .get("wire_api")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            env_key: provider
+                .get("env_key")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            is_custom: Some(true),
+        })
+        .collect();
+    providers.sort_by(|a, b| a.id.cmp(&b.id));
+    providers
+}
+
+fn default_user_config_path() -> Option<String> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join(".codex")
+            .join("config.toml")
+            .display()
+            .to_string()
+    })
+}
+
+fn write_response(response: ConfigWriteResponse) -> CodexConfigWriteResponseData {
+    CodexConfigWriteResponseData {
+        status: match response.status {
+            WriteStatus::Ok => "ok".to_string(),
+            WriteStatus::OkOverridden => "ok_overridden".to_string(),
+        },
+        version: response.version,
+        file_path: response.file_path.as_path().display().to_string(),
+        overridden_metadata: response
+            .overridden_metadata
+            .map(overridden_metadata_response),
+    }
+}
+
+fn overridden_metadata_response(value: OverriddenMetadata) -> CodexConfigOverriddenMetadata {
+    CodexConfigOverriddenMetadata {
+        message: value.message,
+        overriding_layer: CodexInspectorOrigin {
+            source_kind: source_kind_name(&value.overriding_layer.name),
+            path: source_path(&value.overriding_layer.name),
+            version: value.overriding_layer.version,
+        },
+        effective_value: value.effective_value,
+    }
+}
+
+async fn build_effective_codex_config(
+    cwd: &str,
+    selection: &CodexConfigSelection,
+) -> Result<CoreConfig, String> {
+    let config_overrides = CodexConfigOverrides {
+        model_provider: selection
+            .model_provider
+            .clone()
+            .or(selection.overrides.model_provider.clone()),
+        config_profile: selection.config_profile.clone(),
+    };
+    let control_plane = CodexControlPlane {
+        collaboration_mode: selection.overrides.collaboration_mode.clone(),
+        multi_agent: selection.overrides.multi_agent,
+        personality: selection.overrides.personality.clone(),
+        service_tier: selection.overrides.service_tier.clone(),
+        developer_instructions: selection.overrides.developer_instructions.clone(),
+    };
+    CodexConnector::build_config_with_runtime_defaults(
+        cwd,
+        selection.overrides.model.as_deref(),
+        selection.overrides.approval_policy.as_deref(),
+        selection.overrides.sandbox_mode.as_deref(),
+        &config_overrides,
+        &control_plane,
+        false,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 async fn send_json_rpc(
@@ -486,38 +990,108 @@ fn json_rpc_error_message(method: &str, error: &Value) -> String {
     format!("{method} failed: {message}")
 }
 
-fn config_string(config: &Config, key: &str) -> Option<String> {
-    config
-        .additional
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-}
-
-fn config_bool(config: &Config, path: &[&str]) -> Option<bool> {
-    let mut value = config.additional.get(*path.first()?)?;
-    for segment in path.iter().skip(1) {
-        value = value.get(*segment)?;
-    }
-    value.as_bool()
-}
-
-fn approval_policy_to_string(value: AskForApproval) -> String {
+fn core_approval_policy_to_string(value: codex_protocol::protocol::AskForApproval) -> String {
     match value {
-        AskForApproval::UnlessTrusted => "untrusted",
-        AskForApproval::OnFailure => "on-failure",
-        AskForApproval::OnRequest => "on-request",
-        AskForApproval::Reject { .. } => "reject",
-        AskForApproval::Never => "never",
+        codex_protocol::protocol::AskForApproval::UnlessTrusted => "untrusted",
+        codex_protocol::protocol::AskForApproval::OnFailure => "on-failure",
+        codex_protocol::protocol::AskForApproval::OnRequest => "on-request",
+        codex_protocol::protocol::AskForApproval::Reject { .. } => "reject",
+        codex_protocol::protocol::AskForApproval::Never => "never",
     }
     .to_string()
 }
 
-fn sandbox_mode_to_string(value: SandboxMode) -> String {
+fn config_profiles(config: &Config) -> Vec<CodexConfigProfileSummary> {
+    let mut profiles: Vec<_> = config
+        .profiles
+        .iter()
+        .map(|(name, profile)| CodexConfigProfileSummary {
+            name: name.clone(),
+            model: profile.model.clone(),
+            model_provider: profile.model_provider.clone(),
+            source: Some("codex".to_string()),
+        })
+        .collect();
+    profiles.sort_by(|a, b| a.name.cmp(&b.name));
+    profiles
+}
+
+fn config_providers(config: &Config) -> Vec<CodexProviderSummary> {
+    let mut providers: HashMap<String, CodexProviderSummary> = built_in_provider_summaries()
+        .into_iter()
+        .map(|provider| (provider.id.clone(), provider))
+        .collect();
+
+    if let Some(custom) = config
+        .additional
+        .get("model_providers")
+        .and_then(Value::as_object)
+    {
+        for (id, raw) in custom {
+            let raw = raw.as_object();
+            providers.insert(
+                id.clone(),
+                CodexProviderSummary {
+                    id: id.clone(),
+                    display_name: Some(id.clone()),
+                    base_url: raw
+                        .and_then(|value| value.get("base_url"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    wire_api: raw
+                        .and_then(|value| value.get("wire_api"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    env_key: raw
+                        .and_then(|value| value.get("env_key"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    is_custom: Some(true),
+                },
+            );
+        }
+    }
+
+    let mut values: Vec<_> = providers.into_values().collect();
+    values.sort_by(|a, b| a.id.cmp(&b.id));
+    values
+}
+
+fn built_in_provider_summaries() -> Vec<CodexProviderSummary> {
+    vec![
+        CodexProviderSummary {
+            id: "openai".to_string(),
+            display_name: Some("OpenAI".to_string()),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            wire_api: Some("responses".to_string()),
+            env_key: Some("OPENAI_API_KEY".to_string()),
+            is_custom: Some(false),
+        },
+        CodexProviderSummary {
+            id: "ollama".to_string(),
+            display_name: Some("Ollama".to_string()),
+            base_url: Some("http://localhost:11434/v1".to_string()),
+            wire_api: Some("chat_completions".to_string()),
+            env_key: None,
+            is_custom: Some(false),
+        },
+        CodexProviderSummary {
+            id: "lmstudio".to_string(),
+            display_name: Some("LM Studio".to_string()),
+            base_url: Some("http://localhost:1234/v1".to_string()),
+            wire_api: Some("chat_completions".to_string()),
+            env_key: None,
+            is_custom: Some(false),
+        },
+    ]
+}
+
+fn core_sandbox_policy_to_string(value: &codex_protocol::protocol::SandboxPolicy) -> String {
     match value {
-        SandboxMode::ReadOnly => "read-only",
-        SandboxMode::WorkspaceWrite => "workspace-write",
-        SandboxMode::DangerFullAccess => "danger-full-access",
+        codex_protocol::protocol::SandboxPolicy::DangerFullAccess => "danger-full-access",
+        codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => "read-only",
+        codex_protocol::protocol::SandboxPolicy::ExternalSandbox { .. } => "read-only",
+        codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. } => "workspace-write",
     }
     .to_string()
 }
@@ -641,5 +1215,44 @@ fn dedup_non_empty(entries: Vec<String>) -> Option<String> {
         None
     } else {
         Some(deduped.join(":"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalized_selection_clears_profile_and_provider_for_inherit_mode() {
+        let normalized = CodexConfigSelection {
+            config_source: CodexConfigSource::User,
+            config_mode: CodexConfigMode::Inherit,
+            config_profile: Some("qwen".to_string()),
+            model_provider: Some("openrouter".to_string()),
+            overrides: CodexSessionOverrides {
+                model_provider: Some("openrouter".to_string()),
+                ..CodexSessionOverrides::default()
+            },
+        }
+        .normalized();
+
+        assert_eq!(normalized.config_profile, None);
+        assert_eq!(normalized.model_provider, None);
+        assert_eq!(normalized.overrides.model_provider, None);
+    }
+
+    #[test]
+    fn normalized_selection_clears_stale_profile_for_custom_mode() {
+        let normalized = CodexConfigSelection {
+            config_source: CodexConfigSource::User,
+            config_mode: CodexConfigMode::Custom,
+            config_profile: Some("qwen".to_string()),
+            model_provider: Some("openrouter".to_string()),
+            overrides: CodexSessionOverrides::default(),
+        }
+        .normalized();
+
+        assert_eq!(normalized.config_profile, None);
+        assert_eq!(normalized.model_provider.as_deref(), Some("openrouter"));
     }
 }

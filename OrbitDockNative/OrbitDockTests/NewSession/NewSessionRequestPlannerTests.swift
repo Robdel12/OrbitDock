@@ -18,7 +18,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: " Write, Edit ",
         claudeEffort: " high ",
         codexModel: "",
-        codexUseOrbitDockOverrides: false,
+        codexConfigMode: .inherit,
+        codexConfigProfile: "",
+        codexModelProvider: "",
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -65,7 +67,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: "",
         codexModel: "",
-        codexUseOrbitDockOverrides: false,
+        codexConfigMode: .inherit,
+        codexConfigProfile: "",
+        codexModelProvider: "",
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -113,7 +117,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "Edit",
         claudeEffort: "max",
         codexModel: " gpt-5-codex ",
-        codexUseOrbitDockOverrides: true,
+        codexConfigMode: .custom,
+        codexConfigProfile: "",
+        codexModelProvider: " openai ",
         codexAutonomy: .open,
         codexCollaborationMode: "plan",
         codexMultiAgentEnabled: true,
@@ -134,6 +140,9 @@ struct NewSessionRequestPlannerTests {
       Issue.record("Expected a direct launch target")
     }
     if case let .codex(
+      configMode,
+      configProfile,
+      modelProvider,
       model,
       approvalPolicy,
       sandboxMode,
@@ -143,6 +152,9 @@ struct NewSessionRequestPlannerTests {
       serviceTier,
       developerInstructions
     ) = plan.requestTemplate {
+      #expect(configMode == .custom)
+      #expect(configProfile == nil)
+      #expect(modelProvider == "openai")
       #expect(model == "gpt-5-codex")
       #expect(approvalPolicy == "on-request")
       #expect(sandboxMode == "danger-full-access")
@@ -171,7 +183,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
-        codexUseOrbitDockOverrides: false,
+        codexConfigMode: .inherit,
+        codexConfigProfile: "",
+        codexModelProvider: "",
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -208,7 +222,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: "",
-        codexUseOrbitDockOverrides: false,
+        codexConfigMode: .inherit,
+        codexConfigProfile: "",
+        codexModelProvider: "",
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -237,7 +253,9 @@ struct NewSessionRequestPlannerTests {
         disallowedToolsText: "",
         claudeEffort: nil,
         codexModel: " ",
-        codexUseOrbitDockOverrides: true,
+        codexConfigMode: .custom,
+        codexConfigProfile: "",
+        codexModelProvider: "openai",
         codexAutonomy: .autonomous,
         codexCollaborationMode: nil,
         codexMultiAgentEnabled: false,
@@ -249,5 +267,129 @@ struct NewSessionRequestPlannerTests {
     )
 
     #expect(plan == nil)
+  }
+
+  @Test func inheritModeIgnoresStaleProfileAndProviderValues() {
+    let plan = NewSessionRequestPlanner.planLaunch(
+      selectedPath: "/tmp/repo",
+      useWorktree: false,
+      worktreeBranch: "",
+      worktreeBaseBranch: "",
+      providerConfiguration: NewSessionProviderConfiguration(
+        provider: .codex,
+        claudeModel: nil,
+        claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
+        allowedToolsText: "",
+        disallowedToolsText: "",
+        claudeEffort: nil,
+        codexModel: "gpt-5-codex",
+        codexConfigMode: .inherit,
+        codexConfigProfile: "qwen",
+        codexModelProvider: "openrouter",
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: "plan",
+        codexMultiAgentEnabled: true,
+        codexPersonality: "friendly",
+        codexServiceTier: "fast",
+        codexInstructions: "Keep it tidy."
+      ),
+      bootstrapPrompt: nil
+    )
+
+    guard let plan else {
+      Issue.record("Expected a launch plan")
+      return
+    }
+
+    if case let .codex(
+      configMode,
+      configProfile,
+      modelProvider,
+      model,
+      approvalPolicy,
+      sandboxMode,
+      collaborationMode,
+      multiAgent,
+      personality,
+      serviceTier,
+      developerInstructions
+    ) = plan.requestTemplate {
+      #expect(configMode == .inherit)
+      #expect(configProfile == nil)
+      #expect(modelProvider == nil)
+      #expect(model == nil)
+      #expect(approvalPolicy == nil)
+      #expect(sandboxMode == nil)
+      #expect(collaborationMode == nil)
+      #expect(multiAgent == nil)
+      #expect(personality == nil)
+      #expect(serviceTier == nil)
+      #expect(developerInstructions == nil)
+    } else {
+      Issue.record("Expected a Codex request template")
+    }
+  }
+
+  @Test func profileModeIgnoresStaleCustomProviderValue() {
+    let plan = NewSessionRequestPlanner.planLaunch(
+      selectedPath: "/tmp/repo",
+      useWorktree: false,
+      worktreeBranch: "",
+      worktreeBaseBranch: "",
+      providerConfiguration: NewSessionProviderConfiguration(
+        provider: .codex,
+        claudeModel: nil,
+        claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
+        allowedToolsText: "",
+        disallowedToolsText: "",
+        claudeEffort: nil,
+        codexModel: "gpt-5-codex",
+        codexConfigMode: .profile,
+        codexConfigProfile: "qwen",
+        codexModelProvider: "openrouter",
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: "plan",
+        codexMultiAgentEnabled: true,
+        codexPersonality: "friendly",
+        codexServiceTier: "fast",
+        codexInstructions: "Keep it tidy."
+      ),
+      bootstrapPrompt: nil
+    )
+
+    guard let plan else {
+      Issue.record("Expected a launch plan")
+      return
+    }
+
+    if case let .codex(
+      configMode,
+      configProfile,
+      modelProvider,
+      model,
+      approvalPolicy,
+      sandboxMode,
+      collaborationMode,
+      multiAgent,
+      personality,
+      serviceTier,
+      developerInstructions
+    ) = plan.requestTemplate {
+      #expect(configMode == .profile)
+      #expect(configProfile == "qwen")
+      #expect(modelProvider == nil)
+      #expect(model == nil)
+      #expect(approvalPolicy == nil)
+      #expect(sandboxMode == nil)
+      #expect(collaborationMode == nil)
+      #expect(multiAgent == nil)
+      #expect(personality == nil)
+      #expect(serviceTier == nil)
+      #expect(developerInstructions == nil)
+    } else {
+      Issue.record("Expected a Codex request template")
+    }
   }
 }

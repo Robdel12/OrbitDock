@@ -273,6 +273,22 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
             "/api/codex/config/inspect",
             post(super::inspect_codex_config),
         )
+        .route(
+            "/api/codex/config/catalog",
+            get(super::get_codex_config_catalog),
+        )
+        .route(
+            "/api/codex/config/documents",
+            get(super::get_codex_config_documents),
+        )
+        .route(
+            "/api/codex/config/value",
+            post(super::write_codex_config_value),
+        )
+        .route(
+            "/api/codex/config/batch-write",
+            post(super::batch_write_codex_config),
+        )
         .route("/api/codex/login/start", post(super::codex_login_start))
         .route("/api/codex/login/cancel", post(super::codex_login_cancel))
         .route("/api/codex/logout", post(super::codex_logout))

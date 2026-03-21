@@ -36,6 +36,9 @@ struct SessionDetailSnapshotProjection {
   let serviceTier: String?
   let developerInstructions: String?
   let codexConfigSource: ServerCodexConfigSource?
+  let codexConfigMode: ServerCodexConfigMode?
+  let codexConfigProfile: String?
+  let codexModelProvider: String?
   let codexConfigOverrides: ServerCodexSessionOverrides?
   let summary: String?
   let customName: String?
@@ -94,8 +97,11 @@ struct SessionDetailSnapshotProjection {
       personality: session.personality,
       serviceTier: session.serviceTier,
       developerInstructions: session.developerInstructions,
-      codexConfigSource: nil,
-      codexConfigOverrides: nil,
+      codexConfigSource: session.codexConfigSource,
+      codexConfigMode: session.codexConfigMode,
+      codexConfigProfile: session.codexConfigProfile,
+      codexModelProvider: session.codexModelProvider,
+      codexConfigOverrides: session.codexConfigOverrides,
       summary: session.summary,
       customName: session.customName,
       firstPrompt: session.firstPrompt,
@@ -170,6 +176,9 @@ struct SessionStateProjection {
   let serviceTier: String??
   let developerInstructions: String??
   let codexConfigSource: ServerCodexConfigSource??
+  let codexConfigMode: ServerCodexConfigMode??
+  let codexConfigProfile: String??
+  let codexModelProvider: String??
   let codexConfigOverrides: ServerCodexSessionOverrides??
   let lastActivityAt: Date?
   let repositoryRoot: String??
@@ -205,6 +214,9 @@ struct SessionStateProjection {
       serviceTier: changes.serviceTier,
       developerInstructions: changes.developerInstructions,
       codexConfigSource: changes.codexConfigSource,
+      codexConfigMode: changes.codexConfigMode,
+      codexConfigProfile: changes.codexConfigProfile,
+      codexModelProvider: changes.codexModelProvider,
       codexConfigOverrides: changes.codexConfigOverrides,
       lastActivityAt: parseLastActivityAt(changes.lastActivityAt),
       repositoryRoot: changes.repositoryRoot,
@@ -337,6 +349,15 @@ extension Session {
     if let developerInstructions = projection.developerInstructions {
       self.developerInstructions = developerInstructions
     }
+    if let codexConfigMode = projection.codexConfigMode {
+      self.codexConfigMode = codexConfigMode
+    }
+    if let codexConfigProfile = projection.codexConfigProfile {
+      self.codexConfigProfile = codexConfigProfile
+    }
+    if let codexModelProvider = projection.codexModelProvider {
+      self.codexModelProvider = codexModelProvider
+    }
     if let lastActivityAt = projection.lastActivityAt {
       self.lastActivityAt = lastActivityAt
     }
@@ -392,6 +413,9 @@ extension SessionObservable {
     serviceTier = projection.serviceTier
     developerInstructions = projection.developerInstructions
     codexConfigSource = projection.codexConfigSource
+    codexConfigMode = projection.codexConfigMode
+    codexConfigProfile = projection.codexConfigProfile
+    codexModelProvider = projection.codexModelProvider
     codexConfigOverrides = projection.codexConfigOverrides
     summary = projection.summary
     customName = projection.customName
@@ -522,6 +546,15 @@ extension SessionObservable {
     }
     if let developerInstructions = projection.developerInstructions {
       self.developerInstructions = developerInstructions
+    }
+    if let codexConfigMode = projection.codexConfigMode {
+      self.codexConfigMode = codexConfigMode
+    }
+    if let codexConfigProfile = projection.codexConfigProfile {
+      self.codexConfigProfile = codexConfigProfile
+    }
+    if let codexModelProvider = projection.codexModelProvider {
+      self.codexModelProvider = codexModelProvider
     }
     if let codexConfigSource = projection.codexConfigSource {
       self.codexConfigSource = codexConfigSource

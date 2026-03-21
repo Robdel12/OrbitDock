@@ -24,6 +24,11 @@ struct NewSessionSheet: View {
   @State private var codexInspectorError: String?
   @State private var codexInspectorLoading = false
   @State private var showCodexInspector = false
+  @State private var showCodexConfigManager = false
+  @State private var codexConfigCatalog: SessionsClient.CodexConfigCatalogResponse?
+  @State private var codexConfigCatalogError: String?
+  @State private var codexConfigCatalogLoading = false
+  @State private var codexConfigCatalogRequestID = 0
 
   @MainActor
   init(
@@ -162,8 +167,27 @@ struct NewSessionSheet: View {
         isLoading: codexInspectorLoading,
         onRefresh: {
           inspectCodexConfig()
+        },
+        onManageConfig: {
+          showCodexConfigManager = true
         }
       )
+    }
+    .sheet(isPresented: $showCodexConfigManager) {
+      if let normalizedProjectPathForConfigEditor {
+        CodexConfigManagerSheet(
+          cwd: normalizedProjectPathForConfigEditor,
+          fetchDocuments: { cwd in
+            try await endpointAppState.clients.sessions.fetchCodexConfigDocuments(cwd: cwd)
+          },
+          batchWrite: { request in
+            try await endpointAppState.clients.sessions.batchWriteCodexConfig(request)
+          },
+          onDidChange: {
+            refreshCodexConfigCatalogIfNeeded(force: true)
+          }
+        )
+      }
     }
     .onAppear {
       applyLifecyclePlan(
@@ -175,6 +199,7 @@ struct NewSessionSheet: View {
           continuationDefaults: continuationDefaults
         )
       )
+      refreshCodexConfigCatalogIfNeeded()
     }
     .onChange(of: model.selectedPath) { _, newPath in
       applyLifecyclePlan(
@@ -183,6 +208,7 @@ struct NewSessionSheet: View {
           newPath: newPath
         )
       )
+      refreshCodexConfigCatalogIfNeeded()
     }
     .onChange(of: model.selectedEndpointId) { _, newEndpointId in
       applyLifecyclePlan(
@@ -195,9 +221,11 @@ struct NewSessionSheet: View {
           continuationDefaults: continuationDefaults
         )
       )
+      refreshCodexConfigCatalogIfNeeded()
     }
     .onChange(of: model.provider) { _, _ in
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
+      refreshCodexConfigCatalogIfNeeded()
     }
     // Claude model sync
     .onChange(of: claudeModels.count) { _, _ in
@@ -268,11 +296,14 @@ struct NewSessionSheet: View {
     codexInspectorError = nil
     showCodexInspector = true
 
-    let shouldApplyOverrides = model.codexUseOrbitDockOverrides
+    let shouldApplyOverrides = model.codexConfigMode == .custom
     let request = SessionsClient.CodexInspectRequest(
       cwd: model.selectedPath,
       codexConfigSource: .user,
+      codexConfigMode: model.codexConfigMode,
+      codexConfigProfile: normalizedCodexProfile,
       model: shouldApplyOverrides ? model.codexModel : nil,
+      modelProvider: shouldApplyOverrides ? normalizedCodexModelProvider : nil,
       approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
       sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
       collaborationMode: shouldApplyOverrides ? model.codexCollaborationMode.rawValue : nil,
@@ -294,8 +325,34 @@ struct NewSessionSheet: View {
     }
   }
 
+  private func openCodexConfigManager() {
+    guard normalizedProjectPathForConfigEditor != nil else {
+      codexInspectorError =
+        "Choose a project folder first so OrbitDock can resolve the Codex config layers that apply here before editing saved profiles and providers."
+      codexInspectorResponse = nil
+      showCodexInspector = true
+      return
+    }
+    showCodexConfigManager = true
+  }
+
   private var normalizedCodexInstructions: String? {
     let trimmed = model.codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private var normalizedCodexProfile: String? {
+    let trimmed = model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private var normalizedCodexModelProvider: String? {
+    let trimmed = model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private var normalizedProjectPathForConfigEditor: String? {
+    let trimmed = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
   }
 
@@ -391,14 +448,20 @@ struct NewSessionSheet: View {
       allowBypassPermissions: $model.allowBypassPermissions,
       selectedEffort: $model.selectedEffort,
       codexModel: $model.codexModel,
-      codexUseOrbitDockOverrides: $model.codexUseOrbitDockOverrides,
+      codexConfigMode: $model.codexConfigMode,
+      codexConfigProfile: $model.codexConfigProfile,
+      codexModelProvider: $model.codexModelProvider,
       selectedAutonomy: $model.selectedAutonomy,
       codexCollaborationMode: $model.codexCollaborationMode,
       codexMultiAgentEnabled: $model.codexMultiAgentEnabled,
       codexPersonality: $model.codexPersonality,
       codexServiceTier: $model.codexServiceTier,
       codexInstructions: $model.codexInstructions,
-      onInspectCodexConfig: inspectCodexConfig
+      codexCatalog: codexConfigCatalog,
+      codexCatalogLoading: codexConfigCatalogLoading,
+      codexCatalogError: codexConfigCatalogError,
+      onInspectCodexConfig: inspectCodexConfig,
+      onManageCodexConfig: openCodexConfigManager
     )
   }
 
@@ -461,6 +524,62 @@ struct NewSessionSheet: View {
 
   private func syncCodexModelSelection() {
     model.syncCodexModelSelection(models: codexModels)
+  }
+
+  private func refreshCodexConfigCatalogIfNeeded(force _: Bool = false) {
+    guard model.provider == .codex else {
+      codexConfigCatalog = nil
+      codexConfigCatalogError = nil
+      codexConfigCatalogLoading = false
+      return
+    }
+
+    let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !cwd.isEmpty else {
+      codexConfigCatalog = nil
+      codexConfigCatalogError = nil
+      codexConfigCatalogLoading = false
+      return
+    }
+
+    codexConfigCatalogLoading = true
+    codexConfigCatalogError = nil
+    codexConfigCatalogRequestID += 1
+    let requestID = codexConfigCatalogRequestID
+
+    Task {
+      do {
+        let response = try await endpointAppState.clients.sessions.fetchCodexConfigCatalog(cwd: cwd)
+        await MainActor.run {
+          guard requestID == codexConfigCatalogRequestID,
+                model.provider == .codex,
+                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
+          else { return }
+          codexConfigCatalog = response
+          codexConfigCatalogLoading = false
+          if model.codexConfigMode == .profile,
+             model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          {
+            model.codexConfigProfile = response.profiles.first?.name ?? ""
+          }
+          if model.codexConfigMode == .custom,
+             model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          {
+            model.codexModelProvider = response.providers.first?.id ?? ""
+          }
+        }
+      } catch {
+        await MainActor.run {
+          guard requestID == codexConfigCatalogRequestID,
+                model.provider == .codex,
+                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
+          else { return }
+          codexConfigCatalog = nil
+          codexConfigCatalogError = error.localizedDescription
+          codexConfigCatalogLoading = false
+        }
+      }
+    }
   }
 
   private func initGitAndEnableWorktree() {

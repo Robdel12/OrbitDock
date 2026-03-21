@@ -13,7 +13,7 @@ use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{Op, SessionSource};
 use tracing::{info, warn};
 
-use super::{CodexConnector, CodexControlPlane};
+use super::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
 use orbitdock_connector_core::ConnectorError;
 
 const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
@@ -32,11 +32,30 @@ impl CodexConnector {
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_control_plane(
+        Self::new_with_config_overrides_and_control_plane(
             cwd,
             model,
             approval_policy,
             sandbox_mode,
+            &CodexConfigOverrides::default(),
+            CodexControlPlane::default(),
+        )
+        .await
+    }
+
+    pub async fn new_with_config_overrides(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
+    ) -> Result<Self, ConnectorError> {
+        Self::new_with_config_overrides_and_control_plane(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            config_overrides,
             CodexControlPlane::default(),
         )
         .await
@@ -49,11 +68,31 @@ impl CodexConnector {
         sandbox_mode: Option<&str>,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_control_plane_and_tools(
+        Self::new_with_config_overrides_and_control_plane(
             cwd,
             model,
             approval_policy,
             sandbox_mode,
+            &CodexConfigOverrides::default(),
+            control_plane,
+        )
+        .await
+    }
+
+    pub async fn new_with_config_overrides_and_control_plane(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
+        control_plane: CodexControlPlane,
+    ) -> Result<Self, ConnectorError> {
+        Self::new_with_config_overrides_control_plane_and_tools(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            config_overrides,
             control_plane,
             Vec::new(),
         )
@@ -65,6 +104,27 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+        dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+    ) -> Result<Self, ConnectorError> {
+        Self::new_with_config_overrides_control_plane_and_tools(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            &CodexConfigOverrides::default(),
+            control_plane,
+            dynamic_tools,
+        )
+        .await
+    }
+
+    pub async fn new_with_config_overrides_control_plane_and_tools(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
         control_plane: CodexControlPlane,
         dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
     ) -> Result<Self, ConnectorError> {
@@ -80,8 +140,15 @@ impl CodexConnector {
             ORBITDOCK_CODEX_AUTH_STORE_MODE,
         ));
 
-        let mut config =
-            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
+        let mut config = Self::build_config(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            config_overrides,
+            &control_plane,
+        )
+        .await?;
 
         let thread_manager = Arc::new(ThreadManager::new(
             &config,
@@ -111,12 +178,33 @@ impl CodexConnector {
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
     ) -> Result<Self, ConnectorError> {
-        Self::resume_with_control_plane(
+        Self::resume_with_config_overrides_and_control_plane(
             cwd,
             thread_id,
             model,
             approval_policy,
             sandbox_mode,
+            &CodexConfigOverrides::default(),
+            CodexControlPlane::default(),
+        )
+        .await
+    }
+
+    pub async fn resume_with_config_overrides(
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
+    ) -> Result<Self, ConnectorError> {
+        Self::resume_with_config_overrides_and_control_plane(
+            cwd,
+            thread_id,
+            model,
+            approval_policy,
+            sandbox_mode,
+            config_overrides,
             CodexControlPlane::default(),
         )
         .await
@@ -128,6 +216,27 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        control_plane: CodexControlPlane,
+    ) -> Result<Self, ConnectorError> {
+        Self::resume_with_config_overrides_and_control_plane(
+            cwd,
+            thread_id,
+            model,
+            approval_policy,
+            sandbox_mode,
+            &CodexConfigOverrides::default(),
+            control_plane,
+        )
+        .await
+    }
+
+    pub async fn resume_with_config_overrides_and_control_plane(
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
         info!(
@@ -159,8 +268,15 @@ impl CodexConnector {
             ORBITDOCK_CODEX_AUTH_STORE_MODE,
         ));
 
-        let mut config =
-            Self::build_config(cwd, model, approval_policy, sandbox_mode, &control_plane).await?;
+        let mut config = Self::build_config(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            config_overrides,
+            &control_plane,
+        )
+        .await?;
 
         let thread_manager = Arc::new(ThreadManager::new(
             &config,
@@ -190,6 +306,7 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
         control_plane: &CodexControlPlane,
     ) -> Result<Config, ConnectorError> {
         Self::build_config_with_runtime_defaults(
@@ -197,6 +314,7 @@ impl CodexConnector {
             model,
             approval_policy,
             sandbox_mode,
+            config_overrides,
             control_plane,
             true,
         )
@@ -208,6 +326,7 @@ impl CodexConnector {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
+        config_overrides: &CodexConfigOverrides,
         control_plane: &CodexControlPlane,
         apply_runtime_defaults: bool,
     ) -> Result<Config, ConnectorError> {
@@ -269,7 +388,9 @@ impl CodexConnector {
 
         let harness_overrides = ConfigOverrides {
             cwd: Some(std::path::PathBuf::from(cwd)),
+            model_provider: config_overrides.model_provider.clone(),
             service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
+            config_profile: config_overrides.config_profile.clone(),
             developer_instructions: control_plane.developer_instructions.clone(),
             personality: parse_personality(control_plane.personality.as_deref()),
             codex_linux_sandbox_exe: None,

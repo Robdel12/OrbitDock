@@ -206,9 +206,24 @@ extension DirectSessionComposer {
     obs.codexConfigSource ?? .user
   }
 
+  var currentCodexConfigMode: ServerCodexConfigMode {
+    obs.codexConfigMode ?? .inherit
+  }
+
+  var currentCodexConfigProfile: String? {
+    let trimmed = obs.codexConfigProfile?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (trimmed?.isEmpty == false) ? trimmed : nil
+  }
+
+  var currentCodexModelProvider: String? {
+    let trimmed = obs.codexModelProvider?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return (trimmed?.isEmpty == false) ? trimmed : nil
+  }
+
   var currentCodexOverrides: ServerCodexSessionOverrides {
     obs.codexConfigOverrides ?? ServerCodexSessionOverrides(
       model: nil,
+      modelProvider: nil,
       approvalPolicy: nil,
       sandboxMode: nil,
       collaborationMode: nil,
@@ -221,7 +236,8 @@ extension DirectSessionComposer {
   }
 
   var hasCodexControlOverrides: Bool {
-    currentCodexCollaborationMode != .default
+    currentCodexConfigMode != .inherit
+      || currentCodexCollaborationMode != .default
       || currentCodexMultiAgentEnabled
       || currentCodexPersonality != .automatic
       || currentCodexServiceTier != .automatic

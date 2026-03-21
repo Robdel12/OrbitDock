@@ -23,7 +23,9 @@ struct NewSessionModel {
   var selectedEffort: ClaudeEffortLevel
 
   var codexModel: String
-  var codexUseOrbitDockOverrides: Bool
+  var codexConfigMode: ServerCodexConfigMode
+  var codexConfigProfile: String
+  var codexModelProvider: String
   var selectedAutonomy: AutonomyLevel
   var codexCollaborationMode: CodexCollaborationMode
   var codexMultiAgentEnabled: Bool
@@ -52,7 +54,9 @@ struct NewSessionModel {
     self.showToolConfig = false
     self.selectedEffort = .default
     self.codexModel = ""
-    self.codexUseOrbitDockOverrides = false
+    self.codexConfigMode = .inherit
+    self.codexConfigProfile = ""
+    self.codexModelProvider = ""
     self.selectedAutonomy = .autonomous
     self.codexCollaborationMode = .default
     self.codexMultiAgentEnabled = false
@@ -85,7 +89,9 @@ struct NewSessionModel {
         showToolConfig: showToolConfig,
         selectedEffort: selectedEffort,
         codexModel: codexModel,
-        codexUseOrbitDockOverrides: codexUseOrbitDockOverrides,
+        codexConfigMode: codexConfigMode,
+        codexConfigProfile: codexConfigProfile,
+        codexModelProvider: codexModelProvider,
         selectedAutonomy: selectedAutonomy,
         codexCollaborationMode: codexCollaborationMode,
         codexMultiAgentEnabled: codexMultiAgentEnabled,
@@ -113,7 +119,9 @@ struct NewSessionModel {
       disallowedToolsText: disallowedToolsText,
       claudeEffort: selectedEffort.serialized,
       codexModel: codexModel,
-      codexUseOrbitDockOverrides: codexUseOrbitDockOverrides,
+      codexConfigMode: codexConfigMode,
+      codexConfigProfile: codexConfigProfile,
+      codexModelProvider: codexModelProvider,
       codexAutonomy: selectedAutonomy,
       codexCollaborationMode: codexCollaborationMode.rawValue,
       codexMultiAgentEnabled: codexMultiAgentEnabled,
@@ -136,8 +144,14 @@ struct NewSessionModel {
       case .claude:
         return pathReady && worktreeReady && !isCreating && isEndpointConnected && continuationReady
       case .codex:
-        let modelReady = codexUseOrbitDockOverrides ? !codexModel.isEmpty : true
-        return pathReady && modelReady && worktreeReady && !isCreating && !requiresCodexLogin
+        let modelReady = codexConfigMode != .custom || !codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
+          .isEmpty
+        let providerReady =
+          codexConfigMode != .custom || !codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let profileReady =
+          codexConfigMode != .profile || !codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return pathReady && modelReady && providerReady && profileReady && worktreeReady && !isCreating
+          && !requiresCodexLogin
           && isEndpointConnected && continuationReady
     }
   }
@@ -157,7 +171,9 @@ struct NewSessionModel {
     showToolConfig = providerState.showToolConfig
     selectedEffort = providerState.selectedEffort
     codexModel = providerState.codexModel
-    codexUseOrbitDockOverrides = providerState.codexUseOrbitDockOverrides
+    codexConfigMode = providerState.codexConfigMode
+    codexConfigProfile = providerState.codexConfigProfile
+    codexModelProvider = providerState.codexModelProvider
     selectedAutonomy = providerState.selectedAutonomy
     codexCollaborationMode = providerState.codexCollaborationMode
     codexMultiAgentEnabled = providerState.codexMultiAgentEnabled
@@ -184,7 +200,9 @@ struct NewSessionModel {
     showToolConfig = state.showToolConfig
     selectedEffort = state.selectedEffort
     codexModel = state.codexModel
-    codexUseOrbitDockOverrides = state.codexUseOrbitDockOverrides
+    codexConfigMode = state.codexConfigMode
+    codexConfigProfile = state.codexConfigProfile
+    codexModelProvider = state.codexModelProvider
     selectedAutonomy = state.selectedAutonomy
     codexCollaborationMode = state.codexCollaborationMode
     codexMultiAgentEnabled = state.codexMultiAgentEnabled
@@ -207,7 +225,7 @@ struct NewSessionModel {
   mutating func syncCodexModelSelection(models: [ServerCodexModelOption]) {
     codexModel = NewSessionProviderStatePlanner.syncCodexModelSelection(
       currentModel: codexModel,
-      shouldPreferDefaultModel: codexUseOrbitDockOverrides,
+      shouldPreferDefaultModel: codexConfigMode == .custom,
       models: models
     )
   }

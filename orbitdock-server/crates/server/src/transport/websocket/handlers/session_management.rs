@@ -74,6 +74,9 @@ pub(crate) async fn handle_create_session(
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
             codex_config_source: None,
             codex_config_overrides: None,
         },
@@ -191,6 +194,7 @@ pub(crate) async fn handle_update_session_config(
         developer_instructions,
         model,
         effort,
+        ..
     } = update;
     info!(
         component = "session",
@@ -224,6 +228,9 @@ pub(crate) async fn handle_update_session_config(
             developer_instructions,
             model,
             effort,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
         },
     )
     .await;

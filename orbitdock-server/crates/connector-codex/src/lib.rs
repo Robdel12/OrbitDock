@@ -61,6 +61,12 @@ pub struct CodexControlPlane {
     pub developer_instructions: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CodexConfigOverrides {
+    pub model_provider: Option<String>,
+    pub config_profile: Option<String>,
+}
+
 pub struct UpdateConfigOptions<'a> {
     pub approval_policy: Option<&'a str>,
     pub sandbox_mode: Option<&'a str>,

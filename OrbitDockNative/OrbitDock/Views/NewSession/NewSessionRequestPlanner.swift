@@ -9,7 +9,9 @@ struct NewSessionProviderConfiguration: Equatable, Sendable {
   let disallowedToolsText: String
   let claudeEffort: String?
   let codexModel: String
-  let codexUseOrbitDockOverrides: Bool
+  let codexConfigMode: ServerCodexConfigMode
+  let codexConfigProfile: String
+  let codexModelProvider: String
   let codexAutonomy: AutonomyLevel
   let codexCollaborationMode: String?
   let codexMultiAgentEnabled: Bool
@@ -33,6 +35,9 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
     effort: String?
   )
   case codex(
+    configMode: ServerCodexConfigMode,
+    configProfile: String?,
+    modelProvider: String?,
     model: String?,
     approvalPolicy: String?,
     sandboxMode: String?,
@@ -57,6 +62,9 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           allowBypassPermissions: allowBypassPermissions ? true : nil
         )
       case let .codex(
+      configMode,
+      configProfile,
+      modelProvider,
       model,
       approvalPolicy,
       sandboxMode,
@@ -70,6 +78,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           provider: "codex",
           cwd: cwd,
           model: model,
+          modelProvider: modelProvider,
           approvalPolicy: approvalPolicy,
           sandboxMode: sandboxMode,
           collaborationMode: collaborationMode,
@@ -77,7 +86,9 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           personality: personality,
           serviceTier: serviceTier,
           developerInstructions: developerInstructions,
-          codexConfigSource: .user
+          codexConfigSource: .user,
+          codexConfigMode: configMode,
+          codexConfigProfile: configProfile
         )
     }
   }
@@ -145,11 +156,25 @@ enum NewSessionRequestPlanner {
         )
       case .codex:
         let normalizedModel = configuration.codexModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let shouldApplyOverrides = configuration.codexUseOrbitDockOverrides
-        if shouldApplyOverrides, normalizedModel.isEmpty {
+        let normalizedProfile = configuration.codexConfigMode == .profile
+          ? normalizeOptionalText(configuration.codexConfigProfile)
+          : nil
+        let normalizedModelProvider = configuration.codexConfigMode == .custom
+          ? normalizeOptionalText(configuration.codexModelProvider)
+          : nil
+        let shouldApplyOverrides = configuration.codexConfigMode == .custom
+
+        if configuration.codexConfigMode == .profile, normalizedProfile == nil {
+          return nil
+        }
+
+        if shouldApplyOverrides, normalizedModel.isEmpty || normalizedModelProvider == nil {
           return nil
         }
         return .codex(
+          configMode: configuration.codexConfigMode,
+          configProfile: normalizedProfile,
+          modelProvider: shouldApplyOverrides ? normalizedModelProvider : nil,
           model: shouldApplyOverrides ? normalizedModel : nil,
           approvalPolicy: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicy : nil,
           sandboxMode: shouldApplyOverrides ? configuration.codexAutonomy.sandboxMode : nil,

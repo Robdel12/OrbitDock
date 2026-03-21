@@ -15,7 +15,9 @@ use super::config::{
     collaboration_mode_for_update, parse_personality, parse_service_tier_override,
     preferred_reasoning_summary, reasoning_summary_for_model,
 };
-use super::{CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions};
+use super::{
+    CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
+};
 use orbitdock_connector_core::ConnectorError;
 
 fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
@@ -58,6 +60,7 @@ impl CodexConnector {
             model,
             approval_policy,
             sandbox_mode,
+            &CodexConfigOverrides::default(),
             &CodexControlPlane::default(),
         )
         .await?;

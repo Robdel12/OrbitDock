@@ -107,9 +107,14 @@ struct DirectSessionComposer: View {
     nonmutating set { composerState.showClaudeModelPopover = newValue }
   }
 
-  var showCodexSettingsPopover: Bool {
-    get { composerState.showCodexSettingsPopover }
-    nonmutating set { composerState.showCodexSettingsPopover = newValue }
+  var showCodexSettingsSheet: Bool {
+    get { composerState.showCodexSettingsSheet }
+    nonmutating set { composerState.showCodexSettingsSheet = newValue }
+  }
+
+  var showCodexConfigManagerSheet: Bool {
+    get { composerState.showCodexConfigManagerSheet }
+    nonmutating set { composerState.showCodexConfigManagerSheet = newValue }
   }
 
   var showFilePickerPopover: Bool {
@@ -181,8 +186,71 @@ struct DirectSessionComposer: View {
         isLoading: codexInspectorLoading,
         onRefresh: {
           inspectCodexConfig()
+        },
+        onManageConfig: {
+          showCodexConfigManagerSheet = true
         }
       )
+    }
+    .sheet(isPresented: $composerState.showCodexSettingsSheet) {
+      NavigationStack {
+        CodexSessionSettingsSheet(
+          projectPath: projectPath,
+          modelOption: currentCodexModelOption,
+          configMode: currentCodexConfigMode,
+          configProfile: currentCodexConfigProfile,
+          modelProvider: currentCodexModelProvider,
+          collaborationMode: currentCodexCollaborationMode,
+          multiAgentEnabled: currentCodexMultiAgentEnabled,
+          personality: currentCodexPersonality,
+          serviceTier: currentCodexServiceTier,
+          developerInstructions: obs.developerInstructions,
+          fetchCatalog: { cwd in
+            try await viewModel.fetchCodexConfigCatalog(cwd: cwd)
+          },
+          onApply: applyCodexSessionSettings,
+          onReset: resetCodexSessionOverrides,
+          onInspect: {
+            showCodexSettingsSheet = false
+            inspectCodexConfig()
+          },
+          onManageConfig: {
+            showCodexSettingsSheet = false
+            showCodexConfigManagerSheet = true
+          },
+          onDone: {
+            showCodexSettingsSheet = false
+          }
+        )
+        .navigationTitle("Codex Session Overrides")
+        #if os(iOS)
+          .navigationBarTitleDisplayMode(.inline)
+        #endif
+          .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Done") {
+                showCodexSettingsSheet = false
+              }
+            }
+          }
+      }
+      #if os(macOS)
+      .frame(minWidth: 820, idealWidth: 860, minHeight: 720, idealHeight: 780)
+      #endif
+    }
+    .sheet(isPresented: $composerState.showCodexConfigManagerSheet) {
+      if let projectPath {
+        CodexConfigManagerSheet(
+          cwd: projectPath,
+          fetchDocuments: { cwd in
+            try await viewModel.fetchCodexConfigDocuments(cwd: cwd)
+          },
+          batchWrite: { request in
+            try await viewModel.batchWriteCodexConfig(request)
+          },
+          onDidChange: {}
+        )
+      }
     }
     #if os(iOS)
     .photosPicker(

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexConfigSource, CodexIntegrationMode, CodexSessionOverrides,
-    Provider, SessionState, SessionSummary,
+    ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
+    CodexSessionOverrides, Provider, SessionState, SessionSummary,
 };
 
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
@@ -32,6 +32,9 @@ pub(crate) struct DirectSessionCreationInputs {
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
     pub allow_bypass_permissions: bool,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
     pub codex_config_source: Option<CodexConfigSource>,
     pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
@@ -66,6 +69,9 @@ pub(crate) struct DirectSessionRequest {
     /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
     /// enabling mid-session switches to `bypassPermissions` mode.
     pub allow_bypass_permissions: bool,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
     pub codex_config_source: Option<CodexConfigSource>,
     pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
@@ -97,6 +103,9 @@ struct PersistDirectSessionCreate {
     mission_id: Option<String>,
     issue_identifier: Option<String>,
     allow_bypass_permissions: bool,
+    codex_config_mode: Option<CodexConfigMode>,
+    codex_config_profile: Option<String>,
+    codex_model_provider: Option<String>,
     codex_config_source: Option<CodexConfigSource>,
     codex_config_overrides_json: Option<String>,
 }
@@ -123,6 +132,9 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
             personality: input.personality,
             service_tier: input.service_tier,
             developer_instructions: input.developer_instructions,
+            codex_config_mode: input.codex_config_mode,
+            codex_config_profile: input.codex_config_profile,
+            codex_model_provider: input.codex_model_provider,
             model: input.model,
             effort: input.effort,
             codex_config_source: input.codex_config_source,
@@ -173,6 +185,9 @@ async fn persist_direct_session_create(
         mission_id,
         issue_identifier,
         allow_bypass_permissions,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides_json,
     } = request;
@@ -192,6 +207,9 @@ async fn persist_direct_session_create(
             personality,
             service_tier,
             developer_instructions,
+            codex_config_mode,
+            codex_config_profile,
+            codex_model_provider,
             codex_config_source,
             codex_config_overrides_json,
             forked_from_session_id: None,
@@ -234,6 +252,9 @@ pub(crate) async fn prepare_persist_direct_session(
         mission_id: request.mission_id.clone(),
         issue_identifier: request.issue_identifier.clone(),
         allow_bypass_permissions: request.allow_bypass_permissions,
+        codex_config_mode: request.codex_config_mode,
+        codex_config_profile: request.codex_config_profile.clone(),
+        codex_model_provider: request.codex_model_provider.clone(),
         codex_config_source: request.codex_config_source,
         codex_config_overrides: request.codex_config_overrides.clone(),
     });
@@ -260,6 +281,9 @@ pub(crate) async fn prepare_persist_direct_session(
             mission_id: request.mission_id.clone(),
             issue_identifier: request.issue_identifier.clone(),
             allow_bypass_permissions: request.allow_bypass_permissions,
+            codex_config_mode: request.codex_config_mode,
+            codex_config_profile: request.codex_config_profile.clone(),
+            codex_model_provider: request.codex_model_provider.clone(),
             codex_config_source: request.codex_config_source,
             codex_config_overrides_json: request
                 .codex_config_overrides
@@ -302,6 +326,8 @@ pub(crate) async fn launch_prepared_direct_session(
                     personality: request.personality.as_deref(),
                     service_tier: request.service_tier.as_deref(),
                     developer_instructions: request.developer_instructions.as_deref(),
+                    config_profile: request.codex_config_profile.as_deref(),
+                    model_provider: request.codex_model_provider.as_deref(),
                     dynamic_tools: request.dynamic_tools.clone(),
                 },
             )
@@ -360,6 +386,9 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
             codex_config_source: None,
             codex_config_overrides: None,
         });
@@ -407,6 +436,9 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
             codex_config_source: None,
             codex_config_overrides: None,
         });
@@ -440,6 +472,9 @@ mod tests {
             issue_identifier: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
             codex_config_source: None,
             codex_config_overrides: None,
         };
@@ -460,6 +495,9 @@ mod tests {
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
             codex_config_source: None,
             codex_config_overrides: None,
         });

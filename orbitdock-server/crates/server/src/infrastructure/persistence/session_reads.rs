@@ -1,7 +1,9 @@
 use rusqlite::{params, Connection, OptionalExtension};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
-use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, TokenUsageSnapshotKind};
+use orbitdock_protocol::{
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, TokenUsageSnapshotKind,
+};
 
 use super::chrono_now;
 use super::messages::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
@@ -9,6 +11,9 @@ use super::transcripts::{extract_summary_from_transcript, load_messages_from_tra
 use super::usage::snapshot_kind_from_str;
 
 type StoredCodexConfigRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<bool>,
     Option<String>,
@@ -45,6 +50,9 @@ pub struct RestoredSession {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
     pub codex_config_source: Option<CodexConfigSource>,
     pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub input_tokens: i64,
@@ -425,6 +433,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     .unwrap_or(None);
 
                 let (
+                    codex_config_mode_raw,
+                    codex_config_profile,
+                    codex_model_provider,
                     collaboration_mode,
                     multi_agent,
                     personality,
@@ -434,11 +445,17 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     codex_config_overrides_raw,
                 ): StoredCodexConfigRow = conn
                     .query_row(
-                        "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
+                        "SELECT codex_config_mode, codex_config_profile, codex_model_provider, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
                         params![id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
                     )
-                    .unwrap_or((None, None, None, None, None, None, None));
+                    .unwrap_or((None, None, None, None, None, None, None, None, None, None));
+                let codex_config_mode = match codex_config_mode_raw.as_deref() {
+                    Some("inherit") => Some(CodexConfigMode::Inherit),
+                    Some("profile") => Some(CodexConfigMode::Profile),
+                    Some("custom") => Some(CodexConfigMode::Custom),
+                    _ => None,
+                };
                 let codex_config_source = match codex_config_source_raw.as_deref() {
                     Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
                     Some("user") => Some(CodexConfigSource::User),
@@ -542,6 +559,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_mode,
+                    codex_config_profile,
+                    codex_model_provider,
                     codex_config_source,
                     codex_config_overrides,
                     input_tokens,
@@ -767,6 +787,9 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 .unwrap_or(None);
 
             let (
+                codex_config_mode_raw,
+                codex_config_profile,
+                codex_model_provider,
                 collaboration_mode,
                 multi_agent,
                 personality,
@@ -776,11 +799,17 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 codex_config_overrides_raw,
             ): StoredCodexConfigRow = conn
                 .query_row(
-                    "SELECT collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
+                    "SELECT codex_config_mode, codex_config_profile, codex_model_provider, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
                     params![&id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
                 )
-                .unwrap_or((None, None, None, None, None, None, None));
+                .unwrap_or((None, None, None, None, None, None, None, None, None, None));
+            let codex_config_mode = match codex_config_mode_raw.as_deref() {
+                Some("inherit") => Some(CodexConfigMode::Inherit),
+                Some("profile") => Some(CodexConfigMode::Profile),
+                Some("custom") => Some(CodexConfigMode::Custom),
+                _ => None,
+            };
             let codex_config_source = match codex_config_source_raw.as_deref() {
                 Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
                 Some("user") => Some(CodexConfigSource::User),
@@ -854,6 +883,9 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                 personality,
                 service_tier,
                 developer_instructions,
+                codex_config_mode,
+                codex_config_profile,
+                codex_model_provider,
                 codex_config_source,
                 codex_config_overrides,
                 input_tokens,

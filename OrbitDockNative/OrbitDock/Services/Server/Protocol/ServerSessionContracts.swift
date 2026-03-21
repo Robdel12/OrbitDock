@@ -23,13 +23,20 @@ enum ServerWorkStatus: String, Codable {
   case ended
 }
 
-enum ServerCodexConfigSource: String, Codable, CaseIterable {
+enum ServerCodexConfigSource: String, Codable, CaseIterable, Hashable, Sendable {
   case orbitdock
   case user
 }
 
-struct ServerCodexSessionOverrides: Codable, Equatable {
+enum ServerCodexConfigMode: String, Codable, CaseIterable, Hashable, Sendable {
+  case inherit
+  case profile
+  case custom
+}
+
+struct ServerCodexSessionOverrides: Codable, Equatable, Hashable, Sendable {
   let model: String?
+  let modelProvider: String?
   let approvalPolicy: String?
   let sandboxMode: String?
   let collaborationMode: String?
@@ -41,6 +48,7 @@ struct ServerCodexSessionOverrides: Codable, Equatable {
 
   enum CodingKeys: String, CodingKey {
     case model
+    case modelProvider = "model_provider"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case collaborationMode = "collaboration_mode"
@@ -378,6 +386,9 @@ struct ServerSessionSummary: Codable, Identifiable {
   let serviceTier: String?
   let developerInstructions: String?
   let codexConfigSource: ServerCodexConfigSource?
+  let codexConfigMode: ServerCodexConfigMode?
+  let codexConfigProfile: String?
+  let codexModelProvider: String?
   let codexConfigOverrides: ServerCodexSessionOverrides?
   let pendingToolName: String?
   let pendingToolInput: String?
@@ -429,6 +440,9 @@ struct ServerSessionSummary: Codable, Identifiable {
     case serviceTier = "service_tier"
     case developerInstructions = "developer_instructions"
     case codexConfigSource = "codex_config_source"
+    case codexConfigMode = "codex_config_mode"
+    case codexConfigProfile = "codex_config_profile"
+    case codexModelProvider = "codex_model_provider"
     case codexConfigOverrides = "codex_config_overrides"
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
@@ -645,6 +659,9 @@ struct ServerSessionState: Codable, Identifiable {
   let serviceTier: String?
   let developerInstructions: String?
   let codexConfigSource: ServerCodexConfigSource?
+  let codexConfigMode: ServerCodexConfigMode?
+  let codexConfigProfile: String?
+  let codexModelProvider: String?
   let codexConfigOverrides: ServerCodexSessionOverrides?
   let pendingToolName: String?
   let pendingToolInput: String?
@@ -709,6 +726,9 @@ struct ServerSessionState: Codable, Identifiable {
     case serviceTier = "service_tier"
     case developerInstructions = "developer_instructions"
     case codexConfigSource = "codex_config_source"
+    case codexConfigMode = "codex_config_mode"
+    case codexConfigProfile = "codex_config_profile"
+    case codexModelProvider = "codex_model_provider"
     case codexConfigOverrides = "codex_config_overrides"
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
@@ -779,6 +799,9 @@ struct ServerSessionState: Codable, Identifiable {
     serviceTier = try container.decodeIfPresent(String.self, forKey: .serviceTier)
     developerInstructions = try container.decodeIfPresent(String.self, forKey: .developerInstructions)
     codexConfigSource = try container.decodeIfPresent(ServerCodexConfigSource.self, forKey: .codexConfigSource)
+    codexConfigMode = try container.decodeIfPresent(ServerCodexConfigMode.self, forKey: .codexConfigMode)
+    codexConfigProfile = try container.decodeIfPresent(String.self, forKey: .codexConfigProfile)
+    codexModelProvider = try container.decodeIfPresent(String.self, forKey: .codexModelProvider)
     codexConfigOverrides = try container.decodeIfPresent(
       ServerCodexSessionOverrides.self,
       forKey: .codexConfigOverrides
@@ -846,6 +869,9 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encodeIfPresent(serviceTier, forKey: .serviceTier)
     try container.encodeIfPresent(developerInstructions, forKey: .developerInstructions)
     try container.encodeIfPresent(codexConfigSource, forKey: .codexConfigSource)
+    try container.encodeIfPresent(codexConfigMode, forKey: .codexConfigMode)
+    try container.encodeIfPresent(codexConfigProfile, forKey: .codexConfigProfile)
+    try container.encodeIfPresent(codexModelProvider, forKey: .codexModelProvider)
     try container.encodeIfPresent(codexConfigOverrides, forKey: .codexConfigOverrides)
     try container.encodeIfPresent(pendingToolName, forKey: .pendingToolName)
     try container.encodeIfPresent(pendingToolInput, forKey: .pendingToolInput)
@@ -970,6 +996,9 @@ struct ServerStateChanges: Codable {
   let serviceTier: String??
   let developerInstructions: String??
   let codexConfigSource: ServerCodexConfigSource??
+  let codexConfigMode: ServerCodexConfigMode??
+  let codexConfigProfile: String??
+  let codexModelProvider: String??
   let codexConfigOverrides: ServerCodexSessionOverrides??
   let lastActivityAt: String?
   let currentTurnId: String??
@@ -1008,6 +1037,9 @@ struct ServerStateChanges: Codable {
     serviceTier: String?? = nil,
     developerInstructions: String?? = nil,
     codexConfigSource: ServerCodexConfigSource?? = nil,
+    codexConfigMode: ServerCodexConfigMode?? = nil,
+    codexConfigProfile: String?? = nil,
+    codexModelProvider: String?? = nil,
     codexConfigOverrides: ServerCodexSessionOverrides?? = nil,
     lastActivityAt: String? = nil,
     currentTurnId: String?? = nil,
@@ -1045,6 +1077,9 @@ struct ServerStateChanges: Codable {
     self.serviceTier = serviceTier
     self.developerInstructions = developerInstructions
     self.codexConfigSource = codexConfigSource
+    self.codexConfigMode = codexConfigMode
+    self.codexConfigProfile = codexConfigProfile
+    self.codexModelProvider = codexModelProvider
     self.codexConfigOverrides = codexConfigOverrides
     self.lastActivityAt = lastActivityAt
     self.currentTurnId = currentTurnId
@@ -1084,6 +1119,9 @@ struct ServerStateChanges: Codable {
     case serviceTier = "service_tier"
     case developerInstructions = "developer_instructions"
     case codexConfigSource = "codex_config_source"
+    case codexConfigMode = "codex_config_mode"
+    case codexConfigProfile = "codex_config_profile"
+    case codexModelProvider = "codex_model_provider"
     case codexConfigOverrides = "codex_config_overrides"
     case lastActivityAt = "last_activity_at"
     case currentTurnId = "current_turn_id"
@@ -1133,6 +1171,9 @@ struct ServerStateChanges: Codable {
     serviceTier = try container.decodePatchValue(String.self, forKey: .serviceTier)
     developerInstructions = try container.decodePatchValue(String.self, forKey: .developerInstructions)
     codexConfigSource = try container.decodePatchValue(ServerCodexConfigSource.self, forKey: .codexConfigSource)
+    codexConfigMode = try container.decodePatchValue(ServerCodexConfigMode.self, forKey: .codexConfigMode)
+    codexConfigProfile = try container.decodePatchValue(String.self, forKey: .codexConfigProfile)
+    codexModelProvider = try container.decodePatchValue(String.self, forKey: .codexModelProvider)
     codexConfigOverrides = try container.decodePatchValue(
       ServerCodexSessionOverrides.self,
       forKey: .codexConfigOverrides

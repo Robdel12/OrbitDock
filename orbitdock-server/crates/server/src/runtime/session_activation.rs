@@ -4,14 +4,14 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use orbitdock_protocol::{
-    CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage, SessionListItem,
-    SessionStatus, StateChanges, WorkStatus,
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage,
+    SessionListItem, SessionStatus, StateChanges, WorkStatus,
 };
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_by_id, PersistCommand};
-use crate::runtime::codex_config::resolve_codex_settings;
+use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection};
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_registry::SessionRegistry;
@@ -90,6 +90,9 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides,
     } = request;
@@ -121,6 +124,9 @@ pub(crate) async fn start_lazy_connector_and_prepare_subscribe(
                     personality,
                     service_tier,
                     developer_instructions,
+                    codex_config_mode,
+                    codex_config_profile,
+                    codex_model_provider,
                     codex_config_source,
                     codex_config_overrides,
                     handle,
@@ -171,6 +177,9 @@ pub(crate) struct LazyConnectorStartRequest<'a> {
     pub personality: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub developer_instructions: Option<&'a str>,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<&'a str>,
+    pub codex_model_provider: Option<&'a str>,
     pub codex_config_source: Option<CodexConfigSource>,
     pub codex_config_overrides: Option<&'a CodexSessionOverrides>,
 }
@@ -186,6 +195,9 @@ struct LazyCodexConnectorStart<'a> {
     personality: Option<&'a str>,
     service_tier: Option<&'a str>,
     developer_instructions: Option<&'a str>,
+    codex_config_mode: Option<CodexConfigMode>,
+    codex_config_profile: Option<&'a str>,
+    codex_model_provider: Option<&'a str>,
     codex_config_source: Option<CodexConfigSource>,
     codex_config_overrides: Option<&'a CodexSessionOverrides>,
     handle: crate::domain::sessions::session::SessionHandle,
@@ -208,6 +220,9 @@ async fn start_lazy_codex_connector(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides,
         handle,
@@ -224,11 +239,14 @@ async fn start_lazy_codex_connector(
     let personality = personality.map(ToOwned::to_owned);
     let service_tier = service_tier.map(ToOwned::to_owned);
     let developer_instructions = developer_instructions.map(ToOwned::to_owned);
+    let codex_config_profile = codex_config_profile.map(ToOwned::to_owned);
+    let codex_model_provider = codex_model_provider.map(ToOwned::to_owned);
     let codex_config_overrides = codex_config_overrides.cloned();
 
     let mut connector_task = tokio::spawn(async move {
         let fallback_overrides = CodexSessionOverrides {
             model: model.clone(),
+            model_provider: codex_model_provider.clone(),
             approval_policy: approval.clone(),
             sandbox_mode: sandbox.clone(),
             collaboration_mode: collaboration_mode.clone(),
@@ -240,8 +258,13 @@ async fn start_lazy_codex_connector(
         };
         let resolved = resolve_codex_settings(
             &project,
-            codex_config_source.unwrap_or(CodexConfigSource::User),
-            codex_config_overrides.unwrap_or(fallback_overrides),
+            CodexConfigSelection {
+                config_source: codex_config_source.unwrap_or(CodexConfigSource::User),
+                config_mode: codex_config_mode.unwrap_or(CodexConfigMode::Inherit),
+                config_profile: codex_config_profile.clone(),
+                model_provider: codex_model_provider.clone(),
+                overrides: codex_config_overrides.unwrap_or(fallback_overrides),
+            },
         )
         .await
         .ok();
@@ -273,37 +296,51 @@ async fn start_lazy_codex_connector(
             .and_then(|value| value.sandbox_mode.clone())
             .or(sandbox);
         if let Some(ref tid) = thread_id {
-            match CodexSession::resume_with_control_plane(
+            match CodexSession::resume_with_config_overrides_and_control_plane(
                 sid.clone(),
                 &project,
                 tid,
                 effective_model.as_deref(),
                 effective_approval.as_deref(),
                 effective_sandbox.as_deref(),
+                orbitdock_connector_codex::CodexConfigOverrides {
+                    model_provider: effective.and_then(|value| value.model_provider.clone()),
+                    config_profile: effective.and_then(|value| value.config_profile.clone()),
+                },
                 control_plane.clone(),
             )
             .await
             {
                 Ok(codex) => Ok(codex),
                 Err(_) => {
-                    CodexSession::new_with_control_plane(
+                    CodexSession::new_with_config_overrides_and_control_plane(
                         sid.clone(),
                         &project,
                         effective_model.as_deref(),
                         effective_approval.as_deref(),
                         effective_sandbox.as_deref(),
+                        orbitdock_connector_codex::CodexConfigOverrides {
+                            model_provider: effective
+                                .and_then(|value| value.model_provider.clone()),
+                            config_profile: effective
+                                .and_then(|value| value.config_profile.clone()),
+                        },
                         control_plane,
                     )
                     .await
                 }
             }
         } else {
-            CodexSession::new_with_control_plane(
+            CodexSession::new_with_config_overrides_and_control_plane(
                 sid.clone(),
                 &project,
                 effective_model.as_deref(),
                 effective_approval.as_deref(),
                 effective_sandbox.as_deref(),
+                orbitdock_connector_codex::CodexConfigOverrides {
+                    model_provider: effective.and_then(|value| value.model_provider.clone()),
+                    config_profile: effective.and_then(|value| value.config_profile.clone()),
+                },
                 control_plane,
             )
             .await

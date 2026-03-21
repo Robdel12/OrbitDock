@@ -13,14 +13,20 @@ struct NewSessionConfigurationCard: View {
   @Binding var allowBypassPermissions: Bool
   @Binding var selectedEffort: ClaudeEffortLevel
   @Binding var codexModel: String
-  @Binding var codexUseOrbitDockOverrides: Bool
+  @Binding var codexConfigMode: ServerCodexConfigMode
+  @Binding var codexConfigProfile: String
+  @Binding var codexModelProvider: String
   @Binding var selectedAutonomy: AutonomyLevel
   @Binding var codexCollaborationMode: CodexCollaborationMode
   @Binding var codexMultiAgentEnabled: Bool
   @Binding var codexPersonality: CodexPersonalityPreset
   @Binding var codexServiceTier: CodexServiceTierPreset
   @Binding var codexInstructions: String
+  let codexCatalog: SessionsClient.CodexConfigCatalogResponse?
+  let codexCatalogLoading: Bool
+  let codexCatalogError: String?
   let onInspectCodexConfig: (() -> Void)?
+  let onManageCodexConfig: (() -> Void)?
 
   private var currentCodexModelOption: ServerCodexModelOption? {
     codexModels.first(where: { $0.model == codexModel }) ?? codexModels.first(where: \.isDefault) ?? codexModels.first
@@ -50,19 +56,37 @@ struct NewSessionConfigurationCard: View {
     currentCodexModelOption?.supportsDeveloperInstructions ?? true
   }
 
-  private var inheritsFromCodexConfig: Bool {
-    !codexUseOrbitDockOverrides
+  private var profileOptions: [SessionsClient.CodexConfigProfileSummary] {
+    codexCatalog?.profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending } ?? []
+  }
+
+  private var providerOptions: [SessionsClient.CodexProviderSummary] {
+    codexCatalog?.providers.sorted {
+      ($0.displayName ?? $0.id).localizedCaseInsensitiveCompare($1.displayName ?? $1.id) == .orderedAscending
+    } ?? []
+  }
+
+  private var selectedProfileSummary: SessionsClient.CodexConfigProfileSummary? {
+    profileOptions.first(where: { $0.name == codexConfigProfile })
+  }
+
+  private var selectedProviderSummary: SessionsClient.CodexProviderSummary? {
+    providerOptions.first(where: { $0.id == codexModelProvider })
+  }
+
+  private var usesCustomCodexConfig: Bool {
+    codexConfigMode == .custom
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      modelRow
-
-      Divider()
-        .padding(.horizontal, Spacing.lg)
-
       switch provider {
         case .claude:
+          modelRow
+
+          Divider()
+            .padding(.horizontal, Spacing.lg)
+
           claudePermissionRow
 
           claudeBypassRow
@@ -73,9 +97,21 @@ struct NewSessionConfigurationCard: View {
           claudeEffortRow
 
         case .codex:
-          codexInheritanceRow
+          codexConfigurationModeRow
 
-          if !inheritsFromCodexConfig {
+          Divider()
+            .padding(.horizontal, Spacing.lg)
+
+          if usesCustomCodexConfig {
+            customProviderRow
+
+            Divider()
+              .padding(.horizontal, Spacing.lg)
+          }
+
+          modelRow
+
+          if usesCustomCodexConfig {
             Divider()
               .padding(.horizontal, Spacing.lg)
 
@@ -105,7 +141,7 @@ struct NewSessionConfigurationCard: View {
     )
   }
 
-  private var codexInheritanceRow: some View {
+  private var codexConfigurationModeRow: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       HStack {
         HStack(spacing: Spacing.sm) {
@@ -127,12 +163,82 @@ struct NewSessionConfigurationCard: View {
       .foregroundStyle(Color.textTertiary)
       .fixedSize(horizontal: false, vertical: true)
 
-      HStack(spacing: Spacing.md) {
-        Toggle("Customize for this session", isOn: $codexUseOrbitDockOverrides)
-          .toggleStyle(.switch)
-          .tint(Color.providerCodex)
+      Picker("Configuration", selection: $codexConfigMode) {
+        Text("From Codex config").tag(ServerCodexConfigMode.inherit)
+        Text("Saved profile").tag(ServerCodexConfigMode.profile)
+        Text("Custom session config").tag(ServerCodexConfigMode.custom)
+      }
+      .pickerStyle(.segmented)
 
+      if codexConfigMode == .inherit {
+        codexModeSummary(
+          title: "Inherit the effective Codex config",
+          detail: codexCatalog?.effectiveSettings.map {
+            [
+              $0.configProfile.map { "Profile: \($0)" },
+              $0.modelProvider.map { "Provider: \($0)" },
+              $0.model.map { "Model: \($0)" },
+            ]
+            .compactMap { $0 }
+            .joined(separator: " • ")
+          } ?? "Use whatever Codex resolves for this folder."
+        )
+      } else if codexConfigMode == .profile {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+          Picker("Saved profile", selection: $codexConfigProfile) {
+            Text(profileOptions.isEmpty ? "No profiles found" : "Select a profile").tag("")
+            ForEach(profileOptions) { profile in
+              Text(profile.name).tag(profile.name)
+            }
+          }
+          .pickerStyle(.menu)
+          .disabled(profileOptions.isEmpty)
+
+          codexModeSummary(
+            title: selectedProfileSummary.map { "Profile: \($0.name)" } ?? "Saved Codex profile",
+            detail: selectedProfileSummary.map {
+              [
+                $0.modelProvider.map { "Provider: \($0)" },
+                $0.model.map { "Model: \($0)" },
+              ]
+              .compactMap { $0 }
+              .joined(separator: " • ")
+            } ?? profileModePlaceholder
+          )
+        }
+      } else {
+        codexModeSummary(
+          title: "Custom provider and model",
+          detail: "Choose a provider and model for just this session, then layer OrbitDock's session controls on top."
+        )
+      }
+
+      if let codexCatalogError, !codexCatalogError.isEmpty {
+        Text(codexCatalogError)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.feedbackNegative)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if codexCatalogLoading {
+        HStack(spacing: Spacing.sm) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Loading Codex profiles and providers…")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+        }
+      }
+
+      HStack(spacing: Spacing.md) {
         Spacer()
+
+        if let onManageCodexConfig {
+          Button("Manage Profiles & Providers") {
+            onManageCodexConfig()
+          }
+          .buttonStyle(.plain)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+        }
 
         if let onInspectCodexConfig {
           Button("Inspect Codex Config") {
@@ -146,12 +252,27 @@ struct NewSessionConfigurationCard: View {
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
-    .onChange(of: codexUseOrbitDockOverrides) { _, newValue in
-      if newValue, codexModel.isEmpty {
-        codexModel = currentCodexModelOption?.model
-          ?? codexModels.first(where: \.isDefault)?.model
-          ?? codexModels.first(where: { !$0.model.isEmpty })?.model
-          ?? ""
+    .onChange(of: codexConfigMode) { _, newValue in
+      switch newValue {
+        case .inherit:
+          codexConfigProfile = ""
+          codexModelProvider = ""
+        case .profile:
+          codexModelProvider = ""
+          if codexConfigProfile.isEmpty {
+            codexConfigProfile = profileOptions.first?.name ?? ""
+          }
+        case .custom:
+          codexConfigProfile = ""
+          if codexModel.isEmpty {
+            codexModel = currentCodexModelOption?.model
+              ?? codexModels.first(where: \.isDefault)?.model
+              ?? codexModels.first(where: { !$0.model.isEmpty })?.model
+              ?? ""
+          }
+          if codexModelProvider.isEmpty {
+            codexModelProvider = providerOptions.first?.id ?? ""
+          }
       }
     }
   }
@@ -214,8 +335,12 @@ struct NewSessionConfigurationCard: View {
 
   @ViewBuilder
   private var codexModelPicker: some View {
-    if inheritsFromCodexConfig {
+    if codexConfigMode == .inherit {
       Text("From Codex config")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+    } else if codexConfigMode == .profile {
+      Text(selectedProfileSummary?.model ?? "From selected profile")
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
     } else if !codexModel.isEmpty {
@@ -281,6 +406,74 @@ struct NewSessionConfigurationCard: View {
       }
       .padding(.leading, Spacing.lg)
       .animation(Motion.bouncy, value: selectedPermissionMode)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var profileModePlaceholder: String {
+    if profileOptions.isEmpty {
+      return "No saved Codex profiles were returned yet."
+    }
+    return "Pick one of your saved Codex profiles to use it for this session."
+  }
+
+  private func codexModeSummary(title: String, detail: String) -> some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      Capsule()
+        .fill(Color.providerCodex.opacity(0.35))
+        .frame(width: 2, height: 26)
+        .padding(.top, Spacing.xxs)
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text(title)
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+        Text(detail)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+
+  private var customProviderRow: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "network")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.providerCodex)
+          Text("Provider")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer()
+
+        Picker("Provider", selection: $codexModelProvider) {
+          Text(providerOptions.isEmpty ? "No providers found" : "Select a provider").tag("")
+          ForEach(providerOptions) { provider in
+            Text(provider.displayName ?? provider.id).tag(provider.id)
+          }
+        }
+        .pickerStyle(.menu)
+        .disabled(providerOptions.isEmpty)
+      }
+
+      codexModeSummary(
+        title: selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Custom provider",
+        detail: selectedProviderSummary.map {
+          [
+            $0.wireAPI.map { "API: \($0)" },
+            $0.baseURL.map { "Base URL: \($0)" },
+            $0.envKey.map { "Key: \($0)" },
+          ]
+          .compactMap { $0 }
+          .joined(separator: " • ")
+        } ?? "Choose from the providers Codex reports for this environment."
+      )
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)

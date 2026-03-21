@@ -179,6 +179,9 @@ final class DirectSessionComposerViewModel {
   }
 
   func updateCodexSessionOverrides(
+    configMode: ServerCodexConfigMode? = nil,
+    configProfile: SessionsClient.OptionalStringPatch? = nil,
+    modelProvider: SessionsClient.OptionalStringPatch? = nil,
     collaborationMode: SessionsClient.OptionalStringPatch? = nil,
     multiAgent: SessionsClient.OptionalBoolPatch? = nil,
     personality: SessionsClient.OptionalStringPatch? = nil,
@@ -187,6 +190,9 @@ final class DirectSessionComposerViewModel {
   ) async throws {
     try await currentSessionStore.updateCodexSessionOverrides(
       resolvedSessionId,
+      configMode: configMode,
+      configProfile: configProfile,
+      modelProvider: modelProvider,
       collaborationMode: collaborationMode,
       multiAgent: multiAgent,
       personality: personality,
@@ -199,6 +205,20 @@ final class DirectSessionComposerViewModel {
     _ request: SessionsClient.CodexInspectRequest
   ) async throws -> SessionsClient.CodexInspectorResponse {
     try await currentSessionStore.clients.sessions.inspectCodexConfig(request)
+  }
+
+  func fetchCodexConfigCatalog(cwd: String) async throws -> SessionsClient.CodexConfigCatalogResponse {
+    try await currentSessionStore.clients.sessions.fetchCodexConfigCatalog(cwd: cwd)
+  }
+
+  func fetchCodexConfigDocuments(cwd: String) async throws -> SessionsClient.CodexConfigDocumentsResponse {
+    try await currentSessionStore.clients.sessions.fetchCodexConfigDocuments(cwd: cwd)
+  }
+
+  func batchWriteCodexConfig(
+    _ request: SessionsClient.CodexConfigBatchWriteRequest
+  ) async throws -> SessionsClient.CodexConfigWriteResponseData {
+    try await currentSessionStore.clients.sessions.batchWriteCodexConfig(request)
   }
 
   func refreshWorktreesForActiveSessions() {
@@ -371,6 +391,9 @@ final class DirectSessionComposerViewModel {
       serviceTier: session.serviceTier,
       developerInstructions: session.developerInstructions,
       codexConfigSource: session.codexConfigSource,
+      codexConfigMode: session.codexConfigMode,
+      codexConfigProfile: session.codexConfigProfile,
+      codexModelProvider: session.codexModelProvider,
       codexConfigOverrides: session.codexConfigOverrides,
       skills: session.skills,
       slashCommands: session.slashCommands,
@@ -424,6 +447,9 @@ struct DirectSessionComposerSessionState {
   let serviceTier: String?
   let developerInstructions: String?
   let codexConfigSource: ServerCodexConfigSource?
+  let codexConfigMode: ServerCodexConfigMode?
+  let codexConfigProfile: String?
+  let codexModelProvider: String?
   let codexConfigOverrides: ServerCodexSessionOverrides?
   let skills: [ServerSkillMetadata]
   let slashCommands: Set<String>
@@ -531,6 +557,9 @@ struct DirectSessionComposerSessionState {
     serviceTier: nil,
     developerInstructions: nil,
     codexConfigSource: nil,
+    codexConfigMode: nil,
+    codexConfigProfile: nil,
+    codexModelProvider: nil,
     codexConfigOverrides: nil,
     skills: [],
     slashCommands: [],

@@ -221,17 +221,26 @@ extension DirectSessionComposer {
 
   @MainActor
   func applyCodexSessionSettings(
+    configMode: ServerCodexConfigMode,
+    configProfile: String?,
+    modelProvider: String?,
     collaborationMode: CodexCollaborationMode,
     multiAgentEnabled: Bool,
     personality: CodexPersonalityPreset,
     serviceTier: CodexServiceTierPreset,
     developerInstructions: String?
-  ) async {
-    do {
-      let currentInstructions = normalizedCodexInstructions(obs.developerInstructions)
-      let nextInstructions = normalizedCodexInstructions(developerInstructions)
+  ) async throws {
+    let currentInstructions = normalizedCodexInstructions(obs.developerInstructions)
+    let nextInstructions = normalizedCodexInstructions(developerInstructions)
+    _ = configMode
+    _ = configProfile
+    _ = modelProvider
 
+    do {
       try await viewModel.updateCodexSessionOverrides(
+        configMode: nil,
+        configProfile: nil,
+        modelProvider: nil,
         collaborationMode: collaborationMode != currentCodexCollaborationMode
           ? .set(collaborationMode.rawValue)
           : nil,
@@ -251,14 +260,17 @@ extension DirectSessionComposer {
       Platform.services.playHaptic(.action)
     } catch {
       Platform.services.playHaptic(.error)
-      errorMessage = "Couldn't update Codex session settings just now."
+      throw error
     }
   }
 
   @MainActor
-  func resetCodexSessionOverrides() async {
+  func resetCodexSessionOverrides() async throws {
     do {
       try await viewModel.updateCodexSessionOverrides(
+        configMode: nil,
+        configProfile: nil,
+        modelProvider: nil,
         collaborationMode: .clear,
         multiAgent: .clear,
         personality: .clear,
@@ -268,7 +280,7 @@ extension DirectSessionComposer {
       Platform.services.playHaptic(.action)
     } catch {
       Platform.services.playHaptic(.error)
-      errorMessage = "Couldn't reset Codex config overrides just now."
+      throw error
     }
   }
 
@@ -284,7 +296,7 @@ extension DirectSessionComposer {
   }
 
   func inspectCodexConfig() {
-    showCodexSettingsPopover = false
+    showCodexSettingsSheet = false
 
     guard let projectPath else {
       codexInspectorError =
@@ -302,7 +314,10 @@ extension DirectSessionComposer {
     let request = SessionsClient.CodexInspectRequest(
       cwd: projectPath,
       codexConfigSource: currentCodexConfigSource,
+      codexConfigMode: currentCodexConfigMode,
+      codexConfigProfile: currentCodexConfigProfile,
       model: overrides.model,
+      modelProvider: currentCodexOverrides.modelProvider ?? currentCodexModelProvider,
       approvalPolicy: overrides.approvalPolicy,
       sandboxMode: overrides.sandboxMode,
       collaborationMode: overrides.collaborationMode,

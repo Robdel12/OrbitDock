@@ -167,6 +167,11 @@ struct Session: Identifiable, Hashable, Sendable {
   var personality: String? // Codex personality override, if configured
   var serviceTier: String? // Codex service tier preference, if configured
   var developerInstructions: String? // Durable session instructions, if configured
+  var codexConfigSource: ServerCodexConfigSource? // Whether Codex config came from user/project scope
+  var codexConfigMode: ServerCodexConfigMode? // inherit/profile/custom selection
+  var codexConfigProfile: String? // Selected Codex profile, if any
+  var codexModelProvider: String? // Explicit provider override, if any
+  var codexConfigOverrides: ServerCodexSessionOverrides? // Effective session-scoped Codex overrides
 
   // MARK: - Worktree Detection
 
@@ -286,6 +291,11 @@ struct Session: Identifiable, Hashable, Sendable {
     cachedTokens: Int? = nil,
     contextWindow: Int? = nil,
     tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown,
+    codexConfigSource: ServerCodexConfigSource? = nil,
+    codexConfigMode: ServerCodexConfigMode? = nil,
+    codexConfigProfile: String? = nil,
+    codexModelProvider: String? = nil,
+    codexConfigOverrides: ServerCodexSessionOverrides? = nil,
     displayName: String? = nil,
     normalizedDisplayName: String? = nil,
     displaySearchText: String? = nil
@@ -334,6 +344,11 @@ struct Session: Identifiable, Hashable, Sendable {
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
     self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
+    self.codexConfigSource = codexConfigSource
+    self.codexConfigMode = codexConfigMode
+    self.codexConfigProfile = codexConfigProfile
+    self.codexModelProvider = codexModelProvider
+    self.codexConfigOverrides = codexConfigOverrides
     let resolvedDisplayName = displayName ?? SessionSemantics.displayName(
       customName: customName,
       summary: summary,

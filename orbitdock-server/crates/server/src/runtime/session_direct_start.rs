@@ -10,7 +10,7 @@ use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
-use orbitdock_connector_codex::CodexControlPlane;
+use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
 
 pub(crate) struct StartDirectCodexRequest<'a> {
     pub handle: SessionHandle,
@@ -24,6 +24,8 @@ pub(crate) struct StartDirectCodexRequest<'a> {
     pub personality: Option<&'a str>,
     pub service_tier: Option<&'a str>,
     pub developer_instructions: Option<&'a str>,
+    pub config_profile: Option<&'a str>,
+    pub model_provider: Option<&'a str>,
     pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
 }
 
@@ -43,6 +45,8 @@ pub(crate) async fn start_direct_codex_session(
         personality,
         service_tier,
         developer_instructions,
+        config_profile,
+        model_provider,
         dynamic_tools,
     } = request;
     let session_id = session_id.to_string();
@@ -54,6 +58,8 @@ pub(crate) async fn start_direct_codex_session(
     let personality = personality.map(ToOwned::to_owned);
     let service_tier = service_tier.map(ToOwned::to_owned);
     let developer_instructions = developer_instructions.map(ToOwned::to_owned);
+    let config_profile = config_profile.map(ToOwned::to_owned);
+    let model_provider = model_provider.map(ToOwned::to_owned);
     let persist_tx = state.persist().clone();
     let connector_timeout = Duration::from_secs(15);
     let task_session_id = session_id.clone();
@@ -64,12 +70,16 @@ pub(crate) async fn start_direct_codex_session(
         .collect();
 
     let mut connector_task = tokio::spawn(async move {
-        CodexSession::new_with_control_plane_and_tools(
+        CodexSession::new_with_config_overrides_control_plane_and_tools(
             task_session_id,
             &cwd,
             model.as_deref(),
             approval_policy.as_deref(),
             sandbox_mode.as_deref(),
+            CodexConfigOverrides {
+                model_provider,
+                config_profile,
+            },
             CodexControlPlane {
                 collaboration_mode,
                 multi_agent,

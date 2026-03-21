@@ -233,6 +233,9 @@ pub async fn dispatch_issue(
         issue_identifier: Some(issue.identifier.clone()),
         dynamic_tools,
         allow_bypass_permissions: resolved.allow_bypass_permissions,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
         codex_config_source: None,
         codex_config_overrides: None,
     };

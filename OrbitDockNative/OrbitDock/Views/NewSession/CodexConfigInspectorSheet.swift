@@ -7,6 +7,7 @@ struct CodexConfigInspectorSheet: View {
   let errorMessage: String?
   let isLoading: Bool
   let onRefresh: () -> Void
+  let onManageConfig: (() -> Void)?
 
   var body: some View {
     NavigationStack {
@@ -47,8 +48,17 @@ struct CodexConfigInspectorSheet: View {
           }
         }
         ToolbarItem(placement: .primaryAction) {
-          Button("Refresh") {
-            onRefresh()
+          HStack(spacing: Spacing.sm) {
+            if let onManageConfig {
+              Button("Manage") {
+                onManageConfig()
+              }
+              .disabled(isLoading)
+            }
+
+            Button("Refresh") {
+              onRefresh()
+            }
           }
           .disabled(isLoading)
         }
@@ -60,6 +70,9 @@ struct CodexConfigInspectorSheet: View {
   private func effectiveSettingsSection(_ response: SessionsClient.CodexInspectorResponse) -> some View {
     inspectorCard(title: "Effective Settings") {
       VStack(alignment: .leading, spacing: Spacing.sm) {
+        settingRow("Mode", value: response.effectiveSettings.configMode?.rawValue)
+        settingRow("Profile", value: response.effectiveSettings.configProfile)
+        settingRow("Provider", value: response.effectiveSettings.modelProvider)
         settingRow("Model", value: response.effectiveSettings.model)
         settingRow("Approval", value: response.effectiveSettings.approvalPolicy)
         settingRow("Sandbox", value: response.effectiveSettings.sandboxMode)

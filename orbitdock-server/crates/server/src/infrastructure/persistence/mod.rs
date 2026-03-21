@@ -202,6 +202,9 @@ pub(super) fn execute_command(
             personality,
             service_tier,
             developer_instructions,
+            codex_config_mode,
+            codex_config_profile,
+            codex_model_provider,
             codex_config_source,
             codex_config_overrides_json,
             forked_from_session_id,
@@ -227,16 +230,21 @@ pub(super) fn execute_command(
                 orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
                 orbitdock_protocol::CodexConfigSource::User => "user",
             });
+            let codex_config_mode = codex_config_mode.map(|mode| match mode {
+                orbitdock_protocol::CodexConfigMode::Inherit => "inherit",
+                orbitdock_protocol::CodexConfigMode::Profile => "profile",
+                orbitdock_protocol::CodexConfigMode::Custom => "custom",
+            });
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?7, ?7, ?11, ?21, ?22, ?23)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?7, ?7, ?11, ?23, ?24, ?25, ?26)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                     last_activity_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions],
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions],
             )?;
         }
 
@@ -658,12 +666,20 @@ pub(super) fn execute_command(
             developer_instructions,
             model,
             effort,
+            codex_config_mode,
+            codex_config_profile,
+            codex_model_provider,
             codex_config_source,
             codex_config_overrides_json,
         } => {
             let codex_config_source = codex_config_source.map(|source| match source {
                 orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
                 orbitdock_protocol::CodexConfigSource::User => "user",
+            });
+            let codex_config_mode = codex_config_mode.map(|mode| match mode {
+                orbitdock_protocol::CodexConfigMode::Inherit => "inherit",
+                orbitdock_protocol::CodexConfigMode::Profile => "profile",
+                orbitdock_protocol::CodexConfigMode::Custom => "custom",
             });
             let mut updates: Vec<String> = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -706,6 +722,18 @@ pub(super) fn execute_command(
             }
             if let Some(value) = effort {
                 updates.push("effort = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = codex_config_mode {
+                updates.push("codex_config_mode = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = codex_config_profile {
+                updates.push("codex_config_profile = ?".to_string());
+                params_vec.push(Box::new(value));
+            }
+            if let Some(value) = codex_model_provider {
+                updates.push("codex_model_provider = ?".to_string());
                 params_vec.push(Box::new(value));
             }
             if let Some(value) = codex_config_source {

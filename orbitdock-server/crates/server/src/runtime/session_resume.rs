@@ -4,14 +4,14 @@ use std::time::Duration;
 use tracing::{error, info};
 
 use orbitdock_protocol::{
-    CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage, SessionListItem,
-    SessionSummary,
+    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage,
+    SessionListItem, SessionSummary,
 };
 
 use crate::connectors::claude_session::ClaudeSession;
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_permission_mode, PersistCommand};
-use crate::runtime::codex_config::resolve_codex_settings;
+use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection};
 use crate::runtime::restored_sessions::PreparedResumeSession;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -115,6 +115,9 @@ pub(crate) async fn launch_resumed_session(
                     personality: prepared.personality,
                     service_tier: prepared.service_tier,
                     developer_instructions: prepared.developer_instructions,
+                    codex_config_mode: prepared.codex_config_mode,
+                    codex_config_profile: prepared.codex_config_profile,
+                    codex_model_provider: prepared.codex_model_provider,
                     codex_config_source: prepared.codex_config_source,
                     codex_config_overrides: prepared.codex_config_overrides,
                     handle: prepared.handle,
@@ -256,6 +259,9 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         personality,
         service_tier,
         developer_instructions,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides,
         mut handle,
@@ -271,6 +277,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
         let mut connector_task = tokio::spawn(async move {
             let fallback_overrides = CodexSessionOverrides {
                 model: model.clone(),
+                model_provider: codex_model_provider.clone(),
                 approval_policy: approval_policy.clone(),
                 sandbox_mode: sandbox_mode.clone(),
                 collaboration_mode: collaboration_mode.clone(),
@@ -282,8 +289,13 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
             };
             let resolved = resolve_codex_settings(
                 &project_path,
-                codex_config_source.unwrap_or(CodexConfigSource::User),
-                codex_config_overrides.unwrap_or(fallback_overrides),
+                CodexConfigSelection {
+                    config_source: codex_config_source.unwrap_or(CodexConfigSource::User),
+                    config_mode: codex_config_mode.unwrap_or(CodexConfigMode::Inherit),
+                    config_profile: codex_config_profile.clone(),
+                    model_provider: codex_model_provider.clone(),
+                    overrides: codex_config_overrides.unwrap_or(fallback_overrides),
+                },
             )
             .await
             .ok();
@@ -315,37 +327,51 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                 .and_then(|value| value.sandbox_mode.clone())
                 .or(sandbox_mode);
             if let Some(thread_id) = codex_thread_id.as_deref() {
-                match CodexSession::resume_with_control_plane(
+                match CodexSession::resume_with_config_overrides_and_control_plane(
                     task_session_id.clone(),
                     &project_path,
                     thread_id,
                     effective_model.as_deref(),
                     effective_approval.as_deref(),
                     effective_sandbox.as_deref(),
+                    orbitdock_connector_codex::CodexConfigOverrides {
+                        model_provider: effective.and_then(|value| value.model_provider.clone()),
+                        config_profile: effective.and_then(|value| value.config_profile.clone()),
+                    },
                     control_plane.clone(),
                 )
                 .await
                 {
                     Ok(session) => Ok(session),
                     Err(_) => {
-                        CodexSession::new_with_control_plane(
+                        CodexSession::new_with_config_overrides_and_control_plane(
                             task_session_id,
                             &project_path,
                             effective_model.as_deref(),
                             effective_approval.as_deref(),
                             effective_sandbox.as_deref(),
+                            orbitdock_connector_codex::CodexConfigOverrides {
+                                model_provider: effective
+                                    .and_then(|value| value.model_provider.clone()),
+                                config_profile: effective
+                                    .and_then(|value| value.config_profile.clone()),
+                            },
                             control_plane,
                         )
                         .await
                     }
                 }
             } else {
-                CodexSession::new_with_control_plane(
+                CodexSession::new_with_config_overrides_and_control_plane(
                     task_session_id,
                     &project_path,
                     effective_model.as_deref(),
                     effective_approval.as_deref(),
                     effective_sandbox.as_deref(),
+                    orbitdock_connector_codex::CodexConfigOverrides {
+                        model_provider: effective.and_then(|value| value.model_provider.clone()),
+                        config_profile: effective.and_then(|value| value.config_profile.clone()),
+                    },
                     control_plane,
                 )
                 .await
@@ -417,6 +443,9 @@ struct CodexResumeRequest {
     personality: Option<String>,
     service_tier: Option<String>,
     developer_instructions: Option<String>,
+    codex_config_mode: Option<CodexConfigMode>,
+    codex_config_profile: Option<String>,
+    codex_model_provider: Option<String>,
     codex_config_source: Option<CodexConfigSource>,
     codex_config_overrides: Option<CodexSessionOverrides>,
     handle: crate::domain::sessions::session::SessionHandle,

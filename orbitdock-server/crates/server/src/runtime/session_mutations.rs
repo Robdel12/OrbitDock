@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{ServerMessage, SessionListItem};
+use orbitdock_protocol::{CodexConfigMode, ServerMessage, SessionListItem};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::codex_config::{resolve_codex_settings, serialize_codex_overrides};
+use crate::runtime::codex_config::{
+    resolve_codex_settings, serialize_codex_overrides, CodexConfigSelection,
+};
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_modes::is_passive_rollout_session;
@@ -27,6 +29,9 @@ pub(crate) struct SessionConfigUpdate {
     pub developer_instructions: Option<Option<String>>,
     pub model: Option<Option<String>>,
     pub effort: Option<Option<String>>,
+    pub codex_config_mode: Option<Option<CodexConfigMode>>,
+    pub codex_config_profile: Option<Option<String>>,
+    pub codex_model_provider: Option<Option<String>>,
 }
 
 impl SessionMutationError {
@@ -99,6 +104,9 @@ pub(crate) async fn update_session_config(
         developer_instructions,
         model,
         effort,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
     } = update;
     let actor = state
         .get_session(session_id)
@@ -107,6 +115,18 @@ pub(crate) async fn update_session_config(
         .summary()
         .await
         .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+
+    if current_summary.provider == orbitdock_protocol::Provider::Codex
+        && state.get_codex_action_tx(session_id).is_some()
+        && (codex_config_mode.is_some()
+            || codex_config_profile.is_some()
+            || codex_model_provider.is_some())
+    {
+        return Err(SessionMutationError::InvalidCodexConfig(
+            "Provider and profile selection are set when a Codex session starts. Start a new session to change them."
+                .to_string(),
+        ));
+    }
 
     let (
         approval_policy,
@@ -118,6 +138,9 @@ pub(crate) async fn update_session_config(
         developer_instructions,
         model,
         effort,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides,
     ) = if current_summary.provider == orbitdock_protocol::Provider::Codex {
@@ -149,14 +172,40 @@ pub(crate) async fn update_session_config(
         if let Some(value) = effort {
             overrides.effort = value;
         }
+        if let Some(value) = codex_model_provider.clone() {
+            overrides.model_provider = value;
+        }
 
         let source = current_summary
             .codex_config_source
             .unwrap_or(orbitdock_protocol::CodexConfigSource::User);
-        let resolved =
-            resolve_codex_settings(&current_summary.project_path, source, overrides.clone())
-                .await
-                .map_err(SessionMutationError::InvalidCodexConfig)?;
+        let config_mode = match codex_config_mode {
+            Some(Some(value)) => value,
+            Some(None) => orbitdock_protocol::CodexConfigMode::Inherit,
+            None => current_summary
+                .codex_config_mode
+                .unwrap_or(orbitdock_protocol::CodexConfigMode::Inherit),
+        };
+        let config_profile = match codex_config_profile.clone() {
+            Some(value) => value,
+            None => current_summary.codex_config_profile.clone(),
+        };
+        let model_provider = match codex_model_provider.clone() {
+            Some(value) => value,
+            None => current_summary.codex_model_provider.clone(),
+        };
+        let resolved = resolve_codex_settings(
+            &current_summary.project_path,
+            CodexConfigSelection {
+                config_source: source,
+                config_mode,
+                config_profile: config_profile.clone(),
+                model_provider: model_provider.clone(),
+                overrides: overrides.clone(),
+            },
+        )
+        .await
+        .map_err(SessionMutationError::InvalidCodexConfig)?;
         (
             Some(resolved.effective_settings.approval_policy.clone()),
             Some(resolved.effective_settings.sandbox_mode.clone()),
@@ -167,6 +216,9 @@ pub(crate) async fn update_session_config(
             Some(resolved.effective_settings.developer_instructions.clone()),
             Some(resolved.effective_settings.model.clone()),
             Some(resolved.effective_settings.effort.clone()),
+            Some(Some(config_mode)),
+            Some(config_profile),
+            Some(model_provider),
             Some(source),
             Some(overrides),
         )
@@ -181,6 +233,9 @@ pub(crate) async fn update_session_config(
             developer_instructions,
             model,
             effort,
+            codex_config_mode,
+            codex_config_profile,
+            codex_model_provider,
             None,
             None,
         )
@@ -199,6 +254,9 @@ pub(crate) async fn update_session_config(
                 developer_instructions: developer_instructions.clone(),
                 model: model.clone(),
                 effort: effort.clone(),
+                codex_config_mode,
+                codex_config_profile: codex_config_profile.clone(),
+                codex_model_provider: codex_model_provider.clone(),
                 codex_config_source: codex_config_source.map(Some),
                 codex_config_overrides: codex_config_overrides.clone().map(Some),
                 ..Default::default()
@@ -215,6 +273,9 @@ pub(crate) async fn update_session_config(
                 developer_instructions: developer_instructions.clone(),
                 model: model.clone(),
                 effort: effort.clone(),
+                codex_config_mode: codex_config_mode.flatten(),
+                codex_config_profile: codex_config_profile.flatten(),
+                codex_model_provider: codex_model_provider.flatten(),
                 codex_config_source,
                 codex_config_overrides_json: codex_config_overrides
                     .as_ref()

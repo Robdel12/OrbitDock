@@ -10,7 +10,9 @@ struct NewSessionProviderState: Equatable {
   var showToolConfig: Bool
   var selectedEffort: ClaudeEffortLevel
   var codexModel: String
-  var codexUseOrbitDockOverrides: Bool
+  var codexConfigMode: ServerCodexConfigMode
+  var codexConfigProfile: String
+  var codexModelProvider: String
   var selectedAutonomy: AutonomyLevel
   var codexCollaborationMode: CodexCollaborationMode
   var codexMultiAgentEnabled: Bool
@@ -29,7 +31,9 @@ struct NewSessionProviderState: Equatable {
     showToolConfig: false,
     selectedEffort: .default,
     codexModel: "",
-    codexUseOrbitDockOverrides: false,
+    codexConfigMode: .inherit,
+    codexConfigProfile: "",
+    codexModelProvider: "",
     selectedAutonomy: .autonomous,
     codexCollaborationMode: .default,
     codexMultiAgentEnabled: false,

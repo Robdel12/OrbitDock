@@ -3,8 +3,8 @@ use tokio::sync::oneshot;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigSource, Provider,
-    SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
+    Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted.
@@ -26,6 +26,9 @@ pub enum PersistCommand {
         personality: Option<String>,
         service_tier: Option<String>,
         developer_instructions: Option<String>,
+        codex_config_mode: Option<CodexConfigMode>,
+        codex_config_profile: Option<String>,
+        codex_model_provider: Option<String>,
         codex_config_source: Option<CodexConfigSource>,
         codex_config_overrides_json: Option<String>,
         forked_from_session_id: Option<String>,
@@ -133,6 +136,9 @@ pub enum PersistCommand {
         developer_instructions: Option<Option<String>>,
         model: Option<Option<String>>,
         effort: Option<Option<String>>,
+        codex_config_mode: Option<CodexConfigMode>,
+        codex_config_profile: Option<String>,
+        codex_model_provider: Option<String>,
         codex_config_source: Option<CodexConfigSource>,
         codex_config_overrides_json: Option<String>,
     },

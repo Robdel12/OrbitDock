@@ -1,6 +1,7 @@
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexConfigSource, CodexIntegrationMode, CodexSessionOverrides,
-    Provider, SessionState, SessionStatus, SessionSummary, TokenUsage, TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
+    CodexSessionOverrides, Provider, SessionState, SessionStatus, SessionSummary, TokenUsage,
+    TurnDiff, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -21,6 +22,9 @@ pub(crate) struct PreparedResumeSession {
     pub personality: Option<String>,
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
     pub codex_config_source: Option<CodexConfigSource>,
     pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub claude_sdk_session_id: Option<String>,
@@ -113,6 +117,9 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         personality: restored.personality,
         service_tier: restored.service_tier,
         developer_instructions: restored.developer_instructions,
+        codex_config_mode: restored.codex_config_mode,
+        codex_config_profile: restored.codex_config_profile,
+        codex_model_provider: restored.codex_model_provider,
         codex_config_source: restored.codex_config_source,
         codex_config_overrides: restored.codex_config_overrides,
         pending_tool_name: restored.pending_tool_name,
@@ -215,6 +222,9 @@ pub(crate) fn restored_session_to_handle(
         restored.personality,
         restored.service_tier,
         restored.developer_instructions,
+        restored.codex_config_mode,
+        restored.codex_config_profile,
+        restored.codex_model_provider,
         restored.codex_config_source,
         restored.codex_config_overrides,
         TokenUsage {
@@ -303,6 +313,9 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     let personality = restored.personality.clone();
     let service_tier = restored.service_tier.clone();
     let developer_instructions = restored.developer_instructions.clone();
+    let codex_config_mode = restored.codex_config_mode;
+    let codex_config_profile = restored.codex_config_profile.clone();
+    let codex_model_provider = restored.codex_model_provider.clone();
     let codex_config_source = restored.codex_config_source;
     let codex_config_overrides = restored.codex_config_overrides.clone();
     let claude_sdk_session_id = restored.claude_sdk_session_id.clone();
@@ -330,6 +343,9 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
         personality,
         service_tier,
         developer_instructions,
+        codex_config_mode,
+        codex_config_profile,
+        codex_model_provider,
         codex_config_source,
         codex_config_overrides,
         claude_sdk_session_id,

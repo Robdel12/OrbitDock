@@ -43,6 +43,7 @@ struct SessionsClient: Sendable {
     let provider: String
     let cwd: String
     var model: String?
+    var modelProvider: String?
     var approvalPolicy: String?
     var sandboxMode: String?
     var permissionMode: String?
@@ -56,6 +57,8 @@ struct SessionsClient: Sendable {
     var effort: String?
     var allowBypassPermissions: Bool?
     var codexConfigSource: ServerCodexConfigSource?
+    var codexConfigMode: ServerCodexConfigMode?
+    var codexConfigProfile: String?
   }
 
   struct CodexPreferencesResponse: Decodable {
@@ -77,7 +80,10 @@ struct SessionsClient: Sendable {
   struct CodexInspectRequest: Encodable {
     let cwd: String
     var codexConfigSource: ServerCodexConfigSource?
+    var codexConfigMode: ServerCodexConfigMode?
+    var codexConfigProfile: String?
     var model: String?
+    var modelProvider: String?
     var approvalPolicy: String?
     var sandboxMode: String?
     var collaborationMode: String?
@@ -100,11 +106,22 @@ struct SessionsClient: Sendable {
       case layers
       case warnings
     }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      effectiveSettings = try container.decode(CodexEffectiveSettings.self, forKey: .effectiveSettings)
+      origins = try container.decode([String: CodexInspectorOrigin].self, forKey: .origins)
+      layers = try container.decode([CodexInspectorLayer].self, forKey: .layers)
+      warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+    }
   }
 
   struct CodexEffectiveSettings: Decodable {
     let configSource: ServerCodexConfigSource
+    let configMode: ServerCodexConfigMode?
+    let configProfile: String?
     let model: String?
+    let modelProvider: String?
     let approvalPolicy: String?
     let sandboxMode: String?
     let collaborationMode: String?
@@ -116,7 +133,10 @@ struct SessionsClient: Sendable {
 
     enum CodingKeys: String, CodingKey {
       case configSource = "config_source"
+      case configMode = "config_mode"
+      case configProfile = "config_profile"
       case model
+      case modelProvider = "model_provider"
       case approvalPolicy = "approval_policy"
       case sandboxMode = "sandbox_mode"
       case collaborationMode = "collaboration_mode"
@@ -157,6 +177,224 @@ struct SessionsClient: Sendable {
       case version
       case config
       case disabledReason = "disabled_reason"
+    }
+  }
+
+  struct CodexConfigCatalogResponse: Decodable {
+    let cwd: String?
+    let effectiveSettings: CodexEffectiveSettings?
+    let profiles: [CodexConfigProfileSummary]
+    let providers: [CodexProviderSummary]
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+      case cwd
+      case effectiveSettings = "effective_settings"
+      case profiles
+      case providers
+      case warnings
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+      effectiveSettings = try container.decodeIfPresent(CodexEffectiveSettings.self, forKey: .effectiveSettings)
+      profiles = try container.decode([CodexConfigProfileSummary].self, forKey: .profiles)
+      providers = try container.decode([CodexProviderSummary].self, forKey: .providers)
+      warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+    }
+  }
+
+  struct CodexConfigProfileSummary: Codable, Equatable, Identifiable {
+    let name: String
+    let model: String?
+    let modelProvider: String?
+    let source: String?
+
+    var id: String {
+      name
+    }
+
+    enum CodingKeys: String, CodingKey {
+      case name
+      case model
+      case modelProvider = "model_provider"
+      case source
+    }
+  }
+
+  struct CodexProviderSummary: Codable, Equatable, Identifiable {
+    let id: String
+    let displayName: String?
+    let baseURL: String?
+    let wireAPI: String?
+    let envKey: String?
+    let isCustom: Bool?
+
+    enum CodingKeys: String, CodingKey {
+      case id
+      case displayName = "display_name"
+      case baseURL = "base_url"
+      case wireAPI = "wire_api"
+      case envKey = "env_key"
+      case isCustom = "is_custom"
+    }
+  }
+
+  enum CodexConfigDocumentScope: String, Decodable, Sendable, CaseIterable, Identifiable {
+    case user
+    case project
+
+    var id: String {
+      rawValue
+    }
+
+    var displayName: String {
+      switch self {
+        case .user: "User config"
+        case .project: "Project config"
+      }
+    }
+  }
+
+  enum CodexConfigMergeStrategy: String, Encodable, Sendable {
+    case replace
+    case upsert
+  }
+
+  struct CodexConfigProfileDocument: Decodable, Identifiable {
+    let name: String
+    let config: AnyCodable
+    let model: String?
+    let modelProvider: String?
+
+    var id: String {
+      name
+    }
+
+    enum CodingKeys: String, CodingKey {
+      case name
+      case config
+      case model
+      case modelProvider = "model_provider"
+    }
+  }
+
+  struct CodexProviderDocument: Decodable, Identifiable {
+    let id: String
+    let config: AnyCodable
+    let displayName: String?
+    let baseURL: String?
+    let wireAPI: String?
+    let envKey: String?
+    let isCustom: Bool?
+
+    enum CodingKeys: String, CodingKey {
+      case id
+      case config
+      case displayName = "display_name"
+      case baseURL = "base_url"
+      case wireAPI = "wire_api"
+      case envKey = "env_key"
+      case isCustom = "is_custom"
+    }
+  }
+
+  struct CodexConfigDocument: Decodable {
+    let scope: CodexConfigDocumentScope
+    let exists: Bool
+    let writable: Bool
+    let writeWarning: String?
+    let filePath: String?
+    let version: String?
+    let config: AnyCodable
+    let profiles: [CodexConfigProfileDocument]
+    let providers: [CodexProviderDocument]
+
+    enum CodingKeys: String, CodingKey {
+      case scope
+      case exists
+      case writable
+      case writeWarning = "write_warning"
+      case filePath = "file_path"
+      case version
+      case config
+      case profiles
+      case providers
+    }
+  }
+
+  struct CodexConfigDocumentsResponse: Decodable {
+    let cwd: String?
+    let user: CodexConfigDocument
+    let projects: [CodexConfigDocument]
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+      case cwd
+      case user
+      case projects
+      case warnings
+    }
+
+    init(from decoder: Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+      user = try container.decode(CodexConfigDocument.self, forKey: .user)
+      projects = try container.decodeIfPresent([CodexConfigDocument].self, forKey: .projects) ?? []
+      warnings = try container.decodeIfPresent([String].self, forKey: .warnings) ?? []
+    }
+  }
+
+  struct CodexConfigEditRequest: Encodable, Sendable {
+    let keyPath: String
+    let value: AnyCodable
+    var mergeStrategy: CodexConfigMergeStrategy?
+
+    enum CodingKeys: String, CodingKey {
+      case keyPath = "key_path"
+      case value
+      case mergeStrategy = "merge_strategy"
+    }
+  }
+
+  struct CodexConfigBatchWriteRequest: Encodable, Sendable {
+    let cwd: String
+    let edits: [CodexConfigEditRequest]
+    var filePath: String?
+    var expectedVersion: String?
+
+    enum CodingKeys: String, CodingKey {
+      case cwd
+      case edits
+      case filePath = "file_path"
+      case expectedVersion = "expected_version"
+    }
+  }
+
+  struct CodexConfigWriteResponseData: Decodable {
+    let status: String
+    let version: String
+    let filePath: String
+    let overriddenMetadata: CodexConfigOverriddenMetadata?
+
+    enum CodingKeys: String, CodingKey {
+      case status
+      case version
+      case filePath = "file_path"
+      case overriddenMetadata = "overridden_metadata"
+    }
+  }
+
+  struct CodexConfigOverriddenMetadata: Decodable {
+    let message: String
+    let overridingLayer: CodexInspectorOrigin
+    let effectiveValue: AnyCodable
+
+    enum CodingKeys: String, CodingKey {
+      case message
+      case overridingLayer = "overriding_layer"
+      case effectiveValue = "effective_value"
     }
   }
 
@@ -216,6 +454,9 @@ struct SessionsClient: Sendable {
   }
 
   struct UpdateCodexSessionOverridesRequest: Encodable {
+    var configMode: ServerCodexConfigMode?
+    var configProfile: OptionalStringPatch?
+    var modelProvider: OptionalStringPatch?
     var collaborationMode: OptionalStringPatch?
     var multiAgent: OptionalBoolPatch?
     var personality: OptionalStringPatch?
@@ -223,6 +464,9 @@ struct SessionsClient: Sendable {
     var developerInstructions: OptionalStringPatch?
 
     enum CodingKeys: String, CodingKey {
+      case configMode = "codex_config_mode"
+      case configProfile = "codex_config_profile"
+      case modelProvider = "codex_model_provider"
       case collaborationMode = "collaboration_mode"
       case multiAgent = "multi_agent"
       case personality
@@ -317,6 +561,24 @@ struct SessionsClient: Sendable {
 
   func inspectCodexConfig(_ request: CodexInspectRequest) async throws -> CodexInspectorResponse {
     try await http.post("/api/codex/config/inspect", body: request)
+  }
+
+  func fetchCodexConfigCatalog(cwd: String) async throws -> CodexConfigCatalogResponse {
+    try await http.get(
+      "/api/codex/config/catalog",
+      query: [URLQueryItem(name: "cwd", value: cwd)]
+    )
+  }
+
+  func fetchCodexConfigDocuments(cwd: String) async throws -> CodexConfigDocumentsResponse {
+    try await http.get(
+      "/api/codex/config/documents",
+      query: [URLQueryItem(name: "cwd", value: cwd)]
+    )
+  }
+
+  func batchWriteCodexConfig(_ request: CodexConfigBatchWriteRequest) async throws -> CodexConfigWriteResponseData {
+    try await http.post("/api/codex/config/batch-write", body: request)
   }
 
   func resumeSession(_ sessionId: String) async throws -> ResumeSessionResponse {

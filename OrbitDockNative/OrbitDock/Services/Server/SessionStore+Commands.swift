@@ -168,6 +168,9 @@ extension SessionStore {
 
   func updateCodexSessionOverrides(
     _ sessionId: String,
+    configMode: ServerCodexConfigMode? = nil,
+    configProfile: SessionsClient.OptionalStringPatch? = nil,
+    modelProvider: SessionsClient.OptionalStringPatch? = nil,
     collaborationMode: SessionsClient.OptionalStringPatch? = nil,
     multiAgent: SessionsClient.OptionalBoolPatch? = nil,
     personality: SessionsClient.OptionalStringPatch? = nil,
@@ -175,6 +178,9 @@ extension SessionStore {
     developerInstructions: SessionsClient.OptionalStringPatch? = nil
   ) async throws {
     let config = SessionsClient.UpdateCodexSessionOverridesRequest(
+      configMode: configMode,
+      configProfile: configProfile,
+      modelProvider: modelProvider,
       collaborationMode: collaborationMode,
       multiAgent: multiAgent,
       personality: personality,

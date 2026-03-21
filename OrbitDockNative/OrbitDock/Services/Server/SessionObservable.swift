@@ -40,6 +40,9 @@ final class SessionObservable {
   var serviceTier: String?
   var developerInstructions: String?
   var codexConfigSource: ServerCodexConfigSource?
+  var codexConfigMode: ServerCodexConfigMode?
+  var codexConfigProfile: String?
+  var codexModelProvider: String?
   var codexConfigOverrides: ServerCodexSessionOverrides?
   var permissionRules: ServerSessionPermissionRules?
   var permissionRulesLoading: Bool = false
