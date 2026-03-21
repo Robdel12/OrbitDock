@@ -122,19 +122,6 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         persist_op: None,
                     })
                     .await;
-                // Seed the model into claude_models if not already present
-                if let Some(ref m) = model {
-                    let _ = state
-                        .persist()
-                        .send(PersistCommand::UpsertClaudeModelIfAbsent {
-                            value: m.clone(),
-                            display_name:
-                                crate::infrastructure::persistence::display_name_from_model_string(
-                                    m,
-                                ),
-                        })
-                        .await;
-                }
                 let _ = state
                     .persist()
                     .send(PersistCommand::ClaudeSessionUpsert {

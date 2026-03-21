@@ -33,9 +33,7 @@ use orbitdock_protocol::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::infrastructure::persistence::{
-    delete_approval, list_approvals, load_messages_for_session, PersistCommand,
-};
+use crate::infrastructure::persistence::{delete_approval, list_approvals, PersistCommand};
 use crate::runtime::session_queries::{
     load_conversation_bootstrap, load_conversation_page, load_full_session_state, SessionLoadError,
 };
@@ -90,7 +88,8 @@ pub use session_lifecycle::{
 };
 pub use sessions::{
     get_conversation_bootstrap, get_conversation_history, get_row_content, get_session,
-    get_session_stats, list_sessions, mark_session_read, search_conversation_rows,
+    get_session_stats, list_dashboard_conversations, list_sessions, mark_session_read,
+    search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

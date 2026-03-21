@@ -441,9 +441,6 @@ pub enum PersistOp {
         session_id: String,
         model: String,
     },
-    SaveClaudeModels {
-        models: Vec<orbitdock_protocol::ClaudeModelOption>,
-    },
     PermissionModeUpdate {
         session_id: String,
         permission_mode: String,
@@ -1184,11 +1181,6 @@ pub fn transition(
             tools,
             models,
         } => {
-            if !models.is_empty() {
-                effects.push(Effect::Persist(Box::new(PersistOp::SaveClaudeModels {
-                    models: models.clone(),
-                })));
-            }
             effects.push(Effect::Emit(Box::new(ServerMessage::ClaudeCapabilities {
                 session_id: sid,
                 slash_commands,

@@ -23,11 +23,13 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
         PersistOp::RowAppend { session_id, entry } => PersistCommand::RowAppend {
             session_id,
             entry,
+            viewer_present: false,
             sequence_tx: None,
         },
         PersistOp::RowUpsert { session_id, entry } => PersistCommand::RowUpsert {
             session_id,
             entry,
+            viewer_present: false,
             sequence_tx: None,
         },
         PersistOp::TokensUpdate {
@@ -148,7 +150,6 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
         PersistOp::ModelUpdate { session_id, model } => {
             PersistCommand::ModelUpdate { session_id, model }
         }
-        PersistOp::SaveClaudeModels { models } => PersistCommand::SaveClaudeModels { models },
         PersistOp::PermissionModeUpdate {
             session_id,
             permission_mode,

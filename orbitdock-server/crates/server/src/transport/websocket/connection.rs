@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
@@ -22,6 +24,43 @@ use crate::support::snapshot_compaction::{
 use super::{handle_client_message, send_json, server_info_message, OutboundMessage};
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Default)]
+pub(crate) struct ConnectionSubscriptions {
+    list_forwarder: Option<JoinHandle<()>>,
+    session_forwarders: HashMap<String, JoinHandle<()>>,
+}
+
+impl ConnectionSubscriptions {
+    pub(crate) fn replace_list_forwarder(&mut self, handle: JoinHandle<()>) {
+        if let Some(existing) = self.list_forwarder.replace(handle) {
+            existing.abort();
+        }
+    }
+
+    pub(crate) fn replace_session_forwarder(&mut self, session_id: String, handle: JoinHandle<()>) {
+        if let Some(existing) = self.session_forwarders.insert(session_id, handle) {
+            existing.abort();
+        }
+    }
+
+    pub(crate) fn remove_session_forwarder(&mut self, session_id: &str) -> bool {
+        if let Some(existing) = self.session_forwarders.remove(session_id) {
+            existing.abort();
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn abort_all(&mut self) {
+        if let Some(existing) = self.list_forwarder.take() {
+            existing.abort();
+        }
+        for (_, handle) in self.session_forwarders.drain() {
+            handle.abort();
+        }
+    }
+}
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(
@@ -109,6 +148,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
 
     // Wrapper to send JSON messages (used by handle_client_message)
     let client_tx = outbound_tx.clone();
+    let mut subscriptions = ConnectionSubscriptions::default();
 
     // Announce server role immediately so clients can derive control-plane routing.
     send_json(&outbound_tx, server_info_message(&state)).await;
@@ -170,7 +210,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
             }
         };
 
-        handle_client_message(client_msg, &client_tx, &state, conn_id).await;
+        handle_client_message(client_msg, &client_tx, &state, &mut subscriptions, conn_id).await;
     }
 
     state.ws_disconnect();
@@ -183,6 +223,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     if state.clear_client_primary_claim(conn_id) {
         state.broadcast_to_list(server_info_message(&state));
     }
+    subscriptions.abort_all();
     send_task.abort();
 }
 

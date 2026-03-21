@@ -34,19 +34,14 @@ pub(crate) fn latest_completed_conversation_row(rows: &[ConversationRowEntry]) -
         .find_map(completed_conversation_row_snippet)
 }
 
-pub(crate) fn should_increment_unread_for_row(entry: &ConversationRowEntry) -> bool {
-    !matches!(entry.row, ConversationRow::User(_))
-}
-
 pub(crate) fn row_append_delta(
     previous_last_message: Option<&str>,
     entry: &ConversationRowEntry,
-    unread_count: u64,
+    unread_count: Option<u64>,
 ) -> Option<StateChanges> {
     let last_message = completed_conversation_row_snippet(entry)
         .filter(|snippet| previous_last_message != Some(snippet.as_str()))
         .map(Some);
-    let unread_count = should_increment_unread_for_row(entry).then_some(unread_count);
 
     if last_message.is_none() && unread_count.is_none() {
         return None;

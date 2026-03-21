@@ -14,7 +14,6 @@ pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> 
         }
         ClientMessage::CheckOpenAiKey { .. } => Some(route("GET /api/server/openai-key", None)),
         ClientMessage::ListModels => Some(route("GET /api/models/codex", None)),
-        ClientMessage::ListClaudeModels => Some(route("GET /api/models/claude", None)),
         ClientMessage::FetchCodexUsage { .. } => Some(route("GET /api/usage/codex", None)),
         ClientMessage::FetchClaudeUsage { .. } => Some(route("GET /api/usage/claude", None)),
         ClientMessage::SetOpenAiKey { .. } => Some(route("POST /api/server/openai-key", None)),

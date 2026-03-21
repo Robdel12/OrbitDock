@@ -793,23 +793,23 @@ fn compute_diff_preview(
                 deletions,
             })
         }
-        (None, _) => {
-            // Write tool — all additions
-            let content = input.get("content").and_then(|v| v.as_str())?;
-            let lines = content.lines().count() as u32;
-            let preview_lines = preview_lines_from_text(content, 4, 120);
-            let first_line = content.lines().next().unwrap_or("");
-            Some(ToolDiffPreview {
-                context_line: None,
-                snippet_text: joined_preview_text(&preview_lines, first_line, 240),
-                preview_lines,
-                snippet_prefix: "+".to_string(),
-                is_addition: true,
-                additions: lines,
-                deletions: 0,
-            })
-        }
         _ => {
+            // Write tool — all additions
+            if let Some(content) = input.get("content").and_then(|v| v.as_str()) {
+                let lines = content.lines().count() as u32;
+                let preview_lines = preview_lines_from_text(content, 4, 120);
+                let first_line = content.lines().next().unwrap_or("");
+                return Some(ToolDiffPreview {
+                    context_line: None,
+                    snippet_text: joined_preview_text(&preview_lines, first_line, 240),
+                    preview_lines,
+                    snippet_prefix: "+".to_string(),
+                    is_addition: true,
+                    additions: lines,
+                    deletions: 0,
+                });
+            }
+
             // Fallback: try parsing a unified diff (Codex sends "diff" or "unified_diff")
             let diff_str = input
                 .get("unified_diff")
@@ -1338,5 +1338,65 @@ pub fn classify_tool_name(name: &str) -> (ToolFamily, ToolKind) {
         "HandoffRequested" => (ToolFamily::Agent, ToolKind::HandoffRequested),
         n if n.starts_with("mcp__") => (ToolFamily::Mcp, ToolKind::McpToolCall),
         _ => (ToolFamily::Generic, ToolKind::Generic),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_tool_display;
+    use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
+
+    #[test]
+    fn codex_edit_diff_payload_produces_lightweight_preview() {
+        let display = compute_tool_display(
+            ToolKind::Edit,
+            ToolFamily::FileChange,
+            ToolStatus::Completed,
+            "Edit",
+            None,
+            None,
+            None,
+            Some(&serde_json::json!({
+                "path": "/tmp/SessionStore+Events.swift",
+                "diff": "--- /tmp/SessionStore+Events.swift\n+++ /tmp/SessionStore+Events.swift\n@@ -10,2 +10,3 @@\n let keep = true\n+let preview = true\n let done = true"
+            })),
+            None,
+        );
+
+        let preview = display
+            .diff_preview
+            .expect("Codex diff-only payload should render a compact preview");
+        assert_eq!(preview.snippet_prefix, "+");
+        assert!(preview.is_addition);
+        assert_eq!(preview.additions, 1);
+        assert_eq!(preview.deletions, 0);
+        assert_eq!(preview.preview_lines, vec!["let preview = true"]);
+    }
+
+    #[test]
+    fn write_content_payload_still_produces_addition_preview() {
+        let display = compute_tool_display(
+            ToolKind::Write,
+            ToolFamily::FileChange,
+            ToolStatus::Completed,
+            "Write",
+            None,
+            None,
+            None,
+            Some(&serde_json::json!({
+                "path": "/tmp/example.swift",
+                "content": "let a = 1\nlet b = 2"
+            })),
+            None,
+        );
+
+        let preview = display
+            .diff_preview
+            .expect("Write payload should still render a compact preview");
+        assert_eq!(preview.snippet_prefix, "+");
+        assert!(preview.is_addition);
+        assert_eq!(preview.additions, 2);
+        assert_eq!(preview.deletions, 0);
+        assert_eq!(preview.preview_lines, vec!["let a = 1", "let b = 2"]);
     }
 }

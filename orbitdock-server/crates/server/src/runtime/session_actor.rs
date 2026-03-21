@@ -356,6 +356,7 @@ mod tests {
                     PersistCommand::RowAppend {
                         session_id,
                         entry,
+                        viewer_present: _,
                         sequence_tx,
                     } => {
                         let counter = seq_counters.entry(session_id).or_insert(0);
@@ -370,6 +371,7 @@ mod tests {
                     PersistCommand::RowUpsert {
                         session_id,
                         entry,
+                        viewer_present: _,
                         sequence_tx,
                     } => {
                         let row_id = entry.id().to_string();

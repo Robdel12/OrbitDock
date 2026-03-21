@@ -458,6 +458,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                         .send(crate::infrastructure::persistence::PersistCommand::RowAppend {
                                             session_id: session_id.clone(),
                                             entry: entry.clone(),
+                                            viewer_present: false,
                                             sequence_tx: None,
                                         })
                                         .await;
@@ -513,7 +514,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
-    crate::infrastructure::persistence::backfill_claude_models_from_sessions().await;
     drain_spool(&state).await;
 
     {

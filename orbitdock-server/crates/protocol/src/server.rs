@@ -16,6 +16,9 @@ pub enum ServerMessage {
     SessionsList {
         sessions: Vec<SessionListItem>,
     },
+    DashboardConversationsUpdated {
+        conversations: Vec<DashboardConversationItem>,
+    },
     ConversationBootstrap {
         session: SessionState,
         conversation: RowPageSummary,
@@ -140,11 +143,6 @@ pub enum ServerMessage {
         ready: Vec<String>,
         failed: Vec<McpStartupFailure>,
         cancelled: Vec<String>,
-    },
-
-    // Cached Claude models from DB
-    ClaudeModelsList {
-        models: Vec<crate::ClaudeModelOption>,
     },
 
     // Claude capabilities (from init system message)

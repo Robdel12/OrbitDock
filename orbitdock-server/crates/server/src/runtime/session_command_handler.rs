@@ -78,6 +78,35 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
     let _ = persist_tx.send(cmd).await;
 }
 
+async fn persist_and_broadcast_mark_read(
+    handle: &mut SessionHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+    let prev = handle.mark_read();
+    if prev == 0 {
+        return;
+    }
+
+    let session_id = handle.id().to_string();
+    let _ = persist_tx
+        .send(PersistCommand::MarkSessionRead {
+            session_id: session_id.clone(),
+            up_to_sequence: handle.latest_row_sequence() as i64,
+        })
+        .await;
+
+    handle.broadcast(ServerMessage::SessionDelta {
+        session_id: session_id.clone(),
+        changes: StateChanges {
+            unread_count: Some(0),
+            ..Default::default()
+        },
+    });
+    handle.broadcast(ServerMessage::SessionListItemUpdated {
+        session: SessionListItem::from_summary(&handle.summary()),
+    });
+}
+
 fn merge_subagent_updates(
     existing: &[orbitdock_protocol::SubagentInfo],
     incoming: Vec<orbitdock_protocol::SubagentInfo>,
@@ -157,11 +186,13 @@ pub async fn handle_session_command(
             if let Some(since_rev) = since_revision {
                 if let Some(events) = handle.replay_since(since_rev) {
                     let rx = handle.subscribe();
+                    persist_and_broadcast_mark_read(handle, persist_tx).await;
                     let _ = reply.send(SubscribeResult::Replay { events, rx });
                     return;
                 }
             }
             let rx = handle.subscribe();
+            persist_and_broadcast_mark_read(handle, persist_tx).await;
             let state = handle.retained_state();
             let _ = reply.send(SubscribeResult::Snapshot {
                 state: Box::new(state),
@@ -359,6 +390,8 @@ pub async fn handle_session_command(
 
             let entry = handle.add_row(entry);
             let row_id = entry.id().to_string();
+            let viewer_present = handle.has_active_viewers();
+            let unread_count_delta = handle.unread_count_after_row_append(&entry);
 
             // Persist-first: send to DB with response channel, await DB-assigned sequence.
             let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
@@ -366,6 +399,7 @@ pub async fn handle_session_command(
                 .send(PersistCommand::RowAppend {
                     session_id: session_id.clone(),
                     entry: entry.clone(),
+                    viewer_present,
                     sequence_tx: Some(seq_tx),
                 })
                 .await;
@@ -375,11 +409,8 @@ pub async fn handle_session_command(
                 handle.set_row_sequence(&row_id, db_seq);
             }
 
-            let observability_changes = row_append_delta(
-                previous_last_message.as_deref(),
-                &entry,
-                handle.unread_count(),
-            );
+            let observability_changes =
+                row_append_delta(previous_last_message.as_deref(), &entry, unread_count_delta);
             if let Some(ref changes) = observability_changes {
                 if let Some(Some(ref snippet)) = changes.last_message {
                     handle.set_last_message(Some(snippet.clone()));
@@ -417,6 +448,7 @@ pub async fn handle_session_command(
                 .send(PersistCommand::RowUpsert {
                     session_id: session_id.clone(),
                     entry: entry.clone(),
+                    viewer_present: handle.has_active_viewers(),
                     sequence_tx: Some(seq_tx),
                 })
                 .await;
@@ -487,6 +519,7 @@ pub async fn handle_session_command(
                     .send(PersistCommand::RowUpsert {
                         session_id: session_id.clone(),
                         entry: entry.clone(),
+                        viewer_present: handle.has_active_viewers(),
                         sequence_tx: Some(seq_tx),
                     })
                     .await;
@@ -566,19 +599,7 @@ pub async fn handle_session_command(
             );
         }
         SessionCommand::MarkRead { reply } => {
-            let prev = handle.mark_read();
-            if prev > 0 {
-                handle.broadcast(ServerMessage::SessionDelta {
-                    session_id: handle.id().to_string(),
-                    changes: StateChanges {
-                        unread_count: Some(0),
-                        ..Default::default()
-                    },
-                });
-                handle.broadcast(ServerMessage::SessionListItemUpdated {
-                    session: SessionListItem::from_summary(&handle.summary()),
-                });
-            }
+            persist_and_broadcast_mark_read(handle, persist_tx).await;
             let _ = reply.send(handle.unread_count());
         }
         SessionCommand::LoadTranscriptAndSync {
@@ -692,14 +713,17 @@ pub(crate) async fn dispatch_transition_input(
                 match &mut cmd {
                     PersistCommand::RowAppend {
                         ref entry,
+                        ref mut viewer_present,
                         ref mut sequence_tx,
                         ..
                     }
                     | PersistCommand::RowUpsert {
                         ref entry,
+                        ref mut viewer_present,
                         ref mut sequence_tx,
                         ..
                     } => {
+                        *viewer_present = handle.has_active_viewers();
                         let row_id = entry.id().to_string();
                         let (tx, rx) = tokio::sync::oneshot::channel();
                         *sequence_tx = Some(tx);
@@ -736,8 +760,8 @@ pub(crate) async fn dispatch_transition_input(
                 }
             }
             for entry in upserted.iter() {
-                if handle.note_transition_row_append(entry) {
-                    unread_count_delta = Some(handle.unread_count());
+                if let Some(unread_count) = handle.note_transition_row_append(entry) {
+                    unread_count_delta = Some(unread_count);
                 }
             }
         }

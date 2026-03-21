@@ -14,6 +14,7 @@ use crate::runtime::session_subscriptions::{
     plan_session_subscribe, prepare_subscribe_result, request_subscribe, PreparedSubscribeResult,
     SessionSubscribeInputs,
 };
+use crate::transport::websocket::connection::ConnectionSubscriptions;
 use crate::transport::websocket::{
     send_json, send_replay_or_snapshot_fallback, send_rest_only_error, send_snapshot_if_requested,
     spawn_broadcast_forwarder, OutboundMessage,
@@ -21,6 +22,7 @@ use crate::transport::websocket::{
 
 async fn forward_subscribe_result(
     client_tx: &mpsc::Sender<OutboundMessage>,
+    subscriptions: &mut ConnectionSubscriptions,
     session_id: &str,
     include_snapshot: bool,
     conn_id: u64,
@@ -28,12 +30,16 @@ async fn forward_subscribe_result(
 ) {
     match result {
         PreparedSubscribeResult::Snapshot { state, rx } => {
-            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
+            let handle =
+                spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
+            subscriptions.replace_session_forwarder(session_id.to_string(), handle);
             send_snapshot_if_requested(client_tx, session_id, *state, include_snapshot, conn_id)
                 .await;
         }
         PreparedSubscribeResult::Replay { events, rx } => {
-            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
+            let handle =
+                spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.to_string()));
+            subscriptions.replace_session_forwarder(session_id.to_string(), handle);
             send_replay_or_snapshot_fallback(client_tx, session_id, events, conn_id).await;
         }
     }
@@ -43,12 +49,14 @@ pub(crate) async fn handle(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
     state: &Arc<SessionRegistry>,
+    subscriptions: &mut ConnectionSubscriptions,
     conn_id: u64,
 ) {
     match msg {
         ClientMessage::SubscribeList => {
             let rx = state.subscribe_list();
-            spawn_broadcast_forwarder(rx, client_tx.clone(), None);
+            let handle = spawn_broadcast_forwarder(rx, client_tx.clone(), None);
+            subscriptions.replace_list_forwarder(handle);
             // Initial list fetched via GET /api/sessions. WS delivers incremental updates only.
         }
 
@@ -93,6 +101,7 @@ pub(crate) async fn handle(
                         Ok(result) => {
                             forward_subscribe_result(
                                 client_tx,
+                                subscriptions,
                                 &session_id,
                                 include_snapshot,
                                 conn_id,
@@ -147,6 +156,7 @@ pub(crate) async fn handle(
                         Ok(Some(result)) => {
                             forward_subscribe_result(
                                 client_tx,
+                                subscriptions,
                                 &session_id,
                                 include_snapshot,
                                 conn_id,
@@ -181,6 +191,7 @@ pub(crate) async fn handle(
                         let prepared = prepare_subscribe_result(result);
                         forward_subscribe_result(
                             client_tx,
+                            subscriptions,
                             &session_id,
                             include_snapshot,
                             conn_id,
@@ -211,7 +222,9 @@ pub(crate) async fn handle(
             }
         }
 
-        ClientMessage::UnsubscribeSession { session_id: _ } => {}
+        ClientMessage::UnsubscribeSession { session_id } => {
+            subscriptions.remove_session_forwarder(&session_id);
+        }
 
         _ => {}
     }

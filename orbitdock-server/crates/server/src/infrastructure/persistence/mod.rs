@@ -24,7 +24,6 @@ mod writer;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
-use tracing::{info, warn};
 
 use orbitdock_connector_codex::rollout_parser::PersistedFileState;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
@@ -35,10 +34,7 @@ use orbitdock_protocol::{
 
 pub(crate) use approvals::{delete_approval, list_approvals};
 pub(crate) use commands::PersistCommand;
-pub(crate) use config::{
-    backfill_claude_models_from_sessions, display_name_from_model_string,
-    load_cached_claude_models, load_config_value,
-};
+pub(crate) use config::load_config_value;
 pub(crate) use messages::{
     load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
 };
@@ -339,6 +335,7 @@ pub(super) fn execute_command(
         PersistCommand::RowAppend {
             session_id,
             entry,
+            viewer_present,
             sequence_tx,
         } => {
             let row_id = entry.id().to_string();
@@ -389,24 +386,42 @@ pub(super) fn execute_command(
                 }
             }
 
-            // Increment cached unread count for non-user rows
             if !is_user {
-                let _ = conn.execute(
-                    "UPDATE sessions SET unread_count = unread_count + 1 WHERE id = ?1",
-                    params![session_id],
-                );
+                if viewer_present {
+                    let db_seq: i64 = conn.query_row(
+                        "SELECT sequence FROM messages WHERE id = ?1",
+                        params![row_id],
+                        |row| row.get(0),
+                    )?;
+                    let _ = conn.execute(
+                        "UPDATE sessions SET last_read_sequence = MAX(last_read_sequence, ?1), unread_count = (
+                            SELECT COUNT(*) FROM messages
+                            WHERE session_id = ?2
+                              AND sequence > ?1
+                              AND type NOT IN ('user', 'steer')
+                        ) WHERE id = ?2",
+                        params![db_seq, session_id],
+                    );
+                } else {
+                    let _ = conn.execute(
+                        "UPDATE sessions SET unread_count = unread_count + 1 WHERE id = ?1",
+                        params![session_id],
+                    );
+                }
             }
         }
 
         PersistCommand::RowUpsert {
             session_id,
             entry,
+            viewer_present,
             sequence_tx,
         } => {
             let row_id = entry.id().to_string();
             let row_type = row_type_str(&entry.row);
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
             let content_text = extract_row_content(&entry.row);
+            let is_user = matches!(&entry.row, ConversationRow::User(_));
 
             // DB computes sequence on insert; ON CONFLICT preserves original ordering.
             conn.execute(
@@ -449,6 +464,23 @@ pub(super) fn execute_command(
                         params![truncated, session_id],
                     );
                 }
+            }
+
+            if !is_user && viewer_present {
+                let db_seq: i64 = conn.query_row(
+                    "SELECT sequence FROM messages WHERE id = ?1",
+                    params![row_id],
+                    |row| row.get(0),
+                )?;
+                let _ = conn.execute(
+                    "UPDATE sessions SET last_read_sequence = MAX(last_read_sequence, ?1), unread_count = (
+                        SELECT COUNT(*) FROM messages
+                        WHERE session_id = ?2
+                          AND sequence > ?1
+                          AND type NOT IN ('user', 'steer')
+                    ) WHERE id = ?2",
+                    params![db_seq, session_id],
+                );
             }
         }
 
@@ -1532,31 +1564,6 @@ pub(super) fn execute_command(
                 "INSERT INTO config (key, value) VALUES (?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 params![key, stored_value],
-            )?;
-        }
-
-        PersistCommand::SaveClaudeModels { models } => {
-            conn.execute("DELETE FROM claude_models", [])?;
-            let mut stmt = conn.prepare(
-                "INSERT INTO claude_models (value, display_name, description, updated_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-            )?;
-            let now = chrono_now();
-            for m in models {
-                stmt.execute(params![m.value, m.display_name, m.description, now])?;
-            }
-        }
-
-        PersistCommand::UpsertClaudeModelIfAbsent {
-            value,
-            display_name,
-        } => {
-            let now = chrono_now();
-            conn.execute(
-                "INSERT INTO claude_models (value, display_name, description, updated_at)
-                 VALUES (?1, ?2, '', ?3)
-                 ON CONFLICT(value) DO NOTHING",
-                params![value, display_name, now],
             )?;
         }
 

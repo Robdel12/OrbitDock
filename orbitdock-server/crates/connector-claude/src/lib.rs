@@ -545,7 +545,6 @@ pub struct ClaudeConnector {
     claude_session_id: Arc<Mutex<Option<String>>>,
     pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
-    models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
 }
 
 impl ClaudeConnector {
@@ -710,15 +709,7 @@ impl ClaudeConnector {
         let session_clone = claude_session_id.clone();
         let pending_clone = pending_controls.clone();
         let approvals_clone = pending_approvals.clone();
-        let models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>> =
-            Arc::new(Mutex::new(Vec::new()));
-        let models_clone = models.clone();
         let stdin_tx_for_loop = stdin_tx.clone();
-
-        // Keep a clone of event_tx so we can emit models after send_initialize()
-        // completes. The system init message arrives on stdout before the
-        // control_response, so the event loop would read an empty models mutex.
-        let init_event_tx = event_tx.clone();
 
         tokio::spawn(async move {
             Self::event_loop(
@@ -727,7 +718,6 @@ impl ClaudeConnector {
                 session_clone,
                 pending_clone,
                 approvals_clone,
-                models_clone,
                 stdin_tx_for_loop,
             )
             .await;
@@ -740,62 +730,16 @@ impl ClaudeConnector {
             claude_session_id,
             pending_controls,
             pending_approvals,
-            models: models.clone(),
         };
 
-        // Send initialize control request — kill the child if it fails, and parse models from response
+        // Send initialize control request — kill the child if it fails
         match connector.send_initialize().await {
-            Ok(init_response) => {
-                // Log the response keys to debug model parsing
-                let keys: Vec<&str> = init_response
-                    .as_object()
-                    .map(|o| o.keys().map(|k| k.as_str()).collect())
-                    .unwrap_or_default();
+            Ok(_init_response) => {
                 debug!(
                     component = "claude_connector",
-                    event = "claude.init.response_keys",
-                    keys = ?keys,
-                    has_models = init_response.get("models").is_some(),
+                    event = "claude.init.response",
                     "Initialize response received"
                 );
-
-                // Parse models from init response
-                if let Some(models_array) = init_response.get("models").and_then(|v| v.as_array()) {
-                    let parsed_models: Vec<orbitdock_protocol::ClaudeModelOption> = models_array
-                        .iter()
-                        .filter_map(|m| {
-                            let value = m.get("value")?.as_str()?.to_string();
-                            let display_name = m.get("displayName")?.as_str()?.to_string();
-                            let description = m.get("description")?.as_str()?.to_string();
-                            Some(orbitdock_protocol::ClaudeModelOption {
-                                value,
-                                display_name,
-                                description,
-                            })
-                        })
-                        .collect();
-
-                    info!(
-                        component = "claude_connector",
-                        event = "claude.init.models_parsed",
-                        count = parsed_models.len(),
-                        "Parsed models from initialize response"
-                    );
-
-                    *models.lock().await = parsed_models.clone();
-
-                    // Emit models via the event channel. The system init message
-                    // was already processed by the event loop with an empty models
-                    // vec (race condition), so we send a follow-up event here.
-                    let _ = init_event_tx
-                        .send(ConnectorEvent::ClaudeInitialized {
-                            slash_commands: vec![],
-                            skills: vec![],
-                            tools: vec![],
-                            models: parsed_models,
-                        })
-                        .await;
-                }
             }
             Err(e) => {
                 error!(
@@ -1205,7 +1149,6 @@ impl ClaudeConnector {
         session_id: Arc<Mutex<Option<String>>>,
         pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
-        models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         stdin_tx: mpsc::Sender<String>,
     ) {
         let reader = BufReader::new(stdout);
@@ -1217,7 +1160,7 @@ impl ClaudeConnector {
         // Per-call input/cached tokens from the latest assistant message (for accurate context fill)
         let mut last_turn_input: Option<(u64, u64)> = None;
         let mut cumulative_output: u64 = 0;
-        let mut last_context_window: u64 = 200_000;
+        let mut last_context_window: u64 = 1_000_000;
         // Maps tool_use_id → task_id so we can finalize task cards when
         // the Agent tool_result arrives (CLI never emits task_notification).
         let mut task_tool_use_map: HashMap<String, String> = HashMap::new();
@@ -1276,7 +1219,6 @@ impl ClaudeConnector {
                         &mut last_turn_input,
                         &mut cumulative_output,
                         &mut last_context_window,
-                        &models,
                         &stdin_tx,
                         &mut task_tool_use_map,
                         &mut compacting_msg_id,
@@ -1341,7 +1283,6 @@ impl ClaudeConnector {
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
-        models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         stdin_tx: &mpsc::Sender<String>,
         task_tool_use_map: &mut HashMap<String, String>,
         compacting_msg_id: &mut Option<String>,
@@ -1383,7 +1324,6 @@ impl ClaudeConnector {
                 Self::handle_system_message(
                     raw,
                     session_id_slot,
-                    models,
                     task_tool_use_map,
                     compacting_msg_id,
                     tool_rows,
@@ -1607,7 +1547,6 @@ impl ClaudeConnector {
     async fn handle_system_message(
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
-        _models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         task_tool_use_map: &mut HashMap<String, String>,
         compacting_msg_id: &mut Option<String>,
         tool_rows: &mut HashMap<String, ToolRow>,
@@ -2540,7 +2479,7 @@ impl ClaudeConnector {
                         .values()
                         .find_map(|stats| stats.get("contextWindow").and_then(Value::as_u64))
                 })
-                .unwrap_or(200_000);
+                .unwrap_or(1_000_000);
 
             Some(orbitdock_protocol::TokenUsage {
                 input_tokens: input,
@@ -3001,7 +2940,7 @@ fn extract_token_usage(
             input_tokens: 0,
             output_tokens: 0,
             cached_tokens: 0,
-            context_window: 200_000,
+            context_window: 1_000_000,
         };
         for (_model_name, stats) in models {
             total.input_tokens += stats
@@ -3045,7 +2984,7 @@ fn extract_token_usage(
                 input_tokens: input,
                 output_tokens: output,
                 cached_tokens: cached,
-                context_window: 200_000,
+                context_window: 1_000_000,
             });
         }
     }

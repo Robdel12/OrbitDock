@@ -971,6 +971,71 @@ impl SessionListItem {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardDiffPreview {
+    #[serde(default)]
+    pub file_count: u32,
+    #[serde(default)]
+    pub additions: u32,
+    #[serde(default)]
+    pub deletions: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardConversationItem {
+    pub session_id: String,
+    pub provider: Provider,
+    pub project_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default)]
+    pub is_worktree: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_integration_mode: Option<CodexIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_integration_mode: Option<ClaudeIntegrationMode>,
+    pub status: SessionStatus,
+    pub work_status: WorkStatus,
+    pub list_status: SessionListStatus,
+    pub display_title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_line: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
+    pub started_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    #[serde(default)]
+    pub unread_count: u64,
+    #[serde(default)]
+    pub has_turn_diff: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_preview: Option<DashboardDiffPreview>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_tool_input: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_question: Option<String>,
+    #[serde(default)]
+    pub tool_count: u64,
+    #[serde(default)]
+    pub active_worker_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_identifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// Changes to apply to a session state (delta updates)
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StateChanges {
@@ -1104,6 +1169,42 @@ pub struct ClaudeModelOption {
     pub value: String,
     pub display_name: String,
     pub description: String,
+}
+
+impl ClaudeModelOption {
+    /// Hardcoded default models — always available regardless of account.
+    /// Using the generic model specifiers automatically routes to the
+    /// latest version (including 1M context when the account has access).
+    pub fn defaults() -> Vec<Self> {
+        vec![
+            Self {
+                value: "claude-opus-4-6".into(),
+                display_name: "Opus 4.6".into(),
+                description: "Most capable model for complex reasoning".into(),
+            },
+            Self {
+                value: "claude-sonnet-4-6".into(),
+                display_name: "Sonnet 4.6".into(),
+                description: "Balanced performance and speed".into(),
+            },
+            Self {
+                value: "claude-haiku-4-5".into(),
+                display_name: "Haiku 4.5".into(),
+                description: "Fast and lightweight".into(),
+            },
+        ]
+    }
+
+    /// Default context window for a given model string.
+    /// Opus and Sonnet now support 1M context; Haiku stays at 200k.
+    pub fn default_context_window(model: &str) -> u64 {
+        let lower = model.to_lowercase();
+        if lower.contains("haiku") {
+            200_000
+        } else {
+            1_000_000
+        }
+    }
 }
 
 /// Skill attached to a message

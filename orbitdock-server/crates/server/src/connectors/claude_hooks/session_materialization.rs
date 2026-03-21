@@ -111,17 +111,6 @@ pub(crate) async fn materialize_claude_session(
         });
     }
 
-    if let Some(ref model) = model {
-        let _ = persist_tx
-            .send(PersistCommand::UpsertClaudeModelIfAbsent {
-                value: model.clone(),
-                display_name: crate::infrastructure::persistence::display_name_from_model_string(
-                    model,
-                ),
-            })
-            .await;
-    }
-
     let _ = persist_tx
         .send(PersistCommand::ClaudeSessionUpsert {
             id: session_id.to_string(),

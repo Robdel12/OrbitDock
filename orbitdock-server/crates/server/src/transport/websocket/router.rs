@@ -10,6 +10,7 @@ use orbitdock_protocol::ClientMessage;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::OutboundMessage;
 
+use super::connection::ConnectionSubscriptions;
 use super::message_groups::{classify_client_message, MessageGroup};
 
 /// Dispatch a single client WebSocket message.
@@ -22,6 +23,7 @@ pub(crate) fn handle_client_message<'a>(
     msg: ClientMessage,
     client_tx: &'a mpsc::Sender<OutboundMessage>,
     state: &'a Arc<SessionRegistry>,
+    subscriptions: &'a mut ConnectionSubscriptions,
     conn_id: u64,
 ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
     Box::pin(async move {
@@ -36,7 +38,11 @@ pub(crate) fn handle_client_message<'a>(
         match classify_client_message(&msg) {
             MessageGroup::Subscribe => {
                 crate::transport::websocket::handlers::subscribe::handle(
-                    msg, client_tx, state, conn_id,
+                    msg,
+                    client_tx,
+                    state,
+                    subscriptions,
+                    conn_id,
                 )
                 .await;
             }

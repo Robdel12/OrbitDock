@@ -5,7 +5,10 @@ mod connector_registry;
 mod recent_projects;
 
 use dashmap::DashMap;
-use orbitdock_protocol::{ClientPrimaryClaim, SessionListItem, SessionSummary};
+use orbitdock_protocol::{
+    ClientPrimaryClaim, DashboardConversationItem, DashboardDiffPreview, SessionListItem,
+    SessionSummary,
+};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -325,6 +328,72 @@ impl SessionRegistry {
             .collect()
     }
 
+    pub fn get_dashboard_conversations(&self) -> Vec<DashboardConversationItem> {
+        let mut conversations: Vec<DashboardConversationItem> = self
+            .sessions
+            .iter()
+            .map(|entry| {
+                let snap = entry.value().snapshot();
+                let display_title = SessionSummary::display_title_from_parts(
+                    snap.custom_name.as_deref(),
+                    snap.summary.as_deref(),
+                    snap.first_prompt.as_deref(),
+                    snap.project_name.as_deref(),
+                    &snap.project_path,
+                );
+                let context_line = SessionSummary::context_line_from_parts(
+                    snap.summary.as_deref(),
+                    snap.first_prompt.as_deref(),
+                    snap.last_message.as_deref(),
+                );
+
+                DashboardConversationItem {
+                    session_id: snap.id.clone(),
+                    provider: snap.provider,
+                    project_path: snap.project_path.clone(),
+                    project_name: snap.project_name.clone(),
+                    repository_root: snap.repository_root.clone(),
+                    git_branch: snap.git_branch.clone(),
+                    is_worktree: snap.is_worktree,
+                    worktree_id: snap.worktree_id.clone(),
+                    model: snap.model.clone(),
+                    codex_integration_mode: snap.codex_integration_mode,
+                    claude_integration_mode: snap.claude_integration_mode,
+                    status: snap.status,
+                    work_status: snap.work_status,
+                    list_status: SessionSummary::list_status_from_parts(
+                        snap.status,
+                        snap.work_status,
+                    ),
+                    display_title,
+                    context_line,
+                    last_message: snap.last_message.clone(),
+                    started_at: snap.started_at.clone(),
+                    last_activity_at: snap.last_activity_at.clone(),
+                    unread_count: snap.unread_count,
+                    has_turn_diff: snap.has_turn_diff,
+                    diff_preview: dashboard_diff_preview(snap.current_diff.as_deref()),
+                    pending_tool_name: snap.pending_tool_name.clone(),
+                    pending_tool_input: snap.pending_tool_input.clone(),
+                    pending_question: snap.pending_question.clone(),
+                    tool_count: 0,
+                    active_worker_count: 0,
+                    issue_identifier: None,
+                    effort: snap.effort.clone(),
+                }
+            })
+            .collect();
+
+        conversations.sort_by(|lhs, rhs| {
+            dashboard_priority(lhs)
+                .cmp(&dashboard_priority(rhs))
+                .then_with(|| rhs.last_activity_at.cmp(&lhs.last_activity_at))
+                .then_with(|| lhs.display_title.cmp(&rhs.display_title))
+        });
+
+        conversations
+    }
+
     /// Iterate over all sessions (lock-free DashMap iteration).
     pub fn iter_sessions(&self) -> dashmap::iter::Iter<'_, String, SessionActorHandle> {
         self.sessions.iter()
@@ -453,7 +522,22 @@ impl SessionRegistry {
 
     /// Broadcast a message to all list subscribers
     pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {
+        let should_emit_dashboard = matches!(
+            msg,
+            orbitdock_protocol::ServerMessage::SessionCreated { .. }
+                | orbitdock_protocol::ServerMessage::SessionListItemUpdated { .. }
+                | orbitdock_protocol::ServerMessage::SessionListItemRemoved { .. }
+                | orbitdock_protocol::ServerMessage::SessionEnded { .. }
+                | orbitdock_protocol::ServerMessage::SessionForked { .. }
+        );
         let _ = self.list_tx.send(msg);
+        if should_emit_dashboard {
+            let _ = self.list_tx.send(
+                orbitdock_protocol::ServerMessage::DashboardConversationsUpdated {
+                    conversations: self.get_dashboard_conversations(),
+                },
+            );
+        }
     }
 
     /// Get a clone of the list broadcast sender (for passing to background tasks)
@@ -506,6 +590,58 @@ impl SessionRegistry {
         });
         collect_recent_projects(sessions, &removed_worktree_paths)
     }
+}
+
+fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
+    match item.list_status {
+        orbitdock_protocol::SessionListStatus::Permission => 0,
+        orbitdock_protocol::SessionListStatus::Question => 1,
+        orbitdock_protocol::SessionListStatus::Working => 2,
+        orbitdock_protocol::SessionListStatus::Reply => 3,
+        orbitdock_protocol::SessionListStatus::Ended => 4,
+    }
+}
+
+fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
+    let diff = diff?.trim();
+    if diff.is_empty() {
+        return None;
+    }
+
+    let mut file_paths: Vec<String> = vec![];
+    let mut additions = 0_u32;
+    let mut deletions = 0_u32;
+
+    for line in diff.lines() {
+        if let Some(path) = line.strip_prefix("+++ b/") {
+            let path = path.trim();
+            if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
+                file_paths.push(path.to_string());
+            }
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("diff --git ") {
+            if let Some(path) = rest.split(" b/").nth(1) {
+                let path = path.trim();
+                if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
+                    file_paths.push(path.to_string());
+                }
+            }
+            continue;
+        }
+        if line.starts_with('+') && !line.starts_with("+++") {
+            additions = additions.saturating_add(1);
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            deletions = deletions.saturating_add(1);
+        }
+    }
+
+    Some(DashboardDiffPreview {
+        file_count: file_paths.len() as u32,
+        additions,
+        deletions,
+        file_paths: file_paths.into_iter().take(3).collect(),
+    })
 }
 
 // Note: No Default impl - requires persist_tx

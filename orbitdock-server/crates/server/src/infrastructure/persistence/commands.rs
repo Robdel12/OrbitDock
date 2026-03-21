@@ -49,6 +49,7 @@ pub enum PersistCommand {
     RowAppend {
         session_id: String,
         entry: ConversationRowEntry,
+        viewer_present: bool,
         /// When set, the DB-assigned sequence is sent back after INSERT.
         sequence_tx: Option<oneshot::Sender<u64>>,
     },
@@ -57,6 +58,7 @@ pub enum PersistCommand {
     RowUpsert {
         session_id: String,
         entry: ConversationRowEntry,
+        viewer_present: bool,
         /// When set, the DB-assigned sequence is sent back after INSERT/UPDATE.
         sequence_tx: Option<oneshot::Sender<u64>>,
     },
@@ -367,15 +369,6 @@ pub enum PersistCommand {
 
     /// Upsert a key-value config entry
     SetConfig { key: String, value: String },
-
-    /// Replace all cached Claude models
-    SaveClaudeModels {
-        models: Vec<orbitdock_protocol::ClaudeModelOption>,
-    },
-
-    /// Insert a single Claude model if it doesn't already exist.
-    /// Preserves richer metadata from direct connector sessions.
-    UpsertClaudeModelIfAbsent { value: String, display_name: String },
 
     /// Persist a new worktree row
     WorktreeCreate {

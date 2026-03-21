@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use orbitdock_protocol::conversation_contracts::RowPageSummary;
@@ -138,7 +139,7 @@ pub(crate) fn spawn_broadcast_forwarder(
     mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
     session_id: Option<String>,
-) {
+) -> JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
@@ -166,5 +167,5 @@ pub(crate) fn spawn_broadcast_forwarder(
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
-    });
+    })
 }

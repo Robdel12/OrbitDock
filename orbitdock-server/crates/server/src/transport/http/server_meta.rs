@@ -85,7 +85,7 @@ pub async fn list_codex_models() -> ApiResult<CodexModelsResponse> {
 
 pub async fn list_claude_models() -> Json<ClaudeModelsResponse> {
     Json(ClaudeModelsResponse {
-        models: crate::infrastructure::persistence::load_cached_claude_models(),
+        models: ClaudeModelOption::defaults(),
     })
 }
 

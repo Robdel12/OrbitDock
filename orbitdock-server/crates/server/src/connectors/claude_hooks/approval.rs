@@ -224,6 +224,7 @@ mod tests {
             last_activity_at: None,
             revision: 0,
             current_plan: Some("Inspect files".to_string()),
+            current_diff: None,
             git_branch: None,
             git_sha: None,
             current_cwd: None,

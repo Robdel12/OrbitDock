@@ -7,6 +7,7 @@ use orbitdock_protocol::conversation_contracts::{
     RowPageSummary,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
+use orbitdock_protocol::DashboardConversationItem;
 use orbitdock_protocol::SessionListItem;
 use std::collections::BTreeMap;
 
@@ -16,6 +17,11 @@ const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
 #[derive(Debug, Serialize)]
 pub struct SessionsResponse {
     pub sessions: Vec<SessionListItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DashboardConversationsResponse {
+    pub conversations: Vec<DashboardConversationItem>,
 }
 
 #[derive(Debug, Serialize)]
@@ -137,6 +143,14 @@ fn duration_ms(started_at: Option<&str>, last_activity_at: Option<&str>) -> u64 
 pub async fn list_sessions(State(state): State<Arc<SessionRegistry>>) -> Json<SessionsResponse> {
     Json(SessionsResponse {
         sessions: state.get_session_list_items(),
+    })
+}
+
+pub async fn list_dashboard_conversations(
+    State(state): State<Arc<SessionRegistry>>,
+) -> Json<DashboardConversationsResponse> {
+    Json(DashboardConversationsResponse {
+        conversations: state.get_dashboard_conversations(),
     })
 }
 
@@ -277,18 +291,6 @@ pub async fn mark_session_read(
     };
 
     let unread_count = actor.mark_read().await.unwrap_or(0);
-
-    let max_seq: i64 = match load_messages_for_session(&session_id).await {
-        Ok(rows) => rows.len() as i64,
-        Err(_) => 0,
-    };
-    let _ = state
-        .persist()
-        .send(PersistCommand::MarkSessionRead {
-            session_id: session_id.clone(),
-            up_to_sequence: max_seq,
-        })
-        .await;
 
     Ok(Json(MarkReadResponse {
         session_id,

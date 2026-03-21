@@ -352,6 +352,7 @@ pub struct SessionSnapshot {
     pub last_activity_at: Option<String>,
     pub revision: u64,
     pub current_plan: Option<String>,
+    pub current_diff: Option<String>,
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
@@ -553,6 +554,10 @@ fn is_actively_streaming_message_row_summary(entry: &RowEntrySummary) -> bool {
 }
 
 impl SessionHandle {
+    pub fn has_active_viewers(&self) -> bool {
+        self.broadcast_tx.receiver_count() > 0
+    }
+
     fn next_row_sequence(&self) -> u64 {
         self.rows
             .last()
@@ -573,6 +578,11 @@ impl SessionHandle {
 
     fn newest_retained_sequence(&self) -> Option<u64> {
         self.rows.last().map(|entry| entry.sequence)
+    }
+
+    pub fn latest_row_sequence(&self) -> u64 {
+        self.newest_retained_sequence()
+            .unwrap_or_else(|| self.total_row_count.saturating_sub(1))
     }
 
     #[allow(dead_code)]
@@ -688,6 +698,7 @@ impl SessionHandle {
             last_activity_at: Some(now.clone()),
             revision: 0,
             current_plan: None,
+            current_diff: None,
             git_branch: None,
             git_sha: None,
             current_cwd: None,
@@ -859,6 +870,7 @@ impl SessionHandle {
             last_activity_at: last_activity_at.clone(),
             revision: 0,
             current_plan: current_plan.clone(),
+            current_diff: current_diff.clone(),
             git_branch: git_branch.clone(),
             git_sha: git_sha.clone(),
             current_cwd: current_cwd.clone(),
@@ -1449,7 +1461,7 @@ impl SessionHandle {
         {
             entry.sequence = self.next_row_sequence();
         }
-        if is_non_user_row(&entry) {
+        if is_non_user_row(&entry) && !self.has_active_viewers() {
             self.unread_count += 1;
         }
         self.newest_synced_row_id = Some(entry.id().to_string());
@@ -1458,6 +1470,10 @@ impl SessionHandle {
         self.trim_retained_rows();
         self.last_activity_at = Some(chrono_now());
         entry
+    }
+
+    pub fn unread_count_after_row_append(&self, entry: &ConversationRowEntry) -> Option<u64> {
+        (is_non_user_row(entry) && !self.has_active_viewers()).then_some(self.unread_count)
     }
 
     /// Replace an existing row by ID, or append if not found.
@@ -1507,13 +1523,13 @@ impl SessionHandle {
     /// `dispatch_transition_input` applies the connector state machine result directly,
     /// so it cannot call `add_row` without duplicating the row in memory.
     /// This keeps the in-memory unread count aligned with the persisted count.
-    pub fn note_transition_row_append(&mut self, entry: &RowEntrySummary) -> bool {
-        if !is_non_user_row_summary(entry) {
-            return false;
+    pub fn note_transition_row_append(&mut self, entry: &RowEntrySummary) -> Option<u64> {
+        if !is_non_user_row_summary(entry) || self.has_active_viewers() {
+            return None;
         }
 
         self.unread_count += 1;
-        true
+        Some(self.unread_count)
     }
 
     /// Mark the session as fully read. Returns the previous unread count.
@@ -2059,6 +2075,7 @@ impl SessionHandle {
             last_activity_at: self.last_activity_at.clone(),
             revision: self.revision,
             current_plan: self.current_plan.clone(),
+            current_diff: self.current_diff.clone(),
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
