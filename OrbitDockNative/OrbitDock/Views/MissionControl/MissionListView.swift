@@ -1,57 +1,46 @@
 import SwiftUI
 
 struct MissionListView: View {
-  @State private var missions: [MissionSummary] = []
-  @State private var isLoading = true
-  @State private var error: String?
-  @State private var showNewMission = false
-  @State private var actionError: String?
+  @State private var viewModel = MissionListViewModel()
 
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let missionsClient: MissionsClient
 
-  private var sessionStore: SessionStore? {
-    (runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime)?.sessionStore
-  }
-
-  private var endpointId: UUID {
-    runtimeRegistry.primaryEndpointId
-      ?? runtimeRegistry.activeEndpointId
-      ?? UUID()
-  }
-
   var body: some View {
     Group {
-      if isLoading {
+      if viewModel.isLoading {
         ProgressView()
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else if let error {
+      } else if let error = viewModel.error {
         ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
-      } else if missions.isEmpty {
+      } else if viewModel.missions.isEmpty {
         emptyState
       } else {
         missionsList
       }
     }
     .task {
-      await fetchMissions()
+      viewModel.bind(runtimeRegistry: runtimeRegistry)
+      await viewModel.fetchMissions(using: missionsClient)
     }
-    .onChange(of: sessionStore?.missionListSnapshot) { _, newSnapshot in
-      guard let newSnapshot, !newSnapshot.isEmpty else { return }
-      missions = newSnapshot
+    .onChange(of: viewModel.missionListSnapshot) { _, _ in
+      viewModel.applyMissionListSnapshotIfNeeded()
     }
-    .sheet(isPresented: $showNewMission) {
+    .sheet(isPresented: $viewModel.showNewMission) {
       NewMissionSheet(missionsClient: missionsClient) { newMission in
-        missions.insert(newMission, at: 0)
-        router.navigateToMission(missionId: newMission.id, endpointId: endpointId)
+        viewModel.missions.insert(newMission, at: 0)
+        router.navigateToMission(missionId: newMission.id, endpointId: viewModel.endpointId)
       }
     }
-    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+    .alert(
+      "Error",
+      isPresented: Binding(get: { viewModel.actionError != nil }, set: { if !$0 { viewModel.actionError = nil } })
+    ) {
       Button("OK", role: .cancel) {}
     } message: {
-      Text(actionError ?? "")
+      Text(viewModel.actionError ?? "")
     }
   }
 
@@ -70,7 +59,7 @@ struct MissionListView: View {
         )
 
         Button {
-          showNewMission = true
+          viewModel.showNewMission = true
         } label: {
           Label("New Mission", systemImage: "plus")
         }
@@ -94,14 +83,14 @@ struct MissionListView: View {
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.textTertiary)
 
-          Text("\(missions.count)")
+          Text("\(viewModel.missions.count)")
             .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
 
           Spacer()
 
           Button {
-            showNewMission = true
+            viewModel.showNewMission = true
           } label: {
             Label("New Mission", systemImage: "plus")
               .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -116,17 +105,17 @@ struct MissionListView: View {
           .buttonStyle(.plain)
         }
 
-        ForEach(missions) { mission in
+        ForEach(viewModel.missions) { mission in
           Button {
-            router.navigateToMission(missionId: mission.id, endpointId: endpointId)
+            router.navigateToMission(missionId: mission.id, endpointId: viewModel.endpointId)
           } label: {
             MissionRowView(
               mission: mission,
               missionsClient: missionsClient,
-              onRefresh: { await fetchMissions() },
+              onRefresh: { await viewModel.fetchMissions(using: missionsClient) },
               onApplyList: { response in
                 withAnimation(Motion.standard) {
-                  missions = response.missions
+                  viewModel.missions = response.missions
                 }
               }
             )
@@ -138,17 +127,6 @@ struct MissionListView: View {
     }
   }
 
-  private func fetchMissions() async {
-    isLoading = true
-    do {
-      let response = try await missionsClient.listMissions()
-      self.missions = response.missions
-      error = nil
-    } catch {
-      self.error = error.localizedDescription
-    }
-    isLoading = false
-  }
 }
 
 // MARK: - Mission Row

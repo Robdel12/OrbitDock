@@ -52,25 +52,25 @@ struct MissionSectionHeader: View {
 
   private var iconColor: Color {
     switch urgency {
-    case .normal: return color
-    case .attention: return color
-    case .settled: return Color.textQuaternary
+      case .normal: color
+      case .attention: color
+      case .settled: Color.textQuaternary
     }
   }
 
   private var titleColor: Color {
     switch urgency {
-    case .normal: return Color.textPrimary
-    case .attention: return Color.textPrimary
-    case .settled: return Color.textTertiary
+      case .normal: Color.textPrimary
+      case .attention: Color.textPrimary
+      case .settled: Color.textTertiary
     }
   }
 
   private var countColor: Color {
     switch urgency {
-    case .normal: return color
-    case .attention: return Color.feedbackNegative
-    case .settled: return color
+      case .normal: color
+      case .attention: Color.feedbackNegative
+      case .settled: color
     }
   }
 }

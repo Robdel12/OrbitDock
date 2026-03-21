@@ -10,7 +10,7 @@ struct MissionOverviewTab: View {
   let http: ServerHTTPClient?
   let isCompact: Bool
   let endpointId: UUID
-  let sessionStore: SessionStore?
+  let dashboardConversationsBySessionId: [String: DashboardConversationRecord]
   let nextTickAt: Date?
   let lastTickAt: Date?
   let onRefresh: () async -> Void
@@ -111,7 +111,7 @@ struct MissionOverviewTab: View {
     if !runningIssues.isEmpty {
       // In Flight — Agent Telemetry Cards
       agentDeck
-    } else if isPolling && issues.isEmpty {
+    } else if isPolling, issues.isEmpty {
       // Scanning — countdown + standing by
       MissionScanningState(
         nextTickAt: nextTickAt,
@@ -149,7 +149,7 @@ struct MissionOverviewTab: View {
         ForEach(runningIssues) { issue in
           MissionAgentCard(
             issue: issue,
-            sessionStore: sessionStore,
+            conversation: issue.sessionId.flatMap { dashboardConversationsBySessionId[$0] },
             isCompact: isCompact,
             onNavigateToSession: onNavigateToSession,
             expandedIssueId: $expandedAgentId

@@ -11,19 +11,7 @@ struct MissionShowView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
-  @State private var summary: MissionSummary?
-  @State private var issues: [MissionIssueItem] = []
-  @State private var settings: MissionSettings?
-  @State private var missionFileExists = true
-  @State private var missionFilePath: String?
-  @State private var workflowMigrationAvailable = false
-  @State private var isLoading = true
-  @State private var error: String?
-  @State private var selectedTab: MissionTab = .overview
-  @State private var showDeleteConfirmation = false
-  @State private var actionError: String?
-  @State private var nextTickAt: Date?
-  @State private var lastTickAt: Date?
+  @State private var viewModel = MissionControlViewModel()
 
   private var isCompact: Bool {
     #if os(iOS)
@@ -33,34 +21,22 @@ struct MissionShowView: View {
     #endif
   }
 
-  private var runtime: ServerRuntime? {
-    runtimeRegistry.runtimesByEndpointId[endpointId] ?? runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime
-  }
-
-  private var http: ServerHTTPClient? {
-    runtime?.clients.http
-  }
-
-  private var sessionStore: SessionStore? {
-    runtime?.sessionStore
-  }
-
   var body: some View {
     VStack(spacing: 0) {
       navigationBar
       Divider().foregroundStyle(Color.surfaceBorder)
 
       Group {
-        if isLoading {
+        if viewModel.isLoading {
           ProgressView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error {
+        } else if let error = viewModel.error {
           ContentUnavailableView(
             "Failed to Load Mission",
             systemImage: "exclamationmark.triangle",
             description: Text(error)
           )
-        } else if let summary {
+        } else if let summary = viewModel.summary {
           missionContent(summary)
         }
       }
@@ -68,28 +44,22 @@ struct MissionShowView: View {
     }
     .background(Color.backgroundPrimary)
     .task {
-      await fetchDetail()
+      viewModel.bind(missionId: missionId, endpointId: endpointId, runtimeRegistry: runtimeRegistry)
+      await viewModel.refreshDetail()
     }
-    .onChange(of: sessionStore?.missionDeltaRevision) { _, _ in
-      guard let store = sessionStore,
-            store.missionDeltaMissionId == missionId,
-            let deltaSummary = store.missionDeltaSummary
-      else { return }
-      summary = deltaSummary
-      issues = store.missionDeltaIssues
-      lastTickAt = Date()
+    .onChange(of: viewModel.missionDeltaRevision) { _, _ in
+      viewModel.applyLiveMissionDeltaIfNeeded()
     }
-    .onChange(of: sessionStore?.missionHeartbeatRevision) { _, _ in
-      guard let store = sessionStore,
-            store.missionDeltaMissionId == missionId
-      else { return }
-      nextTickAt = store.missionNextTickAt
-      lastTickAt = store.missionLastTickAt
+    .onChange(of: viewModel.missionHeartbeatRevision) { _, _ in
+      viewModel.applyMissionHeartbeatIfNeeded()
     }
-    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+    .alert(
+      "Error",
+      isPresented: Binding(get: { viewModel.actionError != nil }, set: { if !$0 { viewModel.actionError = nil } })
+    ) {
       Button("OK", role: .cancel) {}
     } message: {
-      Text(actionError ?? "")
+      Text(viewModel.actionError ?? "")
     }
   }
 
@@ -112,7 +82,7 @@ struct MissionShowView: View {
 
       Spacer()
 
-      if let summary {
+      if let summary = viewModel.summary {
         missionActions(summary)
       }
     }
@@ -130,28 +100,28 @@ struct MissionShowView: View {
           missionHeader(mission)
           tabBar
 
-          switch selectedTab {
+          switch viewModel.selectedTab {
             case .overview:
               MissionOverviewTab(
                 mission: mission,
-                settings: settings,
-                issues: issues,
+                settings: viewModel.settings,
+                issues: viewModel.issues,
                 missionId: missionId,
-                missionFileExists: missionFileExists,
-                workflowMigrationAvailable: workflowMigrationAvailable,
-                http: http,
+                missionFileExists: viewModel.missionFileExists,
+                workflowMigrationAvailable: viewModel.workflowMigrationAvailable,
+                http: viewModel.http,
                 isCompact: isCompact,
                 endpointId: endpointId,
-                sessionStore: sessionStore,
-                nextTickAt: nextTickAt,
-                lastTickAt: lastTickAt,
-                onRefresh: { await fetchDetail() },
-                onApplyDetail: { applyDetail($0) },
+                dashboardConversationsBySessionId: viewModel.dashboardConversationsBySessionId,
+                nextTickAt: viewModel.nextTickAt,
+                lastTickAt: viewModel.lastTickAt,
+                onRefresh: { await viewModel.refreshDetail() },
+                onApplyDetail: { viewModel.applyDetail($0) },
                 onSelectTab: { tab in
-                  withAnimation(Motion.standard) { selectedTab = tab }
+                  withAnimation(Motion.standard) { viewModel.selectedTab = tab }
                 },
                 onUpdateMission: { enabled, paused in
-                  await updateMission(enabled: enabled, paused: paused)
+                  await viewModel.updateMission(enabled: enabled, paused: paused)
                 },
                 onNavigateToSession: { sessionId in
                   let ref = SessionRef(endpointId: endpointId, sessionId: sessionId)
@@ -160,19 +130,19 @@ struct MissionShowView: View {
               )
             case .settings:
               MissionSettingsTab(
-                settings: settings,
+                settings: viewModel.settings,
                 repoRoot: mission.repoRoot,
                 missionId: missionId,
-                http: http,
+                http: viewModel.http,
                 isCompact: isCompact,
-                onUpdated: { await fetchDetail() }
+                onUpdated: { await viewModel.refreshDetail() }
               )
             case .issues:
               MissionIssuesTab(
-                issues: issues,
+                issues: viewModel.issues,
                 missionId: missionId,
                 endpointId: endpointId,
-                http: http
+                http: viewModel.http
               )
           }
         }
@@ -188,7 +158,7 @@ struct MissionShowView: View {
       ForEach(MissionTab.allCases, id: \.self) { tab in
         Button {
           withAnimation(Motion.standard) {
-            selectedTab = tab
+            viewModel.selectedTab = tab
           }
         } label: {
           HStack(spacing: Spacing.sm_) {
@@ -196,22 +166,22 @@ struct MissionShowView: View {
               .font(.system(size: IconScale.sm, weight: .semibold))
             Text(tab.title)
               .font(.system(size: TypeScale.meta, weight: .semibold))
-            if tab == .issues, !issues.isEmpty {
-              Text("\(issues.count)")
+            if tab == .issues, !viewModel.issues.isEmpty {
+              Text("\(viewModel.issues.count)")
                 .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-                .foregroundStyle(selectedTab == tab ? Color.accent : Color.textQuaternary)
+                .foregroundStyle(viewModel.selectedTab == tab ? Color.accent : Color.textQuaternary)
             }
           }
-          .foregroundStyle(selectedTab == tab ? Color.accent : Color.textSecondary)
+          .foregroundStyle(viewModel.selectedTab == tab ? Color.accent : Color.textSecondary)
           .padding(.horizontal, Spacing.md)
           .padding(.vertical, Spacing.sm)
           .background(
             Capsule(style: .continuous)
-              .fill(selectedTab == tab ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
+              .fill(viewModel.selectedTab == tab ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
           )
           .overlay(
             Capsule(style: .continuous)
-              .strokeBorder(selectedTab == tab ? Color.surfaceBorder : .clear, lineWidth: 1)
+              .strokeBorder(viewModel.selectedTab == tab ? Color.surfaceBorder : .clear, lineWidth: 1)
           )
         }
         .buttonStyle(.plain)
@@ -266,7 +236,7 @@ struct MissionShowView: View {
   private func missionActions(_ mission: MissionSummary) -> some View {
     Menu {
       Button(role: .destructive) {
-        showDeleteConfirmation = true
+        viewModel.showDeleteConfirmation = true
       } label: {
         Label("Delete Mission", systemImage: "trash")
       }
@@ -282,9 +252,13 @@ struct MissionShowView: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
-    .alert("Delete Mission?", isPresented: $showDeleteConfirmation) {
+    .alert("Delete Mission?", isPresented: $viewModel.showDeleteConfirmation) {
       Button("Delete", role: .destructive) {
-        Task { await deleteMission() }
+        Task {
+          if await viewModel.deleteMission() {
+            router.selectDashboardTab(.missions)
+          }
+        }
       }
       Button("Cancel", role: .cancel) {}
     } message: {
@@ -327,64 +301,6 @@ struct MissionShowView: View {
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.xs)
       .background(color.opacity(OpacityTier.light), in: Capsule())
-  }
-
-  // MARK: - Networking
-
-  private func applyDetail(_ response: MissionDetailResponse) {
-    summary = response.summary
-    issues = response.issues
-    settings = response.settings
-    missionFileExists = response.missionFileExists
-    missionFilePath = response.missionFilePath
-    workflowMigrationAvailable = response.workflowMigrationAvailable
-    error = nil
-  }
-
-  private func fetchDetail() async {
-    guard let http else {
-      error = "No server connection"
-      isLoading = false
-      return
-    }
-
-    let isInitialLoad = summary == nil
-    if isInitialLoad { isLoading = true }
-    do {
-      let response: MissionDetailResponse = try await http.get("/api/missions/\(missionId)")
-      applyDetail(response)
-    } catch {
-      self.error = error.localizedDescription
-    }
-    if isInitialLoad { isLoading = false }
-  }
-
-  private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
-    guard let http else { return }
-    let body = MissionUpdateBody(name: nil, enabled: enabled, paused: paused)
-    do {
-      let response: MissionDetailResponse = try await http.request(
-        path: "/api/missions/\(missionId)",
-        method: "PUT",
-        body: body
-      )
-      applyDetail(response)
-    } catch {
-      actionError = error.localizedDescription
-    }
-  }
-
-  private func deleteMission() async {
-    guard let http else { return }
-    do {
-      let _: MissionOkResponse = try await http.request(
-        path: "/api/missions/\(missionId)",
-        method: "DELETE"
-      )
-      router.selectDashboardTab(.missions)
-    } catch {
-      actionError = error.localizedDescription
-    }
   }
 
 }

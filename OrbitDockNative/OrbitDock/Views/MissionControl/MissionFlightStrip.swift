@@ -28,8 +28,13 @@ struct MissionFlightStrip: View {
     mission.enabled && mission.paused
   }
 
-  private var statusLabel: String { mission.flightStatus }
-  private var statusColor: Color { mission.flightStatusColor }
+  private var statusLabel: String {
+    mission.flightStatus
+  }
+
+  private var statusColor: Color {
+    mission.flightStatusColor
+  }
 
   // MARK: - Body
 

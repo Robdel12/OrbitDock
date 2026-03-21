@@ -21,4 +21,15 @@ struct DashboardTriageCounts {
       }
     }
   }
+
+  init(conversations: [DashboardConversationRecord]) {
+    for conversation in conversations {
+      switch conversation.displayStatus {
+        case .permission, .question: attention += 1
+        case .working: running += 1
+        case .reply: ready += 1
+        case .ended: break
+      }
+    }
+  }
 }

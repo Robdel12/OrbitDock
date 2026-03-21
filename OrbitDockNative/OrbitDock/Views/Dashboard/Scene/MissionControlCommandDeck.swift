@@ -12,16 +12,25 @@ struct MissionControlCommandDeck: View {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  private var groupedProjects: [ConversationProjectGroup] {
-    let groups = Dictionary(grouping: conversations, by: \.groupingPath)
+  private var hasMultipleEndpoints: Bool {
+    Set(conversations.map(\.sessionRef.endpointId)).count > 1
+  }
 
-    return groups.compactMap { path, conversations in
+  private var groupedProjects: [ConversationProjectGroup] {
+    // Group by (project path, endpoint) so same project on different servers stays separate
+    let groups = Dictionary(grouping: conversations) { conv in
+      ConversationGroupKey(path: conv.groupingPath, endpointId: conv.sessionRef.endpointId)
+    }
+
+    return groups.compactMap { key, conversations in
       guard let first = conversations.first else { return nil }
       return ConversationProjectGroup(
-        path: path,
+        path: key.path,
+        endpointId: key.endpointId,
+        endpointName: first.endpointName,
         name: first.displayProjectName,
         conversations: conversations,
-        attentionCount: conversations.filter { $0.displayStatus.needsAttention }.count,
+        attentionCount: conversations.filter(\.displayStatus.needsAttention).count,
         workingCount: conversations.filter { $0.displayStatus == .working }.count,
         readyCount: conversations.filter { $0.displayStatus == .reply }.count,
         lastActivityAt: conversations.compactMap { $0.lastActivityAt ?? $0.startedAt }.max()
@@ -48,6 +57,7 @@ struct MissionControlCommandDeck: View {
       ForEach(groupedProjects) { group in
         ConversationProjectSection(
           group: group,
+          showEndpointName: hasMultipleEndpoints,
           selectedConversationID: selectedConversationID,
           selectedProjectPath: projectFilter,
           layoutMode: layoutMode,
@@ -62,11 +72,11 @@ struct MissionControlCommandDeck: View {
 
   private var emptyState: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
-      Text("No conversations in this view")
+      Text("All clear")
         .font(.system(size: TypeScale.large, weight: .bold, design: .rounded))
         .foregroundStyle(Color.textPrimary)
 
-      Text("Try another filter or start a new session.")
+      Text("No active conversations in this view. Start a session or adjust your filters.")
         .font(.system(size: TypeScale.body))
         .foregroundStyle(Color.textSecondary)
     }
@@ -99,8 +109,15 @@ struct MissionControlCommandDeck: View {
 
 // MARK: - Project Grouping
 
+private struct ConversationGroupKey: Hashable {
+  let path: String
+  let endpointId: UUID
+}
+
 private struct ConversationProjectGroup: Identifiable {
   let path: String
+  let endpointId: UUID
+  let endpointName: String?
   let name: String
   let conversations: [DashboardConversationRecord]
   let attentionCount: Int
@@ -108,11 +125,21 @@ private struct ConversationProjectGroup: Identifiable {
   let readyCount: Int
   let lastActivityAt: Date?
 
-  var id: String { path }
+  var id: String {
+    "\(path)::\(endpointId.uuidString)"
+  }
+
+  /// The most urgent status color in this group — used for the section signal dot
+  var signalColor: Color {
+    if attentionCount > 0 { return .statusPermission }
+    if workingCount > 0 { return .statusWorking }
+    return .statusReply
+  }
 }
 
 private struct ConversationProjectSection: View {
   let group: ConversationProjectGroup
+  let showEndpointName: Bool
   let selectedConversationID: String?
   let selectedProjectPath: String?
   let layoutMode: DashboardLayoutMode
@@ -154,6 +181,7 @@ private struct ConversationProjectSection: View {
         AlertConversationCard(
           conversation: conversation,
           isSelected: isSelected,
+          showEndpointName: showEndpointName,
           layoutMode: layoutMode,
           onOpen: { onOpenConversation(conversation) }
         )
@@ -164,6 +192,7 @@ private struct ConversationProjectSection: View {
         ActivityConversationCard(
           conversation: conversation,
           isSelected: isSelected,
+          showEndpointName: showEndpointName,
           layoutMode: layoutMode,
           onOpen: { onOpenConversation(conversation) }
         )
@@ -174,6 +203,7 @@ private struct ConversationProjectSection: View {
         CompactConversationRow(
           conversation: conversation,
           isSelected: isSelected,
+          showEndpointName: showEndpointName,
           layoutMode: layoutMode,
           onOpen: { onOpenConversation(conversation) }
         )
@@ -181,21 +211,51 @@ private struct ConversationProjectSection: View {
     }
   }
 
-  // MARK: Section Header
+  // MARK: Section Header — sector label with signal dot + station callsign
 
   private var sectionHeader: some View {
-    HStack(alignment: .center, spacing: Spacing.sm) {
+    HStack(alignment: .center, spacing: Spacing.sm_) {
+      // Signal dot — reflects the most urgent status in this group
+      Circle()
+        .fill(group.signalColor)
+        .frame(width: 6, height: 6)
+        .shadow(color: group.signalColor.opacity(0.5), radius: 4, y: 0)
+
       Text(group.name.uppercased())
         .font(.system(size: TypeScale.caption, weight: .bold))
         .foregroundStyle(Color.textTertiary)
         .tracking(1.5)
 
+      // Station callsign — which server this group is from
+      if showEndpointName, let endpointName = group.endpointName {
+        HStack(spacing: Spacing.gap) {
+          Image(systemName: "antenna.radiowaves.left.and.right")
+            .font(.system(size: IconScale.xs, weight: .semibold))
+          Text(endpointName)
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+        }
+        .foregroundStyle(Color.textQuaternary)
+        .padding(.horizontal, Spacing.sm_)
+        .padding(.vertical, 1)
+        .background(
+          Capsule(style: .continuous)
+            .fill(Color.surfaceHover.opacity(0.6))
+        )
+      }
+
       if layoutMode == .desktop {
         stateCluster
       }
 
+      // Scanline divider
       Rectangle()
-        .fill(Color.surfaceBorder)
+        .fill(
+          LinearGradient(
+            colors: [Color.surfaceBorder, Color.surfaceBorder.opacity(0.3)],
+            startPoint: .leading,
+            endPoint: .trailing
+          )
+        )
         .frame(height: 0.5)
 
       focusButton
@@ -208,16 +268,16 @@ private struct ConversationProjectSection: View {
         statePill("\(group.attentionCount) blocked", tint: .statusPermission)
       }
       if group.workingCount > 0 {
-        statePill("\(group.workingCount) working", tint: .statusWorking)
+        statePill("\(group.workingCount) in orbit", tint: .statusWorking)
       }
       if group.readyCount > 0 {
-        statePill("\(group.readyCount) ready", tint: .statusReply)
+        statePill("\(group.readyCount) docked", tint: .statusReply)
       }
     }
   }
 
   private var focusButton: some View {
-    Button(isFocused ? "Show all" : "Focus") {
+    Button(isFocused ? "Show all" : "Track") {
       onFocusProject()
     }
     .buttonStyle(.plain)
@@ -243,12 +303,15 @@ private struct ConversationProjectSection: View {
 private struct CompactConversationRow: View {
   let conversation: DashboardConversationRecord
   let isSelected: Bool
+  let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
   let onOpen: () -> Void
 
   @State private var isHovering = false
 
-  private var hasUnread: Bool { conversation.unreadCount > 0 }
+  private var hasUnread: Bool {
+    conversation.unreadCount > 0
+  }
 
   private var recencyLabel: String? {
     let date = conversation.lastActivityAt ?? conversation.startedAt
@@ -265,58 +328,43 @@ private struct CompactConversationRow: View {
 
   var body: some View {
     Button(action: onOpen) {
-      HStack(spacing: 0) {
-        // Unread accent — thin left indicator
-        if hasUnread {
-          RoundedRectangle(cornerRadius: 1)
-            .fill(Color.accent)
-            .frame(width: 2)
-            .padding(.vertical, Spacing.xs)
-            .padding(.trailing, Spacing.sm)
-        }
+      VStack(alignment: .leading, spacing: 3) {
+        // Line 1: Title + recency
+        HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+          Text(conversation.title)
+            .font(.system(size: TypeScale.subhead, weight: hasUnread ? .bold : .medium))
+            .foregroundStyle(hasUnread ? Color.textPrimary : Color.textSecondary)
+            .lineLimit(1)
 
-        VStack(alignment: .leading, spacing: 3) {
-          // Line 1: Title + recency
-          HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-            Text(conversation.title)
-              .font(.system(size: TypeScale.subhead, weight: hasUnread ? .bold : .medium))
-              .foregroundStyle(hasUnread ? Color.textPrimary : Color.textSecondary)
-              .lineLimit(1)
+          Spacer(minLength: Spacing.xs)
 
-            Spacer(minLength: Spacing.xs)
-
-            if let recencyLabel {
-              Text(recencyLabel)
-                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.textQuaternary)
-            }
-          }
-
-          // Line 2: Preview + trailing metadata
-          HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(previewText)
-              .font(.system(size: TypeScale.caption, weight: .regular))
-              .foregroundStyle(Color.textTertiary)
-              .lineLimit(1)
-              .layoutPriority(-1)
-
-            if layoutMode == .desktop {
-              Spacer(minLength: Spacing.md)
-
-              compactMetadata
-                .layoutPriority(1)
-            }
+          if let recencyLabel {
+            Text(recencyLabel)
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
           }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+
+        // Line 2: Preview + trailing metadata
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+          Text(previewText)
+            .font(.system(size: TypeScale.caption, weight: .regular))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .layoutPriority(-1)
+
+          if layoutMode == .desktop {
+            Spacer(minLength: Spacing.md)
+
+            compactMetadata
+              .layoutPriority(1)
+          }
+        }
       }
-      .padding(.leading, hasUnread ? Spacing.lg_ : Spacing.lg)
-      .padding(.trailing, Spacing.lg)
+      .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md_)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-          .fill(isSelected ? Color.surfaceSelected : (isHovering ? Color.surfaceHover : Color.clear))
-      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(compactBackground)
       .overlay(alignment: .trailing) {
         if isHovering {
           Image(systemName: "chevron.right")
@@ -330,8 +378,30 @@ private struct CompactConversationRow: View {
     .onHover { isHovering = $0 }
   }
 
+  private var compactBackground: some View {
+    RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+      .fill(rowFill)
+      .shadow(
+        color: hasUnread ? Color.accent.opacity(0.06) : Color.clear,
+        radius: hasUnread ? 6 : 0,
+        y: 0
+      )
+  }
+
+  private var rowFill: Color {
+    if isSelected { return Color.surfaceSelected }
+    if isHovering { return Color.surfaceHover }
+    // Unread rows get a barely-visible ambient glow tint
+    if hasUnread { return Color.accent.opacity(OpacityTier.tint) }
+    return Color.clear
+  }
+
   private var compactMetadata: some View {
     HStack(spacing: Spacing.sm_) {
+      if showEndpointName, let name = conversation.endpointName {
+        endpointTag(name)
+      }
+
       if let branch = conversation.branch, !branch.isEmpty {
         Text(truncateBranch(branch, max: 16))
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -344,15 +414,7 @@ private struct CompactConversationRow: View {
           .foregroundStyle(Color.textQuaternary)
       }
 
-      if conversation.hasTurnDiff, let diff = conversation.diffPreview {
-        HStack(spacing: Spacing.gap) {
-          Text("+\(diff.additions)")
-            .foregroundStyle(Color.diffAddedAccent.opacity(0.7))
-          Text("−\(diff.deletions)")
-            .foregroundStyle(Color.diffRemovedAccent.opacity(0.7))
-        }
-        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-      }
+      diffLabel(for: conversation)
     }
   }
 }
@@ -362,6 +424,7 @@ private struct CompactConversationRow: View {
 private struct ActivityConversationCard: View {
   let conversation: DashboardConversationRecord
   let isSelected: Bool
+  let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
   let onOpen: () -> Void
 
@@ -408,9 +471,9 @@ private struct ActivityConversationCard: View {
         // Footer: status + metadata
         HStack(spacing: Spacing.sm_) {
           HStack(spacing: Spacing.gap) {
-            Image(systemName: "bolt.fill")
+            Image(systemName: "antenna.radiowaves.left.and.right")
               .font(.system(size: IconScale.sm, weight: .bold))
-            Text("Working")
+            Text("In orbit")
               .font(.system(size: TypeScale.meta, weight: .semibold))
           }
           .foregroundStyle(Color.statusWorking)
@@ -427,6 +490,10 @@ private struct ActivityConversationCard: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
+          if showEndpointName, let name = conversation.endpointName {
+            endpointTag(name)
+          }
+
           if let branch = conversation.branch, !branch.isEmpty {
             Text(truncateBranch(branch, max: 20))
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -439,11 +506,7 @@ private struct ActivityConversationCard: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if conversation.hasTurnDiff, let diff = conversation.diffPreview {
-            Text("+\(diff.additions) −\(diff.deletions)")
-              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-          }
+          diffLabel(for: conversation)
 
           Spacer(minLength: Spacing.sm)
 
@@ -464,17 +527,34 @@ private struct ActivityConversationCard: View {
   }
 
   private var cardBackground: some View {
-    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-      .fill(Color.backgroundTertiary.opacity(isHovering || isSelected ? 1.0 : 0.85))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .stroke(
-            Color.statusWorking.opacity(isHovering || isSelected ? 0.30 : 0.18),
-            lineWidth: isSelected ? 1.4 : 1
+    ZStack {
+      // Base fill with subtle cyan bleed
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.backgroundTertiary)
+
+      // Gradient overlay — instrument backlighting effect
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(
+          LinearGradient(
+            colors: [
+              Color.statusWorking.opacity(isHovering ? 0.06 : 0.03),
+              Color.clear,
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
           )
-      )
-      .shadow(color: Color.statusWorking.opacity(0.12), radius: 8, y: 0)
-      .shadow(color: Color.statusWorking.opacity(0.06), radius: 3, y: 0)
+        )
+
+      // Border
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .stroke(
+          Color.statusWorking.opacity(isHovering || isSelected ? 0.30 : 0.18),
+          lineWidth: isSelected ? 1.4 : 1
+        )
+    }
+    // Dual glow — outer atmospheric + inner tight
+    .shadow(color: Color.statusWorking.opacity(0.14), radius: 10, y: 0)
+    .shadow(color: Color.statusWorking.opacity(0.08), radius: 3, y: 0)
   }
 }
 
@@ -483,22 +563,22 @@ private struct ActivityConversationCard: View {
 private struct AlertConversationCard: View {
   let conversation: DashboardConversationRecord
   let isSelected: Bool
+  let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
   let onOpen: () -> Void
 
   @State private var isHovering = false
 
-  private var statusColor: Color { conversation.displayStatus.color }
+  private var statusColor: Color {
+    conversation.displayStatus.color
+  }
 
   private var contextText: String {
     if let pendingQuestion = conversation.pendingQuestion, !pendingQuestion.isEmpty {
       return pendingQuestion
     }
     if let pendingToolName = conversation.pendingToolName {
-      if let pendingToolInput = conversation.pendingToolInput, !pendingToolInput.isEmpty {
-        return "Wants to run \(pendingToolName): \(pendingToolInput)"
-      }
-      return "Wants to run \(pendingToolName)"
+      return formatToolContext(toolName: pendingToolName, input: conversation.pendingToolInput)
     }
     return stripMarkdown(
       conversation.lastMessage ?? conversation.contextLine
@@ -560,6 +640,10 @@ private struct AlertConversationCard: View {
               .fill(statusColor.opacity(OpacityTier.light))
           )
 
+          if showEndpointName, let name = conversation.endpointName {
+            endpointTag(name)
+          }
+
           if let branch = conversation.branch, !branch.isEmpty {
             Text(truncateBranch(branch, max: 20))
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -572,11 +656,7 @@ private struct AlertConversationCard: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if conversation.hasTurnDiff, let diff = conversation.diffPreview {
-            Text("+\(diff.additions) −\(diff.deletions)")
-              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-          }
+          diffLabel(for: conversation)
 
           Spacer(minLength: Spacing.sm)
 
@@ -597,22 +677,110 @@ private struct AlertConversationCard: View {
   }
 
   private var cardBackground: some View {
-    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-      .fill(Color.backgroundTertiary.opacity(isHovering || isSelected ? 1.0 : 0.90))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .stroke(
-            statusColor.opacity(isHovering || isSelected ? 0.40 : 0.25),
-            lineWidth: isSelected ? 1.6 : 1.2
+    ZStack {
+      // Base
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.backgroundTertiary)
+
+      // Radial beacon glow — emanates from top-left like a signal source
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(
+          RadialGradient(
+            colors: [
+              statusColor.opacity(isHovering ? 0.10 : 0.06),
+              Color.clear,
+            ],
+            center: .topLeading,
+            startRadius: 0,
+            endRadius: 300
           )
-      )
-      // Layered glow — outer diffuse + inner tight
-      .shadow(color: statusColor.opacity(0.20), radius: 14, y: 0)
-      .shadow(color: statusColor.opacity(0.10), radius: 5, y: 0)
+        )
+
+      // Border
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .stroke(
+          statusColor.opacity(isHovering || isSelected ? 0.40 : 0.25),
+          lineWidth: isSelected ? 1.6 : 1.2
+        )
+    }
+    // Beacon glow — strong outer + tight inner
+    .shadow(color: statusColor.opacity(0.22), radius: 16, y: 0)
+    .shadow(color: statusColor.opacity(0.12), radius: 5, y: 0)
   }
 }
 
-// MARK: - Shared Utilities
+// MARK: - Shared Components
+
+/// Colored diff stats label — green additions, red deletions
+@ViewBuilder
+private func diffLabel(for conversation: DashboardConversationRecord) -> some View {
+  if conversation.hasTurnDiff, let diff = conversation.diffPreview {
+    HStack(spacing: Spacing.gap) {
+      Text("+\(diff.additions)")
+        .foregroundStyle(Color.diffAddedAccent.opacity(0.7))
+      Text("−\(diff.deletions)")
+        .foregroundStyle(Color.diffRemovedAccent.opacity(0.7))
+    }
+    .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+  }
+}
+
+// MARK: - Shared Components
+
+/// Endpoint station tag — small muted capsule with antenna icon
+private func endpointTag(_ name: String) -> some View {
+  HStack(spacing: 2) {
+    Image(systemName: "server.rack")
+      .font(.system(size: IconScale.xs, weight: .medium))
+    Text(name)
+      .font(.system(size: TypeScale.micro, weight: .medium))
+  }
+  .foregroundStyle(Color.textQuaternary)
+}
+
+// MARK: - Utilities
+
+/// Format a tool call into a human-readable description for dashboard previews.
+/// Extracts the most meaningful parameter from known tools instead of dumping raw JSON.
+private func formatToolContext(toolName: String, input: String?) -> String {
+  guard let input, !input.isEmpty,
+        let data = input.data(using: .utf8),
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+  else {
+    return "Wants to run \(toolName)"
+  }
+
+  switch toolName {
+    case "Bash":
+      if let command = json["command"] as? String {
+        return command
+      }
+    case "Edit":
+      if let path = json["file_path"] as? String {
+        return "Edit \(URL(fileURLWithPath: path).lastPathComponent)"
+      }
+    case "Write":
+      if let path = json["file_path"] as? String {
+        return "Write \(URL(fileURLWithPath: path).lastPathComponent)"
+      }
+    case "Read":
+      if let path = json["file_path"] as? String {
+        return "Read \(URL(fileURLWithPath: path).lastPathComponent)"
+      }
+    case "Grep":
+      if let pattern = json["pattern"] as? String {
+        return "Search for \"\(pattern)\""
+      }
+    case "Glob":
+      if let pattern = json["pattern"] as? String {
+        return "Find files matching \(pattern)"
+      }
+    default:
+      break
+  }
+
+  return "Wants to run \(toolName)"
+}
 
 private func truncateBranch(_ branch: String, max: Int) -> String {
   if branch.count <= max { return branch }
@@ -632,8 +800,8 @@ private enum RelativeClock {
   static func shortLabel(for date: Date, now: Date = .now) -> String {
     let interval = max(0, now.timeIntervalSince(date))
     if interval < 60 { return "now" }
-    if interval < 3600 { return "\(Int(interval / 60))m" }
-    if interval < 86_400 { return "\(Int(interval / 3600))h" }
+    if interval < 3_600 { return "\(Int(interval / 60))m" }
+    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
     return "\(Int(interval / 86_400))d"
   }
 }

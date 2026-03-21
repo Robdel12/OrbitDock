@@ -2,21 +2,17 @@ import SwiftUI
 
 struct MissionAgentCard: View {
   let issue: MissionIssueItem
-  let sessionStore: SessionStore?
+  let conversation: DashboardConversationRecord?
   let isCompact: Bool
   let onNavigateToSession: (String) -> Void
   @Binding var expandedIssueId: String?
-
-  private var session: SessionObservable? {
-    issue.sessionId.flatMap { sessionStore?.session($0) }
-  }
 
   private var isExpanded: Bool {
     expandedIssueId == issue.issueId
   }
 
   private var cardAccent: Color {
-    session?.displayStatus.color ?? Color.statusWorking
+    conversation?.displayStatus.color ?? issue.orchestrationState.color
   }
 
   private var providerColor: Color {
@@ -63,12 +59,12 @@ struct MissionAgentCard: View {
 
   private var agentStatusLine: some View {
     HStack(spacing: Spacing.sm_) {
-      if let session {
-        SessionStatusBadge(status: session.displayStatus, showIcon: true, size: .compact)
+      if let conversation {
+        SessionStatusBadge(status: conversation.displayStatus, showIcon: true, size: .compact)
       } else {
         Text(issue.orchestrationState.displayLabel)
           .font(.system(size: TypeScale.micro, weight: .semibold))
-          .foregroundStyle(Color.statusWorking)
+          .foregroundStyle(issue.orchestrationState.color)
       }
 
       Spacer()
@@ -77,8 +73,8 @@ struct MissionAgentCard: View {
         .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(providerColor)
 
-      if let session {
-        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+      if let conversation {
+        UnifiedModelBadge(model: conversation.model, provider: conversation.provider, size: .mini)
       }
     }
   }
@@ -94,30 +90,37 @@ struct MissionAgentCard: View {
   }
 
   private var activityRow: some View {
-    let isLast = session?.branch == nil
+    let isLast = conversation?.branch == nil
     return HStack(spacing: Spacing.xs) {
       treeConnector(isLast: isLast)
 
       Group {
-        if let session, session.displayStatus == .permission, let tool = session.pendingToolName {
+        if let conversation, conversation.displayStatus == .permission, let tool = conversation.pendingToolName {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "lock.fill")
               .font(.system(size: IconScale.xs, weight: .bold))
             Text(tool)
           }
           .foregroundStyle(Color.statusPermission)
-        } else if let session, session.displayStatus == .question {
+        } else if let conversation, conversation.displayStatus == .question {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "questionmark.bubble")
               .font(.system(size: IconScale.xs, weight: .bold))
-            Text(session.pendingQuestion.map { String($0.prefix(60)) } ?? "Question")
+            Text(conversation.pendingQuestion.map { String($0.prefix(60)) } ?? "Question")
           }
           .foregroundStyle(Color.statusQuestion)
-        } else if let tool = session?.lastTool {
+        } else if let tool = conversation?.pendingToolName {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "wrench.fill")
               .font(.system(size: IconScale.xs, weight: .medium))
             Text(tool)
+          }
+          .foregroundStyle(Color.textTertiary)
+        } else if let conversation, conversation.toolCount > 0 {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "hammer")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text("\(conversation.toolCount) tools active")
           }
           .foregroundStyle(Color.textTertiary)
         } else {
@@ -135,7 +138,7 @@ struct MissionAgentCard: View {
 
   @ViewBuilder
   private var branchRow: some View {
-    if let branch = session?.branch {
+    if let branch = conversation?.branch {
       HStack(spacing: Spacing.xs) {
         treeConnector(isLast: false)
 
@@ -155,20 +158,27 @@ struct MissionAgentCard: View {
       treeConnector(isLast: true)
 
       HStack(spacing: 0) {
-        if let session, session.totalTokens > 0 {
-          Text(DashboardFormatters.tokens(session.totalTokens) + " tok")
+        if let conversation, conversation.toolCount > 0 {
+          Text("\(conversation.toolCount) tools")
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }
 
-        if let session, !session.turnDiffs.isEmpty {
+        if let conversation, conversation.hasTurnDiff {
           metricSeparator
-          Text("\(session.turnDiffs.count) edits")
+          Text("changes")
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }
 
-        if let duration = DashboardFormatters.duration(since: session?.startedAt) {
+        if let conversation, conversation.activeWorkerCount > 0 {
+          metricSeparator
+          Text("\(conversation.activeWorkerCount) workers")
+            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+        }
+
+        if let duration = DashboardFormatters.duration(since: conversation?.startedAt) {
           metricSeparator
           Text(duration)
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -199,39 +209,29 @@ struct MissionAgentCard: View {
   private var expandedContent: some View {
     Divider().foregroundStyle(Color.surfaceBorder)
 
-    // Recent Activity
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      Text("Recent Activity")
+      Text("Latest Context")
         .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
 
-      if let session, !session.rowEntries.isEmpty {
-        let toolRows = recentToolRows(from: session.rowEntries, limit: 5)
-        if !toolRows.isEmpty {
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            ForEach(toolRows, id: \.id) { entry in
-              recentActivityRow(entry)
-            }
-          }
+      if let summary = expandedSummaryText {
+        Text(summary)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
           .padding(Spacing.sm)
           .background(
             RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
               .fill(Color.backgroundTertiary)
           )
-        } else {
-          Text("No tool activity yet")
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textQuaternary)
-        }
       } else {
-        Text("Session activity loading...")
+        Text("Session context loading...")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
       }
     }
 
-    // Context
-    if let session, let lastMessage = session.lastMessage, !lastMessage.isEmpty {
+    if let conversation, let lastMessage = conversation.lastMessage, !lastMessage.isEmpty {
       Text(lastMessage)
         .font(.system(size: TypeScale.micro).italic())
         .foregroundStyle(Color.textTertiary)
@@ -256,7 +256,7 @@ struct MissionAgentCard: View {
 
   private var cardBackground: some View {
     ZStack(alignment: .leading) {
-      let needsUrgentGlow = session?.displayStatus == .permission || session?.displayStatus == .question
+      let needsUrgentGlow = conversation?.displayStatus == .permission || conversation?.displayStatus == .question
 
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(Color.backgroundSecondary)
@@ -302,68 +302,26 @@ struct MissionAgentCard: View {
       .foregroundStyle(Color.textQuaternary)
   }
 
-  // MARK: - Helpers
-
-  private func recentToolRows(from entries: [ServerConversationRowEntry], limit: Int) -> [ServerConversationRowEntry] {
-    let toolEntries = entries.filter { entry in
-      if case .tool = entry.row { return true }
-      return false
+  private var expandedSummaryText: String? {
+    if let question = conversation?.pendingQuestion, !question.isEmpty {
+      return question
     }
-    return Array(toolEntries.suffix(limit))
-  }
 
-  private func recentActivityRow(_ entry: ServerConversationRowEntry) -> some View {
-    Group {
-      if case let .tool(tool) = entry.row {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: toolIcon(for: tool.kind))
-            .font(.system(size: IconScale.xs, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-
-          Text(tool.title)
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-
-          if let subtitle = tool.subtitle {
-            Text(subtitle)
-              .font(.system(size: TypeScale.micro, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-          }
-
-          Spacer()
-
-          statusIndicator(tool.status)
-        }
+    if let toolName = conversation?.pendingToolName, !toolName.isEmpty {
+      if let toolInput = conversation?.pendingToolInput, !toolInput.isEmpty {
+        return "\(toolName): \(toolInput)"
       }
+      return "Pending tool: \(toolName)"
     }
-  }
 
-  private func toolIcon(for kind: ServerConversationToolKind) -> String {
-    switch kind {
-    case .edit: return "pencil"
-    case .read: return "doc.text"
-    case .write: return "doc.text.fill"
-    case .bash: return "terminal"
-    case .grep, .glob: return "magnifyingglass"
-    default: return "wrench"
+    if let contextLine = conversation?.contextLine, !contextLine.isEmpty {
+      return contextLine
     }
-  }
 
-  @ViewBuilder
-  private func statusIndicator(_ status: ServerConversationToolStatus) -> some View {
-    switch status {
-    case .completed:
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: IconScale.xs))
-        .foregroundStyle(Color.feedbackPositive)
-    case .failed:
-      Image(systemName: "xmark.circle.fill")
-        .font(.system(size: IconScale.xs))
-        .foregroundStyle(Color.feedbackNegative)
-    default:
-      Image(systemName: "circle")
-        .font(.system(size: IconScale.xs))
-        .foregroundStyle(Color.textQuaternary)
+    if let lastMessage = conversation?.lastMessage, !lastMessage.isEmpty {
+      return lastMessage
     }
+
+    return nil
   }
 }

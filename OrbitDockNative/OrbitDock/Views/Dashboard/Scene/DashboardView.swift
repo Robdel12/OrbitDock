@@ -14,43 +14,15 @@ struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(AppRouter.self) private var router
   @Environment(AppStore.self) private var appStore
+  @State private var viewModel = DashboardViewModel()
 
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
 
-  // Mission control state
-  @State private var selectedIndex = 0
-  @State private var dashboardScrollAnchorID: String?
-  @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
-  @State private var activeSort: ActiveSessionSort = .recent
-  @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
-  @State private var activeProjectFilter: String?
   @State private var sidebarDragWidth: CGFloat?
   @State private var sidebarDragStartWidth: CGFloat?
   @FocusState private var isDashboardFocused: Bool
   @AppStorage("dashboard.missionControl.sidebarWidth") private var persistedSidebarWidth: Double = 244
-
-  private var activityStream: ActivityStream {
-    ActivityStream.build(
-      from: appStore.missionControlRecords(),
-      filter: activeWorkbenchFilter,
-      sort: activeSort,
-      providerFilter: activeProviderFilter,
-      projectFilter: activeProjectFilter
-    )
-  }
-
-  private var rootSessions: [RootSessionNode] {
-    appStore.records()
-  }
-
-  private var missionControlSessions: [RootSessionNode] {
-    appStore.missionControlRecords()
-  }
-
-  private var librarySessions: [RootSessionNode] {
-    rootSessions
-  }
 
   private var isMissionControlVisible: Bool {
     guard case .dashboard(.missionControl) = router.route else { return false }
@@ -61,22 +33,16 @@ struct DashboardView: View {
     isMissionControlVisible && !router.showQuickSwitcher
   }
 
-  private var navigableSessions: [RootSessionNode] {
-    activityStream.attention + activityStream.working + activityStream.ready
-  }
-
-  private var showingLoadingSkeleton: Bool {
-    isInitialLoading && librarySessions.isEmpty
-  }
-
   private var dashboardScrollAnchorBinding: Binding<String?> {
     Binding(
-      get: { dashboardScrollAnchorID },
-      set: { dashboardScrollAnchorID = $0 }
+      get: { viewModel.dashboardScrollAnchorID },
+      set: { viewModel.dashboardScrollAnchorID = $0 }
     )
   }
 
   var body: some View {
+    @Bindable var viewModel = viewModel
+
     GeometryReader { proxy in
       let containerWidth = proxy.size.width
       let layoutMode = DashboardLayoutMode.current(
@@ -86,7 +52,7 @@ struct DashboardView: View {
 
       VStack(spacing: 0) {
         DashboardStatusBar(
-          sessions: rootSessions,
+          sessions: viewModel.rootSessions,
           isInitialLoading: isInitialLoading,
           isRefreshingCachedSessions: isRefreshingCachedSessions
         )
@@ -101,7 +67,7 @@ struct DashboardView: View {
             missionsTab
           case .library:
             LibraryView(
-              sessions: librarySessions,
+              sessions: viewModel.librarySessions,
               containerWidth: containerWidth
             )
         }
@@ -134,54 +100,20 @@ struct DashboardView: View {
     layoutMode: DashboardLayoutMode,
     containerWidth: CGFloat
   ) -> some View {
-    let showsSidebar = DashboardLayoutMode.shouldShowMissionControlSidebar(
-      horizontalSizeClass: horizontalSizeClass,
-      containerWidth: containerWidth
-    )
-    let sidebarWidth = effectiveSidebarWidth(for: containerWidth)
+    let _ = containerWidth
 
-    Group {
-      if showsSidebar {
-        HStack(spacing: 0) {
-          DesktopSidebarPanel(
-            sessions: missionControlSessions,
-            width: sidebarWidth,
-            projectFilter: $activeProjectFilter,
-            onSelectSession: { session in
-              withAnimation(Motion.hover) {
-                dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
-                router.selectSession(session.sessionRef, source: .dashboardSidebar)
-              }
-            }
-          )
+    VStack(spacing: 0) {
+      ActivityStreamToolbar(
+        totalCount: viewModel.dashboardConversations.count,
+        counts: viewModel.dashboardCounts,
+        directCount: viewModel.dashboardDirectCount,
+        filter: $viewModel.activeWorkbenchFilter,
+        sort: $viewModel.activeSort,
+        providerFilter: $viewModel.activeProviderFilter,
+        sortOptions: [.recent, .status, .name]
+      )
 
-          #if os(macOS)
-            sidebarResizeHandle(containerWidth: containerWidth)
-          #endif
-
-          VStack(spacing: 0) {
-            ActivityStreamToolbar(
-              sessions: missionControlSessions,
-              filter: $activeWorkbenchFilter,
-              sort: $activeSort,
-              providerFilter: $activeProviderFilter
-            )
-
-            missionControlScrollView(layoutMode: layoutMode)
-          }
-        }
-      } else {
-        VStack(spacing: 0) {
-          ActivityStreamToolbar(
-            sessions: missionControlSessions,
-            filter: $activeWorkbenchFilter,
-            sort: $activeSort,
-            providerFilter: $activeProviderFilter
-          )
-
-          missionControlScrollView(layoutMode: layoutMode)
-        }
-      }
+      missionControlScrollView(layoutMode: layoutMode)
     }
   }
 
@@ -213,16 +145,13 @@ struct DashboardView: View {
   private func missionControlScrollView(layoutMode: DashboardLayoutMode) -> some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 0) {
-        if showingLoadingSkeleton {
+        if viewModel.showingLoadingSkeleton(isInitialLoading: isInitialLoading) {
           loadingSkeletonContent
         } else {
-          ActivityStreamContent(
-            sessions: missionControlSessions,
-            filter: activeWorkbenchFilter,
-            sort: activeSort,
-            providerFilter: activeProviderFilter,
-            projectFilter: activeProjectFilter,
-            selectedIndex: selectedIndex
+          MissionControlCommandDeck(
+            conversations: viewModel.filteredDashboardConversations,
+            projectFilter: $viewModel.activeProjectFilter,
+            selectedIndex: viewModel.selectedIndex
           )
         }
       }
@@ -231,46 +160,60 @@ struct DashboardView: View {
     }
     .scrollContentBackground(.hidden)
     .scrollPosition(id: dashboardScrollAnchorBinding)
-    .onChange(of: selectedIndex) { _, newIndex in
-      guard newIndex >= 0, newIndex < navigableSessions.count else { return }
-      let targetID = DashboardScrollIDs.session(navigableSessions[newIndex].scopedID)
+    .task {
+      viewModel.bind(appStore: appStore)
+      if isMissionControlVisible {
+        await viewModel.refreshDashboardData()
+      }
+    }
+    .task(id: isMissionControlVisible ? viewModel.dashboardRefreshIdentity : "dashboard-hidden") {
+      guard isMissionControlVisible else { return }
+      viewModel.bind(appStore: appStore)
+      await viewModel.refreshDashboardData()
+    }
+    .onChange(of: viewModel.selectedIndex) { _, _ in
+      guard let targetID = viewModel.selectedConversationScrollTargetID else { return }
       withAnimation(Motion.hover) {
-        dashboardScrollAnchorID = targetID
+        viewModel.dashboardScrollAnchorID = targetID
       }
     }
     .focusable()
     .focused($isDashboardFocused)
     .onAppear {
-      dashboardScrollAnchorID = router.dashboardScrollAnchorID
+      viewModel.bind(appStore: appStore)
+      viewModel.dashboardScrollAnchorID = router.dashboardScrollAnchorID
       syncDashboardFocus()
     }
     .onChange(of: router.route) { _, _ in
       if isMissionControlVisible {
-        dashboardScrollAnchorID = router.dashboardScrollAnchorID
+        viewModel.dashboardScrollAnchorID = router.dashboardScrollAnchorID
+        Task {
+          await viewModel.refreshDashboardData()
+        }
       }
       syncDashboardFocus()
+    }
+    .onChange(of: router.dashboardTab) { _, newTab in
+      guard newTab == .missionControl else { return }
+      Task {
+        await viewModel.refreshDashboardData()
+      }
     }
     .onChange(of: router.showQuickSwitcher) { _, _ in
       syncDashboardFocus()
     }
-    .onChange(of: dashboardScrollAnchorID) { _, newAnchorID in
+    .onChange(of: viewModel.dashboardScrollAnchorID) { _, newAnchorID in
       router.dashboardScrollAnchorID = newAnchorID
     }
-    .onChange(of: navigableSessions.count) { _, newCount in
-      if selectedIndex >= newCount, newCount > 0 {
-        selectedIndex = newCount - 1
-      }
+    .onChange(of: viewModel.filteredDashboardConversations.count) { _, _ in
+      viewModel.syncSelectionBounds()
     }
     .modifier(KeyboardNavigationModifier(
       isEnabled: isDashboardInteractionEnabled,
-      onMoveUp: { moveSelection(by: -1) },
-      onMoveDown: { moveSelection(by: 1) },
-      onMoveToFirst: { selectedIndex = 0 },
-      onMoveToLast: {
-        if !navigableSessions.isEmpty {
-          selectedIndex = navigableSessions.count - 1
-        }
-      },
+      onMoveUp: { viewModel.moveSelection(by: -1) },
+      onMoveDown: { viewModel.moveSelection(by: 1) },
+      onMoveToFirst: { viewModel.moveSelectionToFirst() },
+      onMoveToLast: { viewModel.moveSelectionToLast() },
       onSelect: { selectCurrentSession() },
       onRename: {}
     ))
@@ -333,25 +276,12 @@ struct DashboardView: View {
 
   // MARK: - Navigation
 
-  private func moveSelection(by delta: Int) {
-    guard !navigableSessions.isEmpty else { return }
-    let newIndex = selectedIndex + delta
-    if newIndex < 0 {
-      selectedIndex = navigableSessions.count - 1
-    } else if newIndex >= navigableSessions.count {
-      selectedIndex = 0
-    } else {
-      selectedIndex = newIndex
-    }
-  }
-
   private func selectCurrentSession() {
     guard isDashboardInteractionEnabled else { return }
-    guard selectedIndex >= 0, selectedIndex < navigableSessions.count else { return }
-    let session = navigableSessions[selectedIndex]
-    dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
+    guard let conversation = viewModel.selectedConversation else { return }
+    viewModel.dashboardScrollAnchorID = DashboardScrollIDs.session(conversation.id)
     withAnimation(Motion.standard) {
-      router.selectSession(session.sessionRef, source: .dashboardKeyboard)
+      router.selectSession(conversation.sessionRef, source: .dashboardKeyboard)
     }
   }
 

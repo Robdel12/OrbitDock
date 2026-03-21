@@ -64,18 +64,18 @@ struct MissionCodexAgentSection: View {
 
   private var autonomyDescription: String {
     switch codexAutonomy {
-    case .autonomous:
-      return "Asks permission for uncertain operations. Agents may stall if no human is watching."
-    case .fullAuto:
-      return "Never asks \u{2014} sandbox provides safety. Recommended for unattended missions."
-    case .open:
-      return "Never asks, no sandbox restrictions. Full access to the system."
-    case .unrestricted:
-      return "No sandbox, no approvals. Maximum risk."
-    case .locked:
-      return "Restricted mode. All operations require explicit approval."
-    case .guarded:
-      return "Conservative mode. Most operations require approval."
+      case .autonomous:
+        "Asks permission for uncertain operations. Agents may stall if no human is watching."
+      case .fullAuto:
+        "Never asks \u{2014} sandbox provides safety. Recommended for unattended missions."
+      case .open:
+        "Never asks, no sandbox restrictions. Full access to the system."
+      case .unrestricted:
+        "No sandbox, no approvals. Maximum risk."
+      case .locked:
+        "Restricted mode. All operations require explicit approval."
+      case .guarded:
+        "Conservative mode. Most operations require approval."
     }
   }
 

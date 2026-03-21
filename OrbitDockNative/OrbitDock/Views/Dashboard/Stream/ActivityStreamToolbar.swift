@@ -11,18 +11,13 @@ import SwiftUI
 struct ActivityStreamToolbar: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  let sessions: [RootSessionNode]
+  let totalCount: Int
+  let counts: DashboardTriageCounts
+  let directCount: Int
   @Binding var filter: ActiveSessionWorkbenchFilter
   @Binding var sort: ActiveSessionSort
   @Binding var providerFilter: ActiveSessionProviderFilter
-
-  private var counts: DashboardTriageCounts {
-    DashboardTriageCounts(sessions: sessions)
-  }
-
-  private var directCount: Int {
-    sessions.filter(\.isDirect).count
-  }
+  var sortOptions: [ActiveSessionSort] = ActiveSessionSort.allCases
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
@@ -37,25 +32,38 @@ struct ActivityStreamToolbar: View {
   }
 
   var body: some View {
-    HStack(spacing: Spacing.sm) {
-      filterChips
+    VStack(spacing: 0) {
+      HStack(spacing: Spacing.sm) {
+        filterChips
 
-      Spacer(minLength: Spacing.sm_)
+        Spacer(minLength: Spacing.sm_)
 
-      if !isPhoneCompact {
-        HStack(spacing: Spacing.xs) {
-          sortPicker
-          providerMenu
+        if !isPhoneCompact {
+          HStack(spacing: Spacing.xs) {
+            sortPicker
+            providerMenu
+          }
+        }
+
+        if hasAnyFilters {
+          clearButton
         }
       }
-
-      if hasAnyFilters {
-        clearButton
-      }
+      .padding(.horizontal, isPhoneCompact ? Spacing.md : Spacing.section)
+      .padding(.vertical, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .fill(Color.backgroundSecondary.opacity(0.68))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+              .stroke(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
+          )
+      )
+      .padding(.horizontal, isPhoneCompact ? Spacing.sm : Spacing.section)
+      .padding(.top, Spacing.sm_)
+      .padding(.bottom, Spacing.sm)
     }
-    .padding(.horizontal, isPhoneCompact ? Spacing.md : Spacing.section)
-    .padding(.vertical, Spacing.sm_)
-    .background(Color.backgroundSecondary.opacity(0.3))
+    .background(Color.backgroundSecondary.opacity(0.24))
   }
 
   // MARK: - Filter Chips
@@ -63,7 +71,7 @@ struct ActivityStreamToolbar: View {
   private var filterChips: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: Spacing.sm_) {
-        filterChip(target: .all, icon: nil, label: "All", count: sessions.count, color: .textSecondary)
+        filterChip(target: .all, icon: nil, label: "All", count: totalCount, color: .textSecondary)
 
         if counts.attention > 0 || filter == .attention {
           filterChip(
@@ -127,7 +135,7 @@ struct ActivityStreamToolbar: View {
         }
 
         Text("\(count)")
-          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
           .foregroundStyle(isActive ? color : Color.textSecondary)
 
         Text(label)
@@ -135,13 +143,13 @@ struct ActivityStreamToolbar: View {
       }
       .foregroundStyle(isActive ? color : Color.textTertiary)
       .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
+      .padding(.vertical, Spacing.sm_)
       .background(
         Capsule()
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.18 : 0.35))
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.14 : 0.22))
           .overlay(
             Capsule()
-              .stroke(color.opacity(isActive ? 0.30 : 0.0), lineWidth: 1)
+              .stroke(color.opacity(isActive ? 0.24 : 0.0), lineWidth: 1)
           )
       )
     }
@@ -152,7 +160,7 @@ struct ActivityStreamToolbar: View {
 
   private var sortPicker: some View {
     Menu {
-      ForEach(ActiveSessionSort.allCases) { option in
+      ForEach(sortOptions) { option in
         Button {
           sort = option
         } label: {
@@ -199,7 +207,7 @@ struct ActivityStreamToolbar: View {
   private var compactSortMenu: some View {
     Menu {
       Section("Sort") {
-        ForEach(ActiveSessionSort.allCases) { option in
+        ForEach(sortOptions) { option in
           Button {
             sort = option
           } label: {
@@ -265,6 +273,10 @@ struct ActivityStreamToolbar: View {
     }
     .foregroundStyle(isActive ? Color.accent : Color.textTertiary)
     .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(
+      Capsule(style: .continuous)
+        .fill(Color.backgroundPrimary.opacity(0.34))
+    )
   }
 }

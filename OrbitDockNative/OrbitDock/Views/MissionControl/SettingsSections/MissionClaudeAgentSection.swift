@@ -64,16 +64,16 @@ struct MissionClaudeAgentSection: View {
 
   private var permissionDescription: String {
     switch claudePermission {
-    case .acceptEdits:
-      return "Auto-approves file edits. Prompts for shell commands. Good balance for most missions."
-    case .bypassPermissions:
-      return "Auto-approves everything including shell commands. Maximum autonomy \u{2014} use when running in isolated worktrees."
-    case .plan:
-      return "Plans changes before executing. Good for review-first workflows."
-    case .dontAsk:
-      return "Runs without any permission prompts."
-    case .default:
-      return "Uses default Claude permission settings."
+      case .acceptEdits:
+        "Auto-approves file edits. Prompts for shell commands. Good balance for most missions."
+      case .bypassPermissions:
+        "Auto-approves everything including shell commands. Maximum autonomy \u{2014} use when running in isolated worktrees."
+      case .plan:
+        "Plans changes before executing. Good for review-first workflows."
+      case .dontAsk:
+        "Runs without any permission prompts."
+      case .default:
+        "Uses default Claude permission settings."
     }
   }
 
@@ -111,10 +111,12 @@ struct MissionClaudeAgentSection: View {
           Text("Allow Bypass Permissions")
             .font(.system(size: TypeScale.caption, weight: .medium))
             .foregroundStyle(Color.textSecondary)
-          Text("Enables mid-session switching to Bypass mode. Required for unattended agents that may need unrestricted tool access.")
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textQuaternary)
-            .fixedSize(horizontal: false, vertical: true)
+          Text(
+            "Enables mid-session switching to Bypass mode. Required for unattended agents that may need unrestricted tool access."
+          )
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+          .fixedSize(horizontal: false, vertical: true)
         }
       }
       .toggleStyle(.switch)
