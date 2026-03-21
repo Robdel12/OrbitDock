@@ -25,21 +25,21 @@ const SORT_OPTIONS = [
 const ChipIcon = ({ type }) => {
   if (type === 'attention') {
     return (
-      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
         <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.5 4a.5.5 0 011 0v3.5a.5.5 0 01-1 0V5zM8 11.5a.75.75 0 110-1.5.75.75 0 010 1.5z" />
       </svg>
     )
   }
   if (type === 'working') {
     return (
-      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
         <path d="M9.3 2.1a.6.6 0 00-1 .4v4H5.5a.6.6 0 00-.5.9l3.2 6.5a.6.6 0 001-.4v-4h2.8a.6.6 0 00.5-.9L9.3 2.1z" />
       </svg>
     )
   }
   if (type === 'ready') {
     return (
-      <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
         <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v7a1.5 1.5 0 01-1.5 1.5H6l-3 2.5V12H3.5A1.5 1.5 0 012 10.5v-7z" />
       </svg>
     )

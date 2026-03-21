@@ -89,7 +89,7 @@ const Sidebar = ({ routes, onCreateSession, open, onClose }) => {
             <div key={group.path} class={styles.group}>
               <div class={styles.groupLabel}>{group.name}</div>
               {group.sessions.map((session) => {
-                const name = session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
+                const name = session.display_title || session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
                 const isSelected = location === `/session/${session.id}`
                 const provider = session.provider
                 return (

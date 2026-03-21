@@ -9,6 +9,7 @@ import { ToastContainer } from './components/toast/toast-container.jsx'
 import { OfflineIndicator } from './components/ui/offline-indicator.jsx'
 import { KeyboardHelp } from './components/keyboard-help/keyboard-help.jsx'
 import { http } from './stores/connection.js'
+import { showCreateDialog } from './stores/sessions.js'
 import { initTabIndicator } from './lib/tab-indicator.js'
 
 const AppContent = () => {
@@ -20,6 +21,17 @@ const AppContent = () => {
   useEffect(() => {
     const unsubscribe = initTabIndicator()
     return unsubscribe
+  }, [])
+
+  // Bridge the showCreateDialog signal to local state so any component can trigger
+  // the create session dialog without prop drilling.
+  useEffect(() => {
+    return showCreateDialog.subscribe((v) => {
+      if (v) {
+        setShowCreate(true)
+        showCreateDialog.value = false
+      }
+    })
   }, [])
 
   // Global `?` shortcut to open keyboard help (skip when inside editable elements).

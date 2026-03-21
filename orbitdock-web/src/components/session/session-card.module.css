@@ -11,6 +11,7 @@
   font-family: var(--font-system);
   color: var(--color-text-primary);
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ── Edge bar (attention + working) ────────────────────────────────────────── */
@@ -97,13 +98,14 @@
   font-family: var(--font-mono);
   color: var(--color-text-tertiary);
   background: var(--color-surface-elevated);
+  border: 1px solid var(--color-surface-border);
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.4;
 }
 
 .recency {
-  font-size: var(--type-mini);
+  font-size: var(--type-micro);
   font-weight: 500;
   font-family: var(--font-mono);
   color: var(--color-text-quaternary);
@@ -113,6 +115,21 @@
   text-align: right;
 }
 
+/* ── Action chevron (attention cards) ──────────────────────────────────────── */
+
+.actionChevron {
+  display: inline-flex;
+  color: var(--card-status-color);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+  opacity: 0.6;
+}
+
+.card:hover .actionChevron {
+  transform: translateX(2px);
+  opacity: 1;
+}
+
 /* ════════════════════════════════════════════════════════════════════════════ */
 /* ATTENTION CARD — largest, tinted background + status border + edge bar     */
 /* ════════════════════════════════════════════════════════════════════════════ */
@@ -120,14 +137,38 @@
 .cardAttention {
   border-radius: var(--radius-lg);
   border: 1px solid color-mix(in srgb, var(--card-status-color) 20%, transparent);
-  background: color-mix(in srgb, var(--card-status-color) 4%, transparent);
+  background: color-mix(in srgb, var(--card-status-color) 6%, var(--color-bg-tertiary));
 }
 
 .cardAttention:hover {
   border-color: color-mix(in srgb, var(--card-status-color) 35%, transparent);
-  background: color-mix(in srgb, var(--card-status-color) 7%, transparent);
+  background: color-mix(in srgb, var(--card-status-color) 9%, var(--color-bg-tertiary));
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--card-status-color) 10%, transparent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--card-status-color) 12%, transparent);
+}
+
+@media (max-width: 767px) {
+  .cardAttention .cardContent {
+    padding: var(--space-md) var(--space-lg);
+  }
+}
+
+/* Pulsing glow animation for attention cards */
+@keyframes attentionGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--card-status-color) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 20px 2px color-mix(in srgb, var(--card-status-color) 8%, transparent);
+  }
+}
+
+.cardAttention {
+  animation: attentionGlow 3s ease-in-out infinite;
+}
+
+.cardAttention:hover {
+  animation: none;
 }
 
 .actionRow {
@@ -154,14 +195,14 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════ */
-/* WORKING CARD — medium, cyan border + edge bar                              */
+/* WORKING CARD — medium, cyan border + edge bar + gradient bg                */
 /* ════════════════════════════════════════════════════════════════════════════ */
 
 .cardWorking {
   --card-status-color: var(--color-status-working);
   border-radius: var(--radius-ml);
   border: 1px solid color-mix(in srgb, var(--color-status-working) 12%, transparent);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--gradient-accent-subtle, rgba(255, 255, 255, 0.02));
 }
 
 .cardWorking:hover {
@@ -174,6 +215,12 @@
 .cardWorking .cardContent {
   gap: 6px;
   padding: 10px 14px;
+}
+
+@media (max-width: 767px) {
+  .cardWorking .cardContent {
+    padding: var(--space-md) var(--space-lg);
+  }
 }
 
 .nameRow {
@@ -204,16 +251,28 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════ */
-/* READY CARD — compact two-line row, no edge bar                             */
+/* READY CARD — compact row with surface bg + subtle border                   */
 /* ════════════════════════════════════════════════════════════════════════════ */
 
 .cardReady {
-  border-radius: 5px;
-  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-lg);
+  min-height: 48px;
+  background: var(--color-surface-elevated);
+  border: 1px solid transparent;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+@media (max-width: 767px) {
+  .cardReady {
+    min-height: 52px;
+    padding: var(--space-md) var(--space-lg);
+  }
 }
 
 .cardReady:hover {
   background: var(--color-surface-hover);
+  border-color: var(--color-surface-border);
 }
 
 .readyContent {
@@ -222,6 +281,7 @@
   gap: var(--space-xs);
   width: 100%;
   min-width: 0;
+  justify-content: center;
 }
 
 .readyLine1 {

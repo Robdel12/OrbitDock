@@ -26,12 +26,14 @@ const fuzzyMatch = (haystack, needle) => {
 }
 
 const sessionDisplayName = (session) =>
-  session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
+  session.display_title || session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
 
 const sessionSearchText = (session) => [
+  session.display_title,
   session.custom_name,
   session.summary,
   session.first_prompt,
+  session.context_line,
   session.project_path,
   session.repository_root,
   session.provider,

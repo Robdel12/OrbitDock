@@ -393,7 +393,7 @@ const SessionHeader = ({
 
   if (!session) return null
 
-  const displayName = session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
+  const displayName = session.display_title || session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
   const isActive = session.status === 'active'
   const isPassive = session.work_status === 'reply' || session.work_status === 'ended'
   const showTakeover = isActive && isPassive

@@ -1,68 +1,172 @@
+/* ── Dashboard skeleton — matches new dashboard layout ──────────────────────── */
+
 .skeleton {
   height: 100%;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-primary);
 }
 
-/* ── Usage summary bar ────────────────────────────────────────────────────── */
-.usageBar {
+/* ── Page header: greeting + usage pills ───────────────────────────────────── */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-xl) var(--space-xl) var(--space-md);
+  flex-shrink: 0;
+  gap: var(--space-lg);
+}
+
+@media (max-width: 599px) {
+  .pageHeader {
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-lg) var(--space-lg) var(--space-sm);
+  }
+}
+
+.greeting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.usagePills {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-lg);
-  border-bottom: 1px solid var(--color-surface-border);
+  gap: var(--space-sm);
 }
 
 /* ── Filter toolbar ───────────────────────────────────────────────────────── */
+
 .toolbar {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-sm) var(--space-xl);
   border-bottom: 1px solid var(--color-surface-border);
+  flex-shrink: 0;
   flex-wrap: wrap;
+}
+
+@media (max-width: 767px) {
+  .toolbar {
+    padding: var(--space-sm) var(--space-lg);
+  }
 }
 
 .toolbarSpacer {
   flex: 1;
 }
 
-/* ── Groups ───────────────────────────────────────────────────────────────── */
-.groups {
+/* ── Zones ─────────────────────────────────────────────────────────────────── */
+
+.zones {
+  flex: 1;
+  overflow-y: auto;
   padding: var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);
+  gap: var(--space-xxl);
 }
 
-.group {
+.zone {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-sm);
 }
 
-.groupHeader {
-  padding: var(--space-xs) var(--space-md);
+.zoneHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--space-sm);
   margin-bottom: var(--space-xs);
 }
 
-/* ── Session card placeholder ─────────────────────────────────────────────── */
-.card {
+/* ── Attention card skeleton ───────────────────────────────────────────────── */
+
+.cardAttention {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.cardHeader {
+.cardAttentionBar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.cardAttentionBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+  padding: var(--space-md) 14px;
+}
+
+/* ── Working card skeleton ─────────────────────────────────────────────────── */
+
+.workingGrid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+@media (min-width: 768px) {
+  .workingGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+}
+
+.cardWorking {
+  display: flex;
+  border-radius: var(--radius-ml);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.cardWorkingBar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cardWorkingBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  padding: 10px 14px;
+}
+
+/* ── Ready card skeleton ───────────────────────────────────────────────────── */
+
+.cardReady {
+  padding: var(--space-sm) var(--space-lg);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+}
+
+/* ── Shared row ────────────────────────────────────────────────────────────── */
+
+.cardRow {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.cardMeta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding-left: calc(8px + var(--space-sm));
+.cardSpacer {
+  flex: 1;
 }

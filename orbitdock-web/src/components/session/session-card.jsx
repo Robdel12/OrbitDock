@@ -30,6 +30,7 @@ const getModelShortName = (model) => {
 }
 
 const getDisplayName = (session) =>
+  session.display_title ||
   session.custom_name ||
   session.summary ||
   session.first_prompt ||
@@ -38,8 +39,16 @@ const getDisplayName = (session) =>
 const getProjectName = (session) =>
   extractRepoName(session.repository_root || session.project_path)
 
-const getContext = (session) =>
-  session.summary || session.first_prompt || null
+const getContext = (session) => {
+  // context_line comes pre-computed from SessionListItem
+  if (session.context_line) return session.context_line
+  // For full SessionState objects, derive context from available fields
+  const name = getDisplayName(session)
+  if (session.summary && session.summary !== name) return session.summary
+  if (session.first_prompt && session.first_prompt !== name) return session.first_prompt
+  if (session.last_message) return session.last_message
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Model badge (tiny, monospaced)
@@ -69,7 +78,7 @@ const AttentionCard = ({ session, onClick }) => {
     >
       <div class={styles.edgeBar} />
       <div class={styles.cardContent}>
-        {/* Action row: icon + description + model */}
+        {/* Action row: icon + description + model + chevron */}
         <div class={styles.actionRow}>
           <StatusDot status={session.work_status} />
           <span class={styles.actionLabel}>{actionDesc}</span>
@@ -78,6 +87,11 @@ const AttentionCard = ({ session, onClick }) => {
           {session.last_activity_at && (
             <span class={styles.recency}>{formatRelativeTime(session.last_activity_at)}</span>
           )}
+          <span class={styles.actionChevron}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 4l4 4-4 4" />
+            </svg>
+          </span>
         </div>
 
         {/* Identity row: name + project + branch */}
@@ -121,6 +135,7 @@ const WorkingCard = ({ session, onClick }) => {
       <div class={styles.cardContent}>
         {/* Name row */}
         <div class={styles.nameRow}>
+          <StatusDot status="working" size="small" />
           <span class={styles.sessionNameWorking}>{displayName}</span>
           <span class={styles.cardSpacer} />
           <ModelBadge model={session.model} />

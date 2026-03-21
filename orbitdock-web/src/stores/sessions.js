@@ -3,6 +3,7 @@ import { groupByRepo } from '../lib/group-sessions.js'
 
 const sessions = signal(new Map())
 const selectedId = signal(null)
+const showCreateDialog = signal(false)
 
 const selected = computed(() =>
   selectedId.value ? sessions.value.get(selectedId.value) : undefined
@@ -12,21 +13,32 @@ const grouped = computed(() =>
   groupByRepo([...sessions.value.values()])
 )
 
+// Normalize backend field names so frontend code uses consistent names.
+// SessionListItem sends git_branch/display_title/context_line.
+// SessionState sends git_branch/custom_name/summary/first_prompt.
+// We alias git_branch → branch for convenience and keep all original fields.
+const normalize = (s) => {
+  if (!s) return s
+  const out = { ...s }
+  if (s.git_branch !== undefined && s.branch === undefined) out.branch = s.git_branch
+  return out
+}
+
 const handleSessionsList = (list) => {
   const map = new Map()
-  for (const s of list) map.set(s.id, s)
+  for (const s of list) map.set(s.id, normalize(s))
   sessions.value = map
 }
 
 const handleSessionCreated = (session) => {
   const next = new Map(sessions.value)
-  next.set(session.id, session)
+  next.set(session.id, normalize(session))
   sessions.value = next
 }
 
 const handleSessionListItemUpdated = (session) => {
   const next = new Map(sessions.value)
-  next.set(session.id, session)
+  next.set(session.id, normalize(session))
   sessions.value = next
 }
 
@@ -41,6 +53,14 @@ const handleSessionDelta = (sessionId, changes) => {
   if (changes.summary !== undefined) updated.summary = changes.summary
   if (changes.first_prompt !== undefined) updated.first_prompt = changes.first_prompt
   if (changes.last_message !== undefined) updated.last_message = changes.last_message
+  if (changes.git_branch !== undefined) {
+    updated.git_branch = changes.git_branch
+    updated.branch = changes.git_branch
+  }
+  // Recompute display_title when the underlying name fields change
+  if (changes.custom_name !== undefined || changes.summary !== undefined || changes.first_prompt !== undefined) {
+    updated.display_title = updated.custom_name || updated.summary || updated.first_prompt || updated.display_title
+  }
   next.set(sessionId, updated)
   sessions.value = next
 }
@@ -69,6 +89,7 @@ export {
   selectedId,
   selected,
   grouped,
+  showCreateDialog,
   selectSession,
   handleSessionsList,
   handleSessionCreated,

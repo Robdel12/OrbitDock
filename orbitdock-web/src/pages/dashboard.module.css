@@ -1,13 +1,117 @@
+/* ── Dashboard page layout ─────────────────────────────────────────────── */
+
 .page {
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-primary);
+}
+
+/* ── Page header: greeting + usage pills ──────────────────────────────── */
+
+.pageHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-xl) var(--space-xl) var(--space-md);
+  flex-shrink: 0;
+  gap: var(--space-lg);
+}
+
+@media (max-width: 599px) {
+  .pageHeader {
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-lg) var(--space-lg) var(--space-sm);
+  }
+}
+
+/* ── Greeting ─────────────────────────────────────────────────────────── */
+
+.greeting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.greetingText {
+  font-size: var(--type-large);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.greetingSummary {
+  font-size: var(--type-body);
+  color: var(--color-text-secondary);
+}
+
+.greetingSep {
+  color: var(--color-text-quaternary);
+}
+
+.greetingCount {
+  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-mono);
+}
+
+.greetingCountAttention {
+  color: var(--color-status-permission);
+}
+
+.greetingCountWorking {
+  color: var(--color-status-working);
+}
+
+/* ── Sticky toolbar ───────────────────────────────────────────────────── */
+
+.stickyToolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  flex-shrink: 0;
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-surface-border);
+}
+
+/* ── Scrollable session area ──────────────────────────────────────────── */
+
+.scrollArea {
+  flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: var(--space-xl);
+}
+
+/* ── Mobile floating action button ────────────────────────────────────── */
+
+.fab {
+  display: none;
 }
 
 @media (max-width: 767px) {
-  .page {
-    padding: var(--space-lg);
+  .fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    bottom: max(var(--space-xl), calc(env(safe-area-inset-bottom, 0px) + var(--space-md)));
+    right: var(--space-lg);
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    box-shadow: var(--shadow-lg), var(--glow-accent-strong);
+    z-index: var(--z-popover);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .fab:active {
+    transform: scale(0.92);
   }
 }

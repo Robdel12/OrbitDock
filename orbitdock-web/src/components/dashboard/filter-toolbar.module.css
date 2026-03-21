@@ -4,14 +4,14 @@
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  padding: 6px var(--space-lg);
+  padding: var(--space-sm) var(--space-xl);
   background: color-mix(in srgb, var(--color-bg-secondary) 30%, transparent);
-  overflow: hidden;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 767px) {
   .toolbar {
-    padding: 6px var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
   }
 }
 
@@ -39,17 +39,26 @@
   align-items: center;
   gap: var(--space-xs);
   padding: var(--space-sm) var(--space-md);
+  min-height: 36px;
   border: none;
   border-radius: 999px;
-  font-size: var(--type-micro);
+  font-size: var(--type-caption);
   font-weight: 600;
   font-family: var(--font-system);
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast);
   color: var(--color-text-tertiary);
-  background: color-mix(in srgb, var(--color-surface-hover) 35%, transparent);
+  background: var(--color-surface-elevated);
   flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  .chip {
+    min-height: 40px;
+    padding: var(--space-sm) var(--space-lg);
+  }
 }
 
 .chip:hover {
@@ -60,6 +69,7 @@
 .chipActive {
   color: var(--chip-color, var(--color-text-primary));
   background: color-mix(in srgb, var(--chip-color, var(--color-surface-hover)) 18%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--chip-color, var(--color-text-primary)) 35%, transparent);
 }
 
 .chipActive:hover {
@@ -78,7 +88,7 @@
 }
 
 .chipLabel {
-  font-size: var(--type-micro);
+  font-size: var(--type-caption);
   font-weight: 600;
 }
 
@@ -93,7 +103,8 @@
 
 @media (max-width: 599px) {
   .controlsRight {
-    display: none;
+    flex-basis: 100%;
+    justify-content: flex-end;
   }
 }
 
@@ -107,7 +118,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: var(--space-xxs) var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 36px;
   font-size: var(--type-caption);
   font-weight: 500;
   font-family: var(--font-system);
@@ -118,6 +130,14 @@
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast);
   white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 767px) {
+  .dropdownTrigger {
+    min-height: 40px;
+    padding: var(--space-xs) var(--space-md);
+  }
 }
 
 .dropdownTrigger:hover {
@@ -158,6 +178,9 @@
   display: block;
   width: 100%;
   padding: var(--space-xs) var(--space-sm);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
   font-size: var(--type-caption);
   font-weight: 500;
   font-family: var(--font-system);

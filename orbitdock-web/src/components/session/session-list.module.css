@@ -3,8 +3,9 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);
+  gap: var(--space-xxl);
   padding: var(--space-lg);
+  padding-bottom: var(--space-xxl);
 }
 
 /* ── Zone container ────────────────────────────────────────────────────────── */
@@ -14,14 +15,14 @@
   flex-direction: column;
 }
 
-/* ── Zone header: icon + label + count capsule ─────────────────────────────── */
+/* ── Zone header: icon + label + count capsule + divider line ────────────── */
 
 .zoneHeader {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 var(--space-sm);
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 
 .zoneIcon {
@@ -31,7 +32,7 @@
 }
 
 .zoneLabel {
-  font-size: var(--type-micro);
+  font-size: var(--type-caption);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -39,14 +40,21 @@
 }
 
 .zoneCount {
-  font-size: var(--type-micro);
+  font-size: var(--type-caption);
   font-weight: 700;
   font-family: var(--font-system);
   color: color-mix(in srgb, var(--zone-color) 70%, transparent);
-  padding: 1px 5px;
-  background: color-mix(in srgb, var(--zone-color) 4%, transparent);
+  padding: 1px 7px;
+  background: color-mix(in srgb, var(--zone-color) 8%, transparent);
   border-radius: 999px;
   line-height: 1.3;
+}
+
+.zoneDivider {
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--zone-color) 12%, transparent);
+  margin-left: var(--space-sm);
 }
 
 /* ── Zone cards container ──────────────────────────────────────────────────── */
@@ -54,7 +62,11 @@
 .zoneCards {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
+}
+
+.zoneCardsAttention {
+  gap: var(--space-md);
 }
 
 /* Working zone: 2-column grid on desktop when multiple sessions */
@@ -78,11 +90,12 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-xxl) var(--space-lg);
-  gap: var(--space-sm);
+  padding-top: 80px;
+  gap: var(--space-md);
 }
 
 .emptyIcon {
-  color: var(--color-text-quaternary);
+  color: var(--color-accent);
   margin-bottom: var(--space-sm);
 }
 
@@ -99,4 +112,34 @@
   margin: 0;
   text-align: center;
   max-width: 320px;
+}
+
+.emptyCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding: 0 var(--space-xl);
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: #fff;
+  font-size: var(--type-body);
+  font-weight: 600;
+  font-family: var(--font-system);
+  cursor: pointer;
+  box-shadow: var(--shadow-md), var(--glow-accent-strong);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.emptyCta:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg), var(--glow-accent-strong);
+}
+
+.emptyCta:active {
+  transform: scale(0.97);
 }
