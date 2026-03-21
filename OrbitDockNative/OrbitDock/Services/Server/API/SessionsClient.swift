@@ -147,7 +147,9 @@ struct SessionsClient: Sendable {
     let config: AnyCodable
     let disabledReason: String?
 
-    var id: String { [sourceKind, path ?? "none", version].joined(separator: "|") }
+    var id: String {
+      [sourceKind, path ?? "none", version].joined(separator: "|")
+    }
 
     enum CodingKeys: String, CodingKey {
       case sourceKind = "source_kind"

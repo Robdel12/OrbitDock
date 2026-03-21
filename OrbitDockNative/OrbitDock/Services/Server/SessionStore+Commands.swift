@@ -268,8 +268,19 @@ extension SessionStore {
     guard !obs.isLoadingOlderMessages, obs.hasMoreHistoryBefore,
           let before = obs.oldestLoadedSequence
     else { return }
+    guard lastOlderMessagesRequestBeforeSequence[sessionId] != before else {
+      netLog(
+        .debug,
+        cat: .conv,
+        "Skipping duplicate older-messages request",
+        sid: sessionId,
+        data: ["beforeSeq": before]
+      )
+      return
+    }
 
     obs.isLoadingOlderMessages = true
+    lastOlderMessagesRequestBeforeSequence[sessionId] = before
     netLog(.info, cat: .conv, "Loading older messages", sid: sessionId, data: ["beforeSeq": before])
 
     Task {
@@ -284,6 +295,7 @@ extension SessionStore {
           oldestSequence: page.oldestSequence
         )
       } catch {
+        lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
         netLog(
           .error,
           cat: .conv,
@@ -291,25 +303,6 @@ extension SessionStore {
           sid: sessionId,
           data: ["error": error.localizedDescription]
         )
-      }
-    }
-  }
-
-  func setSessionAutoMarkRead(_ sessionId: String, enabled: Bool) {
-    if enabled {
-      autoMarkReadSessions.insert(sessionId)
-    } else {
-      autoMarkReadSessions.remove(sessionId)
-    }
-  }
-
-  func markSessionAsRead(_ sessionId: String) {
-    Task {
-      do {
-        let newCount = try await clients.sessions.markSessionRead(sessionId)
-        session(sessionId).unreadCount = newCount
-      } catch {
-        netLog(.error, cat: .store, "Mark read failed", sid: sessionId, data: ["error": error.localizedDescription])
       }
     }
   }
@@ -449,10 +442,6 @@ extension SessionStore {
 
   func refreshCodexModels() {
     Task { codexModels = await (try? clients.usage.listCodexModels()) ?? codexModels }
-  }
-
-  func refreshClaudeModels() {
-    Task { claudeModels = await (try? clients.usage.listClaudeModels()) ?? claudeModels }
   }
 
   func handleMemoryPressure() {

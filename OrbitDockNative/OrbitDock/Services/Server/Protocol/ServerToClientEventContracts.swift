@@ -11,6 +11,7 @@ enum ServerToClientMessage: Codable {
   // MARK: Session lifecycle and conversation
 
   case sessionsList(sessions: [ServerSessionListItem])
+  case dashboardConversationsUpdated(conversations: [ServerDashboardConversationItem])
   case conversationBootstrap(session: ServerSessionState, conversation: ServerConversationHistoryPage)
   case sessionSnapshot(session: ServerSessionState)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)

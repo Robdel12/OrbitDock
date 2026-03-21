@@ -6,9 +6,9 @@ private struct RootSessionTimestampCacheEntry: Sendable {
 
 private final class RootSessionTimestampParser: @unchecked Sendable {
   private let lock = NSLock()
-  private var cache: [String: RootSessionTimestampCacheEntry] = [:]
-  private let fractionalFormatter: ISO8601DateFormatter
-  private let internetDateTimeFormatter: ISO8601DateFormatter
+  private nonisolated(unsafe) var cache: [String: RootSessionTimestampCacheEntry] = [:]
+  private nonisolated(unsafe) let fractionalFormatter: ISO8601DateFormatter
+  private nonisolated(unsafe) let internetDateTimeFormatter: ISO8601DateFormatter
 
   init() {
     let fractionalFormatter = ISO8601DateFormatter()
@@ -20,7 +20,7 @@ private final class RootSessionTimestampParser: @unchecked Sendable {
     self.internetDateTimeFormatter = internetDateTimeFormatter
   }
 
-  func parse(_ rawValue: String) -> Date? {
+  nonisolated func parse(_ rawValue: String) -> Date? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
@@ -43,7 +43,7 @@ private final class RootSessionTimestampParser: @unchecked Sendable {
     return parsedDate
   }
 
-  private func parseUncached(_ value: String) -> Date? {
+  private nonisolated func parseUncached(_ value: String) -> Date? {
     let unixCandidate = value.hasSuffix("Z") ? String(value.dropLast()) : value
     if let seconds = TimeInterval(unixCandidate) {
       return Date(timeIntervalSince1970: seconds)

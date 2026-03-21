@@ -9,6 +9,10 @@ extension ServerToClientMessage {
         try container.encode("sessions_list", forKey: .type)
         try container.encode(sessions, forKey: .sessions)
 
+      case let .dashboardConversationsUpdated(conversations):
+        try container.encode("dashboard_conversations_updated", forKey: .type)
+        try container.encode(conversations, forKey: .conversations)
+
       case let .conversationBootstrap(session, conversation):
         try container.encode("conversation_bootstrap", forKey: .type)
         try container.encode(session, forKey: .session)

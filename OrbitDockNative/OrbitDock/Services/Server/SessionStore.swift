@@ -20,6 +20,7 @@ protocol SessionStoreConnection: AnyObject {
   func subscribeSession(_ sessionId: String, sinceRevision: UInt64?, includeSnapshot: Bool)
   func unsubscribeSession(_ sessionId: String)
   func applySessionsList(_ sessions: [ServerSessionListItem])
+  func applyDashboardConversations(_ conversations: [ServerDashboardConversationItem])
 }
 
 extension ServerConnection: SessionStoreConnection {}
@@ -67,7 +68,6 @@ final class SessionStore {
   var missionHeartbeatRevision: UInt64 = 0
 
   var codexModels: [ServerCodexModelOption] = []
-  var claudeModels: [ServerClaudeModelOption] = []
   var codexAccountStatus: ServerCodexAccountStatus?
   var codexAuthError: String?
   var lastServerError: (code: String, message: String)?
@@ -85,12 +85,12 @@ final class SessionStore {
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
   @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var subscribedSessions: Set<String> = []
-  @ObservationIgnored var autoMarkReadSessions: Set<String> = []
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
   @ObservationIgnored var connectionGeneration: UInt64 = 0
   @ObservationIgnored var inFlightBootstraps: [SessionGenerationKey: GenerationTask<ServerConversationBootstrap?>] = [:]
   @ObservationIgnored var inFlightSessionRecoveries: [SessionGenerationKey: GenerationTask<Void>] = [:]
   @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
+  @ObservationIgnored var lastOlderMessagesRequestBeforeSequence: [String: UInt64] = [:]
   @ObservationIgnored var connectionRecoveryTask: GenerationTask<Void>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
@@ -231,8 +231,8 @@ final class SessionStore {
   func unsubscribeFromSession(_ sessionId: String) {
     netLog(.info, cat: .store, "Unsubscribe", sid: sessionId)
     subscribedSessions.remove(sessionId)
-    autoMarkReadSessions.remove(sessionId)
     recoveredSessionGenerations.removeValue(forKey: sessionId)
+    lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
     cancelInFlightSessionTasks(sessionId)
     connection.unsubscribeSession(sessionId)
     trimInactiveSessionPayload(sessionId)

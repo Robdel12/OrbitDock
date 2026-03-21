@@ -67,6 +67,10 @@ final class SessionObservable {
   // Conversation
   private(set) var rowEntries: [ServerConversationRowEntry] = []
   private(set) var rowEntriesRevision: Int = 0
+  private(set) var rowEntriesStructureRevision: Int = 0
+  private(set) var rowEntriesContentRevision: Int = 0
+  private(set) var lastChangedRowEntries: [ServerConversationRowEntry] = []
+  private(set) var lastRemovedRowIds: [String] = []
   private(set) var hasMoreHistoryBefore: Bool = false
   var isLoadingOlderMessages: Bool = false
   var conversationLoaded: Bool = false
@@ -375,16 +379,26 @@ final class SessionObservable {
     oldestSequence: UInt64?,
     isBootstrap: Bool = false
   ) {
+    var structureChanged = false
+
     if isBootstrap {
       rowEntries = rows
+      structureChanged = true
     } else {
       for entry in rows {
-        upsertRow(entry)
+        structureChanged = upsertRow(entry).structureChanged || structureChanged
       }
     }
+
+    lastChangedRowEntries = rows
+    lastRemovedRowIds = []
     hasMoreHistoryBefore = hasMoreBefore
     oldestLoadedSequence = rowEntries.first.map(\.sequence)
     rowEntriesRevision += 1
+    rowEntriesContentRevision += 1
+    if structureChanged {
+      rowEntriesStructureRevision += 1
+    }
     conversationLoaded = true
   }
 
@@ -392,19 +406,33 @@ final class SessionObservable {
     upserted: [ServerConversationRowEntry],
     removedIds: [String]
   ) {
+    var structureChanged = false
+
     if !removedIds.isEmpty {
       let removed = Set(removedIds)
       rowEntries.removeAll { removed.contains($0.id) }
+      structureChanged = true
     }
     for entry in upserted {
-      upsertRow(entry)
+      structureChanged = upsertRow(entry).structureChanged || structureChanged
     }
+
+    lastChangedRowEntries = upserted
+    lastRemovedRowIds = removedIds
     rowEntriesRevision += 1
+    rowEntriesContentRevision += 1
+    if structureChanged {
+      rowEntriesStructureRevision += 1
+    }
   }
 
   func clearConversation() {
     rowEntries = []
     rowEntriesRevision = 0
+    rowEntriesStructureRevision = 0
+    rowEntriesContentRevision = 0
+    lastChangedRowEntries = []
+    lastRemovedRowIds = []
     hasMoreHistoryBefore = false
     isLoadingOlderMessages = false
     conversationLoaded = false
@@ -450,28 +478,32 @@ final class SessionObservable {
     clearConversation()
   }
 
-  private func upsertRow(_ entry: ServerConversationRowEntry) {
+  private func upsertRow(_ entry: ServerConversationRowEntry) -> ConversationRowMutation {
     if let existingIndex = rowEntries.firstIndex(where: { $0.id == entry.id }) {
-      rowEntries[existingIndex] = entry
-      return
+      let existingEntry = rowEntries[existingIndex]
+      rowEntries.remove(at: existingIndex)
+      rowEntries.insert(entry, at: insertionIndex(for: entry.sequence))
+      return .updated(structureChanged: existingEntry.sequence != entry
+        .sequence || rowTypeKey(for: existingEntry) != rowTypeKey(for: entry))
     }
 
     guard !rowEntries.isEmpty else {
       rowEntries.append(entry)
-      return
+      return .inserted
     }
 
     if let firstSequence = rowEntries.first?.sequence, entry.sequence < firstSequence {
       rowEntries.insert(entry, at: 0)
-      return
+      return .inserted
     }
 
     if let lastSequence = rowEntries.last?.sequence, entry.sequence > lastSequence {
       rowEntries.append(entry)
-      return
+      return .inserted
     }
 
     rowEntries.insert(entry, at: insertionIndex(for: entry.sequence))
+    return .inserted
   }
 
   private func insertionIndex(for sequence: UInt64) -> Int {
@@ -488,6 +520,41 @@ final class SessionObservable {
     }
 
     return low
+  }
+
+  private func rowTypeKey(for entry: ServerConversationRowEntry) -> String {
+    switch entry.row {
+      case .user: "user"
+      case .assistant: "assistant"
+      case .thinking: "thinking"
+      case .context: "context"
+      case .notice: "notice"
+      case .shellCommand: "shellCommand"
+      case .task: "task"
+      case .tool: "tool"
+      case .activityGroup: "activityGroup"
+      case .question: "question"
+      case .approval: "approval"
+      case .worker: "worker"
+      case .plan: "plan"
+      case .hook: "hook"
+      case .handoff: "handoff"
+      case .system: "system"
+    }
+  }
+}
+
+private enum ConversationRowMutation {
+  case inserted
+  case updated(structureChanged: Bool)
+
+  var structureChanged: Bool {
+    switch self {
+      case .inserted:
+        true
+      case let .updated(structureChanged):
+        structureChanged
+    }
   }
 }
 

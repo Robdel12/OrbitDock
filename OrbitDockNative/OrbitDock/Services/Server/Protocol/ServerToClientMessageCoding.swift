@@ -11,6 +11,7 @@ extension ServerToClientMessage {
   enum CodingKeys: String, CodingKey {
     case type
     case sessions
+    case conversations
     case session
     case conversation
     case sessionId = "session_id"

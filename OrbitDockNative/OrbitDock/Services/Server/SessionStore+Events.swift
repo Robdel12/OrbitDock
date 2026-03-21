@@ -6,7 +6,8 @@ extension SessionStore {
     let summary = eventSummary(event)
     netLog(.info, cat: .store, "Event: \(summary)")
     switch event {
-      case .sessionsList, .sessionCreated, .sessionListItemUpdated, .sessionListItemRemoved:
+      case .sessionsList, .dashboardConversationsUpdated, .sessionCreated, .sessionListItemUpdated,
+           .sessionListItemRemoved:
         break
       case let .sessionEnded(sessionId, reason):
         handleSessionEnded(sessionId, reason)
@@ -40,8 +41,8 @@ extension SessionStore {
         obs.applyTokenUsage(usage, snapshotKind: kind)
       case let .modelsList(models):
         codexModels = models
-      case let .claudeModelsList(models):
-        claudeModels = models
+      case .claudeModelsList:
+        break
       case let .codexAccountStatus(status):
         codexAccountStatus = status
       case let .codexAccountUpdated(status):
@@ -73,12 +74,11 @@ extension SessionStore {
         obs.mcpStartupState?.readyServers = ready
         obs.mcpStartupState?.failedServers = failed
         obs.mcpStartupState?.cancelledServers = cancelled
-      case let .claudeCapabilities(sessionId, slashCommands, skills, tools, models):
+      case let .claudeCapabilities(sessionId, slashCommands, skills, tools, _):
         let obs = session(sessionId)
         obs.slashCommands = Set(slashCommands)
         obs.claudeSkillNames = skills
         obs.claudeToolNames = tools
-        claudeModels = models
       case .contextCompacted:
         break
       case let .undoStarted(sessionId, message):
@@ -234,6 +234,7 @@ extension SessionStore {
     }
 
     subscribedSessions.insert(state.id)
+    lastOlderMessagesRequestBeforeSequence.removeValue(forKey: state.id)
 
     let obs = self.session(state.id)
     obs.applyConversationPage(
@@ -274,10 +275,8 @@ extension SessionStore {
     _ removedRowIds: [String],
     _ totalRowCount: UInt64?
   ) {
-    session(sessionId).applyRowsChanged(upserted: upserted, removedIds: removedRowIds)
-    if autoMarkReadSessions.contains(sessionId), !upserted.isEmpty {
-      markSessionAsRead(sessionId)
-    }
+    let obs = session(sessionId)
+    obs.applyRowsChanged(upserted: upserted, removedIds: removedRowIds)
   }
 
   func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {

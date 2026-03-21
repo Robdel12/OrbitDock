@@ -57,6 +57,25 @@ struct ServerClaudeModelOption: Codable, Identifiable {
     case displayName = "display_name"
     case description
   }
+
+  /// Hardcoded default models — always available regardless of account.
+  static let defaults: [ServerClaudeModelOption] = [
+    ServerClaudeModelOption(
+      value: "claude-opus-4-6",
+      displayName: "Opus 4.6",
+      description: "Most capable model for complex reasoning"
+    ),
+    ServerClaudeModelOption(
+      value: "claude-sonnet-4-6",
+      displayName: "Sonnet 4.6",
+      description: "Balanced performance and speed"
+    ),
+    ServerClaudeModelOption(
+      value: "claude-haiku-4-5",
+      displayName: "Haiku 4.5",
+      description: "Fast and lightweight"
+    ),
+  ]
 }
 
 // MARK: - Codex Account Auth

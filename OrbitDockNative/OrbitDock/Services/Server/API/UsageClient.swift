@@ -51,12 +51,6 @@ struct UsageClient: Sendable {
     return response.models
   }
 
-  func listClaudeModels() async throws -> [ServerClaudeModelOption] {
-    struct Response: Decodable { let models: [ServerClaudeModelOption] }
-    let response: Response = try await http.get("/api/models/claude")
-    return response.models
-  }
-
   func readCodexAccount(refreshToken: String? = nil) async throws -> ServerCodexAccountStatus {
     var query: [URLQueryItem] = []
     if let token = refreshToken {

@@ -10,6 +10,10 @@ extension ServerToClientMessage {
         let sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
         self = .sessionsList(sessions: sessions)
 
+      case "dashboard_conversations_updated":
+        let conversations = try container.decode([ServerDashboardConversationItem].self, forKey: .conversations)
+        self = .dashboardConversationsUpdated(conversations: conversations)
+
       case "conversation_bootstrap":
         let session = try container.decode(ServerSessionState.self, forKey: .session)
         let conversation = try container.decode(ServerConversationHistoryPage.self, forKey: .conversation)

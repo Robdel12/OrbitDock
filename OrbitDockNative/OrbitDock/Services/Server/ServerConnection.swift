@@ -13,6 +13,7 @@ struct ServerConnectionListenerToken: Hashable, Sendable {
 enum ServerEvent: Sendable {
   // Session list
   case sessionsList([ServerSessionListItem])
+  case dashboardConversationsUpdated([ServerDashboardConversationItem])
   case sessionCreated(ServerSessionListItem)
   case sessionListItemUpdated(ServerSessionListItem)
   case sessionListItemRemoved(sessionId: String)
@@ -151,6 +152,7 @@ enum ServerEvent: Sendable {
 final class ServerConnection {
   private(set) var connectionStatus: ConnectionStatus = .disconnected
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
+  private(set) var latestDashboardConversationItems: [ServerDashboardConversationItem] = []
   private(set) var hasReceivedInitialSessionsList = false
 
   /// Event listeners. Multiple consumers can register.
@@ -293,6 +295,7 @@ final class ServerConnection {
     circuitBreaker.reset()
     lastConnectedAt = nil
     latestSessionListItems = []
+    latestDashboardConversationItems = []
     hasReceivedInitialSessionsList = false
     setStatus(.disconnected)
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
@@ -318,6 +321,11 @@ final class ServerConnection {
     latestSessionListItems = sessions
     hasReceivedInitialSessionsList = true
     emit(.sessionsList(sessions))
+  }
+
+  func applyDashboardConversations(_ conversations: [ServerDashboardConversationItem]) {
+    latestDashboardConversationItems = conversations
+    emit(.dashboardConversationsUpdated(conversations))
   }
 
   // MARK: - Testing
@@ -599,6 +607,8 @@ final class ServerConnection {
   private func routeMessage(_ message: ServerToClientMessage) {
     switch message {
       case let .sessionsList(sessions): emit(.sessionsList(sessions))
+      case let .dashboardConversationsUpdated(conversations):
+        emit(.dashboardConversationsUpdated(conversations))
       case let .conversationBootstrap(session, conversation):
         emit(.conversationBootstrap(session: session, conversation: conversation))
       case let .sessionSnapshot(session): emit(.sessionSnapshot(session))
@@ -805,6 +815,7 @@ final class ServerConnection {
     connectionStatus = status
     if status != .connected {
       latestSessionListItems = []
+      latestDashboardConversationItems = []
       hasReceivedInitialSessionsList = false
     }
     emit(.connectionStatusChanged(status))
@@ -815,6 +826,8 @@ final class ServerConnection {
       case let .sessionsList(sessions):
         latestSessionListItems = sessions
         hasReceivedInitialSessionsList = true
+      case let .dashboardConversationsUpdated(conversations):
+        latestDashboardConversationItems = conversations
       case let .sessionCreated(session), let .sessionListItemUpdated(session):
         if let idx = latestSessionListItems.firstIndex(where: { $0.id == session.id }) {
           latestSessionListItems[idx] = session

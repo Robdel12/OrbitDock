@@ -356,7 +356,7 @@ struct ServerConversationActivityGroupRow: Codable {
     family = try container.decodeIfPresent(ServerConversationToolFamily.self, forKey: .family)
     renderHints =
       try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
-      ?? ServerConversationRenderHints()
+        ?? ServerConversationRenderHints()
   }
 }
 
@@ -407,7 +407,7 @@ struct ServerConversationQuestionRow: Codable {
     response = try container.decodeIfPresent(ServerQuestionResponseValue.self, forKey: .response)
     renderHints =
       try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
-      ?? ServerConversationRenderHints()
+        ?? ServerConversationRenderHints()
   }
 }
 
@@ -621,7 +621,7 @@ struct ServerConversationShellCommandRow: Codable {
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     renderHints =
       try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
-      ?? ServerConversationRenderHints()
+        ?? ServerConversationRenderHints()
   }
 }
 

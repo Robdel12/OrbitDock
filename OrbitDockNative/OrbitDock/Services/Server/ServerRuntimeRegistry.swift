@@ -26,7 +26,9 @@ final class ServerRuntimeRegistry {
   // MARK: - Session list aggregation (across all endpoints)
 
   @ObservationIgnored private var sessionsByEndpoint: [UUID: [String: RootSessionNode]] = [:]
+  @ObservationIgnored private var dashboardConversationsByEndpoint: [UUID: [String: DashboardConversationRecord]] = [:]
   private(set) var aggregatedSessions: [RootSessionNode] = []
+  private(set) var aggregatedDashboardConversations: [DashboardConversationRecord] = []
 
   @ObservationIgnored
   private lazy var fallbackSessionStore: SessionStore = {
@@ -252,8 +254,11 @@ final class ServerRuntimeRegistry {
       connectionStatusByEndpointId[id] = nil
       readinessByEndpointId[id] = nil
       sessionsByEndpoint[id] = nil
+      dashboardConversationsByEndpoint[id] = nil
       readinessContinuation.yield(())
     }
+    recomputeAggregatedSessions()
+    recomputeAggregatedDashboardConversations()
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
@@ -266,6 +271,7 @@ final class ServerRuntimeRegistry {
           readinessObserverTasks[endpoint.id] = nil
 
           sessionsByEndpoint[endpoint.id] = nil
+          dashboardConversationsByEndpoint[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -351,6 +357,14 @@ final class ServerRuntimeRegistry {
     }
   }
 
+  func refreshDashboardConversations() async {
+    ensureInitialized()
+
+    for runtime in runtimes where runtime.endpoint.isEnabled && runtime.readiness.queryReady {
+      await refreshDashboardConversations(for: runtime)
+    }
+  }
+
   func handleMemoryPressure() {
     // Stub: memory pressure handling
   }
@@ -418,6 +432,17 @@ final class ServerRuntimeRegistry {
       if let node = index[scopedID] { return node }
     }
     return nil
+  }
+
+  var dashboardRefreshIdentity: String {
+    ensureInitialized()
+
+    return runtimes
+      .filter(\.endpoint.isEnabled)
+      .map { runtime in
+        "\(runtime.endpoint.id.uuidString):\(dashboardConnectionToken(for: runtime.connection.connectionStatus))"
+      }
+      .joined(separator: "|")
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
@@ -519,6 +544,12 @@ final class ServerRuntimeRegistry {
             connectionStatus: status,
             hasReceivedInitialRootList: runtime.connection.hasReceivedInitialSessionsList
           )
+          if status == .connected {
+            Task { [weak self, weak runtime] in
+              guard let self, let runtime else { return }
+              await self.refreshDashboardConversations(for: runtime)
+            }
+          }
 
         case let .sessionsList(items):
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
@@ -536,6 +567,15 @@ final class ServerRuntimeRegistry {
           self.sessionsByEndpoint[endpointId] = index
           self.recomputeAggregatedSessions()
 
+        case let .dashboardConversationsUpdated(items):
+          var index: [String: DashboardConversationRecord] = [:]
+          for item in items {
+            let record = DashboardConversationRecord(item: item, endpointId: endpointId, endpointName: endpointName)
+            index[record.id] = record
+          }
+          self.dashboardConversationsByEndpoint[endpointId] = index
+          self.recomputeAggregatedDashboardConversations()
+
         case let .sessionCreated(item), let .sessionListItemUpdated(item):
           let node = RootSessionNode(
             session: item, endpointId: endpointId, endpointName: endpointName,
@@ -544,10 +584,22 @@ final class ServerRuntimeRegistry {
           self.sessionsByEndpoint[endpointId, default: [:]][node.scopedID] = node
           self.recomputeAggregatedSessions()
 
+          // SessionHandle.broadcast() bypasses SessionRegistry.broadcast_to_list(),
+          // so DashboardConversationsUpdated is NOT sent for in-session status
+          // transitions (e.g. working → reply). Patch the dashboard record inline.
+          let scopedID = node.scopedID
+          if let existing = self.dashboardConversationsByEndpoint[endpointId]?[scopedID] {
+            self.dashboardConversationsByEndpoint[endpointId]?[scopedID] =
+              existing.applyingListItemUpdate(item, endpointName: endpointName)
+            self.recomputeAggregatedDashboardConversations()
+          }
+
         case let .sessionListItemRemoved(sessionId):
           let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
           self.sessionsByEndpoint[endpointId]?[scopedID] = nil
+          self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
           self.recomputeAggregatedSessions()
+          self.recomputeAggregatedDashboardConversations()
 
         case let .sessionEnded(sessionId, reason):
           let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
@@ -578,6 +630,53 @@ final class ServerRuntimeRegistry {
       let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
       let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
       return lhsDate > rhsDate
+    }
+  }
+
+  private func recomputeAggregatedDashboardConversations() {
+    let all = dashboardConversationsByEndpoint.values.flatMap(\.values)
+    aggregatedDashboardConversations = all.sorted { lhs, rhs in
+      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+      if lhs.displayStatus != rhs.displayStatus {
+        return dashboardConversationPriority(lhs.displayStatus) < dashboardConversationPriority(rhs.displayStatus)
+      }
+      return lhsDate > rhsDate
+    }
+  }
+
+  private func dashboardConversationPriority(_ status: SessionDisplayStatus) -> Int {
+    switch status {
+      case .permission: 0
+      case .question: 1
+      case .working: 2
+      case .reply: 3
+      case .ended: 4
+    }
+  }
+
+  private func dashboardConnectionToken(for status: ConnectionStatus) -> String {
+    switch status {
+      case .disconnected:
+        "disconnected"
+      case .connecting:
+        "connecting"
+      case .connected:
+        "connected"
+      case let .failed(message):
+        "failed:\(message)"
+    }
+  }
+
+  private func refreshDashboardConversations(for runtime: ServerRuntime) async {
+    guard runtime.endpoint.isEnabled else { return }
+    guard runtime.connection.connectionStatus == .connected else { return }
+
+    do {
+      let conversations = try await runtime.clients.dashboard.fetchConversations()
+      runtime.connection.applyDashboardConversations(conversations)
+    } catch {
+      return
     }
   }
 

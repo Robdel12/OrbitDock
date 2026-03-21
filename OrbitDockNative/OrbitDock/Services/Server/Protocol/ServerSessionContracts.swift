@@ -224,6 +224,132 @@ struct ServerSessionListItem: Codable, Identifiable {
   }
 }
 
+struct ServerDashboardDiffPreview: Codable, Equatable {
+  let fileCount: UInt32
+  let additions: UInt32
+  let deletions: UInt32
+  let filePaths: [String]
+
+  enum CodingKeys: String, CodingKey {
+    case fileCount = "file_count"
+    case additions
+    case deletions
+    case filePaths = "file_paths"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    fileCount = try container.decodeIfPresent(UInt32.self, forKey: .fileCount) ?? 0
+    additions = try container.decodeIfPresent(UInt32.self, forKey: .additions) ?? 0
+    deletions = try container.decodeIfPresent(UInt32.self, forKey: .deletions) ?? 0
+    filePaths = try container.decodeIfPresent([String].self, forKey: .filePaths) ?? []
+  }
+}
+
+struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
+  let sessionId: String
+  let provider: ServerProvider
+  let projectPath: String
+  let projectName: String?
+  let repositoryRoot: String?
+  let gitBranch: String?
+  let isWorktree: Bool
+  let worktreeId: String?
+  let model: String?
+  let codexIntegrationMode: ServerCodexIntegrationMode?
+  let claudeIntegrationMode: ServerClaudeIntegrationMode?
+  let status: ServerSessionStatus
+  let workStatus: ServerWorkStatus
+  let listStatus: ServerSessionListStatus
+  let displayTitle: String
+  let contextLine: String?
+  let lastMessage: String?
+  let startedAt: String?
+  let lastActivityAt: String?
+  let unreadCount: UInt64
+  let hasTurnDiff: Bool
+  let diffPreview: ServerDashboardDiffPreview?
+  let pendingToolName: String?
+  let pendingToolInput: String?
+  let pendingQuestion: String?
+  let toolCount: UInt64
+  let activeWorkerCount: UInt32
+  let issueIdentifier: String?
+  let effort: String?
+
+  var id: String {
+    sessionId
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case provider
+    case projectPath = "project_path"
+    case projectName = "project_name"
+    case repositoryRoot = "repository_root"
+    case gitBranch = "git_branch"
+    case isWorktree = "is_worktree"
+    case worktreeId = "worktree_id"
+    case model
+    case codexIntegrationMode = "codex_integration_mode"
+    case claudeIntegrationMode = "claude_integration_mode"
+    case status
+    case workStatus = "work_status"
+    case listStatus = "list_status"
+    case displayTitle = "display_title"
+    case contextLine = "context_line"
+    case lastMessage = "last_message"
+    case startedAt = "started_at"
+    case lastActivityAt = "last_activity_at"
+    case unreadCount = "unread_count"
+    case hasTurnDiff = "has_turn_diff"
+    case diffPreview = "diff_preview"
+    case pendingToolName = "pending_tool_name"
+    case pendingToolInput = "pending_tool_input"
+    case pendingQuestion = "pending_question"
+    case toolCount = "tool_count"
+    case activeWorkerCount = "active_worker_count"
+    case issueIdentifier = "issue_identifier"
+    case effort
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    sessionId = try container.decode(String.self, forKey: .sessionId)
+    provider = try container.decode(ServerProvider.self, forKey: .provider)
+    projectPath = try container.decode(String.self, forKey: .projectPath)
+    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
+    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
+    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree) ?? false
+    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
+    model = try container.decodeIfPresent(String.self, forKey: .model)
+    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
+    claudeIntegrationMode = try container.decodeIfPresent(
+      ServerClaudeIntegrationMode.self,
+      forKey: .claudeIntegrationMode
+    )
+    status = try container.decode(ServerSessionStatus.self, forKey: .status)
+    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    listStatus = try container.decode(ServerSessionListStatus.self, forKey: .listStatus)
+    displayTitle = try container.decode(String.self, forKey: .displayTitle)
+    contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
+    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
+    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount) ?? 0
+    hasTurnDiff = try container.decodeIfPresent(Bool.self, forKey: .hasTurnDiff) ?? false
+    diffPreview = try container.decodeIfPresent(ServerDashboardDiffPreview.self, forKey: .diffPreview)
+    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
+    pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
+    pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
+    toolCount = try container.decodeIfPresent(UInt64.self, forKey: .toolCount) ?? 0
+    activeWorkerCount = try container.decodeIfPresent(UInt32.self, forKey: .activeWorkerCount) ?? 0
+    issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
+    effort = try container.decodeIfPresent(String.self, forKey: .effort)
+  }
+}
+
 // MARK: - Session Summary
 
 struct ServerSessionSummary: Codable, Identifiable {
@@ -653,7 +779,10 @@ struct ServerSessionState: Codable, Identifiable {
     serviceTier = try container.decodeIfPresent(String.self, forKey: .serviceTier)
     developerInstructions = try container.decodeIfPresent(String.self, forKey: .developerInstructions)
     codexConfigSource = try container.decodeIfPresent(ServerCodexConfigSource.self, forKey: .codexConfigSource)
-    codexConfigOverrides = try container.decodeIfPresent(ServerCodexSessionOverrides.self, forKey: .codexConfigOverrides)
+    codexConfigOverrides = try container.decodeIfPresent(
+      ServerCodexSessionOverrides.self,
+      forKey: .codexConfigOverrides
+    )
     pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
     pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
     pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)

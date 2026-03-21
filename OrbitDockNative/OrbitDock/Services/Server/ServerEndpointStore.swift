@@ -1,6 +1,6 @@
 import Foundation
-import Security
 import os.log
+import Security
 
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"

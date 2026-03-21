@@ -13,6 +13,7 @@ final class ServerClients: Sendable {
   let skills: SkillsClient
   let mcp: McpClient
   let usage: UsageClient
+  let dashboard: DashboardClient
   let sessions: SessionsClient
   let conversation: ConversationClient
   let approvals: ApprovalsClient
@@ -51,6 +52,7 @@ final class ServerClients: Sendable {
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
     self.mcp = McpClient(http: http, requestBuilder: requestBuilder)
     self.usage = UsageClient(http: http)
+    self.dashboard = DashboardClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
     self.approvals = ApprovalsClient(http: http, requestBuilder: requestBuilder)

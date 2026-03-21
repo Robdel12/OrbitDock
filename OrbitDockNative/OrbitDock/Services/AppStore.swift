@@ -104,6 +104,10 @@ final class AppStore {
     sessions.filter(\.showsInMissionControl)
   }
 
+  func dashboardConversationRecords() -> [DashboardConversationRecord] {
+    runtimeRegistry.aggregatedDashboardConversations
+  }
+
   func recentRecords(limit: Int? = nil) -> [RootSessionNode] {
     let recent = sessions
       .filter { !$0.showsInMissionControl }
