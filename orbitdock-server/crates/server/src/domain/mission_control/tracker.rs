@@ -121,12 +121,7 @@ pub trait Tracker: Send + Sync {
 
     /// Attach a URL (e.g. PR link) to an issue.
     /// Linear creates an attachment; GitHub posts a comment with the link.
-    async fn link_url(
-        &self,
-        _issue_id: &str,
-        _url: &str,
-        _title: &str,
-    ) -> anyhow::Result<()> {
+    async fn link_url(&self, _issue_id: &str, _url: &str, _title: &str) -> anyhow::Result<()> {
         anyhow::bail!("link_url not supported by this tracker")
     }
 }

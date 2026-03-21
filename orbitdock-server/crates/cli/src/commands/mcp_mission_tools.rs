@@ -37,9 +37,7 @@ fn build_tracker() -> anyhow::Result<Arc<dyn Tracker>> {
                 .map_err(|_| anyhow::anyhow!("GITHUB_TOKEN not set"))?;
             // GitHubClient will be added in a later step — for now fall through
             // to avoid blocking the refactor
-            Ok(Arc::new(
-                orbitdock_server::github::GitHubClient::new(token),
-            ))
+            Ok(Arc::new(orbitdock_server::github::GitHubClient::new(token)))
         }
         other => anyhow::bail!("Unknown tracker kind: {other}"),
     }
@@ -145,11 +143,7 @@ fn handle_tools_list() -> Value {
     })
 }
 
-async fn handle_tools_call(
-    tracker: &dyn Tracker,
-    ctx: &MissionToolContext,
-    msg: &Value,
-) -> Value {
+async fn handle_tools_call(tracker: &dyn Tracker, ctx: &MissionToolContext, msg: &Value) -> Value {
     let params = msg.get("params").cloned().unwrap_or(json!({}));
     let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));

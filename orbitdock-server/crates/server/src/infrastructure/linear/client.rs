@@ -5,9 +5,9 @@ use reqwest::Client;
 use tracing::debug;
 
 use super::models::{
-    AttachmentCreateData, CommentCreateData, CommentUpdateData, CommentsData,
-    DirectIssueData, GraphQLResponse, IssueCreateData, IssueStatesData, IssueTeamData,
-    IssueUpdateData, IssuesData, ResolveStateData,
+    AttachmentCreateData, CommentCreateData, CommentUpdateData, CommentsData, DirectIssueData,
+    GraphQLResponse, IssueCreateData, IssueStatesData, IssueTeamData, IssueUpdateData, IssuesData,
+    ResolveStateData,
 };
 use crate::domain::mission_control::tracker::{
     Tracker, TrackerComment, TrackerConfig, TrackerCreatedIssue, TrackerIssue,
@@ -437,12 +437,7 @@ impl Tracker for LinearClient {
         })
     }
 
-    async fn link_url(
-        &self,
-        issue_id: &str,
-        url: &str,
-        title: &str,
-    ) -> anyhow::Result<()> {
+    async fn link_url(&self, issue_id: &str, url: &str, title: &str) -> anyhow::Result<()> {
         let query = r#"
             mutation OrbitDockCreateAttachment($issueId: String!, $url: String!, $title: String!) {
                 attachmentCreate(input: {issueId: $issueId, url: $url, title: $title}) {
