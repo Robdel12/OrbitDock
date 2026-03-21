@@ -5,6 +5,7 @@ struct MissionSettingsTab: View {
   let repoRoot: String
   let missionId: String
   let trackerKind: String
+  let missionFileName: String
   let http: ServerHTTPClient?
   let isCompact: Bool
   let onUpdated: () async -> Void
@@ -80,8 +81,8 @@ struct MissionSettingsTab: View {
           .font(.system(size: 10, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
         Text(isCompact
-          ? "Saved to MISSION.md in your repo."
-          : "Settings below are saved to MISSION.md — committed to source control and shared with your team.")
+          ? "Saved to \(missionFileName) in your repo."
+          : "Settings below are saved to \(missionFileName) — committed to source control and shared with your team.")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)
@@ -112,6 +113,7 @@ struct MissionSettingsTab: View {
       MissionPromptSection(
         promptTemplate: settings?.promptTemplate ?? "",
         repoRoot: repoRoot,
+        missionFileName: missionFileName,
         isCompact: isCompact,
         showFullTemplate: $showFullTemplate
       )
@@ -267,7 +269,7 @@ struct MissionSettingsTab: View {
           Image(systemName: "checkmark.circle.fill")
             .font(.system(size: 14))
             .foregroundStyle(Color.feedbackPositive)
-          Text("Settings saved to MISSION.md")
+          Text("Settings saved to \(missionFileName)")
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(Color.feedbackPositive)
         }
@@ -285,7 +287,7 @@ struct MissionSettingsTab: View {
           Image(systemName: "doc.text")
             .font(.system(size: 9))
             .foregroundStyle(Color.textQuaternary)
-          Text("MISSION.md")
+          Text(missionFileName)
             .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
         }

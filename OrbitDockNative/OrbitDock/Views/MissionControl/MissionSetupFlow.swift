@@ -24,6 +24,7 @@ struct MissionSetupFlow: View {
           MissionSetupCard(
             missionId: missionId,
             repoRoot: mission.repoRoot,
+            missionFileName: mission.resolvedFileName,
             http: http,
             onApplyDetail: onApplyDetail,
             onRefresh: onRefresh
@@ -70,7 +71,7 @@ struct MissionSetupFlow: View {
             .font(.system(size: TypeScale.large, weight: .bold))
             .foregroundStyle(Color.textPrimary)
 
-          Text("Import your WORKFLOW.md config into a MISSION.md")
+          Text("Import your WORKFLOW.md config into a \(mission.resolvedFileName)")
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textSecondary)
         }
@@ -130,7 +131,7 @@ struct MissionSetupFlow: View {
               Image(systemName: "wand.and.stars")
                 .font(.system(size: 9))
             }
-            Text("start fresh with a blank MISSION.md")
+            Text("start fresh with a blank \(mission.resolvedFileName)")
               .font(.system(size: TypeScale.micro))
           }
           .foregroundStyle(Color.accent)
@@ -176,7 +177,7 @@ struct MissionSetupFlow: View {
       }
 
       Text(
-        "A WORKFLOW.md with compatible settings was found. Import your tracker, polling, and provider settings into a new MISSION.md."
+        "A WORKFLOW.md with compatible settings was found. Import your tracker, polling, and provider settings into a new \(mission.resolvedFileName)."
       )
       .font(.system(size: TypeScale.caption))
       .foregroundStyle(Color.textSecondary)
@@ -215,7 +216,7 @@ struct MissionSetupFlow: View {
       }
 
       Text(
-        "Your MISSION.md doesn't contain OrbitDock configuration yet. Open Settings to configure — your existing file content will be preserved."
+        "Your \(mission.resolvedFileName) doesn't contain OrbitDock configuration yet. Open Settings to configure — your existing file content will be preserved."
       )
       .font(.system(size: TypeScale.caption))
       .foregroundStyle(Color.textSecondary)

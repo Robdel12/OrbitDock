@@ -3,6 +3,7 @@ import SwiftUI
 struct MissionPromptSection: View {
   let promptTemplate: String
   let repoRoot: String
+  let missionFileName: String
   let isCompact: Bool
   @Binding var showFullTemplate: Bool
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
@@ -103,7 +104,7 @@ struct MissionPromptSection: View {
             .buttonStyle(.plain)
 
             Button {
-              let path = repoRoot.hasSuffix("/") ? repoRoot + "MISSION.md" : repoRoot + "/MISSION.md"
+              let path = repoRoot.hasSuffix("/") ? repoRoot + missionFileName : repoRoot + "/\(missionFileName)"
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(path, forType: .string)
             } label: {

@@ -194,12 +194,12 @@ struct NewMissionSheet: View {
 
   private var infoSection: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      Label("A MISSION.md will be generated if not present", systemImage: "doc.text")
+      Label("A mission file will be generated if not present", systemImage: "doc.text")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
 
       Label(
-        "Issues are pulled from \(trackerKind.capitalized) (configured in MISSION.md)",
+        "Issues are pulled from \(trackerKind.capitalized) (configured in your mission file)",
         systemImage: "arrow.triangle.branch"
       )
       .font(.system(size: TypeScale.caption))

@@ -1684,6 +1684,9 @@ pub struct MissionSummary {
     /// Configured poll interval in seconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub poll_interval: Option<u64>,
+    /// Custom mission file path (e.g. `MISSION-foo.md`). `None` means default `MISSION.md`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mission_file_path: Option<String>,
 }
 
 /// A single issue tracked by a mission.

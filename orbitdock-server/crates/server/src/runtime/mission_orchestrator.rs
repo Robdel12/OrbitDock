@@ -609,6 +609,7 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                     .map(|c| c.trigger.interval)
             })
         },
+        mission_file_path: mission.mission_file_path.clone(),
     };
 
     let msg = orbitdock_protocol::ServerMessage::MissionDelta {

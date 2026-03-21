@@ -20,6 +20,7 @@ struct MissionSummary: Codable, Identifiable, Equatable {
   let orchestratorStatus: String?
   let lastPolledAt: String?
   let pollInterval: UInt64?
+  let missionFilePath: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name
@@ -39,6 +40,7 @@ struct MissionSummary: Codable, Identifiable, Equatable {
     case orchestratorStatus = "orchestrator_status"
     case lastPolledAt = "last_polled_at"
     case pollInterval = "poll_interval"
+    case missionFilePath = "mission_file_path"
   }
 }
 
@@ -64,6 +66,13 @@ extension MissionSummary {
       case "config_error": return Color.feedbackNegative
       default: return Color.textTertiary
     }
+  }
+
+  var resolvedFileName: String {
+    if let path = missionFilePath, !path.isEmpty {
+      return path
+    }
+    return "MISSION.md"
   }
 
   var repoName: String {

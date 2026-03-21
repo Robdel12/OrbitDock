@@ -134,6 +134,7 @@ struct MissionShowView: View {
                 repoRoot: mission.repoRoot,
                 missionId: missionId,
                 trackerKind: mission.trackerKind,
+                missionFileName: mission.resolvedFileName,
                 http: viewModel.http,
                 isCompact: isCompact,
                 onUpdated: { await viewModel.refreshDetail() }

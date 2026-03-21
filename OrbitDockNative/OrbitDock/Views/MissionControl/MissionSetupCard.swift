@@ -3,6 +3,7 @@ import SwiftUI
 struct MissionSetupCard: View {
   let missionId: String
   let repoRoot: String
+  let missionFileName: String
   let http: ServerHTTPClient?
   let onApplyDetail: (MissionDetailResponse) -> Void
   let onRefresh: () async -> Void
@@ -147,7 +148,7 @@ struct MissionSetupCard: View {
           } else {
             Image(systemName: "wand.and.stars")
           }
-          Text("Generate MISSION.md")
+          Text("Generate \(missionFileName)")
         }
         .frame(maxWidth: .infinity)
       }
@@ -168,7 +169,7 @@ struct MissionSetupCard: View {
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
 
-        Text(repoRoot + "/MISSION.md")
+        Text(repoRoot + "/\(missionFileName)")
           .font(.system(size: TypeScale.micro, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
           .textSelection(.enabled)

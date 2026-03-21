@@ -65,6 +65,17 @@ fn default_tracker() -> String {
     "linear".to_string()
 }
 
+fn slugify_mission_name(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 fn default_provider() -> String {
     "claude".to_string()
 }
@@ -157,6 +168,23 @@ pub async fn create_mission(
 
     let id = orbitdock_protocol::new_id();
 
+    // Auto-generate a unique mission file path if this repo already has missions
+    let repo_for_count = req.repo_root.clone();
+    let existing_count = db_read(&registry, move |conn| {
+        crate::infrastructure::persistence::mission_control::count_missions_by_repo_root(
+            conn,
+            &repo_for_count,
+        )
+    })
+    .await?;
+
+    let mission_file_path = if existing_count > 0 {
+        let slug = slugify_mission_name(&req.name);
+        Some(format!("MISSION-{slug}.md"))
+    } else {
+        None
+    };
+
     let _ = registry
         .persist()
         .send(PersistCommand::MissionCreate {
@@ -167,7 +195,7 @@ pub async fn create_mission(
             provider: req.provider.clone(),
             config_json: None,
             prompt_template: None,
-            mission_file_path: None,
+            mission_file_path: mission_file_path.clone(),
         })
         .await;
 
@@ -207,6 +235,7 @@ pub async fn create_mission(
         orchestrator_status,
         last_polled_at: None,
         poll_interval: None,
+        mission_file_path,
     }))
 }
 
@@ -1351,6 +1380,7 @@ fn summary_from_row(
         orchestrator_status,
         last_polled_at: None,
         poll_interval: None,
+        mission_file_path: row.mission_file_path.clone(),
     }
 }
 

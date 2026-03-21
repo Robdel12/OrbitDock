@@ -180,6 +180,18 @@ pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionR
     Ok(row)
 }
 
+/// Count how many missions share the same repo root directory.
+pub fn count_missions_by_repo_root(conn: &Connection, repo_root: &str) -> Result<i64> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM missions WHERE repo_root = ?1",
+            params![repo_root],
+            |row| row.get(0),
+        )
+        .context("count_missions_by_repo_root")?;
+    Ok(count)
+}
+
 pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<MissionIssueRow>> {
     let mut stmt = conn
         .prepare(
