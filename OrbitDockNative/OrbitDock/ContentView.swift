@@ -112,9 +112,9 @@ struct ContentView: View {
         case let .session(ref):
           SessionDetailView(
             sessionId: ref.sessionId,
-            endpointId: ref.endpointId
+            endpointId: ref.endpointId,
+            sessionStore: detailSessionStore(for: ref.endpointId)
           )
-          .environment(detailSessionStore(for: ref.endpointId))
           .id(ref.scopedID)
         case let .mission(ref):
           MissionShowView(

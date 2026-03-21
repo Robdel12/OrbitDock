@@ -238,7 +238,7 @@ extension ReviewCanvas {
 
   func buildUnresolvedCommentLineMap(model _: DiffModel) -> [String: Set<Int>] {
     ReviewCanvasProjection.unresolvedCommentLineMap(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       activeTurnId: selectedTurnDiffId
     )
   }

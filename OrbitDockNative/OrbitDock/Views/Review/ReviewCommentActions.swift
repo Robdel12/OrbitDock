@@ -18,33 +18,22 @@ extension ReviewCanvas {
     let trimmed = commentInteraction.composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
-    let turnId = selectedTurnDiffId ?? inferTurnId(forFile: ct.filePath)
-
-    Task {
-      _ = try? await serverState.clients.approvals.createReviewComment(
-        sessionId: sessionId,
-        request: ApprovalsClient.CreateReviewCommentRequest(
-          turnId: turnId,
-          filePath: ct.filePath,
-          lineStart: ct.lineStart,
-          lineEnd: ct.lineEnd,
-          body: trimmed,
-          tag: commentInteraction.composerTag
-        )
-      )
-    }
+    let turnId = selectedTurnDiffId ?? viewModel.inferTurnId(forFile: ct.filePath)
+    viewModel.createReviewComment(
+      turnId: turnId,
+      filePath: ct.filePath,
+      lineStart: ct.lineStart,
+      lineEnd: ct.lineEnd,
+      body: trimmed,
+      tag: commentInteraction.composerTag
+    )
 
     commentInteraction.clearComposer()
   }
 
   func resolveComment(_ comment: ServerReviewComment) {
     let newStatus: ServerReviewCommentStatus = comment.status == .open ? .resolved : .open
-    Task {
-      try? await serverState.clients.approvals.updateReviewComment(
-        commentId: comment.id,
-        body: ApprovalsClient.UpdateReviewCommentRequest(status: newStatus)
-      )
-    }
+    viewModel.updateCommentStatus(commentId: comment.id, status: newStatus)
   }
 
   func resolveCommentAtCursor(model: DiffModel) {
@@ -57,7 +46,7 @@ extension ReviewCanvas {
     guard let newLine = line.newLineNum else { return }
 
     let lineComments = ReviewCanvasProjection.commentsForLine(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       filePath: file.newPath,
       lineNum: newLine,
       activeTurnId: selectedTurnDiffId
@@ -79,7 +68,7 @@ extension ReviewCanvas {
     guard let newLine = line.newLineNum else { return }
 
     let lineComments = ReviewCanvasProjection.commentsForLine(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       filePath: file.newPath,
       lineNum: newLine,
       activeTurnId: selectedTurnDiffId
@@ -91,16 +80,5 @@ extension ReviewCanvas {
         selectedCommentIds.insert(comment.id)
       }
     }
-  }
-
-  /// Infer which turn a comment belongs to by finding the latest turn that touched the file.
-  /// Used when commenting on "All Changes" — maps the comment to the right edit turn.
-  func inferTurnId(forFile filePath: String) -> String? {
-    for turnDiff in obs.turnDiffs.reversed() {
-      if ReviewWorkflow.diffMentionsFile(turnDiff.diff, filePath: filePath) {
-        return turnDiff.turnId
-      }
-    }
-    return nil
   }
 }

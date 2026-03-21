@@ -122,50 +122,69 @@ private struct ToolGroup: Identifiable {
   }
 }
 
+private struct CodexAutoReviewSnapshot {
+  let title: String
+  let summary: String
+  let highlights: [String]
+  let latestDecisionLabel: String?
+  let latestDecisionTime: String?
+}
+
+struct PermissionInlinePanelState {
+  let autonomy: AutonomyLevel
+  let autonomyConfiguredOnServer: Bool
+  let permissionMode: ClaudePermissionMode
+  let allowBypassPermissions: Bool
+  let isDirectCodex: Bool
+  let isDirectClaude: Bool
+  let permissionRules: ServerSessionPermissionRules?
+  let permissionRulesLoading: Bool
+  let approvalHistory: [ServerApprovalHistoryItem]
+}
+
 // MARK: - Inline Permission Panel
 
 struct PermissionInlinePanel: View {
-  let sessionId: String
+  let state: PermissionInlinePanelState
   @Binding var isExpanded: Bool
-  @Environment(SessionStore.self) private var serverState
+  var onLoadRules: (() async -> Void)?
+  var onSelectAutonomy: ((AutonomyLevel) async -> Void)?
+  var onSelectPermissionMode: ((ClaudePermissionMode) async -> Void)?
+  var onRemoveRule: ((String, String) async -> Void)?
 
   @State private var headerHovering = false
   @State private var expandedGroups: Set<String> = []
 
-  private var obs: SessionObservable {
-    serverState.session(sessionId)
-  }
-
   // MARK: - Provider helpers
 
   private var panelColor: Color {
-    if obs.isDirectCodex { return obs.autonomy.color }
-    if obs.isDirectClaude { return obs.permissionMode.color }
+    if state.isDirectCodex { return state.autonomy.color }
+    if state.isDirectClaude { return state.permissionMode.color }
     return .textTertiary
   }
 
   private var panelTitle: String {
-    if obs.isDirectCodex { return obs.autonomy.displayName }
-    if obs.isDirectClaude { return obs.permissionMode.displayName }
+    if state.isDirectCodex { return state.autonomy.displayName }
+    if state.isDirectClaude { return state.permissionMode.displayName }
     return "Permissions"
   }
 
   private var panelIcon: String {
-    if obs.isDirectCodex { return obs.autonomy.icon }
-    if obs.isDirectClaude { return obs.permissionMode.icon }
+    if state.isDirectCodex { return state.autonomy.icon }
+    if state.isDirectClaude { return state.permissionMode.icon }
     return "shield.lefthalf.filled"
   }
 
   private var modeDescription: String {
-    if obs.isDirectCodex { return obs.autonomy.description }
-    if obs.isDirectClaude { return obs.permissionMode.description }
+    if state.isDirectCodex { return state.autonomy.description }
+    if state.isDirectClaude { return state.permissionMode.description }
     return ""
   }
 
   // MARK: - Rule data
 
   private var parsedRules: [ParsedRule] {
-    guard case let .claude(_, rules, _) = obs.permissionRules else { return [] }
+    guard case let .claude(_, rules, _) = state.permissionRules else { return [] }
     return rules.map { ParsedRule.parse($0.pattern, behavior: $0.behavior) }
   }
 
@@ -182,16 +201,32 @@ struct PermissionInlinePanel: View {
   }
 
   private var additionalDirectories: [String]? {
-    guard case let .claude(_, _, dirs) = obs.permissionRules else { return nil }
+    guard case let .claude(_, _, dirs) = state.permissionRules else { return nil }
     return dirs
   }
 
   private var ruleCount: Int {
-    switch obs.permissionRules {
+    switch state.permissionRules {
       case let .claude(_, rules, _): rules.count
       case .codex: 2
       case nil: 0
     }
+  }
+
+  private var latestResolvedApproval: ServerApprovalHistoryItem? {
+    state.approvalHistory.first { item in
+      item.decision != nil || item.decidedAt != nil
+    }
+  }
+
+  private var codexAutoReviewSnapshot: CodexAutoReviewSnapshot {
+    CodexAutoReviewSnapshot(
+      title: state.autonomy.autoReviewCardTitle,
+      summary: state.autonomy.autoReviewCardSummary,
+      highlights: state.autonomy.autoReviewHighlights,
+      latestDecisionLabel: latestResolvedApproval?.decision.map(ApprovalDecisionHelpers.label),
+      latestDecisionTime: latestResolvedApproval?.decidedAt.map(ApprovalDecisionHelpers.relativeTime)
+    )
   }
 
   // MARK: - Body
@@ -210,9 +245,13 @@ struct PermissionInlinePanel: View {
         .frame(height: 0.5)
         .padding(.horizontal, Spacing.sm)
     }
-    .task { _ = try? await serverState.loadPermissionRules(sessionId: sessionId) }
+    .task { await onLoadRules?() }
     .onChange(of: isExpanded) { _, on in
-      if on { Task { _ = try? await serverState.loadPermissionRules(sessionId: sessionId) } }
+      if on {
+        Task {
+          await onLoadRules?()
+        }
+      }
     }
   }
 
@@ -295,8 +334,14 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var modeSelector: some View {
-    if obs.isDirectCodex { modePills(AutonomyLevel.allCases, current: obs.autonomy) }
-    else if obs.isDirectClaude { modePills(ClaudePermissionMode.allCases, current: obs.permissionMode) }
+    if state.isDirectCodex {
+      modePills(AutonomyLevel.allCases, current: state.autonomy)
+    } else if state.isDirectClaude {
+      let items = state.allowBypassPermissions
+        ? ClaudePermissionMode.allCases
+        : ClaudePermissionMode.allCases.filter { $0 != .bypassPermissions }
+      modePills(items, current: state.permissionMode)
+    }
   }
 
   private func modePills<T: Identifiable & CaseIterable & Equatable & PermissionModeRepresentable>(
@@ -331,9 +376,9 @@ struct PermissionInlinePanel: View {
 
   private func selectMode(_ mode: some PermissionModeRepresentable) {
     if let level = mode as? AutonomyLevel {
-      Task { try? await serverState.updateSessionConfig(sessionId, approvalPolicy: level.rawValue) }
+      Task { await onSelectAutonomy?(level) }
     } else if let mode = mode as? ClaudePermissionMode {
-      Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: mode) }
+      Task { await onSelectPermissionMode?(mode) }
     }
   }
 
@@ -341,7 +386,7 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var rulesContent: some View {
-    if obs.permissionRulesLoading, obs.permissionRules == nil {
+    if state.permissionRulesLoading, state.permissionRules == nil {
       HStack(spacing: Spacing.sm) {
         ProgressView().controlSize(.small)
         Text("Loading…")
@@ -350,8 +395,8 @@ struct PermissionInlinePanel: View {
       }
       .padding(.horizontal, Spacing.sm)
     } else {
-      if obs.isDirectClaude { claudeRulesContent }
-      else if obs.isDirectCodex { codexRulesContent }
+      if state.isDirectClaude { claudeRulesContent }
+      else if state.isDirectCodex { codexRulesContent }
     }
   }
 
@@ -359,7 +404,7 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var claudeRulesContent: some View {
-    if obs.permissionRules != nil {
+    if state.permissionRules != nil {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         if !allowRules.isEmpty { behaviorSection("Allowed", allowRules, .feedbackPositive) }
         if !denyRules.isEmpty { behaviorSection("Denied", denyRules, .feedbackNegative) }
@@ -490,12 +535,7 @@ struct PermissionInlinePanel: View {
       // Remove button — sized for touch
       Button {
         Task {
-          try? await serverState.removePermissionRule(
-            sessionId: sessionId,
-            pattern: rule.rawPattern,
-            behavior: rule.behavior,
-            scope: "session"
-          )
+          await onRemoveRule?(rule.rawPattern, rule.behavior)
         }
       } label: {
         Image(systemName: "minus.circle.fill")
@@ -554,13 +594,113 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var codexRulesContent: some View {
-    if case let .codex(approvalPolicy, sandboxMode) = obs.permissionRules {
+    if case let .codex(approvalPolicy, sandboxMode) = state.permissionRules {
       VStack(alignment: .leading, spacing: Spacing.xs) {
+        codexAutoReviewCard(codexAutoReviewSnapshot)
         codexRow("Approval Policy", approvalPolicy ?? "default")
         codexRow("Sandbox", sandboxMode ?? "default")
       }
       .padding(.horizontal, Spacing.sm)
     }
+  }
+
+  private func codexAutoReviewCard(_ snapshot: CodexAutoReviewSnapshot) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(alignment: .top, spacing: Spacing.sm) {
+        ZStack {
+          Circle()
+            .fill(state.autonomy.color.opacity(OpacityTier.light))
+            .frame(width: 30, height: 30)
+
+          Image(systemName: state.autonomy.autoReviewStatusIcon)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(state.autonomy.color)
+        }
+
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.xs) {
+            Text("AUTO REVIEW")
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+              .foregroundStyle(state.autonomy.color.opacity(OpacityTier.vivid))
+
+            Text("READ-ONLY")
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.textQuaternary)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 1)
+              .background(Color.backgroundCode.opacity(0.85), in: Capsule())
+          }
+
+          Text(snapshot.title)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text(snapshot.summary)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Spacer(minLength: 0)
+      }
+
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        ForEach(snapshot.highlights, id: \.self) { line in
+          HStack(alignment: .top, spacing: Spacing.xs) {
+            Circle()
+              .fill(state.autonomy.color.opacity(OpacityTier.medium))
+              .frame(width: 5, height: 5)
+              .padding(.top, 5)
+
+            Text(line)
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      }
+
+      if let latestDecisionLabel = snapshot.latestDecisionLabel {
+        HStack(spacing: Spacing.xs) {
+          Text("Latest approval")
+            .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.textQuaternary)
+
+          Text(latestDecisionLabel)
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(ApprovalDecisionHelpers.color(for: latestResolvedApproval?.decision))
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, 2)
+            .background(
+              ApprovalDecisionHelpers.color(for: latestResolvedApproval?.decision).opacity(OpacityTier.tint),
+              in: Capsule()
+            )
+
+          if let latestDecisionTime = snapshot.latestDecisionTime {
+            Text(latestDecisionTime)
+              .font(.system(size: TypeScale.mini, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
+          }
+
+          Spacer(minLength: 0)
+        }
+        .padding(.top, Spacing.xxs)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundCode.opacity(0.88))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+            .fill(state.autonomy.color.opacity(OpacityTier.tint))
+        )
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(state.autonomy.color.opacity(OpacityTier.light), lineWidth: 1)
+    )
   }
 
   private func codexRow(_ label: String, _ value: String) -> some View {
@@ -607,7 +747,7 @@ private extension String {
 // MARK: - Shared Helpers
 
 enum ApprovalDecisionHelpers {
-  static func label(for decision: String) -> String {
+  nonisolated static func label(for decision: String) -> String {
     switch decision {
       case "approved": "approved once"
       case "approved_for_session": "session-scoped"
@@ -626,12 +766,12 @@ enum ApprovalDecisionHelpers {
     }
   }
 
-  static func relativeTime(_ timestamp: String) -> String {
+  nonisolated static func relativeTime(_ timestamp: String) -> String {
     guard let date = parseTimestamp(timestamp) else { return timestamp }
     return date.formatted(.relative(presentation: .named))
   }
 
-  static func parseTimestamp(_ value: String) -> Date? {
+  nonisolated static func parseTimestamp(_ value: String) -> Date? {
     let stripped = value.hasSuffix("Z") ? String(value.dropLast()) : value
     if let seconds = TimeInterval(stripped) {
       return Date(timeIntervalSince1970: seconds)
@@ -641,24 +781,5 @@ enum ApprovalDecisionHelpers {
     if let date = formatter.date(from: value) { return date }
     formatter.formatOptions = [.withInternetDateTime]
     return formatter.date(from: value)
-  }
-}
-
-// MARK: - Legacy Popover Wrapper
-
-struct PermissionSummaryPopover: View {
-  let sessionId: String
-  @State private var expanded = true
-
-  var body: some View {
-    ScrollView {
-      PermissionInlinePanel(sessionId: sessionId, isExpanded: $expanded)
-    }
-    .scrollBounceBehavior(.basedOnSize)
-    .ifMacOS { $0.frame(width: 360) }
-    #if os(iOS)
-      .frame(maxWidth: .infinity)
-    #endif
-      .background(Color.backgroundSecondary)
   }
 }

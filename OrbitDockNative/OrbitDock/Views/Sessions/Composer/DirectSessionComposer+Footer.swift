@@ -104,7 +104,11 @@ extension DirectSessionComposer {
   @ViewBuilder
   func primaryComposeControls(isCompact: Bool) -> some View {
     if obs.workStatus == .working {
-      CodexInterruptButton(sessionId: sessionId, isCompact: isCompact)
+      CodexInterruptButton(workStatus: obs.workStatus, isCompact: isCompact) {
+        Task {
+          try? await viewModel.interruptSession()
+        }
+      }
     }
 
     if obs.isDirectCodex || obs.isDirectClaude {
@@ -163,17 +167,36 @@ extension DirectSessionComposer {
   @ViewBuilder
   var footerModelLabel: some View {
     if obs.isDirectCodex, !selectedModel.isEmpty {
-      Text(DirectSessionComposerProviderPlanner.compactModelName(selectedModel))
+      Text(footerModelSummary)
         .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
         .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
     } else if obs.isDirectClaude, !effectiveClaudeModel.isEmpty {
-      Text(DirectSessionComposerProviderPlanner.compactModelName(effectiveClaudeModel))
+      Text(footerModelSummary)
         .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
+        .help("Model: \(effectiveClaudeModel)\nEffort: \(footerEffortLabel ?? "Default")")
     }
+  }
+
+  private var footerModelSummary: String {
+    let modelName = if obs.isDirectCodex {
+      DirectSessionComposerProviderPlanner.compactModelName(selectedModel)
+    } else {
+      DirectSessionComposerProviderPlanner.compactModelName(effectiveClaudeModel)
+    }
+
+    guard let footerEffortLabel else { return modelName }
+    return "\(modelName) • \(footerEffortLabel)"
+  }
+
+  private var footerEffortLabel: String? {
+    if obs.isDirectCodex {
+      return selectedEffort.displayName
+    }
+    return HeaderCompactPresentation.effortLabel(for: obs.effort)
   }
 
   func footerBranchLabel(_ branch: String) -> some View {

@@ -14,16 +14,17 @@ import UniformTypeIdentifiers
 
 struct DirectSessionComposer: View {
   let sessionId: String
+  let sessionStore: SessionStore
   @Binding var selectedSkills: Set<String>
   var pendingPanelOpenSignal: Int = 0
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
-  @Environment(SessionStore.self) var serverState
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
   @AppStorage("localDictationEnabled") var localDictationEnabled = true
+  @State var viewModel: DirectSessionComposerViewModel
 
   @State var composerState = DirectSessionComposerState()
   @State var inputState = DirectSessionComposerInputState()
@@ -43,6 +44,28 @@ struct DirectSessionComposer: View {
   /// Input mode
   @State var dictationController = LocalDictationController()
   @State var pendingState = DirectSessionComposerPendingState()
+
+  init(
+    sessionId: String,
+    sessionStore: SessionStore,
+    selectedSkills: Binding<Set<String>>,
+    pendingPanelOpenSignal: Int = 0,
+    isPinned: Binding<Bool>,
+    unreadCount: Binding<Int>,
+    scrollToBottomTrigger: Binding<Int>
+  ) {
+    self.sessionId = sessionId
+    self.sessionStore = sessionStore
+    _selectedSkills = selectedSkills
+    self.pendingPanelOpenSignal = pendingPanelOpenSignal
+    _isPinned = isPinned
+    _unreadCount = unreadCount
+    _scrollToBottomTrigger = scrollToBottomTrigger
+
+    let initialViewModel = DirectSessionComposerViewModel()
+    initialViewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+    _viewModel = State(initialValue: initialViewModel)
+  }
 
   var message: String {
     get { composerState.message }
@@ -172,9 +195,12 @@ struct DirectSessionComposer: View {
     .onDrop(of: [.image, .fileURL], isTargeted: $attachmentState.isImageDropTargeted) { providers in
       handleDrop(providers)
     }
+    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+    }
     .task(id: sessionId) {
       if obs.isDirectCodex {
-        serverState.refreshCodexModels()
+        viewModel.refreshCodexModels()
         if selectedModel.isEmpty {
           selectedModel = defaultCodexModelSelection
         }
@@ -183,7 +209,6 @@ struct DirectSessionComposer: View {
           selectedEffort = level
         }
       } else if obs.isDirectClaude {
-        serverState.refreshClaudeModels()
         if selectedClaudeModel.isEmpty {
           selectedClaudeModel = defaultClaudeModelSelection
         }
@@ -203,7 +228,7 @@ struct DirectSessionComposer: View {
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
     }
-    .onChange(of: serverState.session(sessionId).rowEntriesRevision) { _, _ in
+    .onChange(of: obs.rowEntriesRevision) { _, _ in
       reconcileRecoveredSendIfNeeded()
     }
     .onChange(of: pendingApprovalIdentity) { _, newValue in
@@ -345,7 +370,7 @@ struct DirectSessionComposer: View {
       AttachmentBar(
         images: attachedImagesBinding,
         mentions: attachedMentionsBinding,
-        imageLoader: serverState.clients.imageLoader
+        imageLoader: viewModel.imageLoader
       )
       .transition(.move(edge: .bottom).combined(with: .opacity))
     }
@@ -371,7 +396,7 @@ struct DirectSessionComposer: View {
   }
 
   func sendSuggestion(_ suggestion: String) {
-    Task { try? await serverState.sendMessage(sessionId: sessionId, content: suggestion) }
+    Task { try? await viewModel.sendMessage(content: suggestion) }
   }
 
   // MARK: - Composer Surface
@@ -418,8 +443,20 @@ struct DirectSessionComposer: View {
   var composerSurfaceTopSections: some View {
     if permissionPanelExpanded, obs.isDirect {
       PermissionInlinePanel(
-        sessionId: sessionId,
-        isExpanded: $composerState.permissionPanelExpanded
+        state: viewModel.permissionPanelState,
+        isExpanded: $composerState.permissionPanelExpanded,
+        onLoadRules: {
+          try? await viewModel.loadPermissionRules()
+        },
+        onSelectAutonomy: { level in
+          try? await viewModel.updateAutonomy(level)
+        },
+        onSelectPermissionMode: { mode in
+          try? await viewModel.updateClaudePermissionMode(mode)
+        },
+        onRemoveRule: { pattern, behavior in
+          try? await viewModel.removePermissionRule(pattern: pattern, behavior: behavior)
+        }
       )
       .transition(.move(edge: .top).combined(with: .opacity))
     }
@@ -482,7 +519,7 @@ struct DirectSessionComposer: View {
       lastActivityAt: obs.lastActivityAt,
       onResume: {
         connLog(.info, category: .resume, "Resume button tapped", sessionId: sessionId)
-        Task { try? await serverState.resumeSession(sessionId) }
+        Task { try? await viewModel.resumeSession() }
       }
     )
   }
@@ -533,12 +570,12 @@ struct DirectSessionComposer: View {
   let router = AppRouter()
   DirectSessionComposer(
     sessionId: "test-session",
+    sessionStore: sessionStore,
     selectedSkills: $skills,
     isPinned: $pinned,
     unreadCount: $unread,
     scrollToBottomTrigger: $scroll
   )
-  .environment(sessionStore)
   .environment(runtimeRegistry)
   .environment(router)
   .frame(width: 600)

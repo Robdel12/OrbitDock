@@ -120,7 +120,9 @@ struct NewSessionConfigurationCard: View {
         Spacer()
       }
 
-      Text("OrbitDock resolves the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config.")
+      Text(
+        "OrbitDock resolves the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config."
+      )
       .font(.system(size: TypeScale.caption))
       .foregroundStyle(Color.textTertiary)
       .fixedSize(horizontal: false, vertical: true)
@@ -145,7 +147,7 @@ struct NewSessionConfigurationCard: View {
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
     .onChange(of: codexUseOrbitDockOverrides) { _, newValue in
-      if newValue && codexModel.isEmpty {
+      if newValue, codexModel.isEmpty {
         codexModel = currentCodexModelOption?.model
           ?? codexModels.first(where: \.isDefault)?.model
           ?? codexModels.first(where: { !$0.model.isEmpty })?.model

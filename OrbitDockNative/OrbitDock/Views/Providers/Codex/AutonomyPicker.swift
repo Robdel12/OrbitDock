@@ -89,6 +89,89 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
     }
   }
 
+  var autoReviewStatusLabel: String {
+    switch self {
+      case .locked: "Safe Reads"
+      case .guarded: "Sandbox First"
+      case .autonomous, .open: "Auto Review"
+      case .fullAuto: "No Prompts"
+      case .unrestricted: "Unrestricted"
+    }
+  }
+
+  var autoReviewStatusIcon: String {
+    switch self {
+      case .locked: "lock.shield.fill"
+      case .guarded: "shield.lefthalf.filled"
+      case .autonomous, .open: "bolt.shield.fill"
+      case .fullAuto: "bolt.fill"
+      case .unrestricted: "exclamationmark.triangle.fill"
+    }
+  }
+
+  var autoReviewCardTitle: String {
+    switch self {
+      case .locked: "Known-safe reads can pass quietly"
+      case .guarded: "Codex tries the sandbox before it asks"
+      case .autonomous: "Codex can review requests on your behalf"
+      case .open: "Codex can review requests without sandbox limits"
+      case .fullAuto: "This session is running without interactive approvals"
+      case .unrestricted: "Codex is operating without a safety rail"
+    }
+  }
+
+  var autoReviewCardSummary: String {
+    switch self {
+      case .locked:
+        "Low-risk reads can continue automatically, but writes and commands still come back through the normal approval flow."
+      case .guarded:
+        "Most work stays inside the sandbox. OrbitDock only needs to surface the request when the sandbox blocks the action."
+      case .autonomous:
+        "Codex weighs risk and can approve or deny a request without interrupting you when it has enough confidence."
+      case .open:
+        "Codex is still making the approval call, but it is doing that work without sandbox restrictions, so this mode deserves extra attention."
+      case .fullAuto:
+        "Approval UI becomes read-only context here. Codex runs directly inside the configured sandbox and will not pause for confirmation."
+      case .unrestricted:
+        "There is no sandbox and no approval pause. OrbitDock can only show policy context after the fact, so treat this as a deliberate high-trust mode."
+    }
+  }
+
+  var autoReviewHighlights: [String] {
+    switch self {
+      case .locked:
+        [
+          "Read-only work can stay fast and uninterrupted",
+          "Edits, writes, and shell actions still require explicit review",
+        ]
+      case .guarded:
+        [
+          "The sandbox absorbs most routine risk automatically",
+          "Requests only escalate when the model hits a real boundary",
+        ]
+      case .autonomous:
+        [
+          "Higher-confidence requests can be resolved without a handoff",
+          "Anything uncertain still lands back in the regular approval UI",
+        ]
+      case .open:
+        [
+          "Auto review is still active in this mode",
+          "Because sandboxing is off, the model's risk judgment matters more",
+        ]
+      case .fullAuto:
+        [
+          "You will not get an approval interruption for individual actions",
+          "This panel is best used as policy and audit context",
+        ]
+      case .unrestricted:
+        [
+          "Nothing is sandboxed and nothing is approval-gated",
+          "Use this only when you intentionally want maximum autonomy",
+        ]
+    }
+  }
+
   var approvalPolicy: String? {
     switch self {
       case .locked: "untrusted"
@@ -189,20 +272,14 @@ struct AutonomyPill: View {
     }
   }
 
-  let sessionId: String
+  let currentLevel: AutonomyLevel
+  let isConfiguredOnServer: Bool
   var size: PillSize = .regular
   var isActive: Bool = false
   var onTapOverride: (() -> Void)?
-  @Environment(SessionStore.self) private var serverState
+  var onUpdate: ((AutonomyLevel) -> Void)?
+  var onApplyCurrentSelection: (() -> Void)?
   @State private var showPopover = false
-
-  private var currentLevel: AutonomyLevel {
-    serverState.session(sessionId).autonomy
-  }
-
-  private var isConfiguredOnServer: Bool {
-    serverState.session(sessionId).autonomyConfiguredOnServer
-  }
 
   var body: some View {
     Button {
@@ -239,24 +316,8 @@ struct AutonomyPill: View {
     .platformPopover(isPresented: $showPopover) {
       AutonomyPopover(selection: Binding(
         get: { currentLevel },
-        set: { newLevel in
-          Task {
-            try? await serverState.updateSessionConfig(
-              sessionId,
-              approvalPolicy: newLevel.approvalPolicy,
-              sandboxMode: newLevel.sandboxMode
-            )
-          }
-        }
-      ), isConfiguredOnServer: isConfiguredOnServer) {
-        Task {
-          try? await serverState.updateSessionConfig(
-            sessionId,
-            approvalPolicy: currentLevel.approvalPolicy,
-            sandboxMode: currentLevel.sandboxMode
-          )
-        }
-      }
+        set: { newLevel in onUpdate?(newLevel) }
+      ), isConfiguredOnServer: isConfiguredOnServer, onApplyCurrentSelection: onApplyCurrentSelection)
     }
   }
 }
@@ -551,11 +612,10 @@ struct InlineAutonomyPicker: View {
 
 #Preview("Autonomy Pill") {
   HStack {
-    AutonomyPill(sessionId: "test")
+    AutonomyPill(currentLevel: .autonomous, isConfiguredOnServer: true)
   }
   .padding()
   .background(Color.backgroundPrimary)
-  .environment(SessionStore.preview())
 }
 
 #Preview("Autonomy Popover") {

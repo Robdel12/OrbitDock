@@ -127,16 +127,13 @@ struct ClaudePermissionPill: View {
     }
   }
 
-  let sessionId: String
+  let currentMode: ClaudePermissionMode
+  var showBypassOption: Bool = true
   var size: PillSize = .regular
   var isActive: Bool = false
   var onTapOverride: (() -> Void)?
-  @Environment(SessionStore.self) private var serverState
+  var onUpdate: ((ClaudePermissionMode) -> Void)?
   @State private var showPopover = false
-
-  private var currentMode: ClaudePermissionMode {
-    serverState.session(sessionId).permissionMode
-  }
 
   var body: some View {
     Button {
@@ -170,11 +167,9 @@ struct ClaudePermissionPill: View {
       ClaudePermissionPopover(
         selection: Binding(
           get: { currentMode },
-          set: { newMode in
-            Task { try? await serverState.updateClaudePermissionMode(sessionId, mode: newMode) }
-          }
+          set: { newMode in onUpdate?(newMode) }
         ),
-        showBypassOption: serverState.session(sessionId).allowBypassPermissions
+        showBypassOption: showBypassOption
       )
     }
   }
@@ -419,11 +414,10 @@ struct InlineClaudePermissionPicker: View {
 
 #Preview("Permission Pill") {
   HStack {
-    ClaudePermissionPill(sessionId: "test")
+    ClaudePermissionPill(currentMode: .default)
   }
   .padding()
   .background(Color.backgroundPrimary)
-  .environment(SessionStore.preview())
 }
 
 #Preview("Permission Popover") {

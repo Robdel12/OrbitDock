@@ -129,7 +129,7 @@ enum ServerSettingsSheetPlanner {
     currentEndpoints: [ServerEndpoint],
     removing endpoint: ServerEndpoint
   ) -> [ServerEndpoint] {
-    return currentEndpoints.filter { $0.id != endpoint.id }
+    currentEndpoints.filter { $0.id != endpoint.id }
   }
 
   static func defaultedEndpoints(

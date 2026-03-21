@@ -16,7 +16,7 @@ extension DirectSessionComposer {
       availableSkillNames: Set(availableSkills.map(\.name))
     )
     if needsSkillLoad {
-      Task { try? await serverState.listSkills(sessionId: sessionId) }
+      Task { try? await viewModel.listSkills() }
     }
   }
 
@@ -90,13 +90,13 @@ extension DirectSessionComposer {
       for: text,
       hasSkillsPanel: hasSkillsPanel,
       availableSkillsAreLoaded: !availableSkills.isEmpty,
-      hasMcpTools: !serverState.session(sessionId).mcpTools.isEmpty
+      hasMcpTools: !viewModel.mcpTools.isEmpty
     )
     if loadRequests.contains(.skills) {
-      Task { try? await serverState.listSkills(sessionId: sessionId) }
+      Task { try? await viewModel.listSkills() }
     }
     if loadRequests.contains(.mcpTools) {
-      Task { try? await serverState.listMcpTools(sessionId: sessionId) }
+      Task { try? await viewModel.listMcpTools() }
     }
     if loadRequests.contains(.projectFiles) {
       loadProjectFilesIfNeeded()
@@ -157,7 +157,7 @@ extension DirectSessionComposer {
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
         if hasSkillsPanel {
-          Task { try? await serverState.listSkills(sessionId: sessionId) }
+          Task { try? await viewModel.listSkills() }
         }
         activateCommandDeck(prefill: "skill")
 
@@ -176,7 +176,7 @@ extension DirectSessionComposer {
       case .refreshMcp:
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
-        Task { try? await serverState.refreshMcpServers(sessionId) }
+        Task { try? await viewModel.refreshMcpServers() }
 
       case let .attachFile(file):
         clearCommandDeckState()

@@ -227,15 +227,11 @@ struct CodexModePill: View {
     }
   }
 
-  let sessionId: String
+  let currentMode: CodexCollaborationMode
+  var supportedModes: [CodexCollaborationMode] = CodexCollaborationMode.allCases
   var size: PillSize = .regular
-  @Environment(SessionStore.self) private var serverState
+  var onUpdate: ((CodexCollaborationMode) -> Void)?
   @State private var showPopover = false
-
-  private var currentMode: CodexCollaborationMode {
-    let session = serverState.session(sessionId)
-    return CodexCollaborationMode.from(rawValue: session.collaborationMode, permissionMode: session.permissionMode)
-  }
 
   var body: some View {
     Button {
@@ -261,11 +257,9 @@ struct CodexModePill: View {
           .font(.system(size: TypeScale.subhead, weight: .semibold))
           .foregroundStyle(Color.textPrimary)
 
-        ForEach(CodexCollaborationMode.allCases) { mode in
+        ForEach(supportedModes) { mode in
           Button {
-            Task {
-              try? await serverState.updateSessionConfig(sessionId, collaborationMode: mode.rawValue)
-            }
+            onUpdate?(mode)
             showPopover = false
           } label: {
             HStack(alignment: .top, spacing: Spacing.sm) {

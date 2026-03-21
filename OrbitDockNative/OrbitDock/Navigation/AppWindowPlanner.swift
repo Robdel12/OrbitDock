@@ -14,7 +14,11 @@ enum AppWindowPlanner {
     hasEndpoints: Bool = true,
     selectedSessionRef: SessionRef?
   ) -> AppContentDestination {
-    if shouldShowSetup(connectedRuntimeCount: connectedRuntimeCount, installState: installState, hasEndpoints: hasEndpoints) {
+    if shouldShowSetup(
+      connectedRuntimeCount: connectedRuntimeCount,
+      installState: installState,
+      hasEndpoints: hasEndpoints
+    ) {
       return .setup
     }
 
@@ -31,7 +35,11 @@ enum AppWindowPlanner {
     hasEndpoints: Bool = true,
     route: AppRoute
   ) -> AppContentDestination {
-    if shouldShowSetup(connectedRuntimeCount: connectedRuntimeCount, installState: installState, hasEndpoints: hasEndpoints) {
+    if shouldShowSetup(
+      connectedRuntimeCount: connectedRuntimeCount,
+      installState: installState,
+      hasEndpoints: hasEndpoints
+    ) {
       return .setup
     }
 

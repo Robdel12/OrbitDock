@@ -1,13 +1,13 @@
 import SwiftUI
 
 extension DirectSessionComposer {
-  var obs: SessionObservable {
-    serverState.session(sessionId)
+  var obs: DirectSessionComposerSessionState {
+    viewModel.sessionState
   }
 
   var currentContinuation: SessionContinuation {
     SessionContinuation(
-      endpointId: serverState.endpointId,
+      endpointId: viewModel.endpointId,
       sessionId: sessionId,
       provider: obs.provider,
       displayName: obs.displayName,
@@ -18,7 +18,7 @@ extension DirectSessionComposer {
   }
 
   var canContinueInNewSession: Bool {
-    !serverState.isRemoteConnection
+    !viewModel.isRemoteConnection
   }
 
   var pendingApprovalModel: ApprovalCardModel? {
@@ -63,11 +63,11 @@ extension DirectSessionComposer {
   }
 
   var draftStorageKey: String {
-    "endpoint:\(serverState.endpointId.uuidString)::session:\(sessionId)"
+    "endpoint:\(viewModel.endpointId.uuidString)::session:\(sessionId)"
   }
 
   var connectionStatus: ConnectionStatus {
-    runtimeRegistry.displayConnectionStatus(for: serverState.endpointId)
+    runtimeRegistry.displayConnectionStatus(for: viewModel.endpointId)
   }
 
   var isConnected: Bool {
@@ -154,7 +154,7 @@ extension DirectSessionComposer {
   }
 
   var availableSkills: [ServerSkillMetadata] {
-    serverState.session(sessionId).skills.filter(\.enabled)
+    viewModel.enabledSkills
   }
 
   var filteredSkills: [ServerSkillMetadata] {
@@ -175,7 +175,7 @@ extension DirectSessionComposer {
   }
 
   var codexModelOptions: [ServerCodexModelOption] {
-    serverState.codexModels
+    viewModel.codexModels
   }
 
   var currentCodexModelOption: ServerCodexModelOption? {
@@ -233,7 +233,7 @@ extension DirectSessionComposer {
   }
 
   var claudeModelOptions: [ServerClaudeModelOption] {
-    serverState.claudeModels
+    viewModel.claudeModels
   }
 
   var claudeModelOptionsSignature: String {
@@ -268,7 +268,7 @@ extension DirectSessionComposer {
   }
 
   var fileIndex: ProjectFileIndex {
-    serverState.projectFileIndex
+    viewModel.projectFileIndex
   }
 
   var forkWorktreeDisplayRepoPath: String? {
@@ -283,7 +283,7 @@ extension DirectSessionComposer {
 
   var forkToExistingCandidates: [ServerWorktreeSummary] {
     guard let repoPath = forkWorktreeDisplayRepoPath else { return [] }
-    return serverState.worktrees(for: repoPath)
+    return viewModel.worktrees(for: repoPath)
       .filter {
         $0.status != .removed && $0.diskPresent && $0.worktreePath != repoPath
       }
@@ -316,24 +316,24 @@ extension DirectSessionComposer {
   }
 
   var hasSkillsPanel: Bool {
-    obs.isDirectCodex || serverState.session(sessionId).hasClaudeSkills
+    obs.isDirectCodex || viewModel.hasClaudeSkills
   }
 
   var hasMcpData: Bool {
-    serverState.session(sessionId).hasMcpData
+    viewModel.hasMcpData
   }
 
   var mcpToolEntries: [ComposerMcpToolEntry] {
-    DirectSessionComposerCommandDeckPlanner.mcpToolEntries(from: serverState.session(sessionId).mcpTools)
+    DirectSessionComposerCommandDeckPlanner.mcpToolEntries(from: viewModel.mcpTools)
   }
 
   var mcpResourceEntries: [ComposerMcpResourceEntry] {
-    DirectSessionComposerCommandDeckPlanner.mcpResourceEntries(from: serverState.session(sessionId).mcpResources)
+    DirectSessionComposerCommandDeckPlanner.mcpResourceEntries(from: viewModel.mcpResources)
   }
 
   var mcpResourceTemplateEntries: [ComposerMcpResourceTemplateEntry] {
     DirectSessionComposerCommandDeckPlanner.mcpResourceTemplateEntries(
-      from: serverState.session(sessionId).mcpResourceTemplates
+      from: viewModel.mcpResourceTemplates
     )
   }
 

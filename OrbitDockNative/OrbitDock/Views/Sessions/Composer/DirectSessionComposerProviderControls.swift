@@ -214,10 +214,12 @@ private struct CodexSessionSettingsPopover: View {
         .font(.system(size: TypeScale.subhead, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("This session starts from the Codex config for the project folder. Change anything here to override it for this session only, or reset back to the Codex config.")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textTertiary)
-        .fixedSize(horizontal: false, vertical: true)
+      Text(
+        "This session starts from the Codex config for the project folder. Change anything here to override it for this session only, or reset back to the Codex config."
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textTertiary)
+      .fixedSize(horizontal: false, vertical: true)
 
       HStack {
         Spacer()

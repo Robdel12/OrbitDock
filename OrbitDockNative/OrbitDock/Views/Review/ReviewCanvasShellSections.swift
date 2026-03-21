@@ -7,7 +7,7 @@ extension ReviewCanvas {
     HStack(spacing: 0) {
       FileListNavigator(
         files: model.files,
-        turnDiffs: obs.turnDiffs,
+        turnDiffs: viewModel.turnDiffs,
         selectedFileId: fileListBinding(model),
         selectedTurnDiffId: $selectedTurnDiffId,
         commentCounts: commentCounts,
@@ -48,7 +48,7 @@ extension ReviewCanvas {
         ReviewCanvasDiffFiles(
           model: model,
           target: target,
-          reviewComments: obs.reviewComments,
+          reviewComments: viewModel.reviewComments,
           selectedTurnDiffId: selectedTurnDiffId,
           showResolvedComments: showResolvedComments,
           selectedCommentIds: $selectedCommentIds,

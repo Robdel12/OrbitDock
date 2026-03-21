@@ -27,18 +27,37 @@ extension DirectSessionComposer {
 
       if obs.isDirectCodex {
         AutonomyPill(
-          sessionId: sessionId,
+          currentLevel: obs.autonomy,
+          isConfiguredOnServer: obs.autonomyConfiguredOnServer,
           size: .statusBar,
           isActive: permissionPanelExpanded,
           onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
         )
-        CodexModePill(sessionId: sessionId, size: .statusBar)
+        codexAutoReviewPill
+        CodexModePill(
+          currentMode: CodexCollaborationMode.from(
+            rawValue: obs.collaborationMode,
+            permissionMode: obs.permissionMode
+          ),
+          size: .statusBar,
+          onUpdate: { mode in
+            Task {
+              try? await viewModel.updateCodexCollaborationMode(mode)
+            }
+          }
+        )
       } else if obs.isDirectClaude {
         ClaudePermissionPill(
-          sessionId: sessionId,
+          currentMode: obs.permissionMode,
+          showBypassOption: obs.allowBypassPermissions,
           size: .statusBar,
           isActive: permissionPanelExpanded,
-          onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+          onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } },
+          onUpdate: { mode in
+            Task {
+              try? await viewModel.updateClaudePermissionMode(mode)
+            }
+          }
         )
       }
 
@@ -71,18 +90,37 @@ extension DirectSessionComposer {
 
         if obs.isDirectCodex {
           AutonomyPill(
-            sessionId: sessionId,
+            currentLevel: obs.autonomy,
+            isConfiguredOnServer: obs.autonomyConfiguredOnServer,
             size: .statusBar,
             isActive: permissionPanelExpanded,
             onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
           )
-          CodexModePill(sessionId: sessionId, size: .statusBar)
+          codexAutoReviewPill
+          CodexModePill(
+            currentMode: CodexCollaborationMode.from(
+              rawValue: obs.collaborationMode,
+              permissionMode: obs.permissionMode
+            ),
+            size: .statusBar,
+            onUpdate: { mode in
+              Task {
+                try? await viewModel.updateCodexCollaborationMode(mode)
+              }
+            }
+          )
         } else if obs.isDirectClaude {
           ClaudePermissionPill(
-            sessionId: sessionId,
+            currentMode: obs.permissionMode,
+            showBypassOption: obs.allowBypassPermissions,
             size: .statusBar,
             isActive: permissionPanelExpanded,
-            onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } }
+            onTapOverride: { withAnimation(Motion.standard) { permissionPanelExpanded.toggle() } },
+            onUpdate: { mode in
+              Task {
+                try? await viewModel.updateClaudePermissionMode(mode)
+              }
+            }
           )
         }
 
@@ -132,7 +170,7 @@ extension DirectSessionComposer {
 
       if showReconnectButton {
         Button("Reconnect") {
-          runtimeRegistry.reconnect(endpointId: serverState.endpointId)
+          runtimeRegistry.reconnect(endpointId: viewModel.endpointId)
         }
         .buttonStyle(GhostButtonStyle(color: .accent, size: .compact))
       }
@@ -152,5 +190,34 @@ extension DirectSessionComposer {
     }
     .foregroundStyle(Color.textQuaternary)
     .help(cwd)
+  }
+
+  var codexAutoReviewPill: some View {
+    Button {
+      withAnimation(Motion.standard) { permissionPanelExpanded.toggle() }
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: obs.autonomy.autoReviewStatusIcon)
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+        Text(obs.autonomy.autoReviewStatusLabel)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .lineLimit(1)
+      }
+      .foregroundStyle(obs.autonomy.color)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.gap)
+      .background(obs.autonomy.color.opacity(OpacityTier.light), in: Capsule())
+      .overlay(
+        Capsule()
+          .strokeBorder(
+            permissionPanelExpanded
+              ? obs.autonomy.color.opacity(OpacityTier.medium)
+              : Color.clear,
+            lineWidth: 1
+          )
+      )
+    }
+    .buttonStyle(.plain)
+    .help(obs.autonomy.autoReviewCardSummary)
   }
 }

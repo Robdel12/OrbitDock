@@ -47,7 +47,6 @@ struct PreviewRuntime {
       sessionStore.session(session.id).applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
     }
     sessionStore.codexModels = Self.previewCodexModels()
-    sessionStore.claudeModels = Self.previewClaudeModels()
     sessionStore.codexAccountStatus = ServerCodexAccountStatus(
       authMode: .chatgpt,
       requiresOpenaiAuth: false,
@@ -178,21 +177,6 @@ struct PreviewRuntime {
         attentionReason: .none,
         provider: .codex,
         codexIntegrationMode: .direct
-      ),
-    ]
-  }
-
-  private static func previewClaudeModels() -> [ServerClaudeModelOption] {
-    [
-      ServerClaudeModelOption(
-        value: "claude-opus",
-        displayName: "Claude Opus",
-        description: "Best for deep design and architecture work."
-      ),
-      ServerClaudeModelOption(
-        value: "claude-sonnet",
-        displayName: "Claude Sonnet",
-        description: "Balanced speed and reasoning for general work."
       ),
     ]
   }

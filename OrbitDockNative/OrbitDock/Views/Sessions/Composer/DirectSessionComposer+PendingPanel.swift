@@ -589,7 +589,7 @@ extension DirectSessionComposer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
           guard let requestId = model.approvalId, !answer.isEmpty else { return }
           Task {
-            try? await serverState.answerQuestion(
+            try? await viewModel.answerQuestion(
               sessionId: model.sessionId,
               requestId: requestId,
               answer: answer
@@ -639,7 +639,7 @@ extension DirectSessionComposer {
       title: ApprovalCardConfiguration.takeoverButtonTitle(for: model),
       onTakeover: {
         Platform.services.playHaptic(.success)
-        Task { try? await serverState.takeoverSession(model.sessionId) }
+        Task { try? await viewModel.takeoverSession(model.sessionId) }
       }
     )
   }
@@ -651,7 +651,7 @@ extension DirectSessionComposer {
       Spacer()
       Button {
         Platform.services.playHaptic(.success)
-        Task { try? await serverState.takeoverSession(model.sessionId) }
+        Task { try? await viewModel.takeoverSession(model.sessionId) }
       } label: {
         Text("Take Over")
           .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -735,7 +735,7 @@ extension DirectSessionComposer {
 
     Task {
       do {
-        try await serverState.answerQuestion(
+        try await viewModel.answerQuestion(
           sessionId: model.sessionId,
           requestId: requestId,
           answer: primaryAnswer,
@@ -758,7 +758,7 @@ extension DirectSessionComposer {
     guard let requestId = model.approvalId else { return }
     Task {
       do {
-        try await serverState.approveTool(
+        try await viewModel.approveTool(
           sessionId: model.sessionId,
           requestId: requestId,
           decision: decision,
@@ -814,7 +814,7 @@ extension DirectSessionComposer {
     guard let requestId = model.approvalId else { return }
     Task {
       do {
-        try await serverState.respondToPermissionRequest(
+        try await viewModel.respondToPermissionRequest(
           sessionId: model.sessionId,
           requestId: requestId,
           scope: pendingState.permissionGrantScope,

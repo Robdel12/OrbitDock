@@ -313,10 +313,10 @@ struct ServerSetupView: View {
 
   // MARK: - Terminal Field
 
-  private func terminalField<Content: View>(
+  private func terminalField(
     icon: String,
     placeholder: String,
-    @ViewBuilder content: () -> Content
+    @ViewBuilder content: () -> some View
   ) -> some View {
     HStack(spacing: Spacing.md) {
       Image(systemName: icon)
@@ -439,16 +439,14 @@ struct ServerSetupView: View {
     let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let isLocal = trimmedHost == "127.0.0.1" || trimmedHost == "localhost" || trimmedHost == "::1"
 
-    let result: Result<[ServerEndpoint], ServerSetupConnectError>
-
-    if isLocal {
-      result = ServerSetupViewPlanner.buildLocalEndpoint(
+    let result: Result<[ServerEndpoint], ServerSetupConnectError> = if isLocal {
+      ServerSetupViewPlanner.buildLocalEndpoint(
         authToken: authToken,
         existingEndpoints: endpointSettings.endpoints(),
         defaultPort: endpointSettings.defaultPort
       )
     } else {
-      result = ServerSetupViewPlanner.buildEndpoint(
+      ServerSetupViewPlanner.buildEndpoint(
         host: host,
         authToken: authToken,
         existingEndpoints: endpointSettings.endpoints(),

@@ -25,23 +25,23 @@ struct OrbitDockWindowRoot: View {
             isInitialLoading: false,
             isRefreshingCachedSessions: false
           )
-        .navigationDestination(for: AppNavDestination.self) { destination in
-          switch destination {
-            case let .session(ref):
-              SessionDetailView(
-                sessionId: ref.sessionId,
-                endpointId: ref.endpointId
-              )
-              .environment(detailSessionStore(for: ref.endpointId))
-              .id(ref.scopedID)
-            case let .mission(ref):
-              MissionShowView(
-                missionId: ref.missionId,
-                endpointId: ref.endpointId
-              )
-              .id(ref.id)
+          .navigationDestination(for: AppNavDestination.self) { destination in
+            switch destination {
+              case let .session(ref):
+                SessionDetailView(
+                  sessionId: ref.sessionId,
+                  endpointId: ref.endpointId,
+                  sessionStore: detailSessionStore(for: ref.endpointId)
+                )
+                .id(ref.scopedID)
+              case let .mission(ref):
+                MissionShowView(
+                  missionId: ref.missionId,
+                  endpointId: ref.endpointId
+                )
+                .id(ref.id)
+            }
           }
-        }
         }
       }
 

@@ -69,7 +69,7 @@ extension DirectSessionComposer {
         return
 
       case let .executeShell(command, exitsShellMode):
-        Task { try? await serverState.executeShell(sessionId, command: command) }
+        Task { try? await viewModel.executeShell(command: command) }
         Platform.services.playHaptic(.action)
         self.message = ""
         if exitsShellMode {
@@ -86,7 +86,7 @@ extension DirectSessionComposer {
       sendPlan: sendPlan,
       message: sendContext.trimmedMessage,
       attachments: attachmentState,
-      shellContext: obs.consumeShellContext(),
+      shellContext: viewModel.consumeShellContext(),
       selectedSkillPaths: selectedSkills,
       availableSkills: availableSkills
     )
@@ -163,8 +163,7 @@ extension DirectSessionComposer {
         uploaded.reserveCapacity(images.count)
 
         for image in images {
-          let input = try await serverState.uploadImageAttachment(
-            sessionId: sessionId,
+          let input = try await viewModel.uploadImageAttachment(
             data: image.uploadData,
             mimeType: image.uploadMimeType,
             displayName: image.displayName ?? "image",
@@ -177,23 +176,10 @@ extension DirectSessionComposer {
         return uploaded
       },
       sendMessage: { request in
-        try await serverState.sendMessage(
-          sessionId: sessionId,
-          content: request.content,
-          model: request.model,
-          effort: request.effort,
-          skills: request.skills,
-          images: request.images,
-          mentions: request.mentions
-        )
+        try await viewModel.sendMessage(request)
       },
       steerTurn: { request in
-        try await serverState.steerTurn(
-          sessionId: sessionId,
-          content: request.content,
-          images: request.images,
-          mentions: request.mentions
-        )
+        try await viewModel.steerTurn(request)
       }
     )
   }
@@ -245,8 +231,7 @@ extension DirectSessionComposer {
       let currentInstructions = normalizedCodexInstructions(obs.developerInstructions)
       let nextInstructions = normalizedCodexInstructions(developerInstructions)
 
-      try await serverState.updateCodexSessionOverrides(
-        sessionId,
+      try await viewModel.updateCodexSessionOverrides(
         collaborationMode: collaborationMode != currentCodexCollaborationMode
           ? .set(collaborationMode.rawValue)
           : nil,
@@ -273,8 +258,7 @@ extension DirectSessionComposer {
   @MainActor
   func resetCodexSessionOverrides() async {
     do {
-      try await serverState.updateCodexSessionOverrides(
-        sessionId,
+      try await viewModel.updateCodexSessionOverrides(
         collaborationMode: .clear,
         multiAgent: .clear,
         personality: .clear,
@@ -331,10 +315,10 @@ extension DirectSessionComposer {
 
     Task {
       do {
-        codexInspectorResponse = try await serverState.clients.sessions.inspectCodexConfig(request)
+        codexInspectorResponse = try await viewModel.inspectCodexConfig(request)
       } catch {
         codexInspectorResponse = nil
-        codexInspectorError = "Couldn't load the Codex config inspector right now."
+        codexInspectorError = error.localizedDescription
       }
       codexInspectorLoading = false
     }
@@ -419,7 +403,7 @@ extension DirectSessionComposer {
 
   func refreshForkExistingWorktrees() {
     guard forkWorktreeDisplayRepoPath != nil else { return }
-    serverState.refreshWorktreesForActiveSessions()
+    viewModel.refreshWorktreesForActiveSessions()
   }
 
   func statusColor(for status: ServerWorktreeStatus) -> Color {
@@ -480,8 +464,7 @@ extension DirectSessionComposer {
         },
         onCreate: { branchName, baseBranch in
           Task {
-            try? await serverState.forkSessionToWorktree(
-              sessionId: sessionId,
+            try? await viewModel.forkSessionToWorktree(
               branchName: branchName,
               baseBranch: baseBranch,
               nthUserMessage: nil
@@ -545,9 +528,7 @@ extension DirectSessionComposer {
               ForEach(forkToExistingCandidates) { wt in
                 Button {
                   Task {
-                    try? await serverState.forkSessionToExistingWorktree(
-                      sessionId: sessionId, worktreeId: wt.id, nthUserMessage: nil
-                    )
+                    try? await viewModel.forkSessionToExistingWorktree(worktreeId: wt.id, nthUserMessage: nil)
                   }
                   showForkToExistingWorktreeSheet = false
                 } label: {

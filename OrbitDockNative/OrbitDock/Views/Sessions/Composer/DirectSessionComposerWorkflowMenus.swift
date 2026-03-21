@@ -3,19 +3,21 @@ import SwiftUI
 extension DirectSessionComposer {
   @ViewBuilder
   var turnActionsMenuContent: some View {
-    if obs.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
+    if obs.isDirectCodex || viewModel.hasSlashCommand("undo") {
       Button {
-        Task { try? await serverState.undoLastTurn(sessionId) }
+        Task { try? await viewModel.undoLastTurn() }
       } label: {
         Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
       }
-      .disabled(serverState.session(sessionId).undoInProgress)
+      .disabled(viewModel.undoInProgress)
     }
 
-    if obs.isDirect, let lastUserEntry = obs.rowEntries.last(where: { if case .user = $0.row { return true }; return false }) {
+    if obs.isDirect,
+       let lastUserEntry = obs.rowEntries.last(where: { if case .user = $0.row { return true }; return false })
+    {
       let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
       Button {
-        Task { try? await serverState.rewindFiles(sessionId, userMessageId: lastUserEntry.id) }
+        Task { try? await viewModel.rewindFiles(userMessageId: lastUserEntry.id) }
       } label: {
         Label(
           hasRecentCheckpoint ? "Rewind Files (checkpoint saved)" : "Rewind Files",
@@ -26,7 +28,7 @@ extension DirectSessionComposer {
     }
 
     Button {
-      Task { try? await serverState.forkSession(sessionId: sessionId, nthUserMessage: nil) }
+      Task { try? await viewModel.forkSession(nthUserMessage: nil) }
     } label: {
       Label("Fork Conversation", systemImage: "arrow.triangle.branch")
     }
@@ -65,7 +67,7 @@ extension DirectSessionComposer {
 
     if obs.hasTokenUsage {
       Button {
-        Task { try? await serverState.compactContext(sessionId) }
+        Task { try? await viewModel.compactContext() }
       } label: {
         Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
       }
@@ -74,7 +76,7 @@ extension DirectSessionComposer {
     if hasMcpData {
       Divider()
       Button {
-        Task { try? await serverState.refreshMcpServers(sessionId) }
+        Task { try? await viewModel.refreshMcpServers() }
       } label: {
         Label("Refresh MCP Servers", systemImage: "arrow.clockwise")
       }
@@ -100,7 +102,7 @@ extension DirectSessionComposer {
 
         if hasSkillsPanel {
           Button {
-            Task { try? await serverState.listSkills(sessionId: sessionId) }
+            Task { try? await viewModel.listSkills() }
             activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")
@@ -161,7 +163,7 @@ extension DirectSessionComposer {
       Section("Compose") {
         if hasSkillsPanel {
           Button {
-            Task { try? await serverState.listSkills(sessionId: sessionId) }
+            Task { try? await viewModel.listSkills() }
             activateCommandDeck(prefill: "skill")
           } label: {
             Label("Attach Skills", systemImage: "bolt.fill")

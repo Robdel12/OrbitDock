@@ -7,7 +7,7 @@ extension ReviewCanvas {
     let cursorFileIdx = currentFileIndex(model)
 
     return VStack(spacing: 0) {
-      if !obs.turnDiffs.isEmpty {
+      if !viewModel.turnDiffs.isEmpty {
         ScrollView(.horizontal, showsIndicators: false) {
           HStack(spacing: Spacing.xs) {
             compactSourceButton(
@@ -18,7 +18,7 @@ extension ReviewCanvas {
               selectedTurnDiffId = nil
             }
 
-            ForEach(Array(obs.turnDiffs.enumerated()), id: \.element.turnId) { index, turnDiff in
+            ForEach(Array(viewModel.turnDiffs.enumerated()), id: \.element.turnId) { index, turnDiff in
               compactSourceButton(
                 label: "Edit \(index + 1)",
                 icon: "number",

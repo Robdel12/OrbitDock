@@ -102,15 +102,19 @@ struct CodexAccountSetupPane: View {
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
 
-          Text("OrbitDock always starts Codex sessions from the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textSecondary)
-            .fixedSize(horizontal: false, vertical: true)
+          Text(
+            "OrbitDock always starts Codex sessions from the Codex config that applies to the selected folder, including your user config and any project-level `.codex` config."
+          )
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textSecondary)
+          .fixedSize(horizontal: false, vertical: true)
 
-          Text("You can still add temporary per-session overrides from the New Session sheet without changing your Codex files.")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
+          Text(
+            "You can still add temporary per-session overrides from the New Session sheet without changing your Codex files."
+          )
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
         }
       }
     }

@@ -31,6 +31,7 @@ import SwiftUI
 
 struct ReviewCanvas: View {
   let sessionId: String
+  let sessionStore: SessionStore
   let projectPath: String
   let isSessionActive: Bool
   var compact: Bool = false
@@ -38,8 +39,6 @@ struct ReviewCanvas: View {
   var onDismiss: (() -> Void)?
   @Binding var selectedCommentIds: Set<String>
   var navigateToComment: Binding<ServerReviewComment?>?
-
-  @Environment(SessionStore.self) var serverState
 
   @State var cursorIndex: Int = 0
   @State var collapsedFiles: Set<String> = []
@@ -59,17 +58,10 @@ struct ReviewCanvas: View {
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = ReviewDiffParseCache()
-
-  var obs: SessionObservable {
-    serverState.session(sessionId)
-  }
+  @State var viewModel = ReviewCanvasViewModel()
 
   private var rawDiff: String? {
-    ReviewCanvasStatePlanner.rawDiff(
-      selectedTurnDiffId: selectedTurnDiffId,
-      turnDiffs: obs.turnDiffs,
-      currentDiff: obs.diff
-    )
+    viewModel.rawDiff(selectedTurnDiffId: selectedTurnDiffId)
   }
 
   var diffModel: DiffModel? {
@@ -78,14 +70,14 @@ struct ReviewCanvas: View {
 
   var commentCounts: [String: Int] {
     ReviewCanvasProjection.commentCounts(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       activeTurnId: selectedTurnDiffId
     )
   }
 
   var reviewSendBarState: ReviewSendBarState? {
     ReviewCanvasProjection.sendBarState(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       selectedCommentIds: selectedCommentIds,
       activeTurnId: selectedTurnDiffId
     )
@@ -93,7 +85,7 @@ struct ReviewCanvas: View {
 
   var hasResolvedComments: Bool {
     ReviewCanvasProjection.hasResolvedComments(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       activeTurnId: selectedTurnDiffId
     )
   }
@@ -101,7 +93,7 @@ struct ReviewCanvas: View {
   var reviewBannerState: ReviewBannerState? {
     ReviewRoundTracker.bannerState(
       state: reviewRoundTracker,
-      turnDiffs: obs.turnDiffs
+      turnDiffs: viewModel.turnDiffs
     )
   }
 
@@ -142,6 +134,9 @@ struct ReviewCanvas: View {
       }
     }
     .background(Color.backgroundPrimary)
+    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+    }
     .onChange(of: rawDiff) { _, _ in
       guard let model = diffModel else { return }
       let targets = visibleTargets(model)
@@ -167,9 +162,7 @@ struct ReviewCanvas: View {
     .onAppear {
       isCanvasFocused = true
       handlePendingNavigation()
-      if ReviewCanvasStatePlanner.shouldLoadReviewComments(existingComments: obs.reviewComments) {
-        Task { try? await serverState.listReviewComments(sessionId: sessionId, turnId: nil) }
-      }
+      viewModel.loadReviewCommentsIfNeeded()
     }
   }
 
@@ -181,7 +174,7 @@ struct ReviewCanvas: View {
   /// Scoped to the active turn view — when viewing a specific turn, only shows that turn's comments.
   func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
     ReviewCanvasProjection.commentsForLine(
-      comments: obs.reviewComments,
+      comments: viewModel.reviewComments,
       filePath: filePath,
       lineNum: lineNum,
       activeTurnId: selectedTurnDiffId
@@ -205,36 +198,12 @@ struct ReviewCanvas: View {
   /// If comments are selected (via `x`), sends only those. Otherwise sends all open.
   /// Records a review round to track which files the model modifies in response.
   func sendReview() {
-    let openComments = ReviewCanvasProjection.openComments(
-      from: obs.reviewComments,
-      activeTurnId: selectedTurnDiffId
-    )
-
-    guard let plan = ReviewSendCoordinator.makePlan(
-      openComments: openComments,
-      selectedCommentIds: selectedCommentIds,
+    viewModel.sendReview(
+      selectedCommentIds: &selectedCommentIds,
+      selectedTurnDiffId: selectedTurnDiffId,
       diffModel: diffModel,
-      turnDiffs: obs.turnDiffs
-    ) else { return }
-
-    reviewRoundTracker.record(plan.reviewRound)
-
-    Task {
-      try? await serverState.sendMessage(sessionId: sessionId, content: plan.message)
-    }
-
-    // Mark sent comments as resolved
-    for commentId in plan.commentIdsToResolve {
-      Task {
-        try? await serverState.clients.approvals.updateReviewComment(
-          commentId: commentId,
-          body: ApprovalsClient.UpdateReviewCommentRequest(status: .resolved)
-        )
-      }
-    }
-
-    // Clear selection after send
-    selectedCommentIds.removeAll()
+      reviewRoundTracker: &reviewRoundTracker
+    )
   }
 
   // MARK: - Review Round Status
@@ -245,7 +214,7 @@ struct ReviewCanvas: View {
     ReviewRoundTracker.addressedFileStatus(
       filePath: filePath,
       state: reviewRoundTracker,
-      turnDiffs: obs.turnDiffs
+      turnDiffs: viewModel.turnDiffs
     )
   }
 
@@ -258,7 +227,7 @@ struct ReviewCanvas: View {
   var addressedFilePaths: Set<String> {
     ReviewRoundTracker.addressedFilePaths(
       state: reviewRoundTracker,
-      turnDiffs: obs.turnDiffs
+      turnDiffs: viewModel.turnDiffs
     )
   }
 

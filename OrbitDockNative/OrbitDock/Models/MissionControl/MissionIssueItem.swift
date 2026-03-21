@@ -42,12 +42,12 @@ enum OrchestrationState: String, Codable {
 
   var displayLabel: String {
     switch self {
-    case .queued: return "Queued"
-    case .claimed: return "Claimed"
-    case .running: return "Running"
-    case .retryQueued: return "Retry Queued"
-    case .completed: return "Completed"
-    case .failed: return "Failed"
+      case .queued: "Queued"
+      case .claimed: "Claimed"
+      case .running: "Running"
+      case .retryQueued: "Retry Queued"
+      case .completed: "Completed"
+      case .failed: "Failed"
     }
   }
 }
@@ -63,10 +63,10 @@ extension MissionIssueItem {
 extension OrchestrationState {
   var color: Color {
     switch self {
-    case .queued, .retryQueued: Color.feedbackCaution
-    case .claimed, .running: Color.statusWorking
-    case .completed: Color.feedbackPositive
-    case .failed: Color.feedbackNegative
+      case .queued, .retryQueued: Color.feedbackCaution
+      case .claimed, .running: Color.statusWorking
+      case .completed: Color.feedbackPositive
+      case .failed: Color.feedbackNegative
     }
   }
 }

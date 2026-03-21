@@ -74,7 +74,7 @@ struct NewSessionSheet: View {
   }
 
   private var claudeModels: [ServerClaudeModelOption] {
-    endpointAppState.claudeModels
+    ServerClaudeModelOption.defaults
   }
 
   private var codexModels: [ServerCodexModelOption] {
@@ -288,7 +288,7 @@ struct NewSessionSheet: View {
         codexInspectorResponse = try await endpointAppState.clients.sessions.inspectCodexConfig(request)
       } catch {
         codexInspectorResponse = nil
-        codexInspectorError = "Couldn't load the Codex config inspector right now."
+        codexInspectorError = error.localizedDescription
       }
       codexInspectorLoading = false
     }
@@ -441,7 +441,6 @@ struct NewSessionSheet: View {
   // MARK: - Actions
 
   private func refreshEndpointData() {
-    endpointAppState.refreshClaudeModels()
     guard model.provider == .codex else { return }
     endpointAppState.refreshCodexModels()
     endpointAppState.refreshCodexAccount()
