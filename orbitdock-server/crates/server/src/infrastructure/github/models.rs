@@ -67,7 +67,7 @@ pub struct StatusFieldValue {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "__typename")]
 pub enum ProjectItemContent {
-    Issue(GitHubIssueNode),
+    Issue(Box<GitHubIssueNode>),
     PullRequest(GitHubPRNode),
     DraftIssue(DraftIssueNode),
 }

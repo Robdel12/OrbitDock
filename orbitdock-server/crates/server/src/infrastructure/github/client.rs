@@ -5,9 +5,8 @@ use reqwest::Client;
 use tracing::debug;
 
 use super::models::{
-    GraphQLResponse, IssueCommentsData, ProjectItem, ProjectItemContent,
-    ProjectItemLookupData, ProjectStatusFieldData, RepositoryIssueData,
-    UpdateFieldValueData, UserProjectData,
+    GraphQLResponse, IssueCommentsData, ProjectItem, ProjectItemContent, ProjectItemLookupData,
+    ProjectStatusFieldData, RepositoryIssueData, UpdateFieldValueData, UserProjectData,
 };
 use crate::domain::mission_control::tracker::{
     Tracker, TrackerComment, TrackerConfig, TrackerCreatedIssue, TrackerIssue,
@@ -68,7 +67,9 @@ impl GitHubClient {
         // Accept: "owner/repo#42" or "#42" (but the latter needs repo context)
         let parts: Vec<&str> = identifier.splitn(2, '#').collect();
         if parts.len() != 2 {
-            anyhow::bail!("Invalid GitHub identifier format: {identifier}. Expected owner/repo#number");
+            anyhow::bail!(
+                "Invalid GitHub identifier format: {identifier}. Expected owner/repo#number"
+            );
         }
 
         let number: u64 = parts[1]
@@ -77,14 +78,12 @@ impl GitHubClient {
 
         let repo_parts: Vec<&str> = parts[0].splitn(2, '/').collect();
         if repo_parts.len() != 2 || repo_parts[0].is_empty() || repo_parts[1].is_empty() {
-            anyhow::bail!("Invalid GitHub identifier format: {identifier}. Expected owner/repo#number");
+            anyhow::bail!(
+                "Invalid GitHub identifier format: {identifier}. Expected owner/repo#number"
+            );
         }
 
-        Ok((
-            repo_parts[0].to_string(),
-            repo_parts[1].to_string(),
-            number,
-        ))
+        Ok((repo_parts[0].to_string(), repo_parts[1].to_string(), number))
     }
 
     /// Fetch project items from a GitHub Projects v2 project.
@@ -181,9 +180,7 @@ impl GitHubClient {
             .and_then(|u| u.project_v2)
             .or_else(|| data.organization.and_then(|o| o.project_v2))
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "GitHub Project #{project_number} not found for owner '{owner}'"
-                )
+                anyhow::anyhow!("GitHub Project #{project_number} not found for owner '{owner}'")
             })?;
 
         let has_next = project.items.page_info.has_next_page;
@@ -222,7 +219,7 @@ impl GitHubClient {
 
             // Only process Issues (not PRs or DraftIssues)
             let content = match item.content {
-                Some(ProjectItemContent::Issue(issue)) => issue,
+                Some(ProjectItemContent::Issue(issue)) => *issue,
                 _ => continue,
             };
 
@@ -252,9 +249,7 @@ impl GitHubClient {
         number: u64,
         body: &str,
     ) -> anyhow::Result<()> {
-        let url = format!(
-            "https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments"
-        );
+        let url = format!("https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments");
 
         let resp = self
             .http
@@ -344,16 +339,18 @@ impl GitHubClient {
             let status_field = field_data
                 .node
                 .and_then(|n| n.field)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Status field not found on project {project_id}")
-                })?;
+                .ok_or_else(|| anyhow::anyhow!("Status field not found on project {project_id}"))?;
 
             let option = status_field
                 .options
                 .iter()
                 .find(|o| o.name.eq_ignore_ascii_case(state_name))
                 .ok_or_else(|| {
-                    let available: Vec<_> = status_field.options.iter().map(|o| o.name.as_str()).collect();
+                    let available: Vec<_> = status_field
+                        .options
+                        .iter()
+                        .map(|o| o.name.as_str())
+                        .collect();
                     anyhow::anyhow!(
                         "Status option '{state_name}' not found. Available: {}",
                         available.join(", ")
@@ -458,7 +455,9 @@ impl Tracker for GitHubClient {
         let project_number: u64 = config
             .project_key
             .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("project_key (project number) is required for GitHub tracker"))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("project_key (project number) is required for GitHub tracker")
+            })?
             .parse()
             .map_err(|_| anyhow::anyhow!("project_key must be a project number (e.g. '1')"))?;
 
@@ -588,8 +587,7 @@ impl Tracker for GitHubClient {
         }
 
         // Project Status field update (e.g. "In Progress", "Done")
-        self.update_project_status_field(issue_id, state_name)
-            .await
+        self.update_project_status_field(issue_id, state_name).await
     }
 
     async fn fetch_issue_by_identifier(
@@ -666,10 +664,7 @@ impl Tracker for GitHubClient {
             )
             .await?;
 
-        let comments = data
-            .node
-            .map(|n| n.comments.nodes)
-            .unwrap_or_default();
+        let comments = data.node.map(|n| n.comments.nodes).unwrap_or_default();
 
         // Use the GraphQL node ID so update_comment can use it directly
         Ok(comments
@@ -769,12 +764,7 @@ impl Tracker for GitHubClient {
         })
     }
 
-    async fn link_url(
-        &self,
-        issue_id: &str,
-        url: &str,
-        title: &str,
-    ) -> anyhow::Result<()> {
+    async fn link_url(&self, issue_id: &str, url: &str, title: &str) -> anyhow::Result<()> {
         // GitHub doesn't have first-class attachments — post a comment with the link
         let body = format!("**{title}**: {url}");
         self.create_comment(issue_id, &body).await
