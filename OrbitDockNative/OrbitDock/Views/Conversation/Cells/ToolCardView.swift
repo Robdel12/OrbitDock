@@ -404,7 +404,7 @@ struct ToolCardView: View {
       readPreviewStrip(preview)
     }
 
-    if (toolType == "grep" || toolType == "glob" || toolType == "toolSearch"),
+    if toolType == "grep" || toolType == "glob" || toolType == "toolSearch",
        let preview = searchPreviewText, !preview.isEmpty
     {
       searchPreviewStrip(preview)
@@ -863,12 +863,12 @@ struct ToolCardView: View {
     case mono
   }
 
-  private func previewStripHeader<Trailing: View>(
+  private func previewStripHeader(
     title: String,
     tint: Color,
     titleStyle: PreviewHeaderStyle,
     symbol: String? = nil,
-    @ViewBuilder trailing: () -> Trailing = { EmptyView() }
+    @ViewBuilder trailing: () -> some View = { EmptyView() }
   ) -> some View {
     HStack(alignment: .center, spacing: Spacing.sm_) {
       if let symbol {

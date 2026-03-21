@@ -7,6 +7,7 @@ import SwiftUI
 
 struct ConversationView: View {
   let sessionId: String?
+  let sessionStore: SessionStore
   var endpointId: UUID?
   var isSessionActive: Bool = false
   var displayStatus: SessionDisplayStatus = .ended
@@ -14,36 +15,17 @@ struct ConversationView: View {
   var chatViewMode: ChatViewMode = .focused
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
 
-  @Environment(SessionStore.self) private var serverState
-
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
-
-  /// Once the conversation has been rendered, don't flash the loading
-  /// skeleton again (e.g. when the store is cleared on navigate-away).
-  @State private var hasShownContent = false
-
-  private let pageSize = 50
-
-  private var sessionObs: SessionObservable? {
-    guard let sessionId else { return nil }
-    return serverState.session(sessionId)
-  }
-
-  private var loadState: ConversationLoadState {
-    guard let obs = sessionObs else { return .empty }
-    if !obs.rowEntries.isEmpty { return .ready }
-    if hasShownContent { return .empty }
-    return obs.conversationLoaded ? .empty : .loading
-  }
+  @State private var viewModel = ConversationViewModel()
 
   var body: some View {
     ZStack {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      switch loadState {
+      switch viewModel.loadState {
         case .loading:
           ConversationLoadingView()
             .transition(.opacity)
@@ -52,11 +34,11 @@ struct ConversationView: View {
             .transition(.opacity)
         case .ready:
           VStack(spacing: 0) {
-            if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
+            if let forkOrigin = viewModel.forkOrigin {
               ConversationForkOriginBanner(
-                sourceSessionId: sourceId,
-                sourceEndpointId: endpointId,
-                sourceName: serverState.session(sourceId).displayName
+                sourceSessionId: forkOrigin.sourceSessionId,
+                sourceEndpointId: forkOrigin.sourceEndpointId ?? endpointId,
+                sourceName: forkOrigin.sourceName
               )
               .padding(.horizontal, Spacing.lg)
               .padding(.top, Spacing.sm)
@@ -92,13 +74,20 @@ struct ConversationView: View {
           .transition(.opacity)
       }
     }
-    .animation(Motion.fade, value: loadState == .loading)
-    .onChange(of: loadState) { _, newState in
-      if newState == .ready { hasShownContent = true }
+    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
-    .onChange(of: sessionObs?.rowEntries.count ?? 0) { oldCount, newCount in
-      guard !isPinned, newCount > oldCount else { return }
-      unreadCount += newCount - oldCount
+    .animation(Motion.fade, value: viewModel.loadState == .loading)
+    .onChange(of: viewModel.loadState) { _, newState in
+      viewModel.handleLoadStateChange(newState)
+    }
+    .onChange(of: viewModel.entryCount) { oldCount, newCount in
+      viewModel.handleEntryCountChange(
+        oldCount: oldCount,
+        newCount: newCount,
+        isPinned: isPinned,
+        unreadCount: &unreadCount
+      )
     }
   }
 
@@ -106,15 +95,17 @@ struct ConversationView: View {
 
   @ViewBuilder
   private var conversationTimeline: some View {
-    if let sessionObs, let sessionId {
+    if let timeline = viewModel.timeline, let sessionId {
       TimelineScrollView(
-        entries: sessionObs.rowEntries,
-        entriesRevision: sessionObs.rowEntriesRevision,
+        entries: timeline.entries,
+        contentRevision: timeline.contentRevision,
+        structureRevision: timeline.structureRevision,
+        changedEntries: timeline.changedEntries,
         sessionId: sessionId,
-        clients: serverState.clients,
+        clients: sessionStore.clients,
         viewMode: chatViewMode,
         onLoadMore: {
-          serverState.loadOlderMessages(sessionId: sessionId, limit: pageSize)
+          viewModel.loadOlderMessages()
         },
         isPinned: $isPinned,
         scrollToBottomTrigger: $scrollToBottomTrigger
@@ -140,6 +131,7 @@ enum ConversationLoadState: Equatable {
 
   ConversationView(
     sessionId: nil,
+    sessionStore: SessionStore.preview(),
     isSessionActive: true,
     displayStatus: .working,
     currentTool: "Edit",
@@ -148,7 +140,6 @@ enum ConversationLoadState: Equatable {
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger
   )
-  .environment(SessionStore.preview())
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)
 }

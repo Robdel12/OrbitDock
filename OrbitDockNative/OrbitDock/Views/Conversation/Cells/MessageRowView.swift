@@ -64,7 +64,7 @@ struct MessageRowView: View {
       }
 
       if !content.isEmpty {
-        MarkdownContentView(content: content, style: .standard)
+        MarkdownContentView(content: content, style: .standard, isStreaming: isStreaming)
       }
     }
     .padding(.horizontal, Spacing.md)
@@ -95,7 +95,7 @@ struct MessageRowView: View {
       }
 
       if !content.isEmpty {
-        MarkdownContentView(content: content, style: .standard)
+        MarkdownContentView(content: content, style: .standard, isStreaming: isStreaming)
       }
 
       if isStreaming {

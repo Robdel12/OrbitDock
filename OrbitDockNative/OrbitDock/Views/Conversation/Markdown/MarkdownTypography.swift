@@ -124,6 +124,35 @@ enum MarkdownTypography {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: List
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Per-level indentation for nested list items.
+  static func listIndent(style: ContentStyle) -> CGFloat {
+    style == .thinking ? 16 : 20
+  }
+
+  /// Vertical spacing between sibling list items.
+  static func listItemSpacing(style: ContentStyle) -> CGFloat {
+    style == .thinking ? 4 : 6
+  }
+
+  /// Horizontal gap between the marker and the item content.
+  static func listMarkerGap(style: ContentStyle) -> CGFloat {
+    style == .thinking ? 4 : 6
+  }
+
+  /// Marker color per marker type — dimmed relative to body text.
+  static func listMarkerColor(_ marker: ListMarker) -> Color {
+    switch marker {
+      case .bullet, .number: .textSecondary
+      case .checked: .accent
+      case .unchecked: .textTertiary
+    }
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Inter-Block Spacing
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

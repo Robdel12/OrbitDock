@@ -26,7 +26,9 @@ import SwiftUI
 
 struct TimelineScrollView: View {
   let entries: [ServerConversationRowEntry]
-  let entriesRevision: Int
+  let contentRevision: Int
+  let structureRevision: Int
+  let changedEntries: [ServerConversationRowEntry]
   let sessionId: String
   let clients: ServerClients
   var viewMode: ChatViewMode = .focused
@@ -35,6 +37,7 @@ struct TimelineScrollView: View {
   @Binding var scrollToBottomTrigger: Int
 
   @State private var rowState = TimelineRowStateStore()
+  @State private var projection: TimelineDataSource.Projection
   @State private var displayedEntries: [ServerConversationRowEntry]
   @State private var sentinelVisible = true
   @State private var userIsLiveScrolling = false
@@ -43,7 +46,9 @@ struct TimelineScrollView: View {
 
   init(
     entries: [ServerConversationRowEntry],
-    entriesRevision: Int,
+    contentRevision: Int,
+    structureRevision: Int,
+    changedEntries: [ServerConversationRowEntry],
     sessionId: String,
     clients: ServerClients,
     viewMode: ChatViewMode = .focused,
@@ -52,14 +57,18 @@ struct TimelineScrollView: View {
     scrollToBottomTrigger: Binding<Int>
   ) {
     self.entries = entries
-    self.entriesRevision = entriesRevision
+    self.contentRevision = contentRevision
+    self.structureRevision = structureRevision
+    self.changedEntries = changedEntries
     self.sessionId = sessionId
     self.clients = clients
     self.viewMode = viewMode
     self.onLoadMore = onLoadMore
     _isPinned = isPinned
     _scrollToBottomTrigger = scrollToBottomTrigger
-    _displayedEntries = State(initialValue: TimelineScrollView.makeDisplayEntries(entries: entries, viewMode: viewMode))
+    let initialProjection = TimelineDataSource.Projection.make(entries: entries, viewMode: viewMode)
+    _projection = State(initialValue: initialProjection)
+    _displayedEntries = State(initialValue: initialProjection.displayedEntries)
   }
 
   /// Lightweight value that changes when auto-scroll should fire.
@@ -101,7 +110,7 @@ struct TimelineScrollView: View {
               clients: clients,
               rowState: rowState
             )
-              .id(entry.id)
+            .id(entry.id)
           }
 
           // Bottom sentinel — tracks viewport visibility for pin state.
@@ -128,8 +137,11 @@ struct TimelineScrollView: View {
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .background(Color.backgroundPrimary)
-      .task(id: entriesRevision) {
+      .task(id: structureRevision) {
         rebuildDisplayEntries()
+      }
+      .task(id: contentRevision) {
+        applyContentUpdates()
       }
       .task {
         guard !didPerformInitialScroll else { return }
@@ -155,18 +167,17 @@ struct TimelineScrollView: View {
     }
   }
 
-  private static func makeDisplayEntries(
-    entries: [ServerConversationRowEntry],
-    viewMode: ChatViewMode
-  ) -> [ServerConversationRowEntry] {
-    if viewMode == .focused {
-      return TimelineDataSource.groupToolRuns(entries)
-    }
-    return entries
+  private func rebuildDisplayEntries() {
+    let nextProjection = TimelineDataSource.Projection.make(entries: entries, viewMode: viewMode)
+    projection = nextProjection
+    displayedEntries = nextProjection.displayedEntries
   }
 
-  private func rebuildDisplayEntries() {
-    displayedEntries = Self.makeDisplayEntries(entries: entries, viewMode: viewMode)
+  private func applyContentUpdates() {
+    displayedEntries = projection.applyingContentUpdates(
+      changedEntries: changedEntries,
+      to: displayedEntries
+    )
   }
 
   private func scrollToBottom(with proxy: ScrollViewProxy) {

@@ -101,12 +101,12 @@ enum MarkdownSystemParser {
         }
 
       case let list as OrderedList:
-        let text = normalizeListDisplaySource(markdownSource(for: list)).trimmingCharacters(in: .newlines)
-        if !text.isEmpty { blocks.append(.text(text)) }
+        let items = parseOrderedList(list)
+        if !items.isEmpty { blocks.append(.list(items)) }
 
       case let list as UnorderedList:
-        let text = normalizeListDisplaySource(markdownSource(for: list)).trimmingCharacters(in: .newlines)
-        if !text.isEmpty { blocks.append(.text(text)) }
+        let items = parseUnorderedList(list)
+        if !items.isEmpty { blocks.append(.list(items)) }
 
       case let htmlBlock as HTMLBlock:
         let text = htmlBlock.rawHTML.trimmingCharacters(in: .newlines)
@@ -185,7 +185,68 @@ enum MarkdownSystemParser {
     return detached.format()
   }
 
-  // MARK: - List Normalization
+  // MARK: - List Parsing
+
+  private static func parseOrderedList(_ list: OrderedList) -> [ListItem] {
+    var items: [ListItem] = []
+    var number = 1
+    for child in list.children {
+      guard let node = child as? Markdown.ListItem else { continue }
+      items.append(parseListItemNode(node, marker: .number(number)))
+      number += 1
+    }
+    return items
+  }
+
+  private static func parseUnorderedList(_ list: UnorderedList) -> [ListItem] {
+    list.children.compactMap { child -> ListItem? in
+      guard let node = child as? Markdown.ListItem else { return nil }
+      let marker: ListMarker = if let checkbox = node.checkbox {
+        checkbox == .checked ? .checked : .unchecked
+      } else {
+        .bullet
+      }
+      return parseListItemNode(node, marker: marker)
+    }
+  }
+
+  private static func parseListItemNode(_ node: Markdown.ListItem, marker: ListMarker) -> ListItem {
+    var content = ""
+    var continuation: [String] = []
+    var children: [ListItem] = []
+    var isFirst = true
+
+    for child in node.children {
+      switch child {
+        case let p as Paragraph:
+          let text = markdownSource(for: p).trimmingCharacters(in: .newlines)
+          if isFirst {
+            content = text
+            isFirst = false
+          } else if !text.isEmpty {
+            continuation.append(text)
+          }
+        case let ol as OrderedList:
+          children.append(contentsOf: parseOrderedList(ol))
+        case let ul as UnorderedList:
+          children.append(contentsOf: parseUnorderedList(ul))
+        default:
+          let text = markdownSource(for: child).trimmingCharacters(in: .newlines)
+          if !text.isEmpty {
+            if isFirst {
+              content = text
+              isFirst = false
+            } else {
+              continuation.append(text)
+            }
+          }
+      }
+    }
+
+    return ListItem(marker: marker, content: content, continuation: continuation, children: children)
+  }
+
+  // MARK: - List Normalization (blockquote use only)
 
   private static func normalizeListDisplaySource(_ source: String) -> String {
     var normalized = source

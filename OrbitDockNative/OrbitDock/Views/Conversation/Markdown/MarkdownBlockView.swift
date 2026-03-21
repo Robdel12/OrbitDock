@@ -56,6 +56,9 @@ struct MarkdownBlockView: View {
 
       case .thematicBreak:
         thematicBreakView
+
+      case let .list(items):
+        listView(items)
     }
   }
 
@@ -152,6 +155,71 @@ struct MarkdownBlockView: View {
     let trimmed = Array(cells.prefix(count))
     if trimmed.count == count { return trimmed }
     return trimmed + Array(repeating: "", count: count - trimmed.count)
+  }
+
+  // MARK: - List
+
+  private struct FlatListRow {
+    let depth: Int
+    let marker: ListMarker
+    let content: String
+    let continuation: [String]
+  }
+
+  private func listView(_ items: [ListItem]) -> some View {
+    let flat = Self.flattenItems(items)
+    let itemSpacing = MarkdownTypography.listItemSpacing(style: style)
+    let markerGap = MarkdownTypography.listMarkerGap(style: style)
+    let indent = MarkdownTypography.listIndent(style: style)
+
+    return VStack(alignment: .leading, spacing: itemSpacing) {
+      ForEach(Array(flat.enumerated()), id: \.offset) { _, row in
+        HStack(alignment: .firstTextBaseline, spacing: markerGap) {
+          Text(row.marker.display)
+            .font(MarkdownTypography.bodyFont(style: style))
+            .foregroundStyle(MarkdownTypography.listMarkerColor(row.marker))
+            .fixedSize()
+
+          VStack(alignment: .leading, spacing: 2) {
+            inlineMarkdown(row.content)
+              .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
+              .font(MarkdownTypography.bodyFont(style: style))
+              .fixedSize(horizontal: false, vertical: true)
+
+            ForEach(Array(row.continuation.enumerated()), id: \.offset) { _, text in
+              inlineMarkdown(text)
+                .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
+                .font(MarkdownTypography.bodyFont(style: style))
+                .foregroundStyle(Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+        }
+        .padding(.leading, CGFloat(row.depth) * indent)
+      }
+    }
+  }
+
+  private static func flattenItems(_ items: [ListItem]) -> [FlatListRow] {
+    var result: [FlatListRow] = []
+    flattenRecursive(items, depth: 0, into: &result)
+    return result
+  }
+
+  private static func flattenRecursive(
+    _ items: [ListItem], depth: Int, into result: inout [FlatListRow]
+  ) {
+    for item in items {
+      result.append(
+        FlatListRow(
+          depth: depth, marker: item.marker,
+          content: item.content, continuation: item.continuation
+        )
+      )
+      if !item.children.isEmpty {
+        flattenRecursive(item.children, depth: depth + 1, into: &result)
+      }
+    }
   }
 
   // MARK: - Thematic Break

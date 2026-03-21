@@ -41,7 +41,7 @@ struct ConversationViewModeToggle: View {
       case .iconOnly:
         isCompact ? Spacing.xs : Spacing.xxs
       case .compactLabeled:
-        Spacing.xs
+        Spacing.xxs
     }
   }
 
@@ -53,7 +53,7 @@ struct ConversationViewModeToggle: View {
       case .iconOnly:
         isCompact ? Spacing.xs : Spacing.gap
       case .compactLabeled:
-        Spacing.xs
+        Spacing.xxs
     }
   }
 
@@ -79,19 +79,15 @@ struct ConversationViewModeToggle: View {
             )
 
         case .compactLabeled:
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: mode.icon)
-              .font(.system(size: 10, weight: .medium))
-            Text(modeTitle(mode))
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-          }
-          .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
-          .padding(.horizontal, Spacing.sm + 2)
-          .padding(.vertical, Spacing.sm_)
-          .background(
-            isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          )
+          Text(modeTitle(mode))
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
       }
     }
     .buttonStyle(.plain)

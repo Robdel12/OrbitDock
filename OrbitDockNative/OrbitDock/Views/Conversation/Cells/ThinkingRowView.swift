@@ -18,7 +18,7 @@ struct ThinkingRowView: View {
         .foregroundStyle(Color.textTertiary)
 
       if !content.isEmpty {
-        MarkdownContentView(content: content, style: .thinking)
+        MarkdownContentView(content: content, style: .thinking, isStreaming: isStreaming)
           .opacity(0.7)
       }
     }

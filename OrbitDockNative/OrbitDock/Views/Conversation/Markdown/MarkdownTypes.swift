@@ -14,6 +14,30 @@ enum MarkdownBlock: Equatable {
   case blockquote(String)
   case table(headers: [String], rows: [[String]])
   case thematicBreak
+  case list([ListItem])
+}
+
+struct ListItem: Equatable {
+  let marker: ListMarker
+  let content: String
+  let continuation: [String]
+  let children: [ListItem]
+}
+
+enum ListMarker: Equatable {
+  case bullet
+  case number(Int)
+  case checked
+  case unchecked
+
+  var display: String {
+    switch self {
+      case .bullet: "•"
+      case let .number(n): "\(n)."
+      case .checked: "☑"
+      case .unchecked: "☐"
+    }
+  }
 }
 
 enum ContentStyle: Hashable {
