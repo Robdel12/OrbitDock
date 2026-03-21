@@ -30,6 +30,14 @@ For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CL
 
 For the shorter “how should new client code feel?” version, read [CLIENT_DESIGN_PRINCIPLES.md](CLIENT_DESIGN_PRINCIPLES.md).
 
+For the day-to-day repo workflow, commands, and testing expectations, read [repo-workflow.md](repo-workflow.md).
+
+For the architecture and persistence rules that shape most changes, read [engineering-guardrails.md](engineering-guardrails.md).
+
+For local server setup, file locations, and CLI basics, read [local-development.md](local-development.md).
+
+For logs, hook checks, and database inspection, read [debugging.md](debugging.md).
+
 ### Rust Server
 
 ```bash
@@ -39,6 +47,8 @@ make rust-test
 ```
 
 By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run it standalone and add it as an endpoint in app settings.
+
+For persistence rules and migration guidance, read [database-and-persistence.md](database-and-persistence.md).
 
 ### Hook transport (testing)
 
