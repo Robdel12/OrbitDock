@@ -96,7 +96,8 @@ struct MissionDockedState: View {
       return "Resume to continue polling"
     }
     if mission.orchestratorStatus == "no_api_key" {
-      return "Set a Linear API key to begin"
+      let keyName = mission.trackerKind == "github" ? "GitHub token" : "Linear API key"
+      return "Set a \(keyName) to begin"
     }
     // Idle / not started
     return "Start the orchestrator to begin polling"

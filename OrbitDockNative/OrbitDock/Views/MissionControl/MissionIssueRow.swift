@@ -242,7 +242,7 @@ struct MissionIssueRow: View {
             UIApplication.shared.open(openURL)
           #endif
         } label: {
-          Label("Open in Linear", systemImage: "arrow.up.right.square")
+          Label(url.contains("github.com") ? "Open in GitHub" : "Open in Linear", systemImage: "arrow.up.right.square")
         }
       }
 
