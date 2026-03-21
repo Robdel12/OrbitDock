@@ -7,7 +7,9 @@ final class ConversationViewModel {
   var hasShownContent = false
   var currentSessionId: String?
   var currentSessionStore = SessionStore.preview()
+  var currentViewMode: ChatViewMode = .focused
   var timeline: ConversationTimelinePresentation?
+  var timelineViewModel = ConversationTimelineViewModel()
   var entryCount = 0
   var loadState: ConversationLoadState = .empty
   var forkOrigin: ConversationForkOriginPresentation?
@@ -16,22 +18,25 @@ final class ConversationViewModel {
 
   private let pageSize = 50
 
-  func bind(sessionId: String?, sessionStore: SessionStore) {
+  func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
     currentSessionId = sessionId
     currentSessionStore = sessionStore
+    currentViewMode = viewMode
+    timelineViewModel.bind(sessionId: sessionId)
     sessionObservationGeneration &+= 1
     startObservation(generation: sessionObservationGeneration)
+  }
+
+  func handleTimelineViewModeChange(_ viewMode: ChatViewMode) {
+    currentViewMode = viewMode
+    guard let timeline else { return }
+    timelineViewModel.apply(presentation: timeline, viewMode: viewMode)
   }
 
   func handleLoadStateChange(_ newState: ConversationLoadState) {
     if newState == .ready {
       hasShownContent = true
     }
-  }
-
-  func handleEntryCountChange(oldCount: Int, newCount: Int, isPinned: Bool, unreadCount: inout Int) {
-    guard !isPinned, newCount > oldCount else { return }
-    unreadCount += newCount - oldCount
   }
 
   func loadOlderMessages() {
@@ -102,6 +107,11 @@ final class ConversationViewModel {
 
   private func apply(snapshot: ConversationSnapshot) {
     timeline = snapshot.timeline
+    if let timeline = snapshot.timeline {
+      timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
+    } else {
+      timelineViewModel.clearSession()
+    }
     entryCount = snapshot.entryCount
     loadState = snapshot.loadState
     forkOrigin = snapshot.forkOrigin

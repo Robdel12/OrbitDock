@@ -18,6 +18,13 @@ struct WorktreeFormSection: View {
 
   @State private var showGitInitConfirmation = false
 
+  private var worktreeToggleBinding: Binding<Bool> {
+    Binding(
+      get: { useWorktree },
+      set: applyWorktreeToggle(requestedValue:)
+    )
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // Toggle row
@@ -32,7 +39,7 @@ struct WorktreeFormSection: View {
 
         Spacer()
 
-        Toggle("", isOn: $useWorktree)
+        Toggle("", isOn: worktreeToggleBinding)
           .labelsHidden()
           .toggleStyle(.switch)
           .controlSize(.small)
@@ -105,13 +112,6 @@ struct WorktreeFormSection: View {
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
     .animation(Motion.bouncy, value: useWorktree)
-    .onChange(of: useWorktree) { _, isOn in
-      if isOn, !selectedPathIsGit {
-        useWorktree = false
-        showGitInitConfirmation = true
-      }
-      worktreeError = nil
-    }
     .alert("Initialize Git Repository?", isPresented: $showGitInitConfirmation) {
       Button("Initialize") {
         onGitInit()
@@ -120,5 +120,15 @@ struct WorktreeFormSection: View {
     } message: {
       Text("This directory is not a git repository. Initialize one to use worktrees?")
     }
+  }
+
+  private func applyWorktreeToggle(requestedValue: Bool) {
+    let transition = WorktreeTogglePlanner.transition(
+      requestedValue: requestedValue,
+      selectedPathIsGit: selectedPathIsGit
+    )
+    useWorktree = transition.useWorktree
+    worktreeError = transition.shouldClearError ? nil : worktreeError
+    showGitInitConfirmation = transition.shouldShowGitInitConfirmation
   }
 }

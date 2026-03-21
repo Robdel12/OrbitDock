@@ -216,6 +216,53 @@ final class SessionDetailViewModel {
     if pinned { unreadCount = 0 }
   }
 
+  func handleConversationTimelineReachedBottom() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.timelineReachedBottom(current: conversationChromeState)
+    )
+  }
+
+  func handleConversationTimelineLeftBottomByUser() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.timelineLeftBottomByUser(current: conversationChromeState)
+    )
+  }
+
+  func handleConversationEntryCountChange(oldCount: Int, newCount: Int) {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.didReceiveEntries(
+        current: conversationChromeState,
+        oldCount: oldCount,
+        newCount: newCount
+      )
+    )
+  }
+
+  func handleComposerHeightChanged() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.composerHeightChanged(current: conversationChromeState)
+    )
+  }
+
+  func jumpConversationToLatest() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.jumpToLatest(current: conversationChromeState)
+    )
+  }
+
+  func toggleConversationPinnedState() {
+    applyConversationChromeState(
+      SessionDetailConversationChromePlanner.togglePinned(current: conversationChromeState)
+    )
+  }
+
+  func openPendingApprovalPanel() {
+    let nextState = SessionDetailConversationChromePlanner.openPendingApprovalPanel(
+      current: conversationChromeState
+    )
+    applyConversationChromeState(nextState, animatePendingApprovalPanel: true)
+  }
+
   func navigateToReviewComment(_ comment: ServerReviewComment) {
     navigateToComment = comment
     revealReview()

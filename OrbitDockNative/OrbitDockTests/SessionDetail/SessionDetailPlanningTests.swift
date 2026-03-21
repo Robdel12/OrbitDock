@@ -62,6 +62,68 @@ struct SessionDetailPlanningTests {
     #expect(next.pendingApprovalPanelOpenSignal == 3)
   }
 
+  @Test func timelineReachedBottomRepinsAndClearsUnreadCount() {
+    let next = SessionDetailConversationChromePlanner.timelineReachedBottom(
+      current: SessionDetailConversationChromeState(
+        isPinned: false,
+        unreadCount: 5,
+        scrollToBottomTrigger: 4,
+        pendingApprovalPanelOpenSignal: 2
+      )
+    )
+
+    #expect(next.isPinned)
+    #expect(next.unreadCount == 0)
+    #expect(next.scrollToBottomTrigger == 4)
+    #expect(next.pendingApprovalPanelOpenSignal == 2)
+  }
+
+  @Test func timelineLeavingBottomOnlyUnpinsWhenFollowing() {
+    let next = SessionDetailConversationChromePlanner.timelineLeftBottomByUser(
+      current: SessionDetailConversationChromeState(
+        isPinned: true,
+        unreadCount: 1,
+        scrollToBottomTrigger: 8,
+        pendingApprovalPanelOpenSignal: 0
+      )
+    )
+
+    #expect(!next.isPinned)
+    #expect(next.unreadCount == 1)
+    #expect(next.scrollToBottomTrigger == 8)
+  }
+
+  @Test func receivingEntriesWhilePausedIncrementsUnreadCount() {
+    let next = SessionDetailConversationChromePlanner.didReceiveEntries(
+      current: SessionDetailConversationChromeState(
+        isPinned: false,
+        unreadCount: 2,
+        scrollToBottomTrigger: 3,
+        pendingApprovalPanelOpenSignal: 1
+      ),
+      oldCount: 10,
+      newCount: 13
+    )
+
+    #expect(!next.isPinned)
+    #expect(next.unreadCount == 5)
+    #expect(next.scrollToBottomTrigger == 3)
+  }
+
+  @Test func composerHeightChangeRequestsBottomScrollOnlyWhenFollowing() {
+    let next = SessionDetailConversationChromePlanner.composerHeightChanged(
+      current: SessionDetailConversationChromeState(
+        isPinned: true,
+        unreadCount: 0,
+        scrollToBottomTrigger: 6,
+        pendingApprovalPanelOpenSignal: 1
+      )
+    )
+
+    #expect(next.isPinned)
+    #expect(next.scrollToBottomTrigger == 7)
+  }
+
   @Test func onAppearPlanSubscribesAndLoadsApprovalsForDirectSessions() {
     let plan = SessionDetailLifecyclePlanner.onAppearPlan(
       shouldSubscribeToServerSession: true,

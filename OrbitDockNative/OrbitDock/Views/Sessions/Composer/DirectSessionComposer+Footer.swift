@@ -215,9 +215,7 @@ extension DirectSessionComposer {
     HStack(spacing: Spacing.xs) {
       if !isPinned, unreadCount > 0 {
         Button {
-          isPinned = true
-          unreadCount = 0
-          scrollToBottomTrigger += 1
+          onJumpToLatest()
           Platform.services.playHaptic(.selection)
         } label: {
           Text("\(unreadCount)")
@@ -231,11 +229,7 @@ extension DirectSessionComposer {
       }
 
       Button {
-        isPinned.toggle()
-        if isPinned {
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        }
+        onTogglePinned()
         Platform.services.playHaptic(.selection)
       } label: {
         Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")

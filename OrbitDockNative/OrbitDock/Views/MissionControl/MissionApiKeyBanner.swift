@@ -6,11 +6,25 @@ struct MissionApiKeyBanner: View {
   let http: ServerHTTPClient?
   let onKeySet: () async -> Void
 
-  private var isGitHub: Bool { trackerKind == "github" }
-  private var trackerLabel: String { isGitHub ? "GitHub Token" : "Linear API Key" }
-  private var envVarName: String { isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY" }
-  private var keyEndpoint: String { isGitHub ? "/api/server/github-key" : "/api/server/linear-key" }
-  private var placeholder: String { isGitHub ? "ghp_..." : "lin_api_..." }
+  private var isGitHub: Bool {
+    trackerKind == "github"
+  }
+
+  private var trackerLabel: String {
+    isGitHub ? "GitHub Token" : "Linear API Key"
+  }
+
+  private var envVarName: String {
+    isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY"
+  }
+
+  private var keyEndpoint: String {
+    isGitHub ? "/api/server/github-key" : "/api/server/linear-key"
+  }
+
+  private var placeholder: String {
+    isGitHub ? "ghp_..." : "lin_api_..."
+  }
 
   @State private var apiKey = ""
   @State private var isSaving = false

@@ -10,14 +10,30 @@ struct MissionTriggerSection: View {
   let trackerKind: String
   let isCompact: Bool
 
-  private var isGitHub: Bool { trackerKind == "github" }
-  private var projectLabel: String { isGitHub ? "Project Number" : "Project" }
-  private var projectPlaceholder: String { isGitHub ? "1" : "PROJ" }
-  private var teamLabel: String { isGitHub ? "Owner" : "Team" }
-  private var teamPlaceholder: String { isGitHub ? "robdel12" : "Engineering" }
+  private var isGitHub: Bool {
+    trackerKind == "github"
+  }
+
+  private var projectLabel: String {
+    isGitHub ? "Project Number" : "Project"
+  }
+
+  private var projectPlaceholder: String {
+    isGitHub ? "1" : "PROJ"
+  }
+
+  private var teamLabel: String {
+    isGitHub ? "Owner" : "Team"
+  }
+
+  private var teamPlaceholder: String {
+    isGitHub ? "robdel12" : "Engineering"
+  }
+
   private var statesPlaceholder: String {
     isGitHub ? "Ready, Backlog" : "Todo, In Progress"
   }
+
   private var statesHint: String {
     isGitHub
       ? "Default statuses: Backlog, Ready, In progress, In review, Done"

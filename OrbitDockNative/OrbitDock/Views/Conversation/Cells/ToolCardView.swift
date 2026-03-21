@@ -1114,7 +1114,7 @@ struct ToolCardView: View {
       .background(Color.backgroundSecondary, in: Capsule())
   }
 
-  // Fetch is now handled by TimelineRowStateStore.
+  // Fetch is handled by the conversation timeline view model.
   // ToolCardView is a pure function of its inputs.
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

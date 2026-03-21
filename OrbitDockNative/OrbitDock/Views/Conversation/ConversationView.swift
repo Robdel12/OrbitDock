@@ -15,9 +15,13 @@ struct ConversationView: View {
   var chatViewMode: ChatViewMode = .focused
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
 
-  @Binding var isPinned: Bool
-  @Binding var unreadCount: Int
-  @Binding var scrollToBottomTrigger: Int
+  let isPinned: Bool
+  let unreadCount: Int
+  let scrollToBottomTrigger: Int
+  let onJumpToLatest: () -> Void
+  let onReachedBottom: () -> Void
+  let onLeftBottomByUser: () -> Void
+  let onEntryCountChanged: (_ oldCount: Int, _ newCount: Int) -> Void
   @State private var viewModel = ConversationViewModel()
 
   var body: some View {
@@ -51,11 +55,7 @@ struct ConversationView: View {
               if !isPinned {
                 ConversationFollowPill(
                   unreadCount: unreadCount,
-                  onTap: {
-                    isPinned = true
-                    unreadCount = 0
-                    scrollToBottomTrigger += 1
-                  }
+                  onTap: onJumpToLatest
                 )
                 .padding(.trailing, Spacing.lg)
                 .padding(.bottom, Spacing.sm)
@@ -75,19 +75,17 @@ struct ConversationView: View {
       }
     }
     .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
-      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in
       viewModel.handleLoadStateChange(newState)
     }
     .onChange(of: viewModel.entryCount) { oldCount, newCount in
-      viewModel.handleEntryCountChange(
-        oldCount: oldCount,
-        newCount: newCount,
-        isPinned: isPinned,
-        unreadCount: &unreadCount
-      )
+      onEntryCountChanged(oldCount, newCount)
+    }
+    .onChange(of: chatViewMode) { _, newMode in
+      viewModel.handleTimelineViewModeChange(newMode)
     }
   }
 
@@ -95,20 +93,18 @@ struct ConversationView: View {
 
   @ViewBuilder
   private var conversationTimeline: some View {
-    if let timeline = viewModel.timeline, let sessionId {
+    if viewModel.timeline != nil, let sessionId {
       TimelineScrollView(
-        entries: timeline.entries,
-        contentRevision: timeline.contentRevision,
-        structureRevision: timeline.structureRevision,
-        changedEntries: timeline.changedEntries,
+        viewModel: viewModel.timelineViewModel,
         sessionId: sessionId,
         clients: sessionStore.clients,
-        viewMode: chatViewMode,
         onLoadMore: {
           viewModel.loadOlderMessages()
         },
-        isPinned: $isPinned,
-        scrollToBottomTrigger: $scrollToBottomTrigger
+        isPinned: isPinned,
+        scrollToBottomTrigger: scrollToBottomTrigger,
+        onReachedBottom: onReachedBottom,
+        onLeftBottomByUser: onLeftBottomByUser
       )
     } else {
       ConversationEmptyStateView()
@@ -136,9 +132,25 @@ enum ConversationLoadState: Equatable {
     displayStatus: .working,
     currentTool: "Edit",
     jumpToMessageTarget: $jumpTarget,
-    isPinned: $isPinned,
-    unreadCount: $unreadCount,
-    scrollToBottomTrigger: $scrollTrigger
+    isPinned: isPinned,
+    unreadCount: unreadCount,
+    scrollToBottomTrigger: scrollTrigger,
+    onJumpToLatest: {
+      isPinned = true
+      unreadCount = 0
+      scrollTrigger += 1
+    },
+    onReachedBottom: {
+      isPinned = true
+      unreadCount = 0
+    },
+    onLeftBottomByUser: {
+      isPinned = false
+    },
+    onEntryCountChanged: { oldCount, newCount in
+      guard !isPinned, newCount > oldCount else { return }
+      unreadCount += newCount - oldCount
+    }
   )
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)

@@ -11,9 +11,17 @@ struct MissionOrchestrationSection: View {
   let repoRoot: String
   let isCompact: Bool
 
-  private var isGitHub: Bool { trackerKind == "github" }
-  private var dispatchStates: [String] { isGitHub ? ["In progress", "Ready", "Backlog"] : ["In Progress", "Todo", "Next"] }
-  private var completeStates: [String] { isGitHub ? ["In review", "Done"] : ["In Review", "Done"] }
+  private var isGitHub: Bool {
+    trackerKind == "github"
+  }
+
+  private var dispatchStates: [String] {
+    isGitHub ? ["In progress", "Ready", "Backlog"] : ["In Progress", "Todo", "Next"]
+  }
+
+  private var completeStates: [String] {
+    isGitHub ? ["In review", "Done"] : ["In Review", "Done"]
+  }
 
   var body: some View {
     missionInstrumentPanel(
@@ -37,7 +45,11 @@ struct MissionOrchestrationSection: View {
         }
 
         missionCompactField("Base Branch", placeholder: "main", text: $baseBranch)
-        missionCompactField("Worktree Root", placeholder: ".orbitdock-worktrees (default)", text: $worktreeRootDir)
+        missionCompactField(
+          "Worktree Root",
+          placeholder: ".orbitdock-worktrees (default)",
+          text: $worktreeRootDir
+        )
         missionStateChips("State on Dispatch", current: $stateOnDispatch, states: dispatchStates)
         missionStateChips("State on Complete", current: $stateOnComplete, states: completeStates)
 

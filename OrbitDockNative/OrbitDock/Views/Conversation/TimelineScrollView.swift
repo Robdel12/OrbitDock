@@ -25,58 +25,47 @@
 import SwiftUI
 
 struct TimelineScrollView: View {
-  let entries: [ServerConversationRowEntry]
-  let contentRevision: Int
-  let structureRevision: Int
-  let changedEntries: [ServerConversationRowEntry]
+  let viewModel: ConversationTimelineViewModel
   let sessionId: String
   let clients: ServerClients
-  var viewMode: ChatViewMode = .focused
   let onLoadMore: (() -> Void)?
-  @Binding var isPinned: Bool
-  @Binding var scrollToBottomTrigger: Int
+  let isPinned: Bool
+  let scrollToBottomTrigger: Int
+  let onReachedBottom: () -> Void
+  let onLeftBottomByUser: () -> Void
 
-  @State private var rowState = TimelineRowStateStore()
-  @State private var projection: TimelineDataSource.Projection
-  @State private var displayedEntries: [ServerConversationRowEntry]
   @State private var sentinelVisible = true
   @State private var userIsLiveScrolling = false
 
   @State private var didPerformInitialScroll = false
 
   init(
-    entries: [ServerConversationRowEntry],
-    contentRevision: Int,
-    structureRevision: Int,
-    changedEntries: [ServerConversationRowEntry],
+    viewModel: ConversationTimelineViewModel,
     sessionId: String,
     clients: ServerClients,
-    viewMode: ChatViewMode = .focused,
     onLoadMore: (() -> Void)?,
-    isPinned: Binding<Bool>,
-    scrollToBottomTrigger: Binding<Int>
+    isPinned: Bool,
+    scrollToBottomTrigger: Int,
+    onReachedBottom: @escaping () -> Void,
+    onLeftBottomByUser: @escaping () -> Void
   ) {
-    self.entries = entries
-    self.contentRevision = contentRevision
-    self.structureRevision = structureRevision
-    self.changedEntries = changedEntries
+    self.viewModel = viewModel
     self.sessionId = sessionId
     self.clients = clients
-    self.viewMode = viewMode
     self.onLoadMore = onLoadMore
-    _isPinned = isPinned
-    _scrollToBottomTrigger = scrollToBottomTrigger
-    let initialProjection = TimelineDataSource.Projection.make(entries: entries, viewMode: viewMode)
-    _projection = State(initialValue: initialProjection)
-    _displayedEntries = State(initialValue: initialProjection.displayedEntries)
+    self.isPinned = isPinned
+    self.scrollToBottomTrigger = scrollToBottomTrigger
+    self.onReachedBottom = onReachedBottom
+    self.onLeftBottomByUser = onLeftBottomByUser
   }
 
   /// Lightweight value that changes when auto-scroll should fire.
   /// Captures entry count (new messages) and a coarse streaming bucket
   /// for the last message so we do not scroll on every single token.
   private var autoScrollVersion: Int {
-    var h = entries.count
-    if let last = entries.last {
+    let displayedEntries = viewModel.displayedEntries
+    var h = displayedEntries.count
+    if let last = displayedEntries.last {
       h = h &* 31 &+ last.id.hashValue
       switch last.row {
         case let .assistant(msg) where msg.isStreaming:
@@ -90,7 +79,7 @@ struct TimelineScrollView: View {
   }
 
   var body: some View {
-    let displayed = displayedEntries
+    let displayed = viewModel.displayedEntries
 
     ScrollViewReader { proxy in
       ScrollView(.vertical) {
@@ -100,15 +89,18 @@ struct TimelineScrollView: View {
           // changes), so onAppear fires again for the next page.
           Color.clear
             .frame(height: 1)
-            .id("pagination-\(entries.first?.sequence ?? 0)")
-            .onAppear { onLoadMore?() }
+            .id("pagination-\(displayed.first?.sequence ?? 0)")
+            .onAppear {
+              guard didPerformInitialScroll, !isPinned else { return }
+              onLoadMore?()
+            }
 
           ForEach(displayed) { entry in
             TimelineRowHost(
               entry: entry,
               sessionId: sessionId,
               clients: clients,
-              rowState: rowState
+              viewModel: viewModel
             )
             .id(entry.id)
           }
@@ -121,12 +113,12 @@ struct TimelineScrollView: View {
             .onAppear {
               sentinelVisible = true
               guard !isPinned else { return }
-              isPinned = true
+              onReachedBottom()
             }
             .onDisappear {
               sentinelVisible = false
               guard isPinned, userIsLiveScrolling else { return }
-              isPinned = false
+              onLeftBottomByUser()
             }
         }
         .background {
@@ -137,12 +129,6 @@ struct TimelineScrollView: View {
       .scrollDismissesKeyboard(.interactively)
       .defaultScrollAnchor(.bottom)
       .background(Color.backgroundPrimary)
-      .task(id: structureRevision) {
-        rebuildDisplayEntries()
-      }
-      .task(id: contentRevision) {
-        applyContentUpdates()
-      }
       .task {
         guard !didPerformInitialScroll else { return }
         didPerformInitialScroll = true
@@ -157,27 +143,11 @@ struct TimelineScrollView: View {
       .onChange(of: scrollToBottomTrigger) { _, _ in
         scrollToBottom(with: proxy)
       }
-      .onChange(of: viewMode) { _, _ in
-        rebuildDisplayEntries()
-      }
       .onChange(of: userIsLiveScrolling) { _, isScrolling in
         guard !isScrolling, isPinned, !sentinelVisible else { return }
-        isPinned = false
+        onLeftBottomByUser()
       }
     }
-  }
-
-  private func rebuildDisplayEntries() {
-    let nextProjection = TimelineDataSource.Projection.make(entries: entries, viewMode: viewMode)
-    projection = nextProjection
-    displayedEntries = nextProjection.displayedEntries
-  }
-
-  private func applyContentUpdates() {
-    displayedEntries = projection.applyingContentUpdates(
-      changedEntries: changedEntries,
-      to: displayedEntries
-    )
   }
 
   private func scrollToBottom(with proxy: ScrollViewProxy) {
@@ -197,7 +167,7 @@ private struct TimelineRowHost: View {
   let entry: ServerConversationRowEntry
   let sessionId: String
   let clients: ServerClients
-  let rowState: TimelineRowStateStore
+  let viewModel: ConversationTimelineViewModel
 
   private var expandableId: String? {
     switch entry.row {
@@ -222,7 +192,7 @@ private struct TimelineRowHost: View {
   }
 
   private var isExpanded: Bool {
-    expandableId.map { rowState.isExpanded($0) } ?? false
+    expandableId.map { viewModel.isExpanded($0) } ?? false
   }
 
   var body: some View {
@@ -231,28 +201,28 @@ private struct TimelineRowHost: View {
       isExpanded: isExpanded,
       sessionId: sessionId,
       clients: clients,
-      fetchedContent: fetchId.flatMap { rowState.content(for: $0) },
-      isLoadingContent: fetchId.map { rowState.isFetching($0) } ?? false,
+      fetchedContent: fetchId.flatMap { viewModel.content(for: $0) },
+      isLoadingContent: fetchId.map { viewModel.isFetching($0) } ?? false,
       onToggle: toggle,
-      isItemExpanded: rowState.isExpanded(_:),
-      contentForChild: rowState.content(for:),
-      isChildLoading: rowState.isFetching(_:)
+      isItemExpanded: viewModel.isExpanded(_:),
+      contentForChild: viewModel.content(for:),
+      isChildLoading: viewModel.isFetching(_:)
     )
     .task(id: isExpanded) {
       guard isExpanded, let fetchId else { return }
-      rowState.fetchContentIfNeeded(rowId: fetchId, sessionId: sessionId, clients: clients)
+      viewModel.fetchContentIfNeeded(rowId: fetchId, sessionId: sessionId, clients: clients)
       if case let .activityGroup(group) = entry.row {
-        for child in group.children where rowState.isExpanded(child.id) {
-          rowState.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients)
+        for child in group.children where viewModel.isExpanded(child.id) {
+          viewModel.fetchContentIfNeeded(rowId: child.id, sessionId: sessionId, clients: clients)
         }
       }
     }
   }
 
   private func toggle(_ id: String) {
-    let nowExpanded = rowState.toggleExpanded(id)
+    let nowExpanded = viewModel.toggleExpanded(id)
     if nowExpanded {
-      rowState.fetchContentIfNeeded(rowId: id, sessionId: sessionId, clients: clients)
+      viewModel.fetchContentIfNeeded(rowId: id, sessionId: sessionId, clients: clients)
     }
   }
 }

@@ -17,9 +17,11 @@ struct DirectSessionComposer: View {
   let sessionStore: SessionStore
   @Binding var selectedSkills: Set<String>
   var pendingPanelOpenSignal: Int = 0
-  @Binding var isPinned: Bool
-  @Binding var unreadCount: Int
-  @Binding var scrollToBottomTrigger: Int
+  let isPinned: Bool
+  let unreadCount: Int
+  let onJumpToLatest: () -> Void
+  let onTogglePinned: () -> Void
+  let onComposerHeightChanged: () -> Void
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
@@ -50,17 +52,21 @@ struct DirectSessionComposer: View {
     sessionStore: SessionStore,
     selectedSkills: Binding<Set<String>>,
     pendingPanelOpenSignal: Int = 0,
-    isPinned: Binding<Bool>,
-    unreadCount: Binding<Int>,
-    scrollToBottomTrigger: Binding<Int>
+    isPinned: Bool,
+    unreadCount: Int,
+    onJumpToLatest: @escaping () -> Void,
+    onTogglePinned: @escaping () -> Void,
+    onComposerHeightChanged: @escaping () -> Void
   ) {
     self.sessionId = sessionId
     self.sessionStore = sessionStore
     _selectedSkills = selectedSkills
     self.pendingPanelOpenSignal = pendingPanelOpenSignal
-    _isPinned = isPinned
-    _unreadCount = unreadCount
-    _scrollToBottomTrigger = scrollToBottomTrigger
+    self.isPinned = isPinned
+    self.unreadCount = unreadCount
+    self.onJumpToLatest = onJumpToLatest
+    self.onTogglePinned = onTogglePinned
+    self.onComposerHeightChanged = onComposerHeightChanged
 
     let initialViewModel = DirectSessionComposerViewModel()
     initialViewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
@@ -335,7 +341,7 @@ struct DirectSessionComposer: View {
     }
     .onChange(of: inputState.focus.measuredHeight) { _, _ in
       guard isPinned else { return }
-      scrollToBottomTrigger += 1
+      onComposerHeightChanged()
     }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
       guard dictationController.isRecording else { return }
@@ -640,9 +646,24 @@ struct DirectSessionComposer: View {
     sessionId: "test-session",
     sessionStore: sessionStore,
     selectedSkills: $skills,
-    isPinned: $pinned,
-    unreadCount: $unread,
-    scrollToBottomTrigger: $scroll
+    isPinned: pinned,
+    unreadCount: unread,
+    onJumpToLatest: {
+      pinned = true
+      unread = 0
+      scroll += 1
+    },
+    onTogglePinned: {
+      pinned.toggle()
+      if pinned {
+        unread = 0
+        scroll += 1
+      }
+    },
+    onComposerHeightChanged: {
+      guard pinned else { return }
+      scroll += 1
+    }
   )
   .environment(runtimeRegistry)
   .environment(router)

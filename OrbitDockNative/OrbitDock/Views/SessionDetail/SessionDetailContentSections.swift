@@ -11,9 +11,13 @@ struct SessionDetailConversationSection: View {
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
-  @Binding var isPinned: Bool
-  @Binding var unreadCount: Int
-  @Binding var scrollToBottomTrigger: Int
+  let isPinned: Bool
+  let unreadCount: Int
+  let scrollToBottomTrigger: Int
+  let onJumpToLatest: () -> Void
+  let onReachedBottom: () -> Void
+  let onLeftBottomByUser: () -> Void
+  let onEntryCountChanged: (_ oldCount: Int, _ newCount: Int) -> Void
 
   var body: some View {
     ConversationView(
@@ -25,9 +29,13 @@ struct SessionDetailConversationSection: View {
       currentTool: currentTool,
       chatViewMode: chatViewMode,
       jumpToMessageTarget: $jumpToMessageTarget,
-      isPinned: $isPinned,
-      unreadCount: $unreadCount,
-      scrollToBottomTrigger: $scrollToBottomTrigger
+      isPinned: isPinned,
+      unreadCount: unreadCount,
+      scrollToBottomTrigger: scrollToBottomTrigger,
+      onJumpToLatest: onJumpToLatest,
+      onReachedBottom: onReachedBottom,
+      onLeftBottomByUser: onLeftBottomByUser,
+      onEntryCountChanged: onEntryCountChanged
     )
     .environment(\.openFileInReview, openFileInReview)
     .environment(\.focusWorkerInDeck, focusWorkerInDeck)

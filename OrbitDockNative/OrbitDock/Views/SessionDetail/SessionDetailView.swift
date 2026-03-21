@@ -90,9 +90,11 @@ struct SessionDetailView: View {
           sessionStore: scopedServerState,
           selectedSkills: $viewModel.selectedSkills,
           pendingPanelOpenSignal: viewModel.pendingApprovalPanelOpenSignal,
-          isPinned: $viewModel.isPinned,
-          unreadCount: $viewModel.unreadCount,
-          scrollToBottomTrigger: $viewModel.scrollToBottomTrigger
+          isPinned: viewModel.isPinned,
+          unreadCount: viewModel.unreadCount,
+          onJumpToLatest: viewModel.jumpConversationToLatest,
+          onTogglePinned: viewModel.toggleConversationPinnedState,
+          onComposerHeightChanged: viewModel.handleComposerHeightChanged
         )
       } takeOverBar: {
         TakeOverInputBar(
@@ -311,18 +313,6 @@ struct SessionDetailView: View {
   var shouldSubscribeToServerSession: Bool {
     viewModel.shouldSubscribeToServerSession
   }
-
-  var conversationChromeState: SessionDetailConversationChromeState {
-    viewModel.conversationChromeState
-  }
-
-  func applyConversationChromeState(
-    _ state: SessionDetailConversationChromeState,
-    animatePendingApprovalPanel: Bool = false
-  ) {
-    viewModel.applyConversationChromeState(state, animatePendingApprovalPanel: animatePendingApprovalPanel)
-  }
-
 }
 
 #Preview {

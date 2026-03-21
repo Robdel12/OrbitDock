@@ -8,6 +8,47 @@ struct SessionDetailConversationChromeState: Equatable {
 }
 
 enum SessionDetailConversationChromePlanner {
+  static func timelineReachedBottom(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    var next = current
+    next.isPinned = true
+    next.unreadCount = 0
+    return next
+  }
+
+  static func timelineLeftBottomByUser(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    guard current.isPinned else { return current }
+
+    var next = current
+    next.isPinned = false
+    return next
+  }
+
+  static func didReceiveEntries(
+    current: SessionDetailConversationChromeState,
+    oldCount: Int,
+    newCount: Int
+  ) -> SessionDetailConversationChromeState {
+    guard !current.isPinned, newCount > oldCount else { return current }
+
+    var next = current
+    next.unreadCount += newCount - oldCount
+    return next
+  }
+
+  static func composerHeightChanged(
+    current: SessionDetailConversationChromeState
+  ) -> SessionDetailConversationChromeState {
+    guard current.isPinned else { return current }
+
+    var next = current
+    next.scrollToBottomTrigger += 1
+    return next
+  }
+
   static func openPendingApprovalPanel(
     current: SessionDetailConversationChromeState
   ) -> SessionDetailConversationChromeState {

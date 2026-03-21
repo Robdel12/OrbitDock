@@ -48,8 +48,8 @@ extension SessionDetailView {
     SessionDetailRegularActionBar(
       state: actionBarState,
       usageStats: usageStats,
-      jumpToLatest: jumpConversationToLatest,
-      togglePinned: toggleConversationPinnedState
+      jumpToLatest: viewModel.jumpConversationToLatest,
+      togglePinned: viewModel.toggleConversationPinnedState
     )
   }
 
@@ -96,8 +96,8 @@ extension SessionDetailView {
       onRevealInFinder: {
         _ = Platform.services.revealInFileBrowser(screenPresentation.projectPath)
       },
-      jumpToLatest: jumpConversationToLatest,
-      togglePinned: toggleConversationPinnedState
+      jumpToLatest: viewModel.jumpConversationToLatest,
+      togglePinned: viewModel.toggleConversationPinnedState
     )
   }
 
@@ -121,9 +121,13 @@ extension SessionDetailView {
         focusWorkerInDeck(workerId)
       } : nil,
       jumpToMessageTarget: $viewModel.conversationJumpTarget,
-      isPinned: $viewModel.isPinned,
-      unreadCount: $viewModel.unreadCount,
-      scrollToBottomTrigger: $viewModel.scrollToBottomTrigger
+      isPinned: viewModel.isPinned,
+      unreadCount: viewModel.unreadCount,
+      scrollToBottomTrigger: viewModel.scrollToBottomTrigger,
+      onJumpToLatest: viewModel.jumpConversationToLatest,
+      onReachedBottom: viewModel.handleConversationTimelineReachedBottom,
+      onLeftBottomByUser: viewModel.handleConversationTimelineLeftBottomByUser,
+      onEntryCountChanged: viewModel.handleConversationEntryCountChange
     )
   }
 
