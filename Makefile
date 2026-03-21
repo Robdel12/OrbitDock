@@ -386,10 +386,10 @@ rust-ci: rust-fmt-check rust-lint rust-test
 rust-build:
 	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE)
 
-rust-build-release:
+rust-build-release: web-build
 	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release
 
-rust-build-darwin:
+rust-build-darwin: web-build
 	$(RUST_WORKSPACE_PREFIX) rustup target add aarch64-apple-darwin
 	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release --target aarch64-apple-darwin
 	@mkdir -p "$(RUST_TARGET_DIR)/darwin-arm64"

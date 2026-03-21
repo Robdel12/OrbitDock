@@ -72,6 +72,10 @@ pub enum BinaryCommand {
 
         #[arg(long, default_value_t = false)]
         dev_console: bool,
+
+        /// Disable serving the embedded web UI
+        #[arg(long, env = "ORBITDOCK_NO_WEB", default_value_t = false)]
+        no_web: bool,
     },
 
     /// Bootstrap a fresh machine (create dirs and run migrations)

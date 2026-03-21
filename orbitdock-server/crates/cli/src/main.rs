@@ -149,6 +149,7 @@ fn main() -> anyhow::Result<()> {
         tls_cert,
         tls_key,
         dev_console,
+        no_web,
     ) = match cli.command {
         Some(Command::Start {
             bind,
@@ -158,6 +159,7 @@ fn main() -> anyhow::Result<()> {
             tls_cert,
             tls_key,
             dev_console,
+            no_web,
         }) => (
             bind,
             auth_token,
@@ -166,6 +168,7 @@ fn main() -> anyhow::Result<()> {
             tls_cert,
             tls_key,
             dev_console,
+            no_web,
         ),
         _ => (
             cli.bind
@@ -175,6 +178,7 @@ fn main() -> anyhow::Result<()> {
             true,
             None,
             None,
+            false,
             false,
         ),
     };
@@ -189,6 +193,7 @@ fn main() -> anyhow::Result<()> {
         tls_cert,
         tls_key,
         logging: orbitdock_server::ServerLoggingOptions::default(),
+        serve_web: !no_web,
     };
 
     let should_use_dev_console =

@@ -34,6 +34,8 @@ arc-swap = { workspace = true }
 dashmap = { workspace = true }
 reqwest = { workspace = true }
 clap = { workspace = true }
+rust-embed = { workspace = true }
+mime_guess = "2"
 dirs = { workspace = true }
 base64 = { workspace = true }
 ring = { workspace = true }
