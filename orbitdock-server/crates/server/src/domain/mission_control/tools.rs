@@ -54,7 +54,7 @@ pub fn mission_tool_definitions() -> Vec<MissionToolDef> {
                 "properties": {
                     "comment_id": {
                         "type": "string",
-                        "description": "The Linear comment ID to update."
+                        "description": "The comment ID to update."
                     },
                     "body": {
                         "type": "string",
