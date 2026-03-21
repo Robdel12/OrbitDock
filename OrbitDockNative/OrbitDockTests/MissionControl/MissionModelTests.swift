@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct MissionModelTests {
   /// Models use custom CodingKeys, so no keyDecodingStrategy needed.
   let decoder = JSONDecoder()

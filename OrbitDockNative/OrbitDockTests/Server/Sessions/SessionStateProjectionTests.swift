@@ -505,6 +505,53 @@ struct SessionStateProjectionTests {
     ))
   }
 
+  @Test func sessionObservableStreamingRowUpdateOnlyBumpsContentRevision() {
+    let observable = SessionObservable(id: "session-1")
+    let initialRow = assistantRow(id: "assistant-1", sequence: 1, content: "hello", isStreaming: true)
+
+    observable.applyConversationPage(
+      rows: [initialRow],
+      hasMoreBefore: false,
+      oldestSequence: initialRow.sequence,
+      isBootstrap: true
+    )
+
+    let initialStructureRevision = observable.rowEntriesStructureRevision
+    let initialContentRevision = observable.rowEntriesContentRevision
+
+    let updatedRow = assistantRow(id: "assistant-1", sequence: 1, content: "hello world", isStreaming: true)
+    observable.applyRowsChanged(upserted: [updatedRow], removedIds: [])
+
+    #expect(observable.rowEntries.count == 1)
+    #expect(observable.rowEntriesStructureRevision == initialStructureRevision)
+    #expect(observable.rowEntriesContentRevision == initialContentRevision + 1)
+    #expect(observable.lastChangedRowEntries.map(\.id) == ["assistant-1"])
+    #expect(observable.rowEntries.first?.id == "assistant-1")
+  }
+
+  @Test func sessionObservableInsertedRowBumpsStructureRevision() {
+    let observable = SessionObservable(id: "session-1")
+    let firstRow = assistantRow(id: "assistant-1", sequence: 1, content: "hello")
+
+    observable.applyConversationPage(
+      rows: [firstRow],
+      hasMoreBefore: false,
+      oldestSequence: firstRow.sequence,
+      isBootstrap: true
+    )
+
+    let initialStructureRevision = observable.rowEntriesStructureRevision
+    let initialContentRevision = observable.rowEntriesContentRevision
+
+    let secondRow = assistantRow(id: "assistant-2", sequence: 2, content: "world")
+    observable.applyRowsChanged(upserted: [secondRow], removedIds: [])
+
+    #expect(observable.rowEntries.count == 2)
+    #expect(observable.rowEntriesStructureRevision == initialStructureRevision + 1)
+    #expect(observable.rowEntriesContentRevision == initialContentRevision + 1)
+    #expect(observable.lastChangedRowEntries.map(\.id) == ["assistant-2"])
+  }
+
   private func execApprovalRequest() -> ServerApprovalRequest {
     ServerApprovalRequest(
       id: "req-1",
@@ -540,5 +587,26 @@ struct SessionStateProjectionTests {
 
   private func decodeChanges(_ json: String) throws -> ServerStateChanges {
     try JSONDecoder().decode(ServerStateChanges.self, from: Data(json.utf8))
+  }
+
+  private func assistantRow(
+    id: String,
+    sequence: UInt64,
+    content: String,
+    isStreaming: Bool = false
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: "session-1",
+      sequence: sequence,
+      turnId: nil,
+      row: .assistant(ServerConversationMessageRow(
+        id: id,
+        content: content,
+        turnId: nil,
+        timestamp: nil,
+        isStreaming: isStreaming,
+        images: nil
+      ))
+    )
   }
 }

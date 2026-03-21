@@ -70,7 +70,6 @@ struct SessionDetailPlanningTests {
     )
 
     #expect(plan.shouldSubscribe)
-    #expect(!plan.autoMarkReadEnabled)
     #expect(plan.shouldLoadApprovalHistory)
   }
 

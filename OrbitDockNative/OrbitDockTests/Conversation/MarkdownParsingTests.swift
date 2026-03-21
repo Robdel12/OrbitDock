@@ -133,17 +133,13 @@ struct MarkdownParsingTests {
     """
 
     let blocks = MarkdownSystemParser.parse(markdown)
-    let combinedText = blocks.compactMap { block -> String? in
-      if case let .text(text) = block {
-        return text
-      }
-      return nil
-    }
-    .joined(separator: "\n")
+    let list = firstList(in: blocks)
 
-    #expect(combinedText.contains("Question answers now carry"))
-    #expect(combinedText.contains("UI callsites"))
-    #expect(combinedText.contains("Rust protocol + websocket handling"))
+    #expect(list != nil)
+    #expect(list?[0].content.contains("Question answers now carry") == true)
+    #expect(list?[0].children.count == 4)
+    #expect(list?[0].children[0].content.contains("UI callsites") == true)
+    #expect(list?[0].children[3].content.contains("Rust protocol + websocket handling") == true)
   }
 
   @Test func orderedListUsesSemanticIncrementingMarkers() {
@@ -154,15 +150,16 @@ struct MarkdownParsingTests {
     """
 
     let blocks = MarkdownSystemParser.parse(markdown)
-    let listText = blocks.compactMap { block -> String? in
-      if case let .text(text) = block { return text }
-      return nil
-    }
-    .joined(separator: "\n")
+    let list = firstList(in: blocks)
 
-    #expect(listText.contains("1.  First item"))
-    #expect(listText.contains("2.  Second item"))
-    #expect(listText.contains("3.  Third item"))
+    #expect(list != nil)
+    #expect(list?.count == 3)
+    #expect(list?[0].marker == .number(1))
+    #expect(list?[0].content == "First item")
+    #expect(list?[1].marker == .number(2))
+    #expect(list?[1].content == "Second item")
+    #expect(list?[2].marker == .number(3))
+    #expect(list?[2].content == "Third item")
   }
 
   @Test func taskListUsesCheckboxGlyphsAndPreservesContinuationParagraphs() {
@@ -174,17 +171,15 @@ struct MarkdownParsingTests {
     """
 
     let blocks = MarkdownSystemParser.parse(markdown)
-    let listText = blocks.compactMap { block -> String? in
-      if case let .text(text) = block { return text }
-      return nil
-    }
-    .joined(separator: "\n")
+    let list = firstList(in: blocks)
 
-    #expect(listText.contains("☑  Completed task"))
-    #expect(listText.contains("☐  Open task"))
-    #expect(listText.contains("[x] Completed task") == false)
-    #expect(listText.contains("[ ] Open task") == false)
-    #expect(listText.contains("continuation paragraph should remain attached"))
+    #expect(list != nil)
+    #expect(list?.count == 2)
+    #expect(list?[0].marker == .checked)
+    #expect(list?[0].content.contains("Completed task") == true)
+    #expect(list?[0].continuation.first?.contains("continuation paragraph") == true)
+    #expect(list?[1].marker == .unchecked)
+    #expect(list?[1].content.contains("Open task") == true)
   }
 
   @Test func blockquotePreservesParagraphsAndNestedListBoundaries() {
@@ -271,6 +266,7 @@ struct MarkdownParsingTests {
     #expect(blockKinds.contains("thematicBreak"))
     #expect(blockKinds.contains("codeBlock"))
     #expect(blockKinds.contains("table"))
+    #expect(blockKinds.contains("list"))
   }
 
   @Test func interBlockSpacingUsesGridAlignedValues() {
@@ -345,6 +341,45 @@ struct MarkdownParsingTests {
     #expect(standard == thinking)
   }
 
+  @Test func streamingProjectionKeepsOpenParagraphInCheapTail() {
+    let projection = MarkdownStreamingProjection.make(
+      content: """
+      First paragraph.
+
+      Second paragraph still streaming
+      """,
+      isStreaming: true
+    )
+
+    #expect(projection.stablePrefix == "First paragraph.\n\n")
+    #expect(projection.streamingTail == "Second paragraph still streaming")
+  }
+
+  @Test func streamingProjectionFinalizesClosedCodeFence() {
+    let projection = MarkdownStreamingProjection.make(
+      content: """
+      ```swift
+      let x = 1
+      ```
+      trailing tail
+      """,
+      isStreaming: true
+    )
+
+    #expect(projection.stablePrefix == "```swift\nlet x = 1\n```\n")
+    #expect(projection.streamingTail == "trailing tail")
+  }
+
+  @Test func streamingProjectionReturnsWholeContentWhenNotStreaming() {
+    let projection = MarkdownStreamingProjection.make(
+      content: "Paragraph with `inline code`",
+      isStreaming: false
+    )
+
+    #expect(projection.stablePrefix == "Paragraph with `inline code`")
+    #expect(projection.streamingTail.isEmpty)
+  }
+
   // MARK: - Helpers
 
   private func firstTable(in blocks: [MarkdownBlock]) -> (headers: [String], rows: [[String]])? {
@@ -371,7 +406,15 @@ struct MarkdownParsingTests {
       case .blockquote: "blockquote"
       case .table: "table"
       case .thematicBreak: "thematicBreak"
+      case .list: "list"
     }
+  }
+
+  private func firstList(in blocks: [MarkdownBlock]) -> [ListItem]? {
+    for block in blocks {
+      if case let .list(items) = block { return items }
+    }
+    return nil
   }
 
   private func links(in attributed: AttributedString) -> Set<String> {

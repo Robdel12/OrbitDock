@@ -146,6 +146,7 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   var isRemote: Bool = false
   private(set) var subscribeCalls: [SubscribeCall] = []
   private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
+  private(set) var appliedDashboardConversations: [[ServerDashboardConversationItem]] = []
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
     unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
@@ -167,6 +168,10 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {
     appliedSessionLists.append(sessions)
+  }
+
+  func applyDashboardConversations(_ conversations: [ServerDashboardConversationItem]) {
+    appliedDashboardConversations.append(conversations)
   }
 }
 
