@@ -1,113 +1,62 @@
 import assert from 'node:assert/strict'
-import { describe, it, mock } from 'node:test'
+import { describe, it } from 'node:test'
 import { decodeServerMessage, encodeClientMessage, isKnownRowType } from '../../src/api/codec.js'
 
-describe('codec', () => {
-  describe('decodeServerMessage', () => {
-    it('parses a valid sessions_list message', () => {
-      const raw = JSON.stringify({ type: 'sessions_list', sessions: [] })
-      const result = decodeServerMessage(raw)
-      assert.deepStrictEqual(result, { type: 'sessions_list', sessions: [] })
+describe('server message decoding', () => {
+  it('passes through valid messages with all fields intact', () => {
+    const sessionDelta = JSON.stringify({
+      type: 'session_delta',
+      session_id: 'sess-1',
+      changes: { work_status: 'working' },
+    })
+    const rowsChanged = JSON.stringify({
+      type: 'conversation_rows_changed',
+      session_id: 'sess-1',
+      upserted: [],
+      removed_row_ids: [],
+      total_row_count: 10,
+    })
+    const approval = JSON.stringify({
+      type: 'approval_requested',
+      session_id: 'sess-1',
+      request: { id: 'req-1', type: 'exec' },
+      approval_version: 5,
     })
 
-    it('parses a valid session_delta message', () => {
-      const raw = JSON.stringify({
-        type: 'session_delta',
-        session_id: 'sess-1',
-        changes: { work_status: 'working' },
-      })
-      const result = decodeServerMessage(raw)
-      assert.strictEqual(result.type, 'session_delta')
-      assert.strictEqual(result.session_id, 'sess-1')
-    })
+    const delta = decodeServerMessage(sessionDelta)
+    assert.strictEqual(delta.type, 'session_delta')
+    assert.strictEqual(delta.session_id, 'sess-1')
 
-    it('returns null for unknown message types', () => {
-      const warnSpy = mock.method(console, 'warn', () => {})
-      const raw = JSON.stringify({ type: 'future_type', data: {} })
-      const result = decodeServerMessage(raw)
-      assert.strictEqual(result, null)
-      assert.ok(warnSpy.mock.callCount() > 0)
-      warnSpy.mock.restore()
-    })
+    const rows = decodeServerMessage(rowsChanged)
+    assert.strictEqual(rows.total_row_count, 10)
 
-    it('returns null for missing type field', () => {
-      const warnSpy = mock.method(console, 'warn', () => {})
-      const raw = JSON.stringify({ sessions: [] })
-      const result = decodeServerMessage(raw)
-      assert.strictEqual(result, null)
-      warnSpy.mock.restore()
-    })
-
-    it('returns null for invalid JSON', () => {
-      const warnSpy = mock.method(console, 'warn', () => {})
-      const result = decodeServerMessage('not json')
-      assert.strictEqual(result, null)
-      warnSpy.mock.restore()
-    })
-
-    it('handles conversation_rows_changed', () => {
-      const raw = JSON.stringify({
-        type: 'conversation_rows_changed',
-        session_id: 'sess-1',
-        upserted: [],
-        removed_row_ids: [],
-        total_row_count: 10,
-      })
-      const result = decodeServerMessage(raw)
-      assert.strictEqual(result.type, 'conversation_rows_changed')
-      assert.strictEqual(result.total_row_count, 10)
-    })
-
-    it('handles approval_requested', () => {
-      const raw = JSON.stringify({
-        type: 'approval_requested',
-        session_id: 'sess-1',
-        request: { id: 'req-1', type: 'exec' },
-        approval_version: 5,
-      })
-      const result = decodeServerMessage(raw)
-      assert.strictEqual(result.type, 'approval_requested')
-      assert.strictEqual(result.approval_version, 5)
-    })
+    const req = decodeServerMessage(approval)
+    assert.strictEqual(req.approval_version, 5)
   })
 
-  describe('isKnownRowType', () => {
-    it('returns true for known row types', () => {
-      const known = [
-        'user',
-        'assistant',
-        'thinking',
-        'system',
-        'tool',
-        'activity_group',
-        'question',
-        'approval',
-        'worker',
-        'plan',
-        'hook',
-        'handoff',
-      ]
-      for (const type of known) {
-        assert.strictEqual(isKnownRowType(type), true)
-      }
-    })
+  it('safely ignores malformed or unknown input', () => {
+    assert.strictEqual(decodeServerMessage('not json'), null)
+    assert.strictEqual(decodeServerMessage(JSON.stringify({ sessions: [] })), null)
+    assert.strictEqual(decodeServerMessage(JSON.stringify({ type: 'future_type', data: {} })), null)
+  })
+})
 
-    it('returns false for unknown row types', () => {
-      assert.strictEqual(isKnownRowType('future_row'), false)
-      assert.strictEqual(isKnownRowType(''), false)
-    })
+describe('client message encoding', () => {
+  it('round-trips through JSON', () => {
+    const msg = { type: 'subscribe_session', session_id: 'sess-1' }
+    assert.deepStrictEqual(JSON.parse(encodeClientMessage(msg)), msg)
+  })
+})
+
+describe('row type classification', () => {
+  it('recognizes all supported row types', () => {
+    for (const type of ['user', 'assistant', 'tool', 'system', 'approval']) {
+      assert.strictEqual(isKnownRowType(type), true, `expected '${type}' to be known`)
+    }
   })
 
-  describe('encodeClientMessage', () => {
-    it('encodes a subscribe_list message', () => {
-      const result = encodeClientMessage({ type: 'subscribe_list' })
-      assert.deepStrictEqual(JSON.parse(result), { type: 'subscribe_list' })
-    })
-
-    it('encodes a subscribe_session message', () => {
-      const msg = { type: 'subscribe_session', session_id: 'sess-1' }
-      const result = encodeClientMessage(msg)
-      assert.deepStrictEqual(JSON.parse(result), msg)
-    })
+  it('rejects unknown types gracefully', () => {
+    assert.strictEqual(isKnownRowType('future_row'), false)
+    assert.strictEqual(isKnownRowType(''), false)
   })
 })

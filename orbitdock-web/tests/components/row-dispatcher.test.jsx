@@ -4,45 +4,24 @@ import { render } from '@testing-library/preact'
 import { RowDispatcher } from '../../src/components/conversation/row-dispatcher.jsx'
 
 describe('RowDispatcher', () => {
-  it('renders a user row', () => {
-    const entry = {
-      sequence: 1,
-      row: { row_type: 'user', id: 'r-1', content: 'Hello from the user' },
+  it('renders content for known row types', () => {
+    const rows = [
+      { row_type: 'user', id: 'r-1', content: 'Hello from the user' },
+      { row_type: 'assistant', id: 'r-2', content: 'Hello from the assistant', is_streaming: false },
+      { row_type: 'system', id: 'r-3', content: 'System message' },
+    ]
+
+    for (const row of rows) {
+      const { getByText } = render(<RowDispatcher entry={{ sequence: 1, row }} />)
+      assert.ok(getByText(row.content), `expected '${row.row_type}' row to render its content`)
     }
-    const { getByText } = render(<RowDispatcher entry={entry} />)
-    assert.ok(getByText('Hello from the user'))
   })
 
-  it('renders an assistant row', () => {
-    const entry = {
-      sequence: 2,
-      row: { row_type: 'assistant', id: 'r-2', content: 'Hello from the assistant', is_streaming: false },
-    }
-    const { getByText } = render(<RowDispatcher entry={entry} />)
-    assert.ok(getByText('Hello from the assistant'))
-  })
+  it('renders nothing for unknown or missing rows', () => {
+    const unknownType = render(<RowDispatcher entry={{ sequence: 1, row: { row_type: 'future_type', id: 'r-4' } }} />)
+    assert.strictEqual(unknownType.container.innerHTML, '')
 
-  it('renders a system row', () => {
-    const entry = {
-      sequence: 3,
-      row: { row_type: 'system', id: 'r-3', content: 'System message' },
-    }
-    const { getByText } = render(<RowDispatcher entry={entry} />)
-    assert.ok(getByText('System message'))
-  })
-
-  it('returns null for unknown row types', () => {
-    const entry = {
-      sequence: 4,
-      row: { row_type: 'future_type', id: 'r-4', content: 'Unknown' },
-    }
-    const { container } = render(<RowDispatcher entry={entry} />)
-    assert.strictEqual(container.innerHTML, '')
-  })
-
-  it('returns null for missing row', () => {
-    const entry = { sequence: 5 }
-    const { container } = render(<RowDispatcher entry={entry} />)
-    assert.strictEqual(container.innerHTML, '')
+    const missingRow = render(<RowDispatcher entry={{ sequence: 2 }} />)
+    assert.strictEqual(missingRow.container.innerHTML, '')
   })
 })

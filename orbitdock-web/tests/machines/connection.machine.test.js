@@ -3,73 +3,73 @@ import { describe, it } from 'node:test'
 import { createActor } from 'xstate'
 import { connectionMachine } from '../../src/machines/connection.machine.js'
 
-const createTestActor = () => {
+const startActor = () => {
   const actor = createActor(connectionMachine)
   actor.start()
   return actor
 }
 
-describe('connection machine', () => {
-  it('starts in disconnected state', () => {
-    const actor = createTestActor()
-    assert.strictEqual(actor.getSnapshot().value, 'disconnected')
-    actor.stop()
-  })
+const snap = (actor) => actor.getSnapshot()
 
-  it('transitions to connecting on CONNECT', () => {
-    const actor = createTestActor()
-    actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
-    assert.strictEqual(actor.getSnapshot().value, 'connecting')
-    assert.strictEqual(actor.getSnapshot().context.url, 'ws://localhost:4000/ws')
-    actor.stop()
-  })
+describe('WebSocket connection lifecycle', () => {
+  it('establishes a connection and resets attempt count', () => {
+    const actor = startActor()
+    assert.strictEqual(snap(actor).value, 'disconnected')
 
-  it('transitions to connected on WS_OPEN', () => {
-    const actor = createTestActor()
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
+    assert.strictEqual(snap(actor).value, 'connecting')
+    assert.strictEqual(snap(actor).context.url, 'ws://localhost:4000/ws')
+
     actor.send({ type: 'WS_OPEN' })
-    assert.strictEqual(actor.getSnapshot().value, 'connected')
-    assert.strictEqual(actor.getSnapshot().context.attempt, 0)
+    assert.strictEqual(snap(actor).value, 'connected')
+    assert.strictEqual(snap(actor).context.attempt, 0)
+
     actor.stop()
   })
 
-  it('transitions to reconnecting on WS_CLOSE from connected', () => {
-    const actor = createTestActor()
+  it('reconnects after losing connection or hitting an error', () => {
+    const actor = startActor()
+
+    // Connection drops after being established
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_OPEN' })
     actor.send({ type: 'WS_CLOSE' })
-    assert.strictEqual(actor.getSnapshot().value, 'reconnecting')
+    assert.strictEqual(snap(actor).value, 'reconnecting')
     actor.stop()
+
+    // Error during initial connection
+    const actor2 = startActor()
+    actor2.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
+    actor2.send({ type: 'WS_ERROR' })
+    assert.strictEqual(snap(actor2).value, 'reconnecting')
+    actor2.stop()
   })
 
-  it('transitions to reconnecting on WS_ERROR from connecting', () => {
-    const actor = createTestActor()
+  it('tracks generation so stale sockets can be identified', () => {
+    const actor = startActor()
+    assert.strictEqual(snap(actor).context.generation, 0)
+
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
-    actor.send({ type: 'WS_ERROR' })
-    assert.strictEqual(actor.getSnapshot().value, 'reconnecting')
+    assert.strictEqual(snap(actor).context.generation, 1)
+
     actor.stop()
   })
 
-  it('increments generation on each CONNECT', () => {
-    const actor = createTestActor()
-    assert.strictEqual(actor.getSnapshot().context.generation, 0)
-    actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
-    assert.strictEqual(actor.getSnapshot().context.generation, 1)
-    actor.stop()
-  })
-
-  it('tracks subscribed sessions', () => {
-    const actor = createTestActor()
+  it('tracks which sessions the user is viewing', () => {
+    const actor = startActor()
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_OPEN' })
+
     actor.send({ type: 'SUBSCRIBE_SESSION', sessionId: 'sess-1' })
-    assert.strictEqual(actor.getSnapshot().context.subscribedSessions.has('sess-1'), true)
+    assert.strictEqual(snap(actor).context.subscribedSessions.has('sess-1'), true)
+
     actor.send({ type: 'UNSUBSCRIBE_SESSION', sessionId: 'sess-1' })
-    assert.strictEqual(actor.getSnapshot().context.subscribedSessions.has('sess-1'), false)
+    assert.strictEqual(snap(actor).context.subscribedSessions.has('sess-1'), false)
+
     actor.stop()
   })
 
-  it('transitions to disconnected on RESET from failed', () => {
+  it('can recover from a fully failed state', () => {
     const actor = createActor(connectionMachine, {
       snapshot: connectionMachine.resolveState({
         value: 'failed',
@@ -77,8 +77,10 @@ describe('connection machine', () => {
       }),
     })
     actor.start()
+
     actor.send({ type: 'RESET' })
-    assert.strictEqual(actor.getSnapshot().value, 'disconnected')
+    assert.strictEqual(snap(actor).value, 'disconnected')
+
     actor.stop()
   })
 })
