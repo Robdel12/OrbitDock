@@ -1493,3 +1493,61 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         last_activity: None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::slugify_mission_name;
+
+    #[test]
+    fn basic_space_separation() {
+        assert_eq!(slugify_mission_name("My Mission"), "my-mission");
+    }
+
+    #[test]
+    fn special_characters_stripped() {
+        assert_eq!(slugify_mission_name("OrbitDock (v2)"), "orbitdock-v2");
+    }
+
+    #[test]
+    fn leading_trailing_whitespace_trimmed() {
+        assert_eq!(slugify_mission_name("  test  "), "test");
+    }
+
+    #[test]
+    fn consecutive_special_chars_collapsed() {
+        assert_eq!(slugify_mission_name("a---b"), "a-b");
+    }
+
+    #[test]
+    fn unicode_alphanumeric_preserved() {
+        assert_eq!(slugify_mission_name("café project"), "café-project");
+    }
+
+    #[test]
+    fn single_word_unchanged() {
+        assert_eq!(slugify_mission_name("simple"), "simple");
+    }
+
+    #[test]
+    fn empty_string() {
+        assert_eq!(slugify_mission_name(""), "");
+    }
+
+    #[test]
+    fn real_world_mission_name() {
+        assert_eq!(slugify_mission_name("OrbitDock GitHub"), "orbitdock-github");
+    }
+
+    #[test]
+    fn mixed_special_characters() {
+        assert_eq!(
+            slugify_mission_name("hello@world.com #1"),
+            "hello-world-com-1"
+        );
+    }
+
+    #[test]
+    fn all_special_characters() {
+        assert_eq!(slugify_mission_name("---!!!---"), "");
+    }
+}
