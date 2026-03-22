@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct ServerControlPlanePlannerTests {
   @Test func primaryClaimPlannerEmitsExpectedAssignmentsForPrimaryEndpoint() throws {
     let endpointA = try #require(UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))

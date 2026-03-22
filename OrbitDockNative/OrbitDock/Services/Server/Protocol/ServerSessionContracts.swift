@@ -34,10 +34,75 @@ enum ServerCodexConfigMode: String, Codable, CaseIterable, Hashable, Sendable {
   case custom
 }
 
+enum ServerCodexApprovalMode: String, Codable, Equatable, Hashable, Sendable {
+  case untrusted
+  case onFailure = "on_failure"
+  case onRequest = "on_request"
+  case never
+}
+
+struct ServerCodexGranularApprovalPolicy: Codable, Equatable, Hashable, Sendable {
+  let sandboxApproval: Bool?
+  let rules: Bool?
+  let skillApproval: Bool?
+  let requestPermissions: Bool?
+  let mcpElicitations: Bool?
+
+  enum CodingKeys: String, CodingKey {
+    case sandboxApproval = "sandbox_approval"
+    case rules
+    case skillApproval = "skill_approval"
+    case requestPermissions = "request_permissions"
+    case mcpElicitations = "mcp_elicitations"
+  }
+}
+
+enum ServerCodexApprovalPolicy: Codable, Equatable, Hashable, Sendable {
+  case mode(ServerCodexApprovalMode)
+  case granular(ServerCodexGranularApprovalPolicy)
+
+  private enum CodingKeys: String, CodingKey {
+    case mode
+    case granular
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    if let mode = try container.decodeIfPresent(ServerCodexApprovalMode.self, forKey: .mode) {
+      self = .mode(mode)
+      return
+    }
+    if let granular = try container.decodeIfPresent(
+      ServerCodexGranularApprovalPolicy.self,
+      forKey: .granular
+    ) {
+      self = .granular(granular)
+      return
+    }
+    throw DecodingError.dataCorrupted(
+      DecodingError.Context(
+        codingPath: decoder.codingPath,
+        debugDescription: "Expected mode or granular Codex approval policy"
+      )
+    )
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+      case let .mode(mode):
+        try container.encode(mode, forKey: .mode)
+      case let .granular(granular):
+        try container.encode(granular, forKey: .granular)
+    }
+  }
+}
+
 struct ServerCodexSessionOverrides: Codable, Equatable, Hashable, Sendable {
   let model: String?
   let modelProvider: String?
   let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
   let collaborationMode: String?
   let multiAgent: Bool?
@@ -50,6 +115,7 @@ struct ServerCodexSessionOverrides: Codable, Equatable, Hashable, Sendable {
     case model
     case modelProvider = "model_provider"
     case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
     case collaborationMode = "collaboration_mode"
     case multiAgent = "multi_agent"
@@ -377,6 +443,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
   let permissionMode: String?
   let allowBypassPermissions: Bool?
@@ -431,6 +498,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
     case allowBypassPermissions = "allow_bypass_permissions"
@@ -651,6 +719,7 @@ struct ServerSessionState: Codable, Identifiable {
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
   let permissionMode: String?
   let allowBypassPermissions: Bool?
@@ -718,6 +787,7 @@ struct ServerSessionState: Codable, Identifiable {
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
     case permissionMode = "permission_mode"
     case allowBypassPermissions = "allow_bypass_permissions"
@@ -792,6 +862,10 @@ struct ServerSessionState: Codable, Identifiable {
       forKey: .claudeIntegrationMode
     )
     approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
+    approvalPolicyDetails = try container.decodeIfPresent(
+      ServerCodexApprovalPolicy.self,
+      forKey: .approvalPolicyDetails
+    )
     sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
     permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
     collaborationMode = try container.decodeIfPresent(String.self, forKey: .collaborationMode)
@@ -862,6 +936,7 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encodeIfPresent(codexIntegrationMode, forKey: .codexIntegrationMode)
     try container.encodeIfPresent(claudeIntegrationMode, forKey: .claudeIntegrationMode)
     try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+    try container.encodeIfPresent(approvalPolicyDetails, forKey: .approvalPolicyDetails)
     try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
     try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
     try container.encodeIfPresent(collaborationMode, forKey: .collaborationMode)
@@ -990,6 +1065,7 @@ struct ServerStateChanges: Codable {
   let codexIntegrationMode: ServerCodexIntegrationMode??
   let claudeIntegrationMode: ServerClaudeIntegrationMode??
   let approvalPolicy: String??
+  let approvalPolicyDetails: ServerCodexApprovalPolicy??
   let sandboxMode: String??
   let collaborationMode: String??
   let multiAgent: Bool??
@@ -1031,6 +1107,7 @@ struct ServerStateChanges: Codable {
     codexIntegrationMode: ServerCodexIntegrationMode?? = nil,
     claudeIntegrationMode: ServerClaudeIntegrationMode?? = nil,
     approvalPolicy: String?? = nil,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?? = nil,
     sandboxMode: String?? = nil,
     collaborationMode: String?? = nil,
     multiAgent: Bool?? = nil,
@@ -1071,6 +1148,7 @@ struct ServerStateChanges: Codable {
     self.codexIntegrationMode = codexIntegrationMode
     self.claudeIntegrationMode = claudeIntegrationMode
     self.approvalPolicy = approvalPolicy
+    self.approvalPolicyDetails = approvalPolicyDetails
     self.sandboxMode = sandboxMode
     self.collaborationMode = collaborationMode
     self.multiAgent = multiAgent
@@ -1113,6 +1191,7 @@ struct ServerStateChanges: Codable {
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
     case collaborationMode = "collaboration_mode"
     case multiAgent = "multi_agent"
@@ -1165,6 +1244,10 @@ struct ServerStateChanges: Codable {
       forKey: .claudeIntegrationMode
     )
     approvalPolicy = try container.decodePatchValue(String.self, forKey: .approvalPolicy)
+    approvalPolicyDetails = try container.decodePatchValue(
+      ServerCodexApprovalPolicy.self,
+      forKey: .approvalPolicyDetails
+    )
     sandboxMode = try container.decodePatchValue(String.self, forKey: .sandboxMode)
     collaborationMode = try container.decodePatchValue(String.self, forKey: .collaborationMode)
     multiAgent = try container.decodePatchValue(Bool.self, forKey: .multiAgent)

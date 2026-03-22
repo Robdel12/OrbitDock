@@ -10,7 +10,10 @@ use codex_app_server_protocol::{
 };
 use codex_core::config::Config as CoreConfig;
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
-use orbitdock_protocol::{CodexConfigMode, CodexConfigSource, CodexSessionOverrides};
+use orbitdock_protocol::{
+    CodexApprovalMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
+    CodexGranularApprovalPolicy, CodexSessionOverrides,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fmt;
@@ -36,6 +39,8 @@ pub struct CodexResolvedSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
     pub approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     pub sandbox_mode: Option<String>,
     pub collaboration_mode: Option<String>,
     pub multi_agent: Option<bool>,
@@ -446,6 +451,9 @@ fn effective_settings(
         model: config.model.clone(),
         model_provider: Some(config.model_provider_id.clone()),
         approval_policy: Some(core_approval_policy_to_string(
+            *config.permissions.approval_policy.get(),
+        )),
+        approval_policy_details: Some(core_approval_policy_to_details(
             *config.permissions.approval_policy.get(),
         )),
         sandbox_mode: Some(core_sandbox_policy_to_string(
@@ -999,6 +1007,36 @@ fn core_approval_policy_to_string(value: codex_protocol::protocol::AskForApprova
         codex_protocol::protocol::AskForApproval::Never => "never",
     }
     .to_string()
+}
+
+fn core_approval_policy_to_details(
+    value: codex_protocol::protocol::AskForApproval,
+) -> CodexApprovalPolicy {
+    match value {
+        codex_protocol::protocol::AskForApproval::UnlessTrusted => {
+            CodexApprovalPolicy::Mode(CodexApprovalMode::Untrusted)
+        }
+        codex_protocol::protocol::AskForApproval::OnFailure => {
+            CodexApprovalPolicy::Mode(CodexApprovalMode::OnFailure)
+        }
+        codex_protocol::protocol::AskForApproval::OnRequest => {
+            CodexApprovalPolicy::Mode(CodexApprovalMode::OnRequest)
+        }
+        codex_protocol::protocol::AskForApproval::Granular(config) => {
+            CodexApprovalPolicy::Granular {
+                granular: CodexGranularApprovalPolicy {
+                    sandbox_approval: config.sandbox_approval,
+                    rules: config.rules,
+                    skill_approval: config.skill_approval,
+                    request_permissions: config.request_permissions,
+                    mcp_elicitations: config.mcp_elicitations,
+                },
+            }
+        }
+        codex_protocol::protocol::AskForApproval::Never => {
+            CodexApprovalPolicy::Mode(CodexApprovalMode::Never)
+        }
+    }
 }
 
 fn config_profiles(config: &Config) -> Vec<CodexConfigProfileSummary> {

@@ -315,6 +315,7 @@ mod tests {
                 timestamp: None,
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }
@@ -331,6 +332,7 @@ mod tests {
                 timestamp: None,
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }
@@ -570,6 +572,7 @@ mod tests {
                 timestamp: Some("2026-03-13T12:00:00Z".to_string()),
                 is_streaming,
                 images: vec![],
+                memory_citation: None,
             }),
         };
 

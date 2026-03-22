@@ -140,6 +140,10 @@ impl CodexConnector {
                 .await
             }
 
+            EventMsg::GuardianAssessment(e) => {
+                event_mapping::guardian::handle_guardian_assessment(e)
+            }
+
             EventMsg::ExecCommandBegin(e) => {
                 event_mapping::tools::handle_exec_command_begin(e, output_buffers, env_tracker)
                     .await

@@ -48,6 +48,95 @@ pub enum CodexConfigMode {
     Custom,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CodexApprovalMode {
+    #[serde(rename = "untrusted")]
+    Untrusted,
+    #[serde(rename = "on-failure")]
+    OnFailure,
+    #[serde(rename = "on-request")]
+    OnRequest,
+    #[serde(rename = "never")]
+    Never,
+}
+
+impl CodexApprovalMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Untrusted => "untrusted",
+            Self::OnFailure => "on-failure",
+            Self::OnRequest => "on-request",
+            Self::Never => "never",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexGranularApprovalPolicy {
+    pub sandbox_approval: bool,
+    pub rules: bool,
+    pub skill_approval: bool,
+    pub request_permissions: bool,
+    pub mcp_elicitations: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CodexApprovalPolicy {
+    Mode(CodexApprovalMode),
+    Granular {
+        granular: CodexGranularApprovalPolicy,
+    },
+}
+
+impl CodexApprovalPolicy {
+    pub fn legacy_summary(&self) -> String {
+        match self {
+            Self::Mode(mode) => mode.as_str().to_string(),
+            Self::Granular { .. } => "reject".to_string(),
+        }
+    }
+
+    pub fn from_storage_text(value: &str) -> Option<Self> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        if trimmed.starts_with('{') || trimmed.starts_with('"') {
+            if let Ok(policy) = serde_json::from_str::<Self>(trimmed) {
+                return Some(policy);
+            }
+        }
+
+        match trimmed {
+            "untrusted" | "unless-allow-listed" => Some(Self::Mode(CodexApprovalMode::Untrusted)),
+            "on-failure" => Some(Self::Mode(CodexApprovalMode::OnFailure)),
+            "on-request" => Some(Self::Mode(CodexApprovalMode::OnRequest)),
+            "never" => Some(Self::Mode(CodexApprovalMode::Never)),
+            "reject" => Some(Self::Granular {
+                granular: CodexGranularApprovalPolicy {
+                    sandbox_approval: false,
+                    rules: false,
+                    skill_approval: false,
+                    request_permissions: false,
+                    mcp_elicitations: false,
+                },
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn storage_text(&self) -> String {
+        match self {
+            Self::Mode(mode) => mode.as_str().to_string(),
+            Self::Granular { .. } => {
+                serde_json::to_string(self).unwrap_or_else(|_| self.legacy_summary())
+            }
+        }
+    }
+}
+
 /// Claude integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -434,6 +523,8 @@ pub struct SessionSummary {
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -864,6 +955,8 @@ pub struct SessionState {
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
@@ -1122,6 +1215,8 @@ pub struct StateChanges {
     pub claude_integration_mode: Option<Option<ClaudeIntegrationMode>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1185,6 +1280,8 @@ pub struct CodexSessionOverrides {
     pub model_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1761,6 +1858,8 @@ pub enum SessionPermissionRules {
     Codex {
         #[serde(skip_serializing_if = "Option::is_none")]
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
     },
@@ -1769,8 +1868,9 @@ pub enum SessionPermissionRules {
 #[cfg(test)]
 mod tests {
     use super::{
-        Provider, SessionListItem, SessionListStatus, SessionStatus, SessionSummary, TokenUsage,
-        TokenUsageSnapshotKind, WorkStatus,
+        CodexApprovalPolicy, CodexGranularApprovalPolicy, Provider, SessionListItem,
+        SessionListStatus, SessionStatus, SessionSummary, TokenUsage, TokenUsageSnapshotKind,
+        WorkStatus,
     };
 
     #[test]
@@ -1848,6 +1948,7 @@ mod tests {
             codex_integration_mode: None,
             claude_integration_mode: None,
             approval_policy: None,
+            approval_policy_details: None,
             sandbox_mode: None,
             permission_mode: None,
             collaboration_mode: None,
@@ -1897,6 +1998,45 @@ mod tests {
             Some(crate::domain_events::ToolFamily::Shell)
         );
         assert_eq!(item.forked_from_session_id.as_deref(), Some("sess-0"));
+    }
+
+    #[test]
+    fn codex_approval_policy_round_trips_granular_storage_text() {
+        let policy = CodexApprovalPolicy::Granular {
+            granular: CodexGranularApprovalPolicy {
+                sandbox_approval: false,
+                rules: true,
+                skill_approval: false,
+                request_permissions: true,
+                mcp_elicitations: false,
+            },
+        };
+
+        let stored = policy.storage_text();
+        let restored =
+            CodexApprovalPolicy::from_storage_text(&stored).expect("restore approval policy");
+
+        assert_eq!(restored, policy);
+        assert_eq!(policy.legacy_summary(), "reject");
+    }
+
+    #[test]
+    fn codex_approval_policy_supports_legacy_reject_string() {
+        let restored =
+            CodexApprovalPolicy::from_storage_text("reject").expect("restore reject policy");
+
+        assert_eq!(
+            restored,
+            CodexApprovalPolicy::Granular {
+                granular: CodexGranularApprovalPolicy {
+                    sandbox_approval: false,
+                    rules: false,
+                    skill_approval: false,
+                    request_permissions: false,
+                    mcp_elicitations: false,
+                },
+            }
+        );
     }
 
     // classify_tool_family and ensure_tool_family tests removed —

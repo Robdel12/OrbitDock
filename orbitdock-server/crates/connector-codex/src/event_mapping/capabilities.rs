@@ -88,6 +88,7 @@ pub(crate) fn handle_list_custom_prompts_response(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -117,6 +118,7 @@ pub(crate) fn handle_get_history_entry_response(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }

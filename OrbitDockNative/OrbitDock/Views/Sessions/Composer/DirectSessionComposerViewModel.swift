@@ -108,7 +108,20 @@ final class DirectSessionComposerViewModel {
     try await currentSessionStore.updateSessionConfig(
       resolvedSessionId,
       approvalPolicy: level.approvalPolicy,
+      approvalPolicyDetails: level.approvalPolicyDetails,
       sandboxMode: level.sandboxMode
+    )
+  }
+
+  func updateCodexApprovalPolicy(
+    details: ServerCodexApprovalPolicy,
+    sandboxMode: String?
+  ) async throws {
+    try await currentSessionStore.updateSessionConfig(
+      resolvedSessionId,
+      approvalPolicy: details.legacySummary == "granular" ? nil : details.legacySummary,
+      approvalPolicyDetails: details,
+      sandboxMode: sandboxMode
     )
   }
 

@@ -426,7 +426,8 @@ struct SessionWorkerRosterPlannerTests {
       turnId: nil,
       timestamp: nil,
       isStreaming: false,
-      images: nil
+      images: nil,
+      memoryCitation: nil
     )
 
     let row: ServerConversationRow = switch rowType {

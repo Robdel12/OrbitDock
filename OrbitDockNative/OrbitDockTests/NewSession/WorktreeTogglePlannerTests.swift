@@ -1,6 +1,7 @@
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct WorktreeTogglePlannerTests {
   @Test
   func allowsEnablingWorktreesInsideGitRepositories() {

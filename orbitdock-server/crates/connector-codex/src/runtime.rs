@@ -248,6 +248,7 @@ pub(crate) fn thinking_row_entry(id: String, content: String) -> ConversationRow
         timestamp: Some(iso_now()),
         is_streaming: true,
         images: vec![],
+        memory_citation: None,
     }))
 }
 
@@ -260,6 +261,7 @@ pub(crate) fn finalized_thinking_row_entry(id: String, content: String) -> Conve
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }))
 }
 

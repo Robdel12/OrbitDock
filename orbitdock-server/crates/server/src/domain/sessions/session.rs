@@ -11,9 +11,10 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-    ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
-    CodexSessionOverrides, Provider, SessionState, SessionStatus, SessionSummary, StateChanges,
-    SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
+    CodexIntegrationMode, CodexSessionOverrides, Provider, SessionState, SessionStatus,
+    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
+    WorkStatus,
 };
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -102,6 +103,17 @@ fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
 
 fn serialized_value_eq<T: Serialize>(left: &T, right: &T) -> bool {
     serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
+}
+
+fn resolve_approval_policy_details(
+    approval_policy: Option<&str>,
+    codex_config_overrides: Option<&CodexSessionOverrides>,
+) -> Option<CodexApprovalPolicy> {
+    codex_config_overrides
+        .and_then(|overrides| overrides.approval_policy_details.clone())
+        .or_else(|| {
+            approval_policy.and_then(orbitdock_protocol::CodexApprovalPolicy::from_storage_text)
+        })
 }
 
 fn approval_requests_effectively_equal(left: &ApprovalRequest, right: &ApprovalRequest) -> bool {
@@ -331,6 +343,7 @@ pub struct SessionSnapshot {
     pub codex_integration_mode: Option<CodexIntegrationMode>,
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     pub approval_policy: Option<String>,
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
     pub collaboration_mode: Option<String>,
@@ -419,6 +432,7 @@ pub struct SessionHandle {
     custom_name: Option<String>,
     summary: Option<String>,
     approval_policy: Option<String>,
+    approval_policy_details: Option<CodexApprovalPolicy>,
     sandbox_mode: Option<String>,
     collaboration_mode: Option<String>,
     multi_agent: Option<bool>,
@@ -500,6 +514,7 @@ pub struct SessionHandle {
 #[derive(Debug, Default, Clone)]
 pub struct SessionConfigPatch {
     pub approval_policy: Option<String>,
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     pub sandbox_mode: Option<String>,
     pub collaboration_mode: Option<String>,
     pub multi_agent: Option<bool>,
@@ -686,6 +701,7 @@ impl SessionHandle {
             codex_integration_mode: None,
             claude_integration_mode: None,
             approval_policy: None,
+            approval_policy_details: None,
             sandbox_mode: None,
             permission_mode: None,
             collaboration_mode: None,
@@ -739,6 +755,7 @@ impl SessionHandle {
             custom_name: None,
             summary: None,
             approval_policy: None,
+            approval_policy_details: None,
             sandbox_mode: None,
             collaboration_mode: None,
             multi_agent: None,
@@ -815,6 +832,7 @@ impl SessionHandle {
         status: SessionStatus,
         work_status: WorkStatus,
         approval_policy: Option<String>,
+        approval_policy_details: Option<CodexApprovalPolicy>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
         collaboration_mode: Option<String>,
@@ -865,6 +883,7 @@ impl SessionHandle {
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             claude_integration_mode: None,
             approval_policy: approval_policy.clone(),
+            approval_policy_details: approval_policy_details.clone(),
             sandbox_mode: sandbox_mode.clone(),
             permission_mode: permission_mode.clone(),
             collaboration_mode: collaboration_mode.clone(),
@@ -923,6 +942,7 @@ impl SessionHandle {
             custom_name,
             summary,
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             collaboration_mode,
             multi_agent,
@@ -1046,6 +1066,7 @@ impl SessionHandle {
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
+            approval_policy_details: self.approval_policy_details.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
             collaboration_mode: self.collaboration_mode.clone(),
@@ -1139,6 +1160,7 @@ impl SessionHandle {
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
+            approval_policy_details: self.approval_policy_details.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
@@ -1340,6 +1362,7 @@ impl SessionHandle {
     pub fn set_config(&mut self, patch: SessionConfigPatch) {
         let SessionConfigPatch {
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             collaboration_mode,
             multi_agent,
@@ -1354,9 +1377,19 @@ impl SessionHandle {
             codex_config_source,
             codex_config_overrides,
         } = patch;
+        let has_approval_policy = approval_policy.is_some();
+        let has_codex_config_overrides = codex_config_overrides.is_some();
 
         if let Some(approval_policy) = approval_policy {
             self.approval_policy = Some(approval_policy);
+        }
+        if let Some(approval_policy_details) = approval_policy_details {
+            self.approval_policy_details = Some(approval_policy_details);
+        } else if has_approval_policy || has_codex_config_overrides {
+            self.approval_policy_details = resolve_approval_policy_details(
+                self.approval_policy.as_deref(),
+                self.codex_config_overrides.as_ref(),
+            );
         }
         if let Some(sandbox_mode) = sandbox_mode {
             self.sandbox_mode = Some(sandbox_mode);
@@ -1982,6 +2015,9 @@ impl SessionHandle {
         if let Some(ref approval_policy) = changes.approval_policy {
             self.approval_policy = approval_policy.clone();
         }
+        if let Some(ref approval_policy_details) = changes.approval_policy_details {
+            self.approval_policy_details = approval_policy_details.clone();
+        }
         if let Some(ref sandbox_mode) = changes.sandbox_mode {
             self.sandbox_mode = sandbox_mode.clone();
         }
@@ -2017,6 +2053,14 @@ impl SessionHandle {
         }
         if let Some(ref codex_config_overrides) = changes.codex_config_overrides {
             self.codex_config_overrides = codex_config_overrides.clone();
+        }
+        if changes.approval_policy_details.is_none()
+            && (changes.approval_policy.is_some() || changes.codex_config_overrides.is_some())
+        {
+            self.approval_policy_details = resolve_approval_policy_details(
+                self.approval_policy.as_deref(),
+                self.codex_config_overrides.as_ref(),
+            );
         }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
             self.codex_integration_mode = *codex_integration_mode;
@@ -2099,6 +2143,7 @@ impl SessionHandle {
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
+            approval_policy_details: self.approval_policy_details.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
             collaboration_mode: self.collaboration_mode.clone(),

@@ -594,14 +594,77 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var codexRulesContent: some View {
-    if case let .codex(approvalPolicy, sandboxMode) = state.permissionRules {
+    if case let .codex(approvalPolicy, approvalPolicyDetails, sandboxMode) = state.permissionRules {
+      let resolvedPolicy = ServerCodexApprovalPolicy.resolved(
+        details: approvalPolicyDetails,
+        fallbackPolicy: approvalPolicy
+      )
+
       VStack(alignment: .leading, spacing: Spacing.xs) {
         codexAutoReviewCard(codexAutoReviewSnapshot)
-        codexRow("Approval Policy", approvalPolicy ?? "default")
+        if let resolvedPolicy {
+          codexApprovalPolicyCard(resolvedPolicy)
+        } else {
+          codexRow("Approval Policy", approvalPolicy ?? "default")
+        }
         codexRow("Sandbox", sandboxMode ?? "default")
       }
       .padding(.horizontal, Spacing.sm)
     }
+  }
+
+  private func codexApprovalPolicyCard(_ policy: ServerCodexApprovalPolicy) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: policy.granularPolicy == nil ? "slider.horizontal.3" : "dial.low")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.providerCodex)
+
+        Text(policy.displayName)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+
+        Spacer()
+
+        Text(policy.legacySummary)
+          .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+          .padding(.horizontal, Spacing.sm_)
+          .padding(.vertical, 2)
+          .background(Color.backgroundTertiary, in: Capsule())
+      }
+
+      Text(policy.summary)
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textSecondary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if let granular = policy.granularPolicy {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          ForEach(granular.toggleSummaries) { toggle in
+            HStack(spacing: Spacing.sm) {
+              Text(toggle.title)
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.textSecondary)
+              Spacer()
+              Text(toggle.valueLabel)
+                .font(.system(size: TypeScale.mini, weight: .semibold))
+                .foregroundStyle(toggle.isEnabled ? Color.feedbackPositive : Color.textQuaternary)
+                .padding(.horizontal, Spacing.sm_)
+                .padding(.vertical, 2)
+                .background(
+                  (toggle.isEnabled ? Color.feedbackPositive : Color.textQuaternary).opacity(OpacityTier.tint),
+                  in: Capsule()
+                )
+            }
+          }
+        }
+        .padding(.top, Spacing.xxs)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
   }
 
   private func codexAutoReviewCard(_ snapshot: CodexAutoReviewSnapshot) -> some View {

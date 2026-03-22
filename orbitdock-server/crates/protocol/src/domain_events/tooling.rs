@@ -55,6 +55,7 @@ pub enum ToolKind {
     TaskOutput,
     TaskStop,
     AskUserQuestion,
+    GuardianAssessment,
     EnterPlanMode,
     ExitPlanMode,
     UpdatePlan,

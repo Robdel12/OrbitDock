@@ -3,6 +3,8 @@ use super::config::{
     model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
     parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
 };
+use super::event_mapping::{guardian, messages};
+use super::runtime::StreamingMessage;
 use super::timeline::{
     hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
     realtime_text_from_handoff_request, stream_error_should_surface_to_timeline,
@@ -16,7 +18,10 @@ use codex_protocol::protocol::{
     HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
     RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent,
 };
+use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::ConversationRow;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[test]
 fn collaboration_mode_maps_plan() {
@@ -466,6 +471,85 @@ fn build_inflight_codex_subagent_preserves_interrupted_status() {
         subagent.task_summary.as_deref(),
         Some("Handle an interrupted turn")
     );
+}
+
+#[tokio::test]
+async fn handle_agent_message_preserves_memory_citations() {
+    let events = messages::handle_agent_message(
+        "evt-1",
+        codex_protocol::protocol::AgentMessageEvent {
+            message: "Use the saved note".to_string(),
+            phase: None,
+            memory_citation: Some(codex_protocol::memory_citation::MemoryCitation {
+                entries: vec![codex_protocol::memory_citation::MemoryCitationEntry {
+                    path: "/tmp/note.md".to_string(),
+                    line_start: 12,
+                    line_end: 16,
+                    note: "Remember this section".to_string(),
+                }],
+                rollout_ids: vec!["rollout-1".to_string()],
+            }),
+        },
+        &Arc::new(tokio::sync::Mutex::new(None::<StreamingMessage>)),
+    )
+    .await;
+
+    let row = match &events[0] {
+        ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
+        other => panic!("expected row creation event, got {other:?}"),
+    };
+
+    let message = match row {
+        ConversationRow::Assistant(message) => message,
+        other => panic!("expected assistant row, got {other:?}"),
+    };
+
+    let citation = message
+        .memory_citation
+        .as_ref()
+        .expect("memory citation should be preserved");
+    assert_eq!(citation.rollout_ids, vec!["rollout-1".to_string()]);
+    assert_eq!(citation.entries[0].path, "/tmp/note.md");
+    assert_eq!(citation.entries[0].line_start, 12);
+    assert_eq!(citation.entries[0].line_end, 16);
+    assert_eq!(citation.entries[0].note, "Remember this section");
+}
+
+#[test]
+fn handle_guardian_assessment_creates_guardian_tool_row() {
+    let events =
+        guardian::handle_guardian_assessment(codex_protocol::approvals::GuardianAssessmentEvent {
+            id: "guardian-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            status: codex_protocol::approvals::GuardianAssessmentStatus::Denied,
+            action: Some(serde_json::json!({ "command": "rm -rf /tmp/cache" })),
+            risk_score: Some(87),
+            risk_level: Some(codex_protocol::approvals::GuardianRiskLevel::High),
+            rationale: Some("Deletes a broad path".to_string()),
+        });
+
+    let row = match &events[0] {
+        ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
+        other => panic!("expected row creation event, got {other:?}"),
+    };
+
+    let tool = match row {
+        ConversationRow::Tool(tool) => tool,
+        other => panic!("expected tool row, got {other:?}"),
+    };
+
+    assert_eq!(
+        tool.kind,
+        orbitdock_protocol::domain_events::ToolKind::GuardianAssessment
+    );
+    assert_eq!(
+        tool.status,
+        orbitdock_protocol::domain_events::ToolStatus::Failed
+    );
+    assert_eq!(tool.grouping_key.as_deref(), Some("turn-1"));
+    assert_eq!(tool.title, "Guardian review");
+    assert_eq!(tool.subtitle.as_deref(), Some("high risk"));
+    assert_eq!(tool.summary.as_deref(), Some("Deletes a broad path"));
 }
 
 #[test]

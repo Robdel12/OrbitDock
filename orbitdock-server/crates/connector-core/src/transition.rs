@@ -650,6 +650,7 @@ pub fn transition(
                     timestamp: Some(now.to_string()),
                     is_streaming: false,
                     images: vec![],
+                    memory_citation: None,
                 }),
             };
             state.rows.push(entry.clone());
@@ -1217,6 +1218,7 @@ pub fn transition(
                     timestamp: Some(now.to_string()),
                     is_streaming: false,
                     images: vec![],
+                    memory_citation: None,
                 }),
             };
             state.rows.push(compact_entry.clone());
@@ -2534,6 +2536,7 @@ mod tests {
                 timestamp: Some("0Z".to_string()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }
@@ -2550,6 +2553,7 @@ mod tests {
                 timestamp: Some("0Z".to_string()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }),
         }
     }

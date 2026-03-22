@@ -162,6 +162,7 @@ pub(crate) fn handle_warning(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -188,6 +189,7 @@ pub(crate) async fn handle_model_reroute(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -239,6 +241,7 @@ pub(crate) fn handle_realtime_conversation_realtime(
                 timestamp: Some(iso_now()),
                 is_streaming: false,
                 images: vec![],
+                memory_citation: None,
             }));
             vec![ConnectorEvent::ConversationRowCreated(entry)]
         }
@@ -268,6 +271,7 @@ pub(crate) fn handle_deprecation_notice(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -285,6 +289,7 @@ pub(crate) fn handle_background_event(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -386,6 +391,7 @@ pub(crate) fn handle_stream_error(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }

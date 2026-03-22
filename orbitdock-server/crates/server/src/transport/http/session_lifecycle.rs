@@ -29,7 +29,8 @@ use crate::runtime::session_takeover::{
     takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
 use orbitdock_protocol::{
-    CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, ServerMessage,
+    CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
+    ServerMessage,
 };
 use tracing::error;
 
@@ -98,6 +99,8 @@ pub struct UpdateSessionConfigRequest {
     #[serde(default)]
     pub approval_policy: Option<Option<String>>,
     #[serde(default)]
+    pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
+    #[serde(default)]
     pub sandbox_mode: Option<Option<String>>,
     #[serde(default)]
     pub permission_mode: Option<Option<String>>,
@@ -145,6 +148,7 @@ pub async fn update_session_config(
         &session_id,
         SessionConfigUpdate {
             approval_policy: body.approval_policy,
+            approval_policy_details: body.approval_policy_details,
             sandbox_mode: body.sandbox_mode,
             permission_mode: body.permission_mode,
             collaboration_mode: body.collaboration_mode,
@@ -182,6 +186,8 @@ pub struct CreateSessionRequest {
     pub model: Option<String>,
     #[serde(default)]
     pub approval_policy: Option<String>,
+    #[serde(default)]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(default)]
     pub sandbox_mode: Option<String>,
     #[serde(default)]
@@ -243,7 +249,12 @@ pub async fn create_session(
         Some(CodexSessionOverrides {
             model: body.model.clone(),
             model_provider: body.codex_model_provider.clone(),
-            approval_policy: body.approval_policy.clone(),
+            approval_policy: body.approval_policy.clone().or_else(|| {
+                body.approval_policy_details
+                    .as_ref()
+                    .map(|details| details.legacy_summary())
+            }),
+            approval_policy_details: body.approval_policy_details.clone(),
             sandbox_mode: body.sandbox_mode.clone(),
             collaboration_mode: body.collaboration_mode.clone(),
             multi_agent: body.multi_agent,
@@ -295,7 +306,12 @@ pub async fn create_session(
             approval_policy: resolved_codex
                 .as_ref()
                 .and_then(|resolved| resolved.effective_settings.approval_policy.clone())
-                .or(body.approval_policy.clone()),
+                .or_else(|| body.approval_policy.clone())
+                .or_else(|| {
+                    body.approval_policy_details
+                        .as_ref()
+                        .map(|details| details.legacy_summary())
+                }),
             sandbox_mode: resolved_codex
                 .as_ref()
                 .and_then(|resolved| resolved.effective_settings.sandbox_mode.clone())
@@ -383,6 +399,8 @@ pub struct InspectCodexConfigRequest {
     #[serde(default)]
     pub approval_policy: Option<String>,
     #[serde(default)]
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
+    #[serde(default)]
     pub sandbox_mode: Option<String>,
     #[serde(default)]
     pub collaboration_mode: Option<String>,
@@ -462,7 +480,12 @@ pub async fn inspect_codex_config(
             overrides: CodexSessionOverrides {
                 model: body.model,
                 model_provider: body.codex_model_provider,
-                approval_policy: body.approval_policy,
+                approval_policy: body.approval_policy.or_else(|| {
+                    body.approval_policy_details
+                        .as_ref()
+                        .map(|details| details.legacy_summary())
+                }),
+                approval_policy_details: body.approval_policy_details,
                 sandbox_mode: body.sandbox_mode,
                 collaboration_mode: body.collaboration_mode,
                 multi_agent: body.multi_agent,

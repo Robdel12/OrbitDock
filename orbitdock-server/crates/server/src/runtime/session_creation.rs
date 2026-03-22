@@ -126,6 +126,7 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
         handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
         handle.set_config(SessionConfigPatch {
             approval_policy: input.approval_policy,
+            approval_policy_details: None,
             sandbox_mode: input.sandbox_mode,
             collaboration_mode: input.collaboration_mode,
             multi_agent: input.multi_agent,

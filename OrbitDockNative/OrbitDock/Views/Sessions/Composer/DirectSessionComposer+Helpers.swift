@@ -230,6 +230,7 @@ extension DirectSessionComposer {
     configMode: ServerCodexConfigMode,
     configProfile: String?,
     modelProvider: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy,
     collaborationMode: CodexCollaborationMode,
     multiAgentEnabled: Bool,
     personality: CodexPersonalityPreset,
@@ -238,11 +239,19 @@ extension DirectSessionComposer {
   ) async throws {
     let currentInstructions = normalizedCodexInstructions(obs.developerInstructions)
     let nextInstructions = normalizedCodexInstructions(developerInstructions)
+    let currentApprovalPolicyDetails = currentCodexApprovalPolicyDetails
     _ = configMode
     _ = configProfile
     _ = modelProvider
 
     do {
+      if approvalPolicyDetails != currentApprovalPolicyDetails {
+        try await viewModel.updateCodexApprovalPolicy(
+          details: approvalPolicyDetails,
+          sandboxMode: currentCodexSandboxMode
+        )
+      }
+
       try await viewModel.updateCodexSessionOverrides(
         configMode: nil,
         configProfile: nil,
@@ -324,8 +333,9 @@ extension DirectSessionComposer {
       codexConfigProfile: currentCodexConfigProfile,
       model: overrides.model,
       modelProvider: currentCodexOverrides.modelProvider ?? currentCodexModelProvider,
-      approvalPolicy: overrides.approvalPolicy,
-      sandboxMode: overrides.sandboxMode,
+      approvalPolicy: currentCodexApprovalPolicy,
+      approvalPolicyDetails: currentCodexApprovalPolicyDetails,
+      sandboxMode: currentCodexSandboxMode,
       collaborationMode: overrides.collaborationMode,
       multiAgent: overrides.multiAgent,
       personality: overrides.personality,

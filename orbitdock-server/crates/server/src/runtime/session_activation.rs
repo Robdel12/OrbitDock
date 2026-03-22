@@ -248,6 +248,7 @@ async fn start_lazy_codex_connector(
             model: model.clone(),
             model_provider: codex_model_provider.clone(),
             approval_policy: approval.clone(),
+            approval_policy_details: None,
             sandbox_mode: sandbox.clone(),
             collaboration_mode: collaboration_mode.clone(),
             multi_agent,

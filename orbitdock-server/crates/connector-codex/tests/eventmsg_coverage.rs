@@ -7,7 +7,6 @@ fn intentionally_ignored_eventmsg_variants() -> BTreeSet<&'static str> {
     BTreeSet::from([
         // Latest Codex emits these, but OrbitDock still safely drops them via the
         // top-level catch-all while we work through feature parity.
-        "GuardianAssessment",
         "ImageGenerationBegin",
         "ImageGenerationEnd",
     ])

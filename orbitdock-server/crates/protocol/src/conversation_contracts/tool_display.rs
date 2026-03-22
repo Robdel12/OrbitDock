@@ -284,6 +284,7 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
         | ToolKind::WaitAgent
         | ToolKind::CloseAgent => ("bolt.fill".into(), "toolTask".into()),
         ToolKind::AskUserQuestion => ("questionmark.bubble".into(), "toolQuestion".into()),
+        ToolKind::GuardianAssessment => ("shield.lefthalf.filled".into(), "feedbackCaution".into()),
         ToolKind::EnterPlanMode | ToolKind::ExitPlanMode | ToolKind::UpdatePlan => {
             ("map".into(), "toolPlan".into())
         }
@@ -333,6 +334,7 @@ fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
         }
         ToolKind::SpawnAgent => "Agent".into(),
         ToolKind::AskUserQuestion => "Question".into(),
+        ToolKind::GuardianAssessment => "Guardian Review".into(),
         ToolKind::EnterPlanMode => "Plan Mode".into(),
         ToolKind::ExitPlanMode => "Exit Plan".into(),
         ToolKind::TodoWrite => "Todo".into(),
@@ -371,6 +373,7 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
         ToolKind::ReadMcpResource | ToolKind::ListMcpResources => "mcp",
         ToolKind::WebSearch => "webSearch",
         ToolKind::WebFetch => "webFetch",
+        ToolKind::GuardianAssessment => "guardianAssessment",
         ToolKind::EnterPlanMode | ToolKind::ExitPlanMode | ToolKind::UpdatePlan => "plan",
         ToolKind::TodoWrite => "todo",
         ToolKind::AskUserQuestion => "question",
@@ -393,7 +396,7 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
 fn display_tier_string(kind: ToolKind, _family: ToolFamily, _status: ToolStatus) -> String {
     match kind {
         // Prominent: demands attention
-        ToolKind::AskUserQuestion => "prominent",
+        ToolKind::AskUserQuestion | ToolKind::GuardianAssessment => "prominent",
         // Standard: full card with detail
         ToolKind::Bash | ToolKind::Edit | ToolKind::Write | ToolKind::NotebookEdit => "standard",
         ToolKind::SpawnAgent | ToolKind::HandoffRequested => "standard",

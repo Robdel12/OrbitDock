@@ -203,6 +203,7 @@ mod tests {
             codex_integration_mode: None,
             claude_integration_mode: None,
             approval_policy: None,
+            approval_policy_details: None,
             sandbox_mode: None,
             permission_mode: Some("default".to_string()),
             collaboration_mode: None,

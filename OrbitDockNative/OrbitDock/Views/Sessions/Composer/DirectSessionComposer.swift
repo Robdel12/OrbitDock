@@ -203,6 +203,9 @@ struct DirectSessionComposer: View {
         CodexSessionSettingsSheet(
           projectPath: projectPath,
           modelOption: currentCodexModelOption,
+          approvalPolicy: currentCodexApprovalPolicy,
+          approvalPolicyDetails: currentCodexApprovalPolicyDetails,
+          sandboxMode: currentCodexSandboxMode,
           configMode: currentCodexConfigMode,
           configProfile: currentCodexConfigProfile,
           modelProvider: currentCodexModelProvider,

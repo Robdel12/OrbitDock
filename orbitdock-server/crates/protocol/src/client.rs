@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-    ImageInput, MentionInput, PermissionGrantScope, Provider, ReviewCommentStatus,
-    ReviewCommentTag, SkillInput, ToolApprovalDecision,
+    CodexApprovalPolicy, ImageInput, MentionInput, PermissionGrantScope, Provider,
+    ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
 fn default_include_snapshot() -> bool {
@@ -90,6 +90,8 @@ pub enum ClientMessage {
     UpdateSessionConfig {
         session_id: String,
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,6 +122,8 @@ pub enum ClientMessage {
         cwd: String,
         model: Option<String>,
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         permission_mode: Option<String>,
@@ -153,6 +157,8 @@ pub enum ClientMessage {
         model: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -180,6 +186,8 @@ pub enum ClientMessage {
         model: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         approval_policy: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_policy_details: Option<CodexApprovalPolicy>,
         #[serde(skip_serializing_if = "Option::is_none")]
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -1383,6 +1391,7 @@ mod tests {
         let message = ClientMessage::UpdateSessionConfig {
             session_id: "sess-1".to_string(),
             approval_policy: Some("on-request".to_string()),
+            approval_policy_details: None,
             sandbox_mode: Some("workspace-write".to_string()),
             permission_mode: Some("default".to_string()),
             collaboration_mode: Some("default".to_string()),

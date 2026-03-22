@@ -47,6 +47,7 @@ pub(crate) async fn handle(
             cwd,
             model,
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             permission_mode,
             allowed_tools,
@@ -66,6 +67,7 @@ pub(crate) async fn handle(
                     cwd,
                     model,
                     approval_policy,
+                    approval_policy_details,
                     sandbox_mode,
                     permission_mode,
                     allowed_tools,
@@ -96,6 +98,7 @@ pub(crate) async fn handle(
         ClientMessage::UpdateSessionConfig {
             session_id,
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             permission_mode,
             collaboration_mode,
@@ -110,6 +113,7 @@ pub(crate) async fn handle(
                 session_id,
                 SessionConfigUpdate {
                     approval_policy: Some(approval_policy),
+                    approval_policy_details: Some(approval_policy_details),
                     sandbox_mode: Some(sandbox_mode),
                     permission_mode: Some(permission_mode),
                     collaboration_mode: Some(collaboration_mode),

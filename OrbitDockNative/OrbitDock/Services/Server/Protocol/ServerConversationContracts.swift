@@ -168,6 +168,7 @@ enum ServerConversationToolKind: String, Codable {
   case taskOutput = "task_output"
   case taskStop = "task_stop"
   case askUserQuestion = "ask_user_question"
+  case guardianAssessment = "guardian_assessment"
   case enterPlanMode = "enter_plan_mode"
   case exitPlanMode = "exit_plan_mode"
   case updatePlan = "update_plan"
@@ -235,6 +236,7 @@ struct ServerConversationMessageRow: Codable {
   let timestamp: String?
   let isStreaming: Bool
   let images: [ServerImageInput]?
+  let memoryCitation: ServerMemoryCitation?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -243,6 +245,31 @@ struct ServerConversationMessageRow: Codable {
     case timestamp
     case isStreaming = "is_streaming"
     case images
+    case memoryCitation = "memory_citation"
+  }
+}
+
+struct ServerMemoryCitation: Codable {
+  let entries: [ServerMemoryCitationEntry]
+  let rolloutIds: [String]
+
+  enum CodingKeys: String, CodingKey {
+    case entries
+    case rolloutIds = "rollout_ids"
+  }
+}
+
+struct ServerMemoryCitationEntry: Codable {
+  let path: String
+  let lineStart: UInt64
+  let lineEnd: UInt64?
+  let note: String?
+
+  enum CodingKeys: String, CodingKey {
+    case path
+    case lineStart = "line_start"
+    case lineEnd = "line_end"
+    case note
   }
 }
 
@@ -718,7 +745,8 @@ enum ServerConversationRow: Codable {
           turnId: nil,
           timestamp: nil,
           isStreaming: false,
-          images: nil
+          images: nil,
+          memoryCitation: nil
         ))
     }
   }

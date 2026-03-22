@@ -64,6 +64,7 @@ fn user_entry(id: &str, sequence: u64) -> ConversationRowEntry {
             timestamp: None,
             is_streaming: false,
             images: vec![],
+            memory_citation: None,
         }),
     }
 }
@@ -80,6 +81,7 @@ fn assistant_entry(id: &str, sequence: u64) -> ConversationRowEntry {
             timestamp: None,
             is_streaming: false,
             images: vec![],
+            memory_citation: None,
         }),
     }
 }

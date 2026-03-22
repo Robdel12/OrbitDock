@@ -279,6 +279,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
                 model: model.clone(),
                 model_provider: codex_model_provider.clone(),
                 approval_policy: approval_policy.clone(),
+                approval_policy_details: None,
                 sandbox_mode: sandbox_mode.clone(),
                 collaboration_mode: collaboration_mode.clone(),
                 multi_agent,

@@ -45,6 +45,7 @@ struct SessionsClient: Sendable {
     var model: String?
     var modelProvider: String?
     var approvalPolicy: String?
+    var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
     var permissionMode: String?
     var collaborationMode: String?
@@ -85,6 +86,7 @@ struct SessionsClient: Sendable {
     var model: String?
     var modelProvider: String?
     var approvalPolicy: String?
+    var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
     var collaborationMode: String?
     var multiAgent: Bool?
@@ -123,6 +125,7 @@ struct SessionsClient: Sendable {
     let model: String?
     let modelProvider: String?
     let approvalPolicy: String?
+    let approvalPolicyDetails: ServerCodexApprovalPolicy?
     let sandboxMode: String?
     let collaborationMode: String?
     let multiAgent: Bool?
@@ -138,6 +141,7 @@ struct SessionsClient: Sendable {
       case model
       case modelProvider = "model_provider"
       case approvalPolicy = "approval_policy"
+      case approvalPolicyDetails = "approval_policy_details"
       case sandboxMode = "sandbox_mode"
       case collaborationMode = "collaboration_mode"
       case multiAgent = "multi_agent"
@@ -421,6 +425,7 @@ struct SessionsClient: Sendable {
   struct TakeoverRequest: Encodable {
     var model: String?
     var approvalPolicy: String?
+    var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
     var permissionMode: String?
     var collaborationMode: String?
@@ -444,6 +449,7 @@ struct SessionsClient: Sendable {
 
   struct UpdateSessionConfigRequest: Encodable {
     var approvalPolicy: String?
+    var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
     var permissionMode: String?
     var collaborationMode: String?
@@ -479,6 +485,7 @@ struct SessionsClient: Sendable {
     var nthUserMessage: UInt32?
     var model: String?
     var approvalPolicy: String?
+    var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
     var cwd: String?
     var permissionMode: String?

@@ -5,6 +5,7 @@ use std::sync::Arc;
 pub(super) mod approvals;
 pub(super) mod capabilities;
 pub(super) mod collab;
+pub(super) mod guardian;
 pub(super) mod lifecycle;
 pub(super) mod messages;
 pub(super) mod runtime_signals;

@@ -667,7 +667,8 @@ struct SessionStateProjectionTests {
         turnId: nil,
         timestamp: nil,
         isStreaming: isStreaming,
-        images: nil
+        images: nil,
+        memoryCitation: nil
       ))
     )
   }

@@ -11,6 +11,22 @@ use crate::conversation_contracts::workers::WorkerRow;
 use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use crate::{ImageInput, Provider};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryCitation {
+    pub entries: Vec<MemoryCitationEntry>,
+    pub rollout_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryCitationEntry {
+    pub path: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub note: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRowContent {
     pub id: String,
@@ -25,6 +41,8 @@ pub struct MessageRowContent {
     /// Image attachments on user messages.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<ImageInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_citation: Option<MemoryCitation>,
 }
 
 pub type UserRow = MessageRowContent;
@@ -561,6 +579,7 @@ mod tests {
                     pixel_width: None,
                     pixel_height: None,
                 }],
+                memory_citation: None,
             }),
         };
 

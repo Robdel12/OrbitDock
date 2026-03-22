@@ -33,7 +33,8 @@ struct DirectSessionComposerSendRecoveryTests {
         turnId: nil,
         timestamp: nil,
         isStreaming: false,
-        images: nil
+        images: nil,
+        memoryCitation: nil
       ))
     )
 
@@ -58,7 +59,8 @@ struct DirectSessionComposerSendRecoveryTests {
         turnId: nil,
         timestamp: nil,
         isStreaming: false,
-        images: nil
+        images: nil,
+        memoryCitation: nil
       ))
     )
 

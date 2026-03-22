@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use tracing::{error, info};
 
 use orbitdock_protocol::conversation_contracts::RowPageSummary;
+use orbitdock_protocol::CodexApprovalPolicy;
 use orbitdock_protocol::{Provider, ServerMessage, SessionListItem};
 
 use crate::runtime::session_creation::{
@@ -21,6 +22,7 @@ pub(crate) struct CreateSessionRequest {
     pub cwd: String,
     pub model: Option<String>,
     pub approval_policy: Option<String>,
+    pub approval_policy_details: Option<CodexApprovalPolicy>,
     pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
     pub allowed_tools: Vec<String>,
@@ -59,7 +61,12 @@ pub(crate) async fn handle_create_session(
             provider: request.provider,
             cwd: request.cwd.clone(),
             model: request.model.clone(),
-            approval_policy: request.approval_policy.clone(),
+            approval_policy: request.approval_policy.clone().or_else(|| {
+                request
+                    .approval_policy_details
+                    .as_ref()
+                    .map(|details| details.legacy_summary())
+            }),
             sandbox_mode: request.sandbox_mode.clone(),
             permission_mode: request.permission_mode.clone(),
             allowed_tools: request.allowed_tools.clone(),
@@ -185,6 +192,7 @@ pub(crate) async fn handle_update_session_config(
 ) {
     let SessionConfigUpdate {
         approval_policy,
+        approval_policy_details,
         sandbox_mode,
         permission_mode,
         collaboration_mode,
@@ -202,6 +210,7 @@ pub(crate) async fn handle_update_session_config(
         connection_id = conn_id,
         session_id = %session_id,
         approval_policy = ?approval_policy,
+        approval_policy_details = ?approval_policy_details,
         sandbox_mode = ?sandbox_mode,
         permission_mode = ?permission_mode,
         collaboration_mode = ?collaboration_mode,
@@ -219,6 +228,7 @@ pub(crate) async fn handle_update_session_config(
         &session_id,
         SessionConfigUpdate {
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             permission_mode,
             collaboration_mode,

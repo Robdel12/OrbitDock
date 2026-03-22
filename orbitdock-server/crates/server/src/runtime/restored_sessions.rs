@@ -1,7 +1,7 @@
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
-    CodexSessionOverrides, Provider, SessionState, SessionStatus, SessionSummary, TokenUsage,
-    TurnDiff, WorkStatus,
+    ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
+    CodexIntegrationMode, CodexSessionOverrides, Provider, SessionState, SessionStatus,
+    SessionSummary, TokenUsage, TurnDiff, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -91,6 +91,16 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     let total_row_count = restored.rows.len() as u64;
     let oldest_sequence = restored.rows.first().map(|entry| entry.sequence);
     let newest_sequence = restored.rows.last().map(|entry| entry.sequence);
+    let approval_policy_details = restored
+        .codex_config_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.approval_policy_details.clone())
+        .or_else(|| {
+            restored
+                .approval_policy
+                .as_deref()
+                .and_then(CodexApprovalPolicy::from_storage_text)
+        });
 
     SessionState {
         id: restored.id,
@@ -137,6 +147,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         current_plan: restored.current_plan,
         codex_integration_mode: parse_codex_integration_mode(restored.codex_integration_mode),
         claude_integration_mode: parse_claude_integration_mode(restored.claude_integration_mode),
+        approval_policy_details,
         approval_policy: restored.approval_policy,
         sandbox_mode: restored.sandbox_mode,
         started_at: restored.started_at,
@@ -202,6 +213,16 @@ pub(crate) fn restored_session_to_handle(
     let mission_id = restored.mission_id.clone();
     let issue_identifier = restored.issue_identifier.clone();
     let allow_bypass = restored.allow_bypass_permissions;
+    let approval_policy_details = restored
+        .codex_config_overrides
+        .as_ref()
+        .and_then(|overrides| overrides.approval_policy_details.clone())
+        .or_else(|| {
+            restored
+                .approval_policy
+                .as_deref()
+                .and_then(CodexApprovalPolicy::from_storage_text)
+        });
 
     let mut handle = SessionHandle::restore(
         restored.id,
@@ -215,6 +236,7 @@ pub(crate) fn restored_session_to_handle(
         status,
         work_status,
         restored.approval_policy,
+        approval_policy_details,
         restored.sandbox_mode,
         restored.permission_mode,
         restored.collaboration_mode,

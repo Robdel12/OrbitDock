@@ -2,7 +2,9 @@ use crate::runtime::{row_entry, thinking_row_entry, ReasoningEventTracker};
 use crate::workers::iso_now;
 use codex_protocol::protocol::{AgentMessageEvent, AgentReasoningEvent, UserMessageEvent};
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, MemoryCitation, MemoryCitationEntry, MessageRowContent,
+};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -21,6 +23,7 @@ pub(crate) async fn handle_user_message(
         timestamp: Some(iso_now()),
         is_streaming: false,
         images: vec![],
+        memory_citation: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -39,6 +42,19 @@ pub(crate) async fn handle_agent_message(
             timestamp: Some(iso_now()),
             is_streaming: false,
             images: vec![],
+            memory_citation: event.memory_citation.map(|citation| MemoryCitation {
+                entries: citation
+                    .entries
+                    .into_iter()
+                    .map(|entry| MemoryCitationEntry {
+                        path: entry.path,
+                        line_start: entry.line_start,
+                        line_end: entry.line_end,
+                        note: entry.note,
+                    })
+                    .collect(),
+                rollout_ids: citation.rollout_ids,
+            }),
         }));
         vec![ConnectorEvent::ConversationRowUpdated {
             row_id: streaming_msg.message_id,
@@ -52,6 +68,19 @@ pub(crate) async fn handle_agent_message(
             timestamp: Some(iso_now()),
             is_streaming: false,
             images: vec![],
+            memory_citation: event.memory_citation.map(|citation| MemoryCitation {
+                entries: citation
+                    .entries
+                    .into_iter()
+                    .map(|entry| MemoryCitationEntry {
+                        path: entry.path,
+                        line_start: entry.line_start,
+                        line_end: entry.line_end,
+                        note: entry.note,
+                    })
+                    .collect(),
+                rollout_ids: citation.rollout_ids,
+            }),
         }));
         vec![ConnectorEvent::ConversationRowCreated(entry)]
     }

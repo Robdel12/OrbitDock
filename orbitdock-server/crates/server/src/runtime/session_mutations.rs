@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{CodexConfigMode, ServerMessage, SessionListItem};
+use orbitdock_protocol::{CodexApprovalPolicy, CodexConfigMode, ServerMessage, SessionListItem};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -20,6 +20,7 @@ pub(crate) enum SessionMutationError {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SessionConfigUpdate {
     pub approval_policy: Option<Option<String>>,
+    pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
     pub sandbox_mode: Option<Option<String>>,
     pub permission_mode: Option<Option<String>>,
     pub collaboration_mode: Option<Option<String>>,
@@ -95,6 +96,7 @@ pub(crate) async fn update_session_config(
 ) -> Result<(), SessionMutationError> {
     let SessionConfigUpdate {
         approval_policy,
+        approval_policy_details,
         sandbox_mode,
         permission_mode,
         collaboration_mode,
@@ -130,6 +132,7 @@ pub(crate) async fn update_session_config(
 
     let (
         approval_policy,
+        approval_policy_details,
         sandbox_mode,
         collaboration_mode,
         multi_agent,
@@ -150,6 +153,12 @@ pub(crate) async fn update_session_config(
         }
         if let Some(value) = approval_policy {
             overrides.approval_policy = value;
+        }
+        if let Some(value) = approval_policy_details.clone() {
+            overrides.approval_policy_details = value;
+            if let Some(ref details) = overrides.approval_policy_details {
+                overrides.approval_policy = Some(details.legacy_summary());
+            }
         }
         if let Some(value) = sandbox_mode {
             overrides.sandbox_mode = value;
@@ -208,6 +217,7 @@ pub(crate) async fn update_session_config(
         .map_err(SessionMutationError::InvalidCodexConfig)?;
         (
             Some(resolved.effective_settings.approval_policy.clone()),
+            Some(resolved.effective_settings.approval_policy_details.clone()),
             Some(resolved.effective_settings.sandbox_mode.clone()),
             Some(resolved.effective_settings.collaboration_mode.clone()),
             Some(resolved.effective_settings.multi_agent),
@@ -225,6 +235,7 @@ pub(crate) async fn update_session_config(
     } else {
         (
             approval_policy,
+            approval_policy_details,
             sandbox_mode,
             collaboration_mode,
             multi_agent,
@@ -245,6 +256,7 @@ pub(crate) async fn update_session_config(
         .send(SessionCommand::ApplyDelta {
             changes: orbitdock_protocol::StateChanges {
                 approval_policy: approval_policy.clone(),
+                approval_policy_details: approval_policy_details.clone(),
                 sandbox_mode: sandbox_mode.clone(),
                 permission_mode: permission_mode.clone(),
                 collaboration_mode: collaboration_mode.clone(),

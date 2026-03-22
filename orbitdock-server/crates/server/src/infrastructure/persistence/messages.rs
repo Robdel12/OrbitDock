@@ -47,6 +47,7 @@ fn legacy_row_from_db(row: &rusqlite::Row<'_>) -> Option<ConversationRow> {
         timestamp,
         is_streaming: false,
         images: Vec::new(),
+        memory_citation: None,
     };
 
     match msg_type.as_str() {

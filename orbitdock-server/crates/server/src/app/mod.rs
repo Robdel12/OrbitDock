@@ -14,7 +14,8 @@ use axum::{
     Router,
 };
 use orbitdock_protocol::{
-    CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
+    CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff,
+    WorkStatus,
 };
 use tokio::sync::mpsc;
 use tower_http::cors::CorsLayer;
@@ -278,6 +279,14 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                 }
 
                 let provider: Provider = provider.parse().unwrap();
+                let approval_policy_details = codex_config_overrides
+                    .as_ref()
+                    .and_then(|overrides| overrides.approval_policy_details.clone())
+                    .or_else(|| {
+                        approval_policy
+                            .as_deref()
+                            .and_then(CodexApprovalPolicy::from_storage_text)
+                    });
 
                 let mut handle = crate::domain::sessions::session::SessionHandle::restore(
                     id.clone(),
@@ -301,6 +310,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                         _ => WorkStatus::Waiting,
                     },
                     approval_policy.clone(),
+                    approval_policy_details,
                     sandbox_mode.clone(),
                     permission_mode,
                     collaboration_mode,

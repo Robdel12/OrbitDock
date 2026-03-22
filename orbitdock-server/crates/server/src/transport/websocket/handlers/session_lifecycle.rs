@@ -606,6 +606,7 @@ pub(crate) async fn handle(
                 }
                 handle.set_config(SessionConfigPatch {
                     approval_policy: effective_approval.clone(),
+                    approval_policy_details: None,
                     sandbox_mode: effective_sandbox.clone(),
                     collaboration_mode: control_plane.collaboration_mode.clone(),
                     multi_agent: control_plane.multi_agent,

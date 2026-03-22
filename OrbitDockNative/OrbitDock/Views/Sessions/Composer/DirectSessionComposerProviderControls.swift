@@ -96,6 +96,9 @@ extension DirectSessionComposer {
 struct CodexSessionSettingsSheet: View {
   let projectPath: String?
   let modelOption: ServerCodexModelOption?
+  let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
+  let sandboxMode: String?
   let configMode: ServerCodexConfigMode
   let configProfile: String?
   let modelProvider: String?
@@ -109,6 +112,7 @@ struct CodexSessionSettingsSheet: View {
     ServerCodexConfigMode,
     String?,
     String?,
+    ServerCodexApprovalPolicy,
     CodexCollaborationMode,
     Bool,
     CodexPersonalityPreset,
@@ -123,6 +127,7 @@ struct CodexSessionSettingsSheet: View {
   @State private var draftConfigMode: ServerCodexConfigMode
   @State private var draftConfigProfile: String
   @State private var draftModelProvider: String
+  @State private var draftApprovalPolicy: CodexApprovalPolicyDraft
   @State private var draftCollaborationMode: CodexCollaborationMode
   @State private var draftMultiAgentEnabled: Bool
   @State private var draftPersonality: CodexPersonalityPreset
@@ -197,6 +202,9 @@ struct CodexSessionSettingsSheet: View {
   init(
     projectPath: String?,
     modelOption: ServerCodexModelOption?,
+    approvalPolicy: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?,
+    sandboxMode: String?,
     configMode: ServerCodexConfigMode,
     configProfile: String?,
     modelProvider: String?,
@@ -210,6 +218,7 @@ struct CodexSessionSettingsSheet: View {
       ServerCodexConfigMode,
       String?,
       String?,
+      ServerCodexApprovalPolicy,
       CodexCollaborationMode,
       Bool,
       CodexPersonalityPreset,
@@ -223,6 +232,9 @@ struct CodexSessionSettingsSheet: View {
   ) {
     self.projectPath = projectPath
     self.modelOption = modelOption
+    self.approvalPolicy = approvalPolicy
+    self.approvalPolicyDetails = approvalPolicyDetails
+    self.sandboxMode = sandboxMode
     self.configMode = configMode
     self.configProfile = configProfile
     self.modelProvider = modelProvider
@@ -240,6 +252,12 @@ struct CodexSessionSettingsSheet: View {
     _draftConfigMode = State(initialValue: configMode)
     _draftConfigProfile = State(initialValue: configProfile ?? "")
     _draftModelProvider = State(initialValue: modelProvider ?? "")
+    _draftApprovalPolicy = State(
+      initialValue: CodexApprovalPolicyDraft(
+        policy: approvalPolicyDetails,
+        fallbackPolicy: approvalPolicy
+      )
+    )
     _draftCollaborationMode = State(initialValue: collaborationMode)
     _draftMultiAgentEnabled = State(initialValue: multiAgentEnabled)
     _draftPersonality = State(initialValue: personality)
@@ -394,6 +412,74 @@ struct CodexSessionSettingsSheet: View {
 
           settingsCard {
             VStack(alignment: .leading, spacing: Spacing.lg) {
+              composerSectionLabel("Approval")
+
+              settingsRow(
+                title: "Review Style",
+                icon: draftApprovalPolicy.style == .granular ? "dial.low" : "slider.horizontal.3",
+                tint: .providerCodex,
+                description: draftApprovalPolicy.policy.summary
+              ) {
+                Picker("Review Style", selection: $draftApprovalPolicy.style) {
+                  ForEach(CodexApprovalPolicyEditorStyle.allCases) { style in
+                    Text(style.displayName).tag(style)
+                  }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
+              }
+
+              if draftApprovalPolicy.style == .preset {
+                settingsRow(
+                  title: "Approval Preset",
+                  icon: "shield.lefthalf.filled",
+                  tint: .providerCodex,
+                  description: draftApprovalPolicy.presetMode.summary
+                ) {
+                  Picker("Approval Preset", selection: $draftApprovalPolicy.presetMode) {
+                    ForEach(ServerCodexApprovalMode.allCases, id: \.self) { mode in
+                      Text(mode.displayName).tag(mode)
+                    }
+                  }
+                  .pickerStyle(.menu)
+                  .frame(minWidth: 180, alignment: .trailing)
+                }
+              } else {
+                VStack(alignment: .leading, spacing: Spacing.sm) {
+                  ForEach(CodexApprovalToggleField.allCases) { field in
+                    Toggle(isOn: granularToggleBinding(for: field)) {
+                      VStack(alignment: .leading, spacing: Spacing.xxs) {
+                        Text(field.title)
+                          .font(.system(size: TypeScale.caption, weight: .semibold))
+                          .foregroundStyle(Color.textPrimary)
+                        Text(field.detail)
+                          .font(.system(size: TypeScale.micro))
+                          .foregroundStyle(Color.textTertiary)
+                          .fixedSize(horizontal: false, vertical: true)
+                      }
+                    }
+                    .toggleStyle(.switch)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.vertical, Spacing.sm)
+                    .background(
+                      Color.backgroundSecondary,
+                      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    )
+                    .overlay(
+                      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                        .stroke(Color.surfaceBorder, lineWidth: 1)
+                    )
+                  }
+                }
+              }
+
+              settingsHintCard(
+                title: "Current sandbox: \(sandboxMode ?? "Inherited")",
+                detail: "Sandboxing still controls where Codex runs. This section only adjusts how approval review behaves inside that environment.",
+                buttonTitle: "Inspect Codex Config",
+                action: onInspect
+              )
+
               settingsRow(
                 title: "Collaboration",
                 icon: draftCollaborationMode.icon,
@@ -585,6 +671,7 @@ struct CodexSessionSettingsSheet: View {
                 draftConfigMode,
                 draftConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draftConfigProfile,
                 draftModelProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draftModelProvider,
+                draftApprovalPolicy.policy,
                 draftCollaborationMode,
                 draftMultiAgentEnabled,
                 draftPersonality,
@@ -633,6 +720,13 @@ struct CodexSessionSettingsSheet: View {
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textSecondary)
     }
+  }
+
+  private func granularToggleBinding(for field: CodexApprovalToggleField) -> Binding<Bool> {
+    Binding(
+      get: { draftApprovalPolicy.isEnabled(field) },
+      set: { draftApprovalPolicy.setEnabled($0, for: field) }
+    )
   }
 
   private func composerSectionLabel(_ title: String) -> some View {

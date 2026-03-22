@@ -225,6 +225,7 @@ extension DirectSessionComposer {
       model: nil,
       modelProvider: nil,
       approvalPolicy: nil,
+      approvalPolicyDetails: nil,
       sandboxMode: nil,
       collaborationMode: nil,
       multiAgent: nil,
@@ -233,6 +234,34 @@ extension DirectSessionComposer {
       developerInstructions: nil,
       effort: nil
     )
+  }
+
+  var currentCodexPermissionRules: (approvalPolicy: String?, approvalPolicyDetails: ServerCodexApprovalPolicy?, sandboxMode: String?)? {
+    guard case let .codex(approvalPolicy, approvalPolicyDetails, sandboxMode) = obs.permissionRules else {
+      return nil
+    }
+    return (approvalPolicy, approvalPolicyDetails, sandboxMode)
+  }
+
+  var currentCodexApprovalPolicy: String? {
+    currentCodexOverrides.approvalPolicy
+      ?? currentCodexPermissionRules?.approvalPolicy
+      ?? obs.autonomy.approvalPolicy
+  }
+
+  var currentCodexApprovalPolicyDetails: ServerCodexApprovalPolicy? {
+    ServerCodexApprovalPolicy.resolved(
+      details: currentCodexOverrides.approvalPolicyDetails ?? currentCodexPermissionRules?.approvalPolicyDetails,
+      fallbackPolicy: currentCodexOverrides.approvalPolicy
+        ?? currentCodexPermissionRules?.approvalPolicy
+        ?? obs.autonomy.approvalPolicy
+    )
+  }
+
+  var currentCodexSandboxMode: String? {
+    currentCodexOverrides.sandboxMode
+      ?? currentCodexPermissionRules?.sandboxMode
+      ?? obs.autonomy.sandboxMode
   }
 
   var hasCodexControlOverrides: Bool {

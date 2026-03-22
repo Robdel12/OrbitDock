@@ -258,6 +258,7 @@ async fn complete_codex_takeover(
     }
     handle.set_config(SessionConfigPatch {
         approval_policy: effective_approval.clone(),
+        approval_policy_details: None,
         sandbox_mode: effective_sandbox.clone(),
         collaboration_mode,
         multi_agent,

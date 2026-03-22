@@ -145,6 +145,7 @@ struct NewSessionRequestPlannerTests {
       modelProvider,
       model,
       approvalPolicy,
+      approvalPolicyDetails,
       sandboxMode,
       collaborationMode,
       multiAgent,
@@ -157,6 +158,7 @@ struct NewSessionRequestPlannerTests {
       #expect(modelProvider == "openai")
       #expect(model == "gpt-5-codex")
       #expect(approvalPolicy == "on-request")
+      #expect(approvalPolicyDetails == .mode(.onRequest))
       #expect(sandboxMode == "danger-full-access")
       #expect(collaborationMode == "plan")
       #expect(multiAgent == true)
@@ -308,6 +310,7 @@ struct NewSessionRequestPlannerTests {
       modelProvider,
       model,
       approvalPolicy,
+      approvalPolicyDetails,
       sandboxMode,
       collaborationMode,
       multiAgent,
@@ -320,6 +323,7 @@ struct NewSessionRequestPlannerTests {
       #expect(modelProvider == nil)
       #expect(model == nil)
       #expect(approvalPolicy == nil)
+      #expect(approvalPolicyDetails == nil)
       #expect(sandboxMode == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
@@ -370,6 +374,7 @@ struct NewSessionRequestPlannerTests {
       modelProvider,
       model,
       approvalPolicy,
+      approvalPolicyDetails,
       sandboxMode,
       collaborationMode,
       multiAgent,
@@ -382,6 +387,7 @@ struct NewSessionRequestPlannerTests {
       #expect(modelProvider == nil)
       #expect(model == nil)
       #expect(approvalPolicy == nil)
+      #expect(approvalPolicyDetails == nil)
       #expect(sandboxMode == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)

@@ -56,6 +56,7 @@ pub(crate) fn build_user_row_entry(
             timestamp: Some(iso_timestamp(timestamp_millis)),
             is_streaming: false,
             images,
+            memory_citation: None,
         }),
     }
 }

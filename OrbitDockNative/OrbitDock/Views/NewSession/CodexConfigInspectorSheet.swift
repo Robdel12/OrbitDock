@@ -68,13 +68,18 @@ struct CodexConfigInspectorSheet: View {
   }
 
   private func effectiveSettingsSection(_ response: SessionsClient.CodexInspectorResponse) -> some View {
-    inspectorCard(title: "Effective Settings") {
+    let resolvedApprovalPolicy = ServerCodexApprovalPolicy.resolved(
+      details: response.effectiveSettings.approvalPolicyDetails,
+      fallbackPolicy: response.effectiveSettings.approvalPolicy
+    )
+
+    return inspectorCard(title: "Effective Settings") {
       VStack(alignment: .leading, spacing: Spacing.sm) {
         settingRow("Mode", value: response.effectiveSettings.configMode?.rawValue)
         settingRow("Profile", value: response.effectiveSettings.configProfile)
         settingRow("Provider", value: response.effectiveSettings.modelProvider)
         settingRow("Model", value: response.effectiveSettings.model)
-        settingRow("Approval", value: response.effectiveSettings.approvalPolicy)
+        settingRow("Approval", value: resolvedApprovalPolicy?.displayName ?? response.effectiveSettings.approvalPolicy)
         settingRow("Sandbox", value: response.effectiveSettings.sandboxMode)
         settingRow("Collaboration", value: response.effectiveSettings.collaborationMode)
         settingRow("Workers", value: response.effectiveSettings.multiAgent.map { $0 ? "Enabled" : "Disabled" })
@@ -82,6 +87,15 @@ struct CodexConfigInspectorSheet: View {
         settingRow("Service Tier", value: response.effectiveSettings.serviceTier)
         settingRow("Instructions", value: trimmedValue(response.effectiveSettings.developerInstructions))
         settingRow("Effort", value: response.effectiveSettings.effort)
+
+        if let granular = resolvedApprovalPolicy?.granularPolicy {
+          Divider()
+            .padding(.vertical, Spacing.xxs)
+
+          ForEach(granular.toggleSummaries) { toggle in
+            settingRow(toggle.title, value: toggle.valueLabel)
+          }
+        }
       }
     }
   }

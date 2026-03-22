@@ -40,6 +40,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
     modelProvider: String?,
     model: String?,
     approvalPolicy: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?,
     sandboxMode: String?,
     collaborationMode: String?,
     multiAgent: Bool?,
@@ -67,6 +68,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
       modelProvider,
       model,
       approvalPolicy,
+      approvalPolicyDetails,
       sandboxMode,
       collaborationMode,
       multiAgent,
@@ -80,6 +82,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           model: model,
           modelProvider: modelProvider,
           approvalPolicy: approvalPolicy,
+          approvalPolicyDetails: approvalPolicyDetails,
           sandboxMode: sandboxMode,
           collaborationMode: collaborationMode,
           multiAgent: multiAgent,
@@ -177,6 +180,7 @@ enum NewSessionRequestPlanner {
           modelProvider: shouldApplyOverrides ? normalizedModelProvider : nil,
           model: shouldApplyOverrides ? normalizedModel : nil,
           approvalPolicy: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicy : nil,
+          approvalPolicyDetails: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicyDetails : nil,
           sandboxMode: shouldApplyOverrides ? configuration.codexAutonomy.sandboxMode : nil,
           collaborationMode: shouldApplyOverrides
             ? normalizeOptionalText(configuration.codexCollaborationMode)

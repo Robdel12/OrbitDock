@@ -51,6 +51,7 @@ struct TimelineRowContent: View {
         MessageRowView(
           role: .user, content: msg.content,
           images: convertImages(msg.images),
+          memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
           imageLoader: imageLoader
         )
@@ -59,6 +60,7 @@ struct TimelineRowContent: View {
         MessageRowView(
           role: .assistant, content: msg.content,
           images: convertImages(msg.images),
+          memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
           imageLoader: imageLoader
         )
@@ -67,6 +69,7 @@ struct TimelineRowContent: View {
         MessageRowView(
           role: .system, content: msg.content,
           images: convertImages(msg.images),
+          memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
           imageLoader: imageLoader
         )

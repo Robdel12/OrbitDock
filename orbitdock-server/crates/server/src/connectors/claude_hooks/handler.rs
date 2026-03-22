@@ -1559,6 +1559,7 @@ mod tests {
             codex_integration_mode: Some(CodexIntegrationMode::Passive),
             claude_integration_mode: Some(ClaudeIntegrationMode::Passive),
             approval_policy: None,
+            approval_policy_details: None,
             sandbox_mode: None,
             permission_mode: None,
             collaboration_mode: None,

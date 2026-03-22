@@ -595,6 +595,7 @@ mod tests {
             timestamp: None,
             is_streaming: false,
             images: vec![],
+            memory_citation: None,
         })
     }
 
@@ -624,6 +625,7 @@ mod tests {
             timestamp: None,
             is_streaming: false,
             images: vec![],
+            memory_citation: None,
         }));
 
         match row {
