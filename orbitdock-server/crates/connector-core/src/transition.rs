@@ -3405,9 +3405,7 @@ mod tests {
         // SessionDelta should clear current_diff
         let clears_diff = effects.iter().any(|e| match e {
             Effect::Emit(msg) => match msg.as_ref() {
-                ServerMessage::SessionDelta { changes, .. } => {
-                    changes.current_diff == Some(None)
-                }
+                ServerMessage::SessionDelta { changes, .. } => changes.current_diff == Some(None),
                 _ => false,
             },
             _ => false,
