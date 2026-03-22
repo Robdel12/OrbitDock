@@ -80,6 +80,10 @@ Use the smallest meaningful test set that gives real confidence.
 - use `make rust-test` for behavior changes
 - use `make rust-ci` when you need the full Rust quality pass
 
+### Web frontend
+
+For orbitdock-web testing principles, read [web-testing-strategy.md](web-testing-strategy.md). It covers the test pyramid, where each kind of test belongs, and what we explicitly avoid.
+
 ### Integration work
 
 For Claude or Codex integration changes, verify the behavior in a real session when you can. Hook-forwarding and rollout-watcher code is hard to trust from unit tests alone.

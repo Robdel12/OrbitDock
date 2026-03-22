@@ -9,6 +9,7 @@ Start here, then jump to the right doc.
 If you're making code changes, these are the docs that matter most:
 
 - [docs/repo-workflow.md](docs/repo-workflow.md) — project shape, commands, testing, and day-to-day workflow
+- [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles: what to test where, mocking rules, hard lines
 - [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — architecture and persistence rules that are easy to violate
 - [docs/local-development.md](docs/local-development.md) — local setup flow, file locations, and CLI basics
 - [docs/debugging.md](docs/debugging.md) — logs, hook checks, and database inspection
@@ -32,6 +33,7 @@ The repo rules are simple:
 
 - [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — contributor setup and repo tour
 - [docs/repo-workflow.md](docs/repo-workflow.md) — commands, file placement, and testing expectations
+- [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles and hard lines
 - [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — server-authoritative rules, protocol guidance, UI constraints
 - [docs/CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — short Swift client guardrails
 - [docs/SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — durable client architecture rules
