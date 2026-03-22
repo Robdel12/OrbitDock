@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use crate::conversation_contracts::activity_groups::{ActivityGroupRow, ActivityGroupRowSummary};
 use crate::conversation_contracts::approvals::{ApprovalRow, QuestionRow};
 use crate::conversation_contracts::render_hints::RenderHints;
-use crate::conversation_contracts::tool_display::{compute_tool_display, ToolDisplay};
+use crate::conversation_contracts::tool_display::{
+    compute_tool_display, ToolDisplay, ToolDisplayInput,
+};
 use crate::conversation_contracts::tool_payloads::{
     ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract,
 };
@@ -361,17 +363,17 @@ impl ToolRow {
     pub fn to_summary(&self) -> ToolRowSummary {
         let display = self.tool_display.clone().unwrap_or_else(|| {
             let result_str = self.result.as_ref().and_then(|v| v.as_str());
-            compute_tool_display(
-                self.kind,
-                self.family,
-                self.status,
-                &self.title,
-                self.subtitle.as_deref(),
-                self.summary.as_deref(),
-                self.duration_ms,
-                Some(&self.invocation),
-                result_str,
-            )
+            compute_tool_display(ToolDisplayInput {
+                kind: self.kind,
+                family: self.family,
+                status: self.status,
+                title: &self.title,
+                subtitle: self.subtitle.as_deref(),
+                summary: self.summary.as_deref(),
+                duration_ms: self.duration_ms,
+                invocation_input: Some(&self.invocation),
+                result_output: result_str,
+            })
         });
         ToolRowSummary {
             id: self.id.clone(),

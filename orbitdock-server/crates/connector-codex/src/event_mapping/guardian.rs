@@ -1,5 +1,7 @@
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{compute_tool_display, ConversationRow, ToolRow};
+use orbitdock_protocol::conversation_contracts::{
+    compute_tool_display, ConversationRow, ToolDisplayInput, ToolRow,
+};
 use orbitdock_protocol::domain_events::{
     GenericInvocationPayload, GenericResultPayload, ToolFamily, ToolInvocationPayload, ToolKind,
     ToolResultPayload, ToolStatus,
@@ -19,17 +21,17 @@ fn with_display(mut row: ToolRow) -> ToolRow {
             .ok()
             .filter(|text| !text.trim().is_empty())
     });
-    row.tool_display = Some(compute_tool_display(
-        row.kind,
-        row.family,
-        row.status,
-        &row.title,
-        row.subtitle.as_deref(),
-        row.summary.as_deref(),
-        row.duration_ms,
-        invocation_json.as_ref(),
-        result_text.as_deref(),
-    ));
+    row.tool_display = Some(compute_tool_display(ToolDisplayInput {
+        kind: row.kind,
+        family: row.family,
+        status: row.status,
+        title: &row.title,
+        subtitle: row.subtitle.as_deref(),
+        summary: row.summary.as_deref(),
+        duration_ms: row.duration_ms,
+        invocation_input: invocation_json.as_ref(),
+        result_output: result_text.as_deref(),
+    }));
     row
 }
 

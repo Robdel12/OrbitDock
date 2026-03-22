@@ -90,13 +90,15 @@ pub(crate) async fn launch_resumed_session(
             state.register_claude_thread(&session_id, provider_resume_id.as_str());
             spawn_claude_resume(
                 state,
-                &session_id,
-                project,
-                prepared.model,
-                provider_resume_id,
-                prepared.handle,
-                prepared.row_count,
-                prepared.allow_bypass_permissions,
+                ClaudeResumeParams {
+                    session_id: session_id.clone(),
+                    project,
+                    model: prepared.model,
+                    provider_resume_id,
+                    handle: prepared.handle,
+                    message_count: prepared.row_count,
+                    allow_bypass_permissions: prepared.allow_bypass_permissions,
+                },
             )
             .await;
         }
@@ -131,18 +133,26 @@ pub(crate) async fn launch_resumed_session(
     Ok(ResumeSessionLaunch { summary })
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn spawn_claude_resume(
-    state: &Arc<SessionRegistry>,
-    session_id: &str,
+struct ClaudeResumeParams {
+    session_id: String,
     project: String,
     model: Option<String>,
     provider_resume_id: orbitdock_protocol::ProviderSessionId,
-    mut handle: crate::domain::sessions::session::SessionHandle,
+    handle: crate::domain::sessions::session::SessionHandle,
     message_count: usize,
     allow_bypass_permissions: bool,
-) {
-    let session_id = session_id.to_string();
+}
+
+async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeParams) {
+    let ClaudeResumeParams {
+        session_id,
+        project,
+        model,
+        provider_resume_id,
+        mut handle,
+        message_count,
+        allow_bypass_permissions,
+    } = params;
     let persist_tx = state.persist().clone();
     let restored_permission_mode = load_session_permission_mode(&session_id)
         .await

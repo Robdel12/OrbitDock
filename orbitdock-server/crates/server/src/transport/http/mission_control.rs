@@ -417,17 +417,21 @@ pub async fn retry_mission_issue(
     let iid2 = issue_id.clone();
     let _ = tokio::task::spawn_blocking(move || {
         let conn = rusqlite::Connection::open(&db_path).ok()?;
-        use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
+        use crate::infrastructure::persistence::mission_control::{
+            update_mission_issue_state_sync, MissionIssueStateUpdate,
+        };
         update_mission_issue_state_sync(
             &conn,
             &mid2,
             &iid2,
-            "queued",
-            None,
-            Some(0),
-            Some(None),
-            Some(None),
-            Some(None),
+            &MissionIssueStateUpdate {
+                orchestration_state: "queued",
+                session_id: None,
+                attempt: Some(0),
+                last_error: Some(None),
+                started_at: Some(None),
+                completed_at: Some(None),
+            },
         )
         .ok()
     })

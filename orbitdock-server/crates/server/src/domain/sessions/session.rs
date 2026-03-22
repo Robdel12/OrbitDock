@@ -23,7 +23,9 @@ use tracing::info;
 use orbitdock_protocol::ServerMessage;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
-use crate::domain::sessions::transition::{approval_preview, TransitionState, WorkPhase};
+use crate::domain::sessions::transition::{
+    approval_preview, ApprovalPreviewInput, TransitionState, WorkPhase,
+};
 
 /// Events that matter for the session list sidebar (status, mode, name changes).
 /// Per-message events (streaming deltas, message appends) are excluded to avoid
@@ -281,17 +283,17 @@ fn preview_for_pending_approval(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("pending-approval");
-    approval_preview(
+    approval_preview(ApprovalPreviewInput {
         request_id,
         approval_type,
         tool_name,
         tool_input,
-        None,
-        None,
-        None,
+        command: None,
+        file_path: None,
+        diff: None,
         question,
-        None,
-    )
+        permission_reason: None,
+    })
 }
 
 fn pending_tool_family_from_state(

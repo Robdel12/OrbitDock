@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::tool_display::{
-    classify_tool_name, compute_tool_display,
+    classify_tool_name, compute_tool_display, ToolDisplayInput,
 };
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
@@ -247,17 +247,18 @@ pub(crate) fn load_messages_from_transcript(
                                 }));
                                 // Recompute tool_display with result data
                                 let input = tool_row.invocation.get("raw_input");
-                                tool_row.tool_display = Some(compute_tool_display(
-                                    tool_row.kind,
-                                    tool_row.family,
-                                    ToolStatus::Completed,
-                                    &tool_row.title,
-                                    None,
-                                    None,
-                                    None,
-                                    input,
-                                    Some(&tool_output),
-                                ));
+                                tool_row.tool_display =
+                                    Some(compute_tool_display(ToolDisplayInput {
+                                        kind: tool_row.kind,
+                                        family: tool_row.family,
+                                        status: ToolStatus::Completed,
+                                        title: &tool_row.title,
+                                        subtitle: None,
+                                        summary: None,
+                                        duration_ms: None,
+                                        invocation_input: input,
+                                        result_output: Some(&tool_output),
+                                    }));
                                 continue;
                             }
                         }
@@ -270,17 +271,17 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         tool_use_index.insert(id.clone(), row_index);
                     }
-                    let td = Some(compute_tool_display(
-                        ToolKind::Generic,
-                        ToolFamily::Generic,
-                        ToolStatus::Completed,
-                        "Tool",
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(&tool_output),
-                    ));
+                    let td = Some(compute_tool_display(ToolDisplayInput {
+                        kind: ToolKind::Generic,
+                        family: ToolFamily::Generic,
+                        status: ToolStatus::Completed,
+                        title: "Tool",
+                        subtitle: None,
+                        summary: None,
+                        duration_ms: None,
+                        invocation_input: None,
+                        result_output: Some(&tool_output),
+                    }));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
                         sequence,
@@ -325,17 +326,17 @@ pub(crate) fn load_messages_from_transcript(
                     if let Some(id) = &tool_use_id {
                         tool_use_index.insert(id.clone(), row_index);
                     }
-                    let td = Some(compute_tool_display(
+                    let td = Some(compute_tool_display(ToolDisplayInput {
                         kind,
                         family,
-                        ToolStatus::Completed,
-                        &tool_name,
-                        None,
-                        None,
-                        None,
-                        tool_input.as_ref(),
-                        None,
-                    ));
+                        status: ToolStatus::Completed,
+                        title: &tool_name,
+                        subtitle: None,
+                        summary: None,
+                        duration_ms: None,
+                        invocation_input: tool_input.as_ref(),
+                        result_output: None,
+                    }));
                     rows.push(ConversationRowEntry {
                         session_id: String::new(),
                         sequence,

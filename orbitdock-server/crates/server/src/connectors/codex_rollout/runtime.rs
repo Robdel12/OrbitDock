@@ -76,6 +76,29 @@ struct PendingTokenCount {
     token_usage: Option<orbitdock_protocol::TokenUsage>,
 }
 
+struct SessionMetaEvent {
+    session_id: String,
+    cwd: String,
+    model_provider: Option<String>,
+    originator: String,
+    source: SessionSource,
+    started_at: String,
+    transcript_path: String,
+    branch: Option<String>,
+}
+
+struct WorkStateUpdate {
+    session_id: String,
+    work_status: WorkStatus,
+    attention_reason: Option<String>,
+    pending_tool_name: Option<Option<String>>,
+    pending_tool_input: Option<Option<String>>,
+    pending_question: Option<Option<String>>,
+    last_tool: Option<Option<String>>,
+    last_tool_at: Option<Option<String>>,
+    status: Option<SessionStatus>,
+}
+
 impl WatcherRuntime {
     pub(crate) async fn sweep_files(&mut self) -> anyhow::Result<()> {
         for path in self.tailer.active_candidates(STARTUP_SEED_RECENT_SECS) {
@@ -210,16 +233,16 @@ impl WatcherRuntime {
                     transcript_path,
                     branch,
                 } => {
-                    self.handle_session_meta_event(
+                    self.handle_session_meta_event(SessionMetaEvent {
                         session_id,
                         cwd,
                         model_provider,
                         originator,
                         source,
                         started_at,
-                        &transcript_path,
+                        transcript_path,
                         branch,
-                    )
+                    })
                     .await;
                 }
                 RolloutEvent::TurnContext {
@@ -396,17 +419,17 @@ impl WatcherRuntime {
         }
 
         for (session_id, pending) in coalesced.work_state {
-            self.update_work_state(
-                &session_id,
-                pending.work_status,
-                pending.attention_reason,
-                pending.pending_tool_name,
-                pending.pending_tool_input,
-                pending.pending_question,
-                pending.last_tool,
-                pending.last_tool_at,
-                None,
-            )
+            self.update_work_state(WorkStateUpdate {
+                session_id,
+                work_status: pending.work_status,
+                attention_reason: pending.attention_reason,
+                pending_tool_name: pending.pending_tool_name,
+                pending_tool_input: pending.pending_tool_input,
+                pending_question: pending.pending_question,
+                last_tool: pending.last_tool,
+                last_tool_at: pending.last_tool_at,
+                status: None,
+            })
             .await;
         }
 
@@ -467,18 +490,17 @@ impl WatcherRuntime {
 
     // ── Server orchestration (kept from original) ────────────────────────
 
-    #[allow(clippy::too_many_arguments)]
-    async fn handle_session_meta_event(
-        &mut self,
-        session_id: String,
-        cwd: String,
-        model_provider: Option<String>,
-        originator: String,
-        source: SessionSource,
-        started_at: String,
-        transcript_path: &str,
-        branch: Option<String>,
-    ) {
+    async fn handle_session_meta_event(&mut self, event: SessionMetaEvent) {
+        let SessionMetaEvent {
+            session_id,
+            cwd,
+            model_provider,
+            originator,
+            source,
+            started_at,
+            transcript_path,
+            branch,
+        } = event;
         let is_direct = self.app_state.is_managed_codex_thread(&session_id);
         let is_direct_in_db = is_direct_thread_owned_async(&session_id)
             .await
@@ -552,7 +574,7 @@ impl WatcherRuntime {
         if !exists {
             let mut handle = SessionHandle::new(session_id.clone(), Provider::Codex, cwd.clone());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-            handle.set_transcript_path(Some(transcript_path.to_string()));
+            handle.set_transcript_path(Some(transcript_path.clone()));
             handle.set_project_name(project_name.clone());
             handle.set_model(model_provider.clone());
             handle.set_started_at(Some(started_at.clone()));
@@ -573,7 +595,7 @@ impl WatcherRuntime {
                 .await;
             actor
                 .send(SessionCommand::SetTranscriptPath {
-                    path: Some(transcript_path.to_string()),
+                    path: Some(transcript_path.clone()),
                 })
                 .await;
             actor
@@ -622,7 +644,7 @@ impl WatcherRuntime {
                 branch,
                 model: model_provider,
                 context_label: Some(originator),
-                transcript_path: transcript_path.to_string(),
+                transcript_path,
                 started_at,
             })
             .await;
@@ -935,17 +957,17 @@ impl WatcherRuntime {
             }
         }
 
-        self.update_work_state(
-            session_id,
-            WorkStatus::Working,
-            Some("none".to_string()),
-            None,
-            None,
-            Some(None),
-            None,
-            None,
-            None,
-        )
+        self.update_work_state(WorkStateUpdate {
+            session_id: session_id.to_string(),
+            work_status: WorkStatus::Working,
+            attention_reason: Some("none".to_string()),
+            pending_tool_name: None,
+            pending_tool_input: None,
+            pending_question: Some(None),
+            last_tool: None,
+            last_tool_at: None,
+            status: None,
+        })
         .await;
     }
 
@@ -1187,19 +1209,18 @@ impl WatcherRuntime {
             });
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn update_work_state(
-        &mut self,
-        session_id: &str,
-        work_status: WorkStatus,
-        attention_reason: Option<String>,
-        pending_tool_name: Option<Option<String>>,
-        pending_tool_input: Option<Option<String>>,
-        pending_question: Option<Option<String>>,
-        last_tool: Option<Option<String>>,
-        last_tool_at: Option<Option<String>>,
-        status: Option<SessionStatus>,
-    ) {
+    async fn update_work_state(&mut self, update: WorkStateUpdate) {
+        let WorkStateUpdate {
+            ref session_id,
+            work_status,
+            attention_reason,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
+            last_tool,
+            last_tool_at,
+            status,
+        } = update;
         if let Some(actor) = self.app_state.get_session(session_id) {
             actor
                 .send(SessionCommand::SetPendingAttention {

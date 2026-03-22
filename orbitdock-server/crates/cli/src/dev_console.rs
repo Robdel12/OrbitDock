@@ -887,7 +887,6 @@ fn open_selected_event_in_pager(
     pager_result
 }
 
-#[allow(clippy::needless_return)]
 fn copy_text_to_clipboard(text: &str) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
     {

@@ -59,7 +59,9 @@ pub(crate) use transcripts::{
     load_messages_from_transcript_path, load_token_usage_from_transcript_path,
     TranscriptCapabilities,
 };
-use usage::{persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot};
+use usage::{
+    persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot, TurnSnapshotRow,
+};
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;
 pub(crate) use worktrees::{
@@ -569,14 +571,16 @@ pub(super) fn execute_command(
 
             upsert_usage_turn_snapshot(
                 conn,
-                &session_id,
-                &turn_id,
-                turn_seq,
-                input_tokens,
-                output_tokens,
-                cached_tokens,
-                context_window,
-                snapshot_kind,
+                &TurnSnapshotRow {
+                    session_id: &session_id,
+                    turn_id: &turn_id,
+                    turn_seq,
+                    input_tokens,
+                    output_tokens,
+                    cached_tokens,
+                    context_window,
+                    snapshot_kind,
+                },
             )?;
         }
 

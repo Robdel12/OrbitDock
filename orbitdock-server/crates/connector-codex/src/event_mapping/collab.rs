@@ -10,7 +10,7 @@ use codex_protocol::protocol::{
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
-    compute_tool_display, ConversationRow, ConversationRowEntry, ToolRow,
+    compute_tool_display, ConversationRow, ConversationRowEntry, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -32,17 +32,17 @@ fn with_display(mut row: ToolRow) -> ToolRow {
         .as_ref()
         .and_then(|v| v.get("output").and_then(|o| o.as_str()))
         .map(String::from);
-    row.tool_display = Some(compute_tool_display(
-        row.kind,
-        row.family,
-        row.status,
-        &row.title,
-        row.subtitle.as_deref(),
-        row.summary.as_deref(),
-        row.duration_ms,
-        invocation_ref,
-        result_str.as_deref(),
-    ));
+    row.tool_display = Some(compute_tool_display(ToolDisplayInput {
+        kind: row.kind,
+        family: row.family,
+        status: row.status,
+        title: &row.title,
+        subtitle: row.subtitle.as_deref(),
+        summary: row.summary.as_deref(),
+        duration_ms: row.duration_ms,
+        invocation_input: invocation_ref,
+        result_output: result_str.as_deref(),
+    }));
     row
 }
 

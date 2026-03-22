@@ -172,22 +172,35 @@ fn joined_preview_text(lines: &[String], fallback: &str, max_chars: usize) -> St
 // Display computation
 // ---------------------------------------------------------------------------
 
+/// Input struct for [`compute_tool_display`].
+pub struct ToolDisplayInput<'a> {
+    pub kind: ToolKind,
+    pub family: ToolFamily,
+    pub status: ToolStatus,
+    pub title: &'a str,
+    pub subtitle: Option<&'a str>,
+    pub summary: Option<&'a str>,
+    pub duration_ms: Option<u64>,
+    pub invocation_input: Option<&'a serde_json::Value>,
+    pub result_output: Option<&'a str>,
+}
+
 /// Compute a `ToolDisplay` from tool metadata.
 ///
 /// This is the single source of truth for how tools appear in the client.
 /// Called when building/updating ToolRows in connectors.
-#[allow(clippy::too_many_arguments)]
-pub fn compute_tool_display(
-    kind: ToolKind,
-    family: ToolFamily,
-    status: ToolStatus,
-    title: &str,
-    subtitle: Option<&str>,
-    summary: Option<&str>,
-    duration_ms: Option<u64>,
-    invocation_input: Option<&serde_json::Value>,
-    result_output: Option<&str>,
-) -> ToolDisplay {
+pub fn compute_tool_display(input: ToolDisplayInput<'_>) -> ToolDisplay {
+    let ToolDisplayInput {
+        kind,
+        family,
+        status,
+        title,
+        subtitle,
+        summary,
+        duration_ms,
+        invocation_input,
+        result_output,
+    } = input;
     // Unwrap the raw_input wrapper if present — hook data wraps input as
     // {"raw_input": {"command": "..."}, "tool_name": "Bash"} but extract
     // functions expect the flat {"command": "..."} shape.
@@ -1346,25 +1359,26 @@ pub fn classify_tool_name(name: &str) -> (ToolFamily, ToolKind) {
 
 #[cfg(test)]
 mod tests {
-    use super::compute_tool_display;
+    use super::{compute_tool_display, ToolDisplayInput};
     use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
 
     #[test]
     fn codex_edit_diff_payload_produces_lightweight_preview() {
-        let display = compute_tool_display(
-            ToolKind::Edit,
-            ToolFamily::FileChange,
-            ToolStatus::Completed,
-            "Edit",
-            None,
-            None,
-            None,
-            Some(&serde_json::json!({
-                "path": "/tmp/SessionStore+Events.swift",
-                "diff": "--- /tmp/SessionStore+Events.swift\n+++ /tmp/SessionStore+Events.swift\n@@ -10,2 +10,3 @@\n let keep = true\n+let preview = true\n let done = true"
-            })),
-            None,
-        );
+        let input_json = serde_json::json!({
+            "path": "/tmp/SessionStore+Events.swift",
+            "diff": "--- /tmp/SessionStore+Events.swift\n+++ /tmp/SessionStore+Events.swift\n@@ -10,2 +10,3 @@\n let keep = true\n+let preview = true\n let done = true"
+        });
+        let display = compute_tool_display(ToolDisplayInput {
+            kind: ToolKind::Edit,
+            family: ToolFamily::FileChange,
+            status: ToolStatus::Completed,
+            title: "Edit",
+            subtitle: None,
+            summary: None,
+            duration_ms: None,
+            invocation_input: Some(&input_json),
+            result_output: None,
+        });
 
         let preview = display
             .diff_preview
@@ -1378,20 +1392,21 @@ mod tests {
 
     #[test]
     fn write_content_payload_still_produces_addition_preview() {
-        let display = compute_tool_display(
-            ToolKind::Write,
-            ToolFamily::FileChange,
-            ToolStatus::Completed,
-            "Write",
-            None,
-            None,
-            None,
-            Some(&serde_json::json!({
-                "path": "/tmp/example.swift",
-                "content": "let a = 1\nlet b = 2"
-            })),
-            None,
-        );
+        let input_json = serde_json::json!({
+            "path": "/tmp/example.swift",
+            "content": "let a = 1\nlet b = 2"
+        });
+        let display = compute_tool_display(ToolDisplayInput {
+            kind: ToolKind::Write,
+            family: ToolFamily::FileChange,
+            status: ToolStatus::Completed,
+            title: "Write",
+            subtitle: None,
+            summary: None,
+            duration_ms: None,
+            invocation_input: Some(&input_json),
+            result_output: None,
+        });
 
         let preview = display
             .diff_preview

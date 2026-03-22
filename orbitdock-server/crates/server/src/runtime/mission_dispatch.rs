@@ -8,9 +8,11 @@ use tracing::{info, warn};
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::mission_control::config::AgentConfig;
-use crate::domain::mission_control::prompt::render_prompt;
+use crate::domain::mission_control::prompt::{render_prompt, IssueContext};
 use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
-use crate::infrastructure::persistence::mission_control::update_mission_issue_state_sync;
+use crate::infrastructure::persistence::mission_control::{
+    update_mission_issue_state_sync, MissionIssueStateUpdate,
+};
 use crate::runtime::session_creation::{
     launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
@@ -63,12 +65,14 @@ pub async fn dispatch_issue(
             &conn,
             &mid,
             &iid,
-            "claimed",
-            None,
-            None,
-            Some(None),
-            Some(Some(&now)),
-            None,
+            &MissionIssueStateUpdate {
+                orchestration_state: "claimed",
+                session_id: None,
+                attempt: None,
+                last_error: Some(None),
+                started_at: Some(Some(&now)),
+                completed_at: None,
+            },
         )
         .ok()
     })
@@ -122,12 +126,14 @@ pub async fn dispatch_issue(
                     &conn,
                     &mid,
                     &iid,
-                    "failed",
-                    None,
-                    Some(attempt),
-                    Some(Some(&err_msg)),
-                    None,
-                    Some(Some(&now)),
+                    &MissionIssueStateUpdate {
+                        orchestration_state: "failed",
+                        session_id: None,
+                        attempt: Some(attempt),
+                        last_error: Some(Some(&err_msg)),
+                        started_at: None,
+                        completed_at: Some(Some(&now)),
+                    },
                 )
                 .ok()
             })
@@ -183,17 +189,16 @@ pub async fn dispatch_issue(
     }
 
     // Render prompt
-    let prompt = render_prompt(
-        &ctx.prompt_template,
-        &issue.id,
-        &issue.identifier,
-        &issue.title,
-        issue.description.as_deref(),
-        issue.url.as_deref(),
-        Some(&issue.state),
-        &issue.labels,
-        attempt,
-    )?;
+    let issue_ctx = IssueContext {
+        issue_id: &issue.id,
+        issue_identifier: &issue.identifier,
+        issue_title: &issue.title,
+        issue_description: issue.description.as_deref(),
+        issue_url: issue.url.as_deref(),
+        issue_state: Some(&issue.state),
+        issue_labels: &issue.labels,
+    };
+    let prompt = render_prompt(&ctx.prompt_template, &issue_ctx, attempt)?;
 
     // Create session
     let provider: Provider = match provider_str.parse() {
@@ -218,12 +223,14 @@ pub async fn dispatch_issue(
                     &conn,
                     &mid,
                     &iid,
-                    "failed",
-                    None,
-                    Some(attempt),
-                    Some(Some(&err_msg)),
-                    None,
-                    Some(Some(&now)),
+                    &MissionIssueStateUpdate {
+                        orchestration_state: "failed",
+                        session_id: None,
+                        attempt: Some(attempt),
+                        last_error: Some(Some(&err_msg)),
+                        started_at: None,
+                        completed_at: Some(Some(&now)),
+                    },
                 )
                 .ok()
             })
@@ -299,12 +306,14 @@ pub async fn dispatch_issue(
             &conn,
             &mid,
             &iid,
-            "running",
-            Some(&sid),
-            Some(attempt),
-            Some(None),
-            None,
-            None,
+            &MissionIssueStateUpdate {
+                orchestration_state: "running",
+                session_id: Some(&sid),
+                attempt: Some(attempt),
+                last_error: Some(None),
+                started_at: None,
+                completed_at: None,
+            },
         )
         .ok()
     })

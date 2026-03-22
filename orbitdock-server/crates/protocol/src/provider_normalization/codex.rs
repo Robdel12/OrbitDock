@@ -352,9 +352,9 @@ pub fn normalize_protocol_event(
         ),
     };
 
-    normalized_event(
-        ProviderEventSource::SdkMessage,
-        raw_event_name,
+    normalized_event(NormalizedEventParams {
+        source: ProviderEventSource::SdkMessage,
+        raw_event_name: raw_event_name.to_string(),
         domain,
         action,
         status,
@@ -362,7 +362,7 @@ pub fn normalize_protocol_event(
         thread_operation,
         tool_name,
         correlation,
-    )
+    })
 }
 
 /// Normalize a raw Codex response item kind.
@@ -411,17 +411,17 @@ pub fn normalize_response_item(
         ),
     };
 
-    normalized_event(
-        ProviderEventSource::ResponseItem,
-        raw_event_name,
+    normalized_event(NormalizedEventParams {
+        source: ProviderEventSource::ResponseItem,
+        raw_event_name: raw_event_name.to_string(),
         domain,
         action,
         status,
         concept,
-        None,
+        thread_operation: None,
         tool_name,
         correlation,
-    )
+    })
 }
 
 /// Normalize a rollout-parser event name from passive Codex watching.
@@ -531,9 +531,9 @@ pub fn normalize_rollout_event(
         ),
     };
 
-    normalized_event(
-        ProviderEventSource::Hook,
-        raw_event_name,
+    normalized_event(NormalizedEventParams {
+        source: ProviderEventSource::Hook,
+        raw_event_name: raw_event_name.to_string(),
         domain,
         action,
         status,
@@ -541,13 +541,12 @@ pub fn normalize_rollout_event(
         thread_operation,
         tool_name,
         correlation,
-    )
+    })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn normalized_event(
+struct NormalizedEventParams {
     source: ProviderEventSource,
-    raw_event_name: &str,
+    raw_event_name: String,
     domain: ProviderEventDomain,
     action: ProviderEventAction,
     status: Option<ProviderEventStatus>,
@@ -555,20 +554,22 @@ fn normalized_event(
     thread_operation: Option<CodexThreadOperation>,
     tool_name: Option<String>,
     correlation: ProviderEventCorrelation,
-) -> CodexNormalizedEvent {
+}
+
+fn normalized_event(params: NormalizedEventParams) -> CodexNormalizedEvent {
     CodexNormalizedEvent {
         provider: Provider::Codex,
-        source,
-        domain,
-        action,
-        status,
-        correlation: correlation.into_some(),
+        source: params.source,
+        domain: params.domain,
+        action: params.action,
+        status: params.status,
+        correlation: params.correlation.into_some(),
         payload: CodexNormalizedPayload {
-            source_kind: source_kind_for_source(source),
-            concept,
-            raw_event_name: raw_event_name.to_string(),
-            thread_operation,
-            tool_name,
+            source_kind: source_kind_for_source(params.source),
+            concept: params.concept,
+            raw_event_name: params.raw_event_name,
+            thread_operation: params.thread_operation,
+            tool_name: params.tool_name,
         },
     }
 }

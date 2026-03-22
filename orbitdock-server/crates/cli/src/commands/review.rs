@@ -55,17 +55,17 @@ pub async fn run(action: &ReviewAction, rest: &RestClient, output: &Output) -> i
             tag,
             turn,
         } => {
-            create(
+            create(CreateReviewArgs {
                 rest,
                 output,
                 session_id,
                 file,
-                *line,
-                *line_end,
+                line: *line,
+                line_end: *line_end,
                 body,
-                tag.as_ref(),
-                turn.as_deref(),
-            )
+                tag: tag.as_ref(),
+                turn: turn.as_deref(),
+            })
             .await
         }
         ReviewAction::Update {
@@ -126,18 +126,31 @@ async fn list(rest: &RestClient, output: &Output, session_id: &str, turn: Option
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn create(
-    rest: &RestClient,
-    output: &Output,
-    session_id: &str,
-    file: &str,
+struct CreateReviewArgs<'a> {
+    rest: &'a RestClient,
+    output: &'a Output,
+    session_id: &'a str,
+    file: &'a str,
     line: u32,
     line_end: Option<u32>,
-    body: &str,
-    tag: Option<&ReviewTagFilter>,
-    turn: Option<&str>,
-) -> i32 {
+    body: &'a str,
+    tag: Option<&'a ReviewTagFilter>,
+    turn: Option<&'a str>,
+}
+
+async fn create(args: CreateReviewArgs<'_>) -> i32 {
+    let CreateReviewArgs {
+        rest,
+        output,
+        session_id,
+        file,
+        line,
+        line_end,
+        body,
+        tag,
+        turn,
+    } = args;
+
     let tag_str = tag.map(ReviewTagFilter::as_str);
 
     let req = CreateReviewCommentRequest {

@@ -204,18 +204,32 @@ pub(super) fn upsert_usage_session_state(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(super) struct TurnSnapshotRow<'a> {
+    pub session_id: &'a str,
+    pub turn_id: &'a str,
+    pub turn_seq: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cached_tokens: u64,
+    pub context_window: u64,
+    pub snapshot_kind: TokenUsageSnapshotKind,
+}
+
 pub(super) fn upsert_usage_turn_snapshot(
     conn: &Connection,
-    session_id: &str,
-    turn_id: &str,
-    turn_seq: u64,
-    input_tokens: u64,
-    output_tokens: u64,
-    cached_tokens: u64,
-    context_window: u64,
-    snapshot_kind: TokenUsageSnapshotKind,
+    row: &TurnSnapshotRow<'_>,
 ) -> Result<(), rusqlite::Error> {
+    let TurnSnapshotRow {
+        session_id,
+        turn_id,
+        turn_seq,
+        input_tokens,
+        output_tokens,
+        cached_tokens,
+        context_window,
+        snapshot_kind,
+    } = row;
+
     let previous_input: i64 = conn
         .query_row(
             "SELECT input_tokens
@@ -229,7 +243,7 @@ pub(super) fn upsert_usage_turn_snapshot(
         .optional()?
         .unwrap_or(0);
 
-    let input_tokens_i64 = input_tokens as i64;
+    let input_tokens_i64 = *input_tokens as i64;
     let input_delta_tokens = (input_tokens_i64 - previous_input).max(0);
 
     conn.execute(
@@ -257,12 +271,12 @@ pub(super) fn upsert_usage_turn_snapshot(
         params![
             session_id,
             turn_id,
-            turn_seq as i64,
-            snapshot_kind_to_str(snapshot_kind),
-            input_tokens as i64,
-            output_tokens as i64,
-            cached_tokens as i64,
-            context_window as i64,
+            *turn_seq as i64,
+            snapshot_kind_to_str(*snapshot_kind),
+            *input_tokens as i64,
+            *output_tokens as i64,
+            *cached_tokens as i64,
+            *context_window as i64,
             input_delta_tokens,
             chrono_now(),
         ],

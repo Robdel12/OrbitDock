@@ -246,20 +246,34 @@ pub fn load_retry_ready_issues(
     Ok(rows)
 }
 
+/// Fields to update on a mission issue's orchestration state.
+/// `None` means "don't touch this field"; `Some(None)` (for nullable fields) means "set to NULL".
+pub struct MissionIssueStateUpdate<'a> {
+    pub orchestration_state: &'a str,
+    pub session_id: Option<&'a str>,
+    pub attempt: Option<u32>,
+    pub last_error: Option<Option<&'a str>>,
+    pub started_at: Option<Option<&'a str>>,
+    pub completed_at: Option<Option<&'a str>>,
+}
+
 /// Synchronously update a mission issue's orchestration state and optional fields.
 /// Used by dispatch paths that need the write to be visible before broadcasting.
-#[allow(clippy::too_many_arguments)]
 pub fn update_mission_issue_state_sync(
     conn: &Connection,
     mission_id: &str,
     issue_id: &str,
-    orchestration_state: &str,
-    session_id: Option<&str>,
-    attempt: Option<u32>,
-    last_error: Option<Option<&str>>,
-    started_at: Option<Option<&str>>,
-    completed_at: Option<Option<&str>>,
+    update: &MissionIssueStateUpdate<'_>,
 ) -> Result<()> {
+    let MissionIssueStateUpdate {
+        orchestration_state,
+        session_id,
+        attempt,
+        last_error,
+        started_at,
+        completed_at,
+    } = update;
+
     let mut set_parts = vec![String::from("orchestration_state = ?1")];
     let mut values: Vec<Box<dyn rusqlite::types::ToSql>> =
         vec![Box::new(orchestration_state.to_string())];
@@ -277,7 +291,7 @@ pub fn update_mission_issue_state_sync(
         push_field!("session_id", sid.to_string());
     }
     if let Some(a) = attempt {
-        push_field!("attempt", a);
+        push_field!("attempt", *a);
     }
     if let Some(err) = last_error {
         push_field!("last_error", err.map(|s| s.to_string()));
@@ -655,12 +669,14 @@ mod tests {
             &conn,
             "m1",
             "iss-1",
-            "running",
-            Some("session-abc"),
-            Some(1),
-            None,
-            Some(Some("2026-03-01T01:00:00.000Z")),
-            None,
+            &MissionIssueStateUpdate {
+                orchestration_state: "running",
+                session_id: Some("session-abc"),
+                attempt: Some(1),
+                last_error: None,
+                started_at: Some(Some("2026-03-01T01:00:00.000Z")),
+                completed_at: None,
+            },
         )
         .unwrap();
 
@@ -695,12 +711,14 @@ mod tests {
             &conn,
             "m1",
             "iss-1",
-            "failed",
-            None,
-            None,
-            Some(Some("something went wrong")),
-            None,
-            Some(Some("2026-03-01T02:00:00.000Z")),
+            &MissionIssueStateUpdate {
+                orchestration_state: "failed",
+                session_id: None,
+                attempt: None,
+                last_error: Some(Some("something went wrong")),
+                started_at: None,
+                completed_at: Some(Some("2026-03-01T02:00:00.000Z")),
+            },
         )
         .unwrap();
 
@@ -734,12 +752,14 @@ mod tests {
             &conn,
             "m1",
             "iss-1",
-            "retry_queued",
-            None,
-            None,
-            Some(None), // clear last_error
-            None,
-            None,
+            &MissionIssueStateUpdate {
+                orchestration_state: "retry_queued",
+                session_id: None,
+                attempt: None,
+                last_error: Some(None), // clear last_error
+                started_at: None,
+                completed_at: None,
+            },
         )
         .unwrap();
 
@@ -770,12 +790,14 @@ mod tests {
             &conn,
             "m1",
             "iss-1",
-            "completed",
-            None,
-            None,
-            None,
-            None,
-            None,
+            &MissionIssueStateUpdate {
+                orchestration_state: "completed",
+                session_id: None,
+                attempt: None,
+                last_error: None,
+                started_at: None,
+                completed_at: None,
+            },
         )
         .unwrap();
 

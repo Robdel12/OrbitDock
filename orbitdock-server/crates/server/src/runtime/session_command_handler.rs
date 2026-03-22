@@ -7,7 +7,9 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{compute_tool_display, ConversationRow};
+use orbitdock_protocol::conversation_contracts::{
+    compute_tool_display, ConversationRow, ToolDisplayInput,
+};
 use orbitdock_protocol::domain_events::ToolKind;
 use orbitdock_protocol::{
     CodexIntegrationMode, Provider, ServerMessage, SessionListItem, SessionStatus, StateChanges,
@@ -503,17 +505,17 @@ pub async fn handle_session_command(
                     } else {
                         None
                     };
-                    tool.tool_display = Some(compute_tool_display(
-                        tool.kind,
-                        tool.family,
-                        tool.status,
-                        &tool.title,
-                        tool.subtitle.as_deref(),
-                        tool.summary.as_deref(),
-                        tool.duration_ms,
-                        raw_input,
-                        Some(&answer_text),
-                    ));
+                    tool.tool_display = Some(compute_tool_display(ToolDisplayInput {
+                        kind: tool.kind,
+                        family: tool.family,
+                        status: tool.status,
+                        title: &tool.title,
+                        subtitle: tool.subtitle.as_deref(),
+                        summary: tool.summary.as_deref(),
+                        duration_ms: tool.duration_ms,
+                        invocation_input: raw_input,
+                        result_output: Some(&answer_text),
+                    }));
                 }
 
                 let session_id = handle.id().to_string();

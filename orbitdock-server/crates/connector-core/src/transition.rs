@@ -1325,16 +1325,16 @@ pub fn transition(
     (state, effects)
 }
 
-struct ApprovalPreviewInput<'a> {
-    request_id: &'a str,
-    approval_type: ApprovalType,
-    tool_name: Option<&'a str>,
-    tool_input: Option<&'a str>,
-    command: Option<&'a str>,
-    file_path: Option<&'a str>,
-    diff: Option<&'a str>,
-    question: Option<&'a str>,
-    permission_reason: Option<&'a str>,
+pub struct ApprovalPreviewInput<'a> {
+    pub request_id: &'a str,
+    pub approval_type: ApprovalType,
+    pub tool_name: Option<&'a str>,
+    pub tool_input: Option<&'a str>,
+    pub command: Option<&'a str>,
+    pub file_path: Option<&'a str>,
+    pub diff: Option<&'a str>,
+    pub question: Option<&'a str>,
+    pub permission_reason: Option<&'a str>,
 }
 
 pub fn approval_question_prompts(
@@ -1356,29 +1356,8 @@ pub fn approval_question(
         .or_else(|| trim_non_empty(fallback_question))
 }
 
-#[allow(clippy::too_many_arguments)]
-pub fn approval_preview(
-    request_id: &str,
-    approval_type: ApprovalType,
-    tool_name: Option<&str>,
-    tool_input: Option<&str>,
-    command: Option<&str>,
-    file_path: Option<&str>,
-    diff: Option<&str>,
-    question: Option<&str>,
-    permission_reason: Option<&str>,
-) -> Option<ApprovalPreview> {
-    build_approval_preview(ApprovalPreviewInput {
-        request_id,
-        approval_type,
-        tool_name,
-        tool_input,
-        command,
-        file_path,
-        diff,
-        question,
-        permission_reason,
-    })
+pub fn approval_preview(input: ApprovalPreviewInput<'_>) -> Option<ApprovalPreview> {
+    build_approval_preview(input)
 }
 
 fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<ApprovalPreview> {
@@ -1446,17 +1425,21 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
             .and_then(|dict| diff_preview_from_patch_input(dict, file_path.as_deref()))
     });
 
+    let ctx = ApprovalPreviewContext {
+        request_id,
+        approval_type,
+        tool_name,
+        normalized_tool_name: normalized_tool_name.as_str(),
+        risk_assessment: &risk_assessment,
+    };
+
     if approval_type == ApprovalType::Patch {
         if let Some(diff_preview) = patch_diff {
             return Some(compose_approval_preview(
-                request_id,
-                approval_type,
-                tool_name,
-                normalized_tool_name.as_str(),
+                &ctx,
                 ApprovalPreviewType::Diff,
                 normalize_diff_preview(diff_preview.as_str()),
                 vec![],
-                &risk_assessment,
             ));
         }
     }
@@ -1464,66 +1447,46 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
     if let Some(command) = command {
         let shell_segments = shell_segments_for_preview(&command);
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::ShellCommand,
             command,
             shell_segments,
-            &risk_assessment,
         ));
     }
 
     if let Some(url) = url {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::Url,
             url,
             vec![],
-            &risk_assessment,
         ));
     }
 
     if let Some(query) = query {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::SearchQuery,
             query,
             vec![],
-            &risk_assessment,
         ));
     }
 
     if let Some(pattern) = pattern {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::Pattern,
             pattern,
             vec![],
-            &risk_assessment,
         ));
     }
 
     if let Some(prompt) = prompt {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::Prompt,
             prompt,
             vec![],
-            &risk_assessment,
         ));
     }
 
@@ -1533,41 +1496,29 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
     ) {
         if let Some(question) = question.or_else(|| permission_reason.map(str::to_string)) {
             return Some(compose_approval_preview(
-                request_id,
-                approval_type,
-                tool_name,
-                normalized_tool_name.as_str(),
+                &ctx,
                 ApprovalPreviewType::Prompt,
                 question,
                 vec![],
-                &risk_assessment,
             ));
         }
     }
 
     if let Some(path) = file_path {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::FilePath,
             path,
             vec![],
-            &risk_assessment,
         ));
     }
 
     if let Some(value) = fallback_input_value {
         return Some(compose_approval_preview(
-            request_id,
-            approval_type,
-            tool_name,
-            normalized_tool_name.as_str(),
+            &ctx,
             ApprovalPreviewType::Value,
             value,
             vec![],
-            &risk_assessment,
         ));
     }
 
@@ -1584,14 +1535,10 @@ fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<Approv
     };
 
     Some(compose_approval_preview(
-        request_id,
-        approval_type,
-        tool_name,
-        normalized_tool_name.as_str(),
+        &ctx,
         ApprovalPreviewType::Action,
         fallback_action,
         vec![],
-        &risk_assessment,
     ))
 }
 
@@ -1733,29 +1680,29 @@ fn normalize_command_for_risk(command: Option<&str>) -> Option<String> {
     Some(format!(" {normalized} "))
 }
 
-#[allow(clippy::too_many_arguments)]
-fn compose_approval_preview(
-    request_id: &str,
+struct ApprovalPreviewContext<'a> {
+    request_id: &'a str,
     approval_type: ApprovalType,
-    tool_name: Option<&str>,
-    normalized_tool_name: &str,
+    tool_name: Option<&'a str>,
+    normalized_tool_name: &'a str,
+    risk_assessment: &'a ApprovalRiskAssessment,
+}
+
+fn compose_approval_preview(
+    ctx: &ApprovalPreviewContext<'_>,
     preview_type: ApprovalPreviewType,
     value: String,
     shell_segments: Vec<ApprovalPreviewSegment>,
-    risk_assessment: &ApprovalRiskAssessment,
 ) -> ApprovalPreview {
     let compact = compact_detail_for_preview(
         preview_type,
         value.as_str(),
         shell_segments.as_slice(),
-        normalized_tool_name,
+        ctx.normalized_tool_name,
     );
     let decision_scope = decision_scope_for_preview(preview_type).to_string();
     let manifest = build_manifest_for_preview(
-        request_id,
-        approval_type,
-        tool_name,
-        risk_assessment,
+        ctx,
         preview_type,
         value.as_str(),
         shell_segments.as_slice(),
@@ -1768,8 +1715,8 @@ fn compose_approval_preview(
         shell_segments,
         compact,
         decision_scope: Some(decision_scope),
-        risk_level: Some(risk_assessment.level),
-        risk_findings: risk_assessment.findings.clone(),
+        risk_level: Some(ctx.risk_assessment.level),
+        risk_findings: ctx.risk_assessment.findings.clone(),
         manifest: Some(manifest),
     }
 }
@@ -1791,33 +1738,29 @@ fn decision_scope_for_preview(preview_type: ApprovalPreviewType) -> &'static str
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_manifest_for_preview(
-    request_id: &str,
-    approval_type: ApprovalType,
-    tool_name: Option<&str>,
-    risk_assessment: &ApprovalRiskAssessment,
+    ctx: &ApprovalPreviewContext<'_>,
     preview_type: ApprovalPreviewType,
     value: &str,
     shell_segments: &[ApprovalPreviewSegment],
     decision_scope: &str,
 ) -> String {
-    let resolved_tool = trim_non_empty(tool_name).unwrap_or_else(|| "unknown".to_string());
+    let resolved_tool = trim_non_empty(ctx.tool_name).unwrap_or_else(|| "unknown".to_string());
     let resolved_request_id =
-        trim_non_empty(Some(request_id)).unwrap_or_else(|| "unknown".to_string());
+        trim_non_empty(Some(ctx.request_id)).unwrap_or_else(|| "unknown".to_string());
 
     let mut lines: Vec<String> = vec![
         "APPROVAL MANIFEST".to_string(),
         format!("request_id: {resolved_request_id}"),
-        format!("approval_type: {}", approval_type_label(approval_type)),
+        format!("approval_type: {}", approval_type_label(ctx.approval_type)),
         format!("tool: {resolved_tool}"),
-        format!("risk_tier: {}", risk_level_label(risk_assessment.level)),
+        format!("risk_tier: {}", risk_level_label(ctx.risk_assessment.level)),
     ];
 
-    if !risk_assessment.findings.is_empty() {
+    if !ctx.risk_assessment.findings.is_empty() {
         lines.push("risk_signals:".to_string());
         lines.extend(
-            risk_assessment
+            ctx.risk_assessment
                 .findings
                 .iter()
                 .map(|finding| format!("- {finding}")),

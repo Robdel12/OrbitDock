@@ -19,7 +19,7 @@ use tracing::warn;
 use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SubagentInfo, SubagentStatus};
 
 use crate::domain::sessions::transition::{
-    approval_preview, approval_question, approval_question_prompts,
+    approval_preview, approval_question, approval_question_prompts, ApprovalPreviewInput,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
@@ -1026,17 +1026,17 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         serialized_input.as_deref(),
                         question_text.as_deref(),
                     );
-                    let preview = approval_preview(
-                        request_id.as_str(),
+                    let preview = approval_preview(ApprovalPreviewInput {
+                        request_id: request_id.as_str(),
                         approval_type,
-                        Some(tool_name.as_str()),
-                        serialized_input.as_deref(),
-                        None,
-                        None,
-                        None,
-                        question_text.as_deref(),
-                        None,
-                    );
+                        tool_name: Some(tool_name.as_str()),
+                        tool_input: serialized_input.as_deref(),
+                        command: None,
+                        file_path: None,
+                        diff: None,
+                        question: question_text.as_deref(),
+                        permission_reason: None,
+                    });
                     let plan_text = extract_plan_from_tool_input(tool_input.as_ref());
                     let snapshot = actor.snapshot();
                     let is_duplicate_request = permission_request_matches_snapshot(

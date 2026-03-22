@@ -276,15 +276,17 @@ fn make_tool_row(
     let render_hints = tool_render_hints(kind);
     let tool_display = Some(
         orbitdock_protocol::conversation_contracts::compute_tool_display(
-            kind,
-            family,
-            status,
-            tool_name,
-            subtitle.as_deref(),
-            None,
-            None,
-            raw_input,
-            None,
+            orbitdock_protocol::conversation_contracts::ToolDisplayInput {
+                kind,
+                family,
+                status,
+                title: tool_name,
+                subtitle: subtitle.as_deref(),
+                summary: None,
+                duration_ms: None,
+                invocation_input: raw_input,
+                result_output: None,
+            },
         ),
     );
     ToolRow {
@@ -2332,15 +2334,17 @@ impl ClaudeConnector {
                     };
                     tr.tool_display = Some(
                         orbitdock_protocol::conversation_contracts::compute_tool_display(
-                            tr.kind,
-                            tr.family,
-                            tr.status,
-                            &tr.title,
-                            tr.subtitle.as_deref(),
-                            tr.summary.as_deref(),
-                            tr.duration_ms,
-                            raw_input,
-                            Some(&content),
+                            orbitdock_protocol::conversation_contracts::ToolDisplayInput {
+                                kind: tr.kind,
+                                family: tr.family,
+                                status: tr.status,
+                                title: &tr.title,
+                                subtitle: tr.subtitle.as_deref(),
+                                summary: tr.summary.as_deref(),
+                                duration_ms: tr.duration_ms,
+                                invocation_input: raw_input,
+                                result_output: Some(&content),
+                            },
                         ),
                     );
                     events.push(ConnectorEvent::ConversationRowUpdated {
@@ -2483,7 +2487,6 @@ impl ClaudeConnector {
     }
 
     /// Handle `result` messages — turn completed/aborted with usage.
-    #[allow(clippy::too_many_arguments)]
     fn handle_result_message(
         raw: &Value,
         streaming_content: &mut String,

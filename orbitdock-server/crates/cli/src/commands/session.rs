@@ -71,16 +71,16 @@ pub async fn run(
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(|_| ".".to_string()),
             };
-            create(
+            create(CreateSessionArgs {
                 config,
                 output,
-                provider,
-                &resolved_cwd,
-                model.as_deref(),
-                permission_mode.as_ref(),
-                effort.as_ref(),
-                system_prompt.as_deref(),
-            )
+                provider_filter: provider,
+                cwd: &resolved_cwd,
+                model: model.as_deref(),
+                permission_mode: permission_mode.as_ref(),
+                effort: effort.as_ref(),
+                system_prompt: system_prompt.as_deref(),
+            })
             .await
         }
         SessionAction::Send {
@@ -296,17 +296,29 @@ async fn get(rest: &RestClient, output: &Output, session_id: &str, messages: boo
 
 // ── WS Commands ──────────────────────────────────────────────
 
-#[allow(clippy::too_many_arguments)]
-async fn create(
-    config: &ClientConfig,
-    output: &Output,
-    provider_filter: &ProviderFilter,
-    cwd: &str,
-    model: Option<&str>,
-    permission_mode: Option<&PermissionMode>,
-    effort: Option<&Effort>,
-    system_prompt: Option<&str>,
-) -> i32 {
+struct CreateSessionArgs<'a> {
+    config: &'a ClientConfig,
+    output: &'a Output,
+    provider_filter: &'a ProviderFilter,
+    cwd: &'a str,
+    model: Option<&'a str>,
+    permission_mode: Option<&'a PermissionMode>,
+    effort: Option<&'a Effort>,
+    system_prompt: Option<&'a str>,
+}
+
+async fn create(args: CreateSessionArgs<'_>) -> i32 {
+    let CreateSessionArgs {
+        config,
+        output,
+        provider_filter,
+        cwd,
+        model,
+        permission_mode,
+        effort,
+        system_prompt,
+    } = args;
+
     let Some(mut ws) = ws_connect(config, output).await else {
         return EXIT_CONNECTION_ERROR;
     };
@@ -383,7 +395,6 @@ async fn create(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn send_message(
     config: &ClientConfig,
     output: &Output,
