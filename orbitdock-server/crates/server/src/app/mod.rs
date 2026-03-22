@@ -289,98 +289,100 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     });
 
                 let mut handle = crate::domain::sessions::session::SessionHandle::restore(
-                    id.clone(),
-                    provider,
-                    project_path.clone(),
-                    transcript_path,
-                    project_name,
-                    model.clone(),
-                    custom_name,
-                    summary,
-                    match status.as_str() {
-                        "ended" => SessionStatus::Ended,
-                        _ => SessionStatus::Active,
-                    },
-                    match work_status.as_str() {
-                        "working" => WorkStatus::Working,
-                        "permission" => WorkStatus::Permission,
-                        "question" => WorkStatus::Question,
-                        "reply" => WorkStatus::Reply,
-                        "ended" => WorkStatus::Ended,
-                        _ => WorkStatus::Waiting,
-                    },
-                    approval_policy.clone(),
-                    approval_policy_details,
-                    sandbox_mode.clone(),
-                    permission_mode,
-                    collaboration_mode,
-                    multi_agent,
-                    personality,
-                    service_tier,
-                    developer_instructions,
-                    codex_config_mode,
-                    codex_config_profile,
-                    codex_model_provider,
-                    codex_config_source,
-                    codex_config_overrides,
-                    TokenUsage {
-                        input_tokens: input_tokens.max(0) as u64,
-                        output_tokens: output_tokens.max(0) as u64,
-                        cached_tokens: cached_tokens.max(0) as u64,
-                        context_window: context_window.max(0) as u64,
-                    },
-                    token_usage_snapshot_kind,
-                    started_at,
-                    last_activity_at,
-                    rows,
-                    current_diff,
-                    current_plan,
-                    restored_turn_diffs
-                        .into_iter()
-                        .map(
-                            |(
-                                turn_id,
-                                diff,
-                                input_tokens,
-                                output_tokens,
-                                cached_tokens,
-                                context_window,
-                                snapshot_kind,
-                            )| {
-                                let has_tokens =
-                                    input_tokens > 0 || output_tokens > 0 || context_window > 0;
-                                TurnDiff {
+                    crate::domain::sessions::session::SessionRestoreData {
+                        id: id.clone(),
+                        provider,
+                        project_path: project_path.clone(),
+                        transcript_path,
+                        project_name,
+                        model: model.clone(),
+                        custom_name,
+                        summary,
+                        status: match status.as_str() {
+                            "ended" => SessionStatus::Ended,
+                            _ => SessionStatus::Active,
+                        },
+                        work_status: match work_status.as_str() {
+                            "working" => WorkStatus::Working,
+                            "permission" => WorkStatus::Permission,
+                            "question" => WorkStatus::Question,
+                            "reply" => WorkStatus::Reply,
+                            "ended" => WorkStatus::Ended,
+                            _ => WorkStatus::Waiting,
+                        },
+                        approval_policy: approval_policy.clone(),
+                        approval_policy_details,
+                        sandbox_mode: sandbox_mode.clone(),
+                        permission_mode,
+                        collaboration_mode,
+                        multi_agent,
+                        personality,
+                        service_tier,
+                        developer_instructions,
+                        codex_config_mode,
+                        codex_config_profile,
+                        codex_model_provider,
+                        codex_config_source,
+                        codex_config_overrides,
+                        token_usage: TokenUsage {
+                            input_tokens: input_tokens.max(0) as u64,
+                            output_tokens: output_tokens.max(0) as u64,
+                            cached_tokens: cached_tokens.max(0) as u64,
+                            context_window: context_window.max(0) as u64,
+                        },
+                        token_usage_snapshot_kind,
+                        started_at,
+                        last_activity_at,
+                        rows,
+                        current_diff,
+                        current_plan,
+                        turn_diffs: restored_turn_diffs
+                            .into_iter()
+                            .map(
+                                |(
                                     turn_id,
                                     diff,
-                                    token_usage: if has_tokens {
-                                        Some(TokenUsage {
-                                            input_tokens: input_tokens as u64,
-                                            output_tokens: output_tokens as u64,
-                                            cached_tokens: cached_tokens as u64,
-                                            context_window: context_window as u64,
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                    snapshot_kind: Some(snapshot_kind),
-                                }
-                            },
-                        )
-                        .collect(),
-                    git_branch,
-                    git_sha,
-                    current_cwd,
-                    first_prompt,
-                    last_message,
-                    pending_tool_name,
-                    pending_tool_input,
-                    pending_question,
-                    pending_approval_id,
-                    effort,
-                    terminal_session_id,
-                    terminal_app,
-                    approval_version,
-                    unread_count,
+                                    input_tokens,
+                                    output_tokens,
+                                    cached_tokens,
+                                    context_window,
+                                    snapshot_kind,
+                                )| {
+                                    let has_tokens =
+                                        input_tokens > 0 || output_tokens > 0 || context_window > 0;
+                                    TurnDiff {
+                                        turn_id,
+                                        diff,
+                                        token_usage: if has_tokens {
+                                            Some(TokenUsage {
+                                                input_tokens: input_tokens as u64,
+                                                output_tokens: output_tokens as u64,
+                                                cached_tokens: cached_tokens as u64,
+                                                context_window: context_window as u64,
+                                            })
+                                        } else {
+                                            None
+                                        },
+                                        snapshot_kind: Some(snapshot_kind),
+                                    }
+                                },
+                            )
+                            .collect(),
+                        git_branch,
+                        git_sha,
+                        current_cwd,
+                        first_prompt,
+                        last_message,
+                        pending_tool_name,
+                        pending_tool_input,
+                        pending_question,
+                        pending_approval_id,
+                        effort,
+                        terminal_session_id,
+                        terminal_app,
+                        approval_version,
+                        unread_count,
+                    },
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);

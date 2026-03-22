@@ -8,6 +8,7 @@ use crate::runtime::session_mutations::SessionConfigUpdate;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::handlers::session_forks::{
     handle_fork_session, handle_fork_to_existing_worktree, handle_fork_to_worktree,
+    ForkSessionRequest,
 };
 use crate::transport::websocket::handlers::session_management::{
     handle_create_session, handle_end_session, handle_rename_session, handle_update_session_config,
@@ -177,15 +178,17 @@ pub(crate) async fn handle(
             ..
         } => {
             handle_fork_session(
-                source_session_id,
-                nth_user_message,
-                model,
-                approval_policy,
-                sandbox_mode,
-                cwd,
-                permission_mode,
-                allowed_tools,
-                disallowed_tools,
+                ForkSessionRequest {
+                    source_session_id,
+                    nth_user_message,
+                    model,
+                    approval_policy,
+                    sandbox_mode,
+                    cwd,
+                    permission_mode,
+                    allowed_tools,
+                    disallowed_tools,
+                },
                 client_tx,
                 state,
                 conn_id,

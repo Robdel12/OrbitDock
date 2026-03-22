@@ -4,7 +4,7 @@ use orbitdock_protocol::{
     SessionSummary, TokenUsage, TurnDiff, WorkStatus,
 };
 
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{SessionHandle, SessionRestoreData};
 use crate::infrastructure::persistence::{
     load_messages_from_transcript_path, load_session_by_id, RestoredSession,
 };
@@ -224,44 +224,44 @@ pub(crate) fn restored_session_to_handle(
                 .and_then(CodexApprovalPolicy::from_storage_text)
         });
 
-    let mut handle = SessionHandle::restore(
-        restored.id,
+    let mut handle = SessionHandle::restore(SessionRestoreData {
+        id: restored.id,
         provider,
-        restored.project_path,
-        restored.transcript_path,
-        restored.project_name,
-        restored.model,
-        restored.custom_name,
-        restored.summary,
+        project_path: restored.project_path,
+        transcript_path: restored.transcript_path,
+        project_name: restored.project_name,
+        model: restored.model,
+        custom_name: restored.custom_name,
+        summary: restored.summary,
         status,
         work_status,
-        restored.approval_policy,
+        approval_policy: restored.approval_policy,
         approval_policy_details,
-        restored.sandbox_mode,
-        restored.permission_mode,
-        restored.collaboration_mode,
-        restored.multi_agent,
-        restored.personality,
-        restored.service_tier,
-        restored.developer_instructions,
-        restored.codex_config_mode,
-        restored.codex_config_profile,
-        restored.codex_model_provider,
-        restored.codex_config_source,
-        restored.codex_config_overrides,
-        TokenUsage {
+        sandbox_mode: restored.sandbox_mode,
+        permission_mode: restored.permission_mode,
+        collaboration_mode: restored.collaboration_mode,
+        multi_agent: restored.multi_agent,
+        personality: restored.personality,
+        service_tier: restored.service_tier,
+        developer_instructions: restored.developer_instructions,
+        codex_config_mode: restored.codex_config_mode,
+        codex_config_profile: restored.codex_config_profile,
+        codex_model_provider: restored.codex_model_provider,
+        codex_config_source: restored.codex_config_source,
+        codex_config_overrides: restored.codex_config_overrides,
+        token_usage: TokenUsage {
             input_tokens: restored.input_tokens.max(0) as u64,
             output_tokens: restored.output_tokens.max(0) as u64,
             cached_tokens: restored.cached_tokens.max(0) as u64,
             context_window: restored.context_window.max(0) as u64,
         },
-        restored.token_usage_snapshot_kind,
-        restored.started_at,
-        restored.last_activity_at,
-        restored.rows,
-        restored.current_diff,
-        restored.current_plan,
-        restored
+        token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
+        started_at: restored.started_at,
+        last_activity_at: restored.last_activity_at,
+        rows: restored.rows,
+        current_diff: restored.current_diff,
+        current_plan: restored.current_plan,
+        turn_diffs: restored
             .turn_diffs
             .into_iter()
             .map(
@@ -293,21 +293,21 @@ pub(crate) fn restored_session_to_handle(
                 },
             )
             .collect(),
-        restored.git_branch,
-        restored.git_sha,
-        restored.current_cwd,
-        restored.first_prompt,
-        restored.last_message,
-        restored.pending_tool_name,
-        restored.pending_tool_input,
-        restored.pending_question,
-        restored.pending_approval_id,
-        restored.effort,
-        restored.terminal_session_id,
-        restored.terminal_app,
-        restored.approval_version,
-        restored.unread_count,
-    );
+        git_branch: restored.git_branch,
+        git_sha: restored.git_sha,
+        current_cwd: restored.current_cwd,
+        first_prompt: restored.first_prompt,
+        last_message: restored.last_message,
+        pending_tool_name: restored.pending_tool_name,
+        pending_tool_input: restored.pending_tool_input,
+        pending_question: restored.pending_question,
+        pending_approval_id: restored.pending_approval_id,
+        effort: restored.effort,
+        terminal_session_id: restored.terminal_session_id,
+        terminal_app: restored.terminal_app,
+        approval_version: restored.approval_version,
+        unread_count: restored.unread_count,
+    });
     handle.set_mission_context(mission_id, issue_identifier);
     if allow_bypass {
         handle.set_allow_bypass_permissions(true);

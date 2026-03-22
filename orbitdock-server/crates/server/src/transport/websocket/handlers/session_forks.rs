@@ -82,15 +82,17 @@ pub(crate) async fn handle_fork_to_worktree(
     });
 
     handle_fork_session(
-        source_session_id,
-        nth_user_message,
-        None,
-        None,
-        None,
-        Some(fork_worktree_path),
-        None,
-        Vec::new(),
-        Vec::new(),
+        ForkSessionRequest {
+            source_session_id,
+            nth_user_message,
+            model: None,
+            approval_policy: None,
+            sandbox_mode: None,
+            cwd: Some(fork_worktree_path),
+            permission_mode: None,
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
+        },
         client_tx,
         state,
         conn_id,
@@ -134,15 +136,17 @@ pub(crate) async fn handle_fork_to_existing_worktree(
         };
 
     handle_fork_session(
-        source_session_id,
-        nth_user_message,
-        None,
-        None,
-        None,
-        Some(target_worktree_path),
-        None,
-        Vec::new(),
-        Vec::new(),
+        ForkSessionRequest {
+            source_session_id,
+            nth_user_message,
+            model: None,
+            approval_policy: None,
+            sandbox_mode: None,
+            cwd: Some(target_worktree_path),
+            permission_mode: None,
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
+        },
         client_tx,
         state,
         conn_id,
@@ -150,21 +154,35 @@ pub(crate) async fn handle_fork_to_existing_worktree(
     .await;
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(crate) struct ForkSessionRequest {
+    pub source_session_id: String,
+    pub nth_user_message: Option<u32>,
+    pub model: Option<String>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub cwd: Option<String>,
+    pub permission_mode: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+}
+
 pub(crate) async fn handle_fork_session(
-    source_session_id: String,
-    nth_user_message: Option<u32>,
-    model: Option<String>,
-    approval_policy: Option<String>,
-    sandbox_mode: Option<String>,
-    cwd: Option<String>,
-    permission_mode: Option<String>,
-    allowed_tools: Vec<String>,
-    disallowed_tools: Vec<String>,
+    req: ForkSessionRequest,
     client_tx: &mpsc::Sender<OutboundMessage>,
     state: &Arc<SessionRegistry>,
     conn_id: u64,
 ) {
+    let ForkSessionRequest {
+        source_session_id,
+        nth_user_message,
+        model,
+        approval_policy,
+        sandbox_mode,
+        cwd,
+        permission_mode,
+        allowed_tools,
+        disallowed_tools,
+    } = req;
     info!(
         component = "session",
         event = "session.fork.requested",
