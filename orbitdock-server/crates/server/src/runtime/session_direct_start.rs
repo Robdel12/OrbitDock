@@ -70,24 +70,26 @@ pub(crate) async fn start_direct_codex_session(
         .collect();
 
     let mut connector_task = tokio::spawn(async move {
-        CodexSession::new_with_config_overrides_control_plane_and_tools(
+        CodexSession::new_with_config(
             task_session_id,
-            &cwd,
-            model.as_deref(),
-            approval_policy.as_deref(),
-            sandbox_mode.as_deref(),
-            CodexConfigOverrides {
-                model_provider,
-                config_profile,
+            orbitdock_connector_codex::session::CodexSessionConfig {
+                cwd: &cwd,
+                model: model.as_deref(),
+                approval_policy: approval_policy.as_deref(),
+                sandbox_mode: sandbox_mode.as_deref(),
+                config_overrides: CodexConfigOverrides {
+                    model_provider,
+                    config_profile,
+                },
+                control_plane: CodexControlPlane {
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                },
+                dynamic_tools_json,
             },
-            CodexControlPlane {
-                collaboration_mode,
-                multi_agent,
-                personality,
-                service_tier,
-                developer_instructions,
-            },
-            dynamic_tools_json,
         )
         .await
     });

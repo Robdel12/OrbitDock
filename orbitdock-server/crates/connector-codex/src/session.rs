@@ -16,6 +16,18 @@ use tokio::sync::oneshot;
 
 use crate::{CodexConfigOverrides, CodexConnector, CodexControlPlane, UpdateConfigOptions};
 
+/// Groups the parameters common to all Codex session constructors.
+#[derive(Debug, Clone)]
+pub struct CodexSessionConfig<'a> {
+    pub cwd: &'a str,
+    pub model: Option<&'a str>,
+    pub approval_policy: Option<&'a str>,
+    pub sandbox_mode: Option<&'a str>,
+    pub config_overrides: CodexConfigOverrides,
+    pub control_plane: CodexControlPlane,
+    pub dynamic_tools_json: Vec<serde_json::Value>,
+}
+
 #[derive(Debug)]
 pub enum CodexExecApproval {
     Approved,
@@ -326,14 +338,17 @@ impl CodexSession {
         sandbox_mode: Option<&str>,
         config_overrides: CodexConfigOverrides,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_config_overrides_and_control_plane(
+        Self::new_with_config(
             session_id,
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            config_overrides,
-            CodexControlPlane::default(),
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides,
+                control_plane: CodexControlPlane::default(),
+                dynamic_tools_json: Vec::new(),
+            },
         )
         .await
     }
@@ -347,14 +362,17 @@ impl CodexSession {
         sandbox_mode: Option<&str>,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_config_overrides_and_control_plane(
+        Self::new_with_config(
             session_id,
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            CodexConfigOverrides::default(),
-            control_plane,
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides: CodexConfigOverrides::default(),
+                control_plane,
+                dynamic_tools_json: Vec::new(),
+            },
         )
         .await
     }
@@ -369,15 +387,17 @@ impl CodexSession {
         config_overrides: CodexConfigOverrides,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_config_overrides_control_plane_and_tools(
+        Self::new_with_config(
             session_id,
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            config_overrides,
-            control_plane,
-            Vec::new(),
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides,
+                control_plane,
+                dynamic_tools_json: Vec::new(),
+            },
         )
         .await
     }
@@ -395,47 +415,39 @@ impl CodexSession {
         control_plane: CodexControlPlane,
         dynamic_tools_json: Vec<serde_json::Value>,
     ) -> Result<Self, ConnectorError> {
-        Self::new_with_config_overrides_control_plane_and_tools(
+        Self::new_with_config(
             session_id,
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            CodexConfigOverrides::default(),
-            control_plane,
-            dynamic_tools_json,
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides: CodexConfigOverrides::default(),
+                control_plane,
+                dynamic_tools_json,
+            },
         )
         .await
     }
 
-    /// Create a new Codex session with explicit config overrides, control-plane
-    /// settings, and dynamic tools.
-    ///
-    /// Accepts `Vec<serde_json::Value>` for cross-crate flexibility — converts to
-    /// `DynamicToolSpec` internally.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new_with_config_overrides_control_plane_and_tools(
+    /// Create a new Codex session from a session config.
+    pub async fn new_with_config(
         session_id: String,
-        cwd: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        config_overrides: CodexConfigOverrides,
-        control_plane: CodexControlPlane,
-        dynamic_tools_json: Vec<serde_json::Value>,
+        config: CodexSessionConfig<'_>,
     ) -> Result<Self, ConnectorError> {
-        let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> = dynamic_tools_json
+        let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> = config
+            .dynamic_tools_json
             .into_iter()
             .filter_map(|v| serde_json::from_value(v).ok())
             .collect();
 
         let connector = CodexConnector::new_with_config_overrides_control_plane_and_tools(
-            cwd,
-            model,
-            approval_policy,
-            sandbox_mode,
-            &config_overrides,
-            control_plane,
+            config.cwd,
+            config.model,
+            config.approval_policy,
+            config.sandbox_mode,
+            &config.config_overrides,
+            config.control_plane,
             dynamic_tools,
         )
         .await?;
@@ -474,15 +486,18 @@ impl CodexSession {
         sandbox_mode: Option<&str>,
         config_overrides: CodexConfigOverrides,
     ) -> Result<Self, ConnectorError> {
-        Self::resume_with_config_overrides_and_control_plane(
+        Self::resume_with_config(
             session_id,
-            cwd,
             thread_id,
-            model,
-            approval_policy,
-            sandbox_mode,
-            config_overrides,
-            CodexControlPlane::default(),
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides,
+                control_plane: CodexControlPlane::default(),
+                dynamic_tools_json: Vec::new(),
+            },
         )
         .await
     }
@@ -497,39 +512,36 @@ impl CodexSession {
         sandbox_mode: Option<&str>,
         control_plane: CodexControlPlane,
     ) -> Result<Self, ConnectorError> {
-        Self::resume_with_config_overrides_and_control_plane(
+        Self::resume_with_config(
             session_id,
-            cwd,
             thread_id,
-            model,
-            approval_policy,
-            sandbox_mode,
-            CodexConfigOverrides::default(),
-            control_plane,
+            CodexSessionConfig {
+                cwd,
+                model,
+                approval_policy,
+                sandbox_mode,
+                config_overrides: CodexConfigOverrides::default(),
+                control_plane,
+                dynamic_tools_json: Vec::new(),
+            },
         )
         .await
     }
 
-    /// Resume an existing Codex session with explicit config overrides and control-plane settings.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn resume_with_config_overrides_and_control_plane(
+    /// Resume an existing Codex session from a session config.
+    pub async fn resume_with_config(
         session_id: String,
-        cwd: &str,
         thread_id: &str,
-        model: Option<&str>,
-        approval_policy: Option<&str>,
-        sandbox_mode: Option<&str>,
-        config_overrides: CodexConfigOverrides,
-        control_plane: CodexControlPlane,
+        config: CodexSessionConfig<'_>,
     ) -> Result<Self, ConnectorError> {
         let connector = CodexConnector::resume_with_config_overrides_and_control_plane(
-            cwd,
+            config.cwd,
             thread_id,
-            model,
-            approval_policy,
-            sandbox_mode,
-            &config_overrides,
-            control_plane,
+            config.model,
+            config.approval_policy,
+            config.sandbox_mode,
+            &config.config_overrides,
+            config.control_plane,
         )
         .await?;
 

@@ -22,15 +22,13 @@ pub use codex_arg0::arg0_dispatch;
 use codex_core::{CodexThread, ThreadManager};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{Event, EventMsg};
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::debug;
 
 pub use self::config::discover_models;
-use self::runtime::{EnvironmentTracker, ReasoningEventTracker, StreamingMessage};
+use self::runtime::EventLoopState;
 use orbitdock_connector_core::ConnectorEvent;
 
 /// Outcome of a steer_turn attempt
@@ -82,19 +80,19 @@ pub struct UpdateConfigOptions<'a> {
 
 impl CodexConnector {
     /// Translate a codex-core Event to ConnectorEvent(s)
-    #[allow(clippy::too_many_arguments)]
-    async fn translate_event(
-        event: Event,
-        output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-        delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-        streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-        msg_counter: &AtomicU64,
-        env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
-        reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-        current_model: &Arc<tokio::sync::Mutex<Option<String>>>,
-        current_reasoning_effort: &Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
-        patch_contexts: &Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
-    ) -> Vec<ConnectorEvent> {
+    async fn translate_event(event: Event, state: &EventLoopState) -> Vec<ConnectorEvent> {
+        let EventLoopState {
+            output_buffers,
+            delta_buffers,
+            streaming_message,
+            msg_counter,
+            env_tracker,
+            reasoning_tracker,
+            current_model,
+            current_reasoning_effort,
+            patch_contexts,
+        } = state;
+
         #[allow(unreachable_patterns)]
         match event.msg {
             EventMsg::UserMessage(e) => {

@@ -337,55 +337,41 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
             let effective_sandbox = effective
                 .and_then(|value| value.sandbox_mode.clone())
                 .or(sandbox_mode);
-            if let Some(thread_id) = codex_thread_id.as_deref() {
-                match CodexSession::resume_with_config_overrides_and_control_plane(
-                    task_session_id.clone(),
-                    &project_path,
-                    thread_id,
-                    effective_model.as_deref(),
-                    effective_approval.as_deref(),
-                    effective_sandbox.as_deref(),
-                    orbitdock_connector_codex::CodexConfigOverrides {
+            let build_session_config = |cp: orbitdock_connector_codex::CodexControlPlane| {
+                orbitdock_connector_codex::session::CodexSessionConfig {
+                    cwd: &project_path,
+                    model: effective_model.as_deref(),
+                    approval_policy: effective_approval.as_deref(),
+                    sandbox_mode: effective_sandbox.as_deref(),
+                    config_overrides: orbitdock_connector_codex::CodexConfigOverrides {
                         model_provider: effective.and_then(|value| value.model_provider.clone()),
                         config_profile: effective.and_then(|value| value.config_profile.clone()),
                     },
-                    control_plane.clone(),
+                    control_plane: cp,
+                    dynamic_tools_json: Vec::new(),
+                }
+            };
+
+            if let Some(thread_id) = codex_thread_id.as_deref() {
+                match CodexSession::resume_with_config(
+                    task_session_id.clone(),
+                    thread_id,
+                    build_session_config(control_plane.clone()),
                 )
                 .await
                 {
                     Ok(session) => Ok(session),
                     Err(_) => {
-                        CodexSession::new_with_config_overrides_and_control_plane(
+                        CodexSession::new_with_config(
                             task_session_id,
-                            &project_path,
-                            effective_model.as_deref(),
-                            effective_approval.as_deref(),
-                            effective_sandbox.as_deref(),
-                            orbitdock_connector_codex::CodexConfigOverrides {
-                                model_provider: effective
-                                    .and_then(|value| value.model_provider.clone()),
-                                config_profile: effective
-                                    .and_then(|value| value.config_profile.clone()),
-                            },
-                            control_plane,
+                            build_session_config(control_plane),
                         )
                         .await
                     }
                 }
             } else {
-                CodexSession::new_with_config_overrides_and_control_plane(
-                    task_session_id,
-                    &project_path,
-                    effective_model.as_deref(),
-                    effective_approval.as_deref(),
-                    effective_sandbox.as_deref(),
-                    orbitdock_connector_codex::CodexConfigOverrides {
-                        model_provider: effective.and_then(|value| value.model_provider.clone()),
-                        config_profile: effective.and_then(|value| value.config_profile.clone()),
-                    },
-                    control_plane,
-                )
-                .await
+                CodexSession::new_with_config(task_session_id, build_session_config(control_plane))
+                    .await
             }
         });
 

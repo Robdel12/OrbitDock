@@ -13,6 +13,19 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
+/// Groups the shared Arc<Mutex> state threaded through the event loop.
+pub(super) struct EventLoopState {
+    pub(super) output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+    pub(super) delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+    pub(super) streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
+    pub(super) msg_counter: Arc<AtomicU64>,
+    pub(super) env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
+    pub(super) reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
+    pub(super) current_model: Arc<tokio::sync::Mutex<Option<String>>>,
+    pub(super) current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
+    pub(super) patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
+}
+
 /// Tracks an in-progress assistant message being streamed via deltas
 pub(super) struct StreamingMessage {
     pub(super) message_id: String,
@@ -120,49 +133,33 @@ impl CodexConnector {
         info!("Started codex thread: {:?}", thread_id);
 
         let (event_tx, event_rx) = mpsc::channel(256);
-        let output_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
-        let delta_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
-        let streaming_message = Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None));
-        let msg_counter = Arc::new(AtomicU64::new(0));
-        let env_tracker = Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
-            cwd: None,
-            branch: None,
-            sha: None,
-        }));
-        let reasoning_tracker = Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default()));
+
         let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
         let current_reasoning_effort =
             Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
-        let patch_contexts = Arc::new(tokio::sync::Mutex::new(
-            HashMap::<String, serde_json::Value>::new(),
-        ));
 
-        let tx = event_tx.clone();
+        let state = EventLoopState {
+            output_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
+            delta_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
+            streaming_message: Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None)),
+            msg_counter: Arc::new(AtomicU64::new(0)),
+            env_tracker: Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
+                cwd: None,
+                branch: None,
+                sha: None,
+            })),
+            reasoning_tracker: Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default())),
+            current_model: current_model.clone(),
+            current_reasoning_effort: current_reasoning_effort.clone(),
+            patch_contexts: Arc::new(tokio::sync::Mutex::new(
+                HashMap::<String, serde_json::Value>::new(),
+            )),
+        };
+
         let thread_for_loop = thread.clone();
-        let buffers = output_buffers.clone();
-        let deltas = delta_buffers.clone();
-        let streaming = streaming_message.clone();
-        let counter = msg_counter.clone();
-        let tracker = env_tracker.clone();
-        let reasoning = reasoning_tracker.clone();
-        let model = current_model.clone();
-        let effort = current_reasoning_effort.clone();
-        let patches = patch_contexts.clone();
+        let tx = event_tx.clone();
         tokio::spawn(async move {
-            Self::event_loop(
-                thread_for_loop,
-                tx,
-                buffers,
-                deltas,
-                streaming,
-                counter,
-                tracker,
-                reasoning,
-                model,
-                effort,
-                patches,
-            )
-            .await;
+            Self::event_loop(thread_for_loop, tx, state).await;
         });
 
         Ok(Self {
@@ -177,36 +174,15 @@ impl CodexConnector {
     }
 
     /// Async event loop — pulls events from CodexThread and translates them
-    #[allow(clippy::too_many_arguments)]
     async fn event_loop(
         thread: Arc<CodexThread>,
         tx: mpsc::Sender<ConnectorEvent>,
-        output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-        delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-        streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-        msg_counter: Arc<AtomicU64>,
-        env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
-        reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-        current_model: Arc<tokio::sync::Mutex<Option<String>>>,
-        current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
-        patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
+        state: EventLoopState,
     ) {
         loop {
             match thread.next_event().await {
                 Ok(event) => {
-                    let events = Box::pin(Self::translate_event(
-                        event,
-                        &output_buffers,
-                        &delta_buffers,
-                        &streaming_message,
-                        &msg_counter,
-                        &env_tracker,
-                        &reasoning_tracker,
-                        &current_model,
-                        &current_reasoning_effort,
-                        &patch_contexts,
-                    ))
-                    .await;
+                    let events = Box::pin(Self::translate_event(event, &state)).await;
                     for event in events {
                         if tx.send(event).await.is_err() {
                             debug!("Event channel closed, stopping event loop");
