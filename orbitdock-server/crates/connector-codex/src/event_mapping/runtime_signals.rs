@@ -203,8 +203,10 @@ pub(crate) fn handle_realtime_conversation_realtime(
 ) -> Vec<ConnectorEvent> {
     match event.payload {
         codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
+        | codex_protocol::protocol::RealtimeEvent::InputAudioSpeechStarted(_)
         | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
         | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
+        | codex_protocol::protocol::RealtimeEvent::ResponseCancelled(_)
         | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. } => vec![],
         codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
             let Some(content) = realtime_text_from_handoff_request(&handoff) else {

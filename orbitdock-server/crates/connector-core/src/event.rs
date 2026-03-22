@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use orbitdock_protocol::{
     ApprovalType, ClaudeModelOption, McpAuthStatus, McpResource, McpResourceTemplate,
-    McpStartupFailure, McpStartupStatus, McpTool, RemoteSkillSummary, SkillErrorInfo,
-    SkillsListEntry, SubagentInfo, TokenUsage, TokenUsageSnapshotKind,
+    McpStartupFailure, McpStartupStatus, McpTool, SkillErrorInfo, SkillsListEntry, SubagentInfo,
+    TokenUsage, TokenUsageSnapshotKind,
 };
 
 /// Events emitted by connectors
@@ -86,16 +86,6 @@ pub enum ConnectorEvent {
     SkillsList {
         skills: Vec<SkillsListEntry>,
         errors: Vec<SkillErrorInfo>,
-    },
-
-    /// Remote skills list response
-    RemoteSkillsList { skills: Vec<RemoteSkillSummary> },
-
-    /// Remote skill downloaded
-    RemoteSkillDownloaded {
-        id: String,
-        name: String,
-        path: String,
     },
 
     /// Skills update available notification

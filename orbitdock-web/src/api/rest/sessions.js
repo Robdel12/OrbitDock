@@ -54,8 +54,9 @@ const createSessionsApi = (http) => ({
 
   // Skills
   getSkills: (id, params) => http.get(`/api/sessions/${id}/skills`, params),
-  getRemoteSkills: (id) => http.get(`/api/sessions/${id}/skills/remote`),
-  downloadSkill: (id, body) => http.post(`/api/sessions/${id}/skills/download`, body),
+  getPlugins: (id, params) => http.get(`/api/sessions/${id}/plugins`, params),
+  installPlugin: (id, body) => http.post(`/api/sessions/${id}/plugins/install`, body),
+  uninstallPlugin: (id, body) => http.post(`/api/sessions/${id}/plugins/uninstall`, body),
 
   // MCP
   getMcpTools: (id) => http.get(`/api/sessions/${id}/mcp/tools`),

@@ -288,7 +288,7 @@ impl CodexConnector {
 
         let configured_model = config.model.clone();
         let new_thread = thread_manager
-            .resume_thread_from_rollout(config, rollout_path, auth_manager)
+            .resume_thread_from_rollout(config, rollout_path, auth_manager, None)
             .await
             .map_err(|e| {
                 ConnectorError::ProviderError(format!("Failed to resume thread: {}", e))
@@ -447,6 +447,7 @@ impl CodexConnector {
                 model: None,
                 effort: None,
                 summary: None,
+                approvals_reviewer: None,
                 service_tier,
                 collaboration_mode,
                 personality,

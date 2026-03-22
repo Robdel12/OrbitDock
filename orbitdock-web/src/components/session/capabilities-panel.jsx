@@ -5,7 +5,7 @@ import { McpPanel } from './mcp-panel.jsx'
 import styles from './capabilities-panel.module.css'
 
 const TABS = [
-  { id: 'skills', label: 'Skills' },
+  { id: 'skills', label: 'Plugins' },
   { id: 'mcp', label: 'MCP' },
 ]
 

@@ -210,8 +210,6 @@ Which `ConnectorEvent` variants the Claude connector actually emits.
 | `ThreadNameUpdated` | ❌ | Not applicable — AI naming handled server-side via hooks |
 | `SessionEnded` | ✅ | stdout EOF, CLI exit, or read error |
 | `SkillsList` | ❌ | Not emitted — skills listed via `init` system message only |
-| `RemoteSkillsList` | ❌ | Not applicable — Codex-only |
-| `RemoteSkillDownloaded` | ❌ | Not applicable — Codex-only |
 | `SkillsUpdateAvailable` | ❌ | Not applicable — Codex-only |
 | `McpToolsList` | ✅ | Emitted from event loop after mcp_status response parsing |
 | `McpStartupUpdate` | ✅ | Parsed from init `mcp_servers[]` field — emits per-server status (ready/failed/needs-auth/connecting) |

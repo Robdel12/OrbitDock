@@ -106,18 +106,6 @@ extension ServerToClientMessage {
         try container.encode(skills, forKey: .skills)
         try container.encode(errors, forKey: .errors)
 
-      case let .remoteSkillsList(sessionId, skills):
-        try container.encode("remote_skills_list", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(skills, forKey: .skills)
-
-      case let .remoteSkillDownloaded(sessionId, skillId, name, path):
-        try container.encode("remote_skill_downloaded", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(skillId, forKey: .id)
-        try container.encode(name, forKey: .name)
-        try container.encode(path, forKey: .path)
-
       case let .skillsUpdateAvailable(sessionId):
         try container.encode("skills_update_available", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)

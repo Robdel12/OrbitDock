@@ -54,14 +54,6 @@ pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> 
             "GET /api/sessions/{session_id}/skills",
             Some(session_id.clone()),
         )),
-        ClientMessage::ListRemoteSkills { session_id } => Some(route(
-            "GET /api/sessions/{session_id}/skills/remote",
-            Some(session_id.clone()),
-        )),
-        ClientMessage::DownloadRemoteSkill { session_id, .. } => Some(route(
-            "POST /api/sessions/{session_id}/skills/download",
-            Some(session_id.clone()),
-        )),
         ClientMessage::ListMcpTools { session_id } => Some(route(
             "GET /api/sessions/{session_id}/mcp/tools",
             Some(session_id.clone()),

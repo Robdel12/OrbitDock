@@ -1,14 +1,23 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 
+use codex_app_server_protocol::{
+    MarketplaceInterface, PluginAuthPolicy, PluginInstallParams, PluginInstallPolicy,
+    PluginInstallResponse, PluginInterface, PluginListResponse, PluginMarketplaceEntry,
+    PluginSource, PluginSummary, PluginUninstallParams, PluginUninstallResponse,
+};
+use codex_core::auth::{AuthCredentialsStoreMode, AuthManager};
 use codex_core::SteerInputError;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
-    AskForApproval, McpServerRefreshConfig, Op, ReviewDecision, SandboxPolicy,
+    AskForApproval, GranularApprovalConfig, McpServerRefreshConfig, Op, ReviewDecision,
+    SandboxPolicy,
 };
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use tracing::{info, warn};
 
 use super::config::{
@@ -20,6 +29,8 @@ use super::{
 };
 use crate::session::{CodexExecApproval, CodexPatchApproval};
 use orbitdock_connector_core::ConnectorError;
+
+const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 
 fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
     Some(match value {
@@ -34,6 +45,32 @@ fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
 }
 
 impl CodexConnector {
+    async fn build_plugin_config(
+        &self,
+        cwd: &str,
+        config_overrides: &CodexConfigOverrides,
+        control_plane: &CodexControlPlane,
+    ) -> Result<codex_core::config::Config, ConnectorError> {
+        let mut config =
+            Self::build_config(cwd, None, None, None, config_overrides, control_plane).await?;
+        Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
+        Ok(config)
+    }
+
+    async fn plugin_auth(&self) -> Option<codex_core::auth::CodexAuth> {
+        let auth_manager = AuthManager::new(
+            self.codex_home.clone(),
+            true,
+            ORBITDOCK_CODEX_AUTH_STORE_MODE,
+        );
+        auth_manager.auth().await
+    }
+
+    fn clear_plugin_related_caches(&self) {
+        self.thread_manager.plugins_manager().clear_cache();
+        self.thread_manager.skills_manager().clear_cache();
+    }
+
     pub async fn fork_thread(
         &self,
         nth_user_message: Option<u32>,
@@ -71,7 +108,7 @@ impl CodexConnector {
 
         let new_thread = self
             .thread_manager
-            .fork_thread(nth, config, rollout_path, false)
+            .fork_thread(nth, config, rollout_path, false, None)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to fork thread: {}", e)))?;
 
@@ -122,6 +159,7 @@ impl CodexConnector {
                 model: model.map(|m| m.to_string()),
                 effort: effort_value.map(Some),
                 summary,
+                approvals_reviewer: None,
                 service_tier: None,
                 collaboration_mode: None,
                 personality: None,
@@ -271,29 +309,148 @@ impl CodexConnector {
         Ok(())
     }
 
-    pub async fn list_remote_skills(&self) -> Result<(), ConnectorError> {
-        use codex_protocol::protocol::{RemoteSkillHazelnutScope, RemoteSkillProductSurface};
-        let op = Op::ListRemoteSkills {
-            hazelnut_scope: RemoteSkillHazelnutScope::AllShared,
-            product_surface: RemoteSkillProductSurface::Codex,
-            enabled: None,
-        };
-        self.thread.submit(op).await.map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to list remote skills: {}", e))
+    pub async fn list_plugins(
+        &self,
+        cwd: &str,
+        cwds: Vec<String>,
+        force_remote_sync: bool,
+        config_overrides: &CodexConfigOverrides,
+        control_plane: &CodexControlPlane,
+    ) -> Result<PluginListResponse, ConnectorError> {
+        let plugins_manager = self.thread_manager.plugins_manager();
+        let session_source = self.thread_manager.session_source();
+        let mut config = self
+            .build_plugin_config(cwd, config_overrides, control_plane)
+            .await?;
+        let mut remote_sync_error = None;
+
+        if force_remote_sync {
+            let auth = self.plugin_auth().await;
+            if let Err(err) = plugins_manager
+                .sync_plugins_from_remote(&config, auth.as_ref())
+                .await
+            {
+                remote_sync_error = Some(err.to_string());
+            }
+            config = self
+                .build_plugin_config(cwd, config_overrides, control_plane)
+                .await?;
+        }
+
+        let roots: Vec<_> = cwds
+            .into_iter()
+            .map(|value| normalize_absolute_path(cwd, &value))
+            .collect::<Result<_, _>>()?;
+
+        let marketplaces = tokio::task::spawn_blocking(move || {
+            let marketplaces = plugins_manager.list_marketplaces_for_config(&config, &roots)?;
+            Ok::<Vec<PluginMarketplaceEntry>, codex_core::plugins::MarketplaceError>(
+                marketplaces
+                    .into_iter()
+                    .filter_map(|marketplace| {
+                        let plugins = marketplace
+                            .plugins
+                            .into_iter()
+                            .filter(|plugin| {
+                                session_source.matches_product_restriction(&plugin.policy.products)
+                            })
+                            .map(map_plugin_summary)
+                            .collect::<Vec<_>>();
+
+                        (!plugins.is_empty()).then_some(PluginMarketplaceEntry {
+                            name: marketplace.name,
+                            path: marketplace.path,
+                            interface: marketplace.interface.map(|interface| {
+                                MarketplaceInterface {
+                                    display_name: interface.display_name,
+                                }
+                            }),
+                            plugins,
+                        })
+                    })
+                    .collect(),
+            )
+        })
+        .await
+        .map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to list plugin marketplaces: {}", e))
+        })?
+        .map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to list plugin marketplaces: {}", e))
         })?;
-        info!("Requested remote skills list");
-        Ok(())
+
+        Ok(PluginListResponse {
+            marketplaces,
+            remote_sync_error,
+        })
     }
 
-    pub async fn download_remote_skill(&self, hazelnut_id: &str) -> Result<(), ConnectorError> {
-        let op = Op::DownloadRemoteSkill {
-            hazelnut_id: hazelnut_id.to_string(),
+    pub async fn install_plugin(
+        &self,
+        cwd: &str,
+        params: PluginInstallParams,
+        config_overrides: &CodexConfigOverrides,
+        control_plane: &CodexControlPlane,
+    ) -> Result<PluginInstallResponse, ConnectorError> {
+        let plugins_manager = self.thread_manager.plugins_manager();
+        let marketplace_path = params.marketplace_path.clone();
+        let config_cwd = marketplace_path
+            .as_path()
+            .parent()
+            .and_then(Path::to_str)
+            .unwrap_or(cwd)
+            .to_string();
+        let request = codex_core::plugins::PluginInstallRequest {
+            plugin_name: params.plugin_name,
+            marketplace_path,
         };
-        self.thread.submit(op).await.map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to download skill: {}", e))
-        })?;
-        info!("Requested remote skill download: {}", hazelnut_id);
-        Ok(())
+
+        let outcome = if params.force_remote_sync {
+            let config = self
+                .build_plugin_config(&config_cwd, config_overrides, control_plane)
+                .await?;
+            let auth = self.plugin_auth().await;
+            plugins_manager
+                .install_plugin_with_remote_sync(&config, auth.as_ref(), request)
+                .await
+        } else {
+            plugins_manager.install_plugin(request).await
+        }
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to install plugin: {}", e)))?;
+
+        self.clear_plugin_related_caches();
+
+        Ok(PluginInstallResponse {
+            auth_policy: map_plugin_auth_policy(outcome.auth_policy),
+            apps_needing_auth: Vec::new(),
+        })
+    }
+
+    pub async fn uninstall_plugin(
+        &self,
+        cwd: &str,
+        params: PluginUninstallParams,
+        config_overrides: &CodexConfigOverrides,
+        control_plane: &CodexControlPlane,
+    ) -> Result<PluginUninstallResponse, ConnectorError> {
+        let plugins_manager = self.thread_manager.plugins_manager();
+
+        if params.force_remote_sync {
+            let config = self
+                .build_plugin_config(cwd, config_overrides, control_plane)
+                .await?;
+            let auth = self.plugin_auth().await;
+            plugins_manager
+                .uninstall_plugin_with_remote_sync(&config, auth.as_ref(), params.plugin_id)
+                .await
+        } else {
+            plugins_manager.uninstall_plugin(params.plugin_id).await
+        }
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to uninstall plugin: {}", e)))?;
+
+        self.clear_plugin_related_caches();
+
+        Ok(PluginUninstallResponse {})
     }
 
     pub async fn list_mcp_tools(&self) -> Result<(), ConnectorError> {
@@ -481,6 +638,13 @@ impl CodexConnector {
             "untrusted" => AskForApproval::UnlessTrusted,
             "on-failure" => AskForApproval::OnFailure,
             "on-request" => AskForApproval::OnRequest,
+            "reject" => AskForApproval::Granular(GranularApprovalConfig {
+                sandbox_approval: false,
+                rules: false,
+                skill_approval: false,
+                request_permissions: false,
+                mcp_elicitations: false,
+            }),
             "never" => AskForApproval::Never,
             _ => AskForApproval::OnRequest,
         });
@@ -533,6 +697,7 @@ impl CodexConnector {
             model: model.map(ToString::to_string),
             effort: effort.and_then(parse_reasoning_effort).map(Some),
             summary: None,
+            approvals_reviewer: None,
             service_tier: parse_service_tier_override(service_tier),
             collaboration_mode,
             personality: parse_personality(personality),
@@ -609,5 +774,85 @@ impl CodexConnector {
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to shutdown: {}", e)))?;
         info!("Sent shutdown");
         Ok(())
+    }
+}
+
+fn normalize_absolute_path(cwd: &str, value: &str) -> Result<AbsolutePathBuf, ConnectorError> {
+    let path = PathBuf::from(value);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        Path::new(cwd).join(path)
+    };
+
+    AbsolutePathBuf::try_from(path).map_err(|e| {
+        ConnectorError::ProviderError(format!("Invalid plugin cwd path `{value}`: {}", e))
+    })
+}
+
+fn map_plugin_install_policy(
+    policy: codex_core::plugins::MarketplacePluginInstallPolicy,
+) -> PluginInstallPolicy {
+    match policy {
+        codex_core::plugins::MarketplacePluginInstallPolicy::NotAvailable => {
+            PluginInstallPolicy::NotAvailable
+        }
+        codex_core::plugins::MarketplacePluginInstallPolicy::Available => {
+            PluginInstallPolicy::Available
+        }
+        codex_core::plugins::MarketplacePluginInstallPolicy::InstalledByDefault => {
+            PluginInstallPolicy::InstalledByDefault
+        }
+    }
+}
+
+fn map_plugin_auth_policy(
+    policy: codex_core::plugins::MarketplacePluginAuthPolicy,
+) -> PluginAuthPolicy {
+    match policy {
+        codex_core::plugins::MarketplacePluginAuthPolicy::OnInstall => PluginAuthPolicy::OnInstall,
+        codex_core::plugins::MarketplacePluginAuthPolicy::OnUse => PluginAuthPolicy::OnUse,
+    }
+}
+
+fn map_plugin_interface(
+    interface: codex_core::plugins::PluginManifestInterface,
+) -> PluginInterface {
+    PluginInterface {
+        display_name: interface.display_name,
+        short_description: interface.short_description,
+        long_description: interface.long_description,
+        developer_name: interface.developer_name,
+        category: interface.category,
+        capabilities: interface.capabilities,
+        website_url: interface.website_url,
+        privacy_policy_url: interface.privacy_policy_url,
+        terms_of_service_url: interface.terms_of_service_url,
+        default_prompt: interface.default_prompt,
+        brand_color: interface.brand_color,
+        composer_icon: interface.composer_icon,
+        logo: interface.logo,
+        screenshots: interface.screenshots,
+    }
+}
+
+fn map_plugin_source(source: codex_core::plugins::MarketplacePluginSource) -> PluginSource {
+    match source {
+        codex_core::plugins::MarketplacePluginSource::Local { path } => {
+            PluginSource::Local { path }
+        }
+    }
+}
+
+fn map_plugin_summary(plugin: codex_core::plugins::ConfiguredMarketplacePlugin) -> PluginSummary {
+    PluginSummary {
+        id: plugin.id,
+        name: plugin.name,
+        source: map_plugin_source(plugin.source),
+        installed: plugin.installed,
+        enabled: plugin.enabled,
+        install_policy: map_plugin_install_policy(plugin.policy.installation),
+        auth_policy: map_plugin_auth_policy(plugin.policy.authentication),
+        interface: plugin.interface.map(map_plugin_interface),
     }
 }

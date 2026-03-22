@@ -6,6 +6,10 @@
 
 use std::collections::HashMap;
 
+use codex_app_server_protocol::{
+    PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
+    PluginUninstallResponse,
+};
 use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
 use tokio::sync::oneshot;
@@ -75,9 +79,27 @@ pub enum CodexAction {
         cwds: Vec<String>,
         force_reload: bool,
     },
-    ListRemoteSkills,
-    DownloadRemoteSkill {
-        hazelnut_id: String,
+    ListPlugins {
+        cwd: String,
+        cwds: Vec<String>,
+        force_remote_sync: bool,
+        config_overrides: CodexConfigOverrides,
+        control_plane: CodexControlPlane,
+        reply_tx: oneshot::Sender<Result<PluginListResponse, ConnectorError>>,
+    },
+    InstallPlugin {
+        cwd: String,
+        params: PluginInstallParams,
+        config_overrides: CodexConfigOverrides,
+        control_plane: CodexControlPlane,
+        reply_tx: oneshot::Sender<Result<PluginInstallResponse, ConnectorError>>,
+    },
+    UninstallPlugin {
+        cwd: String,
+        params: PluginUninstallParams,
+        config_overrides: CodexConfigOverrides,
+        control_plane: CodexControlPlane,
+        reply_tx: oneshot::Sender<Result<PluginUninstallResponse, ConnectorError>>,
     },
     ApproveExec {
         request_id: String,
@@ -167,10 +189,29 @@ impl std::fmt::Debug for CodexAction {
                 .field("cwds", cwds)
                 .field("force_reload", force_reload)
                 .finish(),
-            Self::ListRemoteSkills => write!(f, "ListRemoteSkills"),
-            Self::DownloadRemoteSkill { hazelnut_id } => f
-                .debug_struct("DownloadRemoteSkill")
-                .field("hazelnut_id", hazelnut_id)
+            Self::ListPlugins {
+                cwd,
+                cwds,
+                force_remote_sync,
+                ..
+            } => f
+                .debug_struct("ListPlugins")
+                .field("cwd", cwd)
+                .field("cwds", cwds)
+                .field("force_remote_sync", force_remote_sync)
+                .finish(),
+            Self::InstallPlugin { cwd, params, .. } => f
+                .debug_struct("InstallPlugin")
+                .field("cwd", cwd)
+                .field("marketplace_path", &params.marketplace_path)
+                .field("plugin_name", &params.plugin_name)
+                .field("force_remote_sync", &params.force_remote_sync)
+                .finish(),
+            Self::UninstallPlugin { cwd, params, .. } => f
+                .debug_struct("UninstallPlugin")
+                .field("cwd", cwd)
+                .field("plugin_id", &params.plugin_id)
+                .field("force_remote_sync", &params.force_remote_sync)
                 .finish(),
             Self::ApproveExec {
                 request_id,
@@ -537,11 +578,48 @@ impl CodexSession {
             CodexAction::ListSkills { cwds, force_reload } => {
                 connector.list_skills(cwds, force_reload).await?;
             }
-            CodexAction::ListRemoteSkills => {
-                connector.list_remote_skills().await?;
+            CodexAction::ListPlugins {
+                cwd,
+                cwds,
+                force_remote_sync,
+                config_overrides,
+                control_plane,
+                reply_tx,
+            } => {
+                let result = connector
+                    .list_plugins(
+                        &cwd,
+                        cwds,
+                        force_remote_sync,
+                        &config_overrides,
+                        &control_plane,
+                    )
+                    .await;
+                let _ = reply_tx.send(result);
             }
-            CodexAction::DownloadRemoteSkill { hazelnut_id } => {
-                connector.download_remote_skill(&hazelnut_id).await?;
+            CodexAction::InstallPlugin {
+                cwd,
+                params,
+                config_overrides,
+                control_plane,
+                reply_tx,
+            } => {
+                let result = connector
+                    .install_plugin(&cwd, params, &config_overrides, &control_plane)
+                    .await;
+                let _ = reply_tx.send(result);
+            }
+            CodexAction::UninstallPlugin {
+                cwd,
+                params,
+                config_overrides,
+                control_plane,
+                reply_tx,
+            } => {
+                let result = connector
+                    .uninstall_plugin(&cwd, params, &config_overrides, &control_plane)
+                    .await;
+                let _ = reply_tx.send(result);
             }
             CodexAction::ApproveExec {
                 request_id,

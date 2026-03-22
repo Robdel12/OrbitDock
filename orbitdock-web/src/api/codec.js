@@ -53,8 +53,6 @@ const KNOWN_SERVER_TYPES = new Set([
   'codex_login_chatgpt_canceled',
   'mcp_startup_update',
   'mcp_startup_complete',
-  'remote_skills_list',
-  'remote_skill_downloaded',
   'skills_update_available',
   'subagent_tools_list',
   'error',

@@ -1113,10 +1113,12 @@ impl RolloutFileProcessor {
             }
             EventMsg::RealtimeConversationRealtime(e) => match e.payload {
                 codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
+                | codex_protocol::protocol::RealtimeEvent::InputAudioSpeechStarted(_)
                 | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
                 | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
                 | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
                 | codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_)
+                | codex_protocol::protocol::RealtimeEvent::ResponseCancelled(_)
                 | codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
                 codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
                     let Some(content) = realtime_text_from_handoff_request(&handoff) else {
@@ -1516,6 +1518,9 @@ fn build_inflight_rollout_subagent(
         codex_protocol::protocol::AgentStatus::Running => {
             orbitdock_protocol::SubagentStatus::Running
         }
+        codex_protocol::protocol::AgentStatus::Interrupted => {
+            orbitdock_protocol::SubagentStatus::Running
+        }
         codex_protocol::protocol::AgentStatus::Completed(_)
         | codex_protocol::protocol::AgentStatus::Errored(_)
         | codex_protocol::protocol::AgentStatus::Shutdown
@@ -1572,7 +1577,8 @@ fn build_rollout_subagent_for_status(
 ) -> SubagentInfo {
     match status {
         codex_protocol::protocol::AgentStatus::PendingInit
-        | codex_protocol::protocol::AgentStatus::Running => build_inflight_rollout_subagent(
+        | codex_protocol::protocol::AgentStatus::Running
+        | codex_protocol::protocol::AgentStatus::Interrupted => build_inflight_rollout_subagent(
             id,
             agent_role,
             agent_nickname,
@@ -1612,6 +1618,12 @@ fn map_rollout_agent_status(
             None,
         ),
         codex_protocol::protocol::AgentStatus::Running => (
+            orbitdock_protocol::SubagentStatus::Running,
+            None,
+            None,
+            None,
+        ),
+        codex_protocol::protocol::AgentStatus::Interrupted => (
             orbitdock_protocol::SubagentStatus::Running,
             None,
             None,

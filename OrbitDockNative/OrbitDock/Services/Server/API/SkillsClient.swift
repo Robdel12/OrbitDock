@@ -13,16 +13,6 @@ struct SkillsClient: Sendable {
     }
   }
 
-  struct RemoteSkillsResponse: Decodable {
-    let sessionId: String
-    let skills: [ServerRemoteSkillSummary]
-
-    enum CodingKeys: String, CodingKey {
-      case sessionId = "session_id"
-      case skills
-    }
-  }
-
   private let http: ServerHTTPClient
   private let requestBuilder: HTTPRequestBuilder
 
@@ -44,19 +34,6 @@ struct SkillsClient: Sendable {
     return try await http.get(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/skills",
       query: query
-    )
-  }
-
-  func listRemoteSkills(sessionId: String) async throws -> RemoteSkillsResponse {
-    try await http.get("/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/skills/remote")
-  }
-
-  func downloadRemoteSkill(sessionId: String, hazelnutId: String) async throws {
-    struct Body: Encodable { let hazelnutId: String }
-    try await http.sendVoid(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/skills/download",
-      method: "POST",
-      body: Body(hazelnutId: hazelnutId)
     )
   }
 }

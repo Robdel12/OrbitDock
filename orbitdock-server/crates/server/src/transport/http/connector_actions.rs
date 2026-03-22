@@ -4,8 +4,8 @@ use std::sync::Arc;
 use axum::{http::StatusCode, Json};
 use orbitdock_connector_claude::session::ClaudeAction;
 use orbitdock_protocol::{
-    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, RemoteSkillSummary, ServerMessage,
-    SkillErrorInfo, SkillsListEntry,
+    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, ServerMessage, SkillErrorInfo,
+    SkillsListEntry,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -110,6 +110,21 @@ pub(crate) async fn dispatch_codex_action(
         .map_err(|_| codex_action_error_response(CodexActionError::ChannelClosed, session_id))
 }
 
+pub(crate) async fn dispatch_codex_query<T>(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    reply_rx: oneshot::Receiver<Result<T, orbitdock_connector_core::ConnectorError>>,
+    action: CodexAction,
+) -> ApiInnerResult<T> {
+    dispatch_codex_action(state, session_id, action).await?;
+
+    tokio::time::timeout(CODEX_ACTION_WAIT_TIMEOUT, reply_rx)
+        .await
+        .map_err(|_| codex_action_error_response(CodexActionError::Timeout, session_id))?
+        .map_err(|_| codex_action_error_response(CodexActionError::ChannelClosed, session_id))?
+        .map_err(|err| bad_request("codex_action_error", err.to_string()))
+}
+
 pub(crate) async fn dispatch_claude_action(
     state: &Arc<SessionRegistry>,
     session_id: &str,
@@ -136,41 +151,6 @@ pub(crate) async fn wait_for_codex_skills_event(
                     skills,
                     errors,
                 }) if sid == session_id => return Ok((skills, errors)),
-                Ok(ServerMessage::Error {
-                    session_id: Some(sid),
-                    code,
-                    message,
-                }) if sid == session_id => {
-                    return Err(bad_request(
-                        "codex_action_error",
-                        format!("{code}: {message}"),
-                    ));
-                }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(codex_action_error_response(
-                        CodexActionError::ChannelClosed,
-                        session_id,
-                    ));
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|_| codex_action_error_response(CodexActionError::Timeout, session_id))?
-}
-
-pub(crate) async fn wait_for_remote_skills_event(
-    session_id: &str,
-    rx: &mut broadcast::Receiver<ServerMessage>,
-) -> ApiInnerResult<Vec<RemoteSkillSummary>> {
-    tokio::time::timeout(CODEX_ACTION_WAIT_TIMEOUT, async {
-        loop {
-            match rx.recv().await {
-                Ok(ServerMessage::RemoteSkillsList {
-                    session_id: sid,
-                    skills,
-                }) if sid == session_id => return Ok(skills),
                 Ok(ServerMessage::Error {
                     session_id: Some(sid),
                     code,

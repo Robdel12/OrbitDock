@@ -246,13 +246,6 @@ pub enum ClientMessage {
         #[serde(default)]
         force_reload: bool,
     },
-    ListRemoteSkills {
-        session_id: String,
-    },
-    DownloadRemoteSkill {
-        session_id: String,
-        hazelnut_id: String,
-    },
 
     // MCP
     ListMcpTools {
@@ -708,31 +701,6 @@ mod tests {
             }
             other => panic!("unexpected variant: {:?}", other),
         }
-    }
-
-    #[test]
-    fn roundtrip_download_remote_skill() {
-        let json = r#"{
-          "type":"download_remote_skill",
-          "session_id":"sess-6",
-          "hazelnut_id":"hz-abc-123"
-        }"#;
-
-        let parsed: ClientMessage =
-            serde_json::from_str(json).expect("parse download_remote_skill");
-        match &parsed {
-            ClientMessage::DownloadRemoteSkill {
-                session_id,
-                hazelnut_id,
-            } => {
-                assert_eq!(session_id, "sess-6");
-                assert_eq!(hazelnut_id, "hz-abc-123");
-            }
-            other => panic!("unexpected variant: {:?}", other),
-        }
-
-        let serialized = serde_json::to_string(&parsed).expect("serialize");
-        let _: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
     }
 
     #[test]

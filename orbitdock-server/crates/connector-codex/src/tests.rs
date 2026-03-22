@@ -213,6 +213,34 @@ fn hook_helpers_emit_readable_timeline_text() {
 }
 
 #[test]
+fn hook_helpers_render_user_prompt_submit_label() {
+    let run = HookRunSummary {
+        id: "hook-3".to_string(),
+        event_name: HookEventName::UserPromptSubmit,
+        handler_type: HookHandlerType::Command,
+        execution_mode: HookExecutionMode::Sync,
+        scope: HookScope::Turn,
+        source_path: PathBuf::from("/tmp/prompt-submit-hook.sh"),
+        display_order: 0,
+        status: HookRunStatus::Completed,
+        status_message: None,
+        started_at: 1,
+        completed_at: Some(2),
+        duration_ms: Some(12),
+        entries: vec![],
+    };
+
+    assert_eq!(
+        hook_started_text(&run),
+        "Running prompt submit hook via prompt-submit-hook.sh"
+    );
+    assert_eq!(
+        hook_completed_text(&run),
+        "prompt submit hook completed via prompt-submit-hook.sh"
+    );
+}
+
+#[test]
 fn hook_helpers_flag_failed_runs_as_errors() {
     let run = HookRunSummary {
         id: "hook-2".to_string(),
@@ -418,6 +446,26 @@ fn build_inflight_codex_subagent_maps_running_status_only() {
 }
 
 #[test]
+fn build_inflight_codex_subagent_maps_interrupted_to_running() {
+    let subagent = build_inflight_codex_subagent(
+        "worker-interrupted".to_string(),
+        Some("worker".to_string()),
+        Some("Curie".to_string()),
+        Some("Handle an interrupted turn".to_string()),
+        Some("parent-thread".to_string()),
+        &AgentStatus::Interrupted,
+    )
+    .expect("expected inflight worker");
+
+    assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    assert!(subagent.ended_at.is_none());
+    assert_eq!(
+        subagent.task_summary.as_deref(),
+        Some("Handle an interrupted turn")
+    );
+}
+
+#[test]
 fn build_inflight_codex_subagent_drops_terminal_statuses() {
     let completed = build_inflight_codex_subagent(
         "worker-4".to_string(),
@@ -493,4 +541,21 @@ fn build_codex_subagent_for_status_preserves_terminal_updates() {
     );
     assert_eq!(subagent.result_summary.as_deref(), Some("Finished cleanly"));
     assert!(subagent.ended_at.is_some());
+}
+
+#[test]
+fn build_codex_subagent_for_status_keeps_interrupted_inflight() {
+    let subagent = build_codex_subagent_for_status(
+        "worker-7".to_string(),
+        Some("explorer".to_string()),
+        Some("Noether".to_string()),
+        Some("Resume after interruption".to_string()),
+        Some("parent-thread".to_string()),
+        &AgentStatus::Interrupted,
+    );
+
+    assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    assert!(subagent.ended_at.is_none());
+    assert!(subagent.result_summary.is_none());
+    assert!(subagent.error_summary.is_none());
 }

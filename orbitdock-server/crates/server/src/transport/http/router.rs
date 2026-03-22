@@ -183,12 +183,16 @@ fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
             get(super::list_skills_endpoint),
         )
         .route(
-            "/api/sessions/{session_id}/skills/remote",
-            get(super::list_remote_skills_endpoint),
+            "/api/sessions/{session_id}/plugins",
+            get(super::list_plugins_endpoint),
         )
         .route(
-            "/api/sessions/{session_id}/skills/download",
-            post(super::download_remote_skill),
+            "/api/sessions/{session_id}/plugins/install",
+            post(super::install_plugin),
+        )
+        .route(
+            "/api/sessions/{session_id}/plugins/uninstall",
+            post(super::uninstall_plugin),
         )
         .route(
             "/api/sessions/{session_id}/mcp/tools",

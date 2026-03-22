@@ -109,18 +109,6 @@ extension ServerToClientMessage {
         let errors = try container.decodeIfPresent([ServerSkillErrorInfo].self, forKey: .errors) ?? []
         self = .skillsList(sessionId: sessionId, skills: skills, errors: errors)
 
-      case "remote_skills_list":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let skills = try container.decode([ServerRemoteSkillSummary].self, forKey: .skills)
-        self = .remoteSkillsList(sessionId: sessionId, skills: skills)
-
-      case "remote_skill_downloaded":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let id = try container.decode(String.self, forKey: .id)
-        let name = try container.decode(String.self, forKey: .name)
-        let path = try container.decode(String.self, forKey: .path)
-        self = .remoteSkillDownloaded(sessionId: sessionId, skillId: id, name: name, path: path)
-
       case "skills_update_available":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         self = .skillsUpdateAvailable(sessionId: sessionId)

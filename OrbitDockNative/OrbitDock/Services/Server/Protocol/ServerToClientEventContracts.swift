@@ -80,8 +80,6 @@ enum ServerToClientMessage: Codable {
   )
   case claudeModelsList(models: [ServerClaudeModelOption])
   case skillsList(sessionId: String, skills: [ServerSkillsListEntry], errors: [ServerSkillErrorInfo])
-  case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
-  case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
   case skillsUpdateAvailable(sessionId: String)
   case mcpToolsList(
     sessionId: String,

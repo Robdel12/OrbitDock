@@ -218,6 +218,7 @@ pub async fn dispatch_issue(
                 name: t.name,
                 description: t.description,
                 input_schema: t.input_schema,
+                defer_loading: false,
             })
             .collect();
 

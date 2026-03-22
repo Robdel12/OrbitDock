@@ -7,20 +7,25 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use codex_app_server_protocol::{
+    PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
+    PluginUninstallResponse,
+};
 use orbitdock_connector_claude::session::ClaudeAction;
+use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
 use orbitdock_protocol::{
-    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, RemoteSkillSummary, SkillErrorInfo,
-    SkillsListEntry,
+    McpAuthStatus, McpResource, McpResourceTemplate, McpTool, SkillErrorInfo, SkillsListEntry,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 use crate::connectors::codex_session::CodexAction;
 use crate::runtime::session_queries::load_full_session_state;
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::connector_actions::{
-    dispatch_claude_action, dispatch_codex_action, subscribe_session_events,
-    wait_for_codex_skills_event, wait_for_mcp_tools_event, wait_for_remote_skills_event,
+    dispatch_claude_action, dispatch_codex_action, dispatch_codex_query, subscribe_session_events,
+    wait_for_codex_skills_event, wait_for_mcp_tools_event,
 };
 use super::errors::{ApiErrorResponse, ApiResult};
 use super::session_actions::AcceptedResponse;
@@ -30,12 +35,6 @@ pub struct SkillsResponse {
     pub session_id: String,
     pub skills: Vec<SkillsListEntry>,
     pub errors: Vec<SkillErrorInfo>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RemoteSkillsResponse {
-    pub session_id: String,
-    pub skills: Vec<RemoteSkillSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,11 +61,6 @@ pub struct SessionInstructionsPayload {
     pub system_prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub developer_instructions: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DownloadRemoteSkillRequest {
-    pub hazelnut_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,6 +95,14 @@ pub struct SkillsQuery {
     pub cwd: Vec<String>,
     #[serde(default)]
     pub force_reload: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct PluginsQuery {
+    #[serde(default)]
+    pub cwd: Vec<String>,
+    #[serde(default)]
+    pub force_remote_sync: Option<bool>,
 }
 
 async fn read_optional_markdown(path: PathBuf) -> Option<String> {
@@ -191,16 +193,58 @@ pub async fn list_skills_endpoint(
     }))
 }
 
-pub async fn list_remote_skills_endpoint(
+fn codex_plugin_context(
+    session: &orbitdock_protocol::SessionState,
+) -> (String, CodexConfigOverrides, CodexControlPlane) {
+    let cwd = session
+        .current_cwd
+        .clone()
+        .unwrap_or_else(|| session.project_path.clone());
+    let overrides = session.codex_config_overrides.clone().unwrap_or_default();
+
+    (
+        cwd,
+        CodexConfigOverrides {
+            model_provider: overrides.model_provider,
+            config_profile: None,
+        },
+        CodexControlPlane {
+            collaboration_mode: session.collaboration_mode.clone(),
+            multi_agent: session.multi_agent,
+            personality: session.personality.clone(),
+            service_tier: session.service_tier.clone(),
+            developer_instructions: session.developer_instructions.clone(),
+        },
+    )
+}
+
+pub async fn list_plugins_endpoint(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
-) -> ApiResult<RemoteSkillsResponse> {
-    let mut rx = subscribe_session_events(&state, &session_id).await?;
+    Query(query): Query<PluginsQuery>,
+) -> ApiResult<PluginListResponse> {
+    let session = load_full_session_state(&state, &session_id, false)
+        .await
+        .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
+    let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+    let (reply_tx, reply_rx) = oneshot::channel();
 
-    dispatch_codex_action(&state, &session_id, CodexAction::ListRemoteSkills).await?;
+    let response = dispatch_codex_query(
+        &state,
+        &session_id,
+        reply_rx,
+        CodexAction::ListPlugins {
+            cwd,
+            cwds: query.cwd,
+            force_remote_sync: query.force_remote_sync.unwrap_or(false),
+            config_overrides,
+            control_plane,
+            reply_tx,
+        },
+    )
+    .await?;
 
-    let skills = wait_for_remote_skills_event(&session_id, &mut rx).await?;
-    Ok(Json(RemoteSkillsResponse { session_id, skills }))
+    Ok(Json(response))
 }
 
 pub async fn list_mcp_tools_endpoint(
@@ -228,24 +272,60 @@ pub async fn list_mcp_tools_endpoint(
     }))
 }
 
-pub async fn download_remote_skill(
+pub async fn install_plugin(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
-    Json(body): Json<DownloadRemoteSkillRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_codex_action(
+    Json(body): Json<PluginInstallParams>,
+) -> ApiResult<PluginInstallResponse> {
+    let session = load_full_session_state(&state, &session_id, false)
+        .await
+        .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
+    let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+    let (reply_tx, reply_rx) = oneshot::channel();
+
+    let response = dispatch_codex_query(
         &state,
         &session_id,
-        CodexAction::DownloadRemoteSkill {
-            hazelnut_id: body.hazelnut_id,
+        reply_rx,
+        CodexAction::InstallPlugin {
+            cwd,
+            params: body,
+            config_overrides,
+            control_plane,
+            reply_tx,
         },
     )
     .await?;
 
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
-    ))
+    Ok(Json(response))
+}
+
+pub async fn uninstall_plugin(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<PluginUninstallParams>,
+) -> ApiResult<PluginUninstallResponse> {
+    let session = load_full_session_state(&state, &session_id, false)
+        .await
+        .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
+    let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+    let (reply_tx, reply_rx) = oneshot::channel();
+
+    let response = dispatch_codex_query(
+        &state,
+        &session_id,
+        reply_rx,
+        CodexAction::UninstallPlugin {
+            cwd,
+            params: body,
+            config_overrides,
+            control_plane,
+            reply_tx,
+        },
+    )
+    .await?;
+
+    Ok(Json(response))
 }
 
 pub async fn refresh_mcp_servers(
@@ -377,12 +457,18 @@ pub async fn apply_flag_settings(
 mod tests {
     use super::*;
     use axum::{extract::Path, extract::Query, extract::State, Json};
+    use codex_app_server_protocol::{
+        PluginAuthPolicy, PluginInstallPolicy, PluginListResponse, PluginMarketplaceEntry,
+        PluginSource, PluginSummary,
+    };
+    use codex_utils_absolute_path::AbsolutePathBuf;
     use orbitdock_protocol::{
-        McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Provider, RemoteSkillSummary,
-        ServerMessage, SkillErrorInfo, SkillMetadata, SkillScope, SkillsListEntry,
+        McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Provider, ServerMessage,
+        SkillErrorInfo, SkillMetadata, SkillScope, SkillsListEntry,
     };
     use serde_json::json;
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use tokio::sync::mpsc;
 
     use crate::connectors::codex_session::CodexAction;
@@ -478,7 +564,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_remote_skills_endpoint_dispatches_action_and_returns_payload() {
+    async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
         let state = new_test_state(true);
         let session_id = format!("od-{}", orbitdock_protocol::new_id());
         state.add_session(SessionHandle::new(
@@ -486,51 +572,208 @@ mod tests {
             Provider::Codex,
             "/tmp/orbitdock-api-test".to_string(),
         ));
-        let actor = state
-            .get_session(&session_id)
-            .expect("session should exist for remote skills endpoint test");
         let (action_tx, mut action_rx) = mpsc::channel(8);
         state.set_codex_action_tx(&session_id, action_tx);
 
-        let session_id_for_task = session_id.clone();
         let task = tokio::spawn(async move {
             let action = action_rx
                 .recv()
                 .await
-                .expect("remote skills endpoint should dispatch codex action");
+                .expect("plugins endpoint should dispatch codex action");
             match action {
-                CodexAction::ListRemoteSkills => {}
-                other => panic!("expected ListRemoteSkills action, got {:?}", other),
-            }
-
-            actor
-                .send(SessionCommand::Broadcast {
-                    msg: ServerMessage::RemoteSkillsList {
-                        session_id: session_id_for_task.clone(),
-                        skills: vec![RemoteSkillSummary {
-                            id: "remote-1".to_string(),
-                            name: "deploy-checks".to_string(),
-                            description: "Shared deploy readiness checks".to_string(),
+                CodexAction::ListPlugins {
+                    cwd,
+                    cwds,
+                    force_remote_sync,
+                    reply_tx,
+                    ..
+                } => {
+                    assert_eq!(cwd, "/tmp/orbitdock-api-test");
+                    assert_eq!(cwds, vec!["/tmp/orbitdock-api-test".to_string()]);
+                    assert!(force_remote_sync);
+                    let response = PluginListResponse {
+                        marketplaces: vec![PluginMarketplaceEntry {
+                            name: "Curated".to_string(),
+                            path: AbsolutePathBuf::try_from(PathBuf::from(
+                                "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
+                            ))
+                            .expect("absolute marketplace path"),
+                            interface: None,
+                            plugins: vec![PluginSummary {
+                                id: "marketplace/deploy-checks".to_string(),
+                                name: "deploy-checks".to_string(),
+                                source: PluginSource::Local {
+                                    path: AbsolutePathBuf::try_from(PathBuf::from(
+                                        "/tmp/orbitdock-api-test/.codex/plugins/deploy-checks",
+                                    ))
+                                    .expect("absolute plugin path"),
+                                },
+                                installed: true,
+                                enabled: true,
+                                install_policy: PluginInstallPolicy::Available,
+                                auth_policy: PluginAuthPolicy::OnInstall,
+                                interface: None,
+                            }],
                         }],
-                    },
-                })
-                .await;
+                        remote_sync_error: None,
+                    };
+                    let _ = reply_tx.send(Ok(response));
+                }
+                other => panic!("expected ListPlugins action, got {:?}", other),
+            }
         });
 
-        let response = list_remote_skills_endpoint(Path(session_id.clone()), State(state)).await;
+        let response = list_plugins_endpoint(
+            Path(session_id.clone()),
+            State(state),
+            Query(PluginsQuery {
+                cwd: vec!["/tmp/orbitdock-api-test".to_string()],
+                force_remote_sync: Some(true),
+            }),
+        )
+        .await;
 
         task.await
-            .expect("remote skills endpoint helper task should complete");
+            .expect("plugins endpoint helper task should complete");
 
         match response {
             Ok(Json(payload)) => {
-                assert_eq!(payload.session_id, session_id);
-                assert_eq!(payload.skills.len(), 1);
-                assert_eq!(payload.skills[0].id, "remote-1");
-                assert_eq!(payload.skills[0].name, "deploy-checks");
+                assert_eq!(payload.marketplaces.len(), 1);
+                assert_eq!(payload.marketplaces[0].name, "Curated");
+                assert_eq!(payload.marketplaces[0].plugins.len(), 1);
+                assert_eq!(
+                    payload.marketplaces[0].plugins[0].id,
+                    "marketplace/deploy-checks"
+                );
             }
             Err((status, body)) => panic!(
-                "expected successful remote skills response, got status {:?} with error {:?}",
+                "expected successful plugins response, got status {:?} with error {:?}",
+                status, body.error
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn install_plugin_endpoint_dispatches_action_and_returns_payload() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-api-test".to_string(),
+        ));
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        let task = tokio::spawn(async move {
+            let action = action_rx
+                .recv()
+                .await
+                .expect("install plugin endpoint should dispatch codex action");
+            match action {
+                CodexAction::InstallPlugin {
+                    cwd,
+                    params,
+                    reply_tx,
+                    ..
+                } => {
+                    assert_eq!(cwd, "/tmp/orbitdock-api-test");
+                    assert_eq!(params.plugin_name, "deploy-checks");
+                    assert!(params.force_remote_sync);
+                    assert_eq!(
+                        params.marketplace_path.as_path(),
+                        std::path::Path::new(
+                            "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml"
+                        )
+                    );
+                    let _ = reply_tx.send(Ok(PluginInstallResponse {
+                        auth_policy: PluginAuthPolicy::OnInstall,
+                        apps_needing_auth: vec![],
+                    }));
+                }
+                other => panic!("expected InstallPlugin action, got {:?}", other),
+            }
+        });
+
+        let response = install_plugin(
+            Path(session_id),
+            State(state),
+            Json(PluginInstallParams {
+                marketplace_path: AbsolutePathBuf::try_from(PathBuf::from(
+                    "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
+                ))
+                .expect("absolute marketplace path"),
+                plugin_name: "deploy-checks".to_string(),
+                force_remote_sync: true,
+            }),
+        )
+        .await;
+
+        task.await
+            .expect("install plugin endpoint helper task should complete");
+
+        match response {
+            Ok(Json(payload)) => {
+                assert_eq!(payload.auth_policy, PluginAuthPolicy::OnInstall);
+                assert!(payload.apps_needing_auth.is_empty());
+            }
+            Err((status, body)) => panic!(
+                "expected successful install plugin response, got status {:?} with error {:?}",
+                status, body.error
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn uninstall_plugin_endpoint_dispatches_action_and_returns_payload() {
+        let state = new_test_state(true);
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/orbitdock-api-test".to_string(),
+        ));
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        let task = tokio::spawn(async move {
+            let action = action_rx
+                .recv()
+                .await
+                .expect("uninstall plugin endpoint should dispatch codex action");
+            match action {
+                CodexAction::UninstallPlugin {
+                    cwd,
+                    params,
+                    reply_tx,
+                    ..
+                } => {
+                    assert_eq!(cwd, "/tmp/orbitdock-api-test");
+                    assert_eq!(params.plugin_id, "marketplace/deploy-checks");
+                    assert!(params.force_remote_sync);
+                    let _ = reply_tx.send(Ok(PluginUninstallResponse {}));
+                }
+                other => panic!("expected UninstallPlugin action, got {:?}", other),
+            }
+        });
+
+        let response = uninstall_plugin(
+            Path(session_id),
+            State(state),
+            Json(PluginUninstallParams {
+                plugin_id: "marketplace/deploy-checks".to_string(),
+                force_remote_sync: true,
+            }),
+        )
+        .await;
+
+        task.await
+            .expect("uninstall plugin endpoint helper task should complete");
+
+        match response {
+            Ok(Json(_payload)) => {}
+            Err((status, body)) => panic!(
+                "expected successful uninstall plugin response, got status {:?} with error {:?}",
                 status, body.error
             ),
         }

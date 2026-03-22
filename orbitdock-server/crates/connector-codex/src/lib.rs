@@ -397,14 +397,6 @@ impl CodexConnector {
                 event_mapping::capabilities::handle_list_skills_response(e)
             }
 
-            EventMsg::ListRemoteSkillsResponse(e) => {
-                event_mapping::capabilities::handle_list_remote_skills_response(e)
-            }
-
-            EventMsg::RemoteSkillDownloaded(e) => {
-                event_mapping::capabilities::handle_remote_skill_downloaded(e)
-            }
-
             EventMsg::ListCustomPromptsResponse(e) => {
                 event_mapping::capabilities::handle_list_custom_prompts_response(
                     &event.id,

@@ -40,12 +40,6 @@ struct ServerSkillsListEntry: Codable {
   let errors: [ServerSkillErrorInfo]
 }
 
-struct ServerRemoteSkillSummary: Codable, Identifiable {
-  let id: String
-  let name: String
-  let description: String
-}
-
 // MARK: - MCP Types
 
 struct ServerMcpTool: Codable {

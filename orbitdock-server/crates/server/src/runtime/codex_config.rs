@@ -995,7 +995,7 @@ fn core_approval_policy_to_string(value: codex_protocol::protocol::AskForApprova
         codex_protocol::protocol::AskForApproval::UnlessTrusted => "untrusted",
         codex_protocol::protocol::AskForApproval::OnFailure => "on-failure",
         codex_protocol::protocol::AskForApproval::OnRequest => "on-request",
-        codex_protocol::protocol::AskForApproval::Reject { .. } => "reject",
+        codex_protocol::protocol::AskForApproval::Granular(_) => "reject",
         codex_protocol::protocol::AskForApproval::Never => "never",
     }
     .to_string()

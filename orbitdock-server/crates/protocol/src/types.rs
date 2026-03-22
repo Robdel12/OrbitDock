@@ -1339,14 +1339,6 @@ pub struct SkillsListEntry {
     pub errors: Vec<SkillErrorInfo>,
 }
 
-/// Remote skill summary
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteSkillSummary {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-}
-
 // MARK: - MCP Types
 
 /// MCP tool definition (mirrors codex-core mcp::Tool)

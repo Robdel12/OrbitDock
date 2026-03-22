@@ -73,6 +73,7 @@ pub(crate) fn build_inflight_codex_subagent(
     let mapped_status = match status {
         AgentStatus::PendingInit => SubagentStatus::Pending,
         AgentStatus::Running => SubagentStatus::Running,
+        AgentStatus::Interrupted => SubagentStatus::Running,
         AgentStatus::Completed(_)
         | AgentStatus::Errored(_)
         | AgentStatus::Shutdown
@@ -127,15 +128,17 @@ pub(crate) fn build_codex_subagent_for_status(
     status: &AgentStatus,
 ) -> SubagentInfo {
     match status {
-        AgentStatus::PendingInit | AgentStatus::Running => build_inflight_codex_subagent(
-            id,
-            agent_role,
-            agent_nickname,
-            task_summary,
-            parent_subagent_id,
-            status,
-        )
-        .expect("non-terminal subagent should always build"),
+        AgentStatus::PendingInit | AgentStatus::Running | AgentStatus::Interrupted => {
+            build_inflight_codex_subagent(
+                id,
+                agent_role,
+                agent_nickname,
+                task_summary,
+                parent_subagent_id,
+                status,
+            )
+            .expect("non-terminal subagent should always build")
+        }
         AgentStatus::Completed(_)
         | AgentStatus::Errored(_)
         | AgentStatus::Shutdown
@@ -162,6 +165,7 @@ fn map_agent_status(
     match status {
         AgentStatus::PendingInit => (SubagentStatus::Pending, None, None, None),
         AgentStatus::Running => (SubagentStatus::Running, None, None, None),
+        AgentStatus::Interrupted => (SubagentStatus::Running, None, None, None),
         AgentStatus::Completed(summary) => (
             SubagentStatus::Completed,
             Some(now.to_string()),

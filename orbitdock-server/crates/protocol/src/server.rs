@@ -111,16 +111,6 @@ pub enum ServerMessage {
         skills: Vec<SkillsListEntry>,
         errors: Vec<SkillErrorInfo>,
     },
-    RemoteSkillsList {
-        session_id: String,
-        skills: Vec<RemoteSkillSummary>,
-    },
-    RemoteSkillDownloaded {
-        session_id: String,
-        id: String,
-        name: String,
-        path: String,
-    },
     SkillsUpdateAvailable {
         session_id: String,
     },

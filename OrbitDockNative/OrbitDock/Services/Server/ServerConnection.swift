@@ -57,8 +57,6 @@ enum ServerEvent: Sendable {
 
   // Skills
   case skillsList(sessionId: String, skills: [ServerSkillsListEntry], errors: [ServerSkillErrorInfo])
-  case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
-  case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
   case skillsUpdateAvailable(sessionId: String)
 
   /// MCP
@@ -649,10 +647,6 @@ final class ServerConnection {
       case let .codexAccountUpdated(status): emit(.codexAccountUpdated(status))
       case let .skillsList(sessionId, skills, errors):
         emit(.skillsList(sessionId: sessionId, skills: skills, errors: errors))
-      case let .remoteSkillsList(sessionId, skills):
-        emit(.remoteSkillsList(sessionId: sessionId, skills: skills))
-      case let .remoteSkillDownloaded(sessionId, skillId, name, path):
-        emit(.remoteSkillDownloaded(sessionId: sessionId, skillId: skillId, name: name, path: path))
       case let .skillsUpdateAvailable(sessionId): emit(.skillsUpdateAvailable(sessionId: sessionId))
       case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
         emit(.mcpToolsList(

@@ -44,9 +44,9 @@ pub use approvals::{
     respond_to_permission_request,
 };
 pub use capabilities::{
-    apply_flag_settings, download_remote_skill, get_session_instructions, list_mcp_tools_endpoint,
-    list_remote_skills_endpoint, list_skills_endpoint, mcp_authenticate, mcp_clear_auth,
-    mcp_set_servers, refresh_mcp_servers, toggle_mcp_server,
+    apply_flag_settings, get_session_instructions, install_plugin, list_mcp_tools_endpoint,
+    list_plugins_endpoint, list_skills_endpoint, mcp_authenticate, mcp_clear_auth, mcp_set_servers,
+    refresh_mcp_servers, toggle_mcp_server, uninstall_plugin,
 };
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
 pub(crate) use connector_actions::{

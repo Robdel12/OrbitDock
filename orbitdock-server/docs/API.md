@@ -1214,45 +1214,97 @@ Error responses:
 - `409 session_not_found`
 - Connector-specific MCP/skills startup errors surfaced through the dispatched action
 
-#### `GET /api/sessions/{session_id}/skills/remote`
+#### `GET /api/sessions/{session_id}/plugins`
 
-Returns remote skills available to the session.
+Returns plugin marketplaces available to the session.
+
+Query params:
+
+- `cwd` optional and repeatable; used to discover repo-local marketplaces
+- `force_remote_sync` optional, default `false`; refreshes curated remote plugin state first
 
 Response:
 
 ```json
 {
-  "session_id": "od-...",
-  "skills": []
+  "marketplaces": [
+    {
+      "name": "Curated",
+      "path": "/repo/.codex/plugins/marketplace.toml",
+      "interface": {
+        "displayName": "Curated Plugins"
+      },
+      "plugins": [
+        {
+          "id": "marketplace/deploy-checks",
+          "name": "deploy-checks",
+          "source": {
+            "type": "local",
+            "path": "/repo/.codex/plugins/deploy-checks"
+          },
+          "installed": true,
+          "enabled": true,
+          "installPolicy": "AVAILABLE",
+          "authPolicy": "ON_INSTALL",
+          "interface": null
+        }
+      ]
+    }
+  ],
+  "remoteSyncError": null
 }
 ```
 
 Error responses:
 
 - `409 session_not_found`
+- `400 codex_action_error`
 
-#### `POST /api/sessions/{session_id}/skills/download`
+#### `POST /api/sessions/{session_id}/plugins/install`
 
-Queues a remote skill download.
+Installs a plugin for the session.
 
 Request:
 
 ```json
 {
-  "hazelnut_id": "hz-..."
+  "marketplacePath": "/repo/.codex/plugins/marketplace.toml",
+  "pluginName": "deploy-checks",
+  "forceRemoteSync": true
 }
 ```
 
 Response:
 
 ```json
-{"accepted": true}
+{
+  "authPolicy": "ON_INSTALL",
+  "appsNeedingAuth": []
+}
 ```
 
 Notes:
 
-- Returns `202 Accepted`.
-- Completion is delivered through WebSocket (`remote_skill_downloaded`).
+- OrbitDock clears plugin and skills caches after install so installed skills appear on the next refresh.
+
+#### `POST /api/sessions/{session_id}/plugins/uninstall`
+
+Uninstalls a plugin for the session.
+
+Request:
+
+```json
+{
+  "pluginId": "marketplace/deploy-checks",
+  "forceRemoteSync": true
+}
+```
+
+Response:
+
+```json
+{}
+```
 
 #### `GET /api/sessions/{session_id}/mcp/tools`
 

@@ -1312,8 +1312,6 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::McpStartupComplete { .. } => "mcp_startup_complete",
         ServerMessage::SkillsList { .. } => "skills_list",
         ServerMessage::SkillsUpdateAvailable { .. } => "skills_update_available",
-        ServerMessage::RemoteSkillsList { .. } => "remote_skills_list",
-        ServerMessage::RemoteSkillDownloaded { .. } => "remote_skill_downloaded",
         ServerMessage::SubagentToolsList { .. } => "subagent_tools_list",
         ServerMessage::OpenAiKeyStatus { .. } => "openai_key_status",
         ServerMessage::DirectoryListing { .. } => "directory_listing",

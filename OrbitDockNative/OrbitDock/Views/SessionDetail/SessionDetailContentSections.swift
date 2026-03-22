@@ -41,15 +41,15 @@ struct SessionDetailConversationSection: View {
     .environment(\.focusWorkerInDeck, focusWorkerInDeck)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     #if os(iOS)
-    .onTapGesture {
-      // Tap anywhere on the conversation to dismiss the keyboard.
-      // This is the most natural dismissal gesture on iOS — users
-      // expect tapping outside an input to close the keyboard.
-      UIApplication.shared.sendAction(
-        #selector(UIResponder.resignFirstResponder),
-        to: nil, from: nil, for: nil
-      )
-    }
+      .onTapGesture {
+        // Tap anywhere on the conversation to dismiss the keyboard.
+        // This is the most natural dismissal gesture on iOS — users
+        // expect tapping outside an input to close the keyboard.
+        UIApplication.shared.sendAction(
+          #selector(UIResponder.resignFirstResponder),
+          to: nil, from: nil, for: nil
+        )
+      }
     #endif
   }
 }

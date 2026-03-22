@@ -647,10 +647,16 @@ If the server cannot replay from the requested revision, it sends a full snapsho
 Skills are reusable prompt extensions available to sessions.
 
 - `GET /api/sessions/{id}/skills` — list skills (query: `cwd[]`, `force_reload`)
-- `GET /api/sessions/{id}/skills/remote` — list remote/downloadable skills
-- `POST /api/sessions/{id}/skills/download` — queue a remote skill download
 
-### 8.2 MCP (Model Context Protocol)
+### 8.2 Plugins
+
+Plugins replace the old remote-skill browse/download flow for Codex-backed sessions.
+
+- `GET /api/sessions/{id}/plugins` — list plugin marketplaces (query: `cwd[]`, `force_remote_sync`)
+- `POST /api/sessions/{id}/plugins/install` — install a plugin (`marketplacePath`, `pluginName`, `forceRemoteSync`)
+- `POST /api/sessions/{id}/plugins/uninstall` — uninstall a plugin (`pluginId`, `forceRemoteSync`)
+
+### 8.3 MCP (Model Context Protocol)
 
 MCP provides external tool integrations (GitHub, Linear, etc.).
 

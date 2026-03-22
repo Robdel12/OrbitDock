@@ -297,7 +297,9 @@ Endpoints that may need new API client work:
 - `PATCH /api/review-comments/{id}` (Phase 6)
 - `DELETE /api/review-comments/{id}` (Phase 6)
 - `GET /api/sessions/{id}/search` (Phase 3 — command palette search)
-- `POST /api/sessions/{id}/skills/download` (Phase 9)
+- `GET /api/sessions/{id}/plugins` (Phase 9)
+- `POST /api/sessions/{id}/plugins/install` (Phase 9)
+- `POST /api/sessions/{id}/plugins/uninstall` (Phase 9)
 - `POST /api/sessions/{id}/mcp/refresh` (Phase 9)
 - Worktree endpoints (Phase 5 — already in `rest/worktrees.js`)
 
