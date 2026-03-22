@@ -16,7 +16,17 @@ const parseDiff = (raw) => {
 
   for (const line of lines) {
     // Skip file headers and hunk metadata — show only content lines
-    if (line.startsWith('--- ') || line.startsWith('+++ ')) continue
+    if (
+      line.startsWith('diff --git ') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ') ||
+      line.startsWith('new file mode') ||
+      line.startsWith('deleted file mode') ||
+      line.startsWith('rename from ') ||
+      line.startsWith('rename to ') ||
+      line.startsWith('similarity index')
+    ) continue
 
     if (line.startsWith('@@ ')) {
       // Parse hunk header: @@ -oldStart,oldCount +newStart,newCount @@
