@@ -87,6 +87,24 @@ struct MissionApiKeyBanner: View {
           .foregroundStyle(Color.textQuaternary)
           .fixedSize(horizontal: false, vertical: true)
 
+        if isGitHub {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Required scopes for a classic token:")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+
+            HStack(spacing: Spacing.sm) {
+              tokenScopeBadge("repo")
+              tokenScopeBadge("project")
+              tokenScopeBadge("read:org")
+            }
+
+            Text("read:org is only needed if the project belongs to an organization.")
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textQuaternary)
+          }
+        }
+
         HStack(spacing: Spacing.sm) {
           SecureField(placeholder, text: $apiKey)
             .textFieldStyle(.plain)
@@ -153,6 +171,18 @@ struct MissionApiKeyBanner: View {
     }
 
     isSaving = false
+  }
+
+  private func tokenScopeBadge(_ scope: String) -> some View {
+    Text(scope)
+      .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.accent.opacity(OpacityTier.light))
+      )
   }
 
   private func startOrchestrator() async {

@@ -30,6 +30,36 @@ struct MissionTrackerSection: View {
     isGitHub ? "ghp_..." : "lin_api_..."
   }
 
+  private var scopeHint: some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      Text("Required scopes for a classic token:")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+
+      HStack(spacing: Spacing.sm) {
+        scopeBadge("repo")
+        scopeBadge("project")
+        scopeBadge("read:org")
+      }
+
+      Text("read:org is only needed if the project belongs to an organization.")
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
+    }
+  }
+
+  private func scopeBadge(_ scope: String) -> some View {
+    Text(scope)
+      .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.accent.opacity(OpacityTier.light))
+      )
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       HStack(spacing: Spacing.sm_) {
@@ -84,6 +114,10 @@ struct MissionTrackerSection: View {
           Text("\(trackerLabel) required to poll for issues")
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textSecondary)
+        }
+
+        if isGitHub {
+          scopeHint
         }
 
         HStack(spacing: Spacing.sm) {

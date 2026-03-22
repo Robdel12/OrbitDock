@@ -190,6 +190,22 @@ struct MissionControlDefaultsView: View {
           .buttonStyle(.plain)
           .disabled(isDeletingGithubKey)
         } else {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Required scopes for a classic token:")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+
+            HStack(spacing: Spacing.sm) {
+              settingsScopeBadge("repo")
+              settingsScopeBadge("project")
+              settingsScopeBadge("read:org")
+            }
+
+            Text("read:org is only needed if the project belongs to an organization.")
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textQuaternary)
+          }
+
           HStack(spacing: Spacing.sm) {
             SecureField("ghp_...", text: $githubToken)
               .textFieldStyle(.plain)
@@ -297,6 +313,18 @@ struct MissionControlDefaultsView: View {
         .font(.system(size: TypeScale.large, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
     }
+  }
+
+  private func settingsScopeBadge(_ scope: String) -> some View {
+    Text(scope)
+      .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.accent.opacity(OpacityTier.light))
+      )
   }
 
   // MARK: - Networking
