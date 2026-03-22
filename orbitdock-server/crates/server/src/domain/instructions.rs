@@ -123,6 +123,17 @@ multiple comments. One living document.
 - Use `mission_report_blocked` only for true blockers (missing auth, secrets, permissions)
 - Create a PR when complete, then use `mission_link_pr` to attach it to the issue
 - **NEVER merge PRs.** After opening the PR, check CI status and address review feedback — but leave merging to a human.
-- If you discover out-of-scope work, use `mission_create_followup` instead of expanding scope"#
+- If you discover out-of-scope work, use `mission_create_followup` instead of expanding scope
+
+## Git Workflow
+
+Your worktree is automatically based on the latest remote base branch at dispatch time.
+Keep your branch linear — **never create merge commits**.
+
+- Sync with base branch: `git fetch origin && git rebase origin/main` (or the configured base branch)
+- Prefer `git pull --rebase` over `git pull`
+- If you need to stay current mid-work: `git fetch origin && git rebase origin/main`
+- **NEVER** run `git merge` — always rebase
+- Keep commits clean and atomic"#
         .to_string()
 }

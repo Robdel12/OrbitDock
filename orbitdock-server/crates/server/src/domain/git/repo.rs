@@ -257,6 +257,11 @@ pub async fn delete_remote_branch(repo_path: &str, branch: &str) -> Result<(), S
     run_git_checked(&["push", "origin", "--delete", branch], repo_path).await
 }
 
+/// Fetch the latest refs from `origin`.
+pub async fn fetch_origin(repo_path: &str) -> Result<(), String> {
+    run_git_checked(&["fetch", "origin"], repo_path).await
+}
+
 /// Initialize a new git repository at the given path.
 pub async fn git_init(path: &str) -> Result<(), String> {
     run_git_checked(&["init"], path).await

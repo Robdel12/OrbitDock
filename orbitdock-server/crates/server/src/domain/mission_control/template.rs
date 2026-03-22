@@ -82,11 +82,12 @@ You are working on {issue_label} `{{{{ issue.identifier }}}}`: {{{{ issue.title 
 You are working in a git worktree on branch `mission/{{{{ issue.identifier | downcase }}}}`.
 
 1. **Read project guidelines** — check for AGENTS.md, CLAUDE.md, or similar files first.
-2. **Post your workpad** — use your mission tools to post a plan on the issue before writing code.
-3. **Understand the codebase** — explore the relevant code before making changes.
-4. **Implement** — make focused, minimal changes. Run tests and linters.
-5. **Commit** — keep commits clean and atomic. Update your workpad as you go.
-6. **Create a PR** targeting `main` when complete. Attach it to the issue.
+2. **Sync with latest `main`** — before writing code, fetch the latest changes and rebase your worktree branch onto `origin/main` (or the configured base branch). Prefer `git pull --rebase` / `git fetch` + `git rebase`. Do not create merge commits.
+3. **Post your workpad** — use your mission tools to post a plan on the issue before writing code.
+4. **Understand the codebase** — explore the relevant code before making changes.
+5. **Implement** — make focused, minimal changes. Run tests and linters.
+6. **Commit** — keep commits clean and atomic. Update your workpad as you go.
+7. **Create a PR** targeting `main` when complete. Attach it to the issue.
 
 ## Rules
 
@@ -94,6 +95,9 @@ You are working in a git worktree on branch `mission/{{{{ issue.identifier | dow
 - Stop early only for true blockers (missing auth, permissions, secrets).
 - Do not expand scope. File follow-up issues for anything tangential.
 - Keep the workpad updated — it is the primary way humans track your progress.
+- Prefer rebases over merges when syncing with the base branch.
+- **NEVER create merge commits.** Keep mission branches linear.
+- **NEVER merge PRs.** Create the PR, verify CI passes, and address any review feedback — but leave merging to a human.
 "#
     )
 }

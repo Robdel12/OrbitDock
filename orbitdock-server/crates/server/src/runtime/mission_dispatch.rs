@@ -89,12 +89,27 @@ pub async fn dispatch_issue(
         );
     }
 
+    // Fetch latest refs so the worktree starts from the current remote HEAD
+    if let Err(err) = crate::domain::git::repo::fetch_origin(&ctx.repo_root).await {
+        warn!(
+            component = "mission_control",
+            event = "dispatch.fetch_failed",
+            mission_id = %mission_id,
+            issue_id = %issue.id,
+            error = %err,
+            "git fetch origin failed — worktree will use local state"
+        );
+    }
+
+    // Use origin/<base_branch> so the worktree is based on the freshly-fetched remote ref
+    let remote_base = format!("origin/{}", ctx.base_branch);
+
     // Create worktree via the runtime helper (also persists the record)
     let worktree_path = match crate::runtime::worktree_creation::create_tracked_worktree(
         registry,
         &ctx.repo_root,
         &branch_name,
-        Some(&ctx.base_branch),
+        Some(&remote_base),
         orbitdock_protocol::WorktreeOrigin::Agent,
         ctx.worktree_root_dir.as_deref(),
         true, // always clean up stale worktrees — if we're dispatching, no active session owns them
