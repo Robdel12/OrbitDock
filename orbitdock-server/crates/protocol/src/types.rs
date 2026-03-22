@@ -105,6 +105,38 @@ pub enum ShellExecutionOutcome {
     Canceled,
 }
 
+/// Normalized approval decision used by OrbitDock's client-facing API.
+///
+/// This stays stable for UI and transport code, then gets translated into
+/// provider-native approval commands before reaching a connector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolApprovalDecision {
+    Approved,
+    ApprovedForSession,
+    ApprovedAlways,
+    Denied,
+    Abort,
+}
+
+impl ToolApprovalDecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::ApprovedForSession => "approved_for_session",
+            Self::ApprovedAlways => "approved_always",
+            Self::Denied => "denied",
+            Self::Abort => "abort",
+        }
+    }
+}
+
+impl std::fmt::Display for ToolApprovalDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Rate limit information from the Claude SDK
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitInfo {

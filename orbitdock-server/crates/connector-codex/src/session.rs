@@ -12,6 +12,48 @@ use tokio::sync::oneshot;
 
 use crate::{CodexConfigOverrides, CodexConnector, CodexControlPlane, UpdateConfigOptions};
 
+#[derive(Debug)]
+pub enum CodexExecApproval {
+    Approved,
+    ApprovedForSession,
+    ApprovedAlways {
+        proposed_amendment: Option<Vec<String>>,
+    },
+    Denied,
+    Abort,
+}
+
+impl CodexExecApproval {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::ApprovedForSession => "approved_for_session",
+            Self::ApprovedAlways { .. } => "approved_always",
+            Self::Denied => "denied",
+            Self::Abort => "abort",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum CodexPatchApproval {
+    Approved,
+    ApprovedForSession,
+    Denied,
+    Abort,
+}
+
+impl CodexPatchApproval {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::ApprovedForSession => "approved_for_session",
+            Self::Denied => "denied",
+            Self::Abort => "abort",
+        }
+    }
+}
+
 /// Actions that can be sent to a Codex session
 pub enum CodexAction {
     SendMessage {
@@ -39,12 +81,11 @@ pub enum CodexAction {
     },
     ApproveExec {
         request_id: String,
-        decision: String,
-        proposed_amendment: Option<Vec<String>>,
+        decision: CodexExecApproval,
     },
     ApprovePatch {
         request_id: String,
-        decision: String,
+        decision: CodexPatchApproval,
     },
     AnswerQuestion {
         request_id: String,
@@ -134,7 +175,6 @@ impl std::fmt::Debug for CodexAction {
             Self::ApproveExec {
                 request_id,
                 decision,
-                ..
             } => f
                 .debug_struct("ApproveExec")
                 .field("request_id", request_id)
@@ -506,17 +546,14 @@ impl CodexSession {
             CodexAction::ApproveExec {
                 request_id,
                 decision,
-                proposed_amendment,
             } => {
-                connector
-                    .approve_exec(&request_id, &decision, proposed_amendment)
-                    .await?;
+                connector.approve_exec(&request_id, decision).await?;
             }
             CodexAction::ApprovePatch {
                 request_id,
                 decision,
             } => {
-                connector.approve_patch(&request_id, &decision).await?;
+                connector.approve_patch(&request_id, decision).await?;
             }
             CodexAction::AnswerQuestion {
                 request_id,

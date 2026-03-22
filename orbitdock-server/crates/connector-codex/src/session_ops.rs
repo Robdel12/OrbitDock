@@ -18,6 +18,7 @@ use super::config::{
 use super::{
     CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
 };
+use crate::session::{CodexExecApproval, CodexPatchApproval};
 use orbitdock_connector_core::ConnectorError;
 
 fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
@@ -330,13 +331,13 @@ impl CodexConnector {
     pub async fn approve_exec(
         &self,
         request_id: &str,
-        decision: &str,
-        proposed_amendment: Option<Vec<String>>,
+        decision: CodexExecApproval,
     ) -> Result<(), ConnectorError> {
+        let label = decision.label();
         let review = match decision {
-            "approved" => ReviewDecision::Approved,
-            "approved_for_session" => ReviewDecision::ApprovedForSession,
-            "approved_always" => {
+            CodexExecApproval::Approved => ReviewDecision::Approved,
+            CodexExecApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
+            CodexExecApproval::ApprovedAlways { proposed_amendment } => {
                 if let Some(cmd) = proposed_amendment {
                     ReviewDecision::ApprovedExecpolicyAmendment {
                         proposed_execpolicy_amendment:
@@ -346,8 +347,8 @@ impl CodexConnector {
                     ReviewDecision::ApprovedForSession
                 }
             }
-            "abort" => ReviewDecision::Abort,
-            _ => ReviewDecision::Denied,
+            CodexExecApproval::Abort => ReviewDecision::Abort,
+            CodexExecApproval::Denied => ReviewDecision::Denied,
         };
 
         let op = Op::ExecApproval {
@@ -361,20 +362,21 @@ impl CodexConnector {
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve exec: {}", e)))?;
 
-        info!("Sent exec approval: {} = {}", request_id, decision);
+        info!("Sent exec approval: {} = {}", request_id, label);
         Ok(())
     }
 
     pub async fn approve_patch(
         &self,
         request_id: &str,
-        decision: &str,
+        decision: CodexPatchApproval,
     ) -> Result<(), ConnectorError> {
+        let label = decision.label();
         let review = match decision {
-            "approved" => ReviewDecision::Approved,
-            "approved_for_session" => ReviewDecision::ApprovedForSession,
-            "abort" => ReviewDecision::Abort,
-            _ => ReviewDecision::Denied,
+            CodexPatchApproval::Approved => ReviewDecision::Approved,
+            CodexPatchApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
+            CodexPatchApproval::Abort => ReviewDecision::Abort,
+            CodexPatchApproval::Denied => ReviewDecision::Denied,
         };
 
         let op = Op::PatchApproval {
@@ -386,7 +388,7 @@ impl CodexConnector {
             ConnectorError::ProviderError(format!("Failed to approve patch: {}", e))
         })?;
 
-        info!("Sent patch approval: {} = {}", request_id, decision);
+        info!("Sent patch approval: {} = {}", request_id, label);
         Ok(())
     }
 

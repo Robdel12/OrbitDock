@@ -8,8 +8,59 @@ use std::collections::HashMap;
 
 use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::ProviderSessionId;
+use serde_json::Value;
 
 use crate::ClaudeConnector;
+
+#[derive(Debug)]
+pub enum ClaudeAllowToolApprovalScope {
+    Once,
+    Session,
+    Always,
+}
+
+#[derive(Debug)]
+pub struct ClaudeAllowToolApproval {
+    pub scope: ClaudeAllowToolApprovalScope,
+    pub updated_input: Option<Value>,
+}
+
+#[derive(Debug)]
+pub struct ClaudeDenyToolApproval {
+    pub message: Option<String>,
+    pub interrupt: bool,
+}
+
+#[derive(Debug)]
+pub enum ClaudeToolApprovalResponse {
+    Allow(ClaudeAllowToolApproval),
+    Deny(ClaudeDenyToolApproval),
+}
+
+impl ClaudeToolApprovalResponse {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Allow(ClaudeAllowToolApproval {
+                scope: ClaudeAllowToolApprovalScope::Once,
+                ..
+            }) => "approved",
+            Self::Allow(ClaudeAllowToolApproval {
+                scope: ClaudeAllowToolApprovalScope::Session,
+                ..
+            }) => "approved_for_session",
+            Self::Allow(ClaudeAllowToolApproval {
+                scope: ClaudeAllowToolApprovalScope::Always,
+                ..
+            }) => "approved_always",
+            Self::Deny(ClaudeDenyToolApproval {
+                interrupt: false, ..
+            }) => "denied",
+            Self::Deny(ClaudeDenyToolApproval {
+                interrupt: true, ..
+            }) => "abort",
+        }
+    }
+}
 
 /// Actions that can be sent to a Claude session
 #[allow(dead_code)]
@@ -23,10 +74,7 @@ pub enum ClaudeAction {
     Interrupt,
     ApproveTool {
         request_id: String,
-        decision: String,
-        message: Option<String>,
-        interrupt: Option<bool>,
-        updated_input: Option<serde_json::Value>,
+        response: ClaudeToolApprovalResponse,
     },
     AnswerQuestion {
         request_id: String,
@@ -104,12 +152,12 @@ impl std::fmt::Debug for ClaudeAction {
             Self::Interrupt => write!(f, "Interrupt"),
             Self::ApproveTool {
                 request_id,
-                decision,
+                response,
                 ..
             } => f
                 .debug_struct("ApproveTool")
                 .field("request_id", request_id)
-                .field("decision", decision)
+                .field("response", response)
                 .finish(),
             Self::AnswerQuestion {
                 request_id,
@@ -245,20 +293,9 @@ impl ClaudeSession {
             }
             ClaudeAction::ApproveTool {
                 request_id,
-                decision,
-                message,
-                interrupt,
-                updated_input,
+                response,
             } => {
-                connector
-                    .approve_tool(
-                        &request_id,
-                        &decision,
-                        message.as_deref(),
-                        interrupt,
-                        updated_input.as_ref(),
-                    )
-                    .await?;
+                connector.approve_tool(&request_id, response).await?;
             }
             ClaudeAction::AnswerQuestion {
                 request_id,

@@ -19,7 +19,9 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 
 // Re-export so existing server code doesn't break
-pub use orbitdock_connector_codex::session::{CodexAction, CodexSession};
+pub use orbitdock_connector_codex::session::{
+    CodexAction, CodexExecApproval, CodexPatchApproval, CodexSession,
+};
 
 /// Start the Codex session event forwarding loop.
 ///

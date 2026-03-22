@@ -756,12 +756,13 @@ extension DirectSessionComposer {
     interrupt: Bool?
   ) {
     guard let requestId = model.approvalId else { return }
+    guard let normalizedDecision = pendingApprovalDecision(decision) else { return }
     Task {
       do {
         try await viewModel.approveTool(
           sessionId: model.sessionId,
           requestId: requestId,
-          decision: decision,
+          decision: normalizedDecision,
           message: message,
           interrupt: interrupt
         )
@@ -775,6 +776,10 @@ extension DirectSessionComposer {
 
   private func hapticForPendingDecision(_ decision: String) -> AppHaptic {
     DirectSessionComposerPendingPlanner.hapticForDecision(decision)
+  }
+
+  private func pendingApprovalDecision(_ rawValue: String) -> ApprovalsClient.ToolApprovalDecision? {
+    ApprovalsClient.ToolApprovalDecision(rawValue: rawValue)
   }
 
   private func handlePendingPermissionAction(

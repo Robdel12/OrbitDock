@@ -1,9 +1,17 @@
 import Foundation
 
 struct ApprovalsClient: Sendable {
+  enum ToolApprovalDecision: String, Encodable, Sendable {
+    case approved
+    case approvedForSession = "approved_for_session"
+    case approvedAlways = "approved_always"
+    case denied
+    case abort
+  }
+
   struct ApproveToolRequest: Encodable {
     let requestId: String
-    let decision: String
+    let decision: ToolApprovalDecision
     var message: String?
     var interrupt: Bool?
   }

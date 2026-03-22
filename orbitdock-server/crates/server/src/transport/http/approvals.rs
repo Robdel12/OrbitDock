@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::errors::{bad_request, internal, not_found, unprocessable};
 use super::*;
-use orbitdock_protocol::PermissionGrantScope;
+use orbitdock_protocol::{PermissionGrantScope, ToolApprovalDecision};
 
 fn approval_dispatch_error_response(
     code: &'static str,
@@ -23,6 +23,10 @@ fn approval_dispatch_error_response(
         "invalid_permissions_payload" => bad_request(
             "invalid_permissions_payload",
             "Permission approvals require an object payload or null",
+        ),
+        "invalid_patch_approval_decision" => bad_request(
+            "invalid_patch_approval_decision",
+            "This approval type does not support the requested decision",
         ),
         "rollback_failed" => unprocessable(
             "rollback_failed",
@@ -55,7 +59,7 @@ pub struct ApprovalsQuery {
 #[derive(Debug, Deserialize)]
 pub struct ApproveToolRequest {
     pub request_id: String,
-    pub decision: String,
+    pub decision: ToolApprovalDecision,
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]

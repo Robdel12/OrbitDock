@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::types::{
     ImageInput, MentionInput, PermissionGrantScope, Provider, ReviewCommentStatus,
-    ReviewCommentTag, SkillInput,
+    ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
 fn default_include_snapshot() -> bool {
@@ -54,7 +54,7 @@ pub enum ClientMessage {
     ApproveTool {
         session_id: String,
         request_id: String,
-        decision: String,
+        decision: ToolApprovalDecision,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         message: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

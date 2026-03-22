@@ -299,7 +299,7 @@ final class DirectSessionComposerViewModel {
   func approveTool(
     sessionId: String? = nil,
     requestId: String,
-    decision: String,
+    decision: ApprovalsClient.ToolApprovalDecision,
     message: String? = nil,
     interrupt: Bool? = nil
   ) async throws {

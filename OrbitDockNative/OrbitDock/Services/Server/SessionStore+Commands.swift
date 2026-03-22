@@ -36,11 +36,11 @@ extension SessionStore {
   func approveTool(
     sessionId: String,
     requestId: String,
-    decision: String,
+    decision: ApprovalsClient.ToolApprovalDecision,
     message: String? = nil,
     interrupt: Bool? = nil
   ) async throws {
-    netLog(.info, cat: .store, "Approve tool", sid: sessionId, data: ["requestId": requestId, "decision": decision])
+    netLog(.info, cat: .store, "Approve tool", sid: sessionId, data: ["requestId": requestId, "decision": decision.rawValue])
     var request = ApprovalsClient.ApproveToolRequest(requestId: requestId, decision: decision)
     request.message = message
     request.interrupt = interrupt

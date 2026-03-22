@@ -24,6 +24,10 @@ use orbitdock_protocol::conversation_contracts::{
     classify_tool_name, ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
+use session::{
+    ClaudeAllowToolApproval, ClaudeAllowToolApprovalScope, ClaudeDenyToolApproval,
+    ClaudeToolApprovalResponse,
+};
 
 // ---------------------------------------------------------------------------
 // Tool classification
@@ -819,65 +823,74 @@ impl ClaudeConnector {
     pub async fn approve_tool(
         &self,
         request_id: &str,
-        decision: &str,
-        message: Option<&str>,
-        interrupt: Option<bool>,
-        updated_input: Option<&Value>,
+        response: ClaudeToolApprovalResponse,
     ) -> Result<(), ConnectorError> {
         let pending = self.pending_approvals.lock().await.remove(request_id);
 
-        let is_deny = matches!(decision, "denied" | "deny" | "abort");
-        let response_payload = if is_deny {
-            let mut deny = serde_json::json!({
-                "behavior": "deny",
-                "message": message.unwrap_or("User denied this operation"),
-                "interrupt": interrupt.unwrap_or(decision == "abort"),
-            });
-            if let Some(ref p) = pending {
-                if let Some(ref id) = p.tool_use_id {
-                    deny["toolUseID"] = serde_json::json!(id);
-                }
-            }
-            deny
-        } else {
-            let mut allow = serde_json::json!({
-                "behavior": "allow",
-            });
-            if let Some(ref p) = pending {
-                // Use client-provided updated_input if present, otherwise echo original
-                if let Some(ui) = updated_input {
-                    allow["updatedInput"] = ui.clone();
-                } else {
-                    allow["updatedInput"] = p.input.clone();
-                }
-                if let Some(ref id) = p.tool_use_id {
-                    allow["toolUseID"] = serde_json::json!(id);
-                }
-                // For session/always approvals, relay the CLI's permission_suggestions
-                if matches!(decision, "approved_for_session" | "approved_always") {
-                    if let Some(ref suggestions) = p.permission_suggestions {
-                        allow["updatedPermissions"] = suggestions.clone();
-                    } else {
-                        warn!(
-                            component = "claude_connector",
-                            event = "claude.approval.missing_permission_suggestions",
-                            request_id = %request_id,
-                            decision = %decision,
-                            tool_use_id = ?p.tool_use_id,
-                            "Session-scoped approval missing permission suggestions; CLI may reprompt the same command"
-                        );
+        let decision = response.label();
+        let response_payload = match response {
+            ClaudeToolApprovalResponse::Deny(ClaudeDenyToolApproval { message, interrupt }) => {
+                let mut deny = serde_json::json!({
+                    "behavior": "deny",
+                    "message": message.unwrap_or_else(|| "User denied this operation".to_string()),
+                    "interrupt": interrupt,
+                });
+                if let Some(ref p) = pending {
+                    if let Some(ref id) = p.tool_use_id {
+                        deny["toolUseID"] = serde_json::json!(id);
                     }
                 }
-            } else if matches!(decision, "approved_for_session" | "approved_always") {
-                warn!(
-                    component = "claude_connector",
-                    event = "claude.approval.missing_pending_context",
-                    request_id = %request_id,
-                    decision = %decision,
-                    "Session-scoped approval missing pending request context; cannot attach permission updates"
-                );
+                deny
             }
-            allow
+            ClaudeToolApprovalResponse::Allow(ClaudeAllowToolApproval {
+                scope,
+                updated_input,
+            }) => {
+                let mut allow = serde_json::json!({
+                    "behavior": "allow",
+                });
+                if let Some(ref p) = pending {
+                    // Use client-provided updated_input if present, otherwise echo original
+                    if let Some(ui) = updated_input {
+                        allow["updatedInput"] = ui;
+                    } else {
+                        allow["updatedInput"] = p.input.clone();
+                    }
+                    if let Some(ref id) = p.tool_use_id {
+                        allow["toolUseID"] = serde_json::json!(id);
+                    }
+                    if matches!(
+                        scope,
+                        ClaudeAllowToolApprovalScope::Session
+                            | ClaudeAllowToolApprovalScope::Always
+                    ) {
+                        if let Some(ref suggestions) = p.permission_suggestions {
+                            allow["updatedPermissions"] = suggestions.clone();
+                        } else {
+                            warn!(
+                                component = "claude_connector",
+                                event = "claude.approval.missing_permission_suggestions",
+                                request_id = %request_id,
+                                decision = %decision,
+                                tool_use_id = ?p.tool_use_id,
+                                "Session-scoped approval missing permission suggestions; CLI may reprompt the same command"
+                            );
+                        }
+                    }
+                } else if matches!(
+                    scope,
+                    ClaudeAllowToolApprovalScope::Session | ClaudeAllowToolApprovalScope::Always
+                ) {
+                    warn!(
+                        component = "claude_connector",
+                        event = "claude.approval.missing_pending_context",
+                        request_id = %request_id,
+                        decision = %decision,
+                        "Session-scoped approval missing pending request context; cannot attach permission updates"
+                    );
+                }
+                allow
+            }
         };
 
         let msg = StdinMessage::ControlResponse {
