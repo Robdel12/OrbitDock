@@ -1311,6 +1311,26 @@ pub async fn report_issue_completed(
     let iid = issue_id.clone();
     let now = chrono::Utc::now().to_rfc3339();
 
+    // Look up the session_id for this issue before marking it completed
+    let session_id: Option<String> = {
+        let db_path = registry.db_path().clone();
+        let mid2 = mid.clone();
+        let iid2 = iid.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = rusqlite::Connection::open(&db_path).ok()?;
+            conn.query_row(
+                "SELECT session_id FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
+                params![mid2, iid2],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten()
+        })
+        .await
+        .ok()
+        .flatten()
+    };
+
     let _ = registry
         .persist()
         .send(PersistCommand::MissionIssueUpdateState {
@@ -1326,6 +1346,19 @@ pub async fn report_issue_completed(
         })
         .await;
 
+    // End the agent session now that its issue is done
+    if let Some(ref sid) = session_id {
+        crate::runtime::session_mutations::end_session(&registry, sid).await;
+        info!(
+            component = "mission_control",
+            event = "session.auto_ended",
+            mission_id = %mid,
+            issue_id = %iid,
+            session_id = %sid,
+            "Ended agent session after issue completed"
+        );
+    }
+
     crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&registry, &mid).await;
 
     info!(
@@ -1334,6 +1367,7 @@ pub async fn report_issue_completed(
         mission_id = %mid,
         issue_id = %iid,
         tracker_state = ?body.tracker_state,
+        session_ended = session_id.is_some(),
         "Agent reported issue completed"
     );
 

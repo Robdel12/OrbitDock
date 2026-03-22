@@ -92,6 +92,17 @@ struct MissionAlertBoard: View {
               .buttonStyle(.plain)
             }
 
+            if let sessionId = issue.sessionId {
+              Button {
+                onNavigateToSession(sessionId)
+              } label: {
+                Text("Open \u{2192}")
+                  .font(.system(size: TypeScale.micro, weight: .semibold))
+                  .foregroundStyle(Color.accent)
+              }
+              .buttonStyle(.plain)
+            }
+
             Button {
               Task { await retryIssue(issue) }
             } label: {
@@ -178,6 +189,18 @@ struct MissionAlertBoard: View {
               }
               .buttonStyle(.plain)
               .help("Open in tracker")
+            }
+
+            if let sessionId = issue.sessionId {
+              Button {
+                onNavigateToSession(sessionId)
+              } label: {
+                Text("Open \u{2192}")
+                  .font(.system(size: TypeScale.micro, weight: .semibold))
+                  .foregroundStyle(Color.accent)
+              }
+              .buttonStyle(.plain)
+              .help("Open session")
             }
 
             Button {
