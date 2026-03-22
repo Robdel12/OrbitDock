@@ -207,15 +207,12 @@ pub async fn create_mission(
         "Mission created"
     );
 
-    let primary_provider = match req.provider.as_str() {
-        "claude" | "codex" => req.provider.parse::<Provider>().unwrap_or(Provider::Claude),
-        other => {
-            return Err(bad_request(
-                "invalid_provider",
-                format!("Unknown provider: {other}"),
-            ))
-        }
-    };
+    let primary_provider = req.provider.parse::<Provider>().map_err(|_| {
+        bad_request(
+            "invalid_provider",
+            format!("Invalid provider: {}", req.provider),
+        )
+    })?;
 
     let orchestrator_status =
         if crate::support::api_keys::resolve_tracker_api_key(&req.tracker_kind).is_none() {
@@ -1346,13 +1343,14 @@ fn summary_from_row(
                     .provider
                     .primary
                     .parse::<Provider>()
+                    .or_else(|_| row.provider.parse::<Provider>())
                     .unwrap_or(Provider::Claude),
                 config.provider.strategy.clone(),
                 config
                     .provider
                     .secondary
                     .as_ref()
-                    .map(|s| s.parse::<Provider>().unwrap_or(Provider::Claude)),
+                    .and_then(|s| s.parse::<Provider>().ok()),
             )
         } else {
             (
