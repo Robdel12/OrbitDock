@@ -570,7 +570,16 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                     .as_deref()
                     .unwrap_or("claude")
                     .parse::<Provider>()
-                    .unwrap(),
+                    .unwrap_or_else(|_| {
+                        warn!(
+                            component = "mission_control",
+                            event = "provider.invalid_issue",
+                            issue_id = %row.issue_id,
+                            raw_value = ?row.provider,
+                            "Invalid provider for issue, falling back to Claude"
+                        );
+                        Provider::Claude
+                    }),
                 attempt: row.attempt,
                 error: row.last_error.clone(),
                 url: row.url.clone(),
@@ -579,7 +588,16 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         })
         .collect();
 
-    let primary_provider: Provider = mission.provider.parse().unwrap();
+    let primary_provider: Provider = mission.provider.parse().unwrap_or_else(|_| {
+        warn!(
+            component = "mission_control",
+            event = "provider.invalid_mission",
+            mission_id = %mission.id,
+            raw_value = %mission.provider,
+            "Invalid primary provider for mission, falling back to Claude"
+        );
+        Provider::Claude
+    });
 
     let orchestrator_running = registry.is_orchestrator_running();
     let orchestrator_status =
@@ -590,11 +608,18 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
         if let Ok(config) =
             serde_json::from_str::<crate::domain::mission_control::config::MissionConfig>(json)
         {
-            let secondary = config
-                .provider
-                .secondary
-                .as_ref()
-                .map(|s| s.parse::<Provider>().unwrap());
+            let secondary = config.provider.secondary.as_ref().and_then(|s| {
+                s.parse::<Provider>().ok().or_else(|| {
+                    warn!(
+                        component = "mission_control",
+                        event = "provider.invalid_secondary",
+                        mission_id = %mission.id,
+                        raw_value = %s,
+                        "Invalid secondary provider for mission, dropping to None"
+                    );
+                    None
+                })
+            });
             (config.provider.strategy, secondary)
         } else {
             ("single".to_string(), None)
