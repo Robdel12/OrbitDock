@@ -561,6 +561,12 @@ pub(super) fn execute_command(
                 params![session_id, turn_id, diff, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
             )?;
 
+            // Clear current_diff now that the turn diff has been archived
+            conn.execute(
+                "UPDATE sessions SET current_diff = NULL WHERE id = ?1",
+                params![session_id],
+            )?;
+
             upsert_usage_turn_snapshot(
                 conn,
                 &session_id,

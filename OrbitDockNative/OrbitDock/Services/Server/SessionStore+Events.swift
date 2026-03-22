@@ -244,6 +244,11 @@ extension SessionStore {
       isBootstrap: true
     )
     obs.applySnapshotProjection(state.toDetailSnapshotProjection())
+    obs.diff = state.currentDiff
+    obs.plan = state.currentPlan
+    obs.turnDiffs = state.turnDiffs
+    obs.currentTurnId = state.currentTurnId
+    obs.turnCount = state.turnCount
     obs.subagents = state.subagents
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),

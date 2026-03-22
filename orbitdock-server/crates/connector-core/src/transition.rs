@@ -569,6 +569,9 @@ pub fn transition(
                 })));
             }
 
+            // Clear current_diff now that it has been archived into turn_diffs
+            state.current_diff = None;
+
             // Finalize any tool messages stuck at is_in_progress before status change
             effects.extend(finalize_in_progress_rows(
                 &sid,
@@ -595,6 +598,7 @@ pub fn transition(
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
                     current_turn_id: Some(None),
+                    current_diff: Some(None),
                     ..Default::default()
                 },
             })));
@@ -3379,13 +3383,17 @@ mod tests {
 
         let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
 
-        // Diff should be snapshotted
+        // Diff should be snapshotted into turn_diffs
         assert_eq!(new_state.turn_diffs.len(), 1);
         assert_eq!(new_state.turn_diffs[0].turn_id, "turn-1");
         assert!(new_state.turn_diffs[0].diff.contains("+new"));
 
-        // Turn ID should be cleared
+        // Turn ID and current_diff should be cleared
         assert!(new_state.current_turn_id.is_none());
+        assert!(
+            new_state.current_diff.is_none(),
+            "current_diff should be cleared after archiving into turn_diffs"
+        );
 
         // Should emit TurnDiffSnapshot
         let has_snapshot = effects.iter().any(|e| matches!(
@@ -3393,6 +3401,18 @@ mod tests {
             Effect::Emit(ref msg) if matches!(msg.as_ref(), ServerMessage::TurnDiffSnapshot { .. })
         ));
         assert!(has_snapshot, "should emit TurnDiffSnapshot");
+
+        // SessionDelta should clear current_diff
+        let clears_diff = effects.iter().any(|e| match e {
+            Effect::Emit(msg) => match msg.as_ref() {
+                ServerMessage::SessionDelta { changes, .. } => {
+                    changes.current_diff == Some(None)
+                }
+                _ => false,
+            },
+            _ => false,
+        });
+        assert!(clears_diff, "SessionDelta should clear current_diff");
     }
 
     #[test]
