@@ -1029,7 +1029,7 @@ async fn watch(
 
     if output.json {
         output.print_json(&ServerMessage::ConversationBootstrap {
-            session: session.clone(),
+            session: Box::new(session.clone()),
             conversation: RowPageSummary {
                 rows: vec![],
                 total_row_count: 0,

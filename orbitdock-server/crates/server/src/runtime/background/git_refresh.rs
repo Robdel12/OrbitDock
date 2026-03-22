@@ -81,7 +81,7 @@ async fn refresh_subscribed_sessions(state: &SessionRegistry) {
 
                 actor
                     .send(SessionCommand::ApplyDelta {
-                        changes,
+                        changes: Box::new(changes),
                         persist_op: None,
                     })
                     .await;

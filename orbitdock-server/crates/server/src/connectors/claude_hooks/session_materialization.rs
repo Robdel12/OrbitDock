@@ -93,13 +93,13 @@ pub(crate) async fn materialize_claude_session(
     if git_branch.is_some() || repository_root.is_some() {
         actor
             .send(SessionCommand::ApplyDelta {
-                changes: orbitdock_protocol::StateChanges {
+                changes: Box::new(orbitdock_protocol::StateChanges {
                     git_branch: git_branch.as_ref().map(|value| Some(value.clone())),
                     git_sha: git_sha.as_ref().map(|value| Some(value.clone())),
                     repository_root: repository_root.as_ref().map(|value| Some(value.clone())),
                     is_worktree: if is_worktree { Some(true) } else { None },
                     ..Default::default()
-                },
+                }),
                 persist_op: None,
             })
             .await;

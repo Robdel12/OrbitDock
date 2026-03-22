@@ -110,7 +110,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
 
                 existing
                     .send(SessionCommand::ApplyDelta {
-                        changes: orbitdock_protocol::StateChanges {
+                        changes: Box::new(orbitdock_protocol::StateChanges {
                             work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
                             git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
                             git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
@@ -118,7 +118,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             is_worktree: if is_worktree { Some(true) } else { None },
                             last_activity_at: Some(chrono_now()),
                             ..Default::default()
-                        },
+                        }),
                         persist_op: None,
                     })
                     .await;
@@ -282,10 +282,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     {
                                         actor
                                             .send(SessionCommand::ApplyDelta {
-                                                changes: orbitdock_protocol::StateChanges {
+                                                changes: Box::new(orbitdock_protocol::StateChanges {
                                                     summary: Some(Some(summary.clone())),
                                                     ..Default::default()
-                                                },
+                                                }),
                                                 persist_op: None,
                                             })
                                             .await;
@@ -359,13 +359,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
                     existing
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
+                            changes: Box::new(orbitdock_protocol::StateChanges {
                                 git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
                                 git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
                                 repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
                                 is_worktree: if is_worktree { Some(true) } else { None },
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: None,
                         })
                         .await;
@@ -490,7 +490,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     };
                     let _ = actor
                         .send(SessionCommand::ApplyDelta {
-                            changes,
+                            changes: Box::new(changes),
                             persist_op: None,
                         })
                         .await;
@@ -514,13 +514,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         // Push delta to clients
                         let _ = actor
                             .send(SessionCommand::ApplyDelta {
-                                changes: orbitdock_protocol::StateChanges {
+                                changes: Box::new(orbitdock_protocol::StateChanges {
                                     git_branch: Some(Some(info.branch.clone())),
                                     git_sha: Some(Some(info.sha.clone())),
                                     repository_root: Some(Some(info.common_dir_root.clone())),
                                     is_worktree: if info.is_worktree { Some(true) } else { None },
                                     ..Default::default()
-                                },
+                                }),
                                 persist_op: None,
                             })
                             .await;
@@ -561,10 +561,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         {
                             actor
                                 .send(SessionCommand::ApplyDelta {
-                                    changes: orbitdock_protocol::StateChanges {
+                                    changes: Box::new(orbitdock_protocol::StateChanges {
                                         summary: Some(Some(extracted_summary.clone())),
                                         ..Default::default()
-                                    },
+                                    }),
                                     persist_op: None,
                                 })
                                 .await;
@@ -612,11 +612,11 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             if let Some(work_status) = next_work_status {
                 actor
                     .send(SessionCommand::ApplyDelta {
-                        changes: orbitdock_protocol::StateChanges {
+                        changes: Box::new(orbitdock_protocol::StateChanges {
                             work_status: Some(work_status),
                             last_activity_at: Some(chrono_now()),
                             ..Default::default()
-                        },
+                        }),
                         persist_op: None,
                     })
                     .await;
@@ -788,13 +788,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
                     existing
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
+                            changes: Box::new(orbitdock_protocol::StateChanges {
                                 git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
                                 git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
                                 repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
                                 is_worktree: if is_worktree { Some(true) } else { None },
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: None,
                         })
                         .await;
@@ -858,11 +858,11 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
+                            changes: Box::new(orbitdock_protocol::StateChanges {
                                 work_status: Some(orbitdock_protocol::WorkStatus::Working),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: None,
                         })
                         .await;
@@ -946,7 +946,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     }
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: delta,
+                            changes: Box::new(delta),
                             persist_op: None,
                         })
                         .await;
@@ -993,11 +993,11 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
 
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
+                            changes: Box::new(orbitdock_protocol::StateChanges {
                                 work_status: Some(orbitdock_protocol::WorkStatus::Working),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: None,
                         })
                         .await;
@@ -1081,12 +1081,12 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             .await;
                         actor
                             .send(SessionCommand::ApplyDelta {
-                                changes: orbitdock_protocol::StateChanges {
+                                changes: Box::new(orbitdock_protocol::StateChanges {
                                     work_status: Some(work_status),
                                     current_plan: plan_text.clone().map(Some),
                                     last_activity_at: Some(chrono_now()),
                                     ..Default::default()
-                                },
+                                }),
                                 persist_op: None,
                             })
                             .await;

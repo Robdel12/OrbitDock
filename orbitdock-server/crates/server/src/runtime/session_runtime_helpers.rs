@@ -181,11 +181,11 @@ pub(crate) async fn mark_session_working_after_send(
     let now = chrono_now();
     actor
         .send(SessionCommand::ApplyDelta {
-            changes: StateChanges {
+            changes: Box::new(StateChanges {
                 work_status: Some(WorkStatus::Working),
                 last_activity_at: Some(now.clone()),
                 ..Default::default()
-            },
+            }),
             persist_op: Some(PersistOp::SessionUpdate {
                 id: session_id.to_string(),
                 status: None,

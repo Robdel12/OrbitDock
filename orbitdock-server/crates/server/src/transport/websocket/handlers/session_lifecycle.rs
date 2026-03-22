@@ -17,7 +17,9 @@ use crate::infrastructure::persistence::{
     PersistCommand,
 };
 use crate::runtime::restored_sessions::load_prepared_resume_session;
-use crate::runtime::session_commands::{PersistOp, SessionCommand, SubscribeResult};
+use crate::runtime::session_commands::{
+    PersistOp, SessionCommand, SessionConfigPersist, SubscribeResult,
+};
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
@@ -138,7 +140,7 @@ pub(crate) async fn handle(
             send_json(
                 client_tx,
                 ServerMessage::ConversationBootstrap {
-                    session: snapshot,
+                    session: Box::new(snapshot),
                     conversation: RowPageSummary {
                         rows: vec![],
                         total_row_count: 0,
@@ -242,10 +244,10 @@ pub(crate) async fn handle(
                             if let Some(actor) = state.get_session(&session_id) {
                                 actor
                                     .send(SessionCommand::ApplyDelta {
-                                        changes: StateChanges {
+                                        changes: Box::new(StateChanges {
                                             permission_mode: Some(Some(mode.clone())),
                                             ..Default::default()
-                                        },
+                                        }),
                                         persist_op: None,
                                     })
                                     .await;
@@ -276,14 +278,14 @@ pub(crate) async fn handle(
                             client_tx,
                             ServerMessage::SessionDelta {
                                 session_id: session_id.clone(),
-                                changes: StateChanges {
+                                changes: Box::new(StateChanges {
                                     claude_integration_mode: Some(Some(
                                         ClaudeIntegrationMode::Direct,
                                     )),
                                     status: Some(SessionStatus::Active),
                                     work_status: Some(WorkStatus::Waiting),
                                     ..Default::default()
-                                },
+                                }),
                             },
                         )
                         .await;
@@ -718,7 +720,7 @@ pub(crate) async fn handle(
                             }
                             actor
                                 .send(SessionCommand::ApplyDelta {
-                                    changes,
+                                    changes: Box::new(changes),
                                     persist_op: None,
                                 })
                                 .await;
@@ -876,29 +878,31 @@ pub(crate) async fn handle(
                             if let Some(actor) = state.get_session(&session_id) {
                                 actor
                                     .send(SessionCommand::ApplyDelta {
-                                        changes: orbitdock_protocol::StateChanges {
+                                        changes: Box::new(orbitdock_protocol::StateChanges {
                                             permission_mode: Some(Some(mode.clone())),
                                             ..Default::default()
-                                        },
+                                        }),
                                         persist_op: if requested_permission_mode.is_some() {
-                                            Some(PersistOp::SetSessionConfig {
-                                                session_id: session_id.clone(),
-                                                approval_policy: None,
-                                                sandbox_mode: None,
-                                                permission_mode: Some(Some(mode.clone())),
-                                                collaboration_mode: None,
-                                                multi_agent: None,
-                                                personality: None,
-                                                service_tier: None,
-                                                developer_instructions: None,
-                                                model: None,
-                                                effort: None,
-                                                codex_config_mode: None,
-                                                codex_config_profile: None,
-                                                codex_model_provider: None,
-                                                codex_config_source: None,
-                                                codex_config_overrides_json: None,
-                                            })
+                                            Some(PersistOp::SetSessionConfig(Box::new(
+                                                SessionConfigPersist {
+                                                    session_id: session_id.clone(),
+                                                    approval_policy: None,
+                                                    sandbox_mode: None,
+                                                    permission_mode: Some(Some(mode.clone())),
+                                                    collaboration_mode: None,
+                                                    multi_agent: None,
+                                                    personality: None,
+                                                    service_tier: None,
+                                                    developer_instructions: None,
+                                                    model: None,
+                                                    effort: None,
+                                                    codex_config_mode: None,
+                                                    codex_config_profile: None,
+                                                    codex_model_provider: None,
+                                                    codex_config_source: None,
+                                                    codex_config_overrides_json: None,
+                                                },
+                                            )))
                                         } else {
                                             None
                                         },
@@ -912,7 +916,9 @@ pub(crate) async fn handle(
                         if let Some(actor) = state.get_session(&session_id) {
                             actor
                                 .send(SessionCommand::ApplyDelta {
-                                    changes: direct_mode_activation_changes(Provider::Claude),
+                                    changes: Box::new(direct_mode_activation_changes(
+                                        Provider::Claude,
+                                    )),
                                     persist_op: None,
                                 })
                                 .await;
@@ -1024,7 +1030,9 @@ pub(crate) async fn handle(
                                 send_json(
                                     client_tx,
                                     ServerMessage::ConversationBootstrap {
-                                        session: prepare_snapshot_for_transport(*snapshot),
+                                        session: Box::new(prepare_snapshot_for_transport(
+                                            *snapshot,
+                                        )),
                                         conversation: RowPageSummary {
                                             rows: vec![],
                                             total_row_count: 0,

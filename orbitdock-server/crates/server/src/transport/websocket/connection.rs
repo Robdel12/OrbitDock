@@ -91,7 +91,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
         while let Some(msg) = outbound_rx.recv().await {
             let result = match msg {
                 OutboundMessage::Json(server_msg) => {
-                    let sanitized = sanitize_server_message_for_transport(server_msg);
+                    let sanitized = sanitize_server_message_for_transport(*server_msg);
                     match serde_json::to_string(&sanitized) {
                         Ok(json) => {
                             if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {

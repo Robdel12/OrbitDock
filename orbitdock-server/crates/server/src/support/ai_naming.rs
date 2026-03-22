@@ -96,7 +96,7 @@ pub fn spawn_naming_task(
                 };
                 let _ = actor
                     .send(SessionCommand::ApplyDelta {
-                        changes,
+                        changes: Box::new(changes),
                         persist_op: None,
                     })
                     .await;
@@ -104,10 +104,10 @@ pub fn spawn_naming_task(
                 // Also broadcast to list subscribers (dashboard sidebar)
                 let _ = list_tx.send(ServerMessage::SessionDelta {
                     session_id: session_id.clone(),
-                    changes: StateChanges {
+                    changes: Box::new(StateChanges {
                         summary: Some(Some(name.clone())),
                         ..Default::default()
-                    },
+                    }),
                 });
 
                 // Persist to DB

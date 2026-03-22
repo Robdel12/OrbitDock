@@ -12,16 +12,15 @@ use crate::support::snapshot_compaction::{
 };
 
 /// Messages that can be sent through the WebSocket.
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum OutboundMessage {
-    Json(ServerMessage),
+    Json(Box<ServerMessage>),
     Raw(String),
     Pong(Bytes),
 }
 
 pub(crate) async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
-    let _ = tx.send(OutboundMessage::Json(msg)).await;
+    let _ = tx.send(OutboundMessage::Json(Box::new(msg))).await;
 }
 
 pub(crate) async fn send_rest_only_error(
@@ -102,7 +101,7 @@ pub(crate) async fn send_snapshot_if_requested(
         send_json(
             tx,
             ServerMessage::ConversationBootstrap {
-                session: prepare_snapshot_for_transport(snapshot),
+                session: Box::new(prepare_snapshot_for_transport(snapshot)),
                 conversation: RowPageSummary {
                     rows: vec![],
                     total_row_count: 0,
@@ -144,7 +143,11 @@ pub(crate) fn spawn_broadcast_forwarder(
         loop {
             match rx.recv().await {
                 Ok(msg) => {
-                    if outbound_tx.send(OutboundMessage::Json(msg)).await.is_err() {
+                    if outbound_tx
+                        .send(OutboundMessage::Json(Box::new(msg)))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -157,11 +160,11 @@ pub(crate) fn spawn_broadcast_forwarder(
                         "Broadcast subscriber lagged, skipped {n} messages"
                     );
                     let _ = outbound_tx
-                        .send(OutboundMessage::Json(ServerMessage::Error {
+                        .send(OutboundMessage::Json(Box::new(ServerMessage::Error {
                             code: "lagged".to_string(),
                             message: format!("Subscriber lagged, skipped {n} messages"),
                             session_id: session_id.clone(),
-                        }))
+                        })))
                         .await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,

@@ -29,12 +29,12 @@ pub(crate) async fn reactivate_passive_and_prepare_subscribe(
     let now = chrono_now();
     actor
         .send(SessionCommand::ApplyDelta {
-            changes: StateChanges {
+            changes: Box::new(StateChanges {
                 status: Some(SessionStatus::Active),
                 work_status: Some(WorkStatus::Waiting),
                 last_activity_at: Some(now),
                 ..Default::default()
-            },
+            }),
             persist_op: Some(PersistOp::SessionUpdate {
                 id: session_id.to_string(),
                 status: Some(SessionStatus::Active),

@@ -164,7 +164,7 @@ pub fn start_event_loop(
                             };
                             let _ = actor_for_naming
                                 .send(crate::runtime::session_commands::SessionCommand::ApplyDelta {
-                                    changes,
+                                    changes: Box::new(changes),
                                     persist_op: None,
                                 })
                                 .await;

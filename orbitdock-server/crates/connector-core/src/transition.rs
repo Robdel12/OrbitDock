@@ -523,13 +523,13 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
                     current_turn_id: Some(Some(turn_id)),
                     turn_count: Some(state.turn_count),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -594,13 +594,13 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
                     current_turn_id: Some(None),
                     current_diff: Some(None),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -627,12 +627,12 @@ pub fn transition(
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
-                    changes: StateChanges {
+                    changes: Box::new(StateChanges {
                         work_status: Some(WorkStatus::Waiting),
                         last_activity_at: Some(now.to_string()),
                         current_turn_id: Some(None),
                         ..Default::default()
-                    },
+                    }),
                 })));
             }
         }
@@ -680,11 +680,11 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -874,7 +874,7 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::ApprovalRequested {
                 session_id: sid,
-                request,
+                request: Box::new(request),
                 approval_version: None, // Filled by actor after apply_state
             })));
         }
@@ -900,12 +900,12 @@ pub fn transition(
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
-                    changes: StateChanges {
+                    changes: Box::new(StateChanges {
                         work_status: Some(WorkStatus::Working),
                         pending_approval: Some(None),
                         last_activity_at: Some(now.to_string()),
                         ..Default::default()
-                    },
+                    }),
                 })));
             }
         }
@@ -918,10 +918,10 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     permission_mode: Some(Some(mode)),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -955,10 +955,10 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     current_diff: Some(Some(diff)),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -972,10 +972,10 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     current_plan: Some(Some(plan)),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -989,10 +989,10 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     custom_name: Some(Some(name)),
                     ..Default::default()
-                },
+                }),
             })));
         }
 
@@ -1033,11 +1033,11 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
                     ..Default::default()
-                },
+                }),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::UndoStarted {
                 session_id: sid,
@@ -1057,11 +1057,11 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
                     ..Default::default()
-                },
+                }),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::UndoCompleted {
                 session_id: sid,
@@ -1082,11 +1082,11 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid.clone(),
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
                     ..Default::default()
-                },
+                }),
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::ThreadRolledBack {
                 session_id: sid,
@@ -1139,7 +1139,7 @@ pub fn transition(
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
-                    changes: StateChanges {
+                    changes: Box::new(StateChanges {
                         current_cwd: Some(state.current_cwd.clone()),
                         git_branch: Some(state.git_branch.clone()),
                         git_sha: Some(state.git_sha.clone()),
@@ -1147,7 +1147,7 @@ pub fn transition(
                         repository_root: Some(state.repository_root.clone()),
                         is_worktree: Some(state.is_worktree),
                         ..Default::default()
-                    },
+                    }),
                 })));
             }
         }
@@ -1160,10 +1160,10 @@ pub fn transition(
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                 session_id: sid,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     model: Some(Some(model)),
                     ..Default::default()
-                },
+                }),
             })));
         }
 

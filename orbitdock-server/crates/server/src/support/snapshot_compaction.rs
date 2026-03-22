@@ -63,9 +63,9 @@ pub(crate) fn sanitize_server_message_for_transport(msg: ServerMessage) -> Serve
             session,
             conversation,
         } => {
-            let prepared = prepare_snapshot_for_transport(session);
+            let prepared = prepare_snapshot_for_transport(*session);
             ServerMessage::ConversationBootstrap {
-                session: prepared,
+                session: Box::new(prepared),
                 conversation,
             }
         }

@@ -705,10 +705,10 @@ impl WatcherRuntime {
                 if let Some(effort) = effort {
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: StateChanges {
+                            changes: Box::new(StateChanges {
                                 effort: Some(Some(effort)),
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: None,
                         })
                         .await;
@@ -940,7 +940,7 @@ impl WatcherRuntime {
                 };
                 let _ = actor
                     .send(SessionCommand::ApplyDelta {
-                        changes,
+                        changes: Box::new(changes),
                         persist_op: None,
                     })
                     .await;
@@ -1284,7 +1284,7 @@ impl WatcherRuntime {
                     actor
                         .send(SessionCommand::Broadcast {
                             msg: ServerMessage::ConversationBootstrap {
-                                session: state,
+                                session: Box::new(state),
                                 conversation: RowPageSummary {
                                     rows: vec![],
                                     total_row_count: 0,
@@ -1313,7 +1313,7 @@ impl WatcherRuntime {
 
             actor
                 .send(SessionCommand::ApplyDelta {
-                    changes: merged,
+                    changes: Box::new(merged),
                     persist_op: None,
                 })
                 .await;

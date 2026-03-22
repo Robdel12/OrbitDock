@@ -84,7 +84,7 @@ pub(crate) async fn dispatch_send_message(
         };
         let _ = actor
             .send(SessionCommand::ApplyDelta {
-                changes,
+                changes: Box::new(changes),
                 persist_op: None,
             })
             .await;
@@ -114,7 +114,7 @@ pub(crate) async fn dispatch_send_message(
         };
         let _ = actor
             .send(SessionCommand::ApplyDelta {
-                changes,
+                changes: Box::new(changes),
                 persist_op: None,
             })
             .await;
@@ -134,7 +134,7 @@ pub(crate) async fn dispatch_send_message(
         };
         let _ = actor
             .send(SessionCommand::ApplyDelta {
-                changes,
+                changes: Box::new(changes),
                 persist_op: None,
             })
             .await;

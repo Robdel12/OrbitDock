@@ -8,7 +8,7 @@ use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::codex_config::{
     resolve_codex_settings, serialize_codex_overrides, CodexConfigSelection,
 };
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_modes::is_passive_rollout_session;
 
@@ -254,7 +254,7 @@ pub(crate) async fn update_session_config(
 
     actor
         .send(SessionCommand::ApplyDelta {
-            changes: orbitdock_protocol::StateChanges {
+            changes: Box::new(orbitdock_protocol::StateChanges {
                 approval_policy: approval_policy.clone(),
                 approval_policy_details: approval_policy_details.clone(),
                 sandbox_mode: sandbox_mode.clone(),
@@ -272,27 +272,29 @@ pub(crate) async fn update_session_config(
                 codex_config_source: codex_config_source.map(Some),
                 codex_config_overrides: codex_config_overrides.clone().map(Some),
                 ..Default::default()
-            },
-            persist_op: Some(PersistOp::SetSessionConfig {
-                session_id: session_id.to_string(),
-                approval_policy: approval_policy.clone(),
-                sandbox_mode: sandbox_mode.clone(),
-                permission_mode: permission_mode.clone(),
-                collaboration_mode: collaboration_mode.clone(),
-                multi_agent,
-                personality: personality.clone(),
-                service_tier: service_tier.clone(),
-                developer_instructions: developer_instructions.clone(),
-                model: model.clone(),
-                effort: effort.clone(),
-                codex_config_mode: codex_config_mode.flatten(),
-                codex_config_profile: codex_config_profile.flatten(),
-                codex_model_provider: codex_model_provider.flatten(),
-                codex_config_source,
-                codex_config_overrides_json: codex_config_overrides
-                    .as_ref()
-                    .and_then(serialize_codex_overrides),
             }),
+            persist_op: Some(PersistOp::SetSessionConfig(Box::new(
+                SessionConfigPersist {
+                    session_id: session_id.to_string(),
+                    approval_policy: approval_policy.clone(),
+                    sandbox_mode: sandbox_mode.clone(),
+                    permission_mode: permission_mode.clone(),
+                    collaboration_mode: collaboration_mode.clone(),
+                    multi_agent,
+                    personality: personality.clone(),
+                    service_tier: service_tier.clone(),
+                    developer_instructions: developer_instructions.clone(),
+                    model: model.clone(),
+                    effort: effort.clone(),
+                    codex_config_mode: codex_config_mode.flatten(),
+                    codex_config_profile: codex_config_profile.flatten(),
+                    codex_model_provider: codex_model_provider.flatten(),
+                    codex_config_source,
+                    codex_config_overrides_json: codex_config_overrides
+                        .as_ref()
+                        .and_then(serialize_codex_overrides),
+                },
+            ))),
         })
         .await;
 

@@ -47,40 +47,23 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             session_id,
             custom_name: name,
         },
-        PersistOp::SetSessionConfig {
-            session_id,
-            approval_policy,
-            sandbox_mode,
-            permission_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            model,
-            effort,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides_json,
-        } => PersistCommand::SetSessionConfig {
-            session_id,
-            approval_policy,
-            sandbox_mode,
-            permission_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            model,
-            effort,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides_json,
+        PersistOp::SetSessionConfig(cfg) => PersistCommand::SetSessionConfig {
+            session_id: cfg.session_id,
+            approval_policy: cfg.approval_policy,
+            sandbox_mode: cfg.sandbox_mode,
+            permission_mode: cfg.permission_mode,
+            collaboration_mode: cfg.collaboration_mode,
+            multi_agent: cfg.multi_agent,
+            personality: cfg.personality,
+            service_tier: cfg.service_tier,
+            developer_instructions: cfg.developer_instructions,
+            model: cfg.model,
+            effort: cfg.effort,
+            codex_config_mode: cfg.codex_config_mode,
+            codex_config_profile: cfg.codex_config_profile,
+            codex_model_provider: cfg.codex_model_provider,
+            codex_config_source: cfg.codex_config_source,
+            codex_config_overrides_json: cfg.codex_config_overrides_json,
         },
     };
     let _ = persist_tx.send(cmd).await;
@@ -105,10 +88,10 @@ async fn persist_and_broadcast_mark_read(
 
     handle.broadcast(ServerMessage::SessionDelta {
         session_id: session_id.clone(),
-        changes: StateChanges {
+        changes: Box::new(StateChanges {
             unread_count: Some(0),
             ..Default::default()
-        },
+        }),
     });
     handle.broadcast(ServerMessage::SessionListItemUpdated {
         session: SessionListItem::from_summary(&handle.summary()),
@@ -310,11 +293,11 @@ pub async fn handle_session_command(
             handle.set_last_activity_at(Some(now.clone()));
             handle.broadcast(ServerMessage::SessionDelta {
                 session_id,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     subagents: Some(merged_subagents),
                     last_activity_at: Some(now),
                     ..Default::default()
-                },
+                }),
             });
         }
         SessionCommand::SetPendingAttention {
@@ -348,12 +331,12 @@ pub async fn handle_session_command(
             handle.set_last_activity_at(Some(now.clone()));
             handle.broadcast(ServerMessage::SessionDelta {
                 session_id,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     status: Some(SessionStatus::Ended),
                     work_status: Some(WorkStatus::Ended),
                     last_activity_at: Some(now),
                     ..Default::default()
-                },
+                }),
             });
         }
         SessionCommand::SetCustomNameAndNotify {
@@ -368,11 +351,11 @@ pub async fn handle_session_command(
             }
             handle.broadcast(ServerMessage::SessionDelta {
                 session_id,
-                changes: StateChanges {
+                changes: Box::new(StateChanges {
                     custom_name: Some(name),
                     last_activity_at: Some(chrono_now()),
                     ..Default::default()
-                },
+                }),
             });
             let _ = reply.send(handle.summary());
         }
@@ -441,7 +424,7 @@ pub async fn handle_session_command(
             if let Some(changes) = observability_changes {
                 handle.broadcast(ServerMessage::SessionDelta {
                     session_id: handle.id().to_string(),
-                    changes,
+                    changes: Box::new(changes),
                 });
             }
         }
@@ -560,12 +543,12 @@ pub async fn handle_session_command(
                 let session_id = handle.id().to_string();
                 handle.broadcast(ServerMessage::SessionDelta {
                     session_id,
-                    changes: StateChanges {
+                    changes: Box::new(StateChanges {
                         work_status: Some(work_status),
                         pending_approval: Some(next_pending_approval.clone()),
                         approval_version: Some(approval_version),
                         ..Default::default()
-                    },
+                    }),
                 });
             }
 
@@ -792,7 +775,7 @@ pub(crate) async fn dispatch_transition_input(
     ) {
         handle.broadcast(ServerMessage::SessionDelta {
             session_id: handle.id().to_string(),
-            changes,
+            changes: Box::new(changes),
         });
     }
 

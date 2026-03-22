@@ -99,7 +99,7 @@ pub(crate) async fn handle_create_session(
     send_json(
         client_tx,
         ServerMessage::ConversationBootstrap {
-            session: snapshot,
+            session: Box::new(snapshot),
             conversation: RowPageSummary {
                 rows: vec![],
                 total_row_count: 0,

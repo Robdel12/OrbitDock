@@ -197,10 +197,10 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                     if let Some(actor) = state.get_session(&session_id) {
                         actor
                             .send(SessionCommand::ApplyDelta {
-                                changes: orbitdock_protocol::StateChanges {
+                                changes: Box::new(orbitdock_protocol::StateChanges {
                                     permission_mode: Some(Some(mode.clone())),
                                     ..Default::default()
-                                },
+                                }),
                                 persist_op: None,
                             })
                             .await;

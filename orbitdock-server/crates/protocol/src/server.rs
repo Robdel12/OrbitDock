@@ -10,7 +10,6 @@ use crate::types::*;
 /// Messages sent from server to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-#[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     // Full state sync
     SessionsList {
@@ -20,14 +19,14 @@ pub enum ServerMessage {
         conversations: Vec<DashboardConversationItem>,
     },
     ConversationBootstrap {
-        session: SessionState,
+        session: Box<SessionState>,
         conversation: RowPageSummary,
     },
 
     // Incremental updates
     SessionDelta {
         session_id: String,
-        changes: StateChanges,
+        changes: Box<StateChanges>,
     },
     ConversationRowsChanged {
         session_id: String,
@@ -39,7 +38,7 @@ pub enum ServerMessage {
     },
     ApprovalRequested {
         session_id: String,
-        request: ApprovalRequest,
+        request: Box<ApprovalRequest>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         approval_version: Option<u64>,
     },

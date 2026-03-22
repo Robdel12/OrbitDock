@@ -11,7 +11,6 @@ use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationP
 
 /// A persistence operation that the actor executes on behalf of the caller.
 /// The actor already holds `persist_tx`, so callers don't need to pass it.
-#[allow(clippy::large_enum_variant)]
 pub enum PersistOp {
     SessionUpdate {
         id: String,
@@ -23,29 +22,31 @@ pub enum PersistOp {
         session_id: String,
         name: Option<String>,
     },
-    SetSessionConfig {
-        session_id: String,
-        approval_policy: Option<Option<String>>,
-        sandbox_mode: Option<Option<String>>,
-        permission_mode: Option<Option<String>>,
-        collaboration_mode: Option<Option<String>>,
-        multi_agent: Option<Option<bool>>,
-        personality: Option<Option<String>>,
-        service_tier: Option<Option<String>>,
-        developer_instructions: Option<Option<String>>,
-        model: Option<Option<String>>,
-        effort: Option<Option<String>>,
-        codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
-        codex_config_profile: Option<String>,
-        codex_model_provider: Option<String>,
-        codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
-        codex_config_overrides_json: Option<String>,
-    },
+    SetSessionConfig(Box<SessionConfigPersist>),
+}
+
+/// Payload for `PersistOp::SetSessionConfig`, boxed to keep the enum small.
+pub struct SessionConfigPersist {
+    pub session_id: String,
+    pub approval_policy: Option<Option<String>>,
+    pub sandbox_mode: Option<Option<String>>,
+    pub permission_mode: Option<Option<String>>,
+    pub collaboration_mode: Option<Option<String>>,
+    pub multi_agent: Option<Option<bool>>,
+    pub personality: Option<Option<String>>,
+    pub service_tier: Option<Option<String>>,
+    pub developer_instructions: Option<Option<String>>,
+    pub model: Option<Option<String>>,
+    pub effort: Option<Option<String>>,
+    pub codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
+    pub codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
+    pub codex_config_overrides_json: Option<String>,
 }
 
 /// A command that can be sent to a session actor.
 #[allow(dead_code)]
-#[allow(clippy::large_enum_variant)]
 pub enum SessionCommand {
     // -- Queries (use oneshot reply channels) --
     /// Get the retained in-memory session snapshot.
@@ -126,7 +127,7 @@ pub enum SessionCommand {
     // -- Compound operations --
     /// Apply a StateChanges delta, optionally persist, and broadcast SessionDelta.
     ApplyDelta {
-        changes: StateChanges,
+        changes: Box<StateChanges>,
         persist_op: Option<PersistOp>,
     },
 

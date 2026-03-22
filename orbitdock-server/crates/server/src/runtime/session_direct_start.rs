@@ -175,10 +175,10 @@ pub(crate) async fn start_direct_claude_session(
     if let Some(mode) = permission_mode {
         let _ = actor_handle
             .send(SessionCommand::ApplyDelta {
-                changes: orbitdock_protocol::StateChanges {
+                changes: Box::new(orbitdock_protocol::StateChanges {
                     permission_mode: Some(Some(mode.to_string())),
                     ..Default::default()
-                },
+                }),
                 persist_op: None,
             })
             .await;

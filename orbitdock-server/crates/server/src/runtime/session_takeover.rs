@@ -15,7 +15,7 @@ use crate::infrastructure::persistence::{
     load_latest_codex_turn_context_settings_from_transcript_path,
     load_messages_from_transcript_path, load_session_permission_mode, PersistCommand,
 };
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
@@ -384,7 +384,7 @@ async fn complete_codex_takeover(
                 }
                 actor
                     .send(SessionCommand::ApplyDelta {
-                        changes,
+                        changes: Box::new(changes),
                         persist_op: None,
                     })
                     .await;
@@ -513,10 +513,10 @@ async fn complete_claude_takeover(
                 if let Some(actor) = state.get_session(&session_id) {
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
+                            changes: Box::new(orbitdock_protocol::StateChanges {
                                 permission_mode: Some(Some(mode.clone())),
                                 ..Default::default()
-                            },
+                            }),
                             persist_op: takeover_permission_persist_op(
                                 &session_id,
                                 persist_permission_mode,
@@ -530,7 +530,7 @@ async fn complete_claude_takeover(
             if let Some(actor) = state.get_session(&session_id) {
                 actor
                     .send(SessionCommand::ApplyDelta {
-                        changes: direct_mode_activation_changes(Provider::Claude),
+                        changes: Box::new(direct_mode_activation_changes(Provider::Claude)),
                         persist_op: None,
                     })
                     .await;
@@ -595,22 +595,24 @@ fn takeover_permission_persist_op(
         return None;
     }
 
-    permission_mode.map(|permission_mode| PersistOp::SetSessionConfig {
-        session_id: session_id.to_string(),
-        approval_policy: None,
-        sandbox_mode: None,
-        permission_mode: Some(Some(permission_mode)),
-        collaboration_mode: None,
-        multi_agent: None,
-        personality: None,
-        service_tier: None,
-        developer_instructions: None,
-        model: None,
-        effort: None,
-        codex_config_mode: None,
-        codex_config_profile: None,
-        codex_model_provider: None,
-        codex_config_source: None,
-        codex_config_overrides_json: None,
+    permission_mode.map(|permission_mode| {
+        PersistOp::SetSessionConfig(Box::new(SessionConfigPersist {
+            session_id: session_id.to_string(),
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: Some(Some(permission_mode)),
+            collaboration_mode: None,
+            multi_agent: None,
+            personality: None,
+            service_tier: None,
+            developer_instructions: None,
+            model: None,
+            effort: None,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
+            codex_config_source: None,
+            codex_config_overrides_json: None,
+        }))
     })
 }

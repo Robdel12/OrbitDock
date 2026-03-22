@@ -22,7 +22,7 @@ pub(crate) fn new_test_state() -> Arc<SessionRegistry> {
 #[allow(dead_code)]
 pub(crate) async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
     match client_rx.recv().await.expect("expected outbound message") {
-        OutboundMessage::Json(message) => message,
+        OutboundMessage::Json(message) => *message,
         OutboundMessage::Raw(_) => panic!("expected JSON message, got raw payload"),
         OutboundMessage::Pong(_) => panic!("expected JSON message, got pong"),
     }
