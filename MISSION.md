@@ -22,8 +22,9 @@ orchestration:
   state_on_complete: In review
 agent:
   claude:
-    permission_mode: acceptEdits
-    allow_bypass_permissions: false
+    model: claude-opus-4-6
+    permission_mode: bypassPermissions
+    allow_bypass_permissions: true
   codex:
     approval_policy: on-request
     sandbox_mode: workspace-write

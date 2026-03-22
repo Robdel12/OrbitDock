@@ -130,4 +130,8 @@ extension [MissionIssueItem] {
   var failed: [MissionIssueItem] {
     filter { $0.orchestrationState == .failed }
   }
+
+  var blocked: [MissionIssueItem] {
+    filter { $0.orchestrationState == .blocked }
+  }
 }

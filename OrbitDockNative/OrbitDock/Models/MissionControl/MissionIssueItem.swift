@@ -16,6 +16,8 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
   let error: String?
   let url: String?
   let lastActivity: String?
+  let startedAt: String?
+  let completedAt: String?
 
   enum CodingKeys: String, CodingKey {
     case issueId = "issue_id"
@@ -29,6 +31,8 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
     case error
     case url
     case lastActivity = "last_activity"
+    case startedAt = "started_at"
+    case completedAt = "completed_at"
   }
 }
 
@@ -39,6 +43,7 @@ enum OrchestrationState: String, Codable {
   case retryQueued = "retry_queued"
   case completed
   case failed
+  case blocked
 
   var displayLabel: String {
     switch self {
@@ -48,6 +53,7 @@ enum OrchestrationState: String, Codable {
       case .retryQueued: "Retry Queued"
       case .completed: "Completed"
       case .failed: "Failed"
+      case .blocked: "Blocked"
     }
   }
 }
@@ -67,6 +73,7 @@ extension OrchestrationState {
       case .claimed, .running: Color.statusWorking
       case .completed: Color.feedbackPositive
       case .failed: Color.feedbackNegative
+      case .blocked: Color.feedbackWarning
     }
   }
 }

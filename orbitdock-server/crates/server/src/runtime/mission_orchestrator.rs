@@ -552,6 +552,10 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                     failed_count += 1;
                     OrchestrationState::Failed
                 }
+                "blocked" => {
+                    failed_count += 1;
+                    OrchestrationState::Blocked
+                }
                 _ => {
                     queued_count += 1;
                     OrchestrationState::Queued
@@ -575,6 +579,8 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                 error: row.last_error.clone(),
                 url: row.url.clone(),
                 last_activity: None,
+                started_at: row.started_at.clone(),
+                completed_at: row.completed_at.clone(),
             }
         })
         .collect();

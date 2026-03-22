@@ -144,7 +144,8 @@ struct MissionShowView: View {
                 issues: viewModel.issues,
                 missionId: missionId,
                 endpointId: endpointId,
-                http: viewModel.http
+                http: viewModel.http,
+                isCompact: isCompact
               )
           }
         }

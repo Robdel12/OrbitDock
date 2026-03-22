@@ -1775,6 +1775,7 @@ pub enum OrchestrationState {
     RetryQueued,
     Completed,
     Failed,
+    Blocked,
 }
 
 /// Summary of a configured mission.
@@ -1829,6 +1830,10 @@ pub struct MissionIssueItem {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

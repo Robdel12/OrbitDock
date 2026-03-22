@@ -1516,6 +1516,7 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         "retry_queued" => OrchestrationState::RetryQueued,
         "completed" => OrchestrationState::Completed,
         "failed" => OrchestrationState::Failed,
+        "blocked" => OrchestrationState::Blocked,
         _ => OrchestrationState::Queued,
     };
 
@@ -1538,6 +1539,8 @@ fn issue_row_to_item(row: MissionIssueRow) -> MissionIssueItem {
         error: row.last_error,
         url: row.url,
         last_activity: None,
+        started_at: row.started_at,
+        completed_at: row.completed_at,
     }
 }
 

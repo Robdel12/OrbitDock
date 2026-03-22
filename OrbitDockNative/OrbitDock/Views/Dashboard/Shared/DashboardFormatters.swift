@@ -104,7 +104,11 @@ enum DashboardFormatters {
 
   static func duration(since start: Date?) -> String? {
     guard let start else { return nil }
-    let elapsed = Int(Date().timeIntervalSince(start))
+    return formatDuration(Date().timeIntervalSince(start))
+  }
+
+  static func formatDuration(_ interval: TimeInterval) -> String {
+    let elapsed = Int(interval)
     if elapsed < 60 { return "\(elapsed)s" }
     if elapsed < 3_600 { return "\(elapsed / 60)m" }
     let h = elapsed / 3_600

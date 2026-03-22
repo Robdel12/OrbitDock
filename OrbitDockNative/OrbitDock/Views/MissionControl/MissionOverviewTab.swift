@@ -43,6 +43,10 @@ struct MissionOverviewTab: View {
     issues.completed
   }
 
+  private var blockedIssues: [MissionIssueItem] {
+    issues.blocked
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.xl) {
       // Setup flows + banners
@@ -72,13 +76,15 @@ struct MissionOverviewTab: View {
       // Hero Zone — state-driven content
       heroZone
 
-      // Alert Board — only when failed issues exist
-      if !failedIssues.isEmpty {
+      // Alert Board — failed + blocked issues
+      if !failedIssues.isEmpty || !blockedIssues.isEmpty {
         MissionAlertBoard(
           failedIssues: failedIssues,
+          blockedIssues: blockedIssues,
           missionId: missionId,
           endpointId: endpointId,
           http: http,
+          isCompact: isCompact,
           onNavigateToSession: onNavigateToSession,
           onRefresh: onRefresh
         )
@@ -92,6 +98,7 @@ struct MissionOverviewTab: View {
           missionId: missionId,
           endpointId: endpointId,
           http: http,
+          isCompact: isCompact,
           onNavigateToSession: onNavigateToSession,
           onRefresh: onRefresh,
           onSelectIssuesTab: { onSelectTab(.issues) }
@@ -153,6 +160,7 @@ struct MissionOverviewTab: View {
             conversation: issue.sessionId.flatMap { dashboardConversationsBySessionId[$0] },
             isCompact: isCompact,
             onNavigateToSession: onNavigateToSession,
+            onEndSession: endAgentSession,
             expandedIssueId: $expandedAgentId
           )
         }
@@ -204,6 +212,19 @@ struct MissionOverviewTab: View {
         "/api/missions/\(missionId)/trigger",
         body: EmptyBody()
       )
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
+  private func endAgentSession(_ sessionId: String) async {
+    guard let http else { return }
+    do {
+      let _: ServerAcceptedResponse = try await http.post(
+        "/api/sessions/\(sessionId)/end",
+        body: EmptyBody()
+      )
+      await onRefresh()
     } catch {
       actionError = error.localizedDescription
     }

@@ -11,6 +11,7 @@ struct MissionIssueRow: View {
   let endpointId: UUID
   let http: ServerHTTPClient?
   var style: MissionIssueRowStyle = .full
+  var isCompact: Bool = false
   var accentColor: Color = .accent
   var onNavigateToSession: ((String) -> Void)?
   var onRefresh: (() async -> Void)?
@@ -133,79 +134,10 @@ struct MissionIssueRow: View {
 
   private var fullBody: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: Spacing.md) {
-        stateIcon
-          .frame(width: 20)
-
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          HStack(spacing: Spacing.sm_) {
-            Text(issue.identifier)
-              .font(.system(size: TypeScale.caption, weight: .bold))
-              .foregroundStyle(Color.textTertiary)
-
-            Text(issue.title)
-              .font(.system(size: TypeScale.body))
-              .foregroundStyle(Color.textPrimary)
-          }
-
-          HStack(spacing: Spacing.sm) {
-            Text(issue.orchestrationState.displayLabel)
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .foregroundStyle(issue.orchestrationState.color)
-
-            Text(issue.trackerState)
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.textQuaternary)
-
-            if issue.attempt > 1 {
-              Text("Attempt \(issue.attempt)")
-                .font(.system(size: TypeScale.micro, weight: .medium))
-                .foregroundStyle(Color.feedbackCaution)
-            }
-
-            if let activity = issue.lastActivity {
-              Text(activity)
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textTertiary)
-            }
-          }
-        }
-
-        Spacer()
-
-        if issue.orchestrationState != .queued {
-          Button {
-            Task { await retryIssue() }
-          } label: {
-            Label(
-              issue.orchestrationState == .failed ? "Retry" : "Restart",
-              systemImage: "arrow.clockwise"
-            )
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.accent)
-          }
-          .buttonStyle(.plain)
-        }
-
-        if issue.sessionId != nil {
-          Button {
-            navigateToSession()
-          } label: {
-            Image(systemName: "arrow.right.circle")
-              .font(.system(size: 14))
-              .foregroundStyle(Color.textTertiary)
-          }
-          .buttonStyle(.plain)
-          .help("Go to session")
-        }
-
-        #if os(macOS)
-          if let error = issue.error {
-            Image(systemName: "exclamationmark.triangle")
-              .foregroundStyle(Color.feedbackNegative)
-              .help(error)
-          }
-        #endif
+      if isCompact {
+        compactFullLayout
+      } else {
+        desktopFullLayout
       }
 
       if let error = issue.error {
@@ -218,7 +150,7 @@ struct MissionIssueRow: View {
             .foregroundStyle(Color.feedbackNegative)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.leading, 20 + Spacing.md)
+        .padding(.leading, isCompact ? 0 : 20 + Spacing.md)
         .padding(.top, Spacing.xs)
       }
     }
@@ -259,6 +191,156 @@ struct MissionIssueRow: View {
     }
   }
 
+  // MARK: - Compact Full Layout
+
+  private var compactFullLayout: some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      // Row 1: identifier + state badge + actions
+      HStack(spacing: Spacing.sm_) {
+        stateIcon
+          .frame(width: 16)
+
+        Text(issue.identifier)
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+
+        Text(issue.orchestrationState.displayLabel)
+          .font(.system(size: TypeScale.micro, weight: .bold))
+          .foregroundStyle(issue.orchestrationState.color)
+
+        Text(issue.trackerState)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textQuaternary)
+
+        Spacer()
+
+        if issue.orchestrationState != .queued {
+          Button {
+            Task { await retryIssue() }
+          } label: {
+            Image(systemName: "arrow.clockwise")
+              .font(.system(size: 11, weight: .medium))
+              .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
+        }
+
+        if issue.sessionId != nil {
+          Button {
+            navigateToSession()
+          } label: {
+            Image(systemName: "arrow.right.circle")
+              .font(.system(size: 14))
+              .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
+        }
+      }
+
+      // Row 2: title (full width to wrap properly)
+      Text(issue.title)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+
+      // Row 3: metadata
+      if issue.attempt > 1 || issue.lastActivity != nil {
+        HStack(spacing: Spacing.sm) {
+          if issue.attempt > 1 {
+            Text("Attempt \(issue.attempt)")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.feedbackCaution)
+          }
+
+          if let activity = issue.lastActivity {
+            Text(activity)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
+          }
+        }
+      }
+    }
+  }
+
+  // MARK: - Desktop Full Layout
+
+  private var desktopFullLayout: some View {
+    HStack(spacing: Spacing.md) {
+      stateIcon
+        .frame(width: 20)
+
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        HStack(spacing: Spacing.sm_) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.caption, weight: .bold))
+            .foregroundStyle(Color.textTertiary)
+
+          Text(issue.title)
+            .font(.system(size: TypeScale.body))
+            .foregroundStyle(Color.textPrimary)
+        }
+
+        HStack(spacing: Spacing.sm) {
+          Text(issue.orchestrationState.displayLabel)
+            .font(.system(size: TypeScale.micro, weight: .bold))
+            .foregroundStyle(issue.orchestrationState.color)
+
+          Text(issue.trackerState)
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textQuaternary)
+
+          if issue.attempt > 1 {
+            Text("Attempt \(issue.attempt)")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.feedbackCaution)
+          }
+
+          if let activity = issue.lastActivity {
+            Text(activity)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
+          }
+        }
+      }
+
+      Spacer()
+
+      if issue.orchestrationState != .queued {
+        Button {
+          Task { await retryIssue() }
+        } label: {
+          Label(
+            issue.orchestrationState == .failed ? "Retry" : "Restart",
+            systemImage: "arrow.clockwise"
+          )
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+      }
+
+      if issue.sessionId != nil {
+        Button {
+          navigateToSession()
+        } label: {
+          Image(systemName: "arrow.right.circle")
+            .font(.system(size: 14))
+            .foregroundStyle(Color.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .help("Go to session")
+      }
+
+      #if os(macOS)
+        if let error = issue.error {
+          Image(systemName: "exclamationmark.triangle")
+            .foregroundStyle(Color.feedbackNegative)
+            .help(error)
+        }
+      #endif
+    }
+  }
+
   @ViewBuilder
   private var stateIcon: some View {
     switch issue.orchestrationState {
@@ -280,6 +362,9 @@ struct MissionIssueRow: View {
       case .failed:
         Image(systemName: "xmark.circle.fill")
           .foregroundStyle(Color.feedbackNegative)
+      case .blocked:
+        Image(systemName: "hand.raised.circle.fill")
+          .foregroundStyle(Color.feedbackWarning)
     }
   }
 

@@ -6,6 +6,7 @@ struct MissionPipeline: View {
   let missionId: String
   let endpointId: UUID
   let http: ServerHTTPClient?
+  let isCompact: Bool
   let onNavigateToSession: (String) -> Void
   let onRefresh: () async -> Void
   let onSelectIssuesTab: () -> Void
@@ -35,40 +36,98 @@ struct MissionPipeline: View {
         count: queuedIssues.count
       )
 
-      ForEach(queuedIssues) { issue in
-        queuedRow(issue)
+      ForEach(Array(queuedIssues.enumerated()), id: \.element.id) { index, issue in
+        queuedRow(issue, position: index + 1)
       }
     }
   }
 
-  private func queuedRow(_ issue: MissionIssueItem) -> some View {
+  private func queuedRow(_ issue: MissionIssueItem, position: Int) -> some View {
     HStack(spacing: Spacing.sm) {
       // Left edge bar
       RoundedRectangle(cornerRadius: 1.5, style: .continuous)
         .fill(Color.feedbackCaution)
         .frame(width: EdgeBar.width)
 
-      HStack(spacing: Spacing.sm_) {
-        Text(issue.identifier)
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-          .foregroundStyle(Color.feedbackCaution)
+      // Queue position
+      Text("#\(position)")
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+        .frame(width: 20, alignment: .trailing)
 
-        Text(issue.title)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textSecondary)
-          .fixedSize(horizontal: false, vertical: true)
+      if isCompact {
+        // Compact: stack vertically
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.sm_) {
+            Text(issue.identifier)
+              .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+              .foregroundStyle(Color.feedbackCaution)
 
-        Spacer()
+            Spacer()
 
-        Text("Queued")
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, 1)
-          .background(
-            Color.textQuaternary.opacity(OpacityTier.subtle),
-            in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-          )
+            Text("Queued")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 1)
+              .background(
+                Color.textQuaternary.opacity(OpacityTier.subtle),
+                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+              )
+
+            if let urlString = issue.url, let url = URL(string: urlString) {
+              Button {
+                _ = Platform.services.openURL(url)
+              } label: {
+                Image(systemName: "arrow.up.right.square")
+                  .font(.system(size: 10, weight: .medium))
+                  .foregroundStyle(Color.accent)
+              }
+              .buttonStyle(.plain)
+            }
+          }
+
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      } else {
+        // Desktop: single row
+        HStack(spacing: Spacing.sm_) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.feedbackCaution)
+
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+          Spacer()
+
+          if let urlString = issue.url, let url = URL(string: urlString) {
+            Button {
+              _ = Platform.services.openURL(url)
+            } label: {
+              Image(systemName: "arrow.up.right.square")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Open in tracker")
+          }
+
+          Text("Queued")
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 1)
+            .background(
+              Color.textQuaternary.opacity(OpacityTier.subtle),
+              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+            )
+        }
       }
     }
     .padding(.horizontal, Spacing.md)
@@ -128,36 +187,92 @@ struct MissionPipeline: View {
         .fill(Color.feedbackPositive)
         .frame(width: EdgeBar.width)
 
-      HStack(spacing: Spacing.sm_) {
-        Text(issue.identifier)
-          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-          .foregroundStyle(Color.feedbackPositive)
+      if isCompact {
+        // Compact: stack vertically
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          HStack(spacing: Spacing.sm_) {
+            Text(issue.identifier)
+              .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+              .foregroundStyle(Color.feedbackPositive)
 
-        Text(issue.title)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .fixedSize(horizontal: false, vertical: true)
+            Spacer()
 
-        Spacer()
+            Text("Completed")
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .foregroundStyle(Color.feedbackPositive)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 1)
+              .background(
+                Color.feedbackPositive.opacity(OpacityTier.subtle),
+                in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+              )
 
-        Text("Completed")
-          .font(.system(size: TypeScale.micro, weight: .bold))
-          .foregroundStyle(Color.feedbackPositive)
-          .padding(.horizontal, Spacing.xs)
-          .padding(.vertical, 1)
-          .background(
-            Color.feedbackPositive.opacity(OpacityTier.subtle),
-            in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
-          )
+            Text(issue.trackerState)
+              .font(.system(size: TypeScale.micro, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
 
-        Text(issue.trackerState)
-          .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
+            if let urlString = issue.url, let url = URL(string: urlString) {
+              Button {
+                _ = Platform.services.openURL(url)
+              } label: {
+                Image(systemName: "arrow.up.right.square")
+                  .font(.system(size: 10, weight: .medium))
+                  .foregroundStyle(Color.accent)
+              }
+              .buttonStyle(.plain)
+            }
+          }
 
-        if issue.sessionId != nil {
-          Image(systemName: "arrow.right")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(Color.accent)
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      } else {
+        // Desktop: single row
+        HStack(spacing: Spacing.sm_) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.feedbackPositive)
+
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+
+          Spacer()
+
+          Text("Completed")
+            .font(.system(size: TypeScale.micro, weight: .bold))
+            .foregroundStyle(Color.feedbackPositive)
+            .padding(.horizontal, Spacing.xs)
+            .padding(.vertical, 1)
+            .background(
+              Color.feedbackPositive.opacity(OpacityTier.subtle),
+              in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous)
+            )
+
+          Text(issue.trackerState)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+
+          if let urlString = issue.url, let url = URL(string: urlString) {
+            Button {
+              _ = Platform.services.openURL(url)
+            } label: {
+              Image(systemName: "arrow.up.right.square")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Open in tracker")
+          }
+
+          if issue.sessionId != nil {
+            Image(systemName: "arrow.right")
+              .font(.system(size: 8, weight: .bold))
+              .foregroundStyle(Color.accent)
+          }
         }
       }
     }

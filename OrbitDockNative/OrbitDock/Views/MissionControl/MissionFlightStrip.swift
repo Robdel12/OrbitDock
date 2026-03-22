@@ -40,28 +40,13 @@ struct MissionFlightStrip: View {
   // MARK: - Body
 
   var body: some View {
-    HStack(spacing: Spacing.md) {
-      // Left: pulsing status dot + label
-      statusIndicator
-
-      // Center-left: poll countdown
-      MissionPollCountdown(
-        nextTickAt: nextTickAt,
-        lastTickAt: lastTickAt,
-        isPolling: isPolling
-      )
-
-      Spacer()
-
-      // Center-right: inline stat counters
-      statCounters
-
-      // Right: compact control buttons
-      controlButtons
+    Group {
+      if isCompact {
+        compactBody
+      } else {
+        desktopBody
+      }
     }
-    .padding(.vertical, Spacing.md)
-    .padding(.horizontal, Spacing.lg)
-    .frame(minHeight: 40)
     .cosmicCard(cornerRadius: Radius.md, fillColor: .backgroundSecondary, fillOpacity: 1.0, borderOpacity: 1.0)
     .overlay(alignment: .top) {
       UnevenRoundedRectangle(
@@ -77,6 +62,59 @@ struct MissionFlightStrip: View {
       )
       .frame(height: 2)
     }
+  }
+
+  // MARK: - Desktop Layout (unchanged)
+
+  private var desktopBody: some View {
+    HStack(spacing: Spacing.md) {
+      statusIndicator
+
+      MissionPollCountdown(
+        nextTickAt: nextTickAt,
+        lastTickAt: lastTickAt,
+        isPolling: isPolling
+      )
+
+      Spacer()
+
+      statCounters
+
+      controlButtons
+    }
+    .padding(.vertical, Spacing.md)
+    .padding(.horizontal, Spacing.lg)
+    .frame(minHeight: 40)
+  }
+
+  // MARK: - Compact Layout
+
+  private var compactBody: some View {
+    VStack(spacing: Spacing.sm) {
+      // Row 1: Status + controls
+      HStack(spacing: Spacing.sm) {
+        statusIndicator
+
+        Spacer()
+
+        controlButtons
+      }
+
+      // Row 2: Countdown + stat counters
+      HStack(spacing: Spacing.sm) {
+        MissionPollCountdown(
+          nextTickAt: nextTickAt,
+          lastTickAt: lastTickAt,
+          isPolling: isPolling
+        )
+
+        Spacer()
+
+        statCounters
+      }
+    }
+    .padding(.vertical, Spacing.md)
+    .padding(.horizontal, Spacing.lg)
   }
 
   // MARK: - Status Indicator

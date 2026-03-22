@@ -5,6 +5,7 @@ struct MissionAgentCard: View {
   let conversation: DashboardConversationRecord?
   let isCompact: Bool
   let onNavigateToSession: (String) -> Void
+  let onEndSession: ((String) async -> Void)?
   @Binding var expandedIssueId: String?
 
   private var isExpanded: Bool {
@@ -43,15 +44,30 @@ struct MissionAgentCard: View {
   // MARK: - Issue Header
 
   private var issueHeader: some View {
-    HStack(spacing: Spacing.sm_) {
-      Text(issue.identifier)
-        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-        .foregroundStyle(Color.accent)
+    Group {
+      if isCompact {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.accent)
 
-      Text(issue.title)
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textPrimary)
-        .fixedSize(horizontal: false, vertical: true)
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      } else {
+        HStack(spacing: Spacing.sm_) {
+          Text(issue.identifier)
+            .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.accent)
+
+          Text(issue.title)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+      }
     }
   }
 
@@ -82,10 +98,15 @@ struct MissionAgentCard: View {
   // MARK: - Telemetry Stack
 
   private var telemetryStack: some View {
-    VStack(alignment: .leading, spacing: Spacing.xxs) {
-      activityRow
-      branchRow
-      metricsRow
+    VStack(alignment: .leading, spacing: isCompact ? Spacing.sm_ : Spacing.xxs) {
+      if isCompact {
+        compactActivityRow
+        compactMetricsRow
+      } else {
+        activityRow
+        branchRow
+        metricsRow
+      }
     }
   }
 
@@ -193,21 +214,41 @@ struct MissionAgentCard: View {
             .foregroundStyle(Color.textQuaternary)
         }
 
-        if let duration = DashboardFormatters.duration(since: conversation?.startedAt) {
-          metricSeparator
-          Text(duration)
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+          if let startedAt = conversation?.startedAt {
+            let elapsed = context.date.timeIntervalSince(startedAt)
+            if elapsed > 0 {
+              metricSeparator
+              Text(DashboardFormatters.formatDuration(elapsed))
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+            }
+          }
         }
       }
 
       Spacer()
 
-      if issue.sessionId != nil {
+      if let sessionId = issue.sessionId {
         Button {
-          if let sessionId = issue.sessionId {
-            onNavigateToSession(sessionId)
+          Task {
+            await onEndSession?(sessionId)
           }
+        } label: {
+          Image(systemName: "stop.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.feedbackNegative)
+            .padding(Spacing.xs)
+            .background(
+              Color.feedbackNegative.opacity(OpacityTier.subtle),
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Stop agent")
+
+        Button {
+          onNavigateToSession(sessionId)
         } label: {
           Text("Open \u{2192}")
             .font(.system(size: TypeScale.micro, weight: .semibold))
@@ -264,6 +305,133 @@ struct MissionAgentCard: View {
           .foregroundStyle(Color.accent)
       }
       .buttonStyle(.plain)
+    }
+  }
+
+  // MARK: - Compact Telemetry (no tree connectors)
+
+  private var compactActivityRow: some View {
+    HStack(spacing: Spacing.xs) {
+      Group {
+        if let conversation, conversation.displayStatus == .permission, let tool = conversation.pendingToolName {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "lock.fill")
+              .font(.system(size: IconScale.xs, weight: .bold))
+            Text(tool)
+              .lineLimit(1)
+          }
+          .foregroundStyle(Color.statusPermission)
+        } else if let conversation, conversation.displayStatus == .question {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "questionmark.bubble")
+              .font(.system(size: IconScale.xs, weight: .bold))
+            Text(conversation.pendingQuestion.map { String($0.prefix(50)) } ?? "Question")
+              .lineLimit(1)
+          }
+          .foregroundStyle(Color.statusQuestion)
+        } else if let tool = conversation?.pendingToolName {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "wrench.fill")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text(tool)
+              .lineLimit(1)
+          }
+          .foregroundStyle(Color.textTertiary)
+        } else if let conversation, let contextLine = conversation.contextLine, !contextLine.isEmpty {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "text.bubble")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text(contextLine)
+              .lineLimit(1)
+          }
+          .foregroundStyle(Color.textTertiary)
+        } else if conversation != nil {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "brain")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text("Thinking...")
+          }
+          .foregroundStyle(Color.textTertiary)
+        } else {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "ellipsis")
+              .font(.system(size: IconScale.xs, weight: .medium))
+            Text("Initializing...")
+          }
+          .foregroundStyle(Color.textQuaternary)
+        }
+      }
+      .font(.system(size: TypeScale.micro, weight: .medium))
+
+      Spacer()
+    }
+  }
+
+  private var compactMetricsRow: some View {
+    HStack(spacing: Spacing.sm_) {
+      // Branch (compact — just the name, truncated)
+      if let branch = conversation?.branch {
+        HStack(spacing: Spacing.xxs) {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: 8, weight: .medium))
+          Text(branch)
+            .lineLimit(1)
+        }
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+      }
+
+      // Metrics inline
+      if let conversation, conversation.toolCount > 0 {
+        Text("\(conversation.toolCount) tools")
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+      }
+
+      if let conversation, conversation.hasTurnDiff {
+        Text("changes")
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+      }
+
+      TimelineView(.periodic(from: .now, by: 1.0)) { context in
+        if let startedAt = conversation?.startedAt {
+          let elapsed = context.date.timeIntervalSince(startedAt)
+          if elapsed > 0 {
+            Text(DashboardFormatters.formatDuration(elapsed))
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
+          }
+        }
+      }
+
+      Spacer()
+
+      // Actions
+      if let sessionId = issue.sessionId {
+        Button {
+          Task { await onEndSession?(sessionId) }
+        } label: {
+          Image(systemName: "stop.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.feedbackNegative)
+            .padding(Spacing.xs)
+            .background(
+              Color.feedbackNegative.opacity(OpacityTier.subtle),
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+
+        Button {
+          onNavigateToSession(sessionId)
+        } label: {
+          Text("Open \u{2192}")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+      }
     }
   }
 

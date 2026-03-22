@@ -5,6 +5,7 @@ struct MissionIssuesTab: View {
   let missionId: String
   let endpointId: UUID
   let http: ServerHTTPClient?
+  let isCompact: Bool
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
@@ -24,6 +25,7 @@ struct MissionIssuesTab: View {
     let queued = UInt32(issues.queued.count)
     let completed = UInt32(issues.completed.count)
     let failed = UInt32(issues.failed.count)
+    let blocked = UInt32(issues.blocked.count)
 
     return HStack(spacing: Spacing.lg) {
       HStack(spacing: Spacing.sm_) {
@@ -40,6 +42,7 @@ struct MissionIssuesTab: View {
       HStack(spacing: Spacing.md) {
         if running > 0 { MissionStatChip(count: running, label: "running", color: .statusWorking) }
         if queued > 0 { MissionStatChip(count: queued, label: "queued", color: .feedbackCaution) }
+        if blocked > 0 { MissionStatChip(count: blocked, label: "blocked", color: .feedbackWarning) }
         if failed > 0 { MissionStatChip(count: failed, label: "failed", color: .feedbackNegative) }
         if completed > 0 { MissionStatChip(count: completed, label: "done", color: .feedbackPositive) }
       }
@@ -52,11 +55,21 @@ struct MissionIssuesTab: View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
       let running = issues.running
       let queued = issues.queued
+      let blocked = issues.blocked
       let failed = issues.failed
       let completed = issues.completed
 
       if !running.isEmpty {
         issueGroup("Running", count: running.count, color: Color.statusWorking, icon: "bolt.fill", issues: running)
+      }
+      if !blocked.isEmpty {
+        issueGroup(
+          "Blocked",
+          count: blocked.count,
+          color: Color.feedbackWarning,
+          icon: "hand.raised.circle.fill",
+          issues: blocked
+        )
       }
       if !queued.isEmpty {
         issueGroup("Queued", count: queued.count, color: Color.feedbackCaution, icon: "clock.fill", issues: queued)
@@ -117,7 +130,8 @@ struct MissionIssuesTab: View {
             issue: issue,
             missionId: missionId,
             endpointId: endpointId,
-            http: http
+            http: http,
+            isCompact: isCompact
           )
         }
       }
