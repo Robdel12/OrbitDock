@@ -462,12 +462,9 @@ final class SessionObservable {
     slashCommands = []
     claudeSkillNames = []
     claudeToolNames = []
-    diff = nil
-    plan = nil
     currentTurnId = nil
     permissionMode = .default
     attentionReason = .none
-    clearConversation()
   }
 
   /// Drop heavy detail payloads when a session is no longer observed.
