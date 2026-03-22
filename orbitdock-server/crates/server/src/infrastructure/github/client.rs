@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use reqwest::Client;
+use reqwest::{Client, Response};
 use tracing::debug;
 
 use super::models::{
@@ -25,6 +25,50 @@ impl GitHubClient {
         }
     }
 
+    /// Check response headers for GitHub rate limit warnings and errors.
+    ///
+    /// Logs a warning when remaining requests are low and returns a
+    /// descriptive error when the response is a 403 rate limit block.
+    fn check_rate_limit(resp: &Response) -> anyhow::Result<()> {
+        let headers = resp.headers();
+
+        let remaining = headers
+            .get("x-ratelimit-remaining")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+
+        let reset = headers
+            .get("x-ratelimit-reset")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
+
+        if let Some(rem) = remaining {
+            if rem < 10 {
+                tracing::warn!(
+                    component = "github",
+                    remaining = rem,
+                    reset_epoch = reset.unwrap_or(0),
+                    "GitHub API rate limit nearly exhausted"
+                );
+            }
+        }
+
+        if resp.status() == reqwest::StatusCode::FORBIDDEN {
+            if let Some(rem) = remaining {
+                if rem == 0 {
+                    let reset_msg = reset
+                        .map(|r| format!(" (resets at epoch {r})"))
+                        .unwrap_or_default();
+                    anyhow::bail!(
+                        "GitHub API rate limit exceeded — 0 requests remaining{reset_msg}"
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     async fn graphql<T: serde::de::DeserializeOwned>(
         &self,
         query: &str,
@@ -44,6 +88,8 @@ impl GitHubClient {
             .json(&body)
             .send()
             .await?;
+
+        Self::check_rate_limit(&resp)?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -273,6 +319,8 @@ impl GitHubClient {
             .json(&serde_json::json!({ "body": body }))
             .send()
             .await?;
+
+        Self::check_rate_limit(&resp)?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -590,6 +638,8 @@ impl Tracker for GitHubClient {
                 .json(&serde_json::json!({ "state": lower }))
                 .send()
                 .await?;
+
+            Self::check_rate_limit(&resp)?;
 
             let status = resp.status();
             if !status.is_success() {
