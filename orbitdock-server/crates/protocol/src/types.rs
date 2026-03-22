@@ -776,6 +776,9 @@ impl SessionSummary {
             worktree_id: self.worktree_id.clone(),
             total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
             total_cost_usd: 0.0,
+            input_tokens: self.token_usage.input_tokens,
+            output_tokens: self.token_usage.output_tokens,
+            cached_tokens: self.token_usage.cached_tokens,
             display_title: self.display_title.clone(),
             context_line: self.context_line.clone(),
             list_status: self.list_status,
@@ -813,6 +816,9 @@ impl From<SessionSummary> for SessionListItem {
             worktree_id: summary.worktree_id,
             total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
             total_cost_usd: 0.0,
+            input_tokens: summary.token_usage.input_tokens,
+            output_tokens: summary.token_usage.output_tokens,
+            cached_tokens: summary.token_usage.cached_tokens,
             display_title: summary.display_title,
             context_line: summary.context_line,
             list_status: summary.list_status,
@@ -1056,6 +1062,13 @@ pub struct SessionListItem {
     pub total_tokens: u64,
     #[serde(default)]
     pub total_cost_usd: f64,
+    /// Granular token breakdown for accurate cost calculation.
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cached_tokens: u64,
     pub display_title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_line: Option<String>,
@@ -1105,6 +1118,9 @@ impl SessionListItem {
             worktree_id: summary.worktree_id.clone(),
             total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
             total_cost_usd: 0.0,
+            input_tokens: summary.token_usage.input_tokens,
+            output_tokens: summary.token_usage.output_tokens,
+            cached_tokens: summary.token_usage.cached_tokens,
             display_title: summary.display_title.clone(),
             context_line: summary.context_line.clone(),
             list_status: summary.list_status,

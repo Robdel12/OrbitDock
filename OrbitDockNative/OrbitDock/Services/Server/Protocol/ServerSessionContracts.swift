@@ -207,6 +207,9 @@ struct ServerSessionListItem: Codable, Identifiable {
   let worktreeId: String?
   let totalTokens: UInt64?
   let totalCostUSD: Double?
+  let inputTokens: UInt64?
+  let outputTokens: UInt64?
+  let cachedTokens: UInt64?
   let displayTitle: String?
   let displayTitleSortKey: String?
   let displaySearchText: String?
@@ -241,6 +244,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     worktreeId: String?,
     totalTokens: UInt64?,
     totalCostUSD: Double?,
+    inputTokens: UInt64? = nil,
+    outputTokens: UInt64? = nil,
+    cachedTokens: UInt64? = nil,
     displayTitle: String?,
     displayTitleSortKey: String?,
     displaySearchText: String?,
@@ -274,6 +280,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     self.worktreeId = worktreeId
     self.totalTokens = totalTokens
     self.totalCostUSD = totalCostUSD
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.cachedTokens = cachedTokens
     self.displayTitle = displayTitle
     self.displayTitleSortKey = displayTitleSortKey
     self.displaySearchText = displaySearchText
@@ -309,6 +318,9 @@ struct ServerSessionListItem: Codable, Identifiable {
     case worktreeId = "worktree_id"
     case totalTokens = "total_tokens"
     case totalCostUSD = "total_cost_usd"
+    case inputTokens = "input_tokens"
+    case outputTokens = "output_tokens"
+    case cachedTokens = "cached_tokens"
     case displayTitle = "display_title"
     case displayTitleSortKey = "display_title_sort_key"
     case displaySearchText = "display_search_text"

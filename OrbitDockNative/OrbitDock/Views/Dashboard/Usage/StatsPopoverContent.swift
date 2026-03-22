@@ -273,6 +273,18 @@ struct StatusBarStats {
       return session.totalCostUSD
     }
     guard session.totalTokens > 0 else { return 0 }
+    // Use granular token breakdown when available for accurate cost.
+    // Cached tokens are billed at the cache-read rate, not the full input rate.
+    let hasBreakdown = session.inputTokens > 0 || session.outputTokens > 0
+    if hasBreakdown {
+      return costCalculator.calculateCost(
+        model: session.model,
+        inputTokens: session.inputTokens,
+        outputTokens: session.outputTokens,
+        cacheReadTokens: session.cachedTokens
+      )
+    }
+    // Legacy fallback: treat totalTokens as input (pre-breakdown servers).
     return costCalculator.calculateCost(
       model: session.model,
       inputTokens: session.totalTokens,

@@ -148,6 +148,9 @@ struct RootSessionNode: Identifiable, Sendable {
   let missionId: String?
   let issueIdentifier: String?
   let totalTokens: Int
+  let inputTokens: Int
+  let outputTokens: Int
+  let cachedTokens: Int
   let totalCostUSD: Double
   let isActive: Bool
   let showsInMissionControl: Bool
@@ -281,6 +284,9 @@ extension RootSessionNode: Equatable {
       && lhs.missionId == rhs.missionId
       && lhs.issueIdentifier == rhs.issueIdentifier
       && lhs.totalTokens == rhs.totalTokens
+      && lhs.inputTokens == rhs.inputTokens
+      && lhs.outputTokens == rhs.outputTokens
+      && lhs.cachedTokens == rhs.cachedTokens
       && lhs.totalCostUSD == rhs.totalCostUSD
       && lhs.isActive == rhs.isActive
       && lhs.showsInMissionControl == rhs.showsInMissionControl
@@ -376,6 +382,9 @@ extension RootSessionNode {
     self.missionId = session.missionId
     self.issueIdentifier = session.issueIdentifier
     self.totalTokens = Int(session.totalTokens ?? 0)
+    self.inputTokens = Int(session.inputTokens ?? 0)
+    self.outputTokens = Int(session.outputTokens ?? 0)
+    self.cachedTokens = Int(session.cachedTokens ?? 0)
     self.totalCostUSD = session.totalCostUSD ?? 0
     self.isActive = status == .active
     self.showsInMissionControl = RootSessionNode.showsInMissionControl(
@@ -435,6 +444,9 @@ extension RootSessionNode {
       missionId: missionId,
       issueIdentifier: issueIdentifier,
       totalTokens: totalTokens,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens,
       totalCostUSD: totalCostUSD,
       isActive: self.status == .active,
       showsInMissionControl: RootSessionNode.showsInMissionControl(
@@ -486,6 +498,9 @@ extension RootSessionNode {
       missionId: missionId,
       issueIdentifier: issueIdentifier,
       totalTokens: totalTokens,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens,
       totalCostUSD: totalCostUSD,
       isActive: false,
       showsInMissionControl: RootSessionNode.showsInMissionControl(
