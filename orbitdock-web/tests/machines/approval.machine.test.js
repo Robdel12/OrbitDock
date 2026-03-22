@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 import { createActor } from 'xstate'
 import { approvalMachine } from '../../src/machines/approval.machine.js'
 
@@ -11,7 +12,7 @@ const createTestActor = () => {
 describe('approval machine', () => {
   it('starts in idle state', () => {
     const actor = createTestActor()
-    expect(actor.getSnapshot().value).toBe('idle')
+    assert.strictEqual(actor.getSnapshot().value, 'idle')
     actor.stop()
   })
 
@@ -22,9 +23,9 @@ describe('approval machine', () => {
       request: { id: 'req-1', type: 'exec' },
       approval_version: 1,
     })
-    expect(actor.getSnapshot().value).toBe('pending')
-    expect(actor.getSnapshot().context.request.id).toBe('req-1')
-    expect(actor.getSnapshot().context.approvalVersion).toBe(1)
+    assert.strictEqual(actor.getSnapshot().value, 'pending')
+    assert.strictEqual(actor.getSnapshot().context.request.id, 'req-1')
+    assert.strictEqual(actor.getSnapshot().context.approvalVersion, 1)
     actor.stop()
   })
 
@@ -35,13 +36,13 @@ describe('approval machine', () => {
       request: { id: 'req-1', type: 'exec' },
       approval_version: 5,
     })
-    expect(actor.getSnapshot().value).toBe('pending')
+    assert.strictEqual(actor.getSnapshot().value, 'pending')
     actor.send({
       type: 'APPROVAL_REQUESTED',
       request: { id: 'req-2', type: 'exec' },
       approval_version: 3,
     })
-    expect(actor.getSnapshot().context.request.id).toBe('req-1')
+    assert.strictEqual(actor.getSnapshot().context.request.id, 'req-1')
     actor.stop()
   })
 
@@ -53,7 +54,7 @@ describe('approval machine', () => {
       approval_version: 1,
     })
     actor.send({ type: 'DECIDE', decision: 'approved' })
-    expect(actor.getSnapshot().value).toBe('submitting')
+    assert.strictEqual(actor.getSnapshot().value, 'submitting')
     actor.stop()
   })
 
@@ -66,9 +67,9 @@ describe('approval machine', () => {
     })
     actor.send({ type: 'DECIDE', decision: 'approved' })
     actor.send({ type: 'SUBMIT_SUCCESS', approval_version: 2 })
-    expect(actor.getSnapshot().value).toBe('idle')
-    expect(actor.getSnapshot().context.request).toBeNull()
-    expect(actor.getSnapshot().context.approvalVersion).toBe(2)
+    assert.strictEqual(actor.getSnapshot().value, 'idle')
+    assert.strictEqual(actor.getSnapshot().context.request, null)
+    assert.strictEqual(actor.getSnapshot().context.approvalVersion, 2)
     actor.stop()
   })
 
@@ -81,8 +82,8 @@ describe('approval machine', () => {
     })
     actor.send({ type: 'DECIDE', decision: 'approved' })
     actor.send({ type: 'SUBMIT_ERROR', error: 'Network error' })
-    expect(actor.getSnapshot().value).toBe('pending')
-    expect(actor.getSnapshot().context.error).toBe('Network error')
+    assert.strictEqual(actor.getSnapshot().value, 'pending')
+    assert.strictEqual(actor.getSnapshot().context.error, 'Network error')
     actor.stop()
   })
 
@@ -94,8 +95,8 @@ describe('approval machine', () => {
       approval_version: 1,
     })
     actor.send({ type: 'CLEARED' })
-    expect(actor.getSnapshot().value).toBe('idle')
-    expect(actor.getSnapshot().context.request).toBeNull()
+    assert.strictEqual(actor.getSnapshot().value, 'idle')
+    assert.strictEqual(actor.getSnapshot().context.request, null)
     actor.stop()
   })
 
@@ -106,7 +107,7 @@ describe('approval machine', () => {
       request: { id: 'req-1', type: 'exec' },
       approval_version: null,
     })
-    expect(actor.getSnapshot().value).toBe('pending')
+    assert.strictEqual(actor.getSnapshot().value, 'pending')
     actor.stop()
   })
 })

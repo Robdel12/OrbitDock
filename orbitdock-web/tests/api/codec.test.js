@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it, mock } from 'node:test'
 import { decodeServerMessage, encodeClientMessage, isKnownRowType } from '../../src/api/codec.js'
 
 describe('codec', () => {
@@ -6,7 +7,7 @@ describe('codec', () => {
     it('parses a valid sessions_list message', () => {
       const raw = JSON.stringify({ type: 'sessions_list', sessions: [] })
       const result = decodeServerMessage(raw)
-      expect(result).toEqual({ type: 'sessions_list', sessions: [] })
+      assert.deepStrictEqual(result, { type: 'sessions_list', sessions: [] })
     })
 
     it('parses a valid session_delta message', () => {
@@ -16,32 +17,32 @@ describe('codec', () => {
         changes: { work_status: 'working' },
       })
       const result = decodeServerMessage(raw)
-      expect(result.type).toBe('session_delta')
-      expect(result.session_id).toBe('sess-1')
+      assert.strictEqual(result.type, 'session_delta')
+      assert.strictEqual(result.session_id, 'sess-1')
     })
 
     it('returns null for unknown message types', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const warnSpy = mock.method(console, 'warn', () => {})
       const raw = JSON.stringify({ type: 'future_type', data: {} })
       const result = decodeServerMessage(raw)
-      expect(result).toBeNull()
-      expect(warnSpy).toHaveBeenCalled()
-      warnSpy.mockRestore()
+      assert.strictEqual(result, null)
+      assert.ok(warnSpy.mock.callCount() > 0)
+      warnSpy.mock.restore()
     })
 
     it('returns null for missing type field', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const warnSpy = mock.method(console, 'warn', () => {})
       const raw = JSON.stringify({ sessions: [] })
       const result = decodeServerMessage(raw)
-      expect(result).toBeNull()
-      warnSpy.mockRestore()
+      assert.strictEqual(result, null)
+      warnSpy.mock.restore()
     })
 
     it('returns null for invalid JSON', () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const warnSpy = mock.method(console, 'warn', () => {})
       const result = decodeServerMessage('not json')
-      expect(result).toBeNull()
-      warnSpy.mockRestore()
+      assert.strictEqual(result, null)
+      warnSpy.mock.restore()
     })
 
     it('handles conversation_rows_changed', () => {
@@ -53,8 +54,8 @@ describe('codec', () => {
         total_row_count: 10,
       })
       const result = decodeServerMessage(raw)
-      expect(result.type).toBe('conversation_rows_changed')
-      expect(result.total_row_count).toBe(10)
+      assert.strictEqual(result.type, 'conversation_rows_changed')
+      assert.strictEqual(result.total_row_count, 10)
     })
 
     it('handles approval_requested', () => {
@@ -65,8 +66,8 @@ describe('codec', () => {
         approval_version: 5,
       })
       const result = decodeServerMessage(raw)
-      expect(result.type).toBe('approval_requested')
-      expect(result.approval_version).toBe(5)
+      assert.strictEqual(result.type, 'approval_requested')
+      assert.strictEqual(result.approval_version, 5)
     })
   })
 
@@ -87,26 +88,26 @@ describe('codec', () => {
         'handoff',
       ]
       for (const type of known) {
-        expect(isKnownRowType(type)).toBe(true)
+        assert.strictEqual(isKnownRowType(type), true)
       }
     })
 
     it('returns false for unknown row types', () => {
-      expect(isKnownRowType('future_row')).toBe(false)
-      expect(isKnownRowType('')).toBe(false)
+      assert.strictEqual(isKnownRowType('future_row'), false)
+      assert.strictEqual(isKnownRowType(''), false)
     })
   })
 
   describe('encodeClientMessage', () => {
     it('encodes a subscribe_list message', () => {
       const result = encodeClientMessage({ type: 'subscribe_list' })
-      expect(JSON.parse(result)).toEqual({ type: 'subscribe_list' })
+      assert.deepStrictEqual(JSON.parse(result), { type: 'subscribe_list' })
     })
 
     it('encodes a subscribe_session message', () => {
       const msg = { type: 'subscribe_session', session_id: 'sess-1' }
       const result = encodeClientMessage(msg)
-      expect(JSON.parse(result)).toEqual(msg)
+      assert.deepStrictEqual(JSON.parse(result), msg)
     })
   })
 })

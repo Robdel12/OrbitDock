@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 import { createConversationStore, entryId } from '../../src/stores/conversation.js'
 
 const makeEntry = (id, sequence, rowType = 'user', content = 'hello') => ({
@@ -16,9 +17,9 @@ describe('conversation store', () => {
       has_more_before: true,
       oldest_sequence: 1,
     })
-    expect(store.rows.value).toHaveLength(2)
-    expect(store.totalCount.value).toBe(10)
-    expect(store.hasMoreBefore.value).toBe(true)
+    assert.strictEqual(store.rows.value.length, 2)
+    assert.strictEqual(store.totalCount.value, 10)
+    assert.strictEqual(store.hasMoreBefore.value, true)
   })
 
   it('upserts new rows', () => {
@@ -29,8 +30,8 @@ describe('conversation store', () => {
       removed_row_ids: [],
       total_row_count: 2,
     })
-    expect(store.rows.value).toHaveLength(2)
-    expect(store.totalCount.value).toBe(2)
+    assert.strictEqual(store.rows.value.length, 2)
+    assert.strictEqual(store.totalCount.value, 2)
   })
 
   it('updates existing rows in-place by ID', () => {
@@ -44,8 +45,8 @@ describe('conversation store', () => {
       removed_row_ids: [],
       total_row_count: 1,
     })
-    expect(store.rows.value).toHaveLength(1)
-    expect(store.rows.value[0].row.content).toBe('hello world')
+    assert.strictEqual(store.rows.value.length, 1)
+    assert.strictEqual(store.rows.value[0].row.content, 'hello world')
   })
 
   it('removes rows by ID', () => {
@@ -59,8 +60,8 @@ describe('conversation store', () => {
       removed_row_ids: ['r-1'],
       total_row_count: 1,
     })
-    expect(store.rows.value).toHaveLength(1)
-    expect(entryId(store.rows.value[0])).toBe('r-2')
+    assert.strictEqual(store.rows.value.length, 1)
+    assert.strictEqual(entryId(store.rows.value[0]), 'r-2')
   })
 
   it('maintains sort order by sequence', () => {
@@ -72,7 +73,7 @@ describe('conversation store', () => {
       total_row_count: 3,
     })
     const seqs = store.rows.value.map((e) => e.sequence)
-    expect(seqs).toEqual([1, 2, 3])
+    assert.deepStrictEqual(seqs, [1, 2, 3])
   })
 
   it('clears store', () => {
@@ -83,8 +84,8 @@ describe('conversation store', () => {
       has_more_before: true,
     })
     store.clear()
-    expect(store.rows.value).toHaveLength(0)
-    expect(store.totalCount.value).toBe(0)
-    expect(store.hasMoreBefore.value).toBe(false)
+    assert.strictEqual(store.rows.value.length, 0)
+    assert.strictEqual(store.totalCount.value, 0)
+    assert.strictEqual(store.hasMoreBefore.value, false)
   })
 })

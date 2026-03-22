@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "node --import ./tests/register.js --test 'tests/**/*.test.{js,jsx}'",
+    "test:watch": "node --import ./tests/register.js --test --watch 'tests/**/*.test.{js,jsx}'",
     "lint": "biome check src tests",
     "lint:fix": "biome check --fix src tests",
     "format": "biome format --write src tests",
@@ -27,8 +27,8 @@
     "@biomejs/biome": "2.4.8",
     "@preact/preset-vite": "^2.10.1",
     "@testing-library/preact": "^3.2.4",
+    "esbuild": "^0.27.0",
     "happy-dom": "^18.0.1",
-    "vite": "^8.0.0",
-    "vitest": "^3.2.1"
+    "vite": "^8.0.0"
   }
 }

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import assert from 'node:assert/strict'
+import { describe, it } from 'node:test'
 import { createActor } from 'xstate'
 import { connectionMachine } from '../../src/machines/connection.machine.js'
 
@@ -11,15 +12,15 @@ const createTestActor = () => {
 describe('connection machine', () => {
   it('starts in disconnected state', () => {
     const actor = createTestActor()
-    expect(actor.getSnapshot().value).toBe('disconnected')
+    assert.strictEqual(actor.getSnapshot().value, 'disconnected')
     actor.stop()
   })
 
   it('transitions to connecting on CONNECT', () => {
     const actor = createTestActor()
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
-    expect(actor.getSnapshot().value).toBe('connecting')
-    expect(actor.getSnapshot().context.url).toBe('ws://localhost:4000/ws')
+    assert.strictEqual(actor.getSnapshot().value, 'connecting')
+    assert.strictEqual(actor.getSnapshot().context.url, 'ws://localhost:4000/ws')
     actor.stop()
   })
 
@@ -27,8 +28,8 @@ describe('connection machine', () => {
     const actor = createTestActor()
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_OPEN' })
-    expect(actor.getSnapshot().value).toBe('connected')
-    expect(actor.getSnapshot().context.attempt).toBe(0)
+    assert.strictEqual(actor.getSnapshot().value, 'connected')
+    assert.strictEqual(actor.getSnapshot().context.attempt, 0)
     actor.stop()
   })
 
@@ -37,7 +38,7 @@ describe('connection machine', () => {
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_OPEN' })
     actor.send({ type: 'WS_CLOSE' })
-    expect(actor.getSnapshot().value).toBe('reconnecting')
+    assert.strictEqual(actor.getSnapshot().value, 'reconnecting')
     actor.stop()
   })
 
@@ -45,15 +46,15 @@ describe('connection machine', () => {
     const actor = createTestActor()
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_ERROR' })
-    expect(actor.getSnapshot().value).toBe('reconnecting')
+    assert.strictEqual(actor.getSnapshot().value, 'reconnecting')
     actor.stop()
   })
 
   it('increments generation on each CONNECT', () => {
     const actor = createTestActor()
-    expect(actor.getSnapshot().context.generation).toBe(0)
+    assert.strictEqual(actor.getSnapshot().context.generation, 0)
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
-    expect(actor.getSnapshot().context.generation).toBe(1)
+    assert.strictEqual(actor.getSnapshot().context.generation, 1)
     actor.stop()
   })
 
@@ -62,9 +63,9 @@ describe('connection machine', () => {
     actor.send({ type: 'CONNECT', url: 'ws://localhost:4000/ws' })
     actor.send({ type: 'WS_OPEN' })
     actor.send({ type: 'SUBSCRIBE_SESSION', sessionId: 'sess-1' })
-    expect(actor.getSnapshot().context.subscribedSessions.has('sess-1')).toBe(true)
+    assert.strictEqual(actor.getSnapshot().context.subscribedSessions.has('sess-1'), true)
     actor.send({ type: 'UNSUBSCRIBE_SESSION', sessionId: 'sess-1' })
-    expect(actor.getSnapshot().context.subscribedSessions.has('sess-1')).toBe(false)
+    assert.strictEqual(actor.getSnapshot().context.subscribedSessions.has('sess-1'), false)
     actor.stop()
   })
 
@@ -77,7 +78,7 @@ describe('connection machine', () => {
     })
     actor.start()
     actor.send({ type: 'RESET' })
-    expect(actor.getSnapshot().value).toBe('disconnected')
+    assert.strictEqual(actor.getSnapshot().value, 'disconnected')
     actor.stop()
   })
 })
