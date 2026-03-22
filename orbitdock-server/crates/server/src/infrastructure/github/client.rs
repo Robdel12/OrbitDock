@@ -783,3 +783,180 @@ impl Tracker for GitHubClient {
         self.create_comment(issue_id, &body).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::models::*;
+    use super::*;
+
+    fn make_client() -> GitHubClient {
+        GitHubClient::new("fake-token".to_string())
+    }
+
+    fn issue_item(status: Option<&str>, labels: &[&str]) -> ProjectItem {
+        ProjectItem {
+            field_value_by_name: status.map(|s| StatusFieldValue {
+                name: Some(s.to_string()),
+            }),
+            content: Some(ProjectItemContent::Issue(Box::new(GitHubIssueNode {
+                id: "I_1".to_string(),
+                number: 1,
+                title: "Test issue".to_string(),
+                body: None,
+                url: "https://github.com/test/repo/issues/1".to_string(),
+                created_at: None,
+                state: "OPEN".to_string(),
+                labels: LabelConnection {
+                    nodes: labels
+                        .iter()
+                        .map(|l| GitHubLabel {
+                            name: l.to_string(),
+                        })
+                        .collect(),
+                },
+                repository: RepositoryRef {
+                    name: "repo".to_string(),
+                    owner: RepositoryOwner {
+                        login: "test".to_string(),
+                    },
+                },
+            }))),
+        }
+    }
+
+    fn pr_item() -> ProjectItem {
+        ProjectItem {
+            field_value_by_name: Some(StatusFieldValue {
+                name: Some("Todo".to_string()),
+            }),
+            content: Some(ProjectItemContent::PullRequest(GitHubPRNode {})),
+        }
+    }
+
+    fn draft_item() -> ProjectItem {
+        ProjectItem {
+            field_value_by_name: Some(StatusFieldValue {
+                name: Some("Todo".to_string()),
+            }),
+            content: Some(ProjectItemContent::DraftIssue(DraftIssueNode {})),
+        }
+    }
+
+    #[test]
+    fn no_filters_returns_all_issues() {
+        let client = make_client();
+        let items = vec![issue_item(Some("Todo"), &[]), issue_item(None, &["bug"])];
+        let result = client.filter_project_items(items, &[], &[]);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn status_filter_case_insensitive() {
+        let client = make_client();
+        let items = vec![
+            issue_item(Some("In Progress"), &[]),
+            issue_item(Some("in progress"), &[]),
+            issue_item(Some("IN PROGRESS"), &[]),
+            issue_item(Some("Todo"), &[]),
+        ];
+        let filter = vec!["in progress".to_string()];
+        let result = client.filter_project_items(items, &filter, &[]);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn status_filter_skips_items_without_status() {
+        let client = make_client();
+        let items = vec![issue_item(Some("Todo"), &[]), issue_item(None, &[])];
+        let filter = vec!["Todo".to_string()];
+        let result = client.filter_project_items(items, &filter, &[]);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn status_filter_skips_items_with_empty_field_value() {
+        let client = make_client();
+        // field_value_by_name is Some but name is None
+        let mut item = issue_item(None, &[]);
+        item.field_value_by_name = Some(StatusFieldValue { name: None });
+        let items = vec![item, issue_item(Some("Todo"), &[])];
+        let filter = vec!["Todo".to_string()];
+        let result = client.filter_project_items(items, &filter, &[]);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn label_filter_case_insensitive() {
+        let client = make_client();
+        let items = vec![
+            issue_item(None, &["Bug"]),
+            issue_item(None, &["bug"]),
+            issue_item(None, &["BUG"]),
+            issue_item(None, &["feature"]),
+        ];
+        let filter = vec!["bug".to_string()];
+        let result = client.filter_project_items(items, &[], &filter);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn label_filter_requires_at_least_one_match() {
+        let client = make_client();
+        let items = vec![
+            issue_item(None, &["enhancement", "p1"]),
+            issue_item(None, &["docs"]),
+        ];
+        let filter = vec!["p1".to_string()];
+        let result = client.filter_project_items(items, &[], &filter);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "Test issue");
+    }
+
+    #[test]
+    fn skips_pull_request_items() {
+        let client = make_client();
+        let items = vec![pr_item(), issue_item(Some("Todo"), &[])];
+        let filter = vec!["Todo".to_string()];
+        let result = client.filter_project_items(items, &filter, &[]);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn skips_draft_issue_items() {
+        let client = make_client();
+        let items = vec![draft_item(), issue_item(Some("Todo"), &[])];
+        let filter = vec!["Todo".to_string()];
+        let result = client.filter_project_items(items, &filter, &[]);
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn combined_status_and_label_filter() {
+        let client = make_client();
+        let items = vec![
+            issue_item(Some("Todo"), &["bug"]),     // matches both
+            issue_item(Some("Todo"), &["feature"]), // status matches, label doesn't
+            issue_item(Some("Done"), &["bug"]),     // label matches, status doesn't
+        ];
+        let result =
+            client.filter_project_items(items, &["Todo".to_string()], &["bug".to_string()]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].state, "Todo");
+    }
+
+    #[test]
+    fn status_propagated_to_tracker_issue_state() {
+        let client = make_client();
+        let items = vec![issue_item(Some("In Review"), &[])];
+        let result = client.filter_project_items(items, &[], &[]);
+        assert_eq!(result[0].state, "In Review");
+    }
+
+    #[test]
+    fn no_status_uses_issue_state_when_no_filter() {
+        let client = make_client();
+        let items = vec![issue_item(None, &[])];
+        let result = client.filter_project_items(items, &[], &[]);
+        assert_eq!(result[0].state, "OPEN");
+    }
+}
