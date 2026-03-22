@@ -101,10 +101,10 @@ pub enum BinaryCommand {
     HookForward {
         hook_type: HookForwardType,
 
-        #[arg(long)]
+        #[arg(long, env = "ORBITDOCK_URL")]
         server_url: Option<String>,
 
-        #[arg(long)]
+        #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
         auth_token: Option<String>,
     },
 
@@ -1134,6 +1134,57 @@ mod tests {
 
         let result = dispatch_binary(&command, &config).await;
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn hook_forward_reads_env_vars() {
+        // Explicit flags win over env vars
+        let cli = BinaryCli::try_parse_from([
+            "orbitdock",
+            "hook-forward",
+            "--server-url",
+            "http://flag:4000",
+            "--auth-token",
+            "flag-token",
+            "claude-session-start",
+        ])
+        .expect("should parse with explicit flags");
+
+        match cli.command {
+            Some(BinaryCommand::HookForward {
+                server_url,
+                auth_token,
+                ..
+            }) => {
+                assert_eq!(server_url.as_deref(), Some("http://flag:4000"));
+                assert_eq!(auth_token.as_deref(), Some("flag-token"));
+            }
+            other => panic!("expected hook-forward, got {other:?}"),
+        }
+
+        // Env vars populate when no flags given
+        std::env::set_var("ORBITDOCK_URL", "http://env:4000");
+        std::env::set_var("ORBITDOCK_AUTH_TOKEN", "env-token");
+
+        let cli = BinaryCli::try_parse_from(["orbitdock", "hook-forward", "claude-status-event"])
+            .expect("should parse from env vars");
+
+        // Clean up before asserting so we don't leak into other tests
+        std::env::remove_var("ORBITDOCK_URL");
+        std::env::remove_var("ORBITDOCK_AUTH_TOKEN");
+
+        match cli.command {
+            Some(BinaryCommand::HookForward {
+                server_url,
+                auth_token,
+                hook_type,
+            }) => {
+                assert_eq!(server_url.as_deref(), Some("http://env:4000"));
+                assert_eq!(auth_token.as_deref(), Some("env-token"));
+                assert!(matches!(hook_type, HookForwardType::ClaudeStatusEvent));
+            }
+            other => panic!("expected hook-forward, got {other:?}"),
+        }
     }
 
     #[test]
