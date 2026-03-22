@@ -21,7 +21,7 @@ use orbitdock_protocol::{ClientMessage, Provider, ServerMessage, SubagentInfo, S
 use crate::domain::sessions::transition::{
     approval_preview, approval_question, approval_question_prompts, ApprovalPreviewInput,
 };
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{ApprovalRequestedParams, PersistCommand};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingClaudeSession, SessionRegistry};
 use crate::runtime::session_runtime_helpers::sync_transcript_messages;
@@ -1102,32 +1102,34 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         );
 
                         let _ = persist_tx
-                            .send(PersistCommand::ApprovalRequested {
-                                session_id: session_id.clone(),
-                                request_id: request_id.clone(),
-                                approval_type,
-                                tool_name: Some(tool_name.clone()),
-                                tool_input: serialized_input.clone(),
-                                command: None,
-                                file_path: None,
-                                diff: None,
-                                question: question_text.clone(),
-                                question_prompts,
-                                preview,
-                                permission_reason: None,
-                                requested_permissions: None,
-                                granted_permissions: None,
-                                cwd: None,
-                                proposed_amendment: None,
-                                permission_suggestions: permission_suggestions.clone(),
-                                elicitation_mode: None,
-                                elicitation_schema: None,
-                                elicitation_url: None,
-                                elicitation_message: None,
-                                mcp_server_name: None,
-                                network_host: None,
-                                network_protocol: None,
-                            })
+                            .send(PersistCommand::ApprovalRequested(Box::new(
+                                ApprovalRequestedParams {
+                                    session_id: session_id.clone(),
+                                    request_id: request_id.clone(),
+                                    approval_type,
+                                    tool_name: Some(tool_name.clone()),
+                                    tool_input: serialized_input.clone(),
+                                    command: None,
+                                    file_path: None,
+                                    diff: None,
+                                    question: question_text.clone(),
+                                    question_prompts,
+                                    preview,
+                                    permission_reason: None,
+                                    requested_permissions: None,
+                                    granted_permissions: None,
+                                    cwd: None,
+                                    proposed_amendment: None,
+                                    permission_suggestions: permission_suggestions.clone(),
+                                    elicitation_mode: None,
+                                    elicitation_schema: None,
+                                    elicitation_url: None,
+                                    elicitation_message: None,
+                                    mcp_server_name: None,
+                                    network_host: None,
+                                    network_protocol: None,
+                                },
+                            )))
                             .await;
 
                         if let Some(plan_text) = plan_text {

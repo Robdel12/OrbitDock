@@ -11,7 +11,9 @@ use orbitdock_protocol::{
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
-use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
+use crate::infrastructure::persistence::{
+    load_messages_from_transcript_path, PersistCommand, SessionCreateParams,
+};
 use crate::runtime::session_fork_policy::{
     remap_rows_for_fork, select_fork_rows, truncate_rows_before_nth_user_row,
 };
@@ -84,31 +86,33 @@ pub(crate) async fn start_claude_fork_session(
     let persist_tx = state.persist().clone();
 
     let _ = persist_tx
-        .send(PersistCommand::SessionCreate {
-            id: new_session_id.clone(),
-            provider: Provider::Claude,
-            project_path: effective_cwd.to_string(),
-            project_name,
-            branch: fork_branch,
-            model: effective_model.map(ToOwned::to_owned),
-            approval_policy: None,
-            sandbox_mode: None,
-            permission_mode: permission_mode.map(ToOwned::to_owned),
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides_json: None,
-            forked_from_session_id: Some(source_session_id.to_string()),
-            mission_id: None,
-            issue_identifier: None,
-            allow_bypass_permissions: false,
-        })
+        .send(PersistCommand::SessionCreate(Box::new(
+            SessionCreateParams {
+                id: new_session_id.clone(),
+                provider: Provider::Claude,
+                project_path: effective_cwd.to_string(),
+                project_name,
+                branch: fork_branch,
+                model: effective_model.map(ToOwned::to_owned),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: permission_mode.map(ToOwned::to_owned),
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
+                codex_config_mode: None,
+                codex_config_profile: None,
+                codex_model_provider: None,
+                codex_config_source: None,
+                codex_config_overrides_json: None,
+                forked_from_session_id: Some(source_session_id.to_string()),
+                mission_id: None,
+                issue_identifier: None,
+                allow_bypass_permissions: false,
+            },
+        )))
         .await;
 
     handle.set_list_tx(state.list_tx());
@@ -187,31 +191,33 @@ pub(crate) async fn finalize_codex_fork_session(
     let persist_tx = state.persist().clone();
 
     let _ = persist_tx
-        .send(PersistCommand::SessionCreate {
-            id: new_session_id.clone(),
-            provider: Provider::Codex,
-            project_path: effective_cwd.to_string(),
-            project_name,
-            branch: fork_branch,
-            model: effective_model.map(ToOwned::to_owned),
-            approval_policy: effective_approval_policy.map(ToOwned::to_owned),
-            sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
-            permission_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides_json: None,
-            forked_from_session_id: Some(source_session_id.to_string()),
-            mission_id: None,
-            issue_identifier: None,
-            allow_bypass_permissions: false,
-        })
+        .send(PersistCommand::SessionCreate(Box::new(
+            SessionCreateParams {
+                id: new_session_id.clone(),
+                provider: Provider::Codex,
+                project_path: effective_cwd.to_string(),
+                project_name,
+                branch: fork_branch,
+                model: effective_model.map(ToOwned::to_owned),
+                approval_policy: effective_approval_policy.map(ToOwned::to_owned),
+                sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
+                permission_mode: None,
+                collaboration_mode: None,
+                multi_agent: None,
+                personality: None,
+                service_tier: None,
+                developer_instructions: None,
+                codex_config_mode: None,
+                codex_config_profile: None,
+                codex_model_provider: None,
+                codex_config_source: None,
+                codex_config_overrides_json: None,
+                forked_from_session_id: Some(source_session_id.to_string()),
+                mission_id: None,
+                issue_identifier: None,
+                allow_bypass_permissions: false,
+            },
+        )))
         .await;
 
     for entry in forked_rows {

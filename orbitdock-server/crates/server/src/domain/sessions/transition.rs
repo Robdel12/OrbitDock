@@ -3,7 +3,7 @@
 
 pub use orbitdock_connector_core::transition::*;
 
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{ApprovalRequestedParams, PersistCommand};
 
 /// Convert a transition PersistOp into the server's PersistCommand.
 pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
@@ -103,7 +103,7 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             mcp_server_name,
             network_host,
             network_protocol,
-        } => PersistCommand::ApprovalRequested {
+        } => PersistCommand::ApprovalRequested(Box::new(ApprovalRequestedParams {
             session_id,
             request_id,
             approval_type,
@@ -128,7 +128,7 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             mcp_server_name,
             network_host,
             network_protocol,
-        },
+        })),
         PersistOp::EnvironmentUpdate {
             session_id,
             cwd,

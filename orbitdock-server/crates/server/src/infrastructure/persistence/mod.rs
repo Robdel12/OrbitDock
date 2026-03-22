@@ -33,7 +33,7 @@ use orbitdock_protocol::{
 };
 
 pub(crate) use approvals::{delete_approval, list_approvals};
-pub(crate) use commands::PersistCommand;
+pub(crate) use commands::{ApprovalRequestedParams, PersistCommand, SessionCreateParams};
 pub(crate) use config::load_config_value;
 pub(crate) use messages::{
     load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
@@ -190,31 +190,32 @@ pub(super) fn execute_command(
     cmd: PersistCommand,
 ) -> Result<(), rusqlite::Error> {
     match cmd {
-        PersistCommand::SessionCreate {
-            id,
-            provider,
-            project_path,
-            project_name,
-            branch,
-            model,
-            approval_policy,
-            sandbox_mode,
-            permission_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides_json,
-            forked_from_session_id,
-            mission_id,
-            issue_identifier,
-            allow_bypass_permissions,
-        } => {
+        PersistCommand::SessionCreate(params) => {
+            let SessionCreateParams {
+                id,
+                provider,
+                project_path,
+                project_name,
+                branch,
+                model,
+                approval_policy,
+                sandbox_mode,
+                permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
+                codex_config_mode,
+                codex_config_profile,
+                codex_model_provider,
+                codex_config_source,
+                codex_config_overrides_json,
+                forked_from_session_id,
+                mission_id,
+                issue_identifier,
+                allow_bypass_permissions,
+            } = *params;
             let provider_str = match provider {
                 Provider::Claude => "claude",
                 Provider::Codex => "codex",
@@ -1390,60 +1391,9 @@ pub(super) fn execute_command(
             )?;
         }
 
-        PersistCommand::ApprovalRequested {
-            session_id,
-            request_id,
-            approval_type,
-            tool_name,
-            tool_input,
-            command,
-            file_path,
-            diff,
-            question,
-            question_prompts,
-            preview,
-            permission_reason,
-            requested_permissions,
-            granted_permissions,
-            cwd,
-            proposed_amendment,
-            permission_suggestions,
-            elicitation_mode,
-            elicitation_schema,
-            elicitation_url,
-            elicitation_message,
-            mcp_server_name,
-            network_host,
-            network_protocol,
-        } => approvals::persist_approval_requested(
-            conn,
-            approvals::ApprovalRequestedRecord {
-                session_id,
-                request_id,
-                approval_type,
-                tool_name,
-                tool_input,
-                command,
-                file_path,
-                diff,
-                question,
-                question_prompts,
-                preview,
-                permission_reason,
-                requested_permissions,
-                granted_permissions,
-                cwd,
-                proposed_amendment,
-                permission_suggestions,
-                elicitation_mode,
-                elicitation_schema,
-                elicitation_url,
-                elicitation_message,
-                mcp_server_name,
-                network_host,
-                network_protocol,
-            },
-        )?,
+        PersistCommand::ApprovalRequested(params) => {
+            approvals::persist_approval_requested(conn, *params)?
+        }
 
         PersistCommand::ApprovalDecision {
             session_id,

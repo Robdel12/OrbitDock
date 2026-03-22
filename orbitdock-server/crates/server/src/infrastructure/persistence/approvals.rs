@@ -1,37 +1,11 @@
+use super::commands::ApprovalRequestedParams;
 use super::*;
-
-pub(super) struct ApprovalRequestedRecord {
-    pub session_id: String,
-    pub request_id: String,
-    pub approval_type: ApprovalType,
-    pub tool_name: Option<String>,
-    pub tool_input: Option<String>,
-    pub command: Option<String>,
-    pub file_path: Option<String>,
-    pub diff: Option<String>,
-    pub question: Option<String>,
-    pub question_prompts: Vec<ApprovalQuestionPrompt>,
-    pub preview: Option<ApprovalPreview>,
-    pub permission_reason: Option<String>,
-    pub requested_permissions: Option<Value>,
-    pub granted_permissions: Option<Value>,
-    pub cwd: Option<String>,
-    pub proposed_amendment: Option<Vec<String>>,
-    pub permission_suggestions: Option<Value>,
-    pub elicitation_mode: Option<String>,
-    pub elicitation_schema: Option<Value>,
-    pub elicitation_url: Option<String>,
-    pub elicitation_message: Option<String>,
-    pub mcp_server_name: Option<String>,
-    pub network_host: Option<String>,
-    pub network_protocol: Option<String>,
-}
 
 pub(super) fn persist_approval_requested(
     conn: &Connection,
-    record: ApprovalRequestedRecord,
+    record: ApprovalRequestedParams,
 ) -> Result<(), rusqlite::Error> {
-    let ApprovalRequestedRecord {
+    let ApprovalRequestedParams {
         session_id,
         request_id,
         approval_type,

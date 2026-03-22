@@ -323,7 +323,9 @@ mod tests {
     use orbitdock_protocol::{Provider, ReviewCommentStatus, ReviewCommentTag};
 
     use crate::domain::sessions::session::SessionHandle;
-    use crate::infrastructure::persistence::{flush_batch_for_test, PersistCommand};
+    use crate::infrastructure::persistence::{
+        flush_batch_for_test, PersistCommand, SessionCreateParams,
+    };
     use crate::transport::http::test_support::{
         flush_next_persist_command, new_persist_test_state,
     };
@@ -354,31 +356,33 @@ mod tests {
         ));
         flush_batch_for_test(
             &db_path,
-            vec![PersistCommand::SessionCreate {
-                id: session_id.clone(),
-                provider: Provider::Codex,
-                project_path: "/tmp/orbitdock-review-contract".to_string(),
-                project_name: Some("orbitdock-review-contract".to_string()),
-                branch: Some("main".to_string()),
-                model: Some("gpt-5".to_string()),
-                approval_policy: None,
-                sandbox_mode: None,
-                permission_mode: None,
-                collaboration_mode: None,
-                multi_agent: None,
-                personality: None,
-                service_tier: None,
-                developer_instructions: None,
-                codex_config_mode: None,
-                codex_config_profile: None,
-                codex_model_provider: None,
-                codex_config_source: None,
-                codex_config_overrides_json: None,
-                forked_from_session_id: None,
-                mission_id: None,
-                issue_identifier: None,
-                allow_bypass_permissions: false,
-            }],
+            vec![PersistCommand::SessionCreate(Box::new(
+                SessionCreateParams {
+                    id: session_id.clone(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/orbitdock-review-contract".to_string(),
+                    project_name: Some("orbitdock-review-contract".to_string()),
+                    branch: Some("main".to_string()),
+                    model: Some("gpt-5".to_string()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    collaboration_mode: None,
+                    multi_agent: None,
+                    personality: None,
+                    service_tier: None,
+                    developer_instructions: None,
+                    codex_config_mode: None,
+                    codex_config_profile: None,
+                    codex_model_provider: None,
+                    codex_config_source: None,
+                    codex_config_overrides_json: None,
+                    forked_from_session_id: None,
+                    mission_id: None,
+                    issue_identifier: None,
+                    allow_bypass_permissions: false,
+                },
+            ))],
         )
         .expect("persist session row for review comment contract test");
 

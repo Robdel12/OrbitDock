@@ -11,31 +11,7 @@ use orbitdock_protocol::{
 #[derive(Debug)]
 pub enum PersistCommand {
     /// Create a new session
-    SessionCreate {
-        id: String,
-        provider: Provider,
-        project_path: String,
-        project_name: Option<String>,
-        branch: Option<String>,
-        model: Option<String>,
-        approval_policy: Option<String>,
-        sandbox_mode: Option<String>,
-        permission_mode: Option<String>,
-        collaboration_mode: Option<String>,
-        multi_agent: Option<bool>,
-        personality: Option<String>,
-        service_tier: Option<String>,
-        developer_instructions: Option<String>,
-        codex_config_mode: Option<CodexConfigMode>,
-        codex_config_profile: Option<String>,
-        codex_model_provider: Option<String>,
-        codex_config_source: Option<CodexConfigSource>,
-        codex_config_overrides_json: Option<String>,
-        forked_from_session_id: Option<String>,
-        mission_id: Option<String>,
-        issue_identifier: Option<String>,
-        allow_bypass_permissions: bool,
-    },
+    SessionCreate(Box<SessionCreateParams>),
 
     /// Update session status/work_status
     SessionUpdate {
@@ -299,32 +275,7 @@ pub enum PersistCommand {
     DeleteRolloutCheckpoint { path: String },
 
     /// Persist an approval request event
-    ApprovalRequested {
-        session_id: String,
-        request_id: String,
-        approval_type: ApprovalType,
-        tool_name: Option<String>,
-        tool_input: Option<String>,
-        command: Option<String>,
-        file_path: Option<String>,
-        diff: Option<String>,
-        question: Option<String>,
-        question_prompts: Vec<ApprovalQuestionPrompt>,
-        preview: Option<ApprovalPreview>,
-        permission_reason: Option<String>,
-        requested_permissions: Option<Value>,
-        granted_permissions: Option<Value>,
-        cwd: Option<String>,
-        proposed_amendment: Option<Vec<String>>,
-        permission_suggestions: Option<Value>,
-        elicitation_mode: Option<String>,
-        elicitation_schema: Option<Value>,
-        elicitation_url: Option<String>,
-        elicitation_message: Option<String>,
-        mcp_server_name: Option<String>,
-        network_host: Option<String>,
-        network_protocol: Option<String>,
-    },
+    ApprovalRequested(Box<ApprovalRequestedParams>),
 
     /// Persist the user decision for an approval request
     ApprovalDecision {
@@ -462,4 +413,61 @@ impl PersistCommand {
             }
         )
     }
+}
+
+/// Payload for `PersistCommand::SessionCreate`, boxed to keep the enum small.
+#[derive(Debug)]
+pub struct SessionCreateParams {
+    pub id: String,
+    pub provider: Provider,
+    pub project_path: String,
+    pub project_name: Option<String>,
+    pub branch: Option<String>,
+    pub model: Option<String>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub permission_mode: Option<String>,
+    pub collaboration_mode: Option<String>,
+    pub multi_agent: Option<bool>,
+    pub personality: Option<String>,
+    pub service_tier: Option<String>,
+    pub developer_instructions: Option<String>,
+    pub codex_config_mode: Option<CodexConfigMode>,
+    pub codex_config_profile: Option<String>,
+    pub codex_model_provider: Option<String>,
+    pub codex_config_source: Option<CodexConfigSource>,
+    pub codex_config_overrides_json: Option<String>,
+    pub forked_from_session_id: Option<String>,
+    pub mission_id: Option<String>,
+    pub issue_identifier: Option<String>,
+    pub allow_bypass_permissions: bool,
+}
+
+/// Payload for `PersistCommand::ApprovalRequested`, boxed to keep the enum small.
+#[derive(Debug)]
+pub struct ApprovalRequestedParams {
+    pub session_id: String,
+    pub request_id: String,
+    pub approval_type: ApprovalType,
+    pub tool_name: Option<String>,
+    pub tool_input: Option<String>,
+    pub command: Option<String>,
+    pub file_path: Option<String>,
+    pub diff: Option<String>,
+    pub question: Option<String>,
+    pub question_prompts: Vec<ApprovalQuestionPrompt>,
+    pub preview: Option<ApprovalPreview>,
+    pub permission_reason: Option<String>,
+    pub requested_permissions: Option<Value>,
+    pub granted_permissions: Option<Value>,
+    pub cwd: Option<String>,
+    pub proposed_amendment: Option<Vec<String>>,
+    pub permission_suggestions: Option<Value>,
+    pub elicitation_mode: Option<String>,
+    pub elicitation_schema: Option<Value>,
+    pub elicitation_url: Option<String>,
+    pub elicitation_message: Option<String>,
+    pub mcp_server_name: Option<String>,
+    pub network_host: Option<String>,
+    pub network_protocol: Option<String>,
 }

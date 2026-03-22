@@ -8,7 +8,7 @@ use orbitdock_protocol::{
 };
 
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
-use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
 use crate::runtime::session_direct_start::{
     start_direct_claude_session, start_direct_codex_session, StartDirectCodexRequest,
 };
@@ -193,31 +193,33 @@ async fn persist_direct_session_create(
         codex_config_overrides_json,
     } = request;
     let _ = persist_tx
-        .send(PersistCommand::SessionCreate {
-            id: id.clone(),
-            provider,
-            project_path,
-            project_name,
-            branch,
-            model,
-            approval_policy,
-            sandbox_mode,
-            permission_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides_json,
-            forked_from_session_id: None,
-            mission_id,
-            issue_identifier,
-            allow_bypass_permissions,
-        })
+        .send(PersistCommand::SessionCreate(Box::new(
+            SessionCreateParams {
+                id: id.clone(),
+                provider,
+                project_path,
+                project_name,
+                branch,
+                model,
+                approval_policy,
+                sandbox_mode,
+                permission_mode,
+                collaboration_mode,
+                multi_agent,
+                personality,
+                service_tier,
+                developer_instructions,
+                codex_config_mode,
+                codex_config_profile,
+                codex_model_provider,
+                codex_config_source,
+                codex_config_overrides_json,
+                forked_from_session_id: None,
+                mission_id,
+                issue_identifier,
+                allow_bypass_permissions,
+            },
+        )))
         .await;
 
     if let Some(effort_name) = effort {
