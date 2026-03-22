@@ -854,8 +854,7 @@ mod tests {
 
     #[test]
     fn parse_valid_identifier_large_number() {
-        let (owner, repo, number) =
-            GitHubClient::parse_identifier("my-org/my-repo#99999").unwrap();
+        let (owner, repo, number) = GitHubClient::parse_identifier("my-org/my-repo#99999").unwrap();
         assert_eq!(owner, "my-org");
         assert_eq!(repo, "my-repo");
         assert_eq!(number, 99999);
