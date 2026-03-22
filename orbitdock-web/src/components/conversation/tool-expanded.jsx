@@ -7,24 +7,25 @@ import styles from './tool-expanded.module.css'
 // Guardian Assessment — purpose-built expanded view
 // ---------------------------------------------------------------------------
 
-const GuardianExpanded = ({ data }) => {
-  // output_display is pre-formatted by the server as "Verdict: …\nRisk: …\nRationale: …"
-  let lines = (data.output_display || '').split('\n').filter(Boolean)
-
-  let verdict = null
-  let risk = null
-  let rationale = null
-
-  for (let line of lines) {
-    if (line.startsWith('Verdict:')) verdict = line.slice('Verdict:'.length).trim()
-    else if (line.startsWith('Risk:')) risk = line.slice('Risk:'.length).trim()
-    else if (line.startsWith('Rationale:')) rationale = line.slice('Rationale:'.length).trim()
+const parseAssessment = (output) => {
+  const lines = (output || '').split('\n').filter(Boolean)
+  const result = { verdict: null, risk: null, rationale: null }
+  for (const line of lines) {
+    if (line.startsWith('Verdict:')) result.verdict = line.slice('Verdict:'.length).trim()
+    else if (line.startsWith('Risk:')) result.risk = line.slice('Risk:'.length).trim()
+    else if (line.startsWith('Rationale:')) result.rationale = line.slice('Rationale:'.length).trim()
   }
+  return result
+}
 
-  let verdictClass = styles.guardianApproved
-  if (verdict === 'denied') verdictClass = styles.guardianDenied
-  else if (verdict === 'reviewing') verdictClass = styles.guardianReviewing
-  else if (verdict === 'aborted') verdictClass = styles.guardianDenied
+const verdictClassName = (verdict) => {
+  if (verdict === 'denied' || verdict === 'aborted') return styles.guardianDenied
+  if (verdict === 'reviewing') return styles.guardianReviewing
+  return styles.guardianApproved
+}
+
+const GuardianExpanded = ({ data }) => {
+  const { verdict, risk, rationale } = parseAssessment(data.output_display)
 
   return (
     <div class={styles.expanded}>
@@ -39,7 +40,7 @@ const GuardianExpanded = ({ data }) => {
       {/* Assessment result */}
       <div class={styles.guardianResult}>
         {verdict && (
-          <div class={`${styles.guardianVerdict} ${verdictClass}`}>
+          <div class={`${styles.guardianVerdict} ${verdictClassName(verdict)}`}>
             <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
               <path d="M6 0.5L11 3V7C11 9.5 8.8 11 6 11.5C3.2 11 1 9.5 1 7V3L6 0.5Z" />
             </svg>
@@ -109,15 +110,15 @@ const GenericExpanded = ({ data, outputPreview }) => (
 // ---------------------------------------------------------------------------
 
 const ToolExpanded = ({ sessionId, rowId, http, outputPreview, diffPreview, toolType }) => {
-  let [content, setContent] = useState(null)
-  let [loading, setLoading] = useState(true)
-  let [error, setError] = useState(null)
+  const [content, setContent] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
-    let load = async () => {
+    const load = async () => {
       try {
-        let data = await http.get(`/api/sessions/${sessionId}/rows/${rowId}/content`)
+        const data = await http.get(`/api/sessions/${sessionId}/rows/${rowId}/content`)
         if (!cancelled) setContent(data)
       } catch (err) {
         if (!cancelled) setError(err.message)
@@ -143,7 +144,7 @@ const ToolExpanded = ({ sessionId, rowId, http, outputPreview, diffPreview, tool
     return <div class={styles.error}>{error}</div>
   }
 
-  let data = content || {}
+  const data = content || {}
 
   if (toolType === 'guardianAssessment') {
     return <GuardianExpanded data={data} />

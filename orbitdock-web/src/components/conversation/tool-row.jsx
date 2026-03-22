@@ -68,10 +68,14 @@ const InlinePreview = ({ display }) => {
   }
 
   // Guardian assessment: show rationale with shield styling
-  if (display.glyph_color === 'feedbackCaution' && display.tool_type === 'guardianAssessment' && display.output_preview) {
+  if (
+    display.glyph_color === 'feedbackCaution' &&
+    display.tool_type === 'guardianAssessment' &&
+    display.output_preview
+  ) {
     return (
       <div class={`${styles.inlinePreview} ${styles.guardianPreview}`}>
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" role="img" aria-label="Shield">
           <path d="M5 0.5L9.5 3V6.5C9.5 8.5 7.5 9.5 5 10C2.5 9.5 0.5 8.5 0.5 6.5V3L5 0.5Z" />
         </svg>
         <span>{display.output_preview}</span>
