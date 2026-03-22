@@ -8,10 +8,10 @@ Testing guidance for `orbitdock-web`. Covers where each kind of test belongs, wh
 
 Two layers, no middle ground:
 
-| Layer | Tool | What it covers | Speed |
-|-------|------|----------------|-------|
-| **E2E / UI workflow** | Playwright | Multi-step user flows through a real browser | Slow |
-| **Logic unit** | `node:test` + `node:assert/strict` | Pure functions, state machines, stores, codecs | Fast |
+| Layer | Tool | What it covers |
+|-------|------|----------------|
+| **E2E / UI workflow** | Playwright | Multi-step user flows through a real browser |
+| **Logic unit** | `node:test` + `node:assert/strict` | Pure functions, state machines, stores, codecs |
 
 There is no broad component-harness layer in between. We do not use happy-dom tests as the primary way to verify that features work. The few component tests that exist verify rendering contracts (does the component render the right data given specific props?) — they are not workflow tests.
 
