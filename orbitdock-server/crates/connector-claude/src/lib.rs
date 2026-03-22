@@ -589,9 +589,25 @@ impl ClaudeConnector {
         if allow_bypass_permissions {
             args.push("--allow-dangerously-skip-permissions");
         }
-        let allowed_joined = allowed_tools.join(",");
+
+        // When permission_mode is "acceptEdits", ensure edit tools are explicitly
+        // in the allowedTools list. The --permission-prompt-tool stdio flag routes
+        // ALL permission decisions through the control protocol, so the CLI's
+        // internal --permission-mode auto-accept logic may not fire. Passing them
+        // as --allowedTools guarantees the CLI pre-approves them.
+        let mut effective_allowed: Vec<String> = allowed_tools.to_vec();
+        if permission_mode == Some("acceptEdits") {
+            for tool in ["Edit", "Write", "NotebookEdit"] {
+                let tool_str = tool.to_string();
+                if !effective_allowed.contains(&tool_str) {
+                    effective_allowed.push(tool_str);
+                }
+            }
+        }
+
+        let allowed_joined = effective_allowed.join(",");
         let disallowed_joined = disallowed_tools.join(",");
-        if !allowed_tools.is_empty() {
+        if !effective_allowed.is_empty() {
             args.extend(["--allowedTools", &allowed_joined]);
         }
         if !disallowed_tools.is_empty() {
