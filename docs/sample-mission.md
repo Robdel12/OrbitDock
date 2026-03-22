@@ -41,6 +41,25 @@ You are working on Linear issue `{{ issue.identifier }}`: {{ issue.title }}
 ...prompt body...
 ```
 
+## With skills (Codex)
+
+```yaml
+---
+provider:
+  strategy: single
+  primary: codex
+
+agent:
+  codex:
+    model: gpt-5.3-codex
+    skills:
+      - testing-philosophy
+      - react-best-practices
+---
+```
+
+Skills listed under `agent.codex.skills` are attached to the initial mission prompt. Each name must match an installed Codex skill (e.g. `~/.codex/skills/testing-philosophy/SKILL.md`). Missing skills are logged and skipped — the mission still dispatches.
+
 ## Priority mode (Claude primary, Codex overflow)
 
 ```yaml
@@ -135,6 +154,7 @@ Disables automatic polling. Issues are only dispatched when manually triggered.
 | `agent.codex` | `personality` | — | Personality preset |
 | `agent.codex` | `service_tier` | — | Service tier (fast/flex) |
 | `agent.codex` | `developer_instructions` | — | Custom developer instructions |
+| `agent.codex` | `skills` | `[]` | Skills to attach to initial prompt (e.g. `[testing-philosophy]`) |
 | `trigger` | `kind` | `polling` | `polling` or `manual_only` |
 | `trigger` | `interval` | `60` | Polling interval in seconds |
 | `trigger.filters` | `labels` | `[]` | Only issues with these labels |

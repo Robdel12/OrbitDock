@@ -3,6 +3,7 @@ pub(crate) mod eligibility;
 pub mod executor;
 pub(crate) mod prompt;
 pub(crate) mod retry;
+pub(crate) mod skills;
 pub(crate) mod template;
 pub mod tools;
 pub(crate) mod tracker;

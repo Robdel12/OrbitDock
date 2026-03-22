@@ -9,6 +9,7 @@ use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::{render_prompt, IssueContext};
+use crate::domain::mission_control::skills::resolve_skill_inputs;
 use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
 use crate::infrastructure::persistence::mission_control::{
     update_mission_issue_state_sync, MissionIssueStateUpdate,
@@ -334,6 +335,9 @@ pub async fn dispatch_issue(
     })
     .await;
 
+    // Resolve configured skills to SkillInput values (Codex only)
+    let mission_skills = resolve_skill_inputs(&resolved.skills);
+
     // Send the prompt as the first message via the connector action channel
     match provider {
         Provider::Codex => {
@@ -343,7 +347,7 @@ pub async fn dispatch_issue(
                         content: prompt,
                         model: resolved.model,
                         effort: resolved.effort,
-                        skills: vec![],
+                        skills: mission_skills,
                         images: vec![],
                         mentions: vec![],
                     })

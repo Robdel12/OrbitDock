@@ -214,6 +214,9 @@ pub struct CodexAgentConfig {
     pub service_tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub developer_instructions: Option<String>,
+    /// Skills to attach to the initial mission prompt (e.g. `["testing-philosophy"]`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
 }
 
 /// Resolved agent settings that map 1:1 to `DirectSessionRequest` fields.
@@ -232,6 +235,8 @@ pub struct ResolvedAgentSettings {
     pub service_tier: Option<String>,
     pub developer_instructions: Option<String>,
     pub allow_bypass_permissions: bool,
+    /// Skill names to attach to the initial mission prompt (Codex only).
+    pub skills: Vec<String>,
 }
 
 impl AgentConfig {
@@ -305,6 +310,7 @@ impl AgentConfig {
                         personality: x.personality.clone(),
                         service_tier: x.service_tier.clone(),
                         developer_instructions: x.developer_instructions.clone(),
+                        skills: x.skills.clone(),
                         ..Default::default()
                     }
                 } else {
@@ -1136,6 +1142,7 @@ Some prompt body
                 personality: Some("pragmatic".to_string()),
                 service_tier: Some("fast".to_string()),
                 developer_instructions: Some("Be concise".to_string()),
+                skills: vec!["testing-philosophy".to_string()],
             }),
         };
         let resolved = agent.resolve_for_provider("codex");
@@ -1151,6 +1158,7 @@ Some prompt body
             resolved.developer_instructions.as_deref(),
             Some("Be concise")
         );
+        assert_eq!(resolved.skills, vec!["testing-philosophy"]);
         // Codex resolve doesn't set claude-specific fields
         assert!(resolved.permission_mode.is_none());
         assert!(resolved.allowed_tools.is_empty());
