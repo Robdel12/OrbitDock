@@ -1,4 +1,4 @@
-import { setup, assign } from 'xstate'
+import { assign, setup } from 'xstate'
 
 const approvalMachine = setup({
   actions: {
@@ -16,10 +16,14 @@ const approvalMachine = setup({
       request: null,
       error: null,
     }),
+    resetAll: assign({
+      request: null,
+      error: null,
+      approvalVersion: 0,
+    }),
   },
   guards: {
-    isNewerVersion: ({ context, event }) =>
-      !event.approval_version || event.approval_version > context.approvalVersion,
+    isNewerVersion: ({ context, event }) => !event.approval_version || event.approval_version > context.approvalVersion,
   },
 }).createMachine({
   id: 'approval',
@@ -38,6 +42,7 @@ const approvalMachine = setup({
           target: 'pending',
           actions: 'setRequest',
         },
+        RESET: { actions: 'resetAll' },
       },
     },
     pending: {
@@ -50,6 +55,7 @@ const approvalMachine = setup({
           guard: 'isNewerVersion',
           actions: 'setRequest',
         },
+        RESET: { target: 'idle', actions: 'resetAll' },
       },
     },
     submitting: {
@@ -62,6 +68,7 @@ const approvalMachine = setup({
           target: 'pending',
           actions: 'setError',
         },
+        RESET: { target: 'idle', actions: 'resetAll' },
       },
     },
   },

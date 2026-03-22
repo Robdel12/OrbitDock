@@ -1,16 +1,16 @@
 import { signal } from '@preact/signals'
 import { createActor } from 'xstate'
-import { connectionMachine } from '../machines/connection.machine.js'
-import { createWsClient } from '../api/ws.js'
 import { createHttpClient } from '../api/http.js'
+import { createWsClient } from '../api/ws.js'
+import { connectionMachine } from '../machines/connection.machine.js'
 import { clearToken } from './auth.js'
 import {
-  handleSessionsList,
   handleSessionCreated,
-  handleSessionListItemUpdated,
   handleSessionDelta,
   handleSessionEnded,
+  handleSessionListItemUpdated,
   handleSessionRemoved,
+  handleSessionsList,
   selected,
 } from './sessions.js'
 import { addToast } from './toasts.js'
@@ -25,10 +25,20 @@ const serverInfo = signal({ isPrimary: false })
 const authRequired = signal(null) // null = unknown, true/false once probed
 
 let conversationHandler = null
+let pendingApprovalBuffer = null
 const subscribedSessions = new Set()
 
 const setConversationHandler = (handler) => {
   conversationHandler = handler
+  if (handler && pendingApprovalBuffer) {
+    // Flush any buffered approval that arrived while the handler was null.
+    handler(pendingApprovalBuffer)
+    pendingApprovalBuffer = null
+  } else if (!handler) {
+    // Clear the buffer on cleanup so stale approvals from one session
+    // don't leak into the next session's handler.
+    pendingApprovalBuffer = null
+  }
 }
 
 const subscribeSession = (sessionId) => {
@@ -80,7 +90,12 @@ const routeMessage = (msg) => {
           sessionId: msg.session_id,
         })
       }
-      if (conversationHandler) conversationHandler(msg)
+      if (conversationHandler) {
+        conversationHandler(msg)
+      } else {
+        // Buffer the approval so it can be flushed when the handler registers.
+        pendingApprovalBuffer = msg
+      }
       break
     case 'rate_limit_event':
       addToast({
@@ -127,6 +142,23 @@ const fetchInitialSessions = async () => {
   }
 }
 
+/** Fetch session state and route any pending approval to the handler. */
+const syncPendingApproval = async (sessionId) => {
+  try {
+    const data = await http.get(`/api/sessions/${sessionId}`)
+    if (data.session?.pending_approval && conversationHandler) {
+      conversationHandler({
+        type: 'approval_requested',
+        session_id: sessionId,
+        request: data.session.pending_approval,
+        approval_version: data.session.approval_version ?? 1,
+      })
+    }
+  } catch {
+    // Non-critical — the WS subscription may still deliver the event.
+  }
+}
+
 wsClient.status.subscribe((status) => {
   switch (status) {
     case 'connected':
@@ -136,6 +168,11 @@ wsClient.status.subscribe((status) => {
         wsClient.send({ type: 'subscribe_session', session_id: sid, include_snapshot: false })
       }
       fetchInitialSessions()
+      // Re-sync approval state for the active session after reconnect so any
+      // approvals that arrived while disconnected are picked up.
+      if (selected.value?.id) {
+        syncPendingApproval(selected.value.id)
+      }
       break
     case 'disconnected':
       if (connectionState.value === 'connected' || connectionState.value === 'connecting') {
@@ -185,7 +222,7 @@ const probeAuth = async () => {
       authRequired.value = true
       return 'auth_required'
     }
-    authRequired.value = tok ? true : false
+    authRequired.value = !!tok
     return 'ok'
   } catch {
     authRequired.value = false
@@ -215,18 +252,18 @@ const reconnect = () => {
 const sendWs = (msg) => wsClient.send(msg)
 
 export {
-  connectionState,
-  connectionActor,
-  wsClient,
-  http,
+  authRequired,
   connect,
+  connectionActor,
+  connectionState,
   disconnect,
+  http,
+  probeAuth,
   reconnect,
   sendWs,
+  serverInfo,
+  setConversationHandler,
   subscribeSession,
   unsubscribeSession,
-  setConversationHandler,
-  serverInfo,
-  authRequired,
-  probeAuth,
+  wsClient,
 }

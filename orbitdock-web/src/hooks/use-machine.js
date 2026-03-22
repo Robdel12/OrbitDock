@@ -1,6 +1,6 @@
-import { createActor } from 'xstate'
 import { signal } from '@preact/signals'
-import { useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef } from 'preact/hooks'
+import { createActor } from 'xstate'
 
 const useMachine = (machine, options) => {
   const ref = useRef(null)

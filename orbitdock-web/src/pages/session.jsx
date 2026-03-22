@@ -1,34 +1,33 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import { useRoute, useLocation } from 'wouter-preact'
-import { createConversationStore } from '../stores/conversation.js'
-import { selectSession, selected } from '../stores/sessions.js'
-import { setConversationHandler } from '../stores/connection.js'
-import { addToast } from '../stores/toasts.js'
-import { useSession } from '../hooks/use-session.js'
-import { useScrollAnchor } from '../hooks/use-scroll-anchor.js'
+import { useLocation, useRoute } from 'wouter-preact'
+import { ApprovalBanner } from '../components/approval/approval-banner.jsx'
 import { ConversationView } from '../components/conversation/conversation-view.jsx'
 import { MessageComposer } from '../components/input/message-composer.jsx'
 import { RateLimitBanner } from '../components/input/rate-limit-banner.jsx'
-import { SessionHeader } from '../components/session/session-header.jsx'
-import { WorkerRosterPanel } from '../components/session/worker-roster-panel.jsx'
-import { SessionActionBar } from '../components/session/session-action-bar.jsx'
-import { DiffAvailableBanner } from '../components/session/diff-available-banner.jsx'
-import { WorktreeCleanupBanner } from '../components/session/worktree-cleanup-banner.jsx'
-import { CapabilitiesPanel } from '../components/session/capabilities-panel.jsx'
-import { SessionSkeleton } from '../components/session/session-skeleton.jsx'
 import { ReviewPanel } from '../components/review/review-panel.jsx'
-import { ApprovalBanner } from '../components/approval/approval-banner.jsx'
-import { connectionState, http } from '../stores/connection.js'
-import { useMachine } from '../hooks/use-machine.js'
+import { CapabilitiesPanel } from '../components/session/capabilities-panel.jsx'
+import { DiffAvailableBanner } from '../components/session/diff-available-banner.jsx'
+import { SessionActionBar } from '../components/session/session-action-bar.jsx'
+import { SessionHeader } from '../components/session/session-header.jsx'
+import { SessionSkeleton } from '../components/session/session-skeleton.jsx'
+import { WorkerRosterPanel } from '../components/session/worker-roster-panel.jsx'
+import { WorktreeCleanupBanner } from '../components/session/worktree-cleanup-banner.jsx'
 import { useKeyboard } from '../hooks/use-keyboard.js'
+import { useMachine } from '../hooks/use-machine.js'
+import { useScrollAnchor } from '../hooks/use-scroll-anchor.js'
+import { useSession } from '../hooks/use-session.js'
 import { approvalMachine } from '../machines/approval.machine.js'
+import { connectionState, http, setConversationHandler } from '../stores/connection.js'
+import { createConversationStore } from '../stores/conversation.js'
 import {
-  reviewPanelOpen,
-  openReviewPanel,
   closeReviewPanel,
-  resetReview,
   handleReviewWsEvent,
+  openReviewPanel,
+  resetReview,
+  reviewPanelOpen,
 } from '../stores/review.js'
+import { selected, selectSession } from '../stores/sessions.js'
+import { addToast } from '../stores/toasts.js'
 import styles from './session.module.css'
 
 const SessionPage = () => {
@@ -100,30 +99,13 @@ const SessionPage = () => {
     if (!sessionId) return
     selectSession(sessionId)
 
+    // Reset approval machine so stale state from a previous session doesn't leak.
+    sendApproval({ type: 'RESET' })
+
     setIsBootstrapping(true)
 
-    // Fetch initial conversation via REST (WS only delivers incremental updates)
-    const fetchConversation = async () => {
-      try {
-        const data = await http.get(`/api/sessions/${sessionId}/conversation`)
-        if (data.session) {
-          conversation.applyBootstrap({
-            rows: data.session.rows || [],
-            total_row_count: data.session.total_row_count || 0,
-            has_more_before: data.session.has_more_before || false,
-            oldest_sequence: data.session.oldest_sequence ?? null,
-            newest_sequence: data.session.newest_sequence ?? null,
-          })
-        }
-      } catch (err) {
-        console.warn('[session] failed to fetch conversation:', err.message)
-      } finally {
-        setIsBootstrapping(false)
-      }
-    }
-    fetchConversation()
-
-    // WS handler for live incremental updates
+    // Register WS handler FIRST — before the async fetch — so no events are
+    // dropped during the network round-trip.
     const handler = (msg) => {
       if (msg.type === 'conversation_rows_changed' && msg.session_id === sessionId) {
         conversation.applyRowsChanged(msg)
@@ -156,20 +138,53 @@ const SessionPage = () => {
       } else if (msg.type === 'mcp_tools_list' && msg.session_id === sessionId) {
         setLiveMcpTools(msg)
       } else if (
-        msg.session_id === sessionId && (
-          msg.type === 'review_comment_created' ||
+        msg.session_id === sessionId &&
+        (msg.type === 'review_comment_created' ||
           msg.type === 'review_comment_updated' ||
           msg.type === 'review_comment_deleted' ||
           msg.type === 'review_comments_list' ||
-          msg.type === 'turn_diff_snapshot'
-        )
+          msg.type === 'turn_diff_snapshot')
       ) {
         handleReviewWsEvent(msg)
       }
     }
 
     setConversationHandler(handler)
+
+    // Fetch initial conversation via REST (WS only delivers incremental updates).
+    // The handler is already registered above, so any WS events that arrive during
+    // this fetch will be processed normally.
+    const fetchConversation = async () => {
+      try {
+        const data = await http.get(`/api/sessions/${sessionId}/conversation`)
+        if (data.session) {
+          conversation.applyBootstrap({
+            rows: data.session.rows || [],
+            total_row_count: data.session.total_row_count || 0,
+            has_more_before: data.session.has_more_before || false,
+            oldest_sequence: data.session.oldest_sequence ?? null,
+            newest_sequence: data.session.newest_sequence ?? null,
+          })
+          // Hydrate pending approval from REST snapshot so the banner shows
+          // even if the WS event was missed (e.g. page reload, navigation).
+          if (data.session.pending_approval) {
+            sendApproval({
+              type: 'APPROVAL_REQUESTED',
+              request: data.session.pending_approval,
+              approval_version: data.session.approval_version ?? 1,
+            })
+          }
+        }
+      } catch (err) {
+        console.warn('[session] failed to fetch conversation:', err.message)
+      } finally {
+        setIsBootstrapping(false)
+      }
+    }
+    fetchConversation()
+
     return () => {
+      sendApproval({ type: 'RESET' })
       setConversationHandler(null)
       setRateLimitInfo(null)
       setIsPending(false)
@@ -196,13 +211,12 @@ const SessionPage = () => {
   const session = selected.value
   const rows = conversation.rows.value
   const approvalSnapshot = approvalState.value
-  const pendingRequest =
-    approvalSnapshot.value === 'pending' ? approvalSnapshot.context.request : null
+  const pendingRequest = approvalSnapshot.value === 'pending' ? approvalSnapshot.context.request : null
 
   const handleSend = (payload) => {
     setIsPending(true)
     const body = { content: payload.content || '' }
-    if (payload.images && payload.images.length) body.images = payload.images
+    if (payload.images?.length) body.images = payload.images
     if (payload.effort) body.effort = payload.effort
     http.post(`/api/sessions/${sessionId}/messages`, body).catch((err) => {
       console.warn('[session] send failed:', err.message)
@@ -230,51 +244,60 @@ const SessionPage = () => {
   const handleDecide = (decision) => {
     if (!pendingRequest) return
     sendApproval({ type: 'DECIDE', decision })
-    http.post(`/api/sessions/${sessionId}/approve`, {
-      request_id: pendingRequest.id,
-      decision,
-    }).then(() => {
-      // approval_decision_result comes via WS
-    }).catch((err) => {
-      sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/approve`, {
+        request_id: pendingRequest.id,
+        decision,
+      })
+      .then(() => {
+        // approval_decision_result comes via WS
+      })
+      .catch((err) => {
+        sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
+      })
   }
 
   const handleAnswer = (payload) => {
     if (!pendingRequest) return
     sendApproval({ type: 'ANSWER' })
-    http.post(`/api/sessions/${sessionId}/answer`, {
-      request_id: pendingRequest.id,
-      answer: payload.answer || '',
-      ...(payload.question_id ? { question_id: payload.question_id } : {}),
-      ...(payload.answers ? { answers: payload.answers } : {}),
-    }).catch((err) => {
-      sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/answer`, {
+        request_id: pendingRequest.id,
+        answer: payload.answer || '',
+        ...(payload.question_id ? { question_id: payload.question_id } : {}),
+        ...(payload.answers ? { answers: payload.answers } : {}),
+      })
+      .catch((err) => {
+        sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
+      })
   }
 
   const handleDismiss = () => {
     if (!pendingRequest) return
     sendApproval({ type: 'DECIDE', decision: 'denied' })
-    http.post(`/api/sessions/${sessionId}/approve`, {
-      request_id: pendingRequest.id,
-      decision: 'denied',
-      message: 'Dismissed',
-    }).catch((err) => {
-      sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/approve`, {
+        request_id: pendingRequest.id,
+        decision: 'denied',
+        message: 'Dismissed',
+      })
+      .catch((err) => {
+        sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
+      })
   }
 
   const handleRespondPermission = ({ granted, scope }) => {
     if (!pendingRequest) return
     sendApproval({ type: 'GRANT_PERMISSION' })
-    http.post(`/api/sessions/${sessionId}/permissions/respond`, {
-      request_id: pendingRequest.id,
-      permissions: granted ? pendingRequest.requested_permissions : null,
-      ...(scope ? { scope } : {}),
-    }).catch((err) => {
-      sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/permissions/respond`, {
+        request_id: pendingRequest.id,
+        permissions: granted ? pendingRequest.requested_permissions : null,
+        ...(scope ? { scope } : {}),
+      })
+      .catch((err) => {
+        sendApproval({ type: 'SUBMIT_ERROR', error: err.message })
+      })
   }
 
   const isEnded = session?.status === 'ended' || session?.work_status === 'ended'
@@ -308,11 +331,14 @@ const SessionPage = () => {
 
   const handleFork = (nthUserMessage) => {
     const body = nthUserMessage != null ? { nth_user_message: nthUserMessage } : {}
-    http.post(`/api/sessions/${sessionId}/fork`, body).then((res) => {
-      if (res?.session?.id) navigate(`/session/${res.session.id}`)
-    }).catch((err) => {
-      console.warn('[session] fork failed:', err.message)
-    })
+    http
+      .post(`/api/sessions/${sessionId}/fork`, body)
+      .then((res) => {
+        if (res?.session?.id) navigate(`/session/${res.session.id}`)
+      })
+      .catch((err) => {
+        console.warn('[session] fork failed:', err.message)
+      })
   }
 
   const handleTakeover = () => {
@@ -353,21 +379,27 @@ const SessionPage = () => {
 
   const handleContinueInNew = () => {
     // Fork from the latest message into a new session
-    http.post(`/api/sessions/${sessionId}/fork`).then((res) => {
-      if (res?.session?.id) navigate(`/session/${res.session.id}`)
-    }).catch((err) => {
-      console.warn('[session] continue in new failed:', err.message)
-      addToast({ title: 'Continue failed', body: err.message, type: 'error' })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/fork`)
+      .then((res) => {
+        if (res?.session?.id) navigate(`/session/${res.session.id}`)
+      })
+      .catch((err) => {
+        console.warn('[session] continue in new failed:', err.message)
+        addToast({ title: 'Continue failed', body: err.message, type: 'error' })
+      })
   }
 
   const handleForkToWorktree = () => {
-    http.post(`/api/sessions/${sessionId}/fork-to-worktree`).then((res) => {
-      if (res?.session?.id) navigate(`/session/${res.session.id}`)
-    }).catch((err) => {
-      console.warn('[session] fork to worktree failed:', err.message)
-      addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
-    })
+    http
+      .post(`/api/sessions/${sessionId}/fork-to-worktree`)
+      .then((res) => {
+        if (res?.session?.id) navigate(`/session/${res.session.id}`)
+      })
+      .catch((err) => {
+        console.warn('[session] fork to worktree failed:', err.message)
+        addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
+      })
   }
 
   const handleToggleCapabilities = () => setCapabilitiesOpen((v) => !v)
@@ -399,12 +431,7 @@ const SessionPage = () => {
           tokenUsage={tokenUsage}
         />
         <WorkerRosterPanel rows={rows} />
-        {diffAvailable && (
-          <DiffAvailableBanner
-            onOpen={handleOpenReview}
-            onDismiss={() => setDiffAvailable(false)}
-          />
-        )}
+        {diffAvailable && <DiffAvailableBanner onOpen={handleOpenReview} onDismiss={() => setDiffAvailable(false)} />}
         <ConversationView
           rows={rows}
           isLoadingHistory={conversation.isLoadingHistory.value}
@@ -414,18 +441,10 @@ const SessionPage = () => {
           session={session}
           unreadCount={unreadCount}
         />
-        {rateLimitInfo && (
-          <RateLimitBanner
-            info={rateLimitInfo}
-            onExpired={() => setRateLimitInfo(null)}
-          />
-        )}
+        {rateLimitInfo && <RateLimitBanner info={rateLimitInfo} onExpired={() => setRateLimitInfo(null)} />}
         <SessionActionBar session={session} />
         {showWorktreeBanner && (
-          <WorktreeCleanupBanner
-            worktreeId={session.worktree_id}
-            onDelete={handleDeleteWorktree}
-          />
+          <WorktreeCleanupBanner worktreeId={session.worktree_id} onDelete={handleDeleteWorktree} />
         )}
         {pendingRequest && (
           <ApprovalBanner
@@ -488,10 +507,7 @@ const SessionPage = () => {
       {/* ── Right column: review panel (desktop split / mobile overlay) ─── */}
       {reviewOpen && (
         <div class={styles.reviewCol}>
-          <ReviewPanel
-            sessionId={sessionId}
-            onClose={handleCloseReview}
-          />
+          <ReviewPanel sessionId={sessionId} onClose={handleCloseReview} />
         </div>
       )}
     </div>
