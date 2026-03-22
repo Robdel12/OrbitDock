@@ -1,16 +1,16 @@
 import assert from 'node:assert/strict'
-import { describe, it, beforeEach } from 'node:test'
+import { beforeEach, describe, it } from 'node:test'
 import {
-  sessions,
-  selected,
-  selectedId,
-  handleSessionsList,
+  applyResumeSummary,
   handleSessionDelta,
   handleSessionEnded,
-  applyResumeSummary,
+  handleSessionsList,
+  selected,
+  selectedId,
+  sessions,
 } from '../../src/stores/sessions.js'
 
-let endedSession = () => ({
+const endedSession = () => ({
   id: 'sess-1',
   provider: 'claude',
   project_path: '/tmp/project',
@@ -65,7 +65,7 @@ describe('sessions store', () => {
         model: 'claude-sonnet-4',
       })
 
-      let session = sessions.value.get('sess-1')
+      const session = sessions.value.get('sess-1')
       assert.strictEqual(session.status, 'active')
       assert.strictEqual(session.work_status, 'working')
       assert.strictEqual(session.model, 'claude-sonnet-4')
@@ -114,7 +114,7 @@ describe('sessions store', () => {
         git_branch: 'feature/resume-fix',
       })
 
-      let session = sessions.value.get('sess-1')
+      const session = sessions.value.get('sess-1')
       assert.strictEqual(session.branch, 'feature/resume-fix')
       assert.strictEqual(session.git_branch, 'feature/resume-fix')
     })

@@ -70,12 +70,12 @@ const handleSessionEnded = (sessionId) => {
 }
 
 const applyResumeSummary = (sessionId, summary) => {
-  let current = sessions.value.get(sessionId)
+  const current = sessions.value.get(sessionId)
   if (!current) return
-  let merged = { ...current, ...summary }
+  const merged = { ...current, ...summary }
   // Re-derive branch from git_branch so stale alias doesn't persist
   if (summary.git_branch !== undefined) merged.branch = summary.git_branch
-  let next = new Map(sessions.value)
+  const next = new Map(sessions.value)
   next.set(sessionId, normalize(merged))
   sessions.value = next
 }
