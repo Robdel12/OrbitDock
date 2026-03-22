@@ -22,6 +22,12 @@ struct ServerHTTPClient: Sendable {
     return String(text.prefix(maxCharacters)) + "…"
   }
 
+  private func logDecodeFailure(method: String, path: String, error: String, body: Data) {
+    print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
+    print("[OrbitDock][HTTP] Error: \(error)")
+    print("[OrbitDock][HTTP] Body preview: \(debugPreview(body))")
+  }
+
   private func describeDecodingError(_ error: Error) -> String {
     func pathString(_ path: [CodingKey]) -> String {
       guard !path.isEmpty else { return "<root>" }
@@ -78,9 +84,7 @@ struct ServerHTTPClient: Sendable {
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(detailedError)")
-      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
+      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
@@ -106,9 +110,7 @@ struct ServerHTTPClient: Sendable {
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(detailedError)")
-      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
+      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
@@ -136,9 +138,7 @@ struct ServerHTTPClient: Sendable {
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-      print("[OrbitDock][HTTP] Error: \(detailedError)")
-      print("[OrbitDock][HTTP] Body preview: \(debugPreview(response.body))")
+      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
