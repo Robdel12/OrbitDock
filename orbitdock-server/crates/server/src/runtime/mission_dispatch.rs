@@ -196,7 +196,41 @@ pub async fn dispatch_issue(
     )?;
 
     // Create session
-    let provider: Provider = provider_str.parse().unwrap();
+    let provider: Provider = match provider_str.parse() {
+        Ok(p) => p,
+        Err(_) => {
+            warn!(
+                component = "mission_control",
+                event = "dispatch.invalid_provider",
+                mission_id = %mission_id,
+                issue_id = %issue.id,
+                provider = %provider_str,
+                "Invalid provider string, marking issue as failed"
+            );
+            let db_path = registry.db_path().clone();
+            let mid = mission_id.to_string();
+            let iid = issue.id.clone();
+            let err_msg = format!("Invalid mission provider: {provider_str}");
+            let now = chrono::Utc::now().to_rfc3339();
+            let _ = tokio::task::spawn_blocking(move || {
+                let conn = rusqlite::Connection::open(&db_path).ok()?;
+                update_mission_issue_state_sync(
+                    &conn,
+                    &mid,
+                    &iid,
+                    "failed",
+                    None,
+                    Some(attempt),
+                    Some(Some(&err_msg)),
+                    None,
+                    Some(Some(&now)),
+                )
+                .ok()
+            })
+            .await;
+            return Err(anyhow::anyhow!("Invalid mission provider: {provider_str}"));
+        }
+    };
 
     // Resolve agent settings for the chosen provider
     let resolved = ctx.agent_config.resolve_for_provider(provider_str);
