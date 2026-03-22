@@ -103,7 +103,9 @@ extension SessionStore {
   }
 
   func resumeSession(_ sessionId: String) async throws {
-    _ = try await clients.sessions.resumeSession(sessionId)
+    let response = try await clients.sessions.resumeSession(sessionId)
+    let obs = session(sessionId)
+    obs.applyResumeSummary(response.session)
   }
 
   func endSession(_ sessionId: String) async throws {

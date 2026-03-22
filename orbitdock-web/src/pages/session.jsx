@@ -26,7 +26,7 @@ import {
   resetReview,
   reviewPanelOpen,
 } from '../stores/review.js'
-import { selected, selectSession } from '../stores/sessions.js'
+import { applyResumeSummary, selected, selectSession } from '../stores/sessions.js'
 import { addToast } from '../stores/toasts.js'
 import styles from './session.module.css'
 
@@ -367,9 +367,14 @@ const SessionPage = () => {
   }
 
   const handleResume = () => {
-    http.post(`/api/sessions/${sessionId}/resume`).catch((err) => {
-      console.warn('[session] resume failed:', err.message)
-    })
+    http
+      .post(`/api/sessions/${sessionId}/resume`)
+      .then((res) => {
+        if (res?.session) applyResumeSummary(sessionId, res.session)
+      })
+      .catch((err) => {
+        console.warn('[session] resume failed:', err.message)
+      })
   }
 
   const handleDeleteWorktree = (worktreeId) =>

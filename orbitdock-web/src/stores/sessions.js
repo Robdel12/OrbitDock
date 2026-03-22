@@ -69,6 +69,17 @@ const handleSessionEnded = (sessionId) => {
   sessions.value = next
 }
 
+const applyResumeSummary = (sessionId, summary) => {
+  let current = sessions.value.get(sessionId)
+  if (!current) return
+  let merged = { ...current, ...summary }
+  // Re-derive branch from git_branch so stale alias doesn't persist
+  if (summary.git_branch !== undefined) merged.branch = summary.git_branch
+  let next = new Map(sessions.value)
+  next.set(sessionId, normalize(merged))
+  sessions.value = next
+}
+
 const handleSessionRemoved = (sessionId) => {
   const next = new Map(sessions.value)
   next.delete(sessionId)
@@ -81,6 +92,7 @@ const selectSession = (id) => {
 }
 
 export {
+  applyResumeSummary,
   grouped,
   handleSessionCreated,
   handleSessionDelta,

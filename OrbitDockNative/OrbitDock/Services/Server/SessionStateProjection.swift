@@ -461,6 +461,21 @@ extension SessionObservable {
     allowBypassPermissions = projection.allowBypassPermissions
   }
 
+  /// Apply the session summary returned by the resume HTTP response.
+  /// Updates the critical fields that drive the ended→active state transition
+  /// so the UI reflects the resumed session immediately rather than waiting
+  /// for a WS event.
+  func applyResumeSummary(_ summary: ServerSessionSummary) {
+    status = summary.status == .active ? .active : .ended
+    workStatus = summary.workStatus.toSessionWorkStatus()
+    attentionReason = summary.workStatus.toAttentionReason()
+    endedAt = nil
+    endReason = nil
+    if let m = summary.model { model = m }
+    if let e = summary.effort { effort = e }
+    if let b = summary.gitBranch { branch = b }
+  }
+
   func applyProjection(_ projection: SessionStateProjection) {
     if let status = projection.status {
       self.status = status
