@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
+import { toggleViewMode, viewMode } from '../../stores/view-mode.js'
+import { Button } from '../ui/button.jsx'
 import { StatusDot } from '../ui/status-dot.jsx'
 import { ActionPopover } from './action-popover.jsx'
-import { viewMode, toggleViewMode } from '../../stores/view-mode.js'
 import popoverStyles from './action-popover.module.css'
-import { Button } from '../ui/button.jsx'
 import styles from './session-header.module.css'
 
 // ---------------------------------------------------------------------------
@@ -173,13 +173,31 @@ const OverflowMenu = ({ open, onClose, children }) => {
 // ---------------------------------------------------------------------------
 
 const ConversationIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <path d="M2 3.5A1.5 1.5 0 013.5 2h9A1.5 1.5 0 0114 3.5v7a1.5 1.5 0 01-1.5 1.5H6l-3 2.5V12H3.5A1.5 1.5 0 012 10.5v-7z" />
   </svg>
 )
 
 const ReviewIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <rect x="2" y="2" width="12" height="12" rx="1.5" />
     <path d="M5 6h6M5 8.5h4" />
     <circle cx="11" cy="11" r="2.5" fill="var(--color-bg-secondary)" />
@@ -188,21 +206,47 @@ const ReviewIcon = () => (
 )
 
 const SplitIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
     <line x1="8" y1="2.5" x2="8" y2="13.5" />
   </svg>
 )
 
 const FocusedViewIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <rect x="2" y="3" width="12" height="3" rx="1" />
     <rect x="2" y="8" width="12" height="5" rx="1" />
   </svg>
 )
 
 const VerboseViewIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+  >
     <line x1="2" y1="3" x2="14" y2="3" />
     <line x1="2" y1="6" x2="14" y2="6" />
     <line x1="2" y1="9" x2="14" y2="9" />
@@ -211,7 +255,16 @@ const VerboseViewIcon = () => (
 )
 
 const SearchIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <circle cx="7" cy="7" r="4.5" />
     <path d="M10.5 10.5L14 14" />
   </svg>
@@ -266,15 +319,10 @@ const ModelBadge = ({ model }) => {
   if (!label) return null
 
   const colorVar = getModelColorVar(model)
-  const style = colorVar
-    ? { '--model-color': `var(${colorVar})` }
-    : undefined
+  const _style = colorVar ? { '--model-color': `var(${colorVar})` } : undefined
 
   return (
-    <span
-      class={`${styles.modelBadge} ${colorVar ? styles.modelBadgeColored : ''}`}
-      title={model}
-    >
+    <span class={`${styles.modelBadge} ${colorVar ? styles.modelBadgeColored : ''}`} title={model}>
       {label}
     </span>
   )
@@ -296,9 +344,7 @@ const EffortBadge = ({ effort }) => {
   if (!effort || effort === 'medium') return null
   const label = EFFORT_LABELS[effort] || effort
   const colorVar = EFFORT_COLORS[effort]
-  const style = colorVar
-    ? { '--effort-color': `var(${colorVar})` }
-    : undefined
+  const style = colorVar ? { '--effort-color': `var(${colorVar})` } : undefined
 
   return (
     <span class={styles.effortBadge} style={style}>
@@ -320,19 +366,21 @@ const ContextPill = ({ tokenUsage }) => {
   const pct = contextWindow ? Math.round((total / contextWindow) * 100) : null
   if (pct == null) return null
 
-  const colorClass = pct >= 90
-    ? styles.contextDanger
-    : pct >= 70
-      ? styles.contextWarning
-      : ''
+  const colorClass = pct >= 90 ? styles.contextDanger : pct >= 70 ? styles.contextWarning : ''
 
   return (
-    <span class={`${styles.intelligencePill} ${colorClass}`} title={`Context: ${pct}% used (${total.toLocaleString()} tokens)`}>
+    <span
+      class={`${styles.intelligencePill} ${colorClass}`}
+      title={`Context: ${pct}% used (${total.toLocaleString()} tokens)`}
+    >
       <svg width="10" height="10" viewBox="0 0 20 20" fill="none">
         <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="2" opacity="0.2" />
         <circle
-          cx="10" cy="10" r="8"
-          stroke="currentColor" stroke-width="2"
+          cx="10"
+          cy="10"
+          r="8"
+          stroke="currentColor"
+          stroke-width="2"
           stroke-dasharray={`${(pct / 100) * 50.27} 50.27`}
           stroke-linecap="round"
           transform="rotate(-90 10 10)"
@@ -393,7 +441,12 @@ const SessionHeader = ({
 
   if (!session) return null
 
-  const displayName = session.display_title || session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
+  const displayName =
+    session.display_title ||
+    session.custom_name ||
+    session.summary ||
+    session.first_prompt ||
+    `Session ${session.id.slice(-8)}`
   const isActive = session.status === 'active'
   const isPassive = session.work_status === 'reply' || session.work_status === 'ended'
   const showTakeover = isActive && isPassive
@@ -412,8 +465,14 @@ const SessionHeader = ({
     onRollback?.(numTurns)
   }
 
-  const openFork = () => { setSubPopover('fork'); setOverflowOpen(false) }
-  const openRollback = () => { setSubPopover('rollback'); setOverflowOpen(false) }
+  const openFork = () => {
+    setSubPopover('fork')
+    setOverflowOpen(false)
+  }
+  const openRollback = () => {
+    setSubPopover('rollback')
+    setOverflowOpen(false)
+  }
   const closeSubPopover = () => setSubPopover('none')
 
   // Derive layout mode from reviewOpen for backwards compatibility
@@ -437,13 +496,15 @@ const SessionHeader = ({
     <header class={styles.header}>
       {/* ── Leading: back + identity + badges ─────────────────────────── */}
       <div class={styles.leading}>
-        <button
-          class={styles.backBtn}
-          onClick={() => navigate('/')}
-          aria-label="Back to dashboard"
-        >
+        <button class={styles.backBtn} onClick={() => navigate('/')} aria-label="Back to dashboard">
           <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-            <path d="M6 1L1 6l5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            <path
+              d="M6 1L1 6l5 5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           <span class={styles.backLabel}>Dashboard</span>
         </button>
@@ -451,18 +512,9 @@ const SessionHeader = ({
         <StatusDot status={session.work_status} />
 
         {renaming ? (
-          <RenameInput
-            value={displayName}
-            onSave={handleRenameSave}
-            onCancel={() => setRenaming(false)}
-          />
+          <RenameInput value={displayName} onSave={handleRenameSave} onCancel={() => setRenaming(false)} />
         ) : (
-          <button
-            class={styles.name}
-            title="Click to rename"
-            onClick={() => setRenaming(true)}
-            type="button"
-          >
+          <button class={styles.name} title="Click to rename" onClick={() => setRenaming(true)} type="button">
             {displayName}
           </button>
         )}
@@ -470,9 +522,7 @@ const SessionHeader = ({
         <ModelBadge model={session.model} />
         <EffortBadge effort={session.effort} />
 
-        <span class={`${styles.statusLabel} ${styles[`status-${session.work_status}`] || ''}`}>
-          {statusText}
-        </span>
+        <span class={`${styles.statusLabel} ${styles[`status-${session.work_status}`] || ''}`}>{statusText}</span>
       </div>
 
       {/* ── Intelligence zone: context pills ──────────────────────────── */}
@@ -486,7 +536,9 @@ const SessionHeader = ({
         <div class={styles.toggleGroup}>
           <button
             class={`${styles.toggleBtn} ${viewMode.value === 'focused' ? styles.toggleBtnActive : ''}`}
-            onClick={() => { if (viewMode.value !== 'focused') toggleViewMode() }}
+            onClick={() => {
+              if (viewMode.value !== 'focused') toggleViewMode()
+            }}
             aria-label="Focused view — shows collapsed tool calls and compact layout"
             title="Focused view — collapsed tool calls, compact layout"
           >
@@ -494,7 +546,9 @@ const SessionHeader = ({
           </button>
           <button
             class={`${styles.toggleBtn} ${viewMode.value === 'verbose' ? styles.toggleBtnActive : ''}`}
-            onClick={() => { if (viewMode.value !== 'verbose') toggleViewMode() }}
+            onClick={() => {
+              if (viewMode.value !== 'verbose') toggleViewMode()
+            }}
             aria-label="Verbose view — shows all tool details and full output"
             title="Verbose view — all tool details, full output"
           >
@@ -537,19 +591,23 @@ const SessionHeader = ({
           aria-label="Toggle tools panel"
           title="Tools"
         >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <path d="M9.5 2.5l4 4-7 7H2.5v-4l7-7z" />
           </svg>
         </button>
 
         {/* Search / ⌘K */}
         {onSearch && (
-          <button
-            class={styles.iconBtn}
-            onClick={onSearch}
-            aria-label="Search sessions (⌘K)"
-            title="Search (⌘K)"
-          >
+          <button class={styles.iconBtn} onClick={onSearch} aria-label="Search sessions (⌘K)" title="Search (⌘K)">
             <SearchIcon />
           </button>
         )}
@@ -575,21 +633,30 @@ const SessionHeader = ({
                 <span class={styles.overflowSectionLabel}>Layout</span>
                 <button
                   class={`${styles.overflowItem} ${currentLayout === LAYOUT_CONVERSATION ? styles.overflowItemActive : ''}`}
-                  onClick={() => { handleLayoutSelect(LAYOUT_CONVERSATION); setOverflowOpen(false) }}
+                  onClick={() => {
+                    handleLayoutSelect(LAYOUT_CONVERSATION)
+                    setOverflowOpen(false)
+                  }}
                 >
                   <ConversationIcon />
                   Conversation
                 </button>
                 <button
                   class={`${styles.overflowItem} ${currentLayout === LAYOUT_REVIEW ? styles.overflowItemActive : ''}`}
-                  onClick={() => { handleLayoutSelect(LAYOUT_REVIEW); setOverflowOpen(false) }}
+                  onClick={() => {
+                    handleLayoutSelect(LAYOUT_REVIEW)
+                    setOverflowOpen(false)
+                  }}
                 >
                   <ReviewIcon />
                   Review
                 </button>
                 <button
                   class={`${styles.overflowItem} ${currentLayout === LAYOUT_SPLIT ? styles.overflowItemActive : ''}`}
-                  onClick={() => { handleLayoutSelect(LAYOUT_SPLIT); setOverflowOpen(false) }}
+                  onClick={() => {
+                    handleLayoutSelect(LAYOUT_SPLIT)
+                    setOverflowOpen(false)
+                  }}
                 >
                   <SplitIcon />
                   Split
@@ -601,7 +668,13 @@ const SessionHeader = ({
               <div class={styles.overflowSection}>
                 <span class={styles.overflowSectionLabel}>Session</span>
                 {showTakeover && (
-                  <button class={styles.overflowItem} onClick={() => { onTakeover?.(); setOverflowOpen(false) }}>
+                  <button
+                    class={styles.overflowItem}
+                    onClick={() => {
+                      onTakeover?.()
+                      setOverflowOpen(false)
+                    }}
+                  >
                     Take Over
                   </button>
                 )}
@@ -609,12 +682,24 @@ const SessionHeader = ({
                   Fork…
                 </button>
                 {onForkToWorktree && (
-                  <button class={styles.overflowItem} onClick={() => { onForkToWorktree(); setOverflowOpen(false) }}>
+                  <button
+                    class={styles.overflowItem}
+                    onClick={() => {
+                      onForkToWorktree()
+                      setOverflowOpen(false)
+                    }}
+                  >
                     Fork to Worktree
                   </button>
                 )}
                 {onContinueInNew && (
-                  <button class={styles.overflowItem} onClick={() => { onContinueInNew(); setOverflowOpen(false) }}>
+                  <button
+                    class={styles.overflowItem}
+                    onClick={() => {
+                      onContinueInNew()
+                      setOverflowOpen(false)
+                    }}
+                  >
                     Continue in New Session
                   </button>
                 )}
@@ -627,7 +712,10 @@ const SessionHeader = ({
               <div class={styles.overflowDivider} />
               <button
                 class={`${styles.overflowItem} ${styles.overflowItemDanger}`}
-                onClick={() => { onEnd?.(); setOverflowOpen(false) }}
+                onClick={() => {
+                  onEnd?.()
+                  setOverflowOpen(false)
+                }}
               >
                 End Session
               </button>

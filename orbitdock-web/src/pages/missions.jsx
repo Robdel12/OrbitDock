@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'preact/hooks'
-import { http } from '../stores/connection.js'
-import { Card } from '../components/ui/card.jsx'
-import { Badge } from '../components/ui/badge.jsx'
-import { Spinner } from '../components/ui/spinner.jsx'
+import { useEffect, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
+import { Badge } from '../components/ui/badge.jsx'
+import { Card } from '../components/ui/card.jsx'
+import { Spinner } from '../components/ui/spinner.jsx'
+import { http } from '../stores/connection.js'
 import styles from './missions.module.css'
 
 const STATUS_COLORS = {
@@ -34,7 +34,13 @@ const MissionsPage = () => {
   }, [])
 
   if (loading) {
-    return <div class={styles.page}><div class={styles.loading}><Spinner size="lg" /></div></div>
+    return (
+      <div class={styles.page}>
+        <div class={styles.loading}>
+          <Spinner size="lg" />
+        </div>
+      </div>
+    )
   }
 
   return (

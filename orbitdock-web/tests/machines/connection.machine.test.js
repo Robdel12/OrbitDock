@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createActor } from 'xstate'
 import { connectionMachine } from '../../src/machines/connection.machine.js'
 
@@ -70,7 +70,10 @@ describe('connection machine', () => {
 
   it('transitions to disconnected on RESET from failed', () => {
     const actor = createActor(connectionMachine, {
-      snapshot: connectionMachine.resolveState({ value: 'failed', context: { url: '', generation: 0, attempt: 10, maxAttempts: 10, subscribedSessions: new Set() } }),
+      snapshot: connectionMachine.resolveState({
+        value: 'failed',
+        context: { url: '', generation: 0, attempt: 10, maxAttempts: 10, subscribedSessions: new Set() },
+      }),
     })
     actor.start()
     actor.send({ type: 'RESET' })

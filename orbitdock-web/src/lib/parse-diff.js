@@ -67,4 +67,4 @@ const extractDiffText = (request) => {
   return null
 }
 
-export { parseDiff, extractDiffText }
+export { extractDiffText, parseDiff }

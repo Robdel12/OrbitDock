@@ -1,5 +1,5 @@
-import { Card } from '../ui/card.jsx'
 import { Badge } from '../ui/badge.jsx'
+import { Card } from '../ui/card.jsx'
 import styles from './question-row.module.css'
 
 const QuestionRow = ({ entry }) => {
@@ -15,7 +15,9 @@ const QuestionRow = ({ entry }) => {
           {prompt.options?.length > 0 && (
             <div class={styles.options}>
               {prompt.options.map((opt) => (
-                <span key={opt.label} class={styles.option}>{opt.label}</span>
+                <span key={opt.label} class={styles.option}>
+                  {opt.label}
+                </span>
               ))}
             </div>
           )}
@@ -23,10 +25,10 @@ const QuestionRow = ({ entry }) => {
       ))}
       {row.response && (
         <div class={styles.response}>
-          <Badge variant="status" color="feedback-positive">Answered</Badge>
-          {typeof row.response === 'string' && (
-            <span class={styles.responseText}>{row.response}</span>
-          )}
+          <Badge variant="status" color="feedback-positive">
+            Answered
+          </Badge>
+          {typeof row.response === 'string' && <span class={styles.responseText}>{row.response}</span>}
         </div>
       )}
     </Card>

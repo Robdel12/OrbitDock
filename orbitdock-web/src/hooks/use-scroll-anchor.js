@@ -1,5 +1,5 @@
-import { useRef, useEffect, useCallback } from 'preact/hooks'
 import { signal } from '@preact/signals'
+import { useCallback, useEffect, useRef } from 'preact/hooks'
 
 const useScrollAnchor = () => {
   const containerRef = useRef(null)
@@ -13,7 +13,7 @@ const useScrollAnchor = () => {
       ([entry]) => {
         isPinned.value = entry.isIntersecting
       },
-      { root: containerRef.current, threshold: 0.1 }
+      { root: containerRef.current, threshold: 0.1 },
     )
     observer.observe(sentinel)
     return () => observer.disconnect()

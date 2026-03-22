@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { http } from '../../stores/connection.js'
 import { Badge } from '../ui/badge.jsx'
 import { Button } from '../ui/button.jsx'
@@ -59,12 +59,7 @@ const AuthFlow = ({ server, sessionId, onDone }) => {
   return (
     <form class={styles.authForm} onSubmit={handleSubmit}>
       {server.auth_url && (
-        <a
-          class={styles.authLink}
-          href={server.auth_url}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <a class={styles.authLink} href={server.auth_url} target="_blank" rel="noopener noreferrer">
           Open auth URL ↗
         </a>
       )}
@@ -104,9 +99,7 @@ const ToolList = ({ tools }) => {
       {tools.map((tool) => (
         <li key={tool.name} class={styles.toolItem}>
           <span class={styles.toolName}>{tool.name}</span>
-          {tool.description && (
-            <span class={styles.toolDesc}>{tool.description}</span>
-          )}
+          {tool.description && <span class={styles.toolDesc}>{tool.description}</span>}
         </li>
       ))}
     </ul>
@@ -171,20 +164,12 @@ const McpServerCard = ({ server, sessionId, onUpdate }) => {
   }
 
   const toolCount = server.tools?.length ?? 0
-  const edgeColor = server.status === 'connected'
-    ? 'feedback-positive'
-    : server.status === 'error'
-      ? 'feedback-negative'
-      : null
+  const edgeColor =
+    server.status === 'connected' ? 'feedback-positive' : server.status === 'error' ? 'feedback-negative' : null
 
   return (
     <div class={`${styles.serverCard} ${server.enabled ? '' : styles.serverDisabled}`}>
-      {edgeColor && (
-        <div
-          class={styles.edgeBar}
-          style={{ '--edge-color': `var(--color-${edgeColor})` }}
-        />
-      )}
+      {edgeColor && <div class={styles.edgeBar} style={{ '--edge-color': `var(--color-${edgeColor})` }} />}
 
       <div class={styles.serverMain}>
         {/* Header row */}
@@ -197,16 +182,11 @@ const McpServerCard = ({ server, sessionId, onUpdate }) => {
           >
             <span class={styles.expandIcon}>{expanded ? '▼' : '▶'}</span>
             <span class={styles.serverName}>{server.name}</span>
-            {toolCount > 0 && (
-              <span class={styles.toolCountBadge}>{toolCount}</span>
-            )}
+            {toolCount > 0 && <span class={styles.toolCountBadge}>{toolCount}</span>}
           </button>
 
           <div class={styles.serverMeta}>
-            <Badge
-              variant="status"
-              color={serverStatusColor(server.status)}
-            >
+            <Badge variant="status" color={serverStatusColor(server.status)}>
               {serverStatusLabel(server.status)}
             </Badge>
 
@@ -236,32 +216,18 @@ const McpServerCard = ({ server, sessionId, onUpdate }) => {
             {toggling && <Spinner size="sm" />}
           </button>
 
-          <Button
-            size="sm"
-            variant="ghost"
-            loading={refreshing}
-            onClick={handleRefresh}
-          >
+          <Button size="sm" variant="ghost" loading={refreshing} onClick={handleRefresh}>
             Refresh
           </Button>
 
           {server.auth_required && !server.authenticated && !authOpen && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setAuthOpen(true)}
-            >
+            <Button size="sm" variant="ghost" onClick={() => setAuthOpen(true)}>
               Authenticate
             </Button>
           )}
 
           {server.authenticated && (
-            <Button
-              size="sm"
-              variant="ghost"
-              loading={clearingAuth}
-              onClick={handleClearAuth}
-            >
+            <Button size="sm" variant="ghost" loading={clearingAuth} onClick={handleClearAuth}>
               Clear Auth
             </Button>
           )}
@@ -272,7 +238,10 @@ const McpServerCard = ({ server, sessionId, onUpdate }) => {
           <AuthFlow
             server={server}
             sessionId={sessionId}
-            onDone={() => { setAuthOpen(false); onUpdate() }}
+            onDone={() => {
+              setAuthOpen(false)
+              onUpdate()
+            }}
           />
         )}
 
@@ -298,7 +267,8 @@ const McpPanel = ({ sessionId, liveMcpTools }) => {
 
   const fetchTools = () => {
     if (!sessionId) return
-    http.get(`/api/sessions/${sessionId}/mcp/tools`)
+    http
+      .get(`/api/sessions/${sessionId}/mcp/tools`)
       .then((data) => {
         setServers(data?.servers || data || [])
         setError(null)
@@ -326,9 +296,7 @@ const McpPanel = ({ sessionId, liveMcpTools }) => {
     <div class={styles.panel}>
       <div class={styles.header}>
         <span class={styles.headerTitle}>MCP Servers</span>
-        {servers.length > 0 && (
-          <span class={styles.headerCount}>{servers.length}</span>
-        )}
+        {servers.length > 0 && <span class={styles.headerCount}>{servers.length}</span>}
       </div>
 
       {loading && (
@@ -337,9 +305,7 @@ const McpPanel = ({ sessionId, liveMcpTools }) => {
         </div>
       )}
 
-      {!loading && error && (
-        <div class={styles.errorMsg}>{error}</div>
-      )}
+      {!loading && error && <div class={styles.errorMsg}>{error}</div>}
 
       {!loading && !error && servers.length === 0 && (
         <div class={styles.emptyMsg}>No MCP servers configured for this session.</div>
@@ -348,12 +314,7 @@ const McpPanel = ({ sessionId, liveMcpTools }) => {
       {!loading && servers.length > 0 && (
         <div class={styles.serverList}>
           {servers.map((server) => (
-            <McpServerCard
-              key={server.name}
-              server={server}
-              sessionId={sessionId}
-              onUpdate={fetchTools}
-            />
+            <McpServerCard key={server.name} server={server} sessionId={sessionId} onUpdate={fetchTools} />
           ))}
         </div>
       )}

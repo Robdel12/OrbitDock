@@ -95,4 +95,4 @@ const decodeServerMessage = (raw) => {
 
 const isKnownRowType = (rowType) => KNOWN_ROW_TYPES.has(rowType)
 
-export { encodeClientMessage, decodeServerMessage, isKnownRowType, KNOWN_SERVER_TYPES, KNOWN_ROW_TYPES }
+export { decodeServerMessage, encodeClientMessage, isKnownRowType, KNOWN_ROW_TYPES, KNOWN_SERVER_TYPES }

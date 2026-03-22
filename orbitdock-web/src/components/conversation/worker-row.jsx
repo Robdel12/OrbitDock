@@ -1,5 +1,5 @@
-import { Card } from '../ui/card.jsx'
 import { Badge } from '../ui/badge.jsx'
+import { Card } from '../ui/card.jsx'
 import { Spinner } from '../ui/spinner.jsx'
 import styles from './worker-row.module.css'
 

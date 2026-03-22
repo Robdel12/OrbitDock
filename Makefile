@@ -91,7 +91,7 @@ RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
 	rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache \
 	rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 \
 	xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist \
-	web-install web-dev web-build web-test
+	web-install web-dev web-build web-test web-lint web-lint-fix web-fmt web-fmt-check web-ci
 
 define run_xcode_logged
 @$(MAKE) xcode-cache-dirs
@@ -281,9 +281,9 @@ clean:
 	@$(MAKE) xcode-cache-dirs
 	$(XCODEBUILD_MACOS) clean
 
-fmt: swift-fmt rust-fmt
+fmt: swift-fmt rust-fmt web-fmt
 
-lint: swift-lint rust-lint
+lint: swift-lint rust-lint web-lint
 
 swift-fmt:
 	swiftformat OrbitDockNative
@@ -546,3 +546,17 @@ web-build:
 
 web-test:
 	cd orbitdock-web && npm test
+
+web-lint:
+	cd orbitdock-web && npm run lint
+
+web-lint-fix:
+	cd orbitdock-web && npm run lint:fix
+
+web-fmt:
+	cd orbitdock-web && npm run format
+
+web-fmt-check:
+	cd orbitdock-web && npm run format:check
+
+web-ci: web-lint web-build web-test

@@ -1,4 +1,4 @@
-import { signal, computed } from '@preact/signals'
+import { computed, signal } from '@preact/signals'
 import { http } from './connection.js'
 
 // ---------------------------------------------------------------------------
@@ -111,10 +111,7 @@ const openReviewPanel = async (sessionId) => {
   const alreadyLoaded = _sessionId.value === sessionId
 
   if (!alreadyLoaded || !diffData.value) {
-    await Promise.all([
-      loadDiff(sessionId),
-      loadComments(sessionId),
-    ])
+    await Promise.all([loadDiff(sessionId), loadComments(sessionId)])
     _sessionId.value = sessionId
   }
 }
@@ -163,19 +160,19 @@ const handleReviewWsEvent = (msg) => {
 }
 
 export {
-  reviewPanelOpen,
   activeFile,
+  addComment,
+  closeReviewPanel,
   diffData,
   diffLoading,
-  reviewError,
-  reviewComments,
-  openReviewPanel,
-  closeReviewPanel,
-  resetReview,
-  addComment,
-  updateComment,
-  removeComment,
+  handleReviewWsEvent,
   loadComments,
   loadDiff,
-  handleReviewWsEvent,
+  openReviewPanel,
+  removeComment,
+  resetReview,
+  reviewComments,
+  reviewError,
+  reviewPanelOpen,
+  updateComment,
 }

@@ -45,17 +45,11 @@ const UsageGauge = ({ name, used, limit, remaining, resetsAt }) => {
           <span class={styles.pct} data-color={colorKey}>
             {Math.round(pct * 100)}%
           </span>
-          {resetsLabel && (
-            <span class={styles.resets}>resets {resetsLabel}</span>
-          )}
+          {resetsLabel && <span class={styles.resets}>resets {resetsLabel}</span>}
         </div>
       </div>
       <div class={styles.track}>
-        <div
-          class={styles.fill}
-          data-color={colorKey}
-          style={{ width: `${pct * 100}%` }}
-        />
+        <div class={styles.fill} data-color={colorKey} style={{ width: `${pct * 100}%` }} />
       </div>
     </div>
   )

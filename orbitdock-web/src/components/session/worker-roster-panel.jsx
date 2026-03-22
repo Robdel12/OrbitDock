@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
-import { Spinner } from '../ui/spinner.jsx'
 import { Badge } from '../ui/badge.jsx'
+import { Spinner } from '../ui/spinner.jsx'
 import styles from './worker-roster-panel.module.css'
 
 // Derive a stable worker list from conversation rows.
@@ -43,15 +43,11 @@ const WorkerItem = ({ worker }) => {
         )}
         <div class={styles.workerInfo}>
           <span class={styles.workerTitle}>{worker.title}</span>
-          {worker.subtitle && (
-            <span class={styles.workerSubtitle}>{worker.subtitle}</span>
-          )}
+          {worker.subtitle && <span class={styles.workerSubtitle}>{worker.subtitle}</span>}
         </div>
       </div>
       <div class={styles.workerRight}>
-        {worker.agentType && (
-          <Badge variant="tool">{worker.agentType}</Badge>
-        )}
+        {worker.agentType && <Badge variant="tool">{worker.agentType}</Badge>}
         <Badge variant="status" color={workerStatusColor(worker.status)}>
           {worker.status}
         </Badge>
@@ -66,17 +62,11 @@ const WorkerRosterPanel = ({ rows }) => {
   const workers = buildWorkerList(rows)
   if (workers.length === 0) return null
 
-  const runningCount = workers.filter(
-    (w) => w.status === 'running' || w.status === 'in_progress'
-  ).length
+  const runningCount = workers.filter((w) => w.status === 'running' || w.status === 'in_progress').length
 
   return (
     <div class={styles.panel}>
-      <button
-        class={styles.toggle}
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
-      >
+      <button class={styles.toggle} onClick={() => setCollapsed((v) => !v)} aria-expanded={!collapsed}>
         <span class={styles.toggleIcon}>{collapsed ? '▶' : '▼'}</span>
         <span class={styles.toggleLabel}>
           Sub-agents

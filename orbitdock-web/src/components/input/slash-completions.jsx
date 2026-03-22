@@ -1,23 +1,23 @@
-import { useState, useEffect, useRef, useImperativeHandle, useMemo } from 'preact/hooks'
 import { forwardRef } from 'preact/compat'
+import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'preact/hooks'
 import styles from './slash-completions.module.css'
 
 // Static list of slash commands available in the composer.
 // Commands with `action` dispatch directly via onAction instead of inserting text.
 const SLASH_COMMANDS = [
-  { name: '/help',         description: 'Show available commands and usage' },
-  { name: '/compact',      description: 'Compact the conversation context', action: 'compact' },
-  { name: '/clear',        description: 'Clear the conversation history' },
-  { name: '/model',        description: 'Switch the AI model' },
-  { name: '/think',        description: 'Enable extended thinking mode' },
-  { name: '/status',       description: 'Show current session status' },
-  { name: '/cost',         description: 'Show token usage and cost estimate' },
-  { name: '/reset',        description: 'Reset session context' },
-  { name: '/resume',       description: 'Resume a paused or ended session', action: 'resume' },
-  { name: '/shell',        description: 'Toggle shell mode for running commands', action: 'shell' },
-  { name: '/undo',         description: 'Undo the last turn', action: 'undo' },
-  { name: '/end',          description: 'End the current session', action: 'end' },
-  { name: '/fork',         description: 'Fork the conversation', action: 'fork' },
+  { name: '/help', description: 'Show available commands and usage' },
+  { name: '/compact', description: 'Compact the conversation context', action: 'compact' },
+  { name: '/clear', description: 'Clear the conversation history' },
+  { name: '/model', description: 'Switch the AI model' },
+  { name: '/think', description: 'Enable extended thinking mode' },
+  { name: '/status', description: 'Show current session status' },
+  { name: '/cost', description: 'Show token usage and cost estimate' },
+  { name: '/reset', description: 'Reset session context' },
+  { name: '/resume', description: 'Resume a paused or ended session', action: 'resume' },
+  { name: '/shell', description: 'Toggle shell mode for running commands', action: 'shell' },
+  { name: '/undo', description: 'Undo the last turn', action: 'undo' },
+  { name: '/end', description: 'End the current session', action: 'end' },
+  { name: '/fork', description: 'Fork the conversation', action: 'fork' },
 ]
 
 // Returns the active slash query if the cursor is at the start of a line
@@ -85,7 +85,7 @@ const SlashCompletions = forwardRef(({ value, cursorPos, onInsert, onAction, ski
       onInsert(slash.start, slash.end, '')
       onAction(cmd.action)
     } else {
-      onInsert(slash.start, slash.end, cmd.name + ' ')
+      onInsert(slash.start, slash.end, `${cmd.name} `)
     }
   }
 
@@ -141,4 +141,4 @@ const SlashCompletions = forwardRef(({ value, cursorPos, onInsert, onAction, ski
   )
 })
 
-export { SlashCompletions, getActiveSlash }
+export { getActiveSlash, SlashCompletions }

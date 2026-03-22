@@ -16,4 +16,4 @@ const removeToast = (id) => {
   toasts.value = toasts.value.filter((t) => t.id !== id)
 }
 
-export { toasts, addToast, removeToast }
+export { addToast, removeToast, toasts }

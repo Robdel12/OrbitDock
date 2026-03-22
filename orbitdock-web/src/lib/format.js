@@ -27,7 +27,7 @@ const formatTokenCount = (count) => {
 const formatRelativeTime = (iso) => {
   if (!iso) return ''
   const then = typeof iso === 'number' ? iso * 1000 : new Date(iso).getTime()
-  if (isNaN(then)) return ''
+  if (Number.isNaN(then)) return ''
   const now = Date.now()
   const diff = now - then
   if (diff < 0) return 'just now'
@@ -43,4 +43,4 @@ const formatRelativeTime = (iso) => {
   return `${weeks}w`
 }
 
-export { formatDuration, formatTimestamp, formatTokenCount, formatRelativeTime }
+export { formatDuration, formatRelativeTime, formatTimestamp, formatTokenCount }

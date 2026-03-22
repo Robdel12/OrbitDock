@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'preact/hooks'
-import { http } from '../stores/connection.js'
-import { Card } from '../components/ui/card.jsx'
+import { useEffect, useState } from 'preact/hooks'
 import { Badge } from '../components/ui/badge.jsx'
 import { Button } from '../components/ui/button.jsx'
+import { Card } from '../components/ui/card.jsx'
 import { Spinner } from '../components/ui/spinner.jsx'
 import { CreateWorktreeDialog } from '../components/worktree/create-worktree-dialog.jsx'
+import { http } from '../stores/connection.js'
 import styles from './worktrees.module.css'
 
 const HEALTH_COLORS = {
@@ -193,7 +193,10 @@ const WorktreesPage = () => {
             variant="ghost"
             size="sm"
             type="button"
-            onClick={() => { setShowDiscover(false); setDiscoverError(null) }}
+            onClick={() => {
+              setShowDiscover(false)
+              setDiscoverError(null)
+            }}
             disabled={discovering}
           >
             Cancel
@@ -210,21 +213,12 @@ const WorktreesPage = () => {
       ) : (
         <div class={styles.content}>
           {groups.map((group) => (
-            <RepoGroup
-              key={group.path}
-              repoPath={group.path}
-              worktrees={group.items}
-              onDelete={handleDelete}
-            />
+            <RepoGroup key={group.path} repoPath={group.path} worktrees={group.items} onDelete={handleDelete} />
           ))}
         </div>
       )}
 
-      <CreateWorktreeDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onCreate={handleCreate}
-      />
+      <CreateWorktreeDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onCreate={handleCreate} />
     </div>
   )
 }

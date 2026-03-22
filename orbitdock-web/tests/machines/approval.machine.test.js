@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createActor } from 'xstate'
 import { approvalMachine } from '../../src/machines/approval.machine.js'
 

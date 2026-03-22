@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'preact/hooks'
-import { token, isAuthenticated, setToken } from '../../stores/auth.js'
-import { probeAuth, connect, reconnect } from '../../stores/connection.js'
+import { useCallback, useEffect, useState } from 'preact/hooks'
+import { isAuthenticated, setToken, token } from '../../stores/auth.js'
+import { connect, probeAuth } from '../../stores/connection.js'
 import { Button } from '../ui/button.jsx'
 import styles from './auth-gate.module.css'
 
@@ -29,7 +29,9 @@ const AuthGate = ({ children }) => {
     }
   }, [])
 
-  useEffect(() => { probe() }, [probe])
+  useEffect(() => {
+    probe()
+  }, [probe])
 
   // When auth store token is cleared (e.g. 401 during session), go back to login
   useEffect(() => {
@@ -91,10 +93,10 @@ const AuthGate = ({ children }) => {
       <div class={styles.container}>
         <div class={styles.card}>
           <h1 class={styles.title}>Server Unreachable</h1>
-          <p class={styles.hint}>
-            Could not connect to the OrbitDock server. Make sure it is running.
-          </p>
-          <Button variant="secondary" onClick={probe}>Retry</Button>
+          <p class={styles.hint}>Could not connect to the OrbitDock server. Make sure it is running.</p>
+          <Button variant="secondary" onClick={probe}>
+            Retry
+          </Button>
         </div>
       </div>
     )

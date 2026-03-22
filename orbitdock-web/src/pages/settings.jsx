@@ -1,17 +1,16 @@
-import { useState, useEffect } from 'preact/hooks'
-import { connectionState, serverInfo, http, reconnect, authRequired } from '../stores/connection.js'
-import { token as authToken, clearToken } from '../stores/auth.js'
-import { sessions } from '../stores/sessions.js'
+import { useEffect, useState } from 'preact/hooks'
+import { ApiKeyInput } from '../components/settings/api-key-input.jsx'
+import { Badge } from '../components/ui/badge.jsx'
 import { Button } from '../components/ui/button.jsx'
 import { Card } from '../components/ui/card.jsx'
-import { Badge } from '../components/ui/badge.jsx'
 import { Spinner } from '../components/ui/spinner.jsx'
 import { UsageGauge } from '../components/ui/usage-gauge.jsx'
-import { ApiKeyInput } from '../components/settings/api-key-input.jsx'
+import { token as authToken, clearToken } from '../stores/auth.js'
+import { authRequired, connectionState, http, reconnect, serverInfo } from '../stores/connection.js'
+import { sessions } from '../stores/sessions.js'
 import styles from './settings.module.css'
 
-const wsUrl = () =>
-  `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
+const wsUrl = () => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`
 
 const validateOpenAiKey = (value) => {
   if (!value.startsWith('sk-')) return 'Key must start with "sk-"'
@@ -41,15 +40,36 @@ const PANES = [
 
 function ConnectionIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M5 12.55a11 11 0 0114.08 0" /><path d="M1.42 9a16 16 0 0121.16 0" /><path d="M8.53 16.11a6 6 0 016.95 0" /><circle cx="12" cy="20" r="1" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M5 12.55a11 11 0 0114.08 0" />
+      <path d="M1.42 9a16 16 0 0121.16 0" />
+      <path d="M8.53 16.11a6 6 0 016.95 0" />
+      <circle cx="12" cy="20" r="1" />
     </svg>
   )
 }
 
 function KeyIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
       <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
     </svg>
   )
@@ -57,15 +77,34 @@ function KeyIcon() {
 
 function ModelsIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="4" y="4" width="16" height="16" rx="2" /><path d="M9 9h6M9 13h6M9 17h4" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M9 9h6M9 13h6M9 17h4" />
     </svg>
   )
 }
 
 function UsageIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
       <path d="M12 20V10M18 20V4M6 20v-4" />
     </svg>
   )
@@ -73,24 +112,54 @@ function UsageIcon() {
 
 function PrefsIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z" />
     </svg>
   )
 }
 
 function BellIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 01-3.46 0" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 01-3.46 0" />
     </svg>
   )
 }
 
 function DiagIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
     </svg>
   )
 }
@@ -158,7 +227,9 @@ const SettingsPage = () => {
   if (loading) {
     return (
       <div class={styles.page}>
-        <div class={styles.loading}><Spinner size="lg" /></div>
+        <div class={styles.loading}>
+          <Spinner size="lg" />
+        </div>
       </div>
     )
   }
@@ -187,12 +258,7 @@ const SettingsPage = () => {
       {/* Content */}
       <div class={styles.content}>
         {pane === 'connection' && (
-          <ConnectionPane
-            connState={connState}
-            info={info}
-            reconnecting={reconnecting}
-            onReconnect={handleReconnect}
-          />
+          <ConnectionPane connState={connState} info={info} reconnecting={reconnecting} onReconnect={handleReconnect} />
         )}
         {pane === 'api-keys' && (
           <ApiKeysPane
@@ -202,17 +268,11 @@ const SettingsPage = () => {
             onSaveLinear={handleSaveLinearKey}
           />
         )}
-        {pane === 'models' && (
-          <ModelsPane claudeModels={claudeModels} codexModels={codexModels} />
-        )}
-        {pane === 'usage' && (
-          <UsagePane claudeUsage={claudeUsage} codexUsage={codexUsage} />
-        )}
+        {pane === 'models' && <ModelsPane claudeModels={claudeModels} codexModels={codexModels} />}
+        {pane === 'usage' && <UsagePane claudeUsage={claudeUsage} codexUsage={codexUsage} />}
         {pane === 'preferences' && <PreferencesPane />}
         {pane === 'notifications' && <NotificationsPane />}
-        {pane === 'diagnostics' && (
-          <DiagnosticsPane connState={connState} info={info} sessionCount={sessionCount} />
-        )}
+        {pane === 'diagnostics' && <DiagnosticsPane connState={connState} info={info} sessionCount={sessionCount} />}
       </div>
     </div>
   )
@@ -247,13 +307,7 @@ const ConnectionPane = ({ connState, info, reconnecting, onReconnect }) => (
         </div>
       )}
       <div class={styles.connectionActions}>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={onReconnect}
-          loading={reconnecting}
-          disabled={reconnecting}
-        >
+        <Button variant="secondary" size="sm" onClick={onReconnect} loading={reconnecting} disabled={reconnecting}>
           Reconnect
         </Button>
       </div>
@@ -293,7 +347,9 @@ const ModelsPane = ({ claudeModels, codexModels }) => (
           <Card key={m.value} edgeColor="provider-claude">
             <div class={styles.modelName}>{m.display_name || m.value}</div>
             {m.description && <div class={styles.modelDesc}>{m.description}</div>}
-            <Badge variant="tool" color="provider-claude">{m.value}</Badge>
+            <Badge variant="tool" color="provider-claude">
+              {m.value}
+            </Badge>
           </Card>
         ))}
       </div>
@@ -308,7 +364,9 @@ const ModelsPane = ({ claudeModels, codexModels }) => (
           <Card key={m.id || m.model} edgeColor="provider-codex">
             <div class={styles.modelName}>{m.display_name || m.model}</div>
             {m.description && <div class={styles.modelDesc}>{m.description}</div>}
-            <Badge variant="tool" color="provider-codex">{m.model || m.id}</Badge>
+            <Badge variant="tool" color="provider-codex">
+              {m.model || m.id}
+            </Badge>
           </Card>
         ))}
       </div>
@@ -321,7 +379,7 @@ const ModelsPane = ({ claudeModels, codexModels }) => (
 const UsagePane = ({ claudeUsage, codexUsage }) => (
   <div class={styles.pane}>
     <PaneHeader title="Usage" />
-    {(claudeUsage || codexUsage) ? (
+    {claudeUsage || codexUsage ? (
       <div class={styles.usageGrid}>
         {claudeUsage?.usage && <UsageCard provider="claude" usage={claudeUsage.usage} />}
         {codexUsage?.usage && <UsageCard provider="codex" usage={codexUsage.usage} />}
@@ -368,7 +426,9 @@ const PreferencesPane = () => {
             <div class={styles.preferenceHint}>Light theme coming soon</div>
           </div>
           <div class={styles.preferenceControl}>
-            <Badge variant="status" color="accent">Dark</Badge>
+            <Badge variant="status" color="accent">
+              Dark
+            </Badge>
           </div>
         </div>
       </Card>
@@ -381,11 +441,7 @@ const PreferencesPane = () => {
               <div>
                 <div class={styles.preferenceLabel}>Auth Token</div>
                 <div class={styles.preferenceHint}>
-                  {masked ? (
-                    <code class={styles.maskedToken}>{masked}</code>
-                  ) : (
-                    'No token set'
-                  )}
+                  {masked ? <code class={styles.maskedToken}>{masked}</code> : 'No token set'}
                 </div>
               </div>
               <div class={styles.preferenceControl}>
@@ -404,12 +460,8 @@ const PreferencesPane = () => {
 }
 
 const NotificationsPane = () => {
-  const [permission, setPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'denied',
-  )
-  const [soundEnabled, setSoundEnabled] = useState(
-    () => localStorage.getItem('orbitdock_sound_enabled') !== 'false',
-  )
+  const [permission, setPermission] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'denied')
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('orbitdock_sound_enabled') !== 'false')
 
   const handleRequestPermission = async () => {
     if (typeof Notification === 'undefined') return
@@ -438,7 +490,7 @@ const NotificationsPane = () => {
               {!notificationsSupported
                 ? 'Not supported in this browser'
                 : permission === 'granted'
-                  ? 'Enabled — you\'ll receive alerts when sessions need attention'
+                  ? "Enabled — you'll receive alerts when sessions need attention"
                   : permission === 'denied'
                     ? 'Blocked — update your browser site settings to allow notifications'
                     : 'Allow notifications for session alerts'}
@@ -446,10 +498,14 @@ const NotificationsPane = () => {
           </div>
           <div class={styles.preferenceControl}>
             {notificationsSupported && permission === 'granted' && (
-              <Badge variant="status" color="feedback-positive">Enabled</Badge>
+              <Badge variant="status" color="feedback-positive">
+                Enabled
+              </Badge>
             )}
             {notificationsSupported && permission === 'denied' && (
-              <Badge variant="status" color="feedback-negative">Blocked</Badge>
+              <Badge variant="status" color="feedback-negative">
+                Blocked
+              </Badge>
             )}
             {notificationsSupported && permission === 'default' && (
               <Button variant="secondary" size="sm" onClick={handleRequestPermission}>
@@ -468,11 +524,7 @@ const NotificationsPane = () => {
             <div class={styles.preferenceHint}>Play a sound when a session needs attention</div>
           </div>
           <div class={styles.preferenceControl}>
-            <Button
-              variant={soundEnabled ? 'secondary' : 'ghost'}
-              size="sm"
-              onClick={handleToggleSound}
-            >
+            <Button variant={soundEnabled ? 'secondary' : 'ghost'} size="sm" onClick={handleToggleSound}>
               {soundEnabled ? 'On' : 'Off'}
             </Button>
           </div>
@@ -523,7 +575,9 @@ const UsageCard = ({ provider, usage }) => {
   return (
     <Card edgeColor={`provider-${provider}`}>
       <div class={styles.usageHeader}>
-        <Badge variant="status" color={`provider-${provider}`}>{label}</Badge>
+        <Badge variant="status" color={`provider-${provider}`}>
+          {label}
+        </Badge>
       </div>
       {windows.length > 0 ? (
         <div class={styles.gaugeList}>

@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
+import { extractDiffText, parseDiff } from '../../lib/parse-diff.js'
+import { DiffView } from '../conversation/diff-view.jsx'
 import { Button } from '../ui/button.jsx'
 import { Card } from '../ui/card.jsx'
-import { DiffView } from '../conversation/diff-view.jsx'
-import { parseDiff, extractDiffText } from '../../lib/parse-diff.js'
 import styles from './approval-banner.module.css'
 
 // ── Exec ─────────────────────────────────────────────────────────────────────
@@ -28,9 +28,7 @@ const ExecContent = ({ request, onDecide }) => {
           )}
         </div>
       )}
-      {!request.command && request.preview && (
-        <pre class={styles.preview}>{request.preview.value}</pre>
-      )}
+      {!request.command && request.preview && <pre class={styles.preview}>{request.preview.value}</pre>}
       {request.network_host && (
         <p class={styles.networkHint}>
           Network: {request.network_host}
@@ -67,9 +65,7 @@ const PatchContent = ({ request, onDecide }) => {
         <p class={styles.title}>{toolName || 'Tool'} wants to edit a file</p>
         <span class={styles.badge}>APPROVAL</span>
       </div>
-      {request.file_path && (
-        <p class={styles.subtitle}>{request.file_path}</p>
-      )}
+      {request.file_path && <p class={styles.subtitle}>{request.file_path}</p>}
       {diffLines && diffLines.length > 0 && (
         <div class={styles.diffWrap}>
           <DiffView lines={diffLines} />
@@ -115,17 +111,13 @@ const PermissionsContent = ({ request, onDecide, onRespondPermission }) => {
         <p class={styles.title}>Permissions Request</p>
         <span class={`${styles.badge} ${styles.badgePermission}`}>PERMISSIONS</span>
       </div>
-      {request.permission_reason && (
-        <p class={styles.subtitle}>{request.permission_reason}</p>
-      )}
+      {request.permission_reason && <p class={styles.subtitle}>{request.permission_reason}</p>}
       {perms && perms.length > 0 && (
         <div class={styles.permList}>
           {perms.map((perm, i) => (
             <div key={i} class={styles.permItem}>
               {perm.type && <span class={styles.permType}>{perm.type}</span>}
-              {perm.description && (
-                <span class={styles.permDescription}>{perm.description}</span>
-              )}
+              {perm.description && <span class={styles.permDescription}>{perm.description}</span>}
               {perm.scope && <span class={styles.permScope}>{perm.scope}</span>}
             </div>
           ))}
@@ -167,8 +159,8 @@ const PermissionsContent = ({ request, onDecide, onRespondPermission }) => {
 const QuestionContent = ({ request, onAnswer, onDismiss }) => {
   const prompts = request.question_prompts || []
   const [activeIndex, setActiveIndex] = useState(0)
-  const [answers, setAnswers] = useState({})  // { promptId: [selectedLabels] }
-  const [drafts, setDrafts] = useState({})    // { promptId: freeTextValue }
+  const [answers, setAnswers] = useState({}) // { promptId: [selectedLabels] }
+  const [drafts, setDrafts] = useState({}) // { promptId: freeTextValue }
   const otherRef = useRef(null)
 
   // Reset state when request changes.
@@ -183,9 +175,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
       const existing = prev[promptId] || []
       let next
       if (allowsMultiple) {
-        next = existing.includes(label)
-          ? existing.filter((v) => v !== label)
-          : [...existing, label]
+        next = existing.includes(label) ? existing.filter((v) => v !== label) : [...existing, label]
       } else {
         next = [label]
       }
@@ -200,7 +190,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
   }
 
   const allAnswered = () => {
-    if (prompts.length === 0) return (drafts['default'] || '').trim().length > 0
+    if (prompts.length === 0) return (drafts.default || '').trim().length > 0
     return prompts.every(promptIsAnswered)
   }
 
@@ -218,7 +208,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
   const handleSubmit = () => {
     if (prompts.length === 0) {
       // Simple question — just send the free-text answer.
-      const text = (drafts['default'] || '').trim()
+      const text = (drafts.default || '').trim()
       if (text) onAnswer({ answer: text })
       return
     }
@@ -251,7 +241,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
             class={styles.otherInput}
             type="text"
             placeholder="Your response..."
-            value={drafts['default'] || ''}
+            value={drafts.default || ''}
             onInput={(e) => setDrafts((prev) => ({ ...prev, default: e.target.value }))}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -267,12 +257,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
               Dismiss
             </Button>
           )}
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!(drafts['default'] || '').trim()}
-            onClick={handleSubmit}
-          >
+          <Button variant="primary" size="sm" disabled={!(drafts.default || '').trim()} onClick={handleSubmit}>
             Submit
           </Button>
         </div>
@@ -327,9 +312,7 @@ const QuestionContent = ({ request, onAnswer, onDismiss }) => {
                     <span class={styles.checkbox}>{selected ? '\u2611' : '\u2610'}</span>
                   )}
                   <span class={styles.optionLabel}>{opt.label}</span>
-                  {opt.description && (
-                    <span class={styles.optionDesc}>{opt.description}</span>
-                  )}
+                  {opt.description && <span class={styles.optionDesc}>{opt.description}</span>}
                 </button>
               )
             })}
@@ -408,8 +391,20 @@ const ElicitationContent = ({ request, onAnswer, onDismiss }) => {
         <div class={styles.headerRow}>
           <p class={styles.title}>
             <span class={styles.mcpIcon}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><circle cx="6" cy="6" r="1" /><circle cx="6" cy="18" r="1" />
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect x="2" y="2" width="20" height="8" rx="2" />
+                <rect x="2" y="14" width="20" height="8" rx="2" />
+                <circle cx="6" cy="6" r="1" />
+                <circle cx="6" cy="18" r="1" />
               </svg>
             </span>
             {serverName}
@@ -418,14 +413,20 @@ const ElicitationContent = ({ request, onAnswer, onDismiss }) => {
         </div>
         {message && <p class={styles.questionText}>{message}</p>}
         {url && (
-          <a
-            class={styles.authLink}
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+          <a class={styles.authLink} href={url} target="_blank" rel="noopener noreferrer">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+              <polyline points="15 3 21 3 21 9" />
+              <line x1="10" y1="14" x2="21" y2="3" />
             </svg>
             Open in browser to authenticate
           </a>
@@ -452,12 +453,7 @@ const ElicitationContent = ({ request, onAnswer, onDismiss }) => {
               Dismiss
             </Button>
           )}
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!code.trim()}
-            onClick={handleSubmit}
-          >
+          <Button variant="primary" size="sm" disabled={!code.trim()} onClick={handleSubmit}>
             Submit Code
           </Button>
         </div>
@@ -471,8 +467,20 @@ const ElicitationContent = ({ request, onAnswer, onDismiss }) => {
       <div class={styles.headerRow}>
         <p class={styles.title}>
           <span class={styles.mcpIcon}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><circle cx="6" cy="6" r="1" /><circle cx="6" cy="18" r="1" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="2" width="20" height="8" rx="2" />
+              <rect x="2" y="14" width="20" height="8" rx="2" />
+              <circle cx="6" cy="6" r="1" />
+              <circle cx="6" cy="18" r="1" />
             </svg>
           </span>
           {serverName}
@@ -493,9 +501,7 @@ const DefaultContent = ({ request, onDecide }) => (
       <p class={styles.title}>{request.tool_name || 'Approval needed'}</p>
       <span class={styles.badge}>APPROVAL</span>
     </div>
-    {request.preview && (
-      <pre class={styles.preview}>{request.preview.value}</pre>
-    )}
+    {request.preview && <pre class={styles.preview}>{request.preview.value}</pre>}
     <div class={styles.actions}>
       <Button variant="primary" size="sm" onClick={() => onDecide('approved')}>
         Allow
@@ -524,29 +530,11 @@ const ApprovalBanner = ({ request, onDecide, onAnswer, onDismiss, onRespondPermi
         return <PatchContent request={request} onDecide={onDecide} />
       case 'question':
         if (request.elicitation_mode) {
-          return (
-            <ElicitationContent
-              request={request}
-              onAnswer={onAnswer}
-              onDismiss={onDismiss}
-            />
-          )
+          return <ElicitationContent request={request} onAnswer={onAnswer} onDismiss={onDismiss} />
         }
-        return (
-          <QuestionContent
-            request={request}
-            onAnswer={onAnswer}
-            onDismiss={onDismiss}
-          />
-        )
+        return <QuestionContent request={request} onAnswer={onAnswer} onDismiss={onDismiss} />
       case 'permissions':
-        return (
-          <PermissionsContent
-            request={request}
-            onDecide={onDecide}
-            onRespondPermission={onRespondPermission}
-          />
-        )
+        return <PermissionsContent request={request} onDecide={onDecide} onRespondPermission={onRespondPermission} />
       default:
         return <DefaultContent request={request} onDecide={onDecide} />
     }

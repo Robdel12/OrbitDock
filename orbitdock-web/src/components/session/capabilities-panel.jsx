@@ -1,8 +1,8 @@
 import { useState } from 'preact/hooks'
 import { TabBar } from '../ui/tab-bar.jsx'
-import { SkillsPanel } from './skills-panel.jsx'
-import { McpPanel } from './mcp-panel.jsx'
 import styles from './capabilities-panel.module.css'
+import { McpPanel } from './mcp-panel.jsx'
+import { SkillsPanel } from './skills-panel.jsx'
 
 const TABS = [
   { id: 'skills', label: 'Plugins' },
@@ -31,13 +31,7 @@ const CapabilitiesPanel = ({ open, onClose, sessionId, liveSkills, liveMcpTools 
   return (
     <>
       {/* Backdrop — only rendered on mobile (hidden on desktop via CSS) */}
-      {open && (
-        <div
-          class={styles.backdrop}
-          onClick={handleBackdropClick}
-          aria-hidden="true"
-        />
-      )}
+      {open && <div class={styles.backdrop} onClick={handleBackdropClick} aria-hidden="true" />}
 
       <div
         class={`${styles.panel} ${open ? styles.panelOpen : ''}`}
@@ -49,30 +43,28 @@ const CapabilitiesPanel = ({ open, onClose, sessionId, liveSkills, liveMcpTools 
           {/* Panel header */}
           <div class={styles.panelHeader}>
             <span class={styles.panelTitle}>Capabilities</span>
-            <button
-              class={styles.closeBtn}
-              onClick={onClose}
-              aria-label="Close capabilities panel"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+            <button class={styles.closeBtn} onClick={onClose} aria-label="Close capabilities panel">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              >
+                <path d="M2 2l8 8M10 2l-8 8" />
+              </svg>
             </button>
           </div>
 
           {/* Tab bar */}
-          <TabBar
-            tabs={TABS}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
+          <TabBar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
           {/* Tab content */}
           <div class={styles.content}>
-            {activeTab === 'skills' && (
-              <SkillsPanel sessionId={sessionId} liveSkills={liveSkills} />
-            )}
-            {activeTab === 'mcp' && (
-              <McpPanel sessionId={sessionId} liveMcpTools={liveMcpTools} />
-            )}
+            {activeTab === 'skills' && <SkillsPanel sessionId={sessionId} liveSkills={liveSkills} />}
+            {activeTab === 'mcp' && <McpPanel sessionId={sessionId} liveMcpTools={liveMcpTools} />}
           </div>
         </div>
       </div>

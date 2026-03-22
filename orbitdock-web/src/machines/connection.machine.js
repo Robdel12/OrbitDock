@@ -1,4 +1,4 @@
-import { setup, assign } from 'xstate'
+import { assign, setup } from 'xstate'
 
 const connectionMachine = setup({
   actions: {
@@ -15,8 +15,7 @@ const connectionMachine = setup({
     maxAttemptsReached: ({ context }) => context.attempt >= context.maxAttempts,
   },
   delays: {
-    retryDelay: ({ context }) =>
-      Math.min(1000 * Math.pow(2, context.attempt), 30000),
+    retryDelay: ({ context }) => Math.min(1000 * 2 ** context.attempt, 30000),
   },
 }).createMachine({
   id: 'connection',
@@ -33,10 +32,7 @@ const connectionMachine = setup({
       on: {
         CONNECT: {
           target: 'connecting',
-          actions: [
-            assign({ url: ({ event }) => event.url }),
-            'incrementGeneration',
-          ],
+          actions: [assign({ url: ({ event }) => event.url }), 'incrementGeneration'],
         },
       },
     },

@@ -25,4 +25,4 @@ const SkeletonCard = () => (
   </div>
 )
 
-export { Skeleton, SkeletonRow, SkeletonCard }
+export { Skeleton, SkeletonCard, SkeletonRow }

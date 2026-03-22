@@ -1,16 +1,16 @@
-import { useState, useEffect } from 'preact/hooks'
-import { Router, Route, Switch, useLocation } from 'wouter-preact'
-import { routes } from './routes.js'
+import { useEffect, useState } from 'preact/hooks'
+import { Route, Router, Switch, useLocation } from 'wouter-preact'
+import { CommandPalette } from './components/command-palette/command-palette.jsx'
+import { KeyboardHelp } from './components/keyboard-help/keyboard-help.jsx'
 import { AppShell } from './components/layout/app-shell.jsx'
 import { CreateSessionDialog } from './components/session/create-session-dialog.jsx'
-import { CommandPalette } from './components/command-palette/command-palette.jsx'
-import { ErrorBoundary } from './components/ui/error-boundary.jsx'
 import { ToastContainer } from './components/toast/toast-container.jsx'
+import { ErrorBoundary } from './components/ui/error-boundary.jsx'
 import { OfflineIndicator } from './components/ui/offline-indicator.jsx'
-import { KeyboardHelp } from './components/keyboard-help/keyboard-help.jsx'
+import { initTabIndicator } from './lib/tab-indicator.js'
+import { routes } from './routes.js'
 import { http } from './stores/connection.js'
 import { showCreateDialog } from './stores/sessions.js'
-import { initTabIndicator } from './lib/tab-indicator.js'
 
 const AppContent = () => {
   const [showCreate, setShowCreate] = useState(false)
@@ -63,16 +63,9 @@ const AppContent = () => {
           <Route key={r.path} path={r.path} component={r.component} />
         ))}
       </Switch>
-      <CreateSessionDialog
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-        onCreate={handleCreate}
-        http={http}
-      />
+      <CreateSessionDialog open={showCreate} onClose={() => setShowCreate(false)} onCreate={handleCreate} http={http} />
       <CommandPalette onCreateSession={() => setShowCreate(true)} />
-      {showKeyboardHelp && (
-        <KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
-      )}
+      {showKeyboardHelp && <KeyboardHelp onClose={() => setShowKeyboardHelp(false)} />}
     </AppShell>
   )
 }

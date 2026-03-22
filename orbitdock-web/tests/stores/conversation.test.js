@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createConversationStore, entryId } from '../../src/stores/conversation.js'
 
 const makeEntry = (id, sequence, rowType = 'user', content = 'hello') => ({

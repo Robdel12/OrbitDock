@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/preact'
+import { describe, expect, it } from 'vitest'
 import { ToolRow } from '../../src/components/conversation/tool-row.jsx'
 
 describe('ToolRow', () => {
@@ -42,9 +42,7 @@ describe('ToolRow', () => {
   })
 
   it('hides right_meta when subtitle_absorbs_meta is true', () => {
-    const { queryByText } = render(
-      <ToolRow entry={makeToolEntry({ subtitle_absorbs_meta: true })} />
-    )
+    const { queryByText } = render(<ToolRow entry={makeToolEntry({ subtitle_absorbs_meta: true })} />)
     expect(queryByText('0.5s')).toBeNull()
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { toasts, removeToast } from '../../stores/toasts.js'
+import { removeToast, toasts } from '../../stores/toasts.js'
 import styles from './toast-container.module.css'
 
 const TOAST_LIFETIME_MS = 5000
@@ -42,7 +42,17 @@ const Toast = ({ toast, onDismiss, onClick }) => {
           onDismiss(toast.id)
         }}
       >
-        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        >
+          <path d="M2 2l8 8M10 2l-8 8" />
+        </svg>
       </button>
     </div>
   )
@@ -94,12 +104,7 @@ const ToastContainer = () => {
   return (
     <div class={styles.container} aria-label="Notifications">
       {list.map((toast) => (
-        <Toast
-          key={toast.id}
-          toast={toast}
-          onDismiss={removeToast}
-          onClick={handleNavigate}
-        />
+        <Toast key={toast.id} toast={toast} onDismiss={removeToast} onClick={handleNavigate} />
       ))}
     </div>
   )

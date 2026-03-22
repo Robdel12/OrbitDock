@@ -64,9 +64,7 @@ const updateTabIndicator = () => {
     document.title = `⚠ ${BASE_TITLE}`
     setFavicon('#F28C6B')
   } else if (workingCount > 0) {
-    document.title = workingCount > 1
-      ? `(${workingCount}) ${BASE_TITLE}`
-      : BASE_TITLE
+    document.title = workingCount > 1 ? `(${workingCount}) ${BASE_TITLE}` : BASE_TITLE
     setFavicon('#54AEE5')
   } else {
     document.title = BASE_TITLE

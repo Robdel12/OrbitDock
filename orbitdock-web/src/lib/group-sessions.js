@@ -42,4 +42,4 @@ const latestActivity = (sessions) => {
   return latest
 }
 
-export { groupByRepo, extractRepoName }
+export { extractRepoName, groupByRepo }

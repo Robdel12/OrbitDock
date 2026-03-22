@@ -1,21 +1,25 @@
-import { useState, useRef, useEffect, useCallback } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
+import { clearDraft, loadDraft, saveDraft } from '../../lib/draft-store.js'
+import { http } from '../../stores/connection.js'
+import { addToast } from '../../stores/toasts.js'
 import { Button } from '../ui/button.jsx'
 import { MentionCompletions } from './mention-completions.jsx'
-import { SlashCompletions } from './slash-completions.jsx'
-import { SkillCompletions } from './skill-completions.jsx'
-import { addToast } from '../../stores/toasts.js'
-import { http } from '../../stores/connection.js'
-import { saveDraft, loadDraft, clearDraft } from '../../lib/draft-store.js'
 import styles from './message-composer.module.css'
+import { SkillCompletions } from './skill-completions.jsx'
+import { SlashCompletions } from './slash-completions.jsx'
 
 // ── Unique ID generator ──────────────────────────────────────────────────────
 // crypto.randomUUID requires a secure context (HTTPS or localhost).
 // Fall back to a simple random ID for LAN / HTTP access.
 const uniqueId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    try { return crypto.randomUUID() } catch (_) { /* fall through */ }
+    try {
+      return crypto.randomUUID()
+    } catch (_) {
+      /* fall through */
+    }
   }
-  return 'id-' + Math.random().toString(36).slice(2) + Date.now().toString(36)
+  return `id-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
 }
 
 // ── Image helpers ────────────────────────────────────────────────────────────
@@ -46,15 +50,15 @@ const readAsDataUrl = (file) =>
   })
 
 const MAX_IMAGES = 5
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024   // 10 MB
-const MAX_TOTAL_SIZE = 50 * 1024 * 1024    // 50 MB
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024 // 10 MB
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024 // 50 MB
 
 const filesToAttachments = async (files) =>
   Promise.all(
     files.map(async (file) => {
       const dataUrl = await readAsDataUrl(file)
       return { id: uniqueId(), dataUrl, mimeType: file.type, name: file.name, size: file.size }
-    })
+    }),
   )
 
 // ── Contenteditable helpers ──────────────────────────────────────────────────
@@ -108,7 +112,7 @@ const setCursorOffset = (el, offset) => {
 
 // ── Token formatting ─────────────────────────────────────────────────────────
 
-const formatK = (n) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+const formatK = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 
 const formatTokenUsage = (usage) => {
   if (!usage) return null
@@ -116,9 +120,7 @@ const formatTokenUsage = (usage) => {
   if (total === 0) return null
   const ctxTotal = usage.context_window_total || 0
   const pct = ctxTotal ? Math.round((total / ctxTotal) * 100) : null
-  const display = ctxTotal
-    ? `${formatK(total)}/${formatK(ctxTotal)}`
-    : formatK(total)
+  const display = ctxTotal ? `${formatK(total)}/${formatK(ctxTotal)}` : formatK(total)
   return { display, pct }
 }
 
@@ -131,33 +133,79 @@ const tokenColorClass = (pct) => {
 
 // ── Workflow overflow menu ────────────────────────────────────────────────────
 
-const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onContinueInNew, onCompact, isActive, shellMode, onToggleShell }) => {
+const WorkflowMenu = ({
+  open,
+  onClose,
+  onUndo,
+  onFork,
+  onForkToWorktree,
+  onContinueInNew,
+  onCompact,
+  isActive,
+  shellMode,
+  onToggleShell,
+}) => {
   if (!open) return null
 
   return (
     <div class={styles.overflowMenu} onClick={(e) => e.stopPropagation()}>
       <div class={styles.overflowSection}>
         <span class={styles.overflowSectionLabel}>Turn</span>
-        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onUndo(); onClose() }}>
+        <button
+          class={styles.overflowItem}
+          disabled={!isActive}
+          onClick={() => {
+            onUndo()
+            onClose()
+          }}
+        >
           Undo Last Turn
         </button>
-        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onCompact(); onClose() }}>
+        <button
+          class={styles.overflowItem}
+          disabled={!isActive}
+          onClick={() => {
+            onCompact()
+            onClose()
+          }}
+        >
           Compact Context
         </button>
       </div>
       <div class={styles.overflowDivider} />
       <div class={styles.overflowSection}>
         <span class={styles.overflowSectionLabel}>Session</span>
-        <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onFork(); onClose() }}>
+        <button
+          class={styles.overflowItem}
+          disabled={!isActive}
+          onClick={() => {
+            onFork()
+            onClose()
+          }}
+        >
           Fork Conversation
         </button>
         {onForkToWorktree && (
-          <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onForkToWorktree(); onClose() }}>
+          <button
+            class={styles.overflowItem}
+            disabled={!isActive}
+            onClick={() => {
+              onForkToWorktree()
+              onClose()
+            }}
+          >
             Fork to Worktree
           </button>
         )}
         {onContinueInNew && (
-          <button class={styles.overflowItem} disabled={!isActive} onClick={() => { onContinueInNew(); onClose() }}>
+          <button
+            class={styles.overflowItem}
+            disabled={!isActive}
+            onClick={() => {
+              onContinueInNew()
+              onClose()
+            }}
+          >
             Continue in New Session
           </button>
         )}
@@ -167,7 +215,13 @@ const WorkflowMenu = ({ open, onClose, onUndo, onFork, onForkToWorktree, onConti
           <div class={styles.overflowDivider} />
           <div class={styles.overflowSection}>
             <span class={styles.overflowSectionLabel}>Mode</span>
-            <button class={styles.overflowItem} onClick={() => { onToggleShell(); onClose() }}>
+            <button
+              class={styles.overflowItem}
+              onClick={() => {
+                onToggleShell()
+                onClose()
+              }}
+            >
               {shellMode ? 'Disable Shell Mode' : 'Enable Shell Mode'}
             </button>
           </div>
@@ -201,7 +255,16 @@ const shortModelName = (model) => {
   return parts[parts.length - 1]
 }
 
-const ModelEffortPopover = ({ open, onClose, provider, models, currentModel, onModelChange, effort, onEffortChange }) => {
+const ModelEffortPopover = ({
+  open,
+  onClose,
+  provider,
+  models,
+  currentModel,
+  onModelChange,
+  effort,
+  onEffortChange,
+}) => {
   if (!open) return null
 
   return (
@@ -209,9 +272,7 @@ const ModelEffortPopover = ({ open, onClose, provider, models, currentModel, onM
       {/* Model selection */}
       <div class={styles.overflowSection}>
         <span class={styles.overflowSectionLabel}>Model</span>
-        {models.length === 0 && (
-          <span class={styles.modelEmpty}>Loading models…</span>
-        )}
+        {models.length === 0 && <span class={styles.modelEmpty}>Loading models…</span>}
         {models.map((m) => {
           const id = m.value || m.id || m.model
           const display = m.display_name || m.label || id
@@ -220,12 +281,21 @@ const ModelEffortPopover = ({ open, onClose, provider, models, currentModel, onM
             <button
               key={id}
               class={`${styles.overflowItem} ${isActive ? styles.modelItemActive : ''}`}
-              onClick={() => { onModelChange(id); onClose() }}
+              onClick={() => {
+                onModelChange(id)
+                onClose()
+              }}
             >
               <span class={styles.modelItemLabel}>{display}</span>
               {isActive && (
                 <svg class={styles.modelCheck} width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path d="M2.5 6l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  <path
+                    d="M2.5 6l2.5 2.5 4.5-5"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
                 </svg>
               )}
             </button>
@@ -269,7 +339,13 @@ const ImageIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     <rect x="1" y="3" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" />
     <circle cx="4.5" cy="6.5" r="1" fill="currentColor" />
-    <path d="M1.5 10l3-3 2 2 2.5-3L13 10.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+    <path
+      d="M1.5 10l3-3 2 2 2.5-3L13 10.5"
+      stroke="currentColor"
+      stroke-width="1.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
   </svg>
 )
 
@@ -277,7 +353,12 @@ const MentionIcon = () => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     <circle cx="7" cy="7" r="3" stroke="currentColor" stroke-width="1.2" />
     <path d="M10 7c0 1.66-.67 3-2 3s-1.5-1-1.5-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
-    <path d="M10 10c1.2-1 2-2.5 2-4a5 5 0 10-2.5 4.33" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+    <path
+      d="M10 10c1.2-1 2-2.5 2-4a5 5 0 10-2.5 4.33"
+      stroke="currentColor"
+      stroke-width="1.2"
+      stroke-linecap="round"
+    />
   </svg>
 )
 
@@ -297,7 +378,15 @@ const MoreIcon = () => (
 )
 
 const TuneIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 14 14"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+  >
     <line x1="2" y1="4" x2="12" y2="4" />
     <line x1="2" y1="10" x2="12" y2="10" />
     <circle cx="5" cy="4" r="1.5" fill="var(--color-bg-secondary)" />
@@ -307,19 +396,40 @@ const TuneIcon = () => (
 
 const SendIcon = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-    <path d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path
+      d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
   </svg>
 )
 
 const SteerIcon = () => (
   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-    <path d="M2 8.5c1.5-1 3-4.5 4-5.5 1 1 2.5 4.5 4 5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    <path
+      d="M2 8.5c1.5-1 3-4.5 4-5.5 1 1 2.5 4.5 4 5.5"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
     <path d="M6 3v5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
   </svg>
 )
 
 const PinIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 12 12"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.3"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <path d="M6 2v8M3 7l3 3 3-3" />
   </svg>
 )
@@ -332,7 +442,16 @@ const PauseIcon = () => (
 )
 
 const GitBranchIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="10"
+    height="10"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <circle cx="5" cy="4" r="1.5" />
     <circle cx="5" cy="12" r="1.5" />
     <circle cx="11" cy="6" r="1.5" />
@@ -341,7 +460,16 @@ const GitBranchIcon = () => (
 )
 
 const FolderIcon = () => (
-  <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <svg
+    width="10"
+    height="10"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
     <path d="M2 4v8a1 1 0 001 1h10a1 1 0 001-1V6a1 1 0 00-1-1H8L6.5 3H3a1 1 0 00-1 1z" />
   </svg>
 )
@@ -349,8 +477,18 @@ const FolderIcon = () => (
 // ── MessageComposer ──────────────────────────────────────────────────────────
 
 const TerminalIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
   </svg>
 )
 
@@ -458,11 +596,14 @@ const MessageComposer = ({
   useEffect(() => {
     if (!modelPopoverOpen || !provider) return
     const endpoint = provider === 'codex' ? '/api/models/codex' : '/api/models/claude'
-    http.get(endpoint).then((res) => {
-      setAvailableModels(res?.models || [])
-    }).catch(() => {
-      // Silently fail — the popover will show "Loading models…"
-    })
+    http
+      .get(endpoint)
+      .then((res) => {
+        setAvailableModels(res?.models || [])
+      })
+      .catch(() => {
+        // Silently fail — the popover will show "Loading models…"
+      })
   }, [modelPopoverOpen, provider])
 
   const syncFromDom = useCallback(() => {
@@ -668,18 +809,21 @@ const MessageComposer = ({
 
   // ── Slash command action dispatch ───────────────────────────────────────────
 
-  const handleSlashAction = useCallback((action) => {
-    const actions = {
-      compact: onCompact,
-      undo: onUndo,
-      resume: onResume,
-      fork: () => onFork?.(),
-      end: onEnd,
-      shell: onShellExec ? () => setShellMode((v) => !v) : null,
-    }
-    const handler = actions[action]
-    if (handler) handler()
-  }, [onCompact, onUndo, onResume, onFork, onEnd, onShellExec])
+  const handleSlashAction = useCallback(
+    (action) => {
+      const actions = {
+        compact: onCompact,
+        undo: onUndo,
+        resume: onResume,
+        fork: () => onFork?.(),
+        end: onEnd,
+        shell: onShellExec ? () => setShellMode((v) => !v) : null,
+      }
+      const handler = actions[action]
+      if (handler) handler()
+    },
+    [onCompact, onUndo, onResume, onFork, onEnd, onShellExec],
+  )
 
   // ── Ended state ────────────────────────────────────────────────────────────
 
@@ -687,7 +831,17 @@ const MessageComposer = ({
     return (
       <div class={styles.resumeBar}>
         <div class={styles.resumeContent}>
-          <svg class={styles.resumeIcon} width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+          <svg
+            class={styles.resumeIcon}
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.3"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
             <circle cx="10" cy="10" r="8" />
             <path d="M7 10l2 2 4-4" />
           </svg>
@@ -725,11 +879,7 @@ const MessageComposer = ({
         <div class={styles.shellStrip}>
           <TerminalIcon />
           <span class={styles.shellLabel}>Shell Command</span>
-          <button
-            type="button"
-            class={styles.shellExit}
-            onClick={() => setShellMode(false)}
-          >
+          <button type="button" class={styles.shellExit} onClick={() => setShellMode(false)}>
             Exit
           </button>
         </div>
@@ -773,8 +923,9 @@ const MessageComposer = ({
       )}
 
       {/* Main composer surface */}
-      <div class={`${styles.surface} ${focused ? styles.surfaceFocused : ''} ${isWorking ? styles.surfaceWorking : ''} ${shellMode ? styles.surfaceShell : ''}`}>
-
+      <div
+        class={`${styles.surface} ${focused ? styles.surfaceFocused : ''} ${isWorking ? styles.surfaceWorking : ''} ${shellMode ? styles.surfaceShell : ''}`}
+      >
         {/* Input area with completions */}
         <div class={styles.inputWrap}>
           <SkillCompletions
@@ -808,8 +959,12 @@ const MessageComposer = ({
             contentEditable
             role="textbox"
             aria-multiline="true"
-            aria-placeholder={shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'}
-            data-placeholder={shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'}
+            aria-placeholder={
+              shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'
+            }
+            data-placeholder={
+              shellMode ? 'Enter a shell command...' : isWorking ? 'Steer the agent...' : 'Send a message...'
+            }
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -866,9 +1021,7 @@ const MessageComposer = ({
               title={`Attach image (${attachments.length}/${MAX_IMAGES})`}
             >
               <ImageIcon />
-              {attachments.length > 0 && (
-                <span class={styles.ghostBadge}>{attachments.length}</span>
-              )}
+              {attachments.length > 0 && <span class={styles.ghostBadge}>{attachments.length}</span>}
             </button>
             <button
               type="button"
@@ -985,11 +1138,15 @@ const MessageComposer = ({
                 <button
                   type="button"
                   class={`${styles.statusItem} ${styles.statusPill} ${styles.statusPillClickable}`}
-                  onClick={onApprovalPolicyChange ? () => {
-                    const policies = ['ask', 'auto-edit', 'auto-full']
-                    const idx = policies.indexOf(approvalPolicy)
-                    onApprovalPolicyChange(policies[(idx + 1) % policies.length])
-                  } : undefined}
+                  onClick={
+                    onApprovalPolicyChange
+                      ? () => {
+                          const policies = ['ask', 'auto-edit', 'auto-full']
+                          const idx = policies.indexOf(approvalPolicy)
+                          onApprovalPolicyChange(policies[(idx + 1) % policies.length])
+                        }
+                      : undefined
+                  }
                   title="Click to cycle permission mode"
                 >
                   {approvalPolicy === 'ask' ? 'Ask' : approvalPolicy === 'auto-edit' ? 'Auto-Edit' : 'Auto-Full'}
@@ -997,14 +1154,12 @@ const MessageComposer = ({
               )}
               {tokenInfo && (
                 <span class={`${styles.statusItem} ${styles.statusMono} ${tokenColorClass(tokenInfo.pct)}`}>
-                  {tokenInfo.pct != null ? `${tokenInfo.pct}%` : ''}{tokenInfo.pct != null && tokenInfo.display ? ' · ' : ''}{tokenInfo.display}
+                  {tokenInfo.pct != null ? `${tokenInfo.pct}%` : ''}
+                  {tokenInfo.pct != null && tokenInfo.display ? ' · ' : ''}
+                  {tokenInfo.display}
                 </span>
               )}
-              {model && (
-                <span class={`${styles.statusItem} ${styles.statusMono} ${styles.statusDimmed}`}>
-                  {model}
-                </span>
-              )}
+              {model && <span class={`${styles.statusItem} ${styles.statusMono} ${styles.statusDimmed}`}>{model}</span>}
               {branch && (
                 <span class={`${styles.statusItem} ${styles.statusBranch}`} title={branch}>
                   <GitBranchIcon />
@@ -1029,14 +1184,7 @@ const MessageComposer = ({
         </div>
       )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        style="display:none"
-        onChange={handleFileInput}
-      />
+      <input ref={fileInputRef} type="file" accept="image/*" multiple style="display:none" onChange={handleFileInput} />
     </form>
   )
 }

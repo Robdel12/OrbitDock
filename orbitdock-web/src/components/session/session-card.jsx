@@ -1,6 +1,6 @@
-import { StatusDot } from '../ui/status-dot.jsx'
 import { formatRelativeTime } from '../../lib/format.js'
 import { extractRepoName } from '../../lib/group-sessions.js'
+import { StatusDot } from '../ui/status-dot.jsx'
 import styles from './session-card.module.css'
 
 // ---------------------------------------------------------------------------
@@ -36,8 +36,7 @@ const getDisplayName = (session) =>
   session.first_prompt ||
   `Session ${session.id.slice(-8)}`
 
-const getProjectName = (session) =>
-  extractRepoName(session.repository_root || session.project_path)
+const getProjectName = (session) => extractRepoName(session.repository_root || session.project_path)
 
 const getContext = (session) => {
   // context_line comes pre-computed from SessionListItem
@@ -88,7 +87,16 @@ const AttentionCard = ({ session, onClick }) => {
             <span class={styles.recency}>{formatRelativeTime(session.last_activity_at)}</span>
           )}
           <span class={styles.actionChevron}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M6 4l4 4-4 4" />
             </svg>
           </span>
@@ -112,9 +120,7 @@ const AttentionCard = ({ session, onClick }) => {
         </div>
 
         {/* Context snippet */}
-        {context && (
-          <p class={styles.contextAttention}>{context}</p>
-        )}
+        {context && <p class={styles.contextAttention}>{context}</p>}
       </div>
     </button>
   )
@@ -146,9 +152,7 @@ const WorkingCard = ({ session, onClick }) => {
 
         {/* Project + branch metadata */}
         <div class={styles.metaRow}>
-          {project && project !== 'Unknown' && (
-            <span class={styles.metaText}>{project}</span>
-          )}
+          {project && project !== 'Unknown' && <span class={styles.metaText}>{project}</span>}
           {session.branch && (
             <>
               {project && project !== 'Unknown' && <span class={styles.metaDot}>&middot;</span>}
@@ -158,9 +162,7 @@ const WorkingCard = ({ session, onClick }) => {
         </div>
 
         {/* Context snippet (1 line) */}
-        {context && (
-          <p class={styles.contextWorking}>{context}</p>
-        )}
+        {context && <p class={styles.contextWorking}>{context}</p>}
       </div>
     </button>
   )
@@ -202,9 +204,7 @@ const ReadyCard = ({ session, onClick }) => {
         </div>
 
         {/* Line 2: context snippet */}
-        {context && (
-          <p class={styles.contextReady}>{context}</p>
-        )}
+        {context && <p class={styles.contextReady}>{context}</p>}
       </div>
     </button>
   )

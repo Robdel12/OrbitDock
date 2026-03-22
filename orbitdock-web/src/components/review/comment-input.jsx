@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { Button } from '../ui/button.jsx'
 import styles from './comment-input.module.css'
 
@@ -48,22 +48,10 @@ const CommentInput = ({ onSubmit, onCancel, loading = false, autoFocus = true })
         rows={3}
       />
       <div class={styles.actions}>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onCancel}
-          disabled={loading}
-        >
+        <Button variant="ghost" size="sm" type="button" onClick={onCancel} disabled={loading}>
           Cancel
         </Button>
-        <Button
-          variant="primary"
-          size="sm"
-          type="submit"
-          disabled={!body.trim()}
-          loading={loading}
-        >
+        <Button variant="primary" size="sm" type="submit" disabled={!body.trim()} loading={loading}>
           Comment
         </Button>
       </div>

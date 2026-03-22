@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useImperativeHandle } from 'preact/hooks'
 import { forwardRef } from 'preact/compat'
+import { useEffect, useImperativeHandle, useRef, useState } from 'preact/hooks'
 import styles from './skill-completions.module.css'
 
 // Returns the active skill query if the cursor is preceded by $word chars.
@@ -19,9 +19,7 @@ const getActiveSkill = (text, cursorPos) => {
 // Flatten all skill groups into a single array of enabled skills.
 const flattenSkills = (groups) => {
   if (!groups) return []
-  return groups.flatMap((group) =>
-    (group.skills ?? []).filter((skill) => skill.enabled)
-  )
+  return groups.flatMap((group) => (group.skills ?? []).filter((skill) => skill.enabled))
 }
 
 const MAX_RESULTS = 8
@@ -37,10 +35,7 @@ const SkillCompletions = forwardRef(({ skills, value, cursorPos, onInsert }, ref
     ? allSkills
         .filter((skill) => {
           const q = active.query.toLowerCase()
-          return (
-            skill.name.toLowerCase().includes(q) ||
-            (skill.description ?? '').toLowerCase().includes(q)
-          )
+          return skill.name.toLowerCase().includes(q) || (skill.description ?? '').toLowerCase().includes(q)
         })
         .slice(0, MAX_RESULTS)
     : []
@@ -61,7 +56,7 @@ const SkillCompletions = forwardRef(({ skills, value, cursorPos, onInsert }, ref
 
   const selectItem = (skill) => {
     if (!skill || !active) return
-    onInsert(active.start, active.end, '$' + skill.name + ' ')
+    onInsert(active.start, active.end, `$${skill.name} `)
   }
 
   // Keyboard navigation — returns true if the event was handled.
@@ -109,13 +104,11 @@ const SkillCompletions = forwardRef(({ skills, value, cursorPos, onInsert }, ref
           onMouseEnter={() => setActiveIndex(i)}
         >
           <span class={styles.skillName}>${skill.name}</span>
-          <span class={styles.skillDesc}>
-            {skill.short_description || skill.description || ''}
-          </span>
+          <span class={styles.skillDesc}>{skill.short_description || skill.description || ''}</span>
         </button>
       ))}
     </div>
   )
 })
 
-export { SkillCompletions, getActiveSkill }
+export { getActiveSkill, SkillCompletions }

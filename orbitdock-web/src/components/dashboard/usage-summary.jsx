@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { http } from '../../stores/connection.js'
 import styles from './usage-summary.module.css'
 
@@ -11,7 +11,7 @@ const pickPrimaryWindow = (usage) => {
 
 const getBarColor = (pct) => {
   if (pct >= 0.85) return 'negative'
-  if (pct >= 0.60) return 'caution'
+  if (pct >= 0.6) return 'caution'
   return 'positive'
 }
 
@@ -39,13 +39,11 @@ const CompactProviderPill = ({ provider, usage, error }) => {
     <div class={styles.pill}>
       <span class={styles.providerDot} style={{ background: colorVar }} />
       <span class={styles.pillLabel}>{label}</span>
-      <span class={styles.pillPct} data-color={colorKey}>{Math.round(pct * 100)}%</span>
+      <span class={styles.pillPct} data-color={colorKey}>
+        {Math.round(pct * 100)}%
+      </span>
       <div class={styles.miniTrack}>
-        <div
-          class={styles.miniFill}
-          data-color={colorKey}
-          style={{ width: `${pct * 100}%` }}
-        />
+        <div class={styles.miniFill} data-color={colorKey} style={{ width: `${pct * 100}%` }} />
       </div>
     </div>
   )
@@ -56,10 +54,7 @@ const UsageSummary = () => {
   const [codexData, setCodexData] = useState(null)
 
   const fetchUsage = async () => {
-    const [cu, xu] = await Promise.allSettled([
-      http.get('/api/usage/claude'),
-      http.get('/api/usage/codex'),
-    ])
+    const [cu, xu] = await Promise.allSettled([http.get('/api/usage/claude'), http.get('/api/usage/codex')])
     if (cu.status === 'fulfilled') setClaudeData(cu.value)
     if (xu.status === 'fulfilled') setCodexData(xu.value)
   }
@@ -83,20 +78,8 @@ const UsageSummary = () => {
 
   return (
     <div class={styles.usageRow}>
-      {showClaude && (
-        <CompactProviderPill
-          provider="claude"
-          usage={claudeData?.usage}
-          error={claudeError}
-        />
-      )}
-      {showCodex && (
-        <CompactProviderPill
-          provider="codex"
-          usage={codexData?.usage}
-          error={codexError}
-        />
-      )}
+      {showClaude && <CompactProviderPill provider="claude" usage={claudeData?.usage} error={claudeError} />}
+      {showCodex && <CompactProviderPill provider="codex" usage={codexData?.usage} error={codexError} />}
     </div>
   )
 }

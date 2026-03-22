@@ -46,17 +46,15 @@ const RateLimitBanner = ({ info, onExpired }) => {
 
   return (
     <div class={styles.banner} role="status" aria-live="polite">
-      <span class={styles.icon} aria-hidden="true">⚠</span>
+      <span class={styles.icon} aria-hidden="true">
+        ⚠
+      </span>
       <span class={styles.body}>
         <span class={styles.provider}>{info.provider}</span>
-        {info.limit_type && (
-          <span class={styles.limitType}>{info.limit_type.replace(/_/g, ' ')}</span>
-        )}
+        {info.limit_type && <span class={styles.limitType}>{info.limit_type.replace(/_/g, ' ')}</span>}
         {info.message && <span class={styles.message}>{info.message}</span>}
       </span>
-      {retryLabel && (
-        <span class={styles.retry}>Retry in {retryLabel}</span>
-      )}
+      {retryLabel && <span class={styles.retry}>Retry in {retryLabel}</span>}
     </div>
   )
 }

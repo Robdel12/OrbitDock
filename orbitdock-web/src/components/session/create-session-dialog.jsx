@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import { Button } from '../ui/button.jsx'
 import styles from './create-session-dialog.module.css'
 
@@ -18,7 +18,7 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
         const data = await http.get(`/api/models/${provider}`)
         setModels(data.models || [])
         setModel('')
-      } catch (err) {
+      } catch (_err) {
         setModels([])
       }
     }
@@ -87,11 +87,7 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
 
           <div class={styles.field}>
             <label class={styles.label}>Model</label>
-            <select
-              class={styles.select}
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-            >
+            <select class={styles.select} value={model} onChange={(e) => setModel(e.target.value)}>
               <option value="">Default</option>
               {models.map((m) => (
                 <option key={m.value || m.id || m.model} value={m.value || m.id || m.model}>
@@ -101,9 +97,7 @@ const CreateSessionDialog = ({ open, onClose, onCreate, http }) => {
             </select>
           </div>
 
-          {error && (
-            <p class={styles.error}>{error}</p>
-          )}
+          {error && <p class={styles.error}>{error}</p>}
 
           <div class={styles.actions}>
             <Button variant="ghost" size="md" type="button" onClick={onClose}>

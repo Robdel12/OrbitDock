@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useImperativeHandle } from 'preact/hooks'
 import { forwardRef } from 'preact/compat'
+import { useEffect, useImperativeHandle, useRef, useState } from 'preact/hooks'
 import { http } from '../../stores/connection.js'
 import styles from './mention-completions.module.css'
 
@@ -7,7 +7,7 @@ import styles from './mention-completions.module.css'
 // `text` — full textarea value, `cursorPos` — current selectionStart
 const getActiveMention = (text, cursorPos) => {
   const before = text.slice(0, cursorPos)
-  const match = before.match(/@([\w./\-]*)$/)
+  const match = before.match(/@([\w./-]*)$/)
   if (!match) return null
   return {
     query: match[1],
@@ -177,8 +177,7 @@ const MentionCompletions = forwardRef(({ projectPath, value, cursorPos, textarea
           onMouseEnter={() => setActiveIndex(i)}
         >
           <span class={styles.filename}>
-            {item.isDir ? '\u{1F4C1}' : '\u{1F4C4}'}{' '}
-            {item.name}
+            {item.isDir ? '\u{1F4C1}' : '\u{1F4C4}'} {item.name}
           </span>
           {item.isDir && <span class={styles.dir}>directory</span>}
         </button>
@@ -187,4 +186,4 @@ const MentionCompletions = forwardRef(({ projectPath, value, cursorPos, textarea
   )
 })
 
-export { MentionCompletions, getActiveMention }
+export { getActiveMention, MentionCompletions }

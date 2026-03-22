@@ -66,4 +66,4 @@ const buildToolSummary = (buffer) => {
   return `${shown.join(', ')} + ${remaining} more`
 }
 
-export { groupToolRuns, buildToolSummary }
+export { buildToolSummary, groupToolRuns }

@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'preact/hooks'
-import { useRoute, useLocation } from 'wouter-preact'
-import { http } from '../stores/connection.js'
-import { Card } from '../components/ui/card.jsx'
+import { useEffect, useState } from 'preact/hooks'
+import { useLocation, useRoute } from 'wouter-preact'
+import { SegmentedControl } from '../components/input/provider-controls.jsx'
 import { Badge } from '../components/ui/badge.jsx'
 import { Button } from '../components/ui/button.jsx'
+import { Card } from '../components/ui/card.jsx'
 import { Spinner } from '../components/ui/spinner.jsx'
 import { TabBar } from '../components/ui/tab-bar.jsx'
-import { SegmentedControl } from '../components/input/provider-controls.jsx'
+import { http } from '../stores/connection.js'
 import styles from './mission-detail.module.css'
 
 // ---------------------------------------------------------------------------
@@ -14,37 +14,37 @@ import styles from './mission-detail.module.css'
 // ---------------------------------------------------------------------------
 
 const STATE_COLORS = {
-  queued:       'text-secondary',
-  claimed:      'status-working',
-  running:      'status-working',
+  queued: 'text-secondary',
+  claimed: 'status-working',
+  running: 'status-working',
   retry_queued: 'feedback-caution',
-  completed:    'feedback-positive',
-  failed:       'feedback-negative',
-  blocked:      'feedback-warning',
+  completed: 'feedback-positive',
+  failed: 'feedback-negative',
+  blocked: 'feedback-warning',
 }
 
 const ORCHESTRATOR_STATUS_COLORS = {
   polling: 'status-working',
-  idle:    'status-reply',
-  paused:  'status-ended',
+  idle: 'status-reply',
+  paused: 'status-ended',
   stopped: 'status-ended',
-  error:   'feedback-negative',
+  error: 'feedback-negative',
 }
 
 const PROVIDER_OPTIONS = [
   { value: 'claude', label: 'Claude' },
-  { value: 'codex',  label: 'Codex'  },
+  { value: 'codex', label: 'Codex' },
 ]
 
 const ISSUE_FILTERS = [
-  { id: 'all',       label: 'All'       },
-  { id: 'active',    label: 'Active'    },
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
   { id: 'completed', label: 'Completed' },
-  { id: 'failed',    label: 'Failed'    },
+  { id: 'failed', label: 'Failed' },
 ]
 
-const ACTIVE_STATES  = new Set(['claimed', 'running', 'retry_queued'])
-const FAILED_STATES  = new Set(['failed', 'blocked'])
+const ACTIVE_STATES = new Set(['claimed', 'running', 'retry_queued'])
+const FAILED_STATES = new Set(['failed', 'blocked'])
 
 // ---------------------------------------------------------------------------
 // Linear API key banner
@@ -82,10 +82,10 @@ const OverviewTab = ({ summary, missionId, onReload }) => {
     }
   }
 
-  const activeCount    = summary.active_count    ?? 0
-  const queuedCount    = summary.queued_count    ?? 0
+  const activeCount = summary.active_count ?? 0
+  const queuedCount = summary.queued_count ?? 0
   const completedCount = summary.completed_count ?? 0
-  const failedCount    = summary.failed_count    ?? 0
+  const failedCount = summary.failed_count ?? 0
 
   const threads = summary.threads ?? summary.active_threads ?? []
 
@@ -186,8 +186,8 @@ const OverviewTab = ({ summary, missionId, onReload }) => {
 
 const issueEdgeColor = (state) => {
   if (state === 'failed' || state === 'blocked') return 'feedback-negative'
-  if (state === 'completed')                     return 'feedback-positive'
-  if (state === 'running'  || state === 'claimed') return 'status-working'
+  if (state === 'completed') return 'feedback-positive'
+  if (state === 'running' || state === 'claimed') return 'status-working'
   return undefined
 }
 
@@ -226,13 +226,17 @@ const IssueCard = ({ issue, missionId, onReload }) => {
         onClick={canExpand ? handleCardClick : undefined}
         role={canExpand ? 'button' : undefined}
         tabIndex={canExpand ? 0 : undefined}
-        onKeyDown={canExpand ? (e) => { if (e.key === 'Enter' || e.key === ' ') handleCardClick() } : undefined}
+        onKeyDown={
+          canExpand
+            ? (e) => {
+                if (e.key === 'Enter' || e.key === ' ') handleCardClick()
+              }
+            : undefined
+        }
       >
         <div class={styles.issueRow}>
           <div class={styles.issueInfo}>
-            {issue.identifier && (
-              <Badge variant="tool">{issue.identifier}</Badge>
-            )}
+            {issue.identifier && <Badge variant="tool">{issue.identifier}</Badge>}
             <span class={styles.issueTitle}>{issue.title}</span>
           </div>
           <div class={styles.issueMeta}>
@@ -240,22 +244,33 @@ const IssueCard = ({ issue, missionId, onReload }) => {
               {issue.orchestration_state}
             </Badge>
             {issue.provider && (
-              <Badge variant="tool" color={`provider-${issue.provider}`}>{issue.provider}</Badge>
+              <Badge variant="tool" color={`provider-${issue.provider}`}>
+                {issue.provider}
+              </Badge>
             )}
-            {issue.attempt > 1 && (
-              <span class={styles.attempt}>×{issue.attempt}</span>
-            )}
+            {issue.attempt > 1 && <span class={styles.attempt}>×{issue.attempt}</span>}
             {canExpand && (
-              <span class={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`} aria-hidden="true"><svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l5 5-5 5"/></svg></span>
+              <span class={`${styles.chevron} ${expanded ? styles.chevronOpen : ''}`} aria-hidden="true">
+                <svg
+                  width="8"
+                  height="12"
+                  viewBox="0 0 8 12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M1 1l5 5-5 5" />
+                </svg>
+              </span>
             )}
           </div>
         </div>
 
         {expanded && (
           <div class={styles.issueDetails} onClick={(e) => e.stopPropagation()}>
-            {issue.error && (
-              <div class={styles.issueError}>{issue.error}</div>
-            )}
+            {issue.error && <div class={styles.issueError}>{issue.error}</div>}
             {issue.session_id && (
               <div class={styles.issueSessionId}>
                 Session: <span class={styles.issueMono}>{issue.session_id}</span>
@@ -267,13 +282,7 @@ const IssueCard = ({ issue, missionId, onReload }) => {
 
       {(issue.orchestration_state === 'failed' || issue.orchestration_state === 'blocked') && (
         <div class={styles.issueActions}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleRetry}
-            loading={retrying}
-            disabled={retrying}
-          >
+          <Button variant="ghost" size="sm" onClick={handleRetry} loading={retrying} disabled={retrying}>
             Retry
           </Button>
         </div>
@@ -286,10 +295,10 @@ const IssuesTab = ({ issues, missionId, onReload }) => {
   const [filter, setFilter] = useState('all')
 
   const filtered = (issues ?? []).filter((issue) => {
-    if (filter === 'all')       return true
-    if (filter === 'active')    return ACTIVE_STATES.has(issue.orchestration_state)
+    if (filter === 'all') return true
+    if (filter === 'active') return ACTIVE_STATES.has(issue.orchestration_state)
     if (filter === 'completed') return issue.orchestration_state === 'completed'
-    if (filter === 'failed')    return FAILED_STATES.has(issue.orchestration_state)
+    if (filter === 'failed') return FAILED_STATES.has(issue.orchestration_state)
     return true
   })
 
@@ -308,18 +317,11 @@ const IssuesTab = ({ issues, missionId, onReload }) => {
       </div>
 
       {filtered.length === 0 ? (
-        <div class={styles.emptySection}>
-          {filter === 'all' ? 'No issues' : `No ${filter} issues`}
-        </div>
+        <div class={styles.emptySection}>{filter === 'all' ? 'No issues' : `No ${filter} issues`}</div>
       ) : (
         <div class={styles.issueList}>
           {filtered.map((issue) => (
-            <IssueCard
-              key={issue.issue_id}
-              issue={issue}
-              missionId={missionId}
-              onReload={onReload}
-            />
+            <IssueCard key={issue.issue_id} issue={issue} missionId={missionId} onReload={onReload} />
           ))}
         </div>
       )}
@@ -472,19 +474,9 @@ const SettingsTab = ({ settings, missionId, onReload }) => {
             rows={10}
           />
           <div class={styles.saveRow}>
-            {saveResult === 'ok' && (
-              <span class={styles.saveOk}>Saved</span>
-            )}
-            {saveResult === 'error' && (
-              <span class={styles.saveError}>Save failed</span>
-            )}
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              loading={saving}
-              disabled={saving || !promptDirty}
-            >
+            {saveResult === 'ok' && <span class={styles.saveOk}>Saved</span>}
+            {saveResult === 'error' && <span class={styles.saveError}>Save failed</span>}
+            <Button variant="primary" size="sm" onClick={handleSave} loading={saving} disabled={saving || !promptDirty}>
               Save
             </Button>
           </div>
@@ -537,7 +529,9 @@ const MissionDetailPage = () => {
   if (loading) {
     return (
       <div class={styles.page}>
-        <div class={styles.loadingState}><Spinner size="lg" /></div>
+        <div class={styles.loadingState}>
+          <Spinner size="lg" />
+        </div>
       </div>
     )
   }
@@ -552,18 +546,16 @@ const MissionDetailPage = () => {
 
   const { summary, issues, settings } = detail
 
-  const handlePause = () =>
-    http.put(`/api/missions/${missionId}`, { paused: !summary.paused }).then(load)
+  const handlePause = () => http.put(`/api/missions/${missionId}`, { paused: !summary.paused }).then(load)
 
-  const handleStartOrchestrator = () =>
-    http.post(`/api/missions/${missionId}/start-orchestrator`).then(load)
+  const handleStartOrchestrator = () => http.post(`/api/missions/${missionId}/start-orchestrator`).then(load)
 
   const totalIssues = issues?.length ?? 0
   const failedCount = (issues ?? []).filter((i) => FAILED_STATES.has(i.orchestration_state)).length
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
-    { id: 'issues',   label: 'Issues',   count: totalIssues },
+    { id: 'issues', label: 'Issues', count: totalIssues },
     { id: 'settings', label: 'Settings' },
   ]
 
@@ -579,10 +571,7 @@ const MissionDetailPage = () => {
             {summary.provider || 'claude'}
           </Badge>
           {summary.orchestrator_status && (
-            <Badge
-              variant="status"
-              color={ORCHESTRATOR_STATUS_COLORS[summary.orchestrator_status] || 'text-tertiary'}
-            >
+            <Badge variant="status" color={ORCHESTRATOR_STATUS_COLORS[summary.orchestrator_status] || 'text-tertiary'}>
               {summary.orchestrator_status}
             </Badge>
           )}
@@ -606,15 +595,9 @@ const MissionDetailPage = () => {
       <TabBar tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Tab panels */}
-      {activeTab === 'overview' && (
-        <OverviewTab summary={summary} missionId={missionId} onReload={load} />
-      )}
-      {activeTab === 'issues' && (
-        <IssuesTab issues={issues} missionId={missionId} onReload={load} />
-      )}
-      {activeTab === 'settings' && (
-        <SettingsTab settings={settings} missionId={missionId} onReload={load} />
-      )}
+      {activeTab === 'overview' && <OverviewTab summary={summary} missionId={missionId} onReload={load} />}
+      {activeTab === 'issues' && <IssuesTab issues={issues} missionId={missionId} onReload={load} />}
+      {activeTab === 'settings' && <SettingsTab settings={settings} missionId={missionId} onReload={load} />}
     </div>
   )
 }

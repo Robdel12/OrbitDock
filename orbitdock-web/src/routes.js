@@ -1,10 +1,10 @@
 import { DashboardPage } from './pages/dashboard.jsx'
+import { MissionDetailPage } from './pages/mission-detail.jsx'
+import { MissionsPage } from './pages/missions.jsx'
+import { NotFoundPage } from './pages/not-found.jsx'
 import { SessionPage } from './pages/session.jsx'
 import { SettingsPage } from './pages/settings.jsx'
-import { MissionsPage } from './pages/missions.jsx'
-import { MissionDetailPage } from './pages/mission-detail.jsx'
 import { WorktreesPage } from './pages/worktrees.jsx'
-import { NotFoundPage } from './pages/not-found.jsx'
 
 const routes = [
   { path: '/', component: DashboardPage, label: 'Sessions', icon: 'LayoutDashboard', showInNav: true },

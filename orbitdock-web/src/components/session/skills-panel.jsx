@@ -7,8 +7,7 @@ import styles from './skills-panel.module.css'
 
 const toArray = (value) => (Array.isArray(value) ? value : [])
 
-const textOr = (value, fallback = '') =>
-  typeof value === 'string' && value.trim() ? value.trim() : fallback
+const textOr = (value, fallback = '') => (typeof value === 'string' && value.trim() ? value.trim() : fallback)
 
 const normalizeSkills = (data) => {
   if (Array.isArray(data)) return data
@@ -17,12 +16,11 @@ const normalizeSkills = (data) => {
 }
 
 const normalizePluginCatalog = (data) => {
-  const marketplaces = toArray(data?.marketplaces)
-    .map((marketplace, index) => ({
-      ...marketplace,
-      plugins: toArray(marketplace?.plugins),
-      __key: textOr(marketplace?.path) || textOr(marketplace?.name) || `marketplace-${index}`,
-    }))
+  const marketplaces = toArray(data?.marketplaces).map((marketplace, index) => ({
+    ...marketplace,
+    plugins: toArray(marketplace?.plugins),
+    __key: textOr(marketplace?.path) || textOr(marketplace?.name) || `marketplace-${index}`,
+  }))
 
   if (marketplaces.length > 0) {
     return {
@@ -54,10 +52,7 @@ const normalizePluginCatalog = (data) => {
 }
 
 const pluginDisplayName = (plugin) =>
-  textOr(plugin?.interface?.display_name) ||
-  textOr(plugin?.name) ||
-  textOr(plugin?.id) ||
-  'Untitled plugin'
+  textOr(plugin?.interface?.display_name) || textOr(plugin?.name) || textOr(plugin?.id) || 'Untitled plugin'
 
 const pluginDescription = (plugin) =>
   textOr(plugin?.interface?.short_description) ||
@@ -79,14 +74,7 @@ const matchesQuery = (text, query) => text.toLowerCase().includes(query)
 
 const skillMatches = (skill, query) => {
   if (!query) return true
-  const haystack = [
-    skill?.name,
-    skill?.description,
-    skill?.id,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
+  const haystack = [skill?.name, skill?.description, skill?.id].filter(Boolean).join(' ').toLowerCase()
   return haystack.includes(query)
 }
 
@@ -113,8 +101,7 @@ const pluginMatches = (plugin, marketplace, query) => {
 }
 
 const getPluginKey = (plugin, marketplace, index) =>
-  textOr(plugin?.id) ||
-  `${textOr(marketplace?.__key, 'marketplace')}:${textOr(plugin?.name, `plugin-${index}`)}`
+  textOr(plugin?.id) || `${textOr(marketplace?.__key, 'marketplace')}:${textOr(plugin?.name, `plugin-${index}`)}`
 
 const getSkillKey = (skill, index) => textOr(skill?.id) || textOr(skill?.name, `skill-${index}`)
 
@@ -142,9 +129,7 @@ const SkillRow = ({ skill, onToggle }) => {
     <div class={styles.skillRow}>
       <div class={styles.skillInfo}>
         <span class={styles.skillName}>{skill.name}</span>
-        {skill.description && (
-          <span class={styles.skillDesc}>{skill.description}</span>
-        )}
+        {skill.description && <span class={styles.skillDesc}>{skill.description}</span>}
       </div>
       <div class={styles.skillActions}>
         <Badge variant="status" color={skill.enabled ? 'feedback-positive' : 'status-ended'}>
@@ -178,9 +163,7 @@ const PluginCard = ({ plugin, marketplace, onAction, busy }) => {
           <span class={styles.pluginAccent} aria-hidden="true" />
           <div class={styles.pluginTitleGroup}>
             <h3 class={styles.pluginTitle}>{pluginDisplayName(plugin)}</h3>
-            {pluginDescription(plugin) && (
-              <p class={styles.pluginSubtitle}>{pluginDescription(plugin)}</p>
-            )}
+            {pluginDescription(plugin) && <p class={styles.pluginSubtitle}>{pluginDescription(plugin)}</p>}
           </div>
         </div>
 
@@ -196,9 +179,7 @@ const PluginCard = ({ plugin, marketplace, onAction, busy }) => {
           {plugin?.source && <Badge variant="meta">{plugin.source}</Badge>}
           {plugin?.install_policy && <Badge variant="meta">{plugin.install_policy}</Badge>}
           {plugin?.auth_policy && <Badge variant="meta">{plugin.auth_policy}</Badge>}
-          {capabilities.length > 0 && (
-            <Badge variant="meta">{capabilities.length} capabilities</Badge>
-          )}
+          {capabilities.length > 0 && <Badge variant="meta">{capabilities.length} capabilities</Badge>}
         </div>
       </div>
 
@@ -330,11 +311,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
   const handleToggle = async (skill) => {
     setSkills((prev) =>
-      prev.map((current) => (
-        current.id === skill.id
-          ? { ...current, enabled: !current.enabled }
-          : current
-      ))
+      prev.map((current) => (current.id === skill.id ? { ...current, enabled: !current.enabled } : current)),
     )
 
     try {
@@ -344,11 +321,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
       })
     } catch (err) {
       setSkills((prev) =>
-        prev.map((current) => (
-          current.id === skill.id
-            ? { ...current, enabled: skill.enabled }
-            : current
-        ))
+        prev.map((current) => (current.id === skill.id ? { ...current, enabled: skill.enabled } : current)),
       )
       setSkillsError(err.message)
       console.warn('[skills] toggle failed:', err.message)
@@ -393,7 +366,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
       ...marketplace,
       plugins: marketplace.plugins.filter((plugin) => pluginMatches(plugin, marketplace, normalizedSearch)),
     }))
-    .filter((marketplace) => normalizedSearch ? marketplace.plugins.length > 0 : true)
+    .filter((marketplace) => (normalizedSearch ? marketplace.plugins.length > 0 : true))
 
   const totalPlugins = marketplaces.reduce((sum, marketplace) => sum + marketplace.plugins.length, 0)
   const installedPlugins = marketplaces.reduce(
@@ -413,8 +386,8 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
           <div class={styles.heroEyebrow}>Plugin marketplace</div>
           <h2 class={styles.heroTitle}>Browse plugins, keep installed skills in sync.</h2>
           <p class={styles.heroCopy}>
-            The current session can install marketplace plugins without leaving the capability drawer.
-            Installed skills stay visible below and refresh automatically after every change.
+            The current session can install marketplace plugins without leaving the capability drawer. Installed skills
+            stay visible below and refresh automatically after every change.
           </p>
 
           <div class={styles.heroStats}>
@@ -428,7 +401,9 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
       {actionError && (
         <div class={styles.errorState} role="alert">
-          <Badge variant="status" color="feedback-negative">Action failed</Badge>
+          <Badge variant="status" color="feedback-negative">
+            Action failed
+          </Badge>
           <span>{actionError}</span>
         </div>
       )}
@@ -448,9 +423,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
             <div class={styles.sectionKicker}>Installed skills</div>
             <h3 class={styles.sectionTitle}>Session skills</h3>
           </div>
-          <div class={styles.sectionMeta}>
-            {skillsLoading ? 'Loading...' : `${visibleInstalledSkills} visible`}
-          </div>
+          <div class={styles.sectionMeta}>{skillsLoading ? 'Loading...' : `${visibleInstalledSkills} visible`}</div>
         </div>
 
         <label class={styles.searchRow}>
@@ -474,27 +447,23 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
         {!skillsLoading && skillsError && (
           <div class={styles.errorState} role="alert">
-            <Badge variant="status" color="feedback-negative">Skills error</Badge>
+            <Badge variant="status" color="feedback-negative">
+              Skills error
+            </Badge>
             <span>{skillsError}</span>
           </div>
         )}
 
         {!skillsLoading && !skillsError && filteredSkills.length === 0 && (
           <div class={styles.emptyState}>
-            {search.trim()
-              ? 'No installed skills match that search.'
-              : 'No skills are installed for this session yet.'}
+            {search.trim() ? 'No installed skills match that search.' : 'No skills are installed for this session yet.'}
           </div>
         )}
 
         {!skillsLoading && filteredSkills.length > 0 && (
           <div class={styles.skillList}>
             {filteredSkills.map((skill, index) => (
-              <SkillRow
-                key={getSkillKey(skill, index)}
-                skill={skill}
-                onToggle={handleToggle}
-              />
+              <SkillRow key={getSkillKey(skill, index)} skill={skill} onToggle={handleToggle} />
             ))}
           </div>
         )}
@@ -506,9 +475,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
             <div class={styles.sectionKicker}>Marketplace</div>
             <h3 class={styles.sectionTitle}>Available plugins</h3>
           </div>
-          <div class={styles.sectionMeta}>
-            {catalogLoading ? 'Loading...' : `${visiblePlugins} visible`}
-          </div>
+          <div class={styles.sectionMeta}>{catalogLoading ? 'Loading...' : `${visiblePlugins} visible`}</div>
         </div>
 
         {catalogLoading && (
@@ -520,9 +487,7 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
         {!catalogLoading && !catalogError && filteredMarketplaces.length === 0 && (
           <div class={styles.emptyState}>
-            {search.trim()
-              ? 'No plugins match your search.'
-              : 'No plugin marketplaces are available for this session.'}
+            {search.trim() ? 'No plugins match your search.' : 'No plugin marketplaces are available for this session.'}
           </div>
         )}
 

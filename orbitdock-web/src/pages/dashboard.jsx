@@ -1,13 +1,13 @@
-import { useState, useMemo } from 'preact/hooks'
+import { useMemo, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { SessionList, classifyZone } from '../components/session/session-list.jsx'
+import { DashboardSkeleton } from '../components/dashboard/dashboard-skeleton.jsx'
 import { FilterToolbar } from '../components/dashboard/filter-toolbar.jsx'
 import { UsageSummary } from '../components/dashboard/usage-summary.jsx'
-import { DashboardSkeleton } from '../components/dashboard/dashboard-skeleton.jsx'
-import { selectSession, sessions, showCreateDialog } from '../stores/sessions.js'
-import { connectionState } from '../stores/connection.js'
-import { groupByRepo, extractRepoName } from '../lib/group-sessions.js'
+import { classifyZone, SessionList } from '../components/session/session-list.jsx'
 import { useKeyboard } from '../hooks/use-keyboard.js'
+import { extractRepoName, groupByRepo } from '../lib/group-sessions.js'
+import { connectionState } from '../stores/connection.js'
+import { selectSession, sessions, showCreateDialog } from '../stores/sessions.js'
 import styles from './dashboard.module.css'
 
 const DEFAULT_FILTERS = { zone: 'all', repo: 'all' }
@@ -42,7 +42,15 @@ const sortSessions = (list, sort) => {
 }
 
 const PlusIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+  <svg
+    width="20"
+    height="20"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.5"
+    stroke-linecap="round"
+  >
     <path d="M8 3v10M3 8h10" />
   </svg>
 )
@@ -69,9 +77,7 @@ const DashboardPage = () => {
   const zoneCounts = useMemo(() => {
     let baseList = allSessions
     if (filters.repo !== 'all') {
-      baseList = baseList.filter(
-        (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
-      )
+      baseList = baseList.filter((s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo)
     }
     const counts = { attention: 0, working: 0, ready: 0, total: baseList.length }
     for (const s of baseList) {
@@ -91,9 +97,7 @@ const DashboardPage = () => {
     }
 
     if (filters.repo !== 'all') {
-      filtered = filtered.filter(
-        (s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo
-      )
+      filtered = filtered.filter((s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo)
     }
 
     const sorted = sortSessions(filtered, sort)
@@ -101,10 +105,7 @@ const DashboardPage = () => {
   }, [sessions.value, filters, sort])
 
   // Flat ordered list for keyboard nav.
-  const sessionList = useMemo(
-    () => groups.flatMap((g) => g.sessions),
-    [groups]
-  )
+  const sessionList = useMemo(() => groups.flatMap((g) => g.sessions), [groups])
 
   const handleSelect = (id) => {
     selectSession(id)
@@ -136,21 +137,22 @@ const DashboardPage = () => {
     summaryParts.push(
       <span key="active">
         <span class={styles.greetingCount}>{active}</span> session{active !== 1 ? 's' : ''} active
-      </span>
+      </span>,
     )
   }
   if (zoneCounts.attention > 0) {
     summaryParts.push(
       <span key="attn">
-        <span class={`${styles.greetingCount} ${styles.greetingCountAttention}`}>{zoneCounts.attention}</span> need{zoneCounts.attention !== 1 ? '' : 's'} attention
-      </span>
+        <span class={`${styles.greetingCount} ${styles.greetingCountAttention}`}>{zoneCounts.attention}</span> need
+        {zoneCounts.attention !== 1 ? '' : 's'} attention
+      </span>,
     )
   }
   if (zoneCounts.working > 0) {
     summaryParts.push(
       <span key="work">
         <span class={`${styles.greetingCount} ${styles.greetingCountWorking}`}>{zoneCounts.working}</span> running
-      </span>
+      </span>,
     )
   }
 
@@ -163,7 +165,14 @@ const DashboardPage = () => {
             <span class={styles.greetingSummary}>
               {summaryParts.reduce((acc, part, i) => {
                 if (i === 0) return [part]
-                return [...acc, <span key={`sep-${i}`} class={styles.greetingSep}> · </span>, part]
+                return [
+                  ...acc,
+                  <span key={`sep-${i}`} class={styles.greetingSep}>
+                    {' '}
+                    ·{' '}
+                  </span>,
+                  part,
+                ]
               }, [])}
             </span>
           )}
@@ -189,7 +198,9 @@ const DashboardPage = () => {
       {/* Mobile floating action button */}
       <button
         class={styles.fab}
-        onClick={() => { showCreateDialog.value = true }}
+        onClick={() => {
+          showCreateDialog.value = true
+        }}
         aria-label="New Session"
       >
         <PlusIcon />

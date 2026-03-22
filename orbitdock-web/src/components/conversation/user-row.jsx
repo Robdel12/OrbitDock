@@ -32,9 +32,7 @@ const UserRow = ({ entry }) => {
             ))}
           </div>
         )}
-        {row.content && (
-          <div class={styles.content} dangerouslySetInnerHTML={{ __html: html }} />
-        )}
+        {row.content && <div class={styles.content} dangerouslySetInnerHTML={{ __html: html }} />}
       </div>
     </div>
   )

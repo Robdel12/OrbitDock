@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
-import { CommentInput } from './comment-input.jsx'
-import { addComment, updateComment, removeComment } from '../../stores/review.js'
 import { http } from '../../stores/connection.js'
+import { addComment, removeComment, updateComment } from '../../stores/review.js'
+import { CommentInput } from './comment-input.jsx'
 import styles from './comment-thread.module.css'
 
 // ---------------------------------------------------------------------------
@@ -41,14 +41,14 @@ const CommentBubble = ({ comment, onEdit, onDelete }) => {
             <>
               <button
                 class={`${styles.actionBtn} ${styles.actionBtnDanger}`}
-                onClick={() => { setConfirmingDelete(false); onDelete() }}
+                onClick={() => {
+                  setConfirmingDelete(false)
+                  onDelete()
+                }}
               >
                 Confirm
               </button>
-              <button
-                class={styles.actionBtn}
-                onClick={() => setConfirmingDelete(false)}
-              >
+              <button class={styles.actionBtn} onClick={() => setConfirmingDelete(false)}>
                 No
               </button>
             </>
@@ -78,7 +78,8 @@ const EditableComment = ({ comment }) => {
 
   const handleSave = (body) => {
     setLoading(true)
-    http.patch(`/api/review-comments/${comment.id}`, { body })
+    http
+      .patch(`/api/review-comments/${comment.id}`, { body })
       .then((data) => {
         updateComment(data?.comment || { ...comment, body })
         setEditing(false)
@@ -88,28 +89,17 @@ const EditableComment = ({ comment }) => {
   }
 
   const handleDelete = () => {
-    http.del(`/api/review-comments/${comment.id}`)
+    http
+      .del(`/api/review-comments/${comment.id}`)
       .then(() => removeComment(comment.id))
       .catch((err) => console.warn('[review] delete comment failed:', err.message))
   }
 
   if (editing) {
-    return (
-      <CommentInput
-        onSubmit={handleSave}
-        onCancel={() => setEditing(false)}
-        loading={loading}
-      />
-    )
+    return <CommentInput onSubmit={handleSave} onCancel={() => setEditing(false)} loading={loading} />
   }
 
-  return (
-    <CommentBubble
-      comment={comment}
-      onEdit={() => setEditing(true)}
-      onDelete={handleDelete}
-    />
-  )
+  return <CommentBubble comment={comment} onEdit={() => setEditing(true)} onDelete={handleDelete} />
 }
 
 // ---------------------------------------------------------------------------
@@ -132,11 +122,12 @@ const CommentThread = ({ comments = [], sessionId, filePath, lineNumber, onClose
 
   const handleSubmit = (body) => {
     setLoading(true)
-    http.post(`/api/sessions/${sessionId}/review-comments`, {
-      body,
-      file_path: filePath,
-      line_number: lineNumber,
-    })
+    http
+      .post(`/api/sessions/${sessionId}/review-comments`, {
+        body,
+        file_path: filePath,
+        line_number: lineNumber,
+      })
       .then((data) => {
         if (data?.comment) addComment(data.comment)
         setShowInput(false)
@@ -163,14 +154,7 @@ const CommentThread = ({ comments = [], sessionId, filePath, lineNumber, onClose
           + Reply
         </button>
       )}
-      {showInput && (
-        <CommentInput
-          onSubmit={handleSubmit}
-          onCancel={handleCancel}
-          loading={loading}
-          autoFocus
-        />
-      )}
+      {showInput && <CommentInput onSubmit={handleSubmit} onCancel={handleCancel} loading={loading} autoFocus />}
     </div>
   )
 }

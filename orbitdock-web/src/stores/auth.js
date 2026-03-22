@@ -1,4 +1,4 @@
-import { signal, computed } from '@preact/signals'
+import { computed, signal } from '@preact/signals'
 
 const STORAGE_KEY = 'orbitdock_auth_token'
 
@@ -17,4 +17,4 @@ const setToken = (value) => {
 
 const clearToken = () => setToken('')
 
-export { token, isAuthenticated, setToken, clearToken }
+export { clearToken, isAuthenticated, setToken, token }

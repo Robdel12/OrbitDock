@@ -10,7 +10,7 @@ const createHttpClient = (baseUrl, tokenAccessor, { on401 } = {}) => {
   const request = async (method, path, body) => {
     const token = getToken()
     const headers = { 'Content-Type': 'application/json' }
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (token) headers.Authorization = `Bearer ${token}`
     const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,
@@ -28,8 +28,7 @@ const createHttpClient = (baseUrl, tokenAccessor, { on401 } = {}) => {
     return text ? JSON.parse(text) : null
   }
   return {
-    get: (path, params) =>
-      request('GET', params ? `${path}?${new URLSearchParams(params)}` : path),
+    get: (path, params) => request('GET', params ? `${path}?${new URLSearchParams(params)}` : path),
     post: (path, body) => request('POST', path, body),
     put: (path, body) => request('PUT', path, body),
     patch: (path, body) => request('PATCH', path, body),

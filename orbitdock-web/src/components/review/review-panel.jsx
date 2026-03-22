@@ -1,16 +1,16 @@
-import { useState, useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import { useKeyboard } from '../../hooks/use-keyboard.js'
 import { parseDiff } from '../../lib/parse-diff.js'
-import { FileNavigator } from './file-navigator.jsx'
-import { CommentThread } from './comment-thread.jsx'
 import {
-  diffData,
-  diffLoading,
-  reviewError,
-  reviewComments,
   activeFile,
   closeReviewPanel,
+  diffData,
+  diffLoading,
+  reviewComments,
+  reviewError,
 } from '../../stores/review.js'
+import { CommentThread } from './comment-thread.jsx'
+import { FileNavigator } from './file-navigator.jsx'
 import styles from './review-panel.module.css'
 
 // ---------------------------------------------------------------------------
@@ -61,9 +61,12 @@ const splitUnifiedDiff = (raw) => {
     if (currentPath) {
       files.push({
         path: currentPath,
-        status: currentAdditions > 0 && currentDeletions === 0 ? 'added'
-          : currentAdditions === 0 && currentDeletions > 0 ? 'deleted'
-          : 'modified',
+        status:
+          currentAdditions > 0 && currentDeletions === 0
+            ? 'added'
+            : currentAdditions === 0 && currentDeletions > 0
+              ? 'deleted'
+              : 'modified',
         additions: currentAdditions,
         deletions: currentDeletions,
         diff: currentLines.join('\n'),
@@ -132,7 +135,14 @@ const DiffLines = ({ lines, filePath, lineComments, sessionId, onOpenThread }) =
         for (let k = i; k < headEnd; k++) segments.push({ type: 'line', idx: k })
         if (collapseCount > 0) {
           // runStart/runEnd track the full run so expanding marks the entire run as seen
-          segments.push({ type: 'collapse', start: headEnd, end: tailStart, runStart: i, runEnd: j - 1, count: collapseCount })
+          segments.push({
+            type: 'collapse',
+            start: headEnd,
+            end: tailStart,
+            runStart: i,
+            runEnd: j - 1,
+            count: collapseCount,
+          })
         }
         for (let k = tailStart; k < j; k++) segments.push({ type: 'line', idx: k })
         i = j
@@ -158,7 +168,7 @@ const DiffLines = ({ lines, filePath, lineComments, sessionId, onOpenThread }) =
 
   return (
     <div class={styles.diffLines}>
-      {segments.map((seg, si) => {
+      {segments.map((seg, _si) => {
         if (seg.type === 'collapse') {
           return (
             <CollapseRow
@@ -175,9 +185,11 @@ const DiffLines = ({ lines, filePath, lineComments, sessionId, onOpenThread }) =
         const isActive = activeLineKey === lineKey
 
         const kindClass =
-          line.kind === 'addition' ? styles.lineAdded
-          : line.kind === 'deletion' ? styles.lineRemoved
-          : styles.lineContext
+          line.kind === 'addition'
+            ? styles.lineAdded
+            : line.kind === 'deletion'
+              ? styles.lineRemoved
+              : styles.lineContext
 
         return (
           <div key={`line-${seg.idx}`}>
@@ -195,9 +207,7 @@ const DiffLines = ({ lines, filePath, lineComments, sessionId, onOpenThread }) =
             >
               <span class={styles.lineNum}>{line.old_line ?? ''}</span>
               <span class={styles.lineNum}>{line.new_line ?? ''}</span>
-              <span class={styles.prefix}>
-                {line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '-' : ' '}
-              </span>
+              <span class={styles.prefix}>{line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '-' : ' '}</span>
               <span class={styles.lineContent}>{line.content}</span>
               {commentsForLine.length > 0 && (
                 <span class={styles.commentBadge} title={`${commentsForLine.length} comment(s)`}>
@@ -230,27 +240,30 @@ const FileSection = ({ file, comments, sessionId, sectionRef }) => {
   const lineComments = comments?.get(file.path)
 
   const statusClass =
-    file.status === 'added' ? styles.fileStatusAdded
-    : file.status === 'deleted' ? styles.fileStatusDeleted
-    : styles.fileStatusModified
+    file.status === 'added'
+      ? styles.fileStatusAdded
+      : file.status === 'deleted'
+        ? styles.fileStatusDeleted
+        : styles.fileStatusModified
 
-  const statusLabel =
-    file.status === 'added' ? 'Added'
-    : file.status === 'deleted' ? 'Deleted'
-    : 'Modified'
+  const statusLabel = file.status === 'added' ? 'Added' : file.status === 'deleted' ? 'Deleted' : 'Modified'
 
   return (
     <div class={styles.fileSection} ref={sectionRef} data-file={file.path}>
-      <button
-        class={styles.fileHeader}
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
-      >
+      <button class={styles.fileHeader} onClick={() => setCollapsed((v) => !v)} aria-expanded={!collapsed}>
         <span class={`${styles.fileStatusLabel} ${statusClass}`}>{statusLabel}</span>
         <span class={styles.filePath}>{file.path}</span>
         <span class={styles.fileStats}>
-          {file.additions > 0 && <span class={styles.fileStat} style="color: var(--color-diff-added-accent)">+{file.additions}</span>}
-          {file.deletions > 0 && <span class={styles.fileStat} style="color: var(--color-diff-removed-accent)">-{file.deletions}</span>}
+          {file.additions > 0 && (
+            <span class={styles.fileStat} style="color: var(--color-diff-added-accent)">
+              +{file.additions}
+            </span>
+          )}
+          {file.deletions > 0 && (
+            <span class={styles.fileStat} style="color: var(--color-diff-removed-accent)">
+              -{file.deletions}
+            </span>
+          )}
         </span>
         <span class={styles.collapseIcon} aria-hidden="true">
           {collapsed ? '▶' : '▼'}
@@ -356,11 +369,27 @@ const ReviewPanel = ({ sessionId, onClose }) => {
         <div class={styles.toolbar}>
           <span class={styles.toolbarTitle}>Code Review</span>
           <div class={styles.toolbarHints}>
-            <span class={styles.hint}><kbd>]</kbd><kbd>[</kbd> files</span>
-            <span class={styles.hint}><kbd>j</kbd><kbd>k</kbd> nav</span>
+            <span class={styles.hint}>
+              <kbd>]</kbd>
+              <kbd>[</kbd> files
+            </span>
+            <span class={styles.hint}>
+              <kbd>j</kbd>
+              <kbd>k</kbd> nav
+            </span>
           </div>
           <button class={styles.closeBtn} onClick={handleClose} aria-label="Close review panel">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <path d="M2 2l8 8M10 2l-8 8" />
+            </svg>
           </button>
         </div>
 
@@ -373,27 +402,25 @@ const ReviewPanel = ({ sessionId, onClose }) => {
             </div>
           )}
 
-          {error && !loading && (
-            <div class={styles.errorState}>
-              Failed to load diff: {error}
-            </div>
-          )}
+          {error && !loading && <div class={styles.errorState}>Failed to load diff: {error}</div>}
 
           {!loading && !error && files.length === 0 && (
-            <div class={styles.emptyState}>
-              No file changes found for this session yet.
-            </div>
+            <div class={styles.emptyState}>No file changes found for this session yet.</div>
           )}
 
-          {!loading && files.length > 0 && files.map((file) => (
-            <FileSection
-              key={file.path}
-              file={file}
-              comments={comments}
-              sessionId={sessionId}
-              sectionRef={(el) => { sectionRefs.current[file.path] = el }}
-            />
-          ))}
+          {!loading &&
+            files.length > 0 &&
+            files.map((file) => (
+              <FileSection
+                key={file.path}
+                file={file}
+                comments={comments}
+                sessionId={sessionId}
+                sectionRef={(el) => {
+                  sectionRefs.current[file.path] = el
+                }}
+              />
+            ))}
         </div>
       </div>
     </div>

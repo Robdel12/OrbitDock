@@ -7,11 +7,7 @@ const DiffView = ({ lines }) => {
     <div class={styles.diff}>
       {lines.map((line, i) => {
         const kindClass =
-          line.kind === 'addition'
-            ? styles.added
-            : line.kind === 'deletion'
-              ? styles.removed
-              : styles.context
+          line.kind === 'addition' ? styles.added : line.kind === 'deletion' ? styles.removed : styles.context
 
         return (
           <div key={i} class={`${styles.line} ${kindClass}`}>

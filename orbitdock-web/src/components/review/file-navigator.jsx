@@ -23,17 +23,23 @@ const groupByDirectory = (files) => {
 
 const fileStatusLabel = (status) => {
   switch (status) {
-    case 'added': return 'A'
-    case 'deleted': return 'D'
-    default: return 'M'
+    case 'added':
+      return 'A'
+    case 'deleted':
+      return 'D'
+    default:
+      return 'M'
   }
 }
 
 const fileStatusClass = (status, styles) => {
   switch (status) {
-    case 'added': return styles.statusAdded
-    case 'deleted': return styles.statusDeleted
-    default: return styles.statusModified
+    case 'added':
+      return styles.statusAdded
+    case 'deleted':
+      return styles.statusDeleted
+    default:
+      return styles.statusModified
   }
 }
 
@@ -86,12 +92,7 @@ const DirectoryGroup = ({ dir, files, currentFile, onSelect }) => (
       </div>
     )}
     {files.map((file) => (
-      <FileRow
-        key={file.path}
-        file={file}
-        isActive={currentFile === file.path}
-        onClick={() => onSelect(file.path)}
-      />
+      <FileRow key={file.path} file={file} isActive={currentFile === file.path} onClick={() => onSelect(file.path)} />
     ))}
   </div>
 )
@@ -136,9 +137,7 @@ const FileNavigator = ({ files = [], onSelect }) => {
   }, [files, current])
 
   if (files.length === 0) {
-    return (
-      <div class={styles.empty}>No files changed</div>
-    )
+    return <div class={styles.empty}>No files changed</div>
   }
 
   return (

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.8/schema.json",
+  "files": {
+    "includes": ["src/**/*.{js,jsx}", "tests/**/*.{js,jsx}"]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "all",
+      "semicolons": "asNeeded"
+    }
+  },
+  "linter": {
+    "rules": {
+      "recommended": true,
+      "a11y": {
+        "useButtonType": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noStaticElementInteractions": "warn",
+        "noLabelWithoutControl": "off",
+        "noAutofocus": "off",
+        "useSemanticElements": "warn",
+        "useFocusableInteractive": "warn",
+        "useAriaPropsSupportedByRole": "warn"
+      },
+      "correctness": {
+        "noUnusedImports": "warn",
+        "noUnusedVariables": "warn",
+        "noUnusedFunctionParameters": "warn",
+        "useExhaustiveDependencies": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useConst": "error",
+        "useTemplate": "warn"
+      },
+      "suspicious": {
+        "noExplicitAny": "off"
+      }
+    }
+  }
+}

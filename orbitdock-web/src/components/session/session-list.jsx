@@ -1,6 +1,6 @@
 import { useMemo } from 'preact/hooks'
-import { SessionCard } from './session-card.jsx'
 import { showCreateDialog } from '../../stores/sessions.js'
+import { SessionCard } from './session-card.jsx'
 import styles from './session-list.module.css'
 
 // ---------------------------------------------------------------------------
@@ -88,10 +88,7 @@ const OrbitalRing = () => (
 
 const SessionList = ({ groups, onSelect }) => {
   // groups is still passed for backwards compat, but we re-triage into zones
-  const allSessions = useMemo(
-    () => groups.flatMap((g) => g.sessions),
-    [groups]
-  )
+  const allSessions = useMemo(() => groups.flatMap((g) => g.sessions), [groups])
 
   const zones = useMemo(() => {
     const attention = []
@@ -129,9 +126,19 @@ const SessionList = ({ groups, onSelect }) => {
         <p class={styles.emptyDesc}>Start a new session to begin working with your AI agents.</p>
         <button
           class={styles.emptyCta}
-          onClick={() => { showCreateDialog.value = true }}
+          onClick={() => {
+            showCreateDialog.value = true
+          }}
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          >
             <path d="M8 3v10M3 8h10" />
           </svg>
           New Session
@@ -163,12 +170,7 @@ const SessionList = ({ groups, onSelect }) => {
           <ZoneHeader zone="working" count={zones.working.length} />
           <div class={`${styles.zoneCards} ${zones.working.length > 1 ? styles.zoneCardsGrid : ''}`}>
             {zones.working.map((session) => (
-              <SessionCard
-                key={session.id}
-                session={session}
-                variant="working"
-                onClick={() => onSelect(session.id)}
-              />
+              <SessionCard key={session.id} session={session} variant="working" onClick={() => onSelect(session.id)} />
             ))}
           </div>
         </div>
@@ -179,12 +181,7 @@ const SessionList = ({ groups, onSelect }) => {
           <ZoneHeader zone="ready" count={zones.ready.length} />
           <div class={styles.zoneCards}>
             {zones.ready.map((session) => (
-              <SessionCard
-                key={session.id}
-                session={session}
-                variant="ready"
-                onClick={() => onSelect(session.id)}
-              />
+              <SessionCard key={session.id} session={session} variant="ready" onClick={() => onSelect(session.id)} />
             ))}
           </div>
         </div>
@@ -193,4 +190,4 @@ const SessionList = ({ groups, onSelect }) => {
   )
 }
 
-export { SessionList, classifyZone }
+export { classifyZone, SessionList }

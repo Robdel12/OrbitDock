@@ -20,4 +20,4 @@ const clearDraft = (sessionId) => {
   localStorage.removeItem(DRAFT_PREFIX + sessionId)
 }
 
-export { saveDraft, loadDraft, clearDraft }
+export { clearDraft, loadDraft, saveDraft }

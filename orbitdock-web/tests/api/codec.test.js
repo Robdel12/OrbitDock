@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { decodeServerMessage, isKnownRowType, encodeClientMessage } from '../../src/api/codec.js'
+import { describe, expect, it, vi } from 'vitest'
+import { decodeServerMessage, encodeClientMessage, isKnownRowType } from '../../src/api/codec.js'
 
 describe('codec', () => {
   describe('decodeServerMessage', () => {
@@ -72,7 +72,20 @@ describe('codec', () => {
 
   describe('isKnownRowType', () => {
     it('returns true for known row types', () => {
-      const known = ['user', 'assistant', 'thinking', 'system', 'tool', 'activity_group', 'question', 'approval', 'worker', 'plan', 'hook', 'handoff']
+      const known = [
+        'user',
+        'assistant',
+        'thinking',
+        'system',
+        'tool',
+        'activity_group',
+        'question',
+        'approval',
+        'worker',
+        'plan',
+        'hook',
+        'handoff',
+      ]
       for (const type of known) {
         expect(isKnownRowType(type)).toBe(true)
       }

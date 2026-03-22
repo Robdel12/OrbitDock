@@ -11,9 +11,7 @@ const TabBar = ({ tabs, activeTab, onTabChange }) => (
         onClick={() => onTabChange(tab.id)}
       >
         {tab.label}
-        {tab.count != null && tab.count > 0 && (
-          <span class={styles.tabCount}>{tab.count}</span>
-        )}
+        {tab.count != null && tab.count > 0 && <span class={styles.tabCount}>{tab.count}</span>}
       </button>
     ))}
   </div>

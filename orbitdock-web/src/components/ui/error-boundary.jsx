@@ -25,14 +25,12 @@ class ErrorBoundary extends Component {
           <div class={styles.card}>
             <div class={styles.edgeLine} aria-hidden="true" />
             <div class={styles.content}>
-              <div class={styles.iconRow} aria-hidden="true">⚠</div>
+              <div class={styles.iconRow} aria-hidden="true">
+                ⚠
+              </div>
               <h2 class={styles.title}>Something went wrong</h2>
               <p class={styles.message}>{this.state.error.message}</p>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => this.setState({ error: null, errorInfo: null })}
-              >
+              <Button variant="secondary" size="sm" onClick={() => this.setState({ error: null, errorInfo: null })}>
                 Try Again
               </Button>
             </div>

@@ -19,7 +19,7 @@ const useDuration = (createdAt) => {
 const calcDuration = (createdAt) => {
   if (!createdAt) return null
   const start = new Date(createdAt).getTime()
-  if (isNaN(start)) return null
+  if (Number.isNaN(start)) return null
   const elapsed = Math.max(0, Math.floor((Date.now() - start) / 1000))
   if (elapsed < 60) return `${elapsed}s`
   const mins = Math.floor(elapsed / 60)
@@ -43,7 +43,7 @@ const formatWorkingDir = (path) => {
   if (!path) return null
   const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
   if (parts.length <= 2) return path
-  return '~/' + parts.slice(-2).join('/')
+  return `~/${parts.slice(-2).join('/')}`
 }
 
 const ContextualStatusStrip = ({ session, tokenUsage }) => {
@@ -73,10 +73,7 @@ const ContextualStatusStrip = ({ session, tokenUsage }) => {
 
       {/* Working directory */}
       {workingDir && (
-        <span
-          class={`${styles.item} ${styles.mono}`}
-          title={session.project_path || session.repository_root}
-        >
+        <span class={`${styles.item} ${styles.mono}`} title={session.project_path || session.repository_root}>
           {workingDir}
         </span>
       )}

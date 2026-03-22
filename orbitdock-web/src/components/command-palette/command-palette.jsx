@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { useLocation } from 'wouter-preact'
-import { sessions, selected } from '../../stores/sessions.js'
-import { StatusDot } from '../ui/status-dot.jsx'
-import { Badge } from '../ui/badge.jsx'
 import { formatRelativeTime } from '../../lib/format.js'
 import { http } from '../../stores/connection.js'
+import { selected, sessions } from '../../stores/sessions.js'
 import { addToast } from '../../stores/toasts.js'
+import { Badge } from '../ui/badge.jsx'
+import { StatusDot } from '../ui/status-dot.jsx'
 import styles from './command-palette.module.css'
 
 // ---------------------------------------------------------------------------
@@ -26,18 +26,25 @@ const fuzzyMatch = (haystack, needle) => {
 }
 
 const sessionDisplayName = (session) =>
-  session.display_title || session.custom_name || session.summary || session.first_prompt || `Session ${session.id.slice(-8)}`
+  session.display_title ||
+  session.custom_name ||
+  session.summary ||
+  session.first_prompt ||
+  `Session ${session.id.slice(-8)}`
 
-const sessionSearchText = (session) => [
-  session.display_title,
-  session.custom_name,
-  session.summary,
-  session.first_prompt,
-  session.context_line,
-  session.project_path,
-  session.repository_root,
-  session.provider,
-].filter(Boolean).join(' ')
+const sessionSearchText = (session) =>
+  [
+    session.display_title,
+    session.custom_name,
+    session.summary,
+    session.first_prompt,
+    session.context_line,
+    session.project_path,
+    session.repository_root,
+    session.provider,
+  ]
+    .filter(Boolean)
+    .join(' ')
 
 // ---------------------------------------------------------------------------
 // Activity description — one-line action text for session badges
@@ -49,8 +56,7 @@ const ACTIVITY_LABELS = {
   waiting: 'Waiting',
 }
 
-const getActivityLabel = (session) =>
-  ACTIVITY_LABELS[session?.work_status] || null
+const getActivityLabel = (session) => ACTIVITY_LABELS[session?.work_status] || null
 
 // ---------------------------------------------------------------------------
 // Available commands — context-sensitive ones are filtered at render time.
@@ -137,9 +143,7 @@ const ALL_COMMANDS = [
 const getQuickLaunchCommands = (query) => {
   if (!query || query.length < 2) return []
   const lower = query.toLowerCase()
-  return ALL_COMMANDS.filter((cmd) =>
-    cmd.aliases?.some((alias) => alias.startsWith(lower))
-  )
+  return ALL_COMMANDS.filter((cmd) => cmd.aliases?.some((alias) => alias.startsWith(lower)))
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +157,7 @@ const SessionResult = ({ session, isActive, onSelect, onRename, onEnd }) => {
     if (!path) return null
     const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
     if (parts.length <= 2) return path
-    return '.../' + parts.slice(-2).join('/')
+    return `.../${parts.slice(-2).join('/')}`
   })()
 
   const activityLabel = getActivityLabel(session)
@@ -172,14 +176,14 @@ const SessionResult = ({ session, isActive, onSelect, onRename, onEnd }) => {
       </div>
       <div class={styles.resultBody}>
         <span class={styles.resultLabel}>{name}</span>
-        {shortPath && (
-          <span class={styles.resultMeta}>{shortPath}</span>
-        )}
+        {shortPath && <span class={styles.resultMeta}>{shortPath}</span>}
       </div>
       <div class={styles.resultRight}>
         {/* Activity badge */}
         {activityLabel && (
-          <span class={`${styles.activityBadge} ${needsAttention ? styles.activityAttention : ''} ${isWorking ? styles.activityWorking : ''}`}>
+          <span
+            class={`${styles.activityBadge} ${needsAttention ? styles.activityAttention : ''} ${isWorking ? styles.activityWorking : ''}`}
+          >
             {activityLabel}
           </span>
         )}
@@ -193,21 +197,44 @@ const SessionResult = ({ session, isActive, onSelect, onRename, onEnd }) => {
         <div class={styles.hoverActions} onClick={(e) => e.stopPropagation()}>
           <button
             class={styles.hoverAction}
-            onClick={(e) => { e.stopPropagation(); onRename?.(session) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRename?.(session)
+            }}
             title="Rename"
             aria-label="Rename session"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
               <path d="M7 2l3 3-7 7H0V9l7-7z" />
             </svg>
           </button>
           <button
             class={`${styles.hoverAction} ${styles.hoverActionDanger}`}
-            onClick={(e) => { e.stopPropagation(); onEnd?.(session) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEnd?.(session)
+            }}
             title="End session"
             aria-label="End session"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.3"
+              stroke-linecap="round"
+            >
               <path d="M2 2l8 8M10 2l-8 8" />
             </svg>
           </button>
@@ -229,9 +256,7 @@ const CommandResult = ({ command, isActive, onSelect }) => (
     </div>
     <div class={styles.resultBody}>
       <span class={styles.resultLabel}>{command.label}</span>
-      {command.description && (
-        <span class={styles.resultMeta}>{command.description}</span>
-      )}
+      {command.description && <span class={styles.resultMeta}>{command.description}</span>}
     </div>
   </button>
 )
@@ -267,8 +292,13 @@ const RenameOverlay = ({ session, onSave, onCancel }) => {
           value={draft}
           onInput={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commit() }
-            else if (e.key === 'Escape') { e.preventDefault(); onCancel() }
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              onCancel()
+            }
           }}
           onBlur={commit}
           placeholder="Session name"
@@ -310,7 +340,7 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
   const filteredCommands = isCommandMode
     ? ALL_COMMANDS.filter((cmd) => {
         if (cmd.requiresSession && !currentSession) return false
-        return fuzzyMatch(cmd.label + ' ' + (cmd.description || ''), searchQuery)
+        return fuzzyMatch(`${cmd.label} ${cmd.description || ''}`, searchQuery)
       })
     : []
 
@@ -363,88 +393,111 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
 
   const close = useCallback(() => setOpen(false), [])
 
-  const executeSession = useCallback((session) => {
-    navigate(`/session/${session.id}`)
-    close()
-  }, [navigate, close])
+  const executeSession = useCallback(
+    (session) => {
+      navigate(`/session/${session.id}`)
+      close()
+    },
+    [navigate, close],
+  )
 
-  const executeCommand = useCallback((cmd) => {
-    switch (cmd.id) {
-      case 'new-claude':
-        onCreateSession?.('claude')
-        break
-      case 'new-codex':
-        onCreateSession?.('codex')
-        break
-      case 'end-session':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/end`).catch((err) => {
-            addToast({ title: 'End failed', body: err.message, type: 'error' })
-          })
-        }
-        break
-      case 'compact-session':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/compact`).catch((err) => {
-            addToast({ title: 'Compact failed', body: err.message, type: 'error' })
-          })
-        }
-        break
-      case 'interrupt-session':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/interrupt`)
-        }
-        break
-      case 'resume-session':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/resume`).catch((err) => {
-            addToast({ title: 'Resume failed', body: err.message, type: 'error' })
-          })
-        }
-        break
-      case 'fork-session':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/fork`).then((res) => {
-            if (res?.session?.id) navigate(`/session/${res.session.id}`)
-          }).catch((err) => {
-            addToast({ title: 'Fork failed', body: err.message, type: 'error' })
-          })
-        }
-        break
-      case 'fork-worktree':
-        if (currentSession) {
-          http.post(`/api/sessions/${currentSession.id}/fork-to-worktree`).then((res) => {
-            if (res?.session?.id) navigate(`/session/${res.session.id}`)
-          }).catch((err) => {
-            addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
-          })
-        }
-        break
-      case 'settings':
-        navigate('/settings')
-        break
-      case 'missions':
-        navigate('/missions')
-        break
-      case 'worktrees':
-        navigate('/worktrees')
-        break
-      case 'keyboard-help':
-        onShowKeyboardHelp?.()
-        break
-    }
-    close()
-  }, [currentSession, navigate, close, onCreateSession, onShowKeyboardHelp])
+  const executeCommand = useCallback(
+    (cmd) => {
+      switch (cmd.id) {
+        case 'new-claude':
+          onCreateSession?.('claude')
+          break
+        case 'new-codex':
+          onCreateSession?.('codex')
+          break
+        case 'end-session':
+          if (currentSession) {
+            http.post(`/api/sessions/${currentSession.id}/end`).catch((err) => {
+              addToast({ title: 'End failed', body: err.message, type: 'error' })
+            })
+          }
+          break
+        case 'compact-session':
+          if (currentSession) {
+            http.post(`/api/sessions/${currentSession.id}/compact`).catch((err) => {
+              addToast({ title: 'Compact failed', body: err.message, type: 'error' })
+            })
+          }
+          break
+        case 'interrupt-session':
+          if (currentSession) {
+            http.post(`/api/sessions/${currentSession.id}/interrupt`)
+          }
+          break
+        case 'resume-session':
+          if (currentSession) {
+            http.post(`/api/sessions/${currentSession.id}/resume`).catch((err) => {
+              addToast({ title: 'Resume failed', body: err.message, type: 'error' })
+            })
+          }
+          break
+        case 'fork-session':
+          if (currentSession) {
+            http
+              .post(`/api/sessions/${currentSession.id}/fork`)
+              .then((res) => {
+                if (res?.session?.id) navigate(`/session/${res.session.id}`)
+              })
+              .catch((err) => {
+                addToast({ title: 'Fork failed', body: err.message, type: 'error' })
+              })
+          }
+          break
+        case 'fork-worktree':
+          if (currentSession) {
+            http
+              .post(`/api/sessions/${currentSession.id}/fork-to-worktree`)
+              .then((res) => {
+                if (res?.session?.id) navigate(`/session/${res.session.id}`)
+              })
+              .catch((err) => {
+                addToast({ title: 'Fork to worktree failed', body: err.message, type: 'error' })
+              })
+          }
+          break
+        case 'settings':
+          navigate('/settings')
+          break
+        case 'missions':
+          navigate('/missions')
+          break
+        case 'worktrees':
+          navigate('/worktrees')
+          break
+        case 'keyboard-help':
+          onShowKeyboardHelp?.()
+          break
+      }
+      close()
+    },
+    [currentSession, navigate, close, onCreateSession, onShowKeyboardHelp],
+  )
 
-  const handleSelect = useCallback((index) => {
-    if (isCommandMode) {
-      executeCommand(filteredCommands[index])
-    } else if (index < quickLaunchCount) {
-      executeCommand(quickLaunchCommands[index])
-    } else {
-      executeSession(filteredSessions[index - quickLaunchCount])
-    }
-  }, [isCommandMode, filteredCommands, filteredSessions, quickLaunchCommands, quickLaunchCount, executeCommand, executeSession])
+  const handleSelect = useCallback(
+    (index) => {
+      if (isCommandMode) {
+        executeCommand(filteredCommands[index])
+      } else if (index < quickLaunchCount) {
+        executeCommand(quickLaunchCommands[index])
+      } else {
+        executeSession(filteredSessions[index - quickLaunchCount])
+      }
+    },
+    [
+      isCommandMode,
+      filteredCommands,
+      filteredSessions,
+      quickLaunchCommands,
+      quickLaunchCount,
+      executeCommand,
+      executeSession,
+    ],
+  )
 
   const handleRename = (session) => setRenameSession(session)
 
@@ -518,18 +571,23 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
         <div class={styles.panel} onClick={(e) => e.stopPropagation()}>
           <div class={styles.inputRow}>
             <span class={styles.searchIcon} aria-hidden="true">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <path d="M8 2l4 4-8 8H0V10l8-8z" />
               </svg>
             </span>
             <span class={styles.renameTitle}>Rename Session</span>
             <kbd class={styles.escHint}>esc</kbd>
           </div>
-          <RenameOverlay
-            session={renameSession}
-            onSave={handleRenameSave}
-            onCancel={() => setRenameSession(null)}
-          />
+          <RenameOverlay session={renameSession} onSave={handleRenameSave} onCancel={() => setRenameSession(null)} />
         </div>
       </div>
     )
@@ -540,8 +598,19 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
       <div class={styles.panel} onClick={(e) => e.stopPropagation()}>
         <div class={styles.inputRow}>
           <span class={styles.searchIcon} aria-hidden="true">
-            {isCommandMode ? '>' : (
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            {isCommandMode ? (
+              '>'
+            ) : (
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
                 <circle cx="6" cy="6" r="4" />
                 <path d="M9 9l3.5 3.5" />
               </svg>
@@ -568,13 +637,7 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
 
         {resultCount > 0 && (
           <div class={styles.results}>
-            <div
-              id="command-palette-list"
-              class={styles.resultList}
-              ref={listRef}
-              role="listbox"
-              aria-label="Results"
-            >
+            <div id="command-palette-list" class={styles.resultList} ref={listRef} role="listbox" aria-label="Results">
               {/* Quick launch commands (session search mode) */}
               {quickLaunchCount > 0 && (
                 <>
@@ -613,7 +676,7 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
                     <SessionResult
                       key={session.id}
                       session={session}
-                      isActive={(i + quickLaunchCount) === clampedIndex}
+                      isActive={i + quickLaunchCount === clampedIndex}
                       onSelect={() => handleSelect(i + quickLaunchCount)}
                       onRename={handleRename}
                       onEnd={handleEndSession}
@@ -626,18 +689,26 @@ const CommandPalette = ({ onCreateSession, onShowKeyboardHelp }) => {
         )}
 
         {resultCount === 0 && query && (
-          <div class={styles.empty}>
-            {isCommandMode ? 'No matching commands' : 'No matching sessions'}
-          </div>
+          <div class={styles.empty}>{isCommandMode ? 'No matching commands' : 'No matching sessions'}</div>
         )}
 
         <div class={styles.footer}>
-          <span class={styles.hint}><kbd>↑↓</kbd> navigate</span>
-          <span class={styles.hint}><kbd>↵</kbd> open</span>
-          <span class={styles.hint}><kbd>F2</kbd> rename</span>
-          <span class={styles.hint}><kbd>esc</kbd> dismiss</span>
+          <span class={styles.hint}>
+            <kbd>↑↓</kbd> navigate
+          </span>
+          <span class={styles.hint}>
+            <kbd>↵</kbd> open
+          </span>
+          <span class={styles.hint}>
+            <kbd>F2</kbd> rename
+          </span>
+          <span class={styles.hint}>
+            <kbd>esc</kbd> dismiss
+          </span>
           <span class={styles.hintSep} />
-          <span class={styles.hint}>Type <kbd>&gt;</kbd> for commands</span>
+          <span class={styles.hint}>
+            Type <kbd>&gt;</kbd> for commands
+          </span>
         </div>
       </div>
     </div>

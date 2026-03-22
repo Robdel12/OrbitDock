@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'preact/hooks'
-import { DiffView } from './diff-view.jsx'
+import { useEffect, useState } from 'preact/hooks'
 import { Spinner } from '../ui/spinner.jsx'
+import { DiffView } from './diff-view.jsx'
 import styles from './tool-expanded.module.css'
 
 const ToolExpanded = ({ sessionId, rowId, http, outputPreview, diffPreview }) => {
@@ -21,11 +21,17 @@ const ToolExpanded = ({ sessionId, rowId, http, outputPreview, diffPreview }) =>
       }
     }
     load()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [sessionId, rowId])
 
   if (loading) {
-    return <div class={styles.loading}><Spinner size="sm" /></div>
+    return (
+      <div class={styles.loading}>
+        <Spinner size="sm" />
+      </div>
+    )
   }
 
   if (error) {

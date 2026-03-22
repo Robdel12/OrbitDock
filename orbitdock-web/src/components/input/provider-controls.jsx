@@ -26,9 +26,9 @@ const SegmentedControl = ({ options, value, onChange, colorVar }) => (
 // ---------------------------------------------------------------------------
 
 const EFFORT_OPTIONS = [
-  { value: 'low',    label: 'Low',    description: 'Faster, uses less compute' },
-  { value: 'medium', label: 'Med',    description: 'Balanced effort (default)' },
-  { value: 'high',   label: 'High',   description: 'Slower, higher quality' },
+  { value: 'low', label: 'Low', description: 'Faster, uses less compute' },
+  { value: 'medium', label: 'Med', description: 'Balanced effort (default)' },
+  { value: 'high', label: 'High', description: 'Slower, higher quality' },
 ]
 
 const CodexEffortPicker = ({ value, onChange }) => (
@@ -48,9 +48,9 @@ const CodexEffortPicker = ({ value, onChange }) => (
 // ---------------------------------------------------------------------------
 
 const POLICY_OPTIONS = [
-  { value: 'ask',       label: 'Ask',        description: 'Ask before every tool call' },
-  { value: 'auto-edit', label: 'Auto-Edit',  description: 'Auto-approve file edits' },
-  { value: 'auto-full', label: 'Auto-Full',  description: 'Auto-approve everything' },
+  { value: 'ask', label: 'Ask', description: 'Ask before every tool call' },
+  { value: 'auto-edit', label: 'Auto-Edit', description: 'Auto-approve file edits' },
+  { value: 'auto-full', label: 'Auto-Full', description: 'Auto-approve everything' },
 ]
 
 const ClaudePermissionPicker = ({ value, onChange }) => (
@@ -71,21 +71,11 @@ const ClaudePermissionPicker = ({ value, onChange }) => (
 
 const ProviderControls = ({ provider, effort, onEffortChange, approvalPolicy, onApprovalPolicyChange }) => {
   if (provider === 'codex') {
-    return (
-      <CodexEffortPicker
-        value={effort}
-        onChange={onEffortChange}
-      />
-    )
+    return <CodexEffortPicker value={effort} onChange={onEffortChange} />
   }
 
   if (provider === 'claude') {
-    return (
-      <ClaudePermissionPicker
-        value={approvalPolicy}
-        onChange={onApprovalPolicyChange}
-      />
-    )
+    return <ClaudePermissionPicker value={approvalPolicy} onChange={onApprovalPolicyChange} />
   }
 
   return null

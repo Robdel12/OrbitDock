@@ -1,17 +1,13 @@
-import { signal, computed } from '@preact/signals'
+import { computed, signal } from '@preact/signals'
 import { groupByRepo } from '../lib/group-sessions.js'
 
 const sessions = signal(new Map())
 const selectedId = signal(null)
 const showCreateDialog = signal(false)
 
-const selected = computed(() =>
-  selectedId.value ? sessions.value.get(selectedId.value) : undefined
-)
+const selected = computed(() => (selectedId.value ? sessions.value.get(selectedId.value) : undefined))
 
-const grouped = computed(() =>
-  groupByRepo([...sessions.value.values()])
-)
+const grouped = computed(() => groupByRepo([...sessions.value.values()]))
 
 // Normalize backend field names so frontend code uses consistent names.
 // SessionListItem sends git_branch/display_title/context_line.
@@ -85,16 +81,16 @@ const selectSession = (id) => {
 }
 
 export {
-  sessions,
-  selectedId,
-  selected,
   grouped,
-  showCreateDialog,
-  selectSession,
-  handleSessionsList,
   handleSessionCreated,
-  handleSessionListItemUpdated,
   handleSessionDelta,
   handleSessionEnded,
+  handleSessionListItemUpdated,
   handleSessionRemoved,
+  handleSessionsList,
+  selected,
+  selectedId,
+  selectSession,
+  sessions,
+  showCreateDialog,
 }

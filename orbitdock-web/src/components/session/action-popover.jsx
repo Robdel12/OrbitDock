@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'preact/hooks'
-import { Button } from '../ui/button.jsx'
 import styles from './action-popover.module.css'
 
 /**

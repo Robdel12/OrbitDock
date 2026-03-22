@@ -1,9 +1,8 @@
 import { useState } from 'preact/hooks'
-import { getIconName } from '../../lib/icons.js'
+import { http } from '../../stores/connection.js'
 import { Badge } from '../ui/badge.jsx'
 import { Card } from '../ui/card.jsx'
 import { ToolExpanded } from './tool-expanded.jsx'
-import { http } from '../../stores/connection.js'
 import styles from './tool-row.module.css'
 
 // ---------------------------------------------------------------------------
@@ -34,11 +33,21 @@ const InlinePreview = ({ display }) => {
       const pct = total > 0 ? Math.round((done / total) * 100) : 0
       return (
         <div class={`${styles.inlinePreview} ${styles.todoPreview}`}>
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+          >
             <rect x="1" y="1" width="8" height="8" rx="1" />
             <path d="M3 5l1.5 1.5L7 4" />
           </svg>
-          <span>{done}/{total} done</span>
+          <span>
+            {done}/{total} done
+          </span>
           <span class={styles.todoBar}>
             <span class={styles.todoBarFill} style={{ width: `${pct}%` }} />
           </span>
@@ -60,9 +69,7 @@ const InlinePreview = ({ display }) => {
 
   // Fallback: plain output preview
   if (display.output_preview) {
-    return (
-      <div class={styles.outputPreview}>{display.output_preview}</div>
-    )
+    return <div class={styles.outputPreview}>{display.output_preview}</div>
   }
 
   return null
@@ -100,14 +107,23 @@ const ToolRow = ({ entry }) => {
               {display.right_meta && !display.subtitle_absorbs_meta && (
                 <Badge variant="tool">{display.right_meta}</Badge>
               )}
-              <svg class={styles.chevron} width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style={expanded ? { transform: 'rotate(90deg)' } : undefined}>
+              <svg
+                class={styles.chevron}
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                style={expanded ? { transform: 'rotate(90deg)' } : undefined}
+              >
                 <path d="M3.5 2L6.5 5L3.5 8" />
               </svg>
             </div>
           </div>
-          {display.subtitle && (
-            <div class={styles.subtitle}>{display.subtitle}</div>
-          )}
+          {display.subtitle && <div class={styles.subtitle}>{display.subtitle}</div>}
         </button>
         {!expanded && <InlinePreview display={display} />}
         {expanded && (

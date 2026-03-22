@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import styles from './filter-toolbar.module.css'
 
 // ---------------------------------------------------------------------------
@@ -75,15 +75,22 @@ const Dropdown = ({ options, value, onChange, label }) => {
 
   return (
     <div class={styles.dropdown} ref={ref}>
-      <button
-        class={styles.dropdownTrigger}
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label={label}
-      >
+      <button class={styles.dropdownTrigger} onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={label}>
         <span>{current.label}</span>
-        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" class={`${styles.dropdownChevron} ${open ? styles.dropdownChevronOpen : ''}`}>
-          <path d="M1.5 3L4 5.5 6.5 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+        <svg
+          width="8"
+          height="8"
+          viewBox="0 0 8 8"
+          fill="none"
+          class={`${styles.dropdownChevron} ${open ? styles.dropdownChevronOpen : ''}`}
+        >
+          <path
+            d="M1.5 3L4 5.5 6.5 3"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
       {open && (
@@ -92,7 +99,10 @@ const Dropdown = ({ options, value, onChange, label }) => {
             <button
               key={opt.value}
               class={`${styles.dropdownItem} ${opt.value === value ? styles.dropdownItemActive : ''}`}
-              onClick={() => { onChange(opt.value); setOpen(false) }}
+              onClick={() => {
+                onChange(opt.value)
+                setOpen(false)
+              }}
             >
               {opt.label}
             </button>
@@ -109,16 +119,10 @@ const Dropdown = ({ options, value, onChange, label }) => {
 
 const FilterChip = ({ chip, active, count, onClick }) => {
   const chipColor = chip.color ? `var(${chip.color})` : null
-  const style = chipColor
-    ? { '--chip-color': chipColor }
-    : undefined
+  const style = chipColor ? { '--chip-color': chipColor } : undefined
 
   return (
-    <button
-      class={`${styles.chip} ${active ? styles.chipActive : ''}`}
-      style={style}
-      onClick={onClick}
-    >
+    <button class={`${styles.chip} ${active ? styles.chipActive : ''}`} style={style} onClick={onClick}>
       {chip.icon && (
         <span class={styles.chipIcon}>
           <ChipIcon type={chip.icon} />
@@ -138,10 +142,7 @@ const FilterToolbar = ({ filters, onFiltersChange, sort, onSortChange, repos, zo
   const setZoneFilter = (zone) => onFiltersChange({ ...filters, zone })
   const setRepo = (val) => onFiltersChange({ ...filters, repo: val })
 
-  const repoOptions = [
-    { value: 'all', label: 'All repos' },
-    ...repos.map((r) => ({ value: r.path, label: r.name })),
-  ]
+  const repoOptions = [{ value: 'all', label: 'All repos' }, ...repos.map((r) => ({ value: r.path, label: r.name }))]
 
   return (
     <div class={styles.toolbar}>
@@ -159,19 +160,9 @@ const FilterToolbar = ({ filters, onFiltersChange, sort, onSortChange, repos, zo
 
       <div class={styles.controlsRight}>
         {repos.length > 1 && (
-          <Dropdown
-            options={repoOptions}
-            value={filters.repo}
-            onChange={setRepo}
-            label="Repository filter"
-          />
+          <Dropdown options={repoOptions} value={filters.repo} onChange={setRepo} label="Repository filter" />
         )}
-        <Dropdown
-          options={SORT_OPTIONS}
-          value={sort}
-          onChange={onSortChange}
-          label="Sort order"
-        />
+        <Dropdown options={SORT_OPTIONS} value={sort} onChange={onSortChange} label="Sort order" />
       </div>
     </div>
   )

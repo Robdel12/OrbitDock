@@ -8,7 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "biome check src tests",
+    "lint:fix": "biome check --fix src tests",
+    "format": "biome format --write src tests",
+    "format:check": "biome format src tests",
+    "ci": "biome ci src tests"
   },
   "dependencies": {
     "@preact/signals": "^2.1.0",
@@ -19,6 +24,7 @@
     "xstate": "^5.19.4"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.8",
     "@preact/preset-vite": "^2.10.1",
     "@testing-library/preact": "^3.2.4",
     "happy-dom": "^18.0.1",

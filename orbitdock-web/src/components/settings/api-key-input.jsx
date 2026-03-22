@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
-import { Button } from '../ui/button.jsx'
 import { Badge } from '../ui/badge.jsx'
+import { Button } from '../ui/button.jsx'
 import styles from './api-key-input.module.css'
 
 const ApiKeyInput = ({ label, currentValue, onSave, validate, placeholder }) => {
@@ -76,9 +76,7 @@ const ApiKeyInput = ({ label, currentValue, onSave, validate, placeholder }) => 
         </div>
       </div>
 
-      {!editing && isConfigured && maskedDisplay && (
-        <div class={styles.maskedKey}>{maskedDisplay}</div>
-      )}
+      {!editing && isConfigured && maskedDisplay && <div class={styles.maskedKey}>{maskedDisplay}</div>}
 
       {editing && (
         <div class={styles.editRow}>
@@ -97,24 +95,14 @@ const ApiKeyInput = ({ label, currentValue, onSave, validate, placeholder }) => 
             <Button variant="ghost" size="sm" onClick={handleCancel} disabled={saving}>
               Cancel
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              loading={saving}
-              disabled={!inputValue.trim()}
-            >
+            <Button variant="primary" size="sm" onClick={handleSave} loading={saving} disabled={!inputValue.trim()}>
               Save
             </Button>
           </div>
         </div>
       )}
 
-      {feedback && (
-        <div class={`${styles.feedback} ${styles[feedback.type]}`}>
-          {feedback.message}
-        </div>
-      )}
+      {feedback && <div class={`${styles.feedback} ${styles[feedback.type]}`}>{feedback.message}</div>}
     </div>
   )
 }
