@@ -12,6 +12,21 @@ use serde_json::Value;
 
 use crate::ClaudeConnector;
 
+/// Configuration for spawning a Claude CLI session.
+///
+/// Groups the CLI spawn parameters used by both `ClaudeSession::new`
+/// and `ClaudeConnector::new` to avoid long argument lists.
+pub struct ClaudeSessionConfig<'a> {
+    pub cwd: &'a str,
+    pub model: Option<&'a str>,
+    pub resume_id: Option<&'a ProviderSessionId>,
+    pub permission_mode: Option<&'a str>,
+    pub allowed_tools: &'a [String],
+    pub disallowed_tools: &'a [String],
+    pub effort: Option<&'a str>,
+    pub allow_bypass_permissions: bool,
+}
+
 #[derive(Debug)]
 pub enum ClaudeAllowToolApprovalScope {
     Once,
@@ -243,29 +258,11 @@ impl ClaudeSession {
     /// Create a new Claude session by spawning a CLI subprocess.
     /// If `resume_id` is provided, the CLI will resume that session.
     /// Accepts `ProviderSessionId` to prevent accidentally passing an OrbitDock ID.
-    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         session_id: String,
-        cwd: &str,
-        model: Option<&str>,
-        resume_id: Option<&ProviderSessionId>,
-        permission_mode: Option<&str>,
-        allowed_tools: &[String],
-        disallowed_tools: &[String],
-        effort: Option<&str>,
-        allow_bypass_permissions: bool,
+        config: ClaudeSessionConfig<'_>,
     ) -> Result<Self, ConnectorError> {
-        let connector = ClaudeConnector::new(
-            cwd,
-            model,
-            resume_id.map(|id| id.as_str()),
-            permission_mode,
-            allowed_tools,
-            disallowed_tools,
-            effort,
-            allow_bypass_permissions,
-        )
-        .await?;
+        let connector = ClaudeConnector::new(&config).await?;
         Ok(Self {
             session_id,
             connector,

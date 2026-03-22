@@ -8,7 +8,7 @@ use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionState, SessionSummary,
 };
 
-use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::{load_messages_from_transcript_path, PersistCommand};
@@ -53,14 +53,16 @@ pub(crate) async fn start_claude_fork_session(
 
     let claude_session = ClaudeSession::new(
         new_session_id.clone(),
-        effective_cwd,
-        effective_model,
-        None,
-        permission_mode,
-        allowed_tools,
-        disallowed_tools,
-        None,
-        false,
+        ClaudeSessionConfig {
+            cwd: effective_cwd,
+            model: effective_model,
+            resume_id: None,
+            permission_mode,
+            allowed_tools,
+            disallowed_tools,
+            effort: None,
+            allow_bypass_permissions: false,
+        },
     )
     .await
     .map_err(|error| error.to_string())?;

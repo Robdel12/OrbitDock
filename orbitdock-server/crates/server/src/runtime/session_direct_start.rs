@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tracing::{info, warn};
 
-use crate::connectors::claude_session::{ClaudeAction, ClaudeSession};
+use crate::connectors::claude_session::{ClaudeAction, ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
@@ -150,14 +150,16 @@ pub(crate) async fn start_direct_claude_session(
     let session_id = session_id.to_string();
     let claude_session = ClaudeSession::new(
         session_id.clone(),
-        cwd,
-        model,
-        None,
-        permission_mode,
-        allowed_tools,
-        disallowed_tools,
-        effort,
-        allow_bypass_permissions,
+        ClaudeSessionConfig {
+            cwd,
+            model,
+            resume_id: None,
+            permission_mode,
+            allowed_tools,
+            disallowed_tools,
+            effort,
+            allow_bypass_permissions,
+        },
     )
     .await
     .map_err(|error| error.to_string())?;

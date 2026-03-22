@@ -25,7 +25,7 @@ use crate::runtime::session_registry::SessionRegistry;
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_claude::session::{
     should_remove_shadow_runtime_session, ClaudeAction, ClaudeAllowToolApproval,
-    ClaudeAllowToolApprovalScope, ClaudeDenyToolApproval, ClaudeSession,
+    ClaudeAllowToolApprovalScope, ClaudeDenyToolApproval, ClaudeSession, ClaudeSessionConfig,
     ClaudeToolApprovalResponse,
 };
 

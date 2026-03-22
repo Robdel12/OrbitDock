@@ -8,7 +8,7 @@ use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, ServerMessage, SessionListItem,
 };
 
-use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
 use crate::infrastructure::persistence::{
@@ -480,14 +480,16 @@ async fn complete_claude_takeover(
     let connector_task = tokio::spawn(async move {
         ClaudeSession::new(
             task_session_id.clone(),
-            &project,
-            model.as_deref(),
-            takeover_sdk_id_for_spawn.as_ref(),
-            permission_mode.as_deref(),
-            &allowed_tools,
-            &disallowed_tools,
-            None,
-            false,
+            ClaudeSessionConfig {
+                cwd: &project,
+                model: model.as_deref(),
+                resume_id: takeover_sdk_id_for_spawn.as_ref(),
+                permission_mode: permission_mode.as_deref(),
+                allowed_tools: &allowed_tools,
+                disallowed_tools: &disallowed_tools,
+                effort: None,
+                allow_bypass_permissions: false,
+            },
         )
         .await
     });

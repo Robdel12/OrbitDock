@@ -8,7 +8,7 @@ use orbitdock_protocol::{
     SessionListItem, SessionSummary,
 };
 
-use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_permission_mode, PersistCommand};
 use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection};
@@ -167,14 +167,16 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
         let connector_task = tokio::spawn(async move {
             ClaudeSession::new(
                 sid.clone(),
-                &project,
-                model.as_deref(),
-                Some(&resume_id),
-                permission_mode.as_deref(),
-                &[],
-                &[],
-                None,
-                allow_bypass_permissions,
+                ClaudeSessionConfig {
+                    cwd: &project,
+                    model: model.as_deref(),
+                    resume_id: Some(&resume_id),
+                    permission_mode: permission_mode.as_deref(),
+                    allowed_tools: &[],
+                    disallowed_tools: &[],
+                    effort: None,
+                    allow_bypass_permissions,
+                },
             )
             .await
         });

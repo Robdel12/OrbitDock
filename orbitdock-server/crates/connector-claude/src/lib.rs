@@ -26,7 +26,7 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use session::{
     ClaudeAllowToolApproval, ClaudeAllowToolApprovalScope, ClaudeDenyToolApproval,
-    ClaudeToolApprovalResponse,
+    ClaudeSessionConfig, ClaudeToolApprovalResponse,
 };
 
 // ---------------------------------------------------------------------------
@@ -543,6 +543,62 @@ struct PendingApproval {
     permission_suggestions: Option<Value>,
 }
 
+/// Groups all shared references and mutable local state for the stdout event
+/// loop, replacing the 14+ individual parameters that were threaded through
+/// `event_loop` → `dispatch_stdout_message` → sub-handlers.
+struct ClaudeEventLoopState {
+    // -- Shared references (Arc-cloned from the connector) --
+    session_id: Arc<Mutex<Option<String>>>,
+    pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+    pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+    stdin_tx: mpsc::Sender<String>,
+
+    // -- Mutable local state (owned by the event loop task) --
+    streaming_content: String,
+    streaming_msg_id: Option<String>,
+    in_turn: bool,
+    turn_patch_diffs: Vec<String>,
+    /// Per-call (input_tokens, cached_tokens) from the latest assistant message.
+    last_turn_input: Option<(u64, u64)>,
+    cumulative_output: u64,
+    last_context_window: u64,
+    /// Maps tool_use_id → task_id so we can finalize task cards when the Agent
+    /// tool_result arrives.
+    task_tool_use_map: HashMap<String, String>,
+    /// Tracks the in-progress "Compacting context…" message ID.
+    compacting_msg_id: Option<String>,
+    /// Live ToolRow state so we can reconstruct full ConversationRowEntry on updates.
+    tool_rows: HashMap<String, ToolRow>,
+    line_count: u64,
+}
+
+impl ClaudeEventLoopState {
+    fn new(
+        session_id: Arc<Mutex<Option<String>>>,
+        pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+        pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+        stdin_tx: mpsc::Sender<String>,
+    ) -> Self {
+        Self {
+            session_id,
+            pending_controls,
+            pending_approvals,
+            stdin_tx,
+            streaming_content: String::new(),
+            streaming_msg_id: None,
+            in_turn: false,
+            turn_patch_diffs: Vec::new(),
+            last_turn_input: None,
+            cumulative_output: 0,
+            last_context_window: 1_000_000,
+            task_tool_use_map: HashMap::new(),
+            compacting_msg_id: None,
+            tool_rows: HashMap::new(),
+            line_count: 0,
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub struct ClaudeConnector {
     stdin_tx: mpsc::Sender<String>,
@@ -555,17 +611,16 @@ pub struct ClaudeConnector {
 
 impl ClaudeConnector {
     /// Spawn a new `claude` CLI subprocess.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        cwd: &str,
-        model: Option<&str>,
-        resume_id: Option<&str>,
-        permission_mode: Option<&str>,
-        allowed_tools: &[String],
-        disallowed_tools: &[String],
-        effort: Option<&str>,
-        allow_bypass_permissions: bool,
-    ) -> Result<Self, ConnectorError> {
+    pub async fn new(config: &ClaudeSessionConfig<'_>) -> Result<Self, ConnectorError> {
+        let cwd = config.cwd;
+        let model = config.model;
+        let resume_id = config.resume_id.map(|id| id.as_str());
+        let permission_mode = config.permission_mode;
+        let allowed_tools = config.allowed_tools;
+        let disallowed_tools = config.disallowed_tools;
+        let effort = config.effort;
+        let allow_bypass_permissions = config.allow_bypass_permissions;
+
         let claude_bin = resolve_claude_binary()?;
 
         let mut args = vec![
@@ -728,21 +783,15 @@ impl ClaudeConnector {
         });
 
         // Spawn stdout reader loop
-        let session_clone = claude_session_id.clone();
-        let pending_clone = pending_controls.clone();
-        let approvals_clone = pending_approvals.clone();
-        let stdin_tx_for_loop = stdin_tx.clone();
+        let loop_state = ClaudeEventLoopState::new(
+            claude_session_id.clone(),
+            pending_controls.clone(),
+            pending_approvals.clone(),
+            stdin_tx.clone(),
+        );
 
         tokio::spawn(async move {
-            Self::event_loop(
-                stdout,
-                event_tx,
-                session_clone,
-                pending_clone,
-                approvals_clone,
-                stdin_tx_for_loop,
-            )
-            .await;
+            Self::event_loop(stdout, event_tx, loop_state).await;
         });
 
         let connector = Self {
@@ -1173,52 +1222,29 @@ impl ClaudeConnector {
     }
 
     /// Read stdout line-by-line, parse JSON, translate to ConnectorEvent.
-    #[allow(clippy::too_many_arguments)]
     async fn event_loop(
         stdout: tokio::process::ChildStdout,
         event_tx: mpsc::Sender<ConnectorEvent>,
-        session_id: Arc<Mutex<Option<String>>>,
-        pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
-        pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
-        stdin_tx: mpsc::Sender<String>,
+        mut state: ClaudeEventLoopState,
     ) {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
-        let mut streaming_content = String::new();
-        let mut streaming_msg_id: Option<String> = None;
-        let mut in_turn = false;
-        let mut turn_patch_diffs: Vec<String> = Vec::new();
-        // Per-call input/cached tokens from the latest assistant message (for accurate context fill)
-        let mut last_turn_input: Option<(u64, u64)> = None;
-        let mut cumulative_output: u64 = 0;
-        let mut last_context_window: u64 = 1_000_000;
-        // Maps tool_use_id → task_id so we can finalize task cards when
-        // the Agent tool_result arrives (CLI never emits task_notification).
-        let mut task_tool_use_map: HashMap<String, String> = HashMap::new();
-        // Tracks the in-progress "Compacting context…" message ID so
-        // compact_boundary can finalize it.
-        let mut compacting_msg_id: Option<String> = None;
-        // Tracks live ToolRow state so we can reconstruct full
-        // ConversationRowEntry on updates.
-        let mut tool_rows: HashMap<String, ToolRow> = HashMap::new();
-
-        let mut line_count: u64 = 0;
 
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
-                    line_count += 1;
+                    state.line_count += 1;
                     let line = line.trim().to_string();
                     if line.is_empty() {
                         continue;
                     }
 
                     // Log first few lines and any non-JSON for debugging startup issues
-                    if line_count <= 3 {
+                    if state.line_count <= 3 {
                         info!(
                             component = "claude_connector",
                             event = "claude.stdout.raw",
-                            line_num = line_count,
+                            line_num = state.line_count,
                             preview = %if line.len() > 300 { &line[..300] } else { &line },
                             "Raw stdout line"
                         );
@@ -1238,24 +1264,7 @@ impl ClaudeConnector {
                         }
                     };
 
-                    let events = Self::dispatch_stdout_message(
-                        &raw,
-                        &session_id,
-                        &pending_controls,
-                        &pending_approvals,
-                        &mut streaming_content,
-                        &mut streaming_msg_id,
-                        &mut in_turn,
-                        &mut turn_patch_diffs,
-                        &mut last_turn_input,
-                        &mut cumulative_output,
-                        &mut last_context_window,
-                        &stdin_tx,
-                        &mut task_tool_use_map,
-                        &mut compacting_msg_id,
-                        &mut tool_rows,
-                    )
-                    .await;
+                    let events = Self::dispatch_stdout_message(&raw, &mut state).await;
 
                     for ev in events {
                         if event_tx.send(ev).await.is_err() {
@@ -1272,7 +1281,7 @@ impl ClaudeConnector {
                     warn!(
                         component = "claude_connector",
                         event = "claude.stdout.eof",
-                        lines_read = line_count,
+                        lines_read = state.line_count,
                         "Claude CLI stdout EOF"
                     );
                     let _ = event_tx
@@ -1301,26 +1310,12 @@ impl ClaudeConnector {
     }
 
     /// Dispatch a raw stdout JSON message by its `type` field.
-    #[allow(clippy::too_many_arguments)]
     async fn dispatch_stdout_message(
         raw: &Value,
-        session_id_slot: &Arc<Mutex<Option<String>>>,
-        pending_controls: &Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
-        pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
-        streaming_content: &mut String,
-        streaming_msg_id: &mut Option<String>,
-        in_turn: &mut bool,
-        turn_patch_diffs: &mut Vec<String>,
-        last_turn_input: &mut Option<(u64, u64)>,
-        cumulative_output: &mut u64,
-        last_context_window: &mut u64,
-        stdin_tx: &mpsc::Sender<String>,
-        task_tool_use_map: &mut HashMap<String, String>,
-        compacting_msg_id: &mut Option<String>,
-        tool_rows: &mut HashMap<String, ToolRow>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+        let session_id = state.session_id.lock().await.clone().unwrap_or_default();
 
         let is_replay = raw
             .get("isReplay")
@@ -1344,67 +1339,39 @@ impl ClaudeConnector {
 
         // Emit TurnStarted on first assistant activity (stream_event or assistant message)
         let mut turn_start_event = Vec::new();
-        if !*in_turn && matches!(msg_type, "assistant" | "stream_event") {
-            *in_turn = true;
-            turn_patch_diffs.clear();
+        if !state.in_turn && matches!(msg_type, "assistant" | "stream_event") {
+            state.in_turn = true;
+            state.turn_patch_diffs.clear();
             turn_start_event.push(ConnectorEvent::TurnStarted);
         }
 
         let mut events = match msg_type {
-            "system" => {
-                Self::handle_system_message(
-                    raw,
-                    session_id_slot,
-                    task_tool_use_map,
-                    compacting_msg_id,
-                    tool_rows,
-                )
-                .await
-            }
+            "system" => Self::handle_system_message(raw, state).await,
 
-            "assistant" => Self::handle_assistant_message(
-                raw,
-                &session_id,
-                streaming_content,
-                streaming_msg_id,
-                turn_patch_diffs,
-                last_turn_input,
-                cumulative_output,
-                last_context_window,
-                tool_rows,
-            ),
+            "assistant" => Self::handle_assistant_message(raw, &session_id, state),
 
-            "user" => Self::handle_user_message(raw, &session_id, task_tool_use_map, tool_rows),
+            "user" => Self::handle_user_message(raw, &session_id, state),
 
-            "stream_event" => {
-                Self::handle_stream_event(raw, &session_id, streaming_content, streaming_msg_id)
-            }
+            "stream_event" => Self::handle_stream_event(raw, &session_id, state),
 
-            "tool_progress" => Self::handle_tool_progress(raw, &session_id, tool_rows),
+            "tool_progress" => Self::handle_tool_progress(raw, &session_id, state),
 
             "result" => {
-                *in_turn = false;
-                turn_patch_diffs.clear();
-                Self::handle_result_message(
-                    raw,
-                    streaming_content,
-                    streaming_msg_id,
-                    last_turn_input,
-                    cumulative_output,
-                    last_context_window,
-                    &session_id,
-                )
+                state.in_turn = false;
+                state.turn_patch_diffs.clear();
+                Self::handle_result_message(raw, &session_id, state)
             }
 
             "control_request" => {
-                Self::handle_cli_control_request(raw, pending_approvals, stdin_tx).await
+                Self::handle_cli_control_request(raw, &state.pending_approvals, &state.stdin_tx)
+                    .await
             }
 
             "control_cancel_request" => {
                 // CLI cancelled a pending approval — clean up stored data and
                 // notify the server so the approval card is cleared.
                 if let Some(req_id) = string_field(raw, "request_id", "requestId") {
-                    pending_approvals.lock().await.remove(req_id.as_str());
+                    state.pending_approvals.lock().await.remove(req_id.as_str());
                     info!(
                         component = "claude_connector",
                         event = "claude.control.cancelled",
@@ -1418,7 +1385,7 @@ impl ClaudeConnector {
             }
 
             "control_response" => {
-                Self::handle_control_response(raw, pending_controls).await;
+                Self::handle_control_response(raw, &state.pending_controls).await;
                 vec![]
             }
 
@@ -1578,11 +1545,12 @@ impl ClaudeConnector {
     /// Handle `system` messages (init, compact_boundary, status).
     async fn handle_system_message(
         raw: &Value,
-        session_id_slot: &Arc<Mutex<Option<String>>>,
-        task_tool_use_map: &mut HashMap<String, String>,
-        compacting_msg_id: &mut Option<String>,
-        tool_rows: &mut HashMap<String, ToolRow>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
+        let session_id_slot = &state.session_id;
+        let task_tool_use_map = &mut state.task_tool_use_map;
+        let compacting_msg_id = &mut state.compacting_msg_id;
+        let tool_rows = &mut state.tool_rows;
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
         match subtype {
@@ -1976,27 +1944,25 @@ impl ClaudeConnector {
     }
 
     /// Handle `assistant` messages — extract content blocks into ConnectorEvents.
-    #[allow(clippy::too_many_arguments)]
     fn handle_assistant_message(
         raw: &Value,
         session_id: &str,
-        streaming_content: &mut String,
-        streaming_msg_id: &mut Option<String>,
-        turn_patch_diffs: &mut Vec<String>,
-        last_turn_input: &mut Option<(u64, u64)>,
-        cumulative_output: &mut u64,
-        last_context_window: &mut u64,
-        tool_rows: &mut HashMap<String, ToolRow>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
         // Track whether streaming was active before flushing — if so, the text
         // content was already delivered via the streaming path and the final
         // assistant message's "text" blocks are duplicates.
-        let had_streaming = streaming_msg_id.is_some();
+        let had_streaming = state.streaming_msg_id.is_some();
 
         // Flush any pending streaming content
-        flush_streaming(&mut events, streaming_content, streaming_msg_id, session_id);
+        flush_streaming(
+            &mut events,
+            &mut state.streaming_content,
+            &mut state.streaming_msg_id,
+            session_id,
+        );
 
         let message = match raw.get("message") {
             Some(m) => m,
@@ -2076,7 +2042,7 @@ impl ClaudeConnector {
                         input_value,
                         ToolStatus::Running,
                     );
-                    tool_rows.insert(message_id.clone(), tr.clone());
+                    state.tool_rows.insert(message_id.clone(), tr.clone());
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                         session_id,
                         ConversationRow::Tool(tr),
@@ -2086,8 +2052,10 @@ impl ClaudeConnector {
                     if let Some(payload) = input_value {
                         if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload)
                         {
-                            turn_patch_diffs.push(diff);
-                            events.push(ConnectorEvent::DiffUpdated(turn_patch_diffs.join("\n\n")));
+                            state.turn_patch_diffs.push(diff);
+                            events.push(ConnectorEvent::DiffUpdated(
+                                state.turn_patch_diffs.join("\n\n"),
+                            ));
                         }
                     }
                 }
@@ -2115,14 +2083,14 @@ impl ClaudeConnector {
             let input = value_to_u64(usage.get("input_tokens"));
             let cached = value_to_u64(usage.get("cache_read_input_tokens"))
                 + value_to_u64(usage.get("cache_creation_input_tokens"));
-            *last_turn_input = Some((input, cached));
-            *cumulative_output += value_to_u64(usage.get("output_tokens"));
+            state.last_turn_input = Some((input, cached));
+            state.cumulative_output += value_to_u64(usage.get("output_tokens"));
 
             let live_usage = orbitdock_protocol::TokenUsage {
                 input_tokens: input,
-                output_tokens: *cumulative_output,
+                output_tokens: state.cumulative_output,
                 cached_tokens: cached,
-                context_window: *last_context_window,
+                context_window: state.last_context_window,
             };
             events.push(ConnectorEvent::TokensUpdated {
                 usage: live_usage,
@@ -2153,9 +2121,10 @@ impl ClaudeConnector {
     fn handle_user_message(
         raw: &Value,
         session_id: &str,
-        task_tool_use_map: &mut HashMap<String, String>,
-        tool_rows: &mut HashMap<String, ToolRow>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
+        let task_tool_use_map = &mut state.task_tool_use_map;
+        let tool_rows = &mut state.tool_rows;
         let mut events = Vec::new();
         let message = match raw.get("message") {
             Some(m) => m,
@@ -2390,9 +2359,10 @@ impl ClaudeConnector {
     fn handle_stream_event(
         raw: &Value,
         session_id: &str,
-        streaming_content: &mut String,
-        streaming_msg_id: &mut Option<String>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
+        let streaming_content = &mut state.streaming_content;
+        let streaming_msg_id = &mut state.streaming_msg_id;
         let mut events = Vec::new();
 
         let event = match raw.get("event") {
@@ -2459,8 +2429,9 @@ impl ClaudeConnector {
     fn handle_tool_progress(
         raw: &Value,
         session_id: &str,
-        tool_rows: &mut HashMap<String, ToolRow>,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
+        let tool_rows = &mut state.tool_rows;
         let Some(tool_use_id) = raw.get("tool_use_id").and_then(|v| v.as_str()) else {
             return vec![];
         };
@@ -2489,17 +2460,18 @@ impl ClaudeConnector {
     /// Handle `result` messages — turn completed/aborted with usage.
     fn handle_result_message(
         raw: &Value,
-        streaming_content: &mut String,
-        streaming_msg_id: &mut Option<String>,
-        last_turn_input: &mut Option<(u64, u64)>,
-        cumulative_output: &mut u64,
-        last_context_window: &mut u64,
         session_id: &str,
+        state: &mut ClaudeEventLoopState,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
         // Flush streaming content
-        flush_streaming(&mut events, streaming_content, streaming_msg_id, session_id);
+        flush_streaming(
+            &mut events,
+            &mut state.streaming_content,
+            &mut state.streaming_msg_id,
+            session_id,
+        );
 
         // Build token usage. Prefer per-call input/cached from the last assistant
         // message (accurate for context fill) with cumulative output tokens.
@@ -2507,7 +2479,7 @@ impl ClaudeConnector {
         let model_usage = raw.get("modelUsage").cloned();
         let usage = raw.get("usage").cloned();
 
-        let token_usage = if let Some((input, cached)) = last_turn_input.take() {
+        let token_usage = if let Some((input, cached)) = state.last_turn_input.take() {
             // Extract context_window from modelUsage (any model entry)
             let context_window = model_usage
                 .as_ref()
@@ -2521,7 +2493,7 @@ impl ClaudeConnector {
 
             Some(orbitdock_protocol::TokenUsage {
                 input_tokens: input,
-                output_tokens: *cumulative_output,
+                output_tokens: state.cumulative_output,
                 cached_tokens: cached,
                 context_window,
             })
@@ -2530,7 +2502,7 @@ impl ClaudeConnector {
         };
 
         if let Some(tu) = token_usage {
-            *last_context_window = tu.context_window.max(1);
+            state.last_context_window = tu.context_window.max(1);
             events.push(ConnectorEvent::TokensUpdated {
                 usage: tu,
                 snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
@@ -3286,6 +3258,17 @@ mod tests {
         assert!(pending_approvals.lock().await.is_empty());
     }
 
+    /// Build a minimal `ClaudeEventLoopState` for tests that call sub-handlers.
+    fn test_event_loop_state() -> super::ClaudeEventLoopState {
+        let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
+        super::ClaudeEventLoopState::new(
+            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(HashMap::new())),
+            Arc::new(Mutex::new(HashMap::new())),
+            stdin_tx,
+        )
+    }
+
     #[test]
     fn handle_assistant_message_emits_diff_for_edit_tool_use() {
         let raw = json!({
@@ -3306,25 +3289,10 @@ mod tests {
             }
         });
 
-        let mut streaming_content = String::new();
-        let mut streaming_msg_id = None;
-        let mut turn_patch_diffs = Vec::new();
-        let mut last_turn_input = None;
-        let mut cumulative_output = 0;
-        let mut last_context_window = 200_000;
-        let mut tool_rows = HashMap::new();
+        let mut state = test_event_loop_state();
+        state.last_context_window = 200_000;
 
-        let events = ClaudeConnector::handle_assistant_message(
-            &raw,
-            "sess-1",
-            &mut streaming_content,
-            &mut streaming_msg_id,
-            &mut turn_patch_diffs,
-            &mut last_turn_input,
-            &mut cumulative_output,
-            &mut last_context_window,
-            &mut tool_rows,
-        );
+        let events = ClaudeConnector::handle_assistant_message(&raw, "sess-1", &mut state);
 
         let has_diff = events.iter().any(|event| {
             matches!(
@@ -3375,37 +3343,13 @@ mod tests {
             }
         });
 
-        let mut streaming_content = String::new();
-        let mut streaming_msg_id = None;
-        let mut turn_patch_diffs = Vec::new();
-        let mut last_turn_input = None;
-        let mut cumulative_output = 0;
-        let mut last_context_window = 200_000;
-        let mut tool_rows = HashMap::new();
+        let mut state = test_event_loop_state();
+        state.last_context_window = 200_000;
 
-        let _ = ClaudeConnector::handle_assistant_message(
-            &raw_edit,
-            "sess-1",
-            &mut streaming_content,
-            &mut streaming_msg_id,
-            &mut turn_patch_diffs,
-            &mut last_turn_input,
-            &mut cumulative_output,
-            &mut last_context_window,
-            &mut tool_rows,
-        );
+        let _ = ClaudeConnector::handle_assistant_message(&raw_edit, "sess-1", &mut state);
 
-        let second_events = ClaudeConnector::handle_assistant_message(
-            &raw_write,
-            "sess-1",
-            &mut streaming_content,
-            &mut streaming_msg_id,
-            &mut turn_patch_diffs,
-            &mut last_turn_input,
-            &mut cumulative_output,
-            &mut last_context_window,
-            &mut tool_rows,
-        );
+        let second_events =
+            ClaudeConnector::handle_assistant_message(&raw_write, "sess-1", &mut state);
 
         let aggregated = second_events.iter().find_map(|event| {
             if let ConnectorEvent::DiffUpdated(diff) = event {

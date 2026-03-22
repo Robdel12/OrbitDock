@@ -9,7 +9,7 @@ use orbitdock_protocol::{
     SessionListItem, SessionStatus, StateChanges, WorkStatus,
 };
 
-use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::SessionConfigPatch;
 use crate::infrastructure::persistence::{
@@ -209,14 +209,16 @@ pub(crate) async fn handle(
                 let connector_task = tokio::spawn(async move {
                     ClaudeSession::new(
                         sid.clone(),
-                        &project,
-                        m.as_deref(),
-                        Some(&resume_id),
-                        pm.as_deref(),
-                        &[],   // allowed_tools
-                        &[],   // disallowed_tools
-                        None,  // effort
-                        false, // allow_bypass_permissions
+                        ClaudeSessionConfig {
+                            cwd: &project,
+                            model: m.as_deref(),
+                            resume_id: Some(&resume_id),
+                            permission_mode: pm.as_deref(),
+                            allowed_tools: &[],
+                            disallowed_tools: &[],
+                            effort: None,
+                            allow_bypass_permissions: false,
+                        },
                     )
                     .await
                 });
@@ -842,14 +844,16 @@ pub(crate) async fn handle(
                 let connector_task = tokio::spawn(async move {
                     ClaudeSession::new(
                         sid.clone(),
-                        &project,
-                        m.as_deref(),
-                        takeover_sdk_id_for_spawn.as_ref(),
-                        pm.as_deref(),
-                        &at,
-                        &dt,
-                        None,  // effort
-                        false, // allow_bypass_permissions
+                        ClaudeSessionConfig {
+                            cwd: &project,
+                            model: m.as_deref(),
+                            resume_id: takeover_sdk_id_for_spawn.as_ref(),
+                            permission_mode: pm.as_deref(),
+                            allowed_tools: &at,
+                            disallowed_tools: &dt,
+                            effort: None,
+                            allow_bypass_permissions: false,
+                        },
                     )
                     .await
                 });

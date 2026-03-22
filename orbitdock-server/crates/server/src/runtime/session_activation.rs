@@ -8,7 +8,7 @@ use orbitdock_protocol::{
     SessionListItem, SessionStatus, StateChanges, WorkStatus,
 };
 
-use crate::connectors::claude_session::ClaudeSession;
+use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_by_id, PersistCommand};
 use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection};
@@ -440,14 +440,16 @@ async fn start_lazy_claude_connector(
     let connector_task = tokio::spawn(async move {
         ClaudeSession::new(
             sid,
-            &project,
-            model.as_deref(),
-            provider_id.as_ref(),
-            None,
-            &[],
-            &[],
-            None,
-            false,
+            ClaudeSessionConfig {
+                cwd: &project,
+                model: model.as_deref(),
+                resume_id: provider_id.as_ref(),
+                permission_mode: None,
+                allowed_tools: &[],
+                disallowed_tools: &[],
+                effort: None,
+                allow_bypass_permissions: false,
+            },
         )
         .await
     });
