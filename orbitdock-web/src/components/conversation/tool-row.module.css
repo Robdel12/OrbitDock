@@ -202,3 +202,9 @@
   background: var(--color-feedback-positive);
   transition: width 0.3s ease;
 }
+
+/* Guardian assessment preview */
+.guardianPreview {
+  color: var(--color-feedback-caution);
+  gap: var(--space-xs);
+}

@@ -67,6 +67,18 @@ const InlinePreview = ({ display }) => {
     )
   }
 
+  // Guardian assessment: show rationale with shield styling
+  if (display.glyph_color === 'feedbackCaution' && display.tool_type === 'guardianAssessment' && display.output_preview) {
+    return (
+      <div class={`${styles.inlinePreview} ${styles.guardianPreview}`}>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+          <path d="M5 0.5L9.5 3V6.5C9.5 8.5 7.5 9.5 5 10C2.5 9.5 0.5 8.5 0.5 6.5V3L5 0.5Z" />
+        </svg>
+        <span>{display.output_preview}</span>
+      </div>
+    )
+  }
+
   // Fallback: plain output preview
   if (display.output_preview) {
     return <div class={styles.outputPreview}>{display.output_preview}</div>
@@ -86,6 +98,7 @@ const GLYPH_COLOR_MAP = {
   toolSkill: 'tool-skill',
   toolPlan: 'tool-plan',
   toolTodo: 'tool-todo',
+  feedbackCaution: 'feedback-caution',
 }
 
 const ToolRow = ({ entry }) => {
@@ -133,6 +146,7 @@ const ToolRow = ({ entry }) => {
             http={http}
             outputPreview={display.output_preview}
             diffPreview={display.diff_preview}
+            toolType={display.tool_type}
           />
         )}
       </Card>

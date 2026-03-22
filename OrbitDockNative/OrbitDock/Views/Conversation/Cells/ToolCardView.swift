@@ -91,6 +91,7 @@ struct ToolCardView: View {
       "plan",
       "hook",
       "handoff",
+      "guardianAssessment",
     ].contains(toolType)
   }
 
@@ -442,6 +443,10 @@ struct ToolCardView: View {
     if toolType == "handoff", !handoffPreviewLines.isEmpty {
       let preview = handoffPreviewLines
       handoffPreviewStrip(preview)
+    }
+
+    if toolType == "guardianAssessment", let preview = display?.outputPreview, !preview.isEmpty {
+      guardianPreviewStrip(preview)
     }
 
     // Live output for running bash (pulsing green dot)
@@ -834,6 +839,19 @@ struct ToolCardView: View {
     .previewStripChrome(tint: Color.statusReply, horizontalPad: previewHorizontalPad, bottomPad: Spacing.sm_)
   }
 
+  private func guardianPreviewStrip(_ text: String) -> some View {
+    HStack(spacing: Spacing.xs) {
+      Image(systemName: "shield.lefthalf.filled")
+        .font(.system(size: IconScale.xs, weight: .semibold))
+        .foregroundStyle(Color.feedbackCaution)
+      Text(text)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.feedbackCaution)
+        .lineLimit(2)
+    }
+    .previewStripChrome(tint: Color.feedbackCaution, horizontalPad: previewHorizontalPad, bottomPad: Spacing.sm_)
+  }
+
   private func compactPreviewLines(from text: String, limit: Int) -> [String] {
     text
       .components(separatedBy: .newlines)
@@ -1042,6 +1060,8 @@ struct ToolCardView: View {
           ConfigExpandedView(content: content)
         case "worktree":
           WorktreeExpandedView(content: content)
+        case "guardianAssessment":
+          GuardianExpandedView(content: content, toolRow: toolRow)
         default:
           GenericExpandedView(content: content)
       }

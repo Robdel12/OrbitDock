@@ -26,6 +26,7 @@ const SF_TO_LUCIDE = {
   'bubble.left': 'MessageSquare',
   'exclamationmark.triangle': 'AlertTriangle',
   shield: 'Shield',
+  'shield.lefthalf.filled': 'ShieldAlert',
   'hand.raised': 'Hand',
   eye: 'Eye',
   folder: 'Folder',

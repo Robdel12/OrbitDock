@@ -107,6 +107,7 @@ pub enum ToolInvocationPayload {
     ImageGeneration(ImageGenerationPayload),
     Config(ConfigPayload),
     Hook(HookPayload),
+    GuardianAssessment(GuardianAssessmentPayload),
     Generic(GenericInvocationPayload),
 }
 
@@ -129,6 +130,7 @@ pub enum ToolResultPayload {
     ImageGeneration(ImageGenerationPayload),
     Config(ConfigPayload),
     Hook(HookPayload),
+    GuardianAssessment(GuardianAssessmentPayload),
     Generic(GenericResultPayload),
 }
 
@@ -398,6 +400,20 @@ pub struct ConfigPayload {
     pub value: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuardianAssessmentPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_score: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rationale: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

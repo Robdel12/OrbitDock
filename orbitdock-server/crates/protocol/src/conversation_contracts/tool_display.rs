@@ -514,6 +514,20 @@ fn extract_subtitle_from_input(
             .or_else(|| input.get("question"))
             .and_then(|v| v.as_str())
             .map(|q| truncate(q, 120)),
+        ToolKind::GuardianAssessment => {
+            // Show the reviewed action as subtitle
+            let action = input.get("action");
+            let cmd = action
+                .and_then(|a| a.get("command"))
+                .and_then(|v| v.as_str());
+            if let Some(cmd) = cmd {
+                Some(truncate(cmd, 120))
+            } else {
+                action
+                    .and_then(|a| serde_json::to_string_pretty(a).ok())
+                    .map(|s| truncate(&s, 120))
+            }
+        }
         _ => None,
     };
     result.filter(|s| !s.trim().is_empty())
@@ -656,6 +670,22 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
                 None
             } else {
                 Some(lines.join("\n"))
+            }
+        }
+        // Guardian: show rationale or risk info
+        ToolKind::GuardianAssessment => {
+            let parsed = serde_json::from_str::<serde_json::Value>(output).ok()?;
+            let rationale = parsed.get("rationale").and_then(|v| v.as_str());
+            if let Some(rationale) = rationale {
+                return Some(truncate(rationale, 120));
+            }
+            let score = parsed.get("risk_score").and_then(|v| v.as_u64());
+            let level = parsed.get("risk_level").and_then(|v| v.as_str());
+            match (level, score) {
+                (Some(l), Some(s)) => Some(format!("{l} risk — score {s}/100")),
+                (Some(l), None) => Some(format!("{l} risk")),
+                (None, Some(s)) => Some(format!("risk score {s}/100")),
+                _ => None,
             }
         }
         // Most tools: no preview in compact mode
@@ -957,6 +987,18 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
             .or_else(|| input.get("question"))
             .and_then(|v| v.as_str())
             .map(String::from),
+        ToolKind::GuardianAssessment => {
+            // Show the reviewed action as structured input
+            let action = input.get("action");
+            let cmd = action
+                .and_then(|a| a.get("command"))
+                .and_then(|v| v.as_str());
+            if let Some(cmd) = cmd {
+                Some(format!("$ {cmd}"))
+            } else {
+                action.and_then(|a| serde_json::to_string_pretty(a).ok())
+            }
+        }
         ToolKind::McpToolCall | ToolKind::DynamicToolCall => {
             serde_json::to_string_pretty(input).ok()
         }
@@ -986,6 +1028,35 @@ pub fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> O
 
     if kind == ToolKind::Read {
         return Some(strip_cat_n_prefixes(output));
+    }
+
+    if kind == ToolKind::GuardianAssessment {
+        // Build a human-readable assessment summary from the structured payload
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
+            let mut parts = Vec::new();
+
+            if let Some(status) = parsed.get("status_label").and_then(|v| v.as_str()) {
+                parts.push(format!("Verdict: {status}"));
+            }
+
+            if let Some(level) = parsed.get("risk_level").and_then(|v| v.as_str()) {
+                let score_part = parsed
+                    .get("risk_score")
+                    .and_then(|v| v.as_u64())
+                    .map(|s| format!(" ({s}/100)"))
+                    .unwrap_or_default();
+                parts.push(format!("Risk: {level}{score_part}"));
+            }
+
+            if let Some(rationale) = parsed.get("rationale").and_then(|v| v.as_str()) {
+                parts.push(format!("Rationale: {rationale}"));
+            }
+
+            if !parts.is_empty() {
+                return Some(parts.join("\n"));
+            }
+        }
+        return Some(output.to_string());
     }
 
     Some(output.to_string())

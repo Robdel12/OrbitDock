@@ -41,3 +41,52 @@
   font-size: var(--type-caption);
   color: var(--color-feedback-negative);
 }
+
+/* ── Guardian Assessment ──────────────────────────────────────────────────── */
+
+.guardianResult {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-bg-code);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--color-feedback-caution);
+}
+
+.guardianVerdict {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--type-body);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.guardianApproved {
+  color: var(--color-feedback-positive);
+}
+
+.guardianDenied {
+  color: var(--color-feedback-negative);
+}
+
+.guardianReviewing {
+  color: var(--color-feedback-caution);
+}
+
+.guardianMeta {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: var(--type-caption);
+  color: var(--color-text-secondary);
+}
+
+.guardianMetaLabel {
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  font-size: var(--type-micro);
+  letter-spacing: 0.05em;
+  min-width: 60px;
+}
