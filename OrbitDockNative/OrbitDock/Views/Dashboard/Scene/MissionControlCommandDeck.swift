@@ -363,6 +363,10 @@ private struct CompactConversationRow: View {
             .foregroundStyle(hasUnread ? Color.textPrimary : Color.textSecondary)
             .lineLimit(1)
 
+          if let integrationMode = conversation.integrationMode {
+            conversationCapabilityBadge(for: integrationMode)
+          }
+
           Spacer(minLength: Spacing.xs)
 
           if let recencyLabel {
@@ -402,6 +406,7 @@ private struct CompactConversationRow: View {
       }
     }
     .buttonStyle(.plain)
+    .modifier(DashboardConversationActionsModifier(conversation: conversation))
     .onHover { isHovering = $0 }
   }
 
@@ -482,6 +487,10 @@ private struct ActivityConversationCard: View {
             .foregroundStyle(Color.textPrimary)
             .lineLimit(1)
 
+          if let integrationMode = conversation.integrationMode {
+            conversationCapabilityBadge(for: integrationMode)
+          }
+
           Spacer(minLength: Spacing.xs)
 
           Text(recencyLabel)
@@ -550,6 +559,7 @@ private struct ActivityConversationCard: View {
       .background(cardBackground)
     }
     .buttonStyle(.plain)
+    .modifier(DashboardConversationActionsModifier(conversation: conversation))
     .onHover { isHovering = $0 }
   }
 
@@ -637,6 +647,10 @@ private struct AlertConversationCard: View {
             .foregroundStyle(Color.textPrimary)
             .lineLimit(1)
 
+          if let integrationMode = conversation.integrationMode {
+            conversationCapabilityBadge(for: integrationMode)
+          }
+
           Spacer(minLength: Spacing.xs)
 
           Text(recencyLabel)
@@ -700,6 +714,7 @@ private struct AlertConversationCard: View {
       .background(cardBackground)
     }
     .buttonStyle(.plain)
+    .modifier(DashboardConversationActionsModifier(conversation: conversation))
     .onHover { isHovering = $0 }
   }
 
@@ -763,6 +778,85 @@ private func endpointTag(_ name: String) -> some View {
       .font(.system(size: TypeScale.micro, weight: .medium))
   }
   .foregroundStyle(Color.textQuaternary)
+}
+
+private func conversationCapabilityBadge(
+  for integrationMode: DashboardConversationIntegrationMode
+) -> some View {
+  CapabilityBadge(
+    label: integrationMode.rawValue.capitalized,
+    icon: integrationMode == .direct ? "bolt.fill" : "eye",
+    color: integrationMode == .direct ? .accent : .secondary
+  )
+}
+
+private struct DashboardConversationActionsModifier: ViewModifier {
+  let conversation: DashboardConversationRecord
+
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @State private var isEndingConversation = false
+
+  func body(content: Content) -> some View {
+    content
+      .contextMenu {
+        if conversation.canEnd {
+          Button(role: .destructive) {
+            Task { await endConversation() }
+          } label: {
+            Label("End Conversation", systemImage: "stop.circle")
+          }
+        }
+      }
+      .modifier(DashboardConversationSwipeActions(
+        conversation: conversation,
+        isEndingConversation: isEndingConversation,
+        endConversation: endConversation
+      ))
+  }
+
+  private func endConversation() async {
+    guard !isEndingConversation else { return }
+    isEndingConversation = true
+    defer { isEndingConversation = false }
+
+    do {
+      let store = runtimeRegistry.sessionStore(
+        for: conversation.sessionRef.endpointId,
+        fallback: runtimeRegistry.activeSessionStore
+      )
+      try await store.endSession(conversation.sessionId)
+      await runtimeRegistry.refreshDashboardConversations()
+    } catch {
+      return
+    }
+  }
+}
+
+private struct DashboardConversationSwipeActions: ViewModifier {
+  let conversation: DashboardConversationRecord
+  let isEndingConversation: Bool
+  let endConversation: () async -> Void
+
+  func body(content: Content) -> some View {
+    #if os(iOS)
+      content.swipeActions(edge: .trailing, allowsFullSwipe: false) {
+        if conversation.canEnd {
+          Button(role: .destructive) {
+            Task { await endConversation() }
+          } label: {
+            Label(
+              isEndingConversation ? "Ending" : "End",
+              systemImage: isEndingConversation ? "stop.circle.fill" : "stop.circle"
+            )
+          }
+          .tint(.red)
+          .disabled(isEndingConversation)
+        }
+      }
+    #else
+      content
+    #endif
+  }
 }
 
 // MARK: - Utilities

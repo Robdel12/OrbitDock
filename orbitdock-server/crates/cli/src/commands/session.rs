@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use orbitdock_protocol::conversation_contracts::RowPageSummary;
 use orbitdock_protocol::{
-    ClientMessage, Provider, ServerMessage, SessionState, SessionStatus, WorkStatus,
+    ClientMessage, Provider, ServerMessage, SessionState, SessionStatus, ToolApprovalDecision,
+    WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -466,7 +467,13 @@ async fn approve_tool(
         .send(&ClientMessage::ApproveTool {
             session_id: session_id.to_string(),
             request_id: resolved_id.clone(),
-            decision: decision.as_str().to_string(),
+            decision: match decision {
+                ApprovalDecision::Approved => ToolApprovalDecision::Approved,
+                ApprovalDecision::ApprovedForSession => ToolApprovalDecision::ApprovedForSession,
+                ApprovalDecision::ApprovedAlways => ToolApprovalDecision::ApprovedAlways,
+                ApprovalDecision::Denied => ToolApprovalDecision::Denied,
+                ApprovalDecision::Abort => ToolApprovalDecision::Abort,
+            },
             message: message.map(str::to_string),
             interrupt: None,
             updated_input: None,

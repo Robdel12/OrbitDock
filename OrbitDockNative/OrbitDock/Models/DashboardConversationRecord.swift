@@ -1,5 +1,10 @@
 import Foundation
 
+enum DashboardConversationIntegrationMode: String, Sendable, Equatable {
+  case direct
+  case passive
+}
+
 struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   let sessionRef: SessionRef
   let endpointName: String?
@@ -58,6 +63,30 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
 
   var isDirect: Bool {
     (provider == .codex && codexIntegrationMode == .direct) || (provider == .claude && claudeIntegrationMode == .direct)
+  }
+
+  var integrationMode: DashboardConversationIntegrationMode? {
+    switch provider {
+      case .codex:
+        switch codexIntegrationMode {
+          case .direct?: .direct
+          case .passive?: .passive
+          case nil: nil
+        }
+      case .claude:
+        switch claudeIntegrationMode ?? .passive {
+          case .direct: .direct
+          case .passive: .passive
+        }
+    }
+  }
+
+  var isPassive: Bool {
+    integrationMode == .passive
+  }
+
+  var canEnd: Bool {
+    listStatus != .ended
   }
 
   /// Create an updated copy by applying fields from a SessionListItemUpdated event.
