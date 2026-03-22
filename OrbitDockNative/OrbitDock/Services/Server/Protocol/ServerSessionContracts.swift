@@ -569,6 +569,7 @@ struct ServerTurnDiff: Codable {
 enum ServerSubagentStatus: String, Codable {
   case pending
   case running
+  case interrupted
   case completed
   case failed
   case cancelled

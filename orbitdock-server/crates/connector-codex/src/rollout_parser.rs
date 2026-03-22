@@ -1519,7 +1519,7 @@ fn build_inflight_rollout_subagent(
             orbitdock_protocol::SubagentStatus::Running
         }
         codex_protocol::protocol::AgentStatus::Interrupted => {
-            orbitdock_protocol::SubagentStatus::Running
+            orbitdock_protocol::SubagentStatus::Interrupted
         }
         codex_protocol::protocol::AgentStatus::Completed(_)
         | codex_protocol::protocol::AgentStatus::Errored(_)
@@ -1624,7 +1624,7 @@ fn map_rollout_agent_status(
             None,
         ),
         codex_protocol::protocol::AgentStatus::Interrupted => (
-            orbitdock_protocol::SubagentStatus::Running,
+            orbitdock_protocol::SubagentStatus::Interrupted,
             None,
             None,
             None,

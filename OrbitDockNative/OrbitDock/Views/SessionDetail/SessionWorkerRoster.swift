@@ -266,6 +266,8 @@ enum SessionWorkerRosterPlanner {
         ("Pending", .feedbackCaution, true, "Queued up and waiting for a turn.")
       case .running:
         ("Running", .statusWorking, true, "Actively working through its assignment.")
+      case .interrupted:
+        ("Interrupted", .feedbackWarning, true, "Paused mid-flight and ready to be resumed or inspected.")
       case .completed:
         ("Complete", .feedbackPositive, false, "Finished cleanly and reported back.")
       case .failed:
@@ -282,7 +284,7 @@ enum SessionWorkerRosterPlanner {
   }
 
   private static func isActive(_ status: ServerSubagentStatus?) -> Bool {
-    status == .pending || status == .running
+    status == .pending || status == .running || status == .interrupted
   }
 
   private static func sortDate(for subagent: ServerSubagentInfo) -> Date {

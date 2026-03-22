@@ -446,7 +446,7 @@ fn build_inflight_codex_subagent_maps_running_status_only() {
 }
 
 #[test]
-fn build_inflight_codex_subagent_maps_interrupted_to_running() {
+fn build_inflight_codex_subagent_preserves_interrupted_status() {
     let subagent = build_inflight_codex_subagent(
         "worker-interrupted".to_string(),
         Some("worker".to_string()),
@@ -457,7 +457,10 @@ fn build_inflight_codex_subagent_maps_interrupted_to_running() {
     )
     .expect("expected inflight worker");
 
-    assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Interrupted
+    );
     assert!(subagent.ended_at.is_none());
     assert_eq!(
         subagent.task_summary.as_deref(),
@@ -554,7 +557,10 @@ fn build_codex_subagent_for_status_keeps_interrupted_inflight() {
         &AgentStatus::Interrupted,
     );
 
-    assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Running);
+    assert_eq!(
+        subagent.status,
+        orbitdock_protocol::SubagentStatus::Interrupted
+    );
     assert!(subagent.ended_at.is_none());
     assert!(subagent.result_summary.is_none());
     assert!(subagent.error_summary.is_none());

@@ -164,6 +164,7 @@ fn persist_subagent_upsert(
             match info.status {
                 orbitdock_protocol::SubagentStatus::Pending => "pending",
                 orbitdock_protocol::SubagentStatus::Running => "running",
+                orbitdock_protocol::SubagentStatus::Interrupted => "interrupted",
                 orbitdock_protocol::SubagentStatus::Completed => "completed",
                 orbitdock_protocol::SubagentStatus::Failed => "failed",
                 orbitdock_protocol::SubagentStatus::Cancelled => "cancelled",

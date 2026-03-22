@@ -754,6 +754,7 @@ pub enum SubagentStatus {
     Pending,
     #[default]
     Running,
+    Interrupted,
     Completed,
     Failed,
     Cancelled,

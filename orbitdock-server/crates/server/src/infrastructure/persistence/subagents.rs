@@ -62,6 +62,7 @@ pub async fn load_subagents_for_session(
                 let status = match row.get::<_, String>(6)?.as_str() {
                     "pending" => SubagentStatus::Pending,
                     "running" => SubagentStatus::Running,
+                    "interrupted" => SubagentStatus::Interrupted,
                     "completed" => SubagentStatus::Completed,
                     "failed" => SubagentStatus::Failed,
                     "cancelled" => SubagentStatus::Cancelled,

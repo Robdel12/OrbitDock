@@ -73,7 +73,7 @@ pub(crate) fn build_inflight_codex_subagent(
     let mapped_status = match status {
         AgentStatus::PendingInit => SubagentStatus::Pending,
         AgentStatus::Running => SubagentStatus::Running,
-        AgentStatus::Interrupted => SubagentStatus::Running,
+        AgentStatus::Interrupted => SubagentStatus::Interrupted,
         AgentStatus::Completed(_)
         | AgentStatus::Errored(_)
         | AgentStatus::Shutdown
@@ -165,7 +165,7 @@ fn map_agent_status(
     match status {
         AgentStatus::PendingInit => (SubagentStatus::Pending, None, None, None),
         AgentStatus::Running => (SubagentStatus::Running, None, None, None),
-        AgentStatus::Interrupted => (SubagentStatus::Running, None, None, None),
+        AgentStatus::Interrupted => (SubagentStatus::Interrupted, None, None, None),
         AgentStatus::Completed(summary) => (
             SubagentStatus::Completed,
             Some(now.to_string()),

@@ -56,6 +56,26 @@ struct SessionWorkerRosterPlannerTests {
     #expect(presentation?.summary == "1 needs review")
   }
 
+  @Test func presentationTreatsInterruptedWorkersAsActiveWithoutFlatteningStatus() throws {
+    let presentation = SessionWorkerRosterPlanner.presentation(
+      subagents: [
+        makeWorker(
+          id: "worker-interrupted",
+          label: "Scout",
+          status: .interrupted,
+          taskSummary: "Resume after interruption",
+          resultSummary: nil,
+          lastActivityAt: "2026-03-10T11:30:00Z"
+        ),
+      ]
+    )
+
+    let worker = try #require(presentation?.workers.first)
+    #expect(worker.statusLabel == "Interrupted")
+    #expect(worker.isActive)
+    #expect(presentation?.summary == "1 active")
+  }
+
   @Test func preferredSelectionKeepsExistingWorkerWhenStillPresent() {
     let workers = [
       makeWorker(
