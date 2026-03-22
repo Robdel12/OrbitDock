@@ -1488,4 +1488,123 @@ mod tests {
         assert_eq!(preview.deletions, 0);
         assert_eq!(preview.preview_lines, vec!["let a = 1", "let b = 2"]);
     }
+
+    // ── Guardian Assessment display tests ────────────────────────────────
+
+    use super::{compute_expanded_output, compute_input_display};
+
+    fn guardian_card(
+        status: ToolStatus,
+        invocation: Option<&serde_json::Value>,
+        result_output: Option<&str>,
+    ) -> super::ToolDisplay {
+        compute_tool_display(ToolDisplayInput {
+            kind: ToolKind::GuardianAssessment,
+            family: ToolFamily::Approval,
+            status,
+            title: "Guardian review",
+            subtitle: None,
+            summary: None,
+            duration_ms: None,
+            invocation_input: invocation,
+            result_output,
+        })
+    }
+
+    #[test]
+    fn guardian_card_identity() {
+        let display = guardian_card(ToolStatus::Completed, None, None);
+        assert_eq!(display.summary, "Guardian Review");
+        assert_eq!(display.tool_type, "guardianAssessment");
+        assert_eq!(display.glyph_symbol, "shield.lefthalf.filled");
+        assert_eq!(display.glyph_color, "feedbackCaution");
+        assert_eq!(display.display_tier, "prominent");
+    }
+
+    #[test]
+    fn guardian_output_preview_shows_rationale() {
+        let result = serde_json::json!({
+            "status_label": "approved",
+            "risk_level": "medium",
+            "risk_score": 42,
+            "rationale": "Command only reads local files"
+        });
+        let display = guardian_card(
+            ToolStatus::Completed,
+            None,
+            Some(&serde_json::to_string(&result).unwrap()),
+        );
+        assert_eq!(
+            display.output_preview.as_deref(),
+            Some("Command only reads local files"),
+        );
+    }
+
+    #[test]
+    fn guardian_output_preview_falls_back_to_risk() {
+        let result = serde_json::json!({
+            "status_label": "approved",
+            "risk_level": "high",
+            "risk_score": 85
+        });
+        let display = guardian_card(
+            ToolStatus::Completed,
+            None,
+            Some(&serde_json::to_string(&result).unwrap()),
+        );
+        assert_eq!(
+            display.output_preview.as_deref(),
+            Some("high risk — score 85/100"),
+        );
+    }
+
+    #[test]
+    fn guardian_subtitle_extracts_command() {
+        let invocation = serde_json::json!({
+            "action": { "command": "git push --force" },
+            "status_label": "reviewing"
+        });
+        let display = guardian_card(ToolStatus::Running, Some(&invocation), None);
+        assert_eq!(display.subtitle.as_deref(), Some("git push --force"));
+    }
+
+    // --- Expanded content (separate public functions) ---
+
+    #[test]
+    fn guardian_expanded_output_structured() {
+        let result = serde_json::json!({
+            "status_label": "denied",
+            "risk_level": "high",
+            "risk_score": 90,
+            "rationale": "Destructive command detected"
+        });
+        let output_str = serde_json::to_string(&result).unwrap();
+        let expanded =
+            compute_expanded_output(ToolKind::GuardianAssessment, Some(&output_str)).unwrap();
+        assert!(expanded.contains("Verdict: denied"));
+        assert!(expanded.contains("Risk: high (90/100)"));
+        assert!(expanded.contains("Rationale: Destructive command detected"));
+    }
+
+    #[test]
+    fn guardian_input_display_shows_command() {
+        let invocation = serde_json::json!({
+            "action": { "command": "rm -rf /tmp/data" },
+            "risk_level": "high",
+            "status_label": "reviewing"
+        });
+        let input = compute_input_display(ToolKind::GuardianAssessment, Some(&invocation)).unwrap();
+        assert_eq!(input, "$ rm -rf /tmp/data");
+    }
+
+    #[test]
+    fn guardian_input_display_falls_back_to_pretty_action() {
+        let invocation = serde_json::json!({
+            "action": { "tool": "write", "path": "/tmp/test.txt" },
+            "status_label": "reviewing"
+        });
+        let input = compute_input_display(ToolKind::GuardianAssessment, Some(&invocation)).unwrap();
+        assert!(input.contains("\"tool\": \"write\""));
+        assert!(input.contains("\"path\": \"/tmp/test.txt\""));
+    }
 }
