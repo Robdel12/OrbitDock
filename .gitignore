@@ -41,6 +41,7 @@ orbitdock-server/docs/claude-agent-sdk-*.md
 *.xcresult
 *.trace/
 .logs/
+test-results/
 
 # Release artifacts
 dist/

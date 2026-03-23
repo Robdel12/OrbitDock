@@ -9,11 +9,12 @@
     "preview": "vite preview",
     "test": "node --import ./tests/register.js --test 'tests/**/*.test.{js,jsx}'",
     "test:watch": "node --import ./tests/register.js --test --watch 'tests/**/*.test.{js,jsx}'",
-    "lint": "biome check src tests",
-    "lint:fix": "biome check --fix src tests",
-    "format": "biome format --write src tests",
-    "format:check": "biome format src tests",
-    "ci": "biome ci src tests"
+    "test:e2e": "npx playwright test",
+    "lint": "biome check src tests e2e",
+    "lint:fix": "biome check --fix src tests e2e",
+    "format": "biome format --write src tests e2e",
+    "format:check": "biome format src tests e2e",
+    "ci": "biome ci src tests e2e"
   },
   "dependencies": {
     "@preact/signals": "^2.1.0",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
+    "@playwright/test": "^1.58.2",
     "@preact/preset-vite": "^2.10.1",
     "@testing-library/preact": "^3.2.4",
     "esbuild": "^0.27.0",
