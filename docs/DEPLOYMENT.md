@@ -116,6 +116,46 @@ Docker Linux builds now use persistent local Buildx cache export/import by defau
 Use `ORBITDOCK_LINUX_DOCKER_CACHE_MODE=none` to disable explicit local cache handling.
 Use `ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=<n>` to cap Docker cargo parallelism (useful for arm64 emulation memory pressure).
 
+### macOS App Releases with Sparkle
+
+OrbitDock’s macOS app now uses Sparkle with a GitHub-hosted appcast:
+
+```text
+https://robdel12.github.io/OrbitDock/appcast.xml
+```
+
+Current maintainer flow is manual, not CI-driven:
+
+1. Archive and notarize the macOS app locally:
+
+```bash
+VERSION=0.4.0 \
+SPARKLE_PUBLIC_ED_KEY="<public key>" \
+MACOS_DEVELOPMENT_TEAM="<team id>" \
+APPLE_NOTARY_KEY_ID="<key id>" \
+APPLE_NOTARY_ISSUER_ID="<issuer id>" \
+APPLE_NOTARY_PRIVATE_KEY="$(cat AuthKey_ABC123XYZ.p8)" \
+./scripts/archive-macos-app-release.sh
+```
+
+2. Upload `dist/OrbitDock-<version>.zip` and `dist/OrbitDock-<version>.zip.sha256` to the matching GitHub Release.
+3. In a local checkout of the `gh-pages` branch, download that release zip into the site root and generate the appcast:
+
+```bash
+SITE_DIR=/path/to/gh-pages-checkout \
+RELEASE_TAG=v0.4.0 \
+SPARKLE_PRIVATE_ED_KEY="<private key>" \
+./scripts/generate-sparkle-appcast.sh
+```
+
+4. Commit and push the updated `appcast.xml` and release artifacts on `gh-pages`.
+
+Sparkle key notes:
+
+- `SPARKLE_PUBLIC_ED_KEY` is compiled into the app and used to verify updates.
+- `SPARKLE_PRIVATE_ED_KEY` is used when generating the signed appcast feed.
+- Generate the keypair with Sparkle’s `generate_keys` tool. Export the private key for automation or local publishing with `generate_keys -x private_key.txt`.
+
 ### Cloud Providers
 
 Deploy the binary directly on any Linux VM. The server is stateless except for SQLite — use a persistent disk for the data directory.

@@ -13,6 +13,7 @@ struct OrbitDockApp: App {
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
   #if os(macOS)
+    @State private var appUpdater: AppUpdater
     @State private var menuBarAppStore: AppStore
   #endif
   private let modelPricingService: ModelPricingService
@@ -23,10 +24,16 @@ struct OrbitDockApp: App {
     _appRuntime = State(initialValue: appRuntime)
     self.modelPricingService = modelPricingService
     #if os(macOS)
+      let appUpdater = AppUpdater()
+      _appUpdater = State(initialValue: appUpdater)
       _menuBarAppStore = State(
         initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry)
       )
-      appDelegate.configure(appRuntime: appRuntime, modelPricingService: modelPricingService)
+      appDelegate.configure(
+        appRuntime: appRuntime,
+        modelPricingService: modelPricingService,
+        appUpdater: appUpdater
+      )
     #endif
   }
 
@@ -44,7 +51,7 @@ struct OrbitDockApp: App {
       .windowStyle(.hiddenTitleBar)
       .defaultSize(width: 1_400, height: 800)
       .commands {
-        OrbitDockWindowCommands()
+        OrbitDockWindowCommands(appUpdater: appUpdater)
       }
 
       Settings {
@@ -97,8 +104,20 @@ struct OrbitDockApp: App {
 
 struct OrbitDockWindowCommands: Commands {
   @FocusedValue(\.orbitDockRouter) private var router
+  #if os(macOS)
+    @Bindable var appUpdater: AppUpdater
+  #endif
 
   var body: some Commands {
+    #if os(macOS)
+      CommandGroup(after: .appInfo) {
+        Button("Check for Updates...") {
+          appUpdater.checkForUpdates()
+        }
+        .disabled(!appUpdater.canCheckForUpdates)
+      }
+    #endif
+
     CommandGroup(after: .toolbar) {
       Button("Dashboard") {
         router?.goToDashboard(source: .commandMenu)
@@ -119,10 +138,16 @@ struct OrbitDockWindowCommands: Commands {
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var appRuntime: OrbitDockAppRuntime?
     private var modelPricingService: ModelPricingService?
+    private var appUpdater: AppUpdater?
 
-    func configure(appRuntime: OrbitDockAppRuntime, modelPricingService: ModelPricingService) {
+    func configure(
+      appRuntime: OrbitDockAppRuntime,
+      modelPricingService: ModelPricingService,
+      appUpdater: AppUpdater
+    ) {
       self.appRuntime = appRuntime
       self.modelPricingService = modelPricingService
+      self.appUpdater = appUpdater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -131,6 +156,7 @@ struct OrbitDockWindowCommands: Commands {
       guard !AppRuntimeMode.isRunningTestsProcess else { return }
       AppFileLogger.shared.start()
       appRuntime?.notificationManager.configureAppSessionNotifications(delegate: self)
+      appUpdater?.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
