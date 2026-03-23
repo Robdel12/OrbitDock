@@ -858,7 +858,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock";
 				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
-				SPARKLE_FEED_URL = "https://robdel12.github.io/OrbitDock/appcast.xml";
+				SPARKLE_FEED_URL = "https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml";
 				SPARKLE_PUBLIC_ED_KEY = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -899,7 +899,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock";
 				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
-				SPARKLE_FEED_URL = "https://robdel12.github.io/OrbitDock/appcast.xml";
+				SPARKLE_FEED_URL = "https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml";
 				SPARKLE_PUBLIC_ED_KEY = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

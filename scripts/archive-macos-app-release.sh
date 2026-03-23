@@ -7,7 +7,7 @@ DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$DIST_DIR/OrbitDock.xcarchive}"
 APP_NAME="${APP_NAME:-OrbitDock}"
 VERSION="${VERSION:?VERSION is required}"
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://robdel12.github.io/OrbitDock/appcast.xml}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:?SPARKLE_PUBLIC_ED_KEY is required}"
 MACOS_DEVELOPMENT_TEAM="${MACOS_DEVELOPMENT_TEAM:?MACOS_DEVELOPMENT_TEAM is required}"
 
