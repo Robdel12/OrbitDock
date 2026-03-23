@@ -354,6 +354,9 @@ impl SessionRegistry {
         let mut conversations: Vec<DashboardConversationItem> = self
             .sessions
             .iter()
+            .filter(|entry| {
+                entry.value().snapshot().status == orbitdock_protocol::SessionStatus::Active
+            })
             .map(|entry| {
                 let snap = entry.value().snapshot();
                 let display_title = SessionSummary::display_title_from_parts(
@@ -671,7 +674,9 @@ fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
 #[cfg(test)]
 mod tests {
     use super::SessionRegistry;
+    use crate::domain::sessions::session::SessionHandle;
     use crate::support::test_support::ensure_server_test_data_dir;
+    use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, WorkStatus};
     use tokio::sync::mpsc;
 
     #[test]
@@ -684,5 +689,37 @@ mod tests {
         assert!(registry.clear_client_primary_claim(1));
         assert!(registry.active_client_primary_claims().is_empty());
         assert!(!registry.clear_client_primary_claim(1));
+    }
+
+    #[tokio::test]
+    async fn dashboard_conversations_only_include_active_sessions() {
+        ensure_server_test_data_dir();
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+        let mut active = SessionHandle::new(
+            "active-session".to_string(),
+            Provider::Codex,
+            "/tmp/orbitdock-active".to_string(),
+        );
+        active.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        active.set_work_status(WorkStatus::Waiting);
+        active.refresh_snapshot();
+        registry.add_session(active);
+
+        let mut ended = SessionHandle::new(
+            "ended-session".to_string(),
+            Provider::Codex,
+            "/tmp/orbitdock-ended".to_string(),
+        );
+        ended.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        ended.set_status(SessionStatus::Ended);
+        ended.set_work_status(WorkStatus::Ended);
+        ended.refresh_snapshot();
+        registry.add_session(ended);
+
+        let conversations = registry.get_dashboard_conversations();
+        assert_eq!(conversations.len(), 1);
+        assert_eq!(conversations[0].session_id, "active-session");
     }
 }

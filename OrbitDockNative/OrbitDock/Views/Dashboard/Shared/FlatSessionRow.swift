@@ -104,7 +104,7 @@ struct FlatSessionRow: View {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
 
-      if session.isActive, session.isDirect {
+      if session.isActive {
         Divider()
         Button(role: .destructive) {
           Task { try? await endSession() }

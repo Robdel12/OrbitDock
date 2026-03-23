@@ -803,7 +803,7 @@ private struct DashboardConversationActionsModifier: ViewModifier {
           Button(role: .destructive) {
             Task { await endConversation() }
           } label: {
-            Label("End Conversation", systemImage: "stop.circle")
+            Label("End Session", systemImage: "stop.circle")
           }
         }
       }

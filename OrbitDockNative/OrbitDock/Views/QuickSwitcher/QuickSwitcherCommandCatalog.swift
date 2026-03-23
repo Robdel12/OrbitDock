@@ -80,7 +80,7 @@ enum QuickSwitcherCommandCatalog {
       ),
       QuickSwitcherCommand(
         id: "close",
-        name: "Close Session",
+        name: "End Session",
         icon: "xmark.circle",
         shortcut: nil,
         requiresSession: true,

@@ -220,7 +220,7 @@ struct HeaderView: View {
     Menu {
       HeaderContinuationMenuSection(continuation: currentContinuation)
 
-      if presentation.isDirect, presentation.isActive, let onEnd = onEndSession {
+      if presentation.isActive, let onEnd = onEndSession {
         Divider()
         Button(role: .destructive) {
           onEnd()
@@ -261,7 +261,7 @@ struct HeaderView: View {
 
       HeaderContinuationMenuSection(continuation: currentContinuation)
 
-      if presentation.isDirect, presentation.isActive, let onEnd = onEndSession {
+      if presentation.isActive, let onEnd = onEndSession {
         Divider()
         Button(role: .destructive) {
           onEnd()

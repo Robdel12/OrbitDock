@@ -44,7 +44,7 @@ struct SessionDetailView: View {
           endpointId: endpointId,
           presentation: screenPresentation,
           codexAccountStatus: scopedServerState.codexAccountStatus,
-          onEndSession: screenPresentation.isDirect ? { viewModel.endDirectSession() } : nil,
+          onEndSession: screenPresentation.isActive ? { viewModel.endSession() } : nil,
           layoutConfig: screenPresentation.isDirect ? $viewModel.layoutConfig : nil,
           chatViewMode: $chatViewMode,
           workerPanelVisible: $showWorkerPanel,
@@ -245,10 +245,10 @@ struct SessionDetailView: View {
           claudeIntegrationMode: screenPresentation.debugContext.claudeIntegrationMode
         )
 
-        if screenPresentation.isDirect, screenPresentation.isActive {
+        if screenPresentation.isActive {
           Divider()
           Button(role: .destructive) {
-            viewModel.endDirectSession()
+            viewModel.endSession()
           } label: {
             Label("End Session", systemImage: "stop.circle")
           }

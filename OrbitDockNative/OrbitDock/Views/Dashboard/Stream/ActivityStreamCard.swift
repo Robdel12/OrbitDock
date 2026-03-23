@@ -190,7 +190,7 @@ struct AttentionCard: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
-      if session.isActive, session.isDirect {
+      if session.isActive {
         Divider()
         Button(role: .destructive) {
           Task { await endSession() }
@@ -345,7 +345,7 @@ struct WorkingCard: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
-      if session.isActive, session.isDirect {
+      if session.isActive {
         Divider()
         Button(role: .destructive) {
           Task { await endSession() }
@@ -411,7 +411,7 @@ struct CompactSessionRow: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu { SessionCardHelpers.baseContextMenu(for: session)
-      if session.isActive, session.isDirect {
+      if session.isActive {
         Divider()
         Button(role: .destructive) {
           Task { await endSession() }

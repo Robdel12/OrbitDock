@@ -92,7 +92,7 @@ struct QuickSwitcherSessionRow: View {
             quickSwitcherActionButton(icon: "pencil", tooltip: "Rename", action: onRename)
             quickSwitcherActionButton(icon: "doc.on.doc", tooltip: "Copy Resume", action: onCopyResume)
             if let onClose {
-              quickSwitcherActionButton(icon: "xmark.circle", tooltip: "Close Session", action: onClose)
+              quickSwitcherActionButton(icon: "xmark.circle", tooltip: "End Session", action: onClose)
             }
           }
           .transition(.opacity.combined(with: .scale(scale: 0.9)))
@@ -133,7 +133,7 @@ struct QuickSwitcherSessionRow: View {
       if let onClose {
         Divider()
         Button(role: .destructive, action: onClose) {
-          Label("Close Session", systemImage: "xmark.circle")
+          Label("End Session", systemImage: "xmark.circle")
         }
       }
     })

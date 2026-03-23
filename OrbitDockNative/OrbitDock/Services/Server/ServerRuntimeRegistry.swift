@@ -622,6 +622,8 @@ final class ServerRuntimeRegistry {
             self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
             self.recomputeAggregatedSessions()
           }
+          self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
+          self.recomputeAggregatedDashboardConversations()
 
         case let .missionsList(missions):
           let endpointName = runtime.endpoint.name

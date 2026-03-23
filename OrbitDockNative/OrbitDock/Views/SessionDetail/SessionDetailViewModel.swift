@@ -354,7 +354,7 @@ final class SessionDetailViewModel {
     }
   }
 
-  func endDirectSession() {
+  func endSession() {
     Task { try? await sessionStore.endSession(sessionId) }
   }
 
