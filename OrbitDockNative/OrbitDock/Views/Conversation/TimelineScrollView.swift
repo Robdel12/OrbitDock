@@ -173,6 +173,10 @@ private struct TimelineRowHost: View {
     expandableId.map { viewModel.isExpanded($0) } ?? false
   }
 
+  private var isUndone: Bool {
+    entry.turnStatus == .undone || entry.turnStatus == .rolledBack
+  }
+
   var body: some View {
     TimelineRowContent(
       entry: entry,
@@ -186,6 +190,12 @@ private struct TimelineRowHost: View {
       contentForChild: viewModel.content(for:),
       isChildLoading: viewModel.isFetching(_:)
     )
+    .opacity(isUndone ? OpacityTier.strong : 1.0)
+    .overlay(alignment: .topTrailing) {
+      if isUndone {
+        UndoneRowBadge(status: entry.turnStatus)
+      }
+    }
     .task(id: isExpanded) {
       guard isExpanded, let fetchId else { return }
       viewModel.fetchContentIfNeeded(rowId: fetchId, sessionId: sessionId, clients: clients)
@@ -202,5 +212,25 @@ private struct TimelineRowHost: View {
     if nowExpanded {
       viewModel.fetchContentIfNeeded(rowId: id, sessionId: sessionId, clients: clients)
     }
+  }
+}
+
+private struct UndoneRowBadge: View {
+  let status: TurnStatus
+
+  private var label: String {
+    status == .undone ? "Undone" : "Rolled back"
+  }
+
+  var body: some View {
+    Text(label)
+      .font(.caption2)
+      .fontWeight(.medium)
+      .foregroundStyle(Color.textTertiary)
+      .padding(.horizontal, Spacing.sm_)
+      .padding(.vertical, Spacing.xxs)
+      .background(Color.backgroundTertiary, in: Capsule())
+      .padding(.trailing, Spacing.lg)
+      .padding(.top, Spacing.xs)
   }
 }

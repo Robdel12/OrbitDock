@@ -100,6 +100,7 @@ struct ConversationTimelineViewModelTests {
       sessionId: "session-1",
       sequence: sequence,
       turnId: nil,
+      turnStatus: .active,
       row: .tool(ServerConversationToolRow(
         id: id,
         provider: .codex,

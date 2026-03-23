@@ -541,6 +541,7 @@ mod tests {
             session_id: session_id.to_string(),
             sequence,
             turn_id: Some("turn-1".to_string()),
+            turn_status: Default::default(),
             row: ConversationRow::Tool(ToolRow {
                 id: id.to_string(),
                 provider: Provider::Codex,

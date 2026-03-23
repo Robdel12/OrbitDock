@@ -40,7 +40,8 @@ fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
            timestamp TEXT,
            sequence INTEGER DEFAULT 0,
            row_data TEXT,
-           is_in_progress INTEGER DEFAULT 0
+           is_in_progress INTEGER DEFAULT 0,
+           turn_status TEXT NOT NULL DEFAULT 'active'
          );
 
          CREATE INDEX IF NOT EXISTS idx_messages_session_sequence
@@ -58,6 +59,7 @@ fn user_entry(id: &str, sequence: u64) -> ConversationRowEntry {
         session_id: "test-session".to_string(),
         sequence,
         turn_id: None,
+        turn_status: Default::default(),
         row: ConversationRow::User(MessageRowContent {
             id: id.to_string(),
             content: format!("message from {id}"),
@@ -76,6 +78,7 @@ fn assistant_entry(id: &str, sequence: u64) -> ConversationRowEntry {
         session_id: "test-session".to_string(),
         sequence,
         turn_id: None,
+        turn_status: Default::default(),
         row: ConversationRow::Assistant(MessageRowContent {
             id: id.to_string(),
             content: format!("response from {id}"),

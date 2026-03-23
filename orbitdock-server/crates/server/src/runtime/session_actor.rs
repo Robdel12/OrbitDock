@@ -308,6 +308,7 @@ mod tests {
             session_id: "test-session".to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::User(MessageRowContent {
                 id: id.to_string(),
                 content: format!("msg-{id}"),
@@ -326,6 +327,7 @@ mod tests {
             session_id: "test-session".to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::Assistant(MessageRowContent {
                 id: id.to_string(),
                 content: format!("response-{id}"),
@@ -569,6 +571,7 @@ mod tests {
             session_id: "test-session".to_string(),
             sequence: 0,
             turn_id: Some("turn-1".to_string()),
+            turn_status: Default::default(),
             row: ConversationRow::Assistant(MessageRowContent {
                 id: row_id.clone(),
                 content: content.to_string(),

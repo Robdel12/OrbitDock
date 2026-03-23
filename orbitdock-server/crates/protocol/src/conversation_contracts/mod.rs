@@ -20,7 +20,7 @@ pub use rows::{
     ConversationRowSummary, HandoffRow, HookRow, MemoryCitation, MemoryCitationEntry,
     MessageRowContent, NoticeRow, NoticeRowKind, NoticeRowSeverity, PlanRow, RowEntrySummary,
     RowPageSummary, ShellCommandRow, ShellCommandRowKind, SystemRow, TaskRow, TaskRowKind,
-    TaskRowStatus, ThinkingRow, ToolRow, ToolRowSummary, UserRow,
+    TaskRowStatus, ThinkingRow, ToolRow, ToolRowSummary, TurnStatus, UserRow,
 };
 pub use tool_display::{
     classify_tool_name, compute_diff_display, compute_expanded_output, compute_input_display,

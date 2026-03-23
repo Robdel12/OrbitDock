@@ -513,6 +513,7 @@ struct SessionStateProjectionTests {
       sessionId: "session-1",
       sequence: sequence,
       turnId: nil,
+      turnStatus: .active,
       row: .assistant(ServerConversationMessageRow(
         id: id,
         content: content,

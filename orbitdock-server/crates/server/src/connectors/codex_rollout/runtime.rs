@@ -486,6 +486,7 @@ impl WatcherRuntime {
                             session_id: session_id.to_string(),
                             sequence: 0,
                             turn_id: None,
+                            turn_status: Default::default(),
                             row: upgrade_row(Provider::Codex, row),
                         },
                     ),
@@ -746,6 +747,7 @@ impl WatcherRuntime {
             session_id: session_id.clone(),
             sequence: next_seq,
             turn_id: None,
+            turn_status: Default::default(),
             row,
         };
 
@@ -862,6 +864,7 @@ impl WatcherRuntime {
             session_id: session_id.to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::Tool(tool_row),
         };
 
@@ -918,6 +921,7 @@ impl WatcherRuntime {
             session_id: session_id.to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::Tool(tool_row),
         };
 

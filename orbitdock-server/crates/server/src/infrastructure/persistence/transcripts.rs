@@ -286,6 +286,7 @@ pub(crate) fn load_messages_from_transcript(
                         session_id: String::new(),
                         sequence,
                         turn_id: None,
+                        turn_status: Default::default(),
                         row: ConversationRow::Tool(ToolRow {
                             id: row_id,
                             provider: Provider::Claude,
@@ -341,6 +342,7 @@ pub(crate) fn load_messages_from_transcript(
                         session_id: String::new(),
                         sequence,
                         turn_id: None,
+                        turn_status: Default::default(),
                         row: ConversationRow::Tool(ToolRow {
                             id: row_id,
                             provider: Provider::Claude,
@@ -391,6 +393,7 @@ pub(crate) fn load_messages_from_transcript(
                         session_id: String::new(),
                         sequence,
                         turn_id: None,
+                        turn_status: Default::default(),
                         row: conversation_row,
                     });
                     sequence += 1;

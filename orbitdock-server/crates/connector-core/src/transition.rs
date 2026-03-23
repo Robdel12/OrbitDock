@@ -11,7 +11,7 @@ use crate::ConnectorEvent;
 #[cfg(test)]
 use orbitdock_protocol::conversation_contracts::ToolRow;
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, MessageRowContent,
+    ConversationRow, ConversationRowEntry, MessageRowContent, TurnStatus,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 #[cfg(test)]
@@ -666,6 +666,7 @@ pub fn transition(
                 session_id: sid.clone(),
                 sequence: seq,
                 turn_id: state.current_turn_id.clone(),
+                turn_status: TurnStatus::Active,
                 row: ConversationRow::System(MessageRowContent {
                     id: format!("error-{}", uuid::Uuid::new_v4()),
                     content: msg,
@@ -1260,6 +1261,7 @@ pub fn transition(
                 session_id: sid.clone(),
                 sequence: compact_seq,
                 turn_id: state.current_turn_id.clone(),
+                turn_status: TurnStatus::Active,
                 row: ConversationRow::System(MessageRowContent {
                     id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
                     content:
@@ -2525,6 +2527,7 @@ mod tests {
             session_id: String::new(),
             sequence: 0,
             turn_id: None,
+            turn_status: TurnStatus::Active,
             row: ConversationRow::User(MessageRowContent {
                 id: format!("msg-{}", content.len()),
                 content: content.to_string(),
@@ -2543,6 +2546,7 @@ mod tests {
             session_id: String::new(),
             sequence: 0,
             turn_id: None,
+            turn_status: TurnStatus::Active,
             row: ConversationRow::Assistant(MessageRowContent {
                 id: format!("msg-{}", content.len()),
                 content: content.to_string(),
@@ -2561,6 +2565,7 @@ mod tests {
             session_id: String::new(),
             sequence: 0,
             turn_id: None,
+            turn_status: TurnStatus::Active,
             row: ConversationRow::Tool(ToolRow {
                 id: id.to_string(),
                 provider: Provider::Claude,

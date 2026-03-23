@@ -236,6 +236,19 @@ pub struct TaskRow {
     pub render_hints: RenderHints,
 }
 
+/// Lifecycle status of a conversation row after undo/rollback operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnStatus {
+    /// Row is part of the active conversation thread.
+    #[default]
+    Active,
+    /// Row was undone (last-turn undo).
+    Undone,
+    /// Row was rolled back (multi-turn rollback).
+    RolledBack,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationRowEntry {
     pub session_id: String,
@@ -243,6 +256,9 @@ pub struct ConversationRowEntry {
     /// Turn this row belongs to — lifted so all row types carry it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// Lifecycle status — active, undone, or rolled back.
+    #[serde(default)]
+    pub turn_status: TurnStatus,
     pub row: ConversationRow,
 }
 
@@ -476,6 +492,9 @@ pub struct RowEntrySummary {
     pub sequence: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<String>,
+    /// Lifecycle status — active, undone, or rolled back.
+    #[serde(default)]
+    pub turn_status: TurnStatus,
     pub row: ConversationRowSummary,
 }
 
@@ -510,6 +529,7 @@ impl ConversationRowEntry {
             session_id: self.session_id.clone(),
             sequence: self.sequence,
             turn_id: self.turn_id.clone(),
+            turn_status: self.turn_status,
             row: self.row.to_summary(),
         }
     }
@@ -584,7 +604,7 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow};
+    use super::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow, TurnStatus};
     use crate::conversation_contracts::render_hints::RenderHints;
     use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
     use crate::{ImageInput, Provider};
@@ -595,6 +615,7 @@ mod tests {
             session_id: "sess-1".to_string(),
             sequence: 7,
             turn_id: Some("turn-42".to_string()),
+            turn_status: TurnStatus::Active,
             row: ConversationRow::Assistant(MessageRowContent {
                 id: "row-1".to_string(),
                 content: "Streaming reply".to_string(),

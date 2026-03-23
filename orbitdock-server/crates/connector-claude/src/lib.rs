@@ -344,6 +344,7 @@ fn make_entry(session_id: &str, row: ConversationRow) -> ConversationRowEntry {
         session_id: session_id.to_string(),
         sequence: 0,
         turn_id: None,
+        turn_status: Default::default(),
         row,
     }
 }

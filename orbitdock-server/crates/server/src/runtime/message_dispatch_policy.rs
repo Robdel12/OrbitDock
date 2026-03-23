@@ -69,6 +69,7 @@ pub(crate) fn build_user_row_entry(
         session_id: session_id.to_string(),
         sequence: 0,
         turn_id: None,
+        turn_status: Default::default(),
         row: match kind {
             PromptRowKind::User => ConversationRow::User(row),
             PromptRowKind::Steer => ConversationRow::Steer(row),

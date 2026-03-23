@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, ConversationRowSummary, RowEntrySummary,
+    ConversationRow, ConversationRowEntry, ConversationRowSummary, RowEntrySummary, TurnStatus,
 };
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
@@ -1574,6 +1574,44 @@ impl SessionHandle {
         self.unread_count
     }
 
+    /// Total row count across all retained + evicted rows.
+    pub fn total_row_count(&self) -> u64 {
+        self.total_row_count
+    }
+
+    /// Mark the last `num_turns` worth of rows with the given status.
+    ///
+    /// A "turn" starts at each user row. Walking from the end we count user
+    /// rows to find the boundary; all rows from that boundary to the end get
+    /// marked. Returns the IDs of affected rows (for persistence + broadcast).
+    pub fn mark_last_turns_status(&mut self, num_turns: u32, status: TurnStatus) -> Vec<String> {
+        if self.rows.is_empty() || num_turns == 0 {
+            return vec![];
+        }
+
+        // Walk backwards, count user rows to find the cut-off index.
+        let mut user_rows_seen: u32 = 0;
+        let mut cut_index = self.rows.len();
+        for (i, entry) in self.rows.iter().enumerate().rev() {
+            if matches!(entry.row, ConversationRow::User(_)) {
+                user_rows_seen += 1;
+                if user_rows_seen >= num_turns {
+                    cut_index = i;
+                    break;
+                }
+            }
+        }
+
+        let mut affected_ids = Vec::new();
+        for entry in &mut self.rows[cut_index..] {
+            if entry.turn_status != status {
+                entry.turn_status = status;
+                affected_ids.push(entry.id().to_string());
+            }
+        }
+        affected_ids
+    }
+
     /// Replace all rows (used for snapshot hydration from transcript fallback)
     pub fn replace_rows(&mut self, mut rows: Vec<ConversationRowEntry>) {
         Self::normalize_row_sequences(&mut rows);
@@ -2385,6 +2423,7 @@ mod tests {
             session_id: session_id.to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::User(MessageRowContent {
                 id: row_id.to_string(),
                 content: content.to_string(),

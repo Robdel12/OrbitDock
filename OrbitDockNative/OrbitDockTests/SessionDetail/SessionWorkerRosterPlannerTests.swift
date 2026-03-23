@@ -440,6 +440,7 @@ struct SessionWorkerRosterPlannerTests {
       sessionId: sessionId,
       sequence: sequence,
       turnId: nil,
+      turnStatus: .active,
       row: row
     )
   }
@@ -459,6 +460,7 @@ struct SessionWorkerRosterPlannerTests {
       sessionId: sessionId,
       sequence: sequence,
       turnId: nil,
+      turnStatus: .active,
       row: .tool(ServerConversationToolRow(
         id: id,
         provider: .codex,
@@ -511,6 +513,7 @@ struct SessionWorkerRosterPlannerTests {
       sessionId: sessionId,
       sequence: sequence,
       turnId: nil,
+      turnStatus: .active,
       row: .worker(ServerConversationWorkerRow(
         id: id,
         title: title,

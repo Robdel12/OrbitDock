@@ -50,6 +50,7 @@ fn shell_row_entry(
         session_id: session_id.to_string(),
         sequence: 0,
         turn_id: None,
+        turn_status: Default::default(),
         row: ConversationRow::ShellCommand(ShellCommandRow {
             id: request_id.to_string(),
             kind: ShellCommandRowKind::UserShellCommand,

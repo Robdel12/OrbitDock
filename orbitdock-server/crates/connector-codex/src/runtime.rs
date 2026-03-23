@@ -211,6 +211,7 @@ pub(crate) fn row_entry(row: ConversationRow) -> ConversationRowEntry {
         session_id: String::new(),
         sequence: 0,
         turn_id: None,
+        turn_status: Default::default(),
         row,
     }
 }

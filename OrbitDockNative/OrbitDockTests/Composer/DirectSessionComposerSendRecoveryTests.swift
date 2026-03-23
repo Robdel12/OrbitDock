@@ -27,6 +27,7 @@ struct DirectSessionComposerSendRecoveryTests {
       sessionId: "s1",
       sequence: 1,
       turnId: nil,
+      turnStatus: .active,
       row: .user(ServerConversationMessageRow(
         id: "user-1",
         content: "Nice, that still shows pending though. Which is interesting.",
@@ -53,6 +54,7 @@ struct DirectSessionComposerSendRecoveryTests {
       sessionId: "s1",
       sequence: 2,
       turnId: nil,
+      turnStatus: .active,
       row: .user(ServerConversationMessageRow(
         id: "user-2",
         content: "Different content",

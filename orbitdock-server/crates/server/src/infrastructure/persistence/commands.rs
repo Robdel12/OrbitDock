@@ -1,7 +1,7 @@
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, TurnStatus};
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
     Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
@@ -414,6 +414,13 @@ pub enum PersistCommand {
         mission_id: String,
         issue_id: String,
         pr_url: String,
+    },
+
+    /// Bulk-update turn_status for a set of row IDs within a session.
+    RowsTurnStatusUpdate {
+        session_id: String,
+        row_ids: Vec<String>,
+        status: TurnStatus,
     },
 }
 

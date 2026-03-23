@@ -825,17 +825,48 @@ enum ServerConversationRow: Codable {
   }
 }
 
+enum TurnStatus: String, Codable, Sendable {
+  case active
+  case undone
+  case rolledBack = "rolled_back"
+}
+
 struct ServerConversationRowEntry: Codable, Identifiable {
   let sessionId: String
   let sequence: UInt64
   let turnId: String?
+  let turnStatus: TurnStatus
   let row: ServerConversationRow
 
   enum CodingKeys: String, CodingKey {
     case sessionId = "session_id"
     case sequence
     case turnId = "turn_id"
+    case turnStatus = "turn_status"
     case row
+  }
+
+  init(
+    sessionId: String,
+    sequence: UInt64,
+    turnId: String?,
+    turnStatus: TurnStatus = .active,
+    row: ServerConversationRow
+  ) {
+    self.sessionId = sessionId
+    self.sequence = sequence
+    self.turnId = turnId
+    self.turnStatus = turnStatus
+    self.row = row
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    sessionId = try container.decode(String.self, forKey: .sessionId)
+    sequence = try container.decode(UInt64.self, forKey: .sequence)
+    turnId = try container.decodeIfPresent(String.self, forKey: .turnId)
+    turnStatus = try container.decodeIfPresent(TurnStatus.self, forKey: .turnStatus) ?? .active
+    row = try container.decode(ServerConversationRow.self, forKey: .row)
   }
 
   var id: String {

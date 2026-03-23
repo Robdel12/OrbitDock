@@ -429,6 +429,7 @@ mod tests {
             session_id: "session-1".to_string(),
             sequence,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::User(MessageRowContent {
                 id: id.to_string(),
                 content: format!("row-{sequence}"),

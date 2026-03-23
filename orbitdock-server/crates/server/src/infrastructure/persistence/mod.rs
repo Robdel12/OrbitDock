@@ -27,7 +27,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use orbitdock_connector_codex::rollout_parser::PersistedFileState;
-use orbitdock_protocol::conversation_contracts::ConversationRow;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, TurnStatus};
 use orbitdock_protocol::{
     ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider,
     SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
@@ -371,10 +371,10 @@ pub(super) fn execute_command(
 
             // DB computes sequence as MAX(sequence)+1 — single source of truth.
             conn.execute(
-                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
+                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
                  VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7)",
+                   ?7, ?8)",
                 params![
                     row_id,
                     session_id,
@@ -383,6 +383,7 @@ pub(super) fn execute_command(
                     now.clone(),
                     assigned_sequence.map(|sequence| sequence as i64),
                     row_data,
+                    turn_status_str(entry.turn_status),
                 ],
             )?;
 
@@ -464,14 +465,15 @@ pub(super) fn execute_command(
 
             // DB computes sequence on insert; ON CONFLICT preserves original ordering.
             conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
+                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
                  VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7)
+                   ?7, ?8)
                  ON CONFLICT(id) DO UPDATE SET
                    type = excluded.type,
                    content = excluded.content,
-                   row_data = excluded.row_data",
+                   row_data = excluded.row_data,
+                   turn_status = excluded.turn_status",
                 params![
                     row_id,
                     session_id,
@@ -480,6 +482,7 @@ pub(super) fn execute_command(
                     now.clone(),
                     assigned_sequence.map(|sequence| sequence as i64),
                     row_data,
+                    turn_status_str(entry.turn_status),
                 ],
             )?;
 
@@ -1843,6 +1846,19 @@ pub(super) fn execute_command(
                 rusqlite::params![pr_url, mission_id, issue_id],
             )?;
         }
+        PersistCommand::RowsTurnStatusUpdate {
+            session_id,
+            row_ids,
+            status,
+        } => {
+            let status_str = turn_status_str(status);
+            for row_id in &row_ids {
+                conn.execute(
+                    "UPDATE messages SET turn_status = ?1 WHERE session_id = ?2 AND id = ?3",
+                    rusqlite::params![status_str, session_id, row_id],
+                )?;
+            }
+        }
     }
 
     Ok(())
@@ -1947,6 +1963,14 @@ fn row_type_str(row: &ConversationRow) -> &'static str {
         ConversationRow::Hook(_) => "hook",
         ConversationRow::Handoff(_) => "handoff",
         ConversationRow::System(_) => "system",
+    }
+}
+
+fn turn_status_str(status: TurnStatus) -> &'static str {
+    match status {
+        TurnStatus::Active => "active",
+        TurnStatus::Undone => "undone",
+        TurnStatus::RolledBack => "rolled_back",
     }
 }
 

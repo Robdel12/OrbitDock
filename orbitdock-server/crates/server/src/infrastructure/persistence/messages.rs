@@ -1,4 +1,6 @@
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
+use orbitdock_protocol::conversation_contracts::{
+    ConversationRow, ConversationRowEntry, TurnStatus,
+};
 use orbitdock_protocol::Provider;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -29,10 +31,18 @@ fn row_entry_from_db(
         }
     };
 
+    let turn_status: TurnStatus = row
+        .get::<_, Option<String>>(6)
+        .ok()
+        .flatten()
+        .and_then(|s| serde_json::from_value(serde_json::Value::String(s)).ok())
+        .unwrap_or_default();
+
     Ok(Some(ConversationRowEntry {
         session_id: session_id.to_string(),
         sequence: sequence.max(0) as u64,
         turn_id: None,
+        turn_status,
         row: conversation_row,
     }))
 }
@@ -98,7 +108,7 @@ pub(super) fn load_messages_from_db(
     session_id: &str,
 ) -> Result<Vec<ConversationRowEntry>, anyhow::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, type, content, timestamp, sequence, row_data
+        "SELECT id, type, content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?
          ORDER BY sequence",
@@ -143,13 +153,13 @@ pub(super) fn load_message_page_from_db(
     }
 
     let sql = if before_sequence.is_some() {
-        "SELECT id, type, content, timestamp, sequence, row_data
+        "SELECT id, type, content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1 AND sequence < ?2
          ORDER BY sequence DESC
          LIMIT ?3"
     } else {
-        "SELECT id, type, content, timestamp, sequence, row_data
+        "SELECT id, type, content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1
          ORDER BY sequence DESC
@@ -207,7 +217,7 @@ pub fn load_row_by_id(
     row_id: &str,
 ) -> Result<Option<ConversationRowEntry>, anyhow::Error> {
     let mut stmt = conn.prepare(
-        "SELECT id, type, content, timestamp, sequence, row_data
+        "SELECT id, type, content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1 AND id = ?2
          LIMIT 1",

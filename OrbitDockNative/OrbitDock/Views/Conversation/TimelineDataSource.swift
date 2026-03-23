@@ -178,6 +178,7 @@ enum TimelineDataSource {
       sessionId: spec.sessionId,
       sequence: spec.sequence,
       turnId: spec.turnId,
+      turnStatus: .active,
       row: .activityGroup(ServerConversationActivityGroupRow(
         id: "group:\(spec.archivedToolIDs.first ?? spec.latestToolID)",
         groupKind: .toolBlock,

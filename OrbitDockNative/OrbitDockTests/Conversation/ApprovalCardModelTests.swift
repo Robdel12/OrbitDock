@@ -187,6 +187,7 @@ struct ApprovalCardModelTests {
         sessionId: sessionId,
         sequence: 1,
         turnId: nil,
+        turnStatus: .active,
         row: .tool(ServerConversationToolRow(
           id: "tool-plan",
           provider: .claude,

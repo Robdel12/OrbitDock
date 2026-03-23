@@ -736,6 +736,19 @@ pub(crate) async fn dispatch_transition_input(
     handle: &mut SessionHandle,
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
+    // Capture undo/rollback intent before the transition consumes the input.
+    let mark_turns_intent = match &input {
+        transition::Input::UndoCompleted { success: true, .. } => Some((
+            1u32,
+            orbitdock_protocol::conversation_contracts::TurnStatus::Undone,
+        )),
+        transition::Input::ThreadRolledBack { num_turns } => Some((
+            *num_turns,
+            orbitdock_protocol::conversation_contracts::TurnStatus::RolledBack,
+        )),
+        _ => None,
+    };
+
     let now = chrono_now();
     let previous_list_item = SessionListItem::from_summary(&handle.summary());
     let state = handle.extract_state();
@@ -828,6 +841,37 @@ pub(crate) async fn dispatch_transition_input(
         }
     }
 
+    // Mark rows affected by undo/rollback and persist + broadcast the change.
+    if let Some((num_turns, status)) = mark_turns_intent {
+        let session_id = handle.id().to_string();
+        let affected_ids = handle.mark_last_turns_status(num_turns, status);
+        if !affected_ids.is_empty() {
+            // Persist the status change to SQLite.
+            let _ = persist_tx
+                .send(PersistCommand::RowsTurnStatusUpdate {
+                    session_id: session_id.clone(),
+                    row_ids: affected_ids.clone(),
+                    status,
+                })
+                .await;
+
+            // Broadcast updated summaries so connected clients see the change.
+            let upserted: Vec<_> = affected_ids
+                .iter()
+                .filter_map(|id| handle.row_by_id(id).map(|r| r.to_summary()))
+                .collect();
+            if !upserted.is_empty() {
+                let total = handle.total_row_count();
+                handle.broadcast(ServerMessage::ConversationRowsChanged {
+                    session_id,
+                    upserted,
+                    removed_row_ids: vec![],
+                    total_row_count: total,
+                });
+            }
+        }
+    }
+
     if let Some(changes) = transition_delta(
         previous_last_message.as_deref(),
         handle.rows(),
@@ -895,6 +939,7 @@ mod tests {
             session_id: session_id.to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: ConversationRow::User(MessageRowContent {
                 id: row_id.to_string(),
                 content: content.to_string(),
