@@ -4,8 +4,7 @@ struct NewMissionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let missionsClient: MissionsClient
-  let onCreated: (MissionSummary) -> Void
+  let onCreated: (MissionSummary, UUID) -> Void
 
   @State private var missionName = ""
   @State private var selectedPath = ""
@@ -14,15 +13,25 @@ struct NewMissionSheet: View {
   @State private var trackerKind = "linear"
   @State private var isCreating = false
   @State private var error: String?
+  @State private var selectedEndpointId: UUID?
 
-  private var endpointId: UUID {
-    runtimeRegistry.primaryEndpointId
+  private var resolvedEndpointId: UUID {
+    selectedEndpointId
+      ?? runtimeRegistry.primaryEndpointId
       ?? runtimeRegistry.activeEndpointId
       ?? UUID()
   }
 
+  private var missionsClient: MissionsClient? {
+    runtimeRegistry.runtimesByEndpointId[resolvedEndpointId]?.clients.missions
+  }
+
   private var canCreate: Bool {
-    !missionName.isEmpty && !selectedPath.isEmpty && selectedPathIsGit && !isCreating
+    !missionName.isEmpty && !selectedPath.isEmpty && selectedPathIsGit && !isCreating && missionsClient != nil
+  }
+
+  private var availableEndpoints: [ServerRuntime] {
+    runtimeRegistry.connectedRuntimes
   }
 
   var body: some View {
@@ -66,6 +75,10 @@ struct NewMissionSheet: View {
   private var formContent: some View {
     NewSessionFormShell {
       VStack(alignment: .leading, spacing: Spacing.lg) {
+        if availableEndpoints.count > 1 {
+          endpointSection
+        }
+
         nameSection
 
         directorySection
@@ -97,6 +110,50 @@ struct NewMissionSheet: View {
     }
   }
 
+  // MARK: - Endpoint Section
+
+  private var endpointSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("Server")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+
+      HStack(spacing: Spacing.sm) {
+        ForEach(availableEndpoints, id: \.endpoint.id) { runtime in
+          let isSelected = runtime.endpoint.id == resolvedEndpointId
+          Button {
+            selectedEndpointId = runtime.endpoint.id
+            // Reset path when switching endpoints since repos differ per server
+            selectedPath = ""
+            selectedPathIsGit = false
+          } label: {
+            HStack(spacing: Spacing.sm_) {
+              Image(systemName: "server.rack")
+                .font(.system(size: IconScale.sm, weight: .semibold))
+              Text(runtime.endpoint.name)
+                .font(.system(size: TypeScale.caption, weight: .medium))
+            }
+            .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                .fill(isSelected ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary)
+                .overlay(
+                  RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                    .strokeBorder(
+                      isSelected ? Color.accent.opacity(OpacityTier.medium) : .clear,
+                      lineWidth: 1
+                    )
+                )
+            )
+          }
+          .buttonStyle(.plain)
+        }
+      }
+    }
+  }
+
   private var nameSection: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       Text("Mission Name")
@@ -125,13 +182,13 @@ struct NewMissionSheet: View {
       RemoteProjectPicker(
         selectedPath: $selectedPath,
         selectedPathIsGit: $selectedPathIsGit,
-        endpointId: endpointId
+        endpointId: resolvedEndpointId
       )
     #else
       ProjectPicker(
         selectedPath: $selectedPath,
         selectedPathIsGit: $selectedPathIsGit,
-        endpointId: endpointId
+        endpointId: resolvedEndpointId
       )
     #endif
   }
@@ -267,6 +324,7 @@ struct NewMissionSheet: View {
   // MARK: - Actions
 
   private func createMission() async {
+    guard let missionsClient else { return }
     isCreating = true
     error = nil
 
@@ -279,7 +337,7 @@ struct NewMissionSheet: View {
         trackerKind: trackerKind,
         provider: providerString
       )
-      onCreated(mission)
+      onCreated(mission, resolvedEndpointId)
       dismiss()
     } catch {
       self.error = error.localizedDescription

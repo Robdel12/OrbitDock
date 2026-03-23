@@ -86,8 +86,8 @@ struct DashboardView: View {
   @ViewBuilder
   private var missionsTab: some View {
     let registry = appStore.runtimeRegistry
-    if let clients = (registry.primaryRuntime ?? registry.activeRuntime)?.clients {
-      MissionListView(missionsClient: clients.missions)
+    if registry.hasConfiguredEndpoints {
+      MissionListView()
     } else {
       ContentUnavailableView(
         "No Server Connected",

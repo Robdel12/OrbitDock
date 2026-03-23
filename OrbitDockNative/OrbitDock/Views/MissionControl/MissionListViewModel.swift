@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 @Observable
 final class MissionListViewModel {
-  var missions: [MissionSummary] = []
+  var missions: [AggregatedMissionSummary] = []
   var isLoading = true
   var error: String?
   var showNewMission = false
@@ -15,34 +15,45 @@ final class MissionListViewModel {
     self.runtimeRegistry = runtimeRegistry
   }
 
-  var sessionStore: SessionStore? {
-    (runtimeRegistry?.primaryRuntime ?? runtimeRegistry?.activeRuntime)?.sessionStore
+  var aggregatedMissionsSnapshot: [AggregatedMissionSummary] {
+    runtimeRegistry?.aggregatedMissions ?? []
   }
 
-  var endpointId: UUID {
-    runtimeRegistry?.primaryEndpointId
-      ?? runtimeRegistry?.activeEndpointId
-      ?? UUID()
-  }
-
-  var missionListSnapshot: [MissionSummary] {
-    sessionStore?.missionListSnapshot ?? []
-  }
-
-  func fetchMissions(using missionsClient: MissionsClient) async {
+  func fetchAllMissions() async {
+    guard let registry = runtimeRegistry else { return }
     isLoading = true
-    do {
-      let response = try await missionsClient.listMissions()
-      missions = response.missions
-      error = nil
-    } catch {
-      self.error = error.localizedDescription
+    var all: [AggregatedMissionSummary] = []
+
+    for runtime in registry.runtimes where runtime.endpoint.isEnabled {
+      let endpointId = runtime.endpoint.id
+      let endpointName = runtime.endpoint.name
+      let status = registry.connectionStatusByEndpointId[endpointId]
+      guard status == .connected else { continue }
+      do {
+        let response = try await runtime.clients.missions.listMissions()
+        let aggregated = response.missions.map { mission in
+          AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
+        }
+        all.append(contentsOf: aggregated)
+      } catch {
+        // Individual endpoint failure shouldn't block others
+        continue
+      }
     }
+
+    missions = all.sorted { lhs, rhs in
+      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
+      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
+      if lhsActive != rhsActive { return lhsActive }
+      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
+    }
+
+    error = missions.isEmpty && all.isEmpty ? nil : nil
     isLoading = false
   }
 
   func applyMissionListSnapshotIfNeeded() {
-    let snapshot = missionListSnapshot
+    let snapshot = aggregatedMissionsSnapshot
     guard !snapshot.isEmpty else { return }
     missions = snapshot
   }

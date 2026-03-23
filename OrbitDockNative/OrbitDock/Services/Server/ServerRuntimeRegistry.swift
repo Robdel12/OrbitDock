@@ -27,8 +27,10 @@ final class ServerRuntimeRegistry {
 
   @ObservationIgnored private var sessionsByEndpoint: [UUID: [String: RootSessionNode]] = [:]
   @ObservationIgnored private var dashboardConversationsByEndpoint: [UUID: [String: DashboardConversationRecord]] = [:]
+  @ObservationIgnored private var missionsByEndpoint: [UUID: [String: AggregatedMissionSummary]] = [:]
   private(set) var aggregatedSessions: [RootSessionNode] = []
   private(set) var aggregatedDashboardConversations: [DashboardConversationRecord] = []
+  private(set) var aggregatedMissions: [AggregatedMissionSummary] = []
 
   @ObservationIgnored
   private lazy var fallbackSessionStore: SessionStore = {
@@ -156,6 +158,16 @@ final class ServerRuntimeRegistry {
     return runtimesByEndpointId[primaryEndpointId]
   }
 
+  var hasMultipleEndpoints: Bool {
+    runtimesByEndpointId.count > 1
+  }
+
+  var connectedRuntimes: [ServerRuntime] {
+    runtimes.filter { runtime in
+      connectionStatusByEndpointId[runtime.endpoint.id] == .connected
+    }
+  }
+
   var activeSessionStore: SessionStore {
     ensureInitialized()
     if let runtime = resolvedActiveRuntime() {
@@ -255,10 +267,12 @@ final class ServerRuntimeRegistry {
       readinessByEndpointId[id] = nil
       sessionsByEndpoint[id] = nil
       dashboardConversationsByEndpoint[id] = nil
+      missionsByEndpoint[id] = nil
       readinessContinuation.yield(())
     }
     recomputeAggregatedSessions()
     recomputeAggregatedDashboardConversations()
+    recomputeAggregatedMissions()
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
@@ -272,6 +286,7 @@ final class ServerRuntimeRegistry {
 
           sessionsByEndpoint[endpoint.id] = nil
           dashboardConversationsByEndpoint[endpoint.id] = nil
+          missionsByEndpoint[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -608,6 +623,22 @@ final class ServerRuntimeRegistry {
             self.recomputeAggregatedSessions()
           }
 
+        case let .missionsList(missions):
+          let endpointName = runtime.endpoint.name
+          var index: [String: AggregatedMissionSummary] = [:]
+          for mission in missions {
+            let agg = AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
+            index[agg.id] = agg
+          }
+          self.missionsByEndpoint[endpointId] = index
+          self.recomputeAggregatedMissions()
+
+        case let .missionDelta(_, _, summary):
+          let endpointName = runtime.endpoint.name
+          let agg = AggregatedMissionSummary(mission: summary, endpointId: endpointId, endpointName: endpointName)
+          self.missionsByEndpoint[endpointId, default: [:]][agg.id] = agg
+          self.recomputeAggregatedMissions()
+
         default:
           break
       }
@@ -642,6 +673,17 @@ final class ServerRuntimeRegistry {
         return dashboardConversationPriority(lhs.displayStatus) < dashboardConversationPriority(rhs.displayStatus)
       }
       return lhsDate > rhsDate
+    }
+  }
+
+  private func recomputeAggregatedMissions() {
+    let all = missionsByEndpoint.values.flatMap(\.values)
+    aggregatedMissions = all.sorted { lhs, rhs in
+      // Active missions first, then by name
+      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
+      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
+      if lhsActive != rhsActive { return lhsActive }
+      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
     }
   }
 

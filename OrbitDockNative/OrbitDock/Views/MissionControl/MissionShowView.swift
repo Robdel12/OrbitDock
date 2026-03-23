@@ -294,6 +294,11 @@ struct MissionShowView: View {
               )
             }
             statusCapsule(mission)
+
+            if runtimeRegistry.hasMultipleEndpoints,
+               let name = runtimeRegistry.runtimesByEndpointId[endpointId]?.endpoint.name {
+              capsuleTag(name, icon: "server.rack")
+            }
           }
         }
 

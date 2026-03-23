@@ -6,8 +6,6 @@ struct MissionListView: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let missionsClient: MissionsClient
-
   var body: some View {
     Group {
       if viewModel.isLoading {
@@ -23,15 +21,20 @@ struct MissionListView: View {
     }
     .task {
       viewModel.bind(runtimeRegistry: runtimeRegistry)
-      await viewModel.fetchMissions(using: missionsClient)
+      await viewModel.fetchAllMissions()
     }
-    .onChange(of: viewModel.missionListSnapshot) { _, _ in
+    .onChange(of: viewModel.aggregatedMissionsSnapshot) { _, _ in
       viewModel.applyMissionListSnapshotIfNeeded()
     }
     .sheet(isPresented: $viewModel.showNewMission) {
-      NewMissionSheet(missionsClient: missionsClient) { newMission in
-        viewModel.missions.insert(newMission, at: 0)
-        router.navigateToMission(missionId: newMission.id, endpointId: viewModel.endpointId)
+      NewMissionSheet { newMission, endpointId in
+        let agg = AggregatedMissionSummary(
+          mission: newMission,
+          endpointId: endpointId,
+          endpointName: runtimeRegistry.runtimesByEndpointId[endpointId]?.endpoint.name
+        )
+        viewModel.missions.insert(agg, at: 0)
+        router.navigateToMission(missionId: newMission.id, endpointId: endpointId)
       }
     }
     .alert(
@@ -105,17 +108,33 @@ struct MissionListView: View {
           .buttonStyle(.plain)
         }
 
-        ForEach(viewModel.missions) { mission in
+        ForEach(viewModel.missions) { agg in
+          let missionsClient = runtimeRegistry.runtimesByEndpointId[agg.endpointId]?.clients.missions
+
           Button {
-            router.navigateToMission(missionId: mission.id, endpointId: viewModel.endpointId)
+            router.navigateToMission(missionId: agg.mission.id, endpointId: agg.endpointId)
           } label: {
             MissionRowView(
-              mission: mission,
+              mission: agg.mission,
+              endpointName: runtimeRegistry.hasMultipleEndpoints ? agg.endpointName : nil,
               missionsClient: missionsClient,
-              onRefresh: { await viewModel.fetchMissions(using: missionsClient) },
+              onRefresh: { await viewModel.fetchAllMissions() },
               onApplyList: { response in
+                // Update just this endpoint's missions in the list
+                let endpointId = agg.endpointId
+                let endpointName = agg.endpointName
+                let updated = response.missions.map { mission in
+                  AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
+                }
                 withAnimation(Motion.standard) {
-                  viewModel.missions = response.missions
+                  viewModel.missions.removeAll { $0.endpointId == endpointId }
+                  viewModel.missions.append(contentsOf: updated)
+                  viewModel.missions.sort { lhs, rhs in
+                    let lhsActive = lhs.mission.enabled && !lhs.mission.paused
+                    let rhsActive = rhs.mission.enabled && !rhs.mission.paused
+                    if lhsActive != rhsActive { return lhsActive }
+                    return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
+                  }
                 }
               }
             )
@@ -133,7 +152,8 @@ struct MissionListView: View {
 
 private struct MissionRowView: View {
   let mission: MissionSummary
-  let missionsClient: MissionsClient
+  let endpointName: String?
+  let missionsClient: MissionsClient?
   let onRefresh: () async -> Void
   let onApplyList: (MissionsListResponse) -> Void
 
@@ -173,6 +193,20 @@ private struct MissionRowView: View {
           Text(mission.name)
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
+
+          // Endpoint tag (multi-server)
+          if let endpointName {
+            HStack(spacing: Spacing.gap) {
+              Image(systemName: "server.rack")
+                .font(.system(size: IconScale.xs, weight: .semibold))
+              Text(endpointName)
+                .font(.system(size: TypeScale.mini, weight: .semibold))
+            }
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, Spacing.sm_)
+            .padding(.vertical, Spacing.xxs)
+            .background(Color.backgroundTertiary, in: Capsule())
+          }
 
           // Provider tag
           HStack(spacing: Spacing.gap) {
@@ -381,6 +415,7 @@ private struct MissionRowView: View {
   // MARK: - Helpers
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
+    guard let missionsClient else { return }
     do {
       _ = try await missionsClient.updateMission(mission.id, enabled: enabled, paused: paused)
       await onRefresh()
@@ -390,6 +425,7 @@ private struct MissionRowView: View {
   }
 
   private func deleteMission() async {
+    guard let missionsClient else { return }
     do {
       let response = try await missionsClient.deleteMission(mission.id)
       onApplyList(response)
