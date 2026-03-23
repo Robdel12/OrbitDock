@@ -16,6 +16,10 @@ use orbitdock_protocol::{
     SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
     WorkStatus,
 };
+
+pub use super::facets::{
+    SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
+};
 use serde::Serialize;
 use tokio::sync::broadcast;
 use tracing::info;
@@ -426,54 +430,50 @@ fn broadcast_capacity() -> usize {
 
 /// Handle to a running session
 pub struct SessionHandle {
-    id: String,
-    provider: Provider,
-    project_path: String,
-    transcript_path: Option<String>,
-    project_name: Option<String>,
-    model: Option<String>,
-    custom_name: Option<String>,
-    summary: Option<String>,
-    approval_policy: Option<String>,
-    approval_policy_details: Option<CodexApprovalPolicy>,
-    sandbox_mode: Option<String>,
-    collaboration_mode: Option<String>,
-    multi_agent: Option<bool>,
-    personality: Option<String>,
-    service_tier: Option<String>,
-    developer_instructions: Option<String>,
-    codex_config_mode: Option<CodexConfigMode>,
-    codex_config_profile: Option<String>,
-    codex_model_provider: Option<String>,
-    codex_config_source: Option<CodexConfigSource>,
-    codex_config_overrides: Option<CodexSessionOverrides>,
+    // ── Grouped facets ──────────────────────────────────────────────
+    identity: SessionIdentity,
+    config: SessionConfig,
+    display: SessionDisplay,
+    environment: SessionEnvironment,
+    timestamps: SessionTimestamps,
+
+    // ── Integration mode (set at creation/restore, not via config patch) ──
     codex_integration_mode: Option<CodexIntegrationMode>,
     claude_integration_mode: Option<ClaudeIntegrationMode>,
+
+    // ── Session lifecycle ───────────────────────────────────────────
     status: SessionStatus,
     work_status: WorkStatus,
     last_tool: Option<String>,
+
+    // ── Conversation data ───────────────────────────────────────────
     rows: Vec<ConversationRowEntry>,
     total_row_count: u64,
+
+    // ── Token usage ─────────────────────────────────────────────────
     token_usage: TokenUsage,
     token_usage_snapshot_kind: TokenUsageSnapshotKind,
+
+    // ── Diff & plan ─────────────────────────────────────────────────
     current_diff: Option<String>,
     current_plan: Option<String>,
+
+    // ── Turn tracking ───────────────────────────────────────────────
     current_turn_id: Option<String>,
     turn_count: u64,
     turn_diffs: Vec<TurnDiff>,
-    started_at: Option<String>,
-    last_activity_at: Option<String>,
-    last_progress_at: Option<String>,
+
+    // ── Fork lineage ────────────────────────────────────────────────
     forked_from_session_id: Option<String>,
-    git_branch: Option<String>,
-    git_sha: Option<String>,
-    current_cwd: Option<String>,
-    first_prompt: Option<String>,
-    last_message: Option<String>,
-    effort: Option<String>,
+
+    // ── Terminal ─────────────────────────────────────────────────────
     terminal_session_id: Option<String>,
     terminal_app: Option<String>,
+
+    // ── Sub-agents ──────────────────────────────────────────────────
     subagents: Vec<SubagentInfo>,
+
+    // ── Approval management ─────────────────────────────────────────
     pending_approval: Option<ApprovalRequest>,
     permission_mode: Option<String>,
     pending_tool_name: Option<String>,
@@ -486,22 +486,24 @@ pub struct SessionHandle {
     pending_approvals: VecDeque<PendingApprovalEntry>,
     /// Monotonic counter incremented on every approval state change (enqueue, decide, clear).
     approval_version: u64,
-    /// Canonical repo root (resolves worktrees to parent repo).
-    repository_root: Option<String>,
-    /// True if the session's cwd is inside a linked git worktree.
-    is_worktree: bool,
-    /// ID of the tracked worktree record (if any).
-    worktree_id: Option<String>,
+
+    // ── Unread tracking ─────────────────────────────────────────────
     /// Cached count of unread rows (non-user with sequence > last_read).
     unread_count: u64,
+
+    // ── Mission / orchestration ─────────────────────────────────────
     /// Mission ID if this session is orchestrated.
     mission_id: Option<String>,
     /// Issue identifier (e.g. "PROJ-123") if this session is orchestrated.
     issue_identifier: Option<String>,
     /// Whether the CLI was launched with `--allow-dangerously-skip-permissions`.
     allow_bypass_permissions: bool,
+
+    // ── Transcript sync ─────────────────────────────────────────────
     /// ID of the newest row synced from transcript (for sequence-based sync).
     newest_synced_row_id: Option<String>,
+
+    // ── Broadcasting ────────────────────────────────────────────────
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -511,74 +513,36 @@ pub struct SessionHandle {
     event_log: VecDeque<(u64, String)>,
     /// Last emit timestamp for actively streaming message rows.
     streaming_row_emit_at: HashMap<String, Instant>,
+
+    // ── Lock-free snapshot ──────────────────────────────────────────
     /// Lock-free snapshot for read-only access from outside the actor
     snapshot_handle: Arc<ArcSwap<SessionSnapshot>>,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct SessionConfigPatch {
-    pub approval_policy: Option<String>,
-    pub approval_policy_details: Option<CodexApprovalPolicy>,
-    pub sandbox_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub codex_config_mode: Option<CodexConfigMode>,
-    pub codex_config_profile: Option<String>,
-    pub codex_model_provider: Option<String>,
-    pub model: Option<String>,
-    pub effort: Option<String>,
-    pub codex_config_source: Option<CodexConfigSource>,
-    pub codex_config_overrides: Option<CodexSessionOverrides>,
-}
+/// A config patch is structurally identical to `SessionConfig` — `None` fields
+/// mean "don't change" when applied via `set_config`.
+pub type SessionConfigPatch = SessionConfig;
 
 /// All fields needed to reconstruct a `SessionHandle` from persisted DB state.
 pub struct SessionRestoreData {
-    pub id: String,
-    pub provider: Provider,
-    pub project_path: String,
-    pub transcript_path: Option<String>,
-    pub project_name: Option<String>,
-    pub model: Option<String>,
-    pub custom_name: Option<String>,
-    pub summary: Option<String>,
+    pub identity: SessionIdentity,
+    pub config: SessionConfig,
+    pub display: SessionDisplay,
+    pub environment: SessionEnvironment,
+    pub timestamps: SessionTimestamps,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
-    pub approval_policy: Option<String>,
-    pub approval_policy_details: Option<CodexApprovalPolicy>,
-    pub sandbox_mode: Option<String>,
     pub permission_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub codex_config_mode: Option<CodexConfigMode>,
-    pub codex_config_profile: Option<String>,
-    pub codex_model_provider: Option<String>,
-    pub codex_config_source: Option<CodexConfigSource>,
-    pub codex_config_overrides: Option<CodexSessionOverrides>,
     pub token_usage: TokenUsage,
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
-    pub started_at: Option<String>,
-    pub last_activity_at: Option<String>,
-    pub last_progress_at: Option<String>,
     pub rows: Vec<ConversationRowEntry>,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
     pub turn_diffs: Vec<TurnDiff>,
-    pub git_branch: Option<String>,
-    pub git_sha: Option<String>,
-    pub current_cwd: Option<String>,
-    pub first_prompt: Option<String>,
-    pub last_message: Option<String>,
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
     pub pending_question: Option<String>,
     pub pending_approval_id: Option<String>,
-    pub effort: Option<String>,
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
     pub approval_version: u64,
@@ -740,12 +704,26 @@ impl SessionHandle {
     pub fn new(id: String, provider: Provider, project_path: String) -> Self {
         let now = chrono_now();
         let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
+
+        let identity = SessionIdentity {
+            id,
+            provider,
+            project_path,
+            transcript_path: None,
+            project_name: None,
+        };
+        let timestamps = SessionTimestamps {
+            started_at: Some(now.clone()),
+            last_activity_at: Some(now.clone()),
+            last_progress_at: Some(now),
+        };
+
         let snapshot = SessionSnapshot {
-            id: id.clone(),
+            id: identity.id.clone(),
             provider,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
-            project_path: project_path.clone(),
+            project_path: identity.project_path.clone(),
             project_name: None,
             transcript_path: None,
             custom_name: None,
@@ -777,9 +755,9 @@ impl SessionHandle {
             message_count: 0,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
-            started_at: Some(now.clone()),
-            last_activity_at: Some(now.clone()),
-            last_progress_at: Some(now.clone()),
+            started_at: timestamps.started_at.clone(),
+            last_activity_at: timestamps.last_activity_at.clone(),
+            last_progress_at: timestamps.last_progress_at.clone(),
             revision: 0,
             current_plan: None,
             current_diff: None,
@@ -802,27 +780,11 @@ impl SessionHandle {
             newest_synced_row_id: None,
         };
         Self {
-            id,
-            provider,
-            project_path,
-            transcript_path: None,
-            project_name: None,
-            model: None,
-            custom_name: None,
-            summary: None,
-            approval_policy: None,
-            approval_policy_details: None,
-            sandbox_mode: None,
-            collaboration_mode: None,
-            multi_agent: None,
-            personality: None,
-            service_tier: None,
-            developer_instructions: None,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides: None,
+            identity,
+            config: SessionConfig::default(),
+            display: SessionDisplay::default(),
+            environment: SessionEnvironment::default(),
+            timestamps,
             codex_integration_mode: None,
             claude_integration_mode: None,
             status: SessionStatus::Active,
@@ -837,16 +799,7 @@ impl SessionHandle {
             current_turn_id: None,
             turn_count: 0,
             turn_diffs: Vec::new(),
-            started_at: Some(now.clone()),
-            last_activity_at: Some(now.clone()),
-            last_progress_at: Some(now),
             forked_from_session_id: None,
-            git_branch: None,
-            git_sha: None,
-            current_cwd: None,
-            first_prompt: None,
-            last_message: None,
-            effort: None,
             terminal_session_id: None,
             terminal_app: None,
             subagents: Vec::new(),
@@ -858,9 +811,6 @@ impl SessionHandle {
             pending_approval_id: None,
             pending_approvals: VecDeque::new(),
             approval_version: 0,
-            repository_root: None,
-            is_worktree: false,
-            worktree_id: None,
             unread_count: 0,
             mission_id: None,
             issue_identifier: None,
@@ -878,82 +828,57 @@ impl SessionHandle {
     /// Restore a session from the database (for server restart recovery)
     pub fn restore(data: SessionRestoreData) -> Self {
         let SessionRestoreData {
-            id,
-            provider,
-            project_path,
-            transcript_path,
-            project_name,
-            model,
-            custom_name,
-            summary,
+            identity,
+            config,
+            display,
+            environment,
+            timestamps,
             status,
             work_status,
-            approval_policy,
-            approval_policy_details,
-            sandbox_mode,
             permission_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides,
             token_usage,
             token_usage_snapshot_kind,
-            started_at,
-            last_activity_at,
             rows,
             current_diff,
             current_plan,
             turn_diffs,
-            git_branch,
-            git_sha,
-            current_cwd,
-            first_prompt,
-            last_message,
             pending_tool_name,
             pending_tool_input,
             pending_question,
             pending_approval_id,
-            effort,
             terminal_session_id,
             terminal_app,
             approval_version,
             unread_count,
-            last_progress_at,
         } = data;
         let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
         let snapshot = SessionSnapshot {
-            id: id.clone(),
-            provider,
+            id: identity.id.clone(),
+            provider: identity.provider,
             status,
             work_status,
-            project_path: project_path.clone(),
-            project_name: project_name.clone(),
-            transcript_path: transcript_path.clone(),
-            custom_name: custom_name.clone(),
-            summary: summary.clone(),
-            model: model.clone(),
+            project_path: identity.project_path.clone(),
+            project_name: identity.project_name.clone(),
+            transcript_path: identity.transcript_path.clone(),
+            custom_name: display.custom_name.clone(),
+            summary: display.summary.clone(),
+            model: config.model.clone(),
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             claude_integration_mode: None,
-            approval_policy: approval_policy.clone(),
-            approval_policy_details: approval_policy_details.clone(),
-            sandbox_mode: sandbox_mode.clone(),
+            approval_policy: config.approval_policy.clone(),
+            approval_policy_details: config.approval_policy_details.clone(),
+            sandbox_mode: config.sandbox_mode.clone(),
             permission_mode: permission_mode.clone(),
-            collaboration_mode: collaboration_mode.clone(),
-            multi_agent,
-            personality: personality.clone(),
-            service_tier: service_tier.clone(),
-            developer_instructions: developer_instructions.clone(),
-            codex_config_mode,
-            codex_config_profile: codex_config_profile.clone(),
-            codex_model_provider: codex_model_provider.clone(),
-            codex_config_source,
-            codex_config_overrides: codex_config_overrides.clone(),
+            collaboration_mode: config.collaboration_mode.clone(),
+            multi_agent: config.multi_agent,
+            personality: config.personality.clone(),
+            service_tier: config.service_tier.clone(),
+            developer_instructions: config.developer_instructions.clone(),
+            codex_config_mode: config.codex_config_mode,
+            codex_config_profile: config.codex_config_profile.clone(),
+            codex_model_provider: config.codex_model_provider.clone(),
+            codex_config_source: config.codex_config_source,
+            codex_config_overrides: config.codex_config_overrides.clone(),
             has_pending_approval: pending_tool_name.is_some()
                 || pending_question.is_some()
                 || pending_approval_id.is_some(),
@@ -964,18 +889,18 @@ impl SessionHandle {
             message_count: rows.len(),
             token_usage: token_usage.clone(),
             token_usage_snapshot_kind,
-            started_at: started_at.clone(),
-            last_activity_at: last_activity_at.clone(),
-            last_progress_at: last_progress_at.clone(),
+            started_at: timestamps.started_at.clone(),
+            last_activity_at: timestamps.last_activity_at.clone(),
+            last_progress_at: timestamps.last_progress_at.clone(),
             revision: 0,
             current_plan: current_plan.clone(),
             current_diff: current_diff.clone(),
-            git_branch: git_branch.clone(),
-            git_sha: git_sha.clone(),
-            current_cwd: current_cwd.clone(),
-            effort: effort.clone(),
-            first_prompt: first_prompt.clone(),
-            last_message: last_message.clone(),
+            git_branch: environment.git_branch.clone(),
+            git_sha: environment.git_sha.clone(),
+            current_cwd: environment.current_cwd.clone(),
+            effort: config.effort.clone(),
+            first_prompt: display.first_prompt.clone(),
+            last_message: display.last_message.clone(),
             terminal_session_id: terminal_session_id.clone(),
             terminal_app: terminal_app.clone(),
             approval_version,
@@ -992,27 +917,11 @@ impl SessionHandle {
         };
 
         let mut handle = Self {
-            id,
-            provider,
-            project_path,
-            transcript_path,
-            project_name,
-            model,
-            custom_name,
-            summary,
-            approval_policy,
-            approval_policy_details,
-            sandbox_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            codex_config_source,
-            codex_config_overrides,
+            identity,
+            config,
+            display,
+            environment,
+            timestamps,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             claude_integration_mode: None,
             status,
@@ -1027,16 +936,7 @@ impl SessionHandle {
             current_turn_id: None,
             turn_count: turn_diffs.len() as u64,
             turn_diffs,
-            started_at,
-            last_activity_at,
-            last_progress_at,
             forked_from_session_id: None,
-            git_branch,
-            git_sha,
-            current_cwd,
-            first_prompt,
-            last_message,
-            effort,
             terminal_session_id,
             terminal_app,
             subagents: Vec::new(),
@@ -1048,9 +948,6 @@ impl SessionHandle {
             pending_approval_id,
             pending_approvals: VecDeque::new(),
             approval_version,
-            repository_root: None,
-            is_worktree: false,
-            worktree_id: None,
             unread_count,
             mission_id: None,
             issue_identifier: None,
@@ -1079,42 +976,48 @@ impl SessionHandle {
 
     /// Get session ID
     pub fn id(&self) -> &str {
-        &self.id
+        &self.identity.id
     }
 
     /// Get session project path
     pub fn project_path(&self) -> &str {
-        &self.project_path
+        &self.identity.project_path
     }
 
     /// Get provider
     pub fn provider(&self) -> Provider {
-        self.provider
+        self.identity.provider
+    }
+
+    /// Get a reference to the grouped config.
+    #[allow(dead_code)]
+    pub fn config(&self) -> &SessionConfig {
+        &self.config
     }
 
     /// Get a summary of this session
     pub fn summary(&self) -> SessionSummary {
         let display_title = SessionSummary::display_title_from_parts(
-            self.custom_name.as_deref(),
-            self.summary.as_deref(),
-            self.first_prompt.as_deref(),
-            self.project_name.as_deref(),
-            &self.project_path,
+            self.display.custom_name.as_deref(),
+            self.display.summary.as_deref(),
+            self.display.first_prompt.as_deref(),
+            self.identity.project_name.as_deref(),
+            &self.identity.project_path,
         );
         let context_line = SessionSummary::context_line_from_parts(
-            self.summary.as_deref(),
-            self.first_prompt.as_deref(),
-            self.last_message.as_deref(),
+            self.display.summary.as_deref(),
+            self.display.first_prompt.as_deref(),
+            self.display.last_message.as_deref(),
         );
         SessionSummary {
-            id: self.id.clone(),
-            provider: self.provider,
-            project_path: self.project_path.clone(),
-            transcript_path: self.transcript_path.clone(),
-            project_name: self.project_name.clone(),
-            model: self.model.clone(),
-            custom_name: self.custom_name.clone(),
-            summary: self.summary.clone(),
+            id: self.identity.id.clone(),
+            provider: self.identity.provider,
+            project_path: self.identity.project_path.clone(),
+            transcript_path: self.identity.transcript_path.clone(),
+            project_name: self.identity.project_name.clone(),
+            model: self.config.model.clone(),
+            custom_name: self.display.custom_name.clone(),
+            summary: self.display.summary.clone(),
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
@@ -1125,20 +1028,20 @@ impl SessionHandle {
                 || self.pending_approval_id.is_some(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
-            approval_policy: self.approval_policy.clone(),
-            approval_policy_details: self.approval_policy_details.clone(),
-            sandbox_mode: self.sandbox_mode.clone(),
+            approval_policy: self.config.approval_policy.clone(),
+            approval_policy_details: self.config.approval_policy_details.clone(),
+            sandbox_mode: self.config.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
-            collaboration_mode: self.collaboration_mode.clone(),
-            multi_agent: self.multi_agent,
-            personality: self.personality.clone(),
-            service_tier: self.service_tier.clone(),
-            developer_instructions: self.developer_instructions.clone(),
-            codex_config_mode: self.codex_config_mode,
-            codex_config_profile: self.codex_config_profile.clone(),
-            codex_model_provider: self.codex_model_provider.clone(),
-            codex_config_source: self.codex_config_source,
-            codex_config_overrides: self.codex_config_overrides.clone(),
+            collaboration_mode: self.config.collaboration_mode.clone(),
+            multi_agent: self.config.multi_agent,
+            personality: self.config.personality.clone(),
+            service_tier: self.config.service_tier.clone(),
+            developer_instructions: self.config.developer_instructions.clone(),
+            codex_config_mode: self.config.codex_config_mode,
+            codex_config_profile: self.config.codex_config_profile.clone(),
+            codex_model_provider: self.config.codex_model_provider.clone(),
+            codex_config_source: self.config.codex_config_source,
+            codex_config_overrides: self.config.codex_config_overrides.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -1146,20 +1049,20 @@ impl SessionHandle {
                 .pending_approval_id
                 .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
-            started_at: self.started_at.clone(),
-            last_activity_at: self.last_activity_at.clone(),
-            last_progress_at: self.last_progress_at.clone(),
-            git_branch: self.git_branch.clone(),
-            git_sha: self.git_sha.clone(),
-            current_cwd: self.current_cwd.clone(),
-            effort: self.effort.clone(),
-            first_prompt: self.first_prompt.clone(),
-            last_message: self.last_message.clone(),
+            started_at: self.timestamps.started_at.clone(),
+            last_activity_at: self.timestamps.last_activity_at.clone(),
+            last_progress_at: self.timestamps.last_progress_at.clone(),
+            git_branch: self.environment.git_branch.clone(),
+            git_sha: self.environment.git_sha.clone(),
+            current_cwd: self.environment.current_cwd.clone(),
+            effort: self.config.effort.clone(),
+            first_prompt: self.display.first_prompt.clone(),
+            last_message: self.display.last_message.clone(),
             approval_version: Some(self.approval_version),
             summary_revision: self.revision,
-            repository_root: self.repository_root.clone(),
-            is_worktree: self.is_worktree,
-            worktree_id: self.worktree_id.clone(),
+            repository_root: self.environment.repository_root.clone(),
+            is_worktree: self.environment.is_worktree,
+            worktree_id: self.environment.worktree_id.clone(),
             unread_count: self.unread_count,
             has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             display_title,
@@ -1185,28 +1088,28 @@ impl SessionHandle {
     /// Get the retained in-memory session snapshot.
     pub fn retained_state(&self) -> SessionState {
         SessionState {
-            id: self.id.clone(),
-            provider: self.provider,
-            project_path: self.project_path.clone(),
-            transcript_path: self.transcript_path.clone(),
-            project_name: self.project_name.clone(),
-            model: self.model.clone(),
-            custom_name: self.custom_name.clone(),
-            summary: self.summary.clone(),
+            id: self.identity.id.clone(),
+            provider: self.identity.provider,
+            project_path: self.identity.project_path.clone(),
+            transcript_path: self.identity.transcript_path.clone(),
+            project_name: self.identity.project_name.clone(),
+            model: self.config.model.clone(),
+            custom_name: self.display.custom_name.clone(),
+            summary: self.display.summary.clone(),
             status: self.status,
             work_status: self.work_status,
             pending_approval: self.pending_approval.clone(),
             permission_mode: self.permission_mode.clone(),
-            collaboration_mode: self.collaboration_mode.clone(),
-            multi_agent: self.multi_agent,
-            personality: self.personality.clone(),
-            service_tier: self.service_tier.clone(),
-            developer_instructions: self.developer_instructions.clone(),
-            codex_config_mode: self.codex_config_mode,
-            codex_config_profile: self.codex_config_profile.clone(),
-            codex_model_provider: self.codex_model_provider.clone(),
-            codex_config_source: self.codex_config_source,
-            codex_config_overrides: self.codex_config_overrides.clone(),
+            collaboration_mode: self.config.collaboration_mode.clone(),
+            multi_agent: self.config.multi_agent,
+            personality: self.config.personality.clone(),
+            service_tier: self.config.service_tier.clone(),
+            developer_instructions: self.config.developer_instructions.clone(),
+            codex_config_mode: self.config.codex_config_mode,
+            codex_config_profile: self.config.codex_config_profile.clone(),
+            codex_model_provider: self.config.codex_model_provider.clone(),
+            codex_config_source: self.config.codex_config_source,
+            codex_config_overrides: self.config.codex_config_overrides.clone(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
@@ -1221,30 +1124,30 @@ impl SessionHandle {
             current_plan: self.current_plan.clone(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
-            approval_policy: self.approval_policy.clone(),
-            approval_policy_details: self.approval_policy_details.clone(),
-            sandbox_mode: self.sandbox_mode.clone(),
-            started_at: self.started_at.clone(),
-            last_activity_at: self.last_activity_at.clone(),
-            last_progress_at: self.last_progress_at.clone(),
+            approval_policy: self.config.approval_policy.clone(),
+            approval_policy_details: self.config.approval_policy_details.clone(),
+            sandbox_mode: self.config.sandbox_mode.clone(),
+            started_at: self.timestamps.started_at.clone(),
+            last_activity_at: self.timestamps.last_activity_at.clone(),
+            last_progress_at: self.timestamps.last_progress_at.clone(),
             forked_from_session_id: self.forked_from_session_id.clone(),
             revision: Some(self.revision),
             current_turn_id: self.current_turn_id.clone(),
             turn_count: self.turn_count,
             turn_diffs: self.turn_diffs.clone(),
-            git_branch: self.git_branch.clone(),
-            git_sha: self.git_sha.clone(),
-            current_cwd: self.current_cwd.clone(),
-            first_prompt: self.first_prompt.clone(),
-            last_message: self.last_message.clone(),
+            git_branch: self.environment.git_branch.clone(),
+            git_sha: self.environment.git_sha.clone(),
+            current_cwd: self.environment.current_cwd.clone(),
+            first_prompt: self.display.first_prompt.clone(),
+            last_message: self.display.last_message.clone(),
             subagents: self.subagents.clone(),
-            effort: self.effort.clone(),
+            effort: self.config.effort.clone(),
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
             approval_version: Some(self.approval_version),
-            repository_root: self.repository_root.clone(),
-            is_worktree: self.is_worktree,
-            worktree_id: self.worktree_id.clone(),
+            repository_root: self.environment.repository_root.clone(),
+            is_worktree: self.environment.is_worktree,
+            worktree_id: self.environment.worktree_id.clone(),
             unread_count: self.unread_count,
             mission_id: self.mission_id.clone(),
             issue_identifier: self.issue_identifier.clone(),
@@ -1307,23 +1210,23 @@ impl SessionHandle {
 
     /// Set the custom name for this session
     pub fn set_custom_name(&mut self, name: Option<String>) {
-        self.custom_name = name;
+        self.display.custom_name = name;
     }
 
     /// Get custom name
     pub fn custom_name(&self) -> Option<&str> {
-        self.custom_name.as_deref()
+        self.display.custom_name.as_deref()
     }
 
     /// Set first prompt
     #[allow(dead_code)]
     pub fn set_first_prompt(&mut self, prompt: Option<String>) {
-        self.first_prompt = prompt;
+        self.display.first_prompt = prompt;
     }
 
     /// Set last message (for dashboard context lines)
     pub fn set_last_message(&mut self, message: Option<String>) {
-        self.last_message = message;
+        self.display.last_message = message;
     }
 
     /// Get rows
@@ -1346,7 +1249,7 @@ impl SessionHandle {
     /// Get first prompt
     #[allow(dead_code)]
     pub fn first_prompt(&self) -> Option<&str> {
-        self.first_prompt.as_deref()
+        self.display.first_prompt.as_deref()
     }
 
     /// Set codex integration mode
@@ -1363,21 +1266,21 @@ impl SessionHandle {
 
     /// Set project name
     pub fn set_project_name(&mut self, project_name: Option<String>) {
-        self.project_name = project_name;
+        self.identity.project_name = project_name;
     }
 
     pub fn set_git_branch(&mut self, branch: Option<String>) {
-        self.git_branch = branch;
+        self.environment.git_branch = branch;
     }
 
     /// Set transcript path
     pub fn set_transcript_path(&mut self, transcript_path: Option<String>) {
-        self.transcript_path = transcript_path;
+        self.identity.transcript_path = transcript_path;
     }
 
     #[allow(dead_code)]
     pub fn transcript_path(&self) -> Option<&str> {
-        self.transcript_path.as_deref()
+        self.identity.transcript_path.as_deref()
     }
 
     pub fn message_count(&self) -> usize {
@@ -1410,87 +1313,31 @@ impl SessionHandle {
 
     /// Set model
     pub fn set_model(&mut self, model: Option<String>) {
-        self.model = model;
+        self.config.model = model;
         self.refresh_snapshot();
     }
 
     /// Set reasoning effort
     pub fn set_effort(&mut self, effort: Option<String>) {
-        self.effort = effort;
+        self.config.effort = effort;
         self.refresh_snapshot();
     }
 
     /// Set autonomy configuration
     pub fn set_config(&mut self, patch: SessionConfigPatch) {
-        let SessionConfigPatch {
-            approval_policy,
-            approval_policy_details,
-            sandbox_mode,
-            collaboration_mode,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions,
-            codex_config_mode,
-            codex_config_profile,
-            codex_model_provider,
-            model,
-            effort,
-            codex_config_source,
-            codex_config_overrides,
-        } = patch;
-        let has_approval_policy = approval_policy.is_some();
-        let has_codex_config_overrides = codex_config_overrides.is_some();
+        let has_approval_policy = patch.approval_policy.is_some();
+        let has_codex_config_overrides = patch.codex_config_overrides.is_some();
+        let had_explicit_details = patch.approval_policy_details.is_some();
 
-        if let Some(approval_policy) = approval_policy {
-            self.approval_policy = Some(approval_policy);
-        }
-        if let Some(approval_policy_details) = approval_policy_details {
-            self.approval_policy_details = Some(approval_policy_details);
-        } else if has_approval_policy || has_codex_config_overrides {
-            self.approval_policy_details = resolve_approval_policy_details(
-                self.approval_policy.as_deref(),
-                self.codex_config_overrides.as_ref(),
+        self.config.merge_from(patch);
+
+        // Re-derive approval_policy_details when the patch touched policy or
+        // overrides but did not supply an explicit details value.
+        if !had_explicit_details && (has_approval_policy || has_codex_config_overrides) {
+            self.config.approval_policy_details = resolve_approval_policy_details(
+                self.config.approval_policy.as_deref(),
+                self.config.codex_config_overrides.as_ref(),
             );
-        }
-        if let Some(sandbox_mode) = sandbox_mode {
-            self.sandbox_mode = Some(sandbox_mode);
-        }
-        if let Some(collaboration_mode) = collaboration_mode {
-            self.collaboration_mode = Some(collaboration_mode);
-        }
-        if let Some(multi_agent) = multi_agent {
-            self.multi_agent = Some(multi_agent);
-        }
-        if let Some(personality) = personality {
-            self.personality = Some(personality);
-        }
-        if let Some(service_tier) = service_tier {
-            self.service_tier = Some(service_tier);
-        }
-        if let Some(developer_instructions) = developer_instructions {
-            self.developer_instructions = Some(developer_instructions);
-        }
-        if let Some(codex_config_mode) = codex_config_mode {
-            self.codex_config_mode = Some(codex_config_mode);
-        }
-        if let Some(codex_config_profile) = codex_config_profile {
-            self.codex_config_profile = Some(codex_config_profile);
-        }
-        if let Some(codex_model_provider) = codex_model_provider {
-            self.codex_model_provider = Some(codex_model_provider);
-        }
-        if let Some(model) = model {
-            self.model = Some(model);
-        }
-        if let Some(effort) = effort {
-            self.effort = Some(effort);
-        }
-        if let Some(codex_config_source) = codex_config_source {
-            self.codex_config_source = Some(codex_config_source);
-        }
-        if let Some(codex_config_overrides) = codex_config_overrides {
-            self.codex_config_overrides = Some(codex_config_overrides);
         }
         self.refresh_snapshot();
     }
@@ -1518,24 +1365,24 @@ impl SessionHandle {
         is_worktree: bool,
         worktree_id: Option<String>,
     ) {
-        self.repository_root = repository_root;
-        self.is_worktree = is_worktree;
-        self.worktree_id = worktree_id;
+        self.environment.repository_root = repository_root;
+        self.environment.is_worktree = is_worktree;
+        self.environment.worktree_id = worktree_id;
     }
 
     #[allow(dead_code)] // Used in Phase 6+
     pub fn repository_root(&self) -> Option<&str> {
-        self.repository_root.as_deref()
+        self.environment.repository_root.as_deref()
     }
 
     #[allow(dead_code)] // Used in Phase 6+
     pub fn is_worktree(&self) -> bool {
-        self.is_worktree
+        self.environment.is_worktree
     }
 
     #[allow(dead_code)] // Used in Phase 6+
     pub fn worktree_id(&self) -> Option<&str> {
-        self.worktree_id.as_deref()
+        self.environment.worktree_id.as_deref()
     }
 
     /// Set status
@@ -1548,12 +1395,12 @@ impl SessionHandle {
 
     /// Set started_at timestamp
     pub fn set_started_at(&mut self, started_at: Option<String>) {
-        self.started_at = started_at;
+        self.timestamps.started_at = started_at;
     }
 
     /// Set last_activity_at timestamp
     pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
-        self.last_activity_at = last_activity_at;
+        self.timestamps.last_activity_at = last_activity_at;
     }
 
     /// Set work status
@@ -1604,9 +1451,9 @@ impl SessionHandle {
         self.total_row_count = self.total_row_count.saturating_add(1);
         self.trim_retained_rows();
         let now = chrono_now();
-        self.last_activity_at = Some(now.clone());
+        self.timestamps.last_activity_at = Some(now.clone());
         if counts_as_progress {
-            self.last_progress_at = Some(now);
+            self.timestamps.last_progress_at = Some(now);
         }
         self.refresh_snapshot();
         entry
@@ -1633,9 +1480,9 @@ impl SessionHandle {
                 self.newest_synced_row_id = Some(entry_id);
             }
             let now = chrono_now();
-            self.last_activity_at = Some(now.clone());
+            self.timestamps.last_activity_at = Some(now.clone());
             if counts_as_progress {
-                self.last_progress_at = Some(now);
+                self.timestamps.last_progress_at = Some(now);
             }
             self.refresh_snapshot();
             entry
@@ -1660,9 +1507,9 @@ impl SessionHandle {
             }
             self.trim_retained_rows();
             let now = chrono_now();
-            self.last_activity_at = Some(now.clone());
+            self.timestamps.last_activity_at = Some(now.clone());
             if counts_as_progress {
-                self.last_progress_at = Some(now);
+                self.timestamps.last_progress_at = Some(now);
             }
             self.refresh_snapshot();
             entry
@@ -1703,7 +1550,7 @@ impl SessionHandle {
         self.rows = rows;
         self.streaming_row_emit_at.clear();
         self.trim_retained_rows();
-        self.last_progress_at = Some(chrono_now());
+        self.timestamps.last_progress_at = Some(chrono_now());
     }
 
     pub fn should_emit_streaming_row_update(&mut self, upserted: &[RowEntrySummary]) -> bool {
@@ -1824,7 +1671,7 @@ impl SessionHandle {
             info!(
                 component = "approval",
                 event = "approval.updated",
-                session_id = %self.id,
+                session_id = %self.identity.id,
                 request_id = %normalized_request_id,
                 approval_version = self.approval_version,
                 approval_type = ?self.pending_approvals[index].approval_type,
@@ -1839,7 +1686,7 @@ impl SessionHandle {
         info!(
             component = "approval",
             event = "approval.enqueued",
-            session_id = %self.id,
+            session_id = %self.identity.id,
             request_id = %normalized_request_id,
             approval_version = self.approval_version,
             approval_type = ?self.pending_approvals.back().map(|entry| entry.approval_type).unwrap_or(approval_type),
@@ -1863,7 +1710,7 @@ impl SessionHandle {
             info!(
                 component = "approval",
                 event = "approval.promoted",
-                session_id = %self.id,
+                session_id = %self.identity.id,
                 request_id = %entry.request.id,
                 approval_version = self.approval_version,
                 approval_type = ?entry.approval_type,
@@ -1902,7 +1749,7 @@ impl SessionHandle {
             info!(
                 component = "approval",
                 event = "approval.cleared",
-                session_id = %self.id,
+                session_id = %self.identity.id,
                 approval_version = self.approval_version,
                 cleared_count,
                 "Cleared all pending approvals"
@@ -1916,7 +1763,7 @@ impl SessionHandle {
                 let approval_type = self.inferred_approval_type_from_pending_fields();
                 let approval = ApprovalRequest {
                     id: request_id,
-                    session_id: self.id.clone(),
+                    session_id: self.identity.id.clone(),
                     approval_type,
                     tool_name: self.pending_tool_name.clone(),
                     tool_input: self.pending_tool_input.clone(),
@@ -1980,7 +1827,7 @@ impl SessionHandle {
         );
         let request = ApprovalRequest {
             id: request_id,
-            session_id: self.id.clone(),
+            session_id: self.identity.id.clone(),
             approval_type,
             tool_name,
             tool_input,
@@ -2040,7 +1887,7 @@ impl SessionHandle {
         info!(
             component = "approval",
             event = "approval.decided",
-            session_id = %self.id,
+            session_id = %self.identity.id,
             request_id = %removed.request.id,
             approval_version = self.approval_version,
             approval_type = ?removed.approval_type,
@@ -2080,63 +1927,65 @@ impl SessionHandle {
                 self.clear_pending_approvals();
             }
         }
+        // Display facet
         if let Some(ref custom_name) = changes.custom_name {
-            self.custom_name = custom_name.clone();
+            self.display.custom_name = custom_name.clone();
         }
         if let Some(ref summary) = changes.summary {
-            self.summary = summary.clone();
+            self.display.summary = summary.clone();
         }
+        // Config facet
         if let Some(ref model) = changes.model {
-            self.model = model.clone();
+            self.config.model = model.clone();
         }
         if let Some(ref approval_policy) = changes.approval_policy {
-            self.approval_policy = approval_policy.clone();
+            self.config.approval_policy = approval_policy.clone();
         }
         if let Some(ref approval_policy_details) = changes.approval_policy_details {
-            self.approval_policy_details = approval_policy_details.clone();
+            self.config.approval_policy_details = approval_policy_details.clone();
         }
         if let Some(ref sandbox_mode) = changes.sandbox_mode {
-            self.sandbox_mode = sandbox_mode.clone();
+            self.config.sandbox_mode = sandbox_mode.clone();
         }
         if let Some(ref permission_mode) = changes.permission_mode {
             self.permission_mode = permission_mode.clone();
         }
         if let Some(ref collaboration_mode) = changes.collaboration_mode {
-            self.collaboration_mode = collaboration_mode.clone();
+            self.config.collaboration_mode = collaboration_mode.clone();
         }
         if let Some(multi_agent) = changes.multi_agent {
-            self.multi_agent = multi_agent;
+            self.config.multi_agent = multi_agent;
         }
         if let Some(ref personality) = changes.personality {
-            self.personality = personality.clone();
+            self.config.personality = personality.clone();
         }
         if let Some(ref service_tier) = changes.service_tier {
-            self.service_tier = service_tier.clone();
+            self.config.service_tier = service_tier.clone();
         }
         if let Some(ref developer_instructions) = changes.developer_instructions {
-            self.developer_instructions = developer_instructions.clone();
+            self.config.developer_instructions = developer_instructions.clone();
         }
         if let Some(codex_config_mode) = changes.codex_config_mode {
-            self.codex_config_mode = codex_config_mode;
+            self.config.codex_config_mode = codex_config_mode;
         }
         if let Some(ref codex_config_profile) = changes.codex_config_profile {
-            self.codex_config_profile = codex_config_profile.clone();
+            self.config.codex_config_profile = codex_config_profile.clone();
         }
         if let Some(ref codex_model_provider) = changes.codex_model_provider {
-            self.codex_model_provider = codex_model_provider.clone();
+            self.config.codex_model_provider = codex_model_provider.clone();
         }
         if let Some(codex_config_source) = changes.codex_config_source {
-            self.codex_config_source = codex_config_source;
+            self.config.codex_config_source = codex_config_source;
         }
         if let Some(ref codex_config_overrides) = changes.codex_config_overrides {
-            self.codex_config_overrides = codex_config_overrides.clone();
+            self.config.codex_config_overrides = codex_config_overrides.clone();
         }
         if changes.approval_policy_details.is_none()
             && (changes.approval_policy.is_some() || changes.codex_config_overrides.is_some())
         {
-            self.approval_policy_details = resolve_approval_policy_details(
-                self.approval_policy.as_deref(),
-                self.codex_config_overrides.as_ref(),
+            self.config.approval_policy_details = resolve_approval_policy_details(
+                self.config.approval_policy.as_deref(),
+                self.config.codex_config_overrides.as_ref(),
             );
         }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
@@ -2145,11 +1994,12 @@ impl SessionHandle {
         if let Some(ref claude_integration_mode) = changes.claude_integration_mode {
             self.claude_integration_mode = *claude_integration_mode;
         }
+        // Timestamps facet
         if let Some(ref last_activity_at) = changes.last_activity_at {
-            self.last_activity_at = Some(last_activity_at.clone());
+            self.timestamps.last_activity_at = Some(last_activity_at.clone());
         }
         if let Some(ref last_progress_at) = changes.last_progress_at {
-            self.last_progress_at = Some(last_progress_at.clone());
+            self.timestamps.last_progress_at = Some(last_progress_at.clone());
         }
         if let Some(ref token_usage) = changes.token_usage {
             self.token_usage = token_usage.clone();
@@ -2169,26 +2019,28 @@ impl SessionHandle {
         if let Some(turn_count) = changes.turn_count {
             self.turn_count = turn_count;
         }
+        // Environment facet
         if let Some(ref git_branch) = changes.git_branch {
-            self.git_branch = git_branch.clone();
+            self.environment.git_branch = git_branch.clone();
         }
         if let Some(ref git_sha) = changes.git_sha {
-            self.git_sha = git_sha.clone();
+            self.environment.git_sha = git_sha.clone();
         }
         if let Some(ref current_cwd) = changes.current_cwd {
-            self.current_cwd = current_cwd.clone();
+            self.environment.current_cwd = current_cwd.clone();
         }
         if let Some(ref subagents) = changes.subagents {
             self.subagents = subagents.clone();
         }
+        // Display facet
         if let Some(ref first_prompt) = changes.first_prompt {
-            self.first_prompt = first_prompt.clone();
+            self.display.first_prompt = first_prompt.clone();
         }
         if let Some(ref last_message) = changes.last_message {
-            self.last_message = last_message.clone();
+            self.display.last_message = last_message.clone();
         }
         if let Some(ref effort) = changes.effort {
-            self.effort = effort.clone();
+            self.config.effort = effort.clone();
         }
 
         if self.status == SessionStatus::Ended || self.work_status == WorkStatus::Ended {
@@ -2210,32 +2062,32 @@ impl SessionHandle {
     /// Create a snapshot of current session metadata
     pub fn to_snapshot(&self) -> SessionSnapshot {
         SessionSnapshot {
-            id: self.id.clone(),
-            provider: self.provider,
+            id: self.identity.id.clone(),
+            provider: self.identity.provider,
             status: self.status,
             work_status: self.work_status,
-            project_path: self.project_path.clone(),
-            project_name: self.project_name.clone(),
-            transcript_path: self.transcript_path.clone(),
-            custom_name: self.custom_name.clone(),
-            summary: self.summary.clone(),
-            model: self.model.clone(),
+            project_path: self.identity.project_path.clone(),
+            project_name: self.identity.project_name.clone(),
+            transcript_path: self.identity.transcript_path.clone(),
+            custom_name: self.display.custom_name.clone(),
+            summary: self.display.summary.clone(),
+            model: self.config.model.clone(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
-            approval_policy: self.approval_policy.clone(),
-            approval_policy_details: self.approval_policy_details.clone(),
-            sandbox_mode: self.sandbox_mode.clone(),
+            approval_policy: self.config.approval_policy.clone(),
+            approval_policy_details: self.config.approval_policy_details.clone(),
+            sandbox_mode: self.config.sandbox_mode.clone(),
             permission_mode: self.permission_mode.clone(),
-            collaboration_mode: self.collaboration_mode.clone(),
-            multi_agent: self.multi_agent,
-            personality: self.personality.clone(),
-            service_tier: self.service_tier.clone(),
-            developer_instructions: self.developer_instructions.clone(),
-            codex_config_mode: self.codex_config_mode,
-            codex_config_profile: self.codex_config_profile.clone(),
-            codex_model_provider: self.codex_model_provider.clone(),
-            codex_config_source: self.codex_config_source,
-            codex_config_overrides: self.codex_config_overrides.clone(),
+            collaboration_mode: self.config.collaboration_mode.clone(),
+            multi_agent: self.config.multi_agent,
+            personality: self.config.personality.clone(),
+            service_tier: self.config.service_tier.clone(),
+            developer_instructions: self.config.developer_instructions.clone(),
+            codex_config_mode: self.config.codex_config_mode,
+            codex_config_profile: self.config.codex_config_profile.clone(),
+            codex_model_provider: self.config.codex_model_provider.clone(),
+            codex_config_source: self.config.codex_config_source,
+            codex_config_overrides: self.config.codex_config_overrides.clone(),
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
                 || self.pending_question.is_some()
@@ -2250,24 +2102,24 @@ impl SessionHandle {
             message_count: self.total_row_count as usize,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
-            started_at: self.started_at.clone(),
-            last_activity_at: self.last_activity_at.clone(),
-            last_progress_at: self.last_progress_at.clone(),
+            started_at: self.timestamps.started_at.clone(),
+            last_activity_at: self.timestamps.last_activity_at.clone(),
+            last_progress_at: self.timestamps.last_progress_at.clone(),
             revision: self.revision,
             current_plan: self.current_plan.clone(),
             current_diff: self.current_diff.clone(),
-            git_branch: self.git_branch.clone(),
-            git_sha: self.git_sha.clone(),
-            current_cwd: self.current_cwd.clone(),
-            effort: self.effort.clone(),
-            first_prompt: self.first_prompt.clone(),
-            last_message: self.last_message.clone(),
+            git_branch: self.environment.git_branch.clone(),
+            git_sha: self.environment.git_sha.clone(),
+            current_cwd: self.environment.current_cwd.clone(),
+            effort: self.config.effort.clone(),
+            first_prompt: self.display.first_prompt.clone(),
+            last_message: self.display.last_message.clone(),
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
             approval_version: self.approval_version,
-            repository_root: self.repository_root.clone(),
-            is_worktree: self.is_worktree,
-            worktree_id: self.worktree_id.clone(),
+            repository_root: self.environment.repository_root.clone(),
+            is_worktree: self.environment.is_worktree,
+            worktree_id: self.environment.worktree_id.clone(),
             has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
             subscriber_count: self.broadcast_tx.receiver_count(),
             unread_count: self.unread_count,
@@ -2364,8 +2216,8 @@ impl SessionHandle {
         };
 
         TransitionState {
-            id: self.id.clone(),
-            provider: self.provider,
+            id: self.identity.id.clone(),
+            provider: self.identity.provider,
             revision: self.revision,
             phase,
             rows: self.rows.clone(),
@@ -2375,19 +2227,19 @@ impl SessionHandle {
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
-            custom_name: self.custom_name.clone(),
-            project_path: self.project_path.clone(),
-            last_activity_at: self.last_activity_at.clone(),
-            last_progress_at: self.last_progress_at.clone(),
+            custom_name: self.display.custom_name.clone(),
+            project_path: self.identity.project_path.clone(),
+            last_activity_at: self.timestamps.last_activity_at.clone(),
+            last_progress_at: self.timestamps.last_progress_at.clone(),
             current_turn_id: self.current_turn_id.clone(),
             turn_count: self.turn_count,
             turn_diffs: self.turn_diffs.clone(),
-            git_branch: self.git_branch.clone(),
-            git_sha: self.git_sha.clone(),
-            current_cwd: self.current_cwd.clone(),
+            git_branch: self.environment.git_branch.clone(),
+            git_sha: self.environment.git_sha.clone(),
+            current_cwd: self.environment.current_cwd.clone(),
             pending_approval: self.pending_approval.clone(),
-            repository_root: self.repository_root.clone(),
-            is_worktree: self.is_worktree,
+            repository_root: self.environment.repository_root.clone(),
+            is_worktree: self.environment.is_worktree,
         }
     }
 
@@ -2401,17 +2253,17 @@ impl SessionHandle {
         self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
         self.current_diff = state.current_diff;
         self.current_plan = state.current_plan;
-        self.custom_name = state.custom_name;
-        self.last_activity_at = state.last_activity_at;
-        self.last_progress_at = state.last_progress_at;
+        self.display.custom_name = state.custom_name;
+        self.timestamps.last_activity_at = state.last_activity_at;
+        self.timestamps.last_progress_at = state.last_progress_at;
         self.current_turn_id = state.current_turn_id;
         self.turn_count = state.turn_count;
         self.turn_diffs = state.turn_diffs;
-        self.git_branch = state.git_branch;
-        self.git_sha = state.git_sha;
-        self.current_cwd = state.current_cwd;
-        self.repository_root = state.repository_root;
-        self.is_worktree = state.is_worktree;
+        self.environment.git_branch = state.git_branch;
+        self.environment.git_sha = state.git_sha;
+        self.environment.current_cwd = state.current_cwd;
+        self.environment.repository_root = state.repository_root;
+        self.environment.is_worktree = state.is_worktree;
 
         if let Some(approval) = state.pending_approval {
             let (approval_type, proposed_amendment) = match &phase {
@@ -2603,16 +2455,22 @@ mod tests {
     #[test]
     fn metadata_setters_do_not_mutate_activity_timestamps() {
         let mut session = pending_approval_session();
-        let original_last_activity_at = session.last_activity_at.clone();
-        let original_last_progress_at = session.last_progress_at.clone();
+        let original_last_activity_at = session.timestamps.last_activity_at.clone();
+        let original_last_progress_at = session.timestamps.last_progress_at.clone();
 
         session.set_custom_name(Some("Renamed".to_string()));
         session.set_status(SessionStatus::Active);
         session.set_work_status(WorkStatus::Working);
         session.set_last_tool(Some("Read".to_string()));
 
-        assert_eq!(session.last_activity_at, original_last_activity_at);
-        assert_eq!(session.last_progress_at, original_last_progress_at);
+        assert_eq!(
+            session.timestamps.last_activity_at,
+            original_last_activity_at
+        );
+        assert_eq!(
+            session.timestamps.last_progress_at,
+            original_last_progress_at
+        );
     }
 
     #[test]
@@ -2622,18 +2480,21 @@ mod tests {
 
         session.add_row(row);
 
-        assert!(parse_unix_z(session.last_activity_at.as_deref()).is_some());
-        assert!(parse_unix_z(session.last_progress_at.as_deref()).is_some());
+        assert!(parse_unix_z(session.timestamps.last_activity_at.as_deref()).is_some());
+        assert!(parse_unix_z(session.timestamps.last_progress_at.as_deref()).is_some());
     }
 
     #[test]
     fn user_rows_update_activity_without_advancing_progress() {
         let mut session = pending_approval_session();
-        let original_last_progress_at = session.last_progress_at.clone();
+        let original_last_progress_at = session.timestamps.last_progress_at.clone();
 
         session.add_row(user_entry("session-1", "user-1", "hello"));
 
-        assert!(parse_unix_z(session.last_activity_at.as_deref()).is_some());
-        assert_eq!(session.last_progress_at, original_last_progress_at);
+        assert!(parse_unix_z(session.timestamps.last_activity_at.as_deref()).is_some());
+        assert_eq!(
+            session.timestamps.last_progress_at,
+            original_last_progress_at
+        );
     }
 }

@@ -5,7 +5,10 @@ use orbitdock_protocol::{
 };
 use tracing::warn;
 
-use crate::domain::sessions::session::{SessionHandle, SessionRestoreData};
+use crate::domain::sessions::session::{
+    SessionConfig, SessionDisplay, SessionEnvironment, SessionHandle, SessionIdentity,
+    SessionRestoreData, SessionTimestamps,
+};
 use crate::infrastructure::persistence::{
     load_messages_from_transcript_path, load_session_by_id, RestoredSession,
 };
@@ -237,30 +240,50 @@ pub(crate) fn restored_session_to_handle(
         });
 
     let mut handle = SessionHandle::restore(SessionRestoreData {
-        id: restored.id,
-        provider,
-        project_path: restored.project_path,
-        transcript_path: restored.transcript_path,
-        project_name: restored.project_name,
-        model: restored.model,
-        custom_name: restored.custom_name,
-        summary: restored.summary,
+        identity: SessionIdentity {
+            id: restored.id,
+            provider,
+            project_path: restored.project_path,
+            transcript_path: restored.transcript_path,
+            project_name: restored.project_name,
+        },
+        config: SessionConfig {
+            model: restored.model,
+            approval_policy: restored.approval_policy,
+            approval_policy_details,
+            sandbox_mode: restored.sandbox_mode,
+            collaboration_mode: restored.collaboration_mode,
+            multi_agent: restored.multi_agent,
+            personality: restored.personality,
+            service_tier: restored.service_tier,
+            developer_instructions: restored.developer_instructions,
+            codex_config_mode: restored.codex_config_mode,
+            codex_config_profile: restored.codex_config_profile,
+            codex_model_provider: restored.codex_model_provider,
+            codex_config_source: restored.codex_config_source,
+            codex_config_overrides: restored.codex_config_overrides,
+            effort: restored.effort,
+        },
+        display: SessionDisplay {
+            custom_name: restored.custom_name,
+            summary: restored.summary,
+            first_prompt: restored.first_prompt,
+            last_message: restored.last_message,
+        },
+        environment: SessionEnvironment {
+            git_branch: restored.git_branch,
+            git_sha: restored.git_sha,
+            current_cwd: restored.current_cwd,
+            ..Default::default()
+        },
+        timestamps: SessionTimestamps {
+            started_at: restored.started_at,
+            last_activity_at: restored.last_activity_at,
+            last_progress_at: restored.last_progress_at,
+        },
         status,
         work_status,
-        approval_policy: restored.approval_policy,
-        approval_policy_details,
-        sandbox_mode: restored.sandbox_mode,
         permission_mode: restored.permission_mode,
-        collaboration_mode: restored.collaboration_mode,
-        multi_agent: restored.multi_agent,
-        personality: restored.personality,
-        service_tier: restored.service_tier,
-        developer_instructions: restored.developer_instructions,
-        codex_config_mode: restored.codex_config_mode,
-        codex_config_profile: restored.codex_config_profile,
-        codex_model_provider: restored.codex_model_provider,
-        codex_config_source: restored.codex_config_source,
-        codex_config_overrides: restored.codex_config_overrides,
         token_usage: TokenUsage {
             input_tokens: restored.input_tokens.max(0) as u64,
             output_tokens: restored.output_tokens.max(0) as u64,
@@ -268,9 +291,6 @@ pub(crate) fn restored_session_to_handle(
             context_window: restored.context_window.max(0) as u64,
         },
         token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
-        started_at: restored.started_at,
-        last_activity_at: restored.last_activity_at,
-        last_progress_at: restored.last_progress_at,
         rows: restored.rows,
         current_diff: restored.current_diff,
         current_plan: restored.current_plan,
@@ -306,16 +326,10 @@ pub(crate) fn restored_session_to_handle(
                 },
             )
             .collect(),
-        git_branch: restored.git_branch,
-        git_sha: restored.git_sha,
-        current_cwd: restored.current_cwd,
-        first_prompt: restored.first_prompt,
-        last_message: restored.last_message,
         pending_tool_name: restored.pending_tool_name,
         pending_tool_input: restored.pending_tool_input,
         pending_question: restored.pending_question,
         pending_approval_id: restored.pending_approval_id,
-        effort: restored.effort,
         terminal_session_id: restored.terminal_session_id,
         terminal_app: restored.terminal_app,
         approval_version: restored.approval_version,

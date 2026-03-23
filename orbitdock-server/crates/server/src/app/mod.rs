@@ -22,6 +22,9 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
+use crate::domain::sessions::session::{
+    SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
+};
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
@@ -291,14 +294,47 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
                 let mut handle = crate::domain::sessions::session::SessionHandle::restore(
                     crate::domain::sessions::session::SessionRestoreData {
-                        id: id.clone(),
-                        provider,
-                        project_path: project_path.clone(),
-                        transcript_path,
-                        project_name,
-                        model: model.clone(),
-                        custom_name,
-                        summary,
+                        identity: SessionIdentity {
+                            id: id.clone(),
+                            provider,
+                            project_path: project_path.clone(),
+                            transcript_path,
+                            project_name,
+                        },
+                        config: SessionConfig {
+                            model: model.clone(),
+                            approval_policy: approval_policy.clone(),
+                            approval_policy_details,
+                            sandbox_mode: sandbox_mode.clone(),
+                            collaboration_mode,
+                            multi_agent,
+                            personality,
+                            service_tier,
+                            developer_instructions,
+                            codex_config_mode,
+                            codex_config_profile,
+                            codex_model_provider,
+                            codex_config_source,
+                            codex_config_overrides,
+                            effort,
+                        },
+                        display: SessionDisplay {
+                            custom_name,
+                            summary,
+                            first_prompt,
+                            last_message,
+                        },
+                        environment: SessionEnvironment {
+                            git_branch,
+                            git_sha,
+                            current_cwd,
+                            ..Default::default()
+                        },
+                        timestamps: SessionTimestamps {
+                            started_at,
+                            last_activity_at,
+                            last_progress_at,
+                        },
                         status: match status.as_str() {
                             "ended" => SessionStatus::Ended,
                             _ => SessionStatus::Active,
@@ -311,20 +347,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                             "ended" => WorkStatus::Ended,
                             _ => WorkStatus::Waiting,
                         },
-                        approval_policy: approval_policy.clone(),
-                        approval_policy_details,
-                        sandbox_mode: sandbox_mode.clone(),
                         permission_mode,
-                        collaboration_mode,
-                        multi_agent,
-                        personality,
-                        service_tier,
-                        developer_instructions,
-                        codex_config_mode,
-                        codex_config_profile,
-                        codex_model_provider,
-                        codex_config_source,
-                        codex_config_overrides,
                         token_usage: TokenUsage {
                             input_tokens: input_tokens.max(0) as u64,
                             output_tokens: output_tokens.max(0) as u64,
@@ -332,9 +355,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                             context_window: context_window.max(0) as u64,
                         },
                         token_usage_snapshot_kind,
-                        started_at,
-                        last_activity_at,
-                        last_progress_at,
                         rows,
                         current_diff,
                         current_plan,
@@ -370,16 +390,10 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                                 },
                             )
                             .collect(),
-                        git_branch,
-                        git_sha,
-                        current_cwd,
-                        first_prompt,
-                        last_message,
                         pending_tool_name,
                         pending_tool_input,
                         pending_question,
                         pending_approval_id,
-                        effort,
                         terminal_session_id,
                         terminal_app,
                         approval_version,

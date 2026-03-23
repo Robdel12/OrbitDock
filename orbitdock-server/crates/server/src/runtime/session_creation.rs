@@ -7,7 +7,7 @@ use orbitdock_protocol::{
     CodexSessionOverrides, Provider, SessionState, SessionSummary,
 };
 
-use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
+use crate::domain::sessions::session::{SessionConfig, SessionHandle};
 use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
 use crate::runtime::session_direct_start::{
     start_direct_claude_session, start_direct_codex_session, StartDirectCodexRequest,
@@ -20,23 +20,10 @@ pub(crate) struct DirectSessionCreationInputs {
     pub provider: Provider,
     pub cwd: String,
     pub git_branch: Option<String>,
-    pub model: Option<String>,
-    pub approval_policy: Option<String>,
-    pub sandbox_mode: Option<String>,
-    pub collaboration_mode: Option<String>,
-    pub multi_agent: Option<bool>,
-    pub personality: Option<String>,
-    pub service_tier: Option<String>,
-    pub developer_instructions: Option<String>,
-    pub effort: Option<String>,
+    pub config: SessionConfig,
     pub mission_id: Option<String>,
     pub issue_identifier: Option<String>,
     pub allow_bypass_permissions: bool,
-    pub codex_config_mode: Option<CodexConfigMode>,
-    pub codex_config_profile: Option<String>,
-    pub codex_model_provider: Option<String>,
-    pub codex_config_source: Option<CodexConfigSource>,
-    pub codex_config_overrides: Option<CodexSessionOverrides>,
 }
 
 pub(crate) struct PreparedDirectSession {
@@ -117,32 +104,16 @@ pub(crate) fn prepare_direct_session(input: DirectSessionCreationInputs) -> Prep
     let mut handle = SessionHandle::new(input.id, input.provider, input.cwd);
     handle.set_git_branch(input.git_branch);
 
-    if let Some(ref model) = input.model {
+    if let Some(ref model) = input.config.model {
         handle.set_model(Some(model.clone()));
     }
-    if let Some(ref effort) = input.effort {
+    if let Some(ref effort) = input.config.effort {
         handle.set_effort(Some(effort.clone()));
     }
 
     if input.provider == Provider::Codex {
         handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        handle.set_config(SessionConfigPatch {
-            approval_policy: input.approval_policy,
-            approval_policy_details: None,
-            sandbox_mode: input.sandbox_mode,
-            collaboration_mode: input.collaboration_mode,
-            multi_agent: input.multi_agent,
-            personality: input.personality,
-            service_tier: input.service_tier,
-            developer_instructions: input.developer_instructions,
-            codex_config_mode: input.codex_config_mode,
-            codex_config_profile: input.codex_config_profile,
-            codex_model_provider: input.codex_model_provider,
-            model: input.model,
-            effort: input.effort,
-            codex_config_source: input.codex_config_source,
-            codex_config_overrides: input.codex_config_overrides,
-        });
+        handle.set_config(input.config);
     } else if input.provider == Provider::Claude {
         handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
     }
@@ -247,23 +218,26 @@ pub(crate) async fn prepare_persist_direct_session(
         provider: request.provider,
         cwd: request.cwd.clone(),
         git_branch: git_branch.clone(),
-        model: request.model.clone(),
-        approval_policy: request.approval_policy.clone(),
-        sandbox_mode: request.sandbox_mode.clone(),
-        collaboration_mode: request.collaboration_mode.clone(),
-        multi_agent: request.multi_agent,
-        personality: request.personality.clone(),
-        service_tier: request.service_tier.clone(),
-        developer_instructions: request.developer_instructions.clone(),
-        effort: request.effort.clone(),
+        config: SessionConfig {
+            model: request.model.clone(),
+            approval_policy: request.approval_policy.clone(),
+            sandbox_mode: request.sandbox_mode.clone(),
+            collaboration_mode: request.collaboration_mode.clone(),
+            multi_agent: request.multi_agent,
+            personality: request.personality.clone(),
+            service_tier: request.service_tier.clone(),
+            developer_instructions: request.developer_instructions.clone(),
+            effort: request.effort.clone(),
+            codex_config_mode: request.codex_config_mode,
+            codex_config_profile: request.codex_config_profile.clone(),
+            codex_model_provider: request.codex_model_provider.clone(),
+            codex_config_source: request.codex_config_source,
+            codex_config_overrides: request.codex_config_overrides.clone(),
+            ..Default::default()
+        },
         mission_id: request.mission_id.clone(),
         issue_identifier: request.issue_identifier.clone(),
         allow_bypass_permissions: request.allow_bypass_permissions,
-        codex_config_mode: request.codex_config_mode,
-        codex_config_profile: request.codex_config_profile.clone(),
-        codex_model_provider: request.codex_model_provider.clone(),
-        codex_config_source: request.codex_config_source,
-        codex_config_overrides: request.codex_config_overrides.clone(),
     });
 
     let persist_tx = state.persist().clone();
@@ -371,7 +345,7 @@ pub(crate) async fn launch_prepared_direct_session(
 mod tests {
     use super::{
         prepare_direct_session, DirectSessionCreationInputs, DirectSessionRequest,
-        PreparedPersistedDirectSession,
+        PreparedPersistedDirectSession, SessionConfig,
     };
     use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
@@ -382,23 +356,21 @@ mod tests {
             provider: Provider::Codex,
             cwd: "/tmp/project".into(),
             git_branch: Some("main".into()),
-            model: Some("gpt-5".into()),
-            approval_policy: Some("on-request".into()),
-            sandbox_mode: Some("workspace-write".into()),
-            collaboration_mode: Some("workers".into()),
-            multi_agent: Some(true),
-            personality: Some("mentor".into()),
-            service_tier: Some("priority".into()),
-            developer_instructions: Some("Stay focused".into()),
-            effort: Some("high".into()),
+            config: SessionConfig {
+                model: Some("gpt-5".into()),
+                approval_policy: Some("on-request".into()),
+                sandbox_mode: Some("workspace-write".into()),
+                collaboration_mode: Some("workers".into()),
+                multi_agent: Some(true),
+                personality: Some("mentor".into()),
+                service_tier: Some("priority".into()),
+                developer_instructions: Some("Stay focused".into()),
+                effort: Some("high".into()),
+                ..Default::default()
+            },
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides: None,
         });
 
         assert_eq!(prepared.project_name.as_deref(), Some("project"));
@@ -432,23 +404,21 @@ mod tests {
             provider: Provider::Claude,
             cwd: "/tmp/claude".into(),
             git_branch: None,
-            model: Some("claude-opus".into()),
-            approval_policy: Some("ignored".into()),
-            sandbox_mode: Some("ignored".into()),
-            collaboration_mode: Some("ignored".into()),
-            multi_agent: Some(true),
-            personality: Some("ignored".into()),
-            service_tier: Some("ignored".into()),
-            developer_instructions: Some("ignored".into()),
-            effort: Some("medium".into()),
+            config: SessionConfig {
+                model: Some("claude-opus".into()),
+                approval_policy: Some("ignored".into()),
+                sandbox_mode: Some("ignored".into()),
+                collaboration_mode: Some("ignored".into()),
+                multi_agent: Some(true),
+                personality: Some("ignored".into()),
+                service_tier: Some("ignored".into()),
+                developer_instructions: Some("ignored".into()),
+                effort: Some("medium".into()),
+                ..Default::default()
+            },
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides: None,
         });
 
         assert_eq!(
@@ -492,23 +462,21 @@ mod tests {
             provider: request.provider,
             cwd: request.cwd.clone(),
             git_branch: None,
-            model: request.model.clone(),
-            approval_policy: request.approval_policy.clone(),
-            sandbox_mode: request.sandbox_mode.clone(),
-            collaboration_mode: request.collaboration_mode.clone(),
-            multi_agent: request.multi_agent,
-            personality: request.personality.clone(),
-            service_tier: request.service_tier.clone(),
-            developer_instructions: request.developer_instructions.clone(),
-            effort: request.effort.clone(),
+            config: SessionConfig {
+                model: request.model.clone(),
+                approval_policy: request.approval_policy.clone(),
+                sandbox_mode: request.sandbox_mode.clone(),
+                collaboration_mode: request.collaboration_mode.clone(),
+                multi_agent: request.multi_agent,
+                personality: request.personality.clone(),
+                service_tier: request.service_tier.clone(),
+                developer_instructions: request.developer_instructions.clone(),
+                effort: request.effort.clone(),
+                ..Default::default()
+            },
             mission_id: None,
             issue_identifier: None,
             allow_bypass_permissions: false,
-            codex_config_mode: None,
-            codex_config_profile: None,
-            codex_model_provider: None,
-            codex_config_source: None,
-            codex_config_overrides: None,
         });
 
         let persisted = PreparedPersistedDirectSession {
