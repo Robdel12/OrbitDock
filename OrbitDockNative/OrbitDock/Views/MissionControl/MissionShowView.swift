@@ -23,8 +23,10 @@ struct MissionShowView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      navigationBar
-      Divider().foregroundStyle(Color.surfaceBorder)
+      #if os(macOS)
+        navigationBar
+        Divider().foregroundStyle(Color.surfaceBorder)
+      #endif
 
       Group {
         if viewModel.isLoading {
@@ -53,6 +55,17 @@ struct MissionShowView: View {
     .onChange(of: viewModel.liveState?.heartbeatRevision) { _, _ in
       viewModel.applyLiveHeartbeat()
     }
+    #if os(iOS)
+    .navigationTitle(viewModel.summary?.name ?? "Mission")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        if let summary = viewModel.summary {
+          iOSActionsMenu(summary)
+        }
+      }
+    }
+    #endif
     .alert(
       "Error",
       isPresented: Binding(get: { viewModel.actionError != nil }, set: { if !$0 { viewModel.actionError = nil } })
@@ -81,31 +94,33 @@ struct MissionShowView: View {
 
   // MARK: - Navigation Bar
 
-  private var navigationBar: some View {
-    HStack(spacing: Spacing.md) {
-      Button {
-        router.selectDashboardTab(.missions)
-      } label: {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "chevron.left")
-            .font(.system(size: 11, weight: .semibold))
-          Text("Missions")
-            .font(.system(size: TypeScale.caption, weight: .medium))
+  #if os(macOS)
+    private var navigationBar: some View {
+      HStack(spacing: Spacing.md) {
+        Button {
+          router.selectDashboardTab(.missions)
+        } label: {
+          HStack(spacing: Spacing.sm_) {
+            Image(systemName: "chevron.left")
+              .font(.system(size: 11, weight: .semibold))
+            Text("Missions")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+          }
+          .foregroundStyle(Color.textSecondary)
         }
-        .foregroundStyle(Color.textSecondary)
-      }
-      .buttonStyle(.plain)
+        .buttonStyle(.plain)
 
-      Spacer()
+        Spacer()
 
-      if let summary = viewModel.summary {
-        missionActions(summary)
+        if let summary = viewModel.summary {
+          missionActions(summary)
+        }
       }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+      .background(Color.backgroundSecondary)
     }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
-    .background(Color.backgroundSecondary)
-  }
+  #endif
 
   // MARK: - Content
 
@@ -289,45 +304,72 @@ struct MissionShowView: View {
 
   // MARK: - Actions
 
-  private func missionActions(_ mission: MissionSummary) -> some View {
-    Menu {
-      Button {
-        viewModel.showWorktreeCleanup = true
-        Task { await viewModel.loadMissionWorktrees() }
+  #if os(macOS)
+    private func missionActions(_ mission: MissionSummary) -> some View {
+      Menu {
+        missionActionMenuContent
       } label: {
-        Label("Clean Up Worktrees", systemImage: "arrow.3.trianglepath")
+        Image(systemName: "ellipsis")
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(Color.textTertiary)
+          .frame(width: 28, height: 28)
+          .background(
+            Color.backgroundTertiary.opacity(0.6),
+            in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+          )
       }
-
-      Divider()
-
-      Button(role: .destructive) {
-        viewModel.showDeleteConfirmation = true
-      } label: {
-        Label("Delete Mission", systemImage: "trash")
-      }
-    } label: {
-      Image(systemName: "ellipsis")
-        .font(.system(size: 10, weight: .bold))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 28, height: 28)
-        .background(
-          Color.backgroundTertiary.opacity(0.6),
-          in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
-        )
-    }
-    .menuStyle(.borderlessButton)
-    .fixedSize()
-    .alert("Delete Mission?", isPresented: $viewModel.showDeleteConfirmation) {
-      Button("Delete", role: .destructive) {
-        Task {
-          if await viewModel.deleteMission() {
-            router.selectDashboardTab(.missions)
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+      .alert("Delete Mission?", isPresented: $viewModel.showDeleteConfirmation) {
+        Button("Delete", role: .destructive) {
+          Task {
+            if await viewModel.deleteMission() {
+              router.selectDashboardTab(.missions)
+            }
           }
         }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Are you sure you want to delete this mission? This cannot be undone.")
       }
-      Button("Cancel", role: .cancel) {}
-    } message: {
-      Text("Are you sure you want to delete this mission? This cannot be undone.")
+    }
+  #else
+    private func iOSActionsMenu(_ mission: MissionSummary) -> some View {
+      Menu {
+        missionActionMenuContent
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }
+      .alert("Delete Mission?", isPresented: $viewModel.showDeleteConfirmation) {
+        Button("Delete", role: .destructive) {
+          Task {
+            if await viewModel.deleteMission() {
+              router.selectDashboardTab(.missions)
+            }
+          }
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text("Are you sure you want to delete this mission? This cannot be undone.")
+      }
+    }
+  #endif
+
+  @ViewBuilder
+  private var missionActionMenuContent: some View {
+    Button {
+      viewModel.showWorktreeCleanup = true
+      Task { await viewModel.loadMissionWorktrees() }
+    } label: {
+      Label("Clean Up Worktrees", systemImage: "arrow.3.trianglepath")
+    }
+
+    Divider()
+
+    Button(role: .destructive) {
+      viewModel.showDeleteConfirmation = true
+    } label: {
+      Label("Delete Mission", systemImage: "trash")
     }
   }
 

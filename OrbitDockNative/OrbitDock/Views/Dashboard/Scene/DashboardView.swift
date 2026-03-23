@@ -75,6 +75,10 @@ struct DashboardView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .background(Color.backgroundPrimary)
     }
+    #if os(iOS)
+    .navigationTitle(router.dashboardTab.navigationTitle)
+    .navigationBarHidden(true)
+    #endif
   }
 
   // MARK: - Missions Tab

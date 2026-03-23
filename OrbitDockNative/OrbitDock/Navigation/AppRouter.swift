@@ -4,6 +4,14 @@ enum DashboardTab: String, CaseIterable {
   case missionControl
   case missions
   case library
+
+  var navigationTitle: String {
+    switch self {
+      case .missionControl: "Active"
+      case .missions: "Missions"
+      case .library: "Library"
+    }
+  }
 }
 
 enum NavigationSource: String, Sendable {
