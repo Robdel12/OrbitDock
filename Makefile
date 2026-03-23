@@ -547,6 +547,9 @@ web-build:
 web-test:
 	cd orbitdock-web && npm test
 
+web-test-e2e:
+	cd orbitdock-web && npm run test:e2e
+
 web-lint:
 	cd orbitdock-web && npm run lint
 
@@ -559,4 +562,4 @@ web-fmt:
 web-fmt-check:
 	cd orbitdock-web && npm run format:check
 
-web-ci: web-lint web-build web-test
+web-ci: web-lint web-build web-test web-test-e2e
