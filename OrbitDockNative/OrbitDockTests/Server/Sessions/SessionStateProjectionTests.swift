@@ -290,6 +290,116 @@ struct SessionStateProjectionTests {
     #expect(projection.unreadCount == 7)
   }
 
+  @Test func snapshotProjectionHydratesDiffPlanTurnAndSubagentFields() {
+    let observable = SessionObservable(id: "session-1")
+
+    let turnDiff = ServerTurnDiff(
+      turnId: "turn-42",
+      diff: "diff --git a/file.swift b/file.swift",
+      inputTokens: 10,
+      outputTokens: 5,
+      cachedTokens: 2,
+      contextWindow: 100_000
+    )
+    let subagent = ServerSubagentInfo(
+      id: "worker-1",
+      agentType: "worker",
+      startedAt: "2026-03-22T10:00:00Z",
+      endedAt: nil,
+      provider: .codex,
+      label: "Leibniz",
+      status: .running,
+      taskSummary: "Check Makefile",
+      resultSummary: nil,
+      errorSummary: nil,
+      parentSubagentId: nil,
+      model: "gpt-5.4",
+      lastActivityAt: "2026-03-22T10:00:01Z"
+    )
+
+    let projection = SessionDetailSnapshotProjection(
+      endpointId: nil,
+      endpointName: nil,
+      projectPath: "/tmp/project",
+      projectName: nil,
+      branch: nil,
+      model: nil,
+      effort: nil,
+      collaborationMode: nil,
+      multiAgent: nil,
+      personality: nil,
+      serviceTier: nil,
+      developerInstructions: nil,
+      codexConfigSource: nil,
+      codexConfigMode: nil,
+      codexConfigProfile: nil,
+      codexModelProvider: nil,
+      codexConfigOverrides: nil,
+      summary: nil,
+      customName: nil,
+      firstPrompt: nil,
+      lastMessage: nil,
+      transcriptPath: nil,
+      status: .active,
+      workStatus: .working,
+      attentionReason: .none,
+      lastActivityAt: nil,
+      lastFilesPersistedAt: nil,
+      lastTool: nil,
+      lastToolAt: nil,
+      inputTokens: nil,
+      outputTokens: nil,
+      cachedTokens: nil,
+      contextWindow: nil,
+      totalTokens: 0,
+      totalCostUSD: 0,
+      provider: .claude,
+      codexIntegrationMode: nil,
+      claudeIntegrationMode: .direct,
+      codexThreadId: nil,
+      pendingApprovalId: nil,
+      pendingToolName: nil,
+      pendingToolInput: nil,
+      pendingPermissionDetail: nil,
+      pendingQuestion: nil,
+      promptCount: 0,
+      toolCount: 0,
+      startedAt: nil,
+      endedAt: nil,
+      endReason: nil,
+      tokenUsageSnapshotKind: .lifetimeTotals,
+      gitSha: nil,
+      currentCwd: nil,
+      repositoryRoot: nil,
+      isWorktree: false,
+      worktreeId: nil,
+      unreadCount: 0,
+      currentDiff: "diff --git a/file.swift",
+      cumulativeDiff: "cumulative diff content",
+      currentPlan: #"[{"step":"Refactor","status":"inProgress"}]"#,
+      turnDiffs: [turnDiff],
+      currentTurnId: "turn-42",
+      turnCount: 3,
+      subagents: [subagent],
+      missionId: nil,
+      issueIdentifier: nil,
+      allowBypassPermissions: false
+    )
+
+    observable.applySnapshotProjection(projection)
+
+    #expect(observable.diff == "diff --git a/file.swift")
+    #expect(observable.cumulativeDiff == "cumulative diff content")
+    #expect(observable.plan == #"[{"step":"Refactor","status":"inProgress"}]"#)
+    #expect(observable.turnDiffs.count == 1)
+    #expect(observable.turnDiffs.first?.turnId == "turn-42")
+    #expect(observable.turnDiffs.first?.diff == "diff --git a/file.swift b/file.swift")
+    #expect(observable.currentTurnId == "turn-42")
+    #expect(observable.turnCount == 3)
+    #expect(observable.subagents.count == 1)
+    #expect(observable.subagents.first?.id == "worker-1")
+  }
+
   @Test func sessionObservableApprovalProjectionUsesQuestionTextAndClearsWithoutResettingAttentionByDefault() {
     let observable = SessionObservable(id: "session-1")
     let request = questionApprovalRequest()

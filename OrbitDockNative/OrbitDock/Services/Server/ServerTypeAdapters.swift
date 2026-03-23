@@ -86,6 +86,13 @@ extension ServerSessionState {
       isWorktree: isWorktree ?? false,
       worktreeId: worktreeId,
       unreadCount: unreadCount ?? 0,
+      currentDiff: currentDiff,
+      cumulativeDiff: cumulativeDiff,
+      currentPlan: currentPlan,
+      turnDiffs: turnDiffs,
+      currentTurnId: currentTurnId,
+      turnCount: turnCount,
+      subagents: subagents,
       missionId: missionId,
       issueIdentifier: issueIdentifier,
       allowBypassPermissions: allowBypassPermissions ?? false

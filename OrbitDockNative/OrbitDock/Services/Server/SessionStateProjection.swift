@@ -79,6 +79,13 @@ struct SessionDetailSnapshotProjection {
   let isWorktree: Bool
   let worktreeId: String?
   let unreadCount: UInt64
+  let currentDiff: String?
+  let cumulativeDiff: String?
+  let currentPlan: String?
+  let turnDiffs: [ServerTurnDiff]
+  let currentTurnId: String?
+  let turnCount: UInt64
+  let subagents: [ServerSubagentInfo]
   let missionId: String?
   let issueIdentifier: String?
   let allowBypassPermissions: Bool
@@ -141,6 +148,13 @@ struct SessionDetailSnapshotProjection {
       isWorktree: session.isWorktree,
       worktreeId: session.worktreeId,
       unreadCount: session.unreadCount,
+      currentDiff: session.currentDiff,
+      cumulativeDiff: session.cumulativeDiff,
+      currentPlan: nil,
+      turnDiffs: [],
+      currentTurnId: nil,
+      turnCount: 0,
+      subagents: [],
       missionId: session.missionId,
       issueIdentifier: session.issueIdentifier,
       allowBypassPermissions: false
@@ -461,6 +475,13 @@ extension SessionObservable {
     isWorktree = projection.isWorktree
     worktreeId = projection.worktreeId
     unreadCount = projection.unreadCount
+    diff = projection.currentDiff
+    cumulativeDiff = projection.cumulativeDiff
+    plan = projection.currentPlan
+    turnDiffs = projection.turnDiffs
+    currentTurnId = projection.currentTurnId
+    turnCount = projection.turnCount
+    subagents = projection.subagents
     missionId = projection.missionId
     issueIdentifier = projection.issueIdentifier
     allowBypassPermissions = projection.allowBypassPermissions
