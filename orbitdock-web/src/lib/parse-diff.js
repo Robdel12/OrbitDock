@@ -26,7 +26,8 @@ const parseDiff = (raw) => {
       line.startsWith('rename from ') ||
       line.startsWith('rename to ') ||
       line.startsWith('similarity index')
-    ) continue
+    )
+      continue
 
     if (line.startsWith('@@ ')) {
       // Parse hunk header: @@ -oldStart,oldCount +newStart,newCount @@
