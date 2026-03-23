@@ -19,6 +19,8 @@ extension SessionStore {
     request.images = images
     request.mentions = mentions
     try await clients.conversation.sendMessage(sessionId, request: request)
+
+    triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: content)
   }
 
   func steerTurn(
@@ -152,6 +154,10 @@ extension SessionStore {
 
   func renameSession(_ sessionId: String, name: String?) async throws {
     try await clients.sessions.renameSession(sessionId, name: name)
+  }
+
+  func setSummary(_ sessionId: String, summary: String) async throws {
+    try await clients.sessions.setSummary(sessionId, summary: summary)
   }
 
   func updateSessionConfig(
@@ -479,6 +485,27 @@ extension SessionStore {
   func handleMemoryPressure() {
     for (_, observable) in _sessionObservables where !subscribedSessions.contains(observable.id) {
       observable.trimInactiveDetailPayloads()
+    }
+  }
+
+  // MARK: - Local Conversation Naming
+
+  private func triggerLocalNamingIfNeeded(sessionId: String, prompt: String) {
+    guard LocalNamingAvailabilityResolver.current == .available else { return }
+
+    let obs = session(sessionId)
+    guard obs.customName == nil, obs.summary == nil else { return }
+    guard _localNamingClaimedSessions.insert(sessionId).inserted else { return }
+
+    Task {
+      #if canImport(FoundationModels)
+        if #available(macOS 26.0, iOS 26.0, *) {
+          guard let name = await LocalConversationNamingService.generateTitle(from: prompt) else {
+            return
+          }
+          try? await setSummary(sessionId, summary: name)
+        }
+      #endif
     }
   }
 }

@@ -85,6 +85,7 @@ final class SessionStore {
   @ObservationIgnored var inFlightSessionRecoveries: [SessionGenerationKey: GenerationTask<Void>] = [:]
   @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
   @ObservationIgnored var lastOlderMessagesRequestBeforeSequence: [String: UInt64] = [:]
+  @ObservationIgnored var _localNamingClaimedSessions: Set<String> = []
   @ObservationIgnored var connectionRecoveryTask: GenerationTask<Void>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0

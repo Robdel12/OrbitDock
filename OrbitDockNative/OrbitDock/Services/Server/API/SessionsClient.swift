@@ -618,6 +618,15 @@ struct SessionsClient: Sendable {
     )
   }
 
+  func setSummary(_ sessionId: String, summary: String) async throws {
+    struct Body: Encodable { let summary: String }
+    let _: ServerAcceptedResponse = try await http.request(
+      path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/summary",
+      method: "PATCH",
+      body: Body(summary: summary)
+    )
+  }
+
   func updateSessionConfig(_ sessionId: String, config: UpdateSessionConfigRequest) async throws {
     let _: ServerAcceptedResponse = try await http.request(
       path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/config",

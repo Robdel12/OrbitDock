@@ -21,8 +21,8 @@ use crate::runtime::session_fork_targets::{
 };
 use crate::runtime::session_mutations::{
     end_session as end_runtime_session, rename_session as rename_runtime_session,
-    update_session_config as update_runtime_session_config, SessionConfigUpdate,
-    SessionMutationError,
+    set_summary as set_runtime_summary, update_session_config as update_runtime_session_config,
+    SessionConfigUpdate, SessionMutationError,
 };
 use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError};
 use crate::runtime::session_takeover::{
@@ -132,6 +132,23 @@ pub async fn rename_session(
     Json(body): Json<RenameSessionRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
     rename_runtime_session(&state, &session_id, body.name)
+        .await
+        .map_err(map_session_mutation_error)?;
+
+    Ok(Json(AcceptedResponse { accepted: true }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetSummaryRequest {
+    pub summary: String,
+}
+
+pub async fn set_summary(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<SetSummaryRequest>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+    set_runtime_summary(&state, &session_id, body.summary)
         .await
         .map_err(map_session_mutation_error)?;
 

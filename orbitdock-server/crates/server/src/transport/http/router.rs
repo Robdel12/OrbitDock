@@ -81,6 +81,10 @@ fn session_write_routes() -> Router<Arc<SessionRegistry>> {
             patch(super::rename_session),
         )
         .route(
+            "/api/sessions/{session_id}/summary",
+            patch(super::set_summary),
+        )
+        .route(
             "/api/sessions/{session_id}/config",
             patch(super::update_session_config),
         )

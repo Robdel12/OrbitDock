@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use orbitdock_protocol::{CodexApprovalPolicy, CodexConfigMode, ServerMessage, SessionListItem};
 
+use orbitdock_protocol::StateChanges;
+
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
@@ -85,6 +87,47 @@ pub(crate) async fn rename_session(
                 .await;
         }
     }
+
+    Ok(())
+}
+
+pub(crate) async fn set_summary(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    summary: String,
+) -> Result<(), SessionMutationError> {
+    let actor = state
+        .get_session(session_id)
+        .ok_or_else(|| SessionMutationError::NotFound(session_id.to_string()))?;
+
+    // Apply summary delta to in-memory state and broadcast to session subscribers
+    actor
+        .send(SessionCommand::ApplyDelta {
+            changes: Box::new(StateChanges {
+                summary: Some(Some(summary.clone())),
+                ..Default::default()
+            }),
+            persist_op: None,
+        })
+        .await;
+
+    // Broadcast to dashboard/sidebar list subscribers
+    state.broadcast_to_list(ServerMessage::SessionDelta {
+        session_id: session_id.to_string(),
+        changes: Box::new(StateChanges {
+            summary: Some(Some(summary.clone())),
+            ..Default::default()
+        }),
+    });
+
+    // Persist to DB
+    let _ = state
+        .persist()
+        .send(PersistCommand::SetSummary {
+            session_id: session_id.to_string(),
+            summary,
+        })
+        .await;
 
     Ok(())
 }
