@@ -3,11 +3,29 @@ use orbitdock_protocol::{
     CodexIntegrationMode, CodexSessionOverrides, Provider, SessionState, SessionStatus,
     SessionSummary, TokenUsage, TurnDiff, WorkStatus,
 };
+use tracing::warn;
 
 use crate::domain::sessions::session::{SessionHandle, SessionRestoreData};
 use crate::infrastructure::persistence::{
     load_messages_from_transcript_path, load_session_by_id, RestoredSession,
 };
+
+/// Parse a stored provider string into a [`Provider`], falling back to
+/// `Provider::Claude` and logging a warning when the value doesn't match a
+/// known provider name.
+fn parse_provider(raw: &str) -> Provider {
+    let normalised = raw.to_ascii_lowercase();
+    match normalised.as_str() {
+        "claude" | "codex" => normalised.parse::<Provider>().unwrap_or(Provider::Claude),
+        _ => {
+            warn!(
+                stored_value = %raw,
+                "unrecognised provider in restored session, falling back to Claude"
+            );
+            Provider::Claude
+        }
+    }
+}
 
 pub(crate) struct PreparedResumeSession {
     pub provider: Provider,
@@ -81,11 +99,7 @@ pub(crate) fn parse_work_status(status: SessionStatus, value: &str) -> WorkStatu
 }
 
 pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionState {
-    let provider = restored
-        .provider
-        .to_ascii_lowercase()
-        .parse::<Provider>()
-        .unwrap();
+    let provider = parse_provider(&restored.provider);
     let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
     let work_status = parse_work_status(status, &restored.work_status);
     let total_row_count = restored.rows.len() as u64;
@@ -206,11 +220,7 @@ pub(crate) fn restored_session_to_handle(
     status: SessionStatus,
     work_status: WorkStatus,
 ) -> SessionHandle {
-    let provider = restored
-        .provider
-        .to_ascii_lowercase()
-        .parse::<Provider>()
-        .unwrap();
+    let provider = parse_provider(&restored.provider);
 
     let mission_id = restored.mission_id.clone();
     let issue_identifier = restored.issue_identifier.clone();
@@ -322,11 +332,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     restored: RestoredSession,
     transcript_loaded: bool,
 ) -> PreparedResumeSession {
-    let provider = restored
-        .provider
-        .to_ascii_lowercase()
-        .parse::<Provider>()
-        .unwrap();
+    let provider = parse_provider(&restored.provider);
     let project_path = restored.project_path.clone();
     let transcript_path = restored.transcript_path.clone();
     let model = restored.model.clone();
@@ -412,5 +418,32 @@ fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrat
         Some("direct") => Some(ClaudeIntegrationMode::Direct),
         Some("passive") => Some(ClaudeIntegrationMode::Passive),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_provider_valid_lowercase() {
+        assert_eq!(parse_provider("claude"), Provider::Claude);
+        assert_eq!(parse_provider("codex"), Provider::Codex);
+    }
+
+    #[test]
+    fn parse_provider_valid_mixed_case() {
+        assert_eq!(parse_provider("Claude"), Provider::Claude);
+        assert_eq!(parse_provider("CLAUDE"), Provider::Claude);
+        assert_eq!(parse_provider("Codex"), Provider::Codex);
+        assert_eq!(parse_provider("CODEX"), Provider::Codex);
+    }
+
+    #[test]
+    fn parse_provider_invalid_falls_back_to_claude() {
+        assert_eq!(parse_provider(""), Provider::Claude);
+        assert_eq!(parse_provider("gpt4"), Provider::Claude);
+        assert_eq!(parse_provider("unknown"), Provider::Claude);
+        assert_eq!(parse_provider("  codex  "), Provider::Claude);
     }
 }
