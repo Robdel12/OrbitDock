@@ -10,7 +10,8 @@ enum SessionDetailReviewSendPlanner {
     reviewComments: [ServerReviewComment],
     selectedCommentIds: Set<String>,
     turnDiffs: [ServerTurnDiff],
-    currentDiff: String?
+    currentDiff: String?,
+    cumulativeDiff: String?
   ) -> SessionDetailReviewSendPlan? {
     let openComments = reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return nil }
@@ -21,7 +22,7 @@ enum SessionDetailReviewSendPlanner {
     )
     guard !commentsToSend.isEmpty else { return nil }
 
-    let diffModel = makeDiffModel(turnDiffs: turnDiffs, currentDiff: currentDiff)
+    let diffModel = makeDiffModel(turnDiffs: turnDiffs, currentDiff: currentDiff, cumulativeDiff: cumulativeDiff)
     guard let message = ReviewMessageFormatter.format(comments: commentsToSend, model: diffModel) else {
       return nil
     }
@@ -34,8 +35,15 @@ enum SessionDetailReviewSendPlanner {
 
   static func makeDiffModel(
     turnDiffs: [ServerTurnDiff],
-    currentDiff: String?
+    currentDiff: String?,
+    cumulativeDiff: String?
   ) -> DiffModel? {
+    // Prefer server-computed cumulative diff
+    if let cumulativeDiff, !cumulativeDiff.isEmpty {
+      return DiffModel.parse(unifiedDiff: cumulativeDiff)
+    }
+
+    // Fallback: concatenate turn diffs + current diff
     let cumulativeDiffParts = turnDiffs.map(\.diff)
     let allDiffParts =
       if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {

@@ -10,20 +10,36 @@ struct ReviewCanvasStatePlannerTests {
         ServerTurnDiff(turnId: "turn-1", diff: "diff-1"),
         ServerTurnDiff(turnId: "turn-2", diff: "diff-2"),
       ],
-      currentDiff: "current"
+      currentDiff: "current",
+      cumulativeDiff: "cumulative"
     )
 
     #expect(result == "diff-2")
   }
 
-  @Test func rawDiffBuildsCumulativeDiffWithoutDuplicatingCurrentTail() {
+  @Test func rawDiffPrefersServerCumulativeDiff() {
+    let result = ReviewCanvasStatePlanner.rawDiff(
+      selectedTurnDiffId: nil,
+      turnDiffs: [
+        ServerTurnDiff(turnId: "turn-1", diff: "diff-1"),
+        ServerTurnDiff(turnId: "turn-2", diff: "diff-2"),
+      ],
+      currentDiff: "diff-3",
+      cumulativeDiff: "server-merged-diff"
+    )
+
+    #expect(result == "server-merged-diff")
+  }
+
+  @Test func rawDiffFallsBackToConcatenationWhenCumulativeDiffIsNil() {
     let withDistinctCurrent = ReviewCanvasStatePlanner.rawDiff(
       selectedTurnDiffId: nil,
       turnDiffs: [
         ServerTurnDiff(turnId: "turn-1", diff: "diff-1"),
         ServerTurnDiff(turnId: "turn-2", diff: "diff-2"),
       ],
-      currentDiff: "diff-3"
+      currentDiff: "diff-3",
+      cumulativeDiff: nil
     )
     let withMatchingTail = ReviewCanvasStatePlanner.rawDiff(
       selectedTurnDiffId: nil,
@@ -31,7 +47,8 @@ struct ReviewCanvasStatePlannerTests {
         ServerTurnDiff(turnId: "turn-1", diff: "diff-1"),
         ServerTurnDiff(turnId: "turn-2", diff: "diff-2"),
       ],
-      currentDiff: "diff-2"
+      currentDiff: "diff-2",
+      cumulativeDiff: nil
     )
 
     #expect(withDistinctCurrent == "diff-1\ndiff-2\ndiff-3")

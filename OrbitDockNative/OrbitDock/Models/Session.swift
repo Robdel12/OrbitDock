@@ -189,6 +189,7 @@ struct Session: Identifiable, Hashable, Sendable {
   var displaySearchText: String = "unknown"
 
   var currentDiff: String? // Aggregated diff for current turn
+  var cumulativeDiff: String? // Server-computed merged diff across all turns
   var currentPlan: [PlanStep]? // Agent's plan for current turn
 
   struct PlanStep: Codable, Hashable, Identifiable, Sendable {

@@ -245,6 +245,7 @@ extension SessionStore {
     )
     obs.applySnapshotProjection(state.toDetailSnapshotProjection())
     obs.diff = state.currentDiff
+    obs.cumulativeDiff = state.cumulativeDiff
     obs.plan = state.currentPlan
     obs.turnDiffs = state.turnDiffs
     obs.currentTurnId = state.currentTurnId

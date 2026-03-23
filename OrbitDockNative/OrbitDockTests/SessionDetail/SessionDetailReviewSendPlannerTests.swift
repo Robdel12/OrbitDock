@@ -33,7 +33,8 @@ struct SessionDetailReviewSendPlannerTests {
       reviewComments: comments,
       selectedCommentIds: ["c-1"],
       turnDiffs: [makeTurnDiff(diff: diffForAppFile())],
-      currentDiff: diffForFeatureFile()
+      currentDiff: diffForFeatureFile(),
+      cumulativeDiff: nil
     )
 
     #expect(plan?.commentIdsToResolve == ["c-1"])
@@ -67,7 +68,8 @@ struct SessionDetailReviewSendPlannerTests {
       reviewComments: comments,
       selectedCommentIds: [],
       turnDiffs: [makeTurnDiff(diff: diffForAppFile())],
-      currentDiff: diffForFeatureFile()
+      currentDiff: diffForFeatureFile(),
+      cumulativeDiff: nil
     )
 
     #expect(plan?.commentIdsToResolve == ["c-1", "c-2"])
@@ -81,7 +83,8 @@ struct SessionDetailReviewSendPlannerTests {
 
     let model = SessionDetailReviewSendPlanner.makeDiffModel(
       turnDiffs: [makeTurnDiff(diff: diff)],
-      currentDiff: diff
+      currentDiff: diff,
+      cumulativeDiff: nil
     )
 
     #expect(model?.files.count == 1)

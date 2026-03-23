@@ -64,44 +64,10 @@ struct DiffModel {
   let files: [FileDiff]
 
   /// Parse a multi-file unified diff string into structured data.
-  /// When the same file appears multiple times (e.g. from concatenated turn diffs),
-  /// hunks are merged so every turn's changes remain visible.
   static func parse(unifiedDiff: String) -> DiffModel {
     let fileChunks = splitIntoFileChunks(unifiedDiff)
-    let allFiles = fileChunks.compactMap { parseFileChunk($0) }
-
-    // Merge: append hunks when the same file appears more than once
-    var seen: [String: Int] = [:]
-    var merged: [FileDiff] = []
-    for file in allFiles {
-      if let existing = seen[file.id] {
-        let prev = merged[existing]
-        let nextHunkId = (prev.hunks.last?.id ?? -1) + 1
-        let renumbered = file.hunks.enumerated().map { offset, hunk in
-          DiffHunk(
-            id: nextHunkId + offset,
-            header: hunk.header,
-            oldStart: hunk.oldStart,
-            oldCount: hunk.oldCount,
-            newStart: hunk.newStart,
-            newCount: hunk.newCount,
-            lines: hunk.lines
-          )
-        }
-        merged[existing] = FileDiff(
-          id: prev.id,
-          oldPath: prev.oldPath,
-          newPath: prev.newPath,
-          changeType: file.changeType,
-          hunks: prev.hunks + renumbered
-        )
-      } else {
-        seen[file.id] = merged.count
-        merged.append(file)
-      }
-    }
-
-    return DiffModel(files: merged)
+    let files = fileChunks.compactMap { parseFileChunk($0) }
+    return DiffModel(files: files)
   }
 
   // MARK: - Private Parsing

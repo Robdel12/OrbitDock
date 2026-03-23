@@ -29,6 +29,7 @@ final class SessionObservable {
   var tokenUsage: ServerTokenUsage?
   var tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown
   var diff: String?
+  var cumulativeDiff: String?
   var plan: String?
   var autonomy: AutonomyLevel = .autonomous
   var autonomyConfiguredOnServer: Bool = true

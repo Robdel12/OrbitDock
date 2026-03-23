@@ -1208,6 +1208,7 @@ impl SessionHandle {
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
+            cumulative_diff: None,
             current_plan: self.current_plan.clone(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,

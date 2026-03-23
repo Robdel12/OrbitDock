@@ -155,6 +155,7 @@ struct SessionStateProjection {
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let currentDiff: String??
+  let cumulativeDiff: String??
   let plan: String??
   let customName: String??
   let summary: String??
@@ -193,6 +194,7 @@ struct SessionStateProjection {
       tokenUsage: changes.tokenUsage,
       tokenUsageSnapshotKind: changes.tokenUsageSnapshotKind,
       currentDiff: changes.currentDiff,
+      cumulativeDiff: changes.cumulativeDiff,
       plan: changes.currentPlan,
       customName: changes.customName,
       summary: changes.summary,
@@ -299,6 +301,9 @@ extension Session {
 
     if let currentDiff = projection.currentDiff {
       self.currentDiff = currentDiff
+    }
+    if let cumulativeDiff = projection.cumulativeDiff {
+      self.cumulativeDiff = cumulativeDiff
     }
 
     if let customName = projection.customName {
@@ -501,6 +506,9 @@ extension SessionObservable {
 
     if let currentDiff = projection.currentDiff {
       diff = currentDiff
+    }
+    if let cumulativeDiff = projection.cumulativeDiff {
+      self.cumulativeDiff = cumulativeDiff
     }
     if let plan = projection.plan {
       self.plan = plan

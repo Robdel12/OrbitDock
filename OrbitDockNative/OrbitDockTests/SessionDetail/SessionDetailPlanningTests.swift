@@ -392,7 +392,8 @@ struct SessionDetailPlanningTests {
       @@ -1 +1 @@
       -old
       +new
-      """
+      """,
+      cumulativeDiff: nil
     )
     #expect(count == 2)
 
@@ -416,7 +417,8 @@ struct SessionDetailPlanningTests {
       @@ -1 +1 @@
       -old
       +new
-      """
+      """,
+      cumulativeDiff: nil
     )
     #expect(dedupedCount == 1)
   }

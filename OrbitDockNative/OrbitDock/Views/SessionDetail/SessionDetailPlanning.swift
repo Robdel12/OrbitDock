@@ -394,8 +394,15 @@ enum SessionDetailDiffPlanner {
 
   static func fileCount(
     turnDiffs: [ServerTurnDiff],
-    currentDiff: String?
+    currentDiff: String?,
+    cumulativeDiff: String?
   ) -> Int {
+    // Prefer server-computed cumulative diff
+    if let cumulativeDiff, !cumulativeDiff.isEmpty {
+      return DiffModel.parse(unifiedDiff: cumulativeDiff).files.count
+    }
+
+    // Fallback: concatenate turn diffs + current diff
     var parts = turnDiffs.map(\.diff)
 
     if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {

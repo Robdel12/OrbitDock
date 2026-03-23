@@ -8,6 +8,7 @@ use uuid::Uuid;
 // Re-exports
 pub mod client;
 pub mod conversation_contracts;
+pub mod diff_merge;
 pub mod domain_events;
 pub mod grouping;
 pub mod provider_normalization;

@@ -572,6 +572,10 @@ pub fn transition(
             // Clear current_diff now that it has been archived into turn_diffs
             state.current_diff = None;
 
+            // Recompute cumulative diff (completed turns only, no current_diff)
+            let cumulative =
+                orbitdock_protocol::diff_merge::compute_cumulative_diff(&state.turn_diffs, None);
+
             // Finalize any tool messages stuck at is_in_progress before status change
             effects.extend(finalize_in_progress_rows(
                 &sid,
@@ -599,6 +603,7 @@ pub fn transition(
                     last_activity_at: Some(now.to_string()),
                     current_turn_id: Some(None),
                     current_diff: Some(None),
+                    cumulative_diff: Some(cumulative),
                     ..Default::default()
                 }),
             })));
@@ -947,6 +952,10 @@ pub fn transition(
 
         Input::DiffUpdated(diff) => {
             state.current_diff = Some(diff.clone());
+            let cumulative = orbitdock_protocol::diff_merge::compute_cumulative_diff(
+                &state.turn_diffs,
+                Some(&diff),
+            );
 
             effects.push(Effect::Persist(Box::new(PersistOp::TurnStateUpdate {
                 session_id: sid.clone(),
@@ -957,6 +966,7 @@ pub fn transition(
                 session_id: sid,
                 changes: Box::new(StateChanges {
                     current_diff: Some(Some(diff)),
+                    cumulative_diff: Some(cumulative),
                     ..Default::default()
                 }),
             })));

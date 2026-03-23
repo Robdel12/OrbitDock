@@ -4,12 +4,19 @@ enum ReviewCanvasStatePlanner {
   static func rawDiff(
     selectedTurnDiffId: String?,
     turnDiffs: [ServerTurnDiff],
-    currentDiff: String?
+    currentDiff: String?,
+    cumulativeDiff: String?
   ) -> String? {
     if let selectedTurnDiffId {
       return turnDiffs.first(where: { $0.turnId == selectedTurnDiffId })?.diff
     }
 
+    // Prefer server-computed cumulative diff (merges same-file hunks across turns)
+    if let cumulativeDiff, !cumulativeDiff.isEmpty {
+      return cumulativeDiff
+    }
+
+    // Fallback: concatenate turn diffs + current diff
     var parts: [String] = turnDiffs.map(\.diff)
     if let currentDiff, !currentDiff.isEmpty, turnDiffs.last?.diff != currentDiff {
       parts.append(currentDiff)

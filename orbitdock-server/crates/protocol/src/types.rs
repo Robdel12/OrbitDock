@@ -954,6 +954,11 @@ pub struct SessionState {
     #[serde(default)]
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub current_diff: Option<String>,
+    /// Server-computed cumulative diff: all turn diffs + current_diff merged so
+    /// each file appears exactly once.  Clients should prefer this over
+    /// manually concatenating turn diffs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cumulative_diff: Option<String>,
     pub current_plan: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
@@ -1215,6 +1220,8 @@ pub struct StateChanges {
     pub token_usage_snapshot_kind: Option<TokenUsageSnapshotKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_diff: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cumulative_diff: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_plan: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

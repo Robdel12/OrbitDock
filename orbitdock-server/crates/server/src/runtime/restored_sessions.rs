@@ -144,6 +144,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         },
         token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
         current_diff: restored.current_diff,
+        cumulative_diff: None,
         current_plan: restored.current_plan,
         codex_integration_mode: parse_codex_integration_mode(restored.codex_integration_mode),
         claude_integration_mode: parse_claude_integration_mode(restored.claude_integration_mode),

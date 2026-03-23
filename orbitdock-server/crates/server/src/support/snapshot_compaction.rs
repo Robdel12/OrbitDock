@@ -40,6 +40,12 @@ pub(crate) fn prepare_snapshot_for_transport(mut snapshot: SessionState) -> Sess
     // Deduplicate turn diffs (keep latest per turn_id)
     dedupe_turn_diffs_keep_latest(&mut snapshot.turn_diffs);
 
+    // Compute cumulative diff (merged same-file hunks across all turns + current)
+    snapshot.cumulative_diff = orbitdock_protocol::diff_merge::compute_cumulative_diff(
+        &snapshot.turn_diffs,
+        snapshot.current_diff.as_deref(),
+    );
+
     // Pagination metadata
     snapshot.total_row_count = original_total;
     snapshot.oldest_sequence = snapshot.rows.first().map(|entry| entry.sequence);

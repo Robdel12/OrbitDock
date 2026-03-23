@@ -160,7 +160,8 @@ final class SessionDetailViewModel {
   var diffFileCount: Int {
     SessionDetailDiffPlanner.fileCount(
       turnDiffs: reviewState.turnDiffs,
-      currentDiff: reviewState.diff
+      currentDiff: reviewState.diff,
+      cumulativeDiff: reviewState.cumulativeDiff
     )
   }
 
@@ -390,7 +391,8 @@ final class SessionDetailViewModel {
       reviewComments: reviewState.reviewComments,
       selectedCommentIds: selectedCommentIds,
       turnDiffs: reviewState.turnDiffs,
-      currentDiff: reviewState.diff
+      currentDiff: reviewState.diff,
+      cumulativeDiff: reviewState.cumulativeDiff
     ) else {
       return
     }
@@ -520,6 +522,7 @@ final class SessionDetailViewModel {
       ),
       reviewState: SessionDetailReviewState(
         diff: session.diff,
+        cumulativeDiff: session.cumulativeDiff,
         turnDiffs: session.turnDiffs,
         reviewComments: session.reviewComments,
         isDirect: session.isDirect
@@ -724,12 +727,14 @@ struct SessionDetailWorktreeState {
 
 struct SessionDetailReviewState {
   let diff: String?
+  let cumulativeDiff: String?
   let turnDiffs: [ServerTurnDiff]
   let reviewComments: [ServerReviewComment]
   let isDirect: Bool
 
   static let empty = SessionDetailReviewState(
     diff: nil,
+    cumulativeDiff: nil,
     turnDiffs: [],
     reviewComments: [],
     isDirect: false

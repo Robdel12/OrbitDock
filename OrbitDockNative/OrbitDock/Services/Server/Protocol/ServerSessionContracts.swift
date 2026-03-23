@@ -753,6 +753,7 @@ struct ServerSessionState: Codable, Identifiable {
   let tokenUsage: ServerTokenUsage
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
   let currentDiff: String?
+  let cumulativeDiff: String?
   let currentPlan: String?
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
@@ -821,6 +822,7 @@ struct ServerSessionState: Codable, Identifiable {
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case currentDiff = "current_diff"
+    case cumulativeDiff = "cumulative_diff"
     case currentPlan = "current_plan"
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
@@ -893,6 +895,7 @@ struct ServerSessionState: Codable, Identifiable {
     tokenUsageSnapshotKind =
       try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind) ?? .unknown
     currentDiff = try container.decodeIfPresent(String.self, forKey: .currentDiff)
+    cumulativeDiff = try container.decodeIfPresent(String.self, forKey: .cumulativeDiff)
     currentPlan = try container.decodeIfPresent(String.self, forKey: .currentPlan)
     codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
     claudeIntegrationMode = try container.decodeIfPresent(
@@ -970,6 +973,7 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encode(tokenUsage, forKey: .tokenUsage)
     try container.encode(tokenUsageSnapshotKind, forKey: .tokenUsageSnapshotKind)
     try container.encodeIfPresent(currentDiff, forKey: .currentDiff)
+    try container.encodeIfPresent(cumulativeDiff, forKey: .cumulativeDiff)
     try container.encodeIfPresent(currentPlan, forKey: .currentPlan)
     try container.encodeIfPresent(codexIntegrationMode, forKey: .codexIntegrationMode)
     try container.encodeIfPresent(claudeIntegrationMode, forKey: .claudeIntegrationMode)
@@ -1097,6 +1101,7 @@ struct ServerStateChanges: Codable {
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let currentDiff: String??
+  let cumulativeDiff: String??
   let currentPlan: String??
   let customName: String??
   let summary: String??
@@ -1139,6 +1144,7 @@ struct ServerStateChanges: Codable {
     tokenUsage: ServerTokenUsage? = nil,
     tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind? = nil,
     currentDiff: String?? = nil,
+    cumulativeDiff: String?? = nil,
     currentPlan: String?? = nil,
     customName: String?? = nil,
     summary: String?? = nil,
@@ -1180,6 +1186,7 @@ struct ServerStateChanges: Codable {
     self.tokenUsage = tokenUsage
     self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
     self.currentDiff = currentDiff
+    self.cumulativeDiff = cumulativeDiff
     self.currentPlan = currentPlan
     self.customName = customName
     self.summary = summary
@@ -1223,6 +1230,7 @@ struct ServerStateChanges: Codable {
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case currentDiff = "current_diff"
+    case cumulativeDiff = "cumulative_diff"
     case currentPlan = "current_plan"
     case customName = "custom_name"
     case summary
@@ -1270,6 +1278,7 @@ struct ServerStateChanges: Codable {
       forKey: .tokenUsageSnapshotKind
     )
     currentDiff = try container.decodePatchValue(String.self, forKey: .currentDiff)
+    cumulativeDiff = try container.decodePatchValue(String.self, forKey: .cumulativeDiff)
     currentPlan = try container.decodePatchValue(String.self, forKey: .currentPlan)
     customName = try container.decodePatchValue(String.self, forKey: .customName)
     summary = try container.decodePatchValue(String.self, forKey: .summary)

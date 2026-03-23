@@ -8,6 +8,7 @@ final class ReviewCanvasViewModel {
   var currentSessionStore = SessionStore.preview()
   var turnDiffs: [ServerTurnDiff] = []
   var currentDiff: String?
+  var cumulativeDiff: String?
   var reviewComments: [ServerReviewComment] = []
 
   @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
@@ -23,7 +24,8 @@ final class ReviewCanvasViewModel {
     ReviewCanvasStatePlanner.rawDiff(
       selectedTurnDiffId: selectedTurnDiffId,
       turnDiffs: turnDiffs,
-      currentDiff: currentDiff
+      currentDiff: currentDiff,
+      cumulativeDiff: cumulativeDiff
     )
   }
 
@@ -124,6 +126,7 @@ final class ReviewCanvasViewModel {
       let snapshot = ReviewCanvasSnapshot(
         turnDiffs: sessionStore.session(sessionId).turnDiffs,
         currentDiff: sessionStore.session(sessionId).diff,
+        cumulativeDiff: sessionStore.session(sessionId).cumulativeDiff,
         reviewComments: sessionStore.session(sessionId).reviewComments
       )
       apply(snapshot: snapshot)
@@ -138,6 +141,7 @@ final class ReviewCanvasViewModel {
   private func apply(snapshot: ReviewCanvasSnapshot) {
     turnDiffs = snapshot.turnDiffs
     currentDiff = snapshot.currentDiff
+    cumulativeDiff = snapshot.cumulativeDiff
     reviewComments = snapshot.reviewComments
   }
 }
@@ -145,11 +149,13 @@ final class ReviewCanvasViewModel {
 private struct ReviewCanvasSnapshot {
   let turnDiffs: [ServerTurnDiff]
   let currentDiff: String?
+  let cumulativeDiff: String?
   let reviewComments: [ServerReviewComment]
 
   static let empty = ReviewCanvasSnapshot(
     turnDiffs: [],
     currentDiff: nil,
+    cumulativeDiff: nil,
     reviewComments: []
   )
 }
