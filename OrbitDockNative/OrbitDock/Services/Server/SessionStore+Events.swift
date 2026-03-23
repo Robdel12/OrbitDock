@@ -79,8 +79,10 @@ extension SessionStore {
         obs.slashCommands = Set(slashCommands)
         obs.claudeSkillNames = skills
         obs.claudeToolNames = tools
-      case .contextCompacted:
-        break
+      case let .contextCompacted(sessionId):
+        let obs = session(sessionId)
+        obs.compactInProgress = false
+        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
       case let .undoStarted(sessionId, message):
         let obs = session(sessionId)
         obs.undoInProgress = true
@@ -94,6 +96,7 @@ extension SessionStore {
           Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
         }
       case let .threadRolledBack(sessionId, _):
+        session(sessionId).rollbackInProgress = false
         Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
       case let .sessionForked(sourceSessionId, newSessionId, _):
         let obs = session(sourceSessionId)

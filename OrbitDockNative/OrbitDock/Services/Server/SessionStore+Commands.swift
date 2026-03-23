@@ -250,7 +250,13 @@ extension SessionStore {
   }
 
   func compactContext(_ sessionId: String) async throws {
-    try await clients.conversation.compactContext(sessionId)
+    session(sessionId).compactInProgress = true
+    do {
+      try await clients.conversation.compactContext(sessionId)
+    } catch {
+      session(sessionId).compactInProgress = false
+      throw error
+    }
   }
 
   func undoLastTurn(_ sessionId: String) async throws {
@@ -264,7 +270,13 @@ extension SessionStore {
   }
 
   func rollbackTurns(_ sessionId: String, numTurns: UInt32) async throws {
-    try await clients.conversation.rollbackTurns(sessionId, numTurns: numTurns)
+    session(sessionId).rollbackInProgress = true
+    do {
+      try await clients.conversation.rollbackTurns(sessionId, numTurns: numTurns)
+    } catch {
+      session(sessionId).rollbackInProgress = false
+      throw error
+    }
   }
 
   func rewindFiles(_ sessionId: String, userMessageId: String) async throws {

@@ -65,12 +65,31 @@ extension DirectSessionComposer {
     }
     .disabled(!canContinueInNewSession)
 
+    if obs.isDirect, obs.turnCount > 0 {
+      Menu {
+        ForEach(1...min(Int(obs.turnCount), 5), id: \.self) { n in
+          Button {
+            Task { try? await viewModel.rollbackTurns(numTurns: UInt32(n)) }
+          } label: {
+            Label(n == 1 ? "1 turn" : "\(n) turns", systemImage: "arrow.uturn.backward.square")
+          }
+        }
+      } label: {
+        Label("Rollback Turns", systemImage: "arrow.uturn.backward.square")
+      }
+      .disabled(viewModel.rollbackInProgress || obs.workStatus == .working)
+    }
+
     if obs.hasTokenUsage {
       Button {
         Task { try? await viewModel.compactContext() }
       } label: {
-        Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
+        Label(
+          viewModel.compactInProgress ? "Compacting…" : "Compact Context",
+          systemImage: "arrow.triangle.2.circlepath"
+        )
       }
+      .disabled(viewModel.compactInProgress)
     }
 
     if hasMcpData {

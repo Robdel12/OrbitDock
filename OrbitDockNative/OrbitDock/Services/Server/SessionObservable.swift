@@ -81,6 +81,8 @@ final class SessionObservable {
 
   // Operation flags
   var undoInProgress: Bool = false
+  var compactInProgress: Bool = false
+  var rollbackInProgress: Bool = false
   var forkInProgress: Bool = false
   var forkedFrom: String?
 
@@ -451,6 +453,8 @@ final class SessionObservable {
     pendingPermissionDetail = nil
     pendingQuestion = nil
     undoInProgress = false
+    compactInProgress = false
+    rollbackInProgress = false
     forkInProgress = false
     pendingShellContext = []
     mcpTools = [:]

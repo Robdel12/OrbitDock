@@ -281,6 +281,10 @@ final class DirectSessionComposerViewModel {
     try await currentSessionStore.compactContext(resolvedSessionId)
   }
 
+  func rollbackTurns(numTurns: UInt32) async throws {
+    try await currentSessionStore.rollbackTurns(resolvedSessionId, numTurns: numTurns)
+  }
+
   func resumeSession() async throws {
     try await currentSessionStore.resumeSession(resolvedSessionId)
   }
@@ -345,6 +349,14 @@ final class DirectSessionComposerViewModel {
 
   var undoInProgress: Bool {
     sessionState.undoInProgress
+  }
+
+  var compactInProgress: Bool {
+    sessionState.compactInProgress
+  }
+
+  var rollbackInProgress: Bool {
+    sessionState.rollbackInProgress
   }
 
   func consumeShellContext() -> String? {
@@ -422,7 +434,10 @@ final class DirectSessionComposerViewModel {
       forkInProgress: session.forkInProgress,
       lastFilesPersistedAt: session.lastFilesPersistedAt,
       lastActivityAt: session.lastActivityAt,
-      undoInProgress: session.undoInProgress
+      undoInProgress: session.undoInProgress,
+      compactInProgress: session.compactInProgress,
+      rollbackInProgress: session.rollbackInProgress,
+      turnCount: session.turnCount
     )
   }
 }
@@ -479,6 +494,9 @@ struct DirectSessionComposerSessionState {
   let lastFilesPersistedAt: Date?
   let lastActivityAt: Date?
   let undoInProgress: Bool
+  let compactInProgress: Bool
+  let rollbackInProgress: Bool
+  let turnCount: UInt64
 
   var hasClaudeSkills: Bool {
     !claudeSkillNames.isEmpty
@@ -588,6 +606,9 @@ struct DirectSessionComposerSessionState {
     forkInProgress: false,
     lastFilesPersistedAt: nil,
     lastActivityAt: nil,
-    undoInProgress: false
+    undoInProgress: false,
+    compactInProgress: false,
+    rollbackInProgress: false,
+    turnCount: 0
   )
 }

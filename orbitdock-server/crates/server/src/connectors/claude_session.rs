@@ -266,6 +266,32 @@ pub fn start_event_loop(
                                 }
                             }
                         }
+                        ClaudeAction::Undo => {
+                            dispatch_connector_event(
+                                &session_id,
+                                ConnectorEvent::UndoStarted { message: Some("Undoing last turn...".to_string()) },
+                                &mut session_handle,
+                                &persist,
+                            ).await;
+                            match session.connector.send_message("/undo", None, None, &[]).await {
+                                Ok(()) => {
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::UndoCompleted { success: true, message: None },
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                                Err(e) => {
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::UndoCompleted { success: false, message: Some(format!("Undo failed: {e}")) },
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                            }
+                        }
                         _ => {
                             if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
                                 error!(
