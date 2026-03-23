@@ -30,6 +30,34 @@ use session::{
 };
 
 // ---------------------------------------------------------------------------
+// acceptEdits tool policy
+// ---------------------------------------------------------------------------
+
+/// All tool names (canonical + Claude-specific aliases) that should be
+/// pre-approved when the permission mode is `acceptEdits`.
+///
+/// The Claude CLI can use any of these names interchangeably for file-edit
+/// operations.  We must include every alias in `--allowedTools` so the CLI
+/// doesn't route them through the permission-prompt-tool and cause spurious
+/// "Allow for session?" prompts.
+pub const ACCEPT_EDITS_TOOLS: &[&str] = &[
+    // Canonical names
+    "Edit",
+    "Write",
+    "NotebookEdit",
+    // Claude-specific aliases
+    "FileEdit",
+    "MultiEdit",
+    "FileWrite",
+];
+
+/// Returns `true` if `tool_name` is a file-edit tool that `acceptEdits` mode
+/// should auto-approve.
+pub fn is_accept_edits_tool(tool_name: &str) -> bool {
+    ACCEPT_EDITS_TOOLS.contains(&tool_name)
+}
+
+// ---------------------------------------------------------------------------
 // Tool classification
 // ---------------------------------------------------------------------------
 
@@ -647,14 +675,14 @@ impl ClaudeConnector {
             args.push("--allow-dangerously-skip-permissions");
         }
 
-        // When permission_mode is "acceptEdits", ensure edit tools are explicitly
-        // in the allowedTools list. The --permission-prompt-tool stdio flag routes
-        // ALL permission decisions through the control protocol, so the CLI's
-        // internal --permission-mode auto-accept logic may not fire. Passing them
-        // as --allowedTools guarantees the CLI pre-approves them.
+        // When permission_mode is "acceptEdits", ensure all edit tools (canonical
+        // + aliases) are in the allowedTools list.  The --permission-prompt-tool
+        // stdio flag routes ALL permission decisions through OrbitDock, so the
+        // CLI's internal --permission-mode auto-accept logic may not fire.
+        // Passing them as --allowedTools guarantees the CLI pre-approves them.
         let mut effective_allowed: Vec<String> = allowed_tools.to_vec();
         if permission_mode == Some("acceptEdits") {
-            for tool in ["Edit", "Write", "NotebookEdit"] {
+            for tool in ACCEPT_EDITS_TOOLS {
                 let tool_str = tool.to_string();
                 if !effective_allowed.contains(&tool_str) {
                     effective_allowed.push(tool_str);
@@ -1018,11 +1046,24 @@ impl ClaudeConnector {
     }
 
     /// Change permission mode mid-session.
+    ///
+    /// When switching to `acceptEdits`, this also injects the edit tool names
+    /// into the CLI's `allowedTools` via `apply_flag_settings`.  Without this,
+    /// the CLI would continue sending `can_use_tool` requests for edits because
+    /// `--allowedTools` was locked at spawn time.
     pub async fn set_permission_mode(&self, mode: &str) -> Result<(), ConnectorError> {
         self.send_control_request(ControlRequestBody::SetPermissionMode {
             mode: mode.to_string(),
         })
         .await?;
+
+        if mode == "acceptEdits" {
+            let tools: Vec<&str> = ACCEPT_EDITS_TOOLS.to_vec();
+            let settings = serde_json::json!({ "allowedTools": tools });
+            let _ = self
+                .send_control_request(ControlRequestBody::ApplyFlagSettings { settings })
+                .await;
+        }
         Ok(())
     }
 
@@ -2102,11 +2143,7 @@ impl ClaudeConnector {
     }
 
     fn patch_diff_for_tool_use(tool_name: Option<&str>, payload: &Value) -> Option<String> {
-        let is_patch_tool = matches!(
-            tool_name,
-            Some("Edit" | "Write" | "NotebookEdit" | "MultiEdit")
-        );
-        if !is_patch_tool {
+        if !tool_name.is_some_and(is_accept_edits_tool) {
             return None;
         }
 
@@ -2647,9 +2684,9 @@ impl ClaudeConnector {
             },
         );
 
-        // Classify approval type
+        // Classify approval type — include aliases so they get Patch treatment
         let approval_type = match tool_name.as_deref() {
-            Some("Edit" | "Write" | "NotebookEdit") => ApprovalType::Patch,
+            Some(name) if is_accept_edits_tool(name) => ApprovalType::Patch,
             Some("AskUserQuestion") => ApprovalType::Question,
             _ => ApprovalType::Exec,
         };
@@ -2738,7 +2775,7 @@ impl ClaudeConnector {
         payload: &Value,
         fallback_file_path: Option<&str>,
     ) -> Option<String> {
-        let is_patch_tool = matches!(tool_name, Some("Edit" | "Write" | "NotebookEdit"));
+        let is_patch_tool = tool_name.is_some_and(is_accept_edits_tool);
         if !is_patch_tool {
             return payload
                 .get("new_string")

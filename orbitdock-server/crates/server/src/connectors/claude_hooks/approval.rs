@@ -40,23 +40,27 @@ pub(crate) fn classify_permission_request(
     orbitdock_protocol::WorkStatus,
     &'static str,
 ) {
-    match tool_name {
-        "AskUserQuestion" => (
+    if tool_name == "AskUserQuestion" {
+        return (
             orbitdock_protocol::ApprovalType::Question,
             orbitdock_protocol::WorkStatus::Question,
             "awaitingQuestion",
-        ),
-        "Edit" | "Write" | "NotebookEdit" => (
+        );
+    }
+
+    if orbitdock_connector_claude::is_accept_edits_tool(tool_name) {
+        return (
             orbitdock_protocol::ApprovalType::Patch,
             orbitdock_protocol::WorkStatus::Permission,
             "awaitingPermission",
-        ),
-        _ => (
-            orbitdock_protocol::ApprovalType::Exec,
-            orbitdock_protocol::WorkStatus::Permission,
-            "awaitingPermission",
-        ),
+        );
     }
+
+    (
+        orbitdock_protocol::ApprovalType::Exec,
+        orbitdock_protocol::WorkStatus::Permission,
+        "awaitingPermission",
+    )
 }
 
 pub(crate) fn extract_question_from_tool_input(tool_input: Option<&Value>) -> Option<String> {
