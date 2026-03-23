@@ -124,7 +124,7 @@ OrbitDock’s macOS app now uses Sparkle with an appcast attached directly to Gi
 https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml
 ```
 
-Current maintainer flow is manual binary publishing with lightweight appcast automation:
+Current maintainer flow is fully manual:
 
 1. Archive and notarize the macOS app locally:
 
@@ -139,12 +139,7 @@ APPLE_NOTARY_PRIVATE_KEY="$(cat AuthKey_ABC123XYZ.p8)" \
 ```
 
 2. Upload `dist/OrbitDock-<version>.zip` and `dist/OrbitDock-<version>.zip.sha256` to the matching GitHub Release.
-3. Publish or edit that release. The `.github/workflows/update-appcast.yml` workflow will:
-   - pick the latest uploaded `OrbitDock-*.zip` asset on the release
-   - generate and sign `appcast.xml`
-   - upload `appcast.xml` back onto the same release
-
-You can also generate the appcast locally if you want:
+3. Generate `appcast.xml` locally:
 
 ```bash
 SITE_DIR=/tmp/orbitdock-release-assets \
@@ -153,11 +148,13 @@ SPARKLE_PRIVATE_ED_KEY="<private key>" \
 ./scripts/generate-sparkle-appcast.sh
 ```
 
+4. Upload the generated `appcast.xml` to that same GitHub Release.
+
 Sparkle key notes:
 
 - `SPARKLE_PUBLIC_ED_KEY` is compiled into the app and used to verify updates.
 - `SPARKLE_PRIVATE_ED_KEY` is used to sign `appcast.xml`.
-- Generate the keypair with Sparkle’s `generate_keys` tool. Export the private key for automation or local publishing with `generate_keys -x private_key.txt`.
+- Generate the keypair with Sparkle’s `generate_keys` tool. Export the private key for local publishing with `generate_keys -x private_key.txt`.
 
 ### Cloud Providers
 
