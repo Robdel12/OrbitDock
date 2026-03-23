@@ -191,6 +191,10 @@ pub struct ClaudeAgentConfig {
     /// mid-session switches to `bypassPermissions` are permitted.
     #[serde(default)]
     pub allow_bypass_permissions: bool,
+    /// Skills to inject into the initial mission prompt (e.g. `["testing-philosophy"]`).
+    /// Skill content is read from `~/.claude/skills/{name}/SKILL.md` and prepended to the prompt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -279,6 +283,7 @@ impl AgentConfig {
                         allowed_tools: allowed,
                         disallowed_tools: disallowed,
                         allow_bypass_permissions: allow_bypass,
+                        skills: c.skills.clone(),
                         ..Default::default()
                     }
                 } else {
@@ -1115,6 +1120,7 @@ Some prompt body
                 allowed_tools: vec!["Bash".to_string()],
                 disallowed_tools: vec![],
                 allow_bypass_permissions: false,
+                skills: vec!["testing-philosophy".to_string()],
             }),
             codex: None,
         };
@@ -1123,6 +1129,7 @@ Some prompt body
         assert_eq!(resolved.effort.as_deref(), Some("high"));
         assert_eq!(resolved.permission_mode.as_deref(), Some("acceptEdits"));
         assert_eq!(resolved.allowed_tools, vec!["Bash"]);
+        assert_eq!(resolved.skills, vec!["testing-philosophy"]);
         // Claude resolve doesn't set codex-specific fields
         assert!(resolved.approval_policy.is_none());
         assert!(resolved.sandbox_mode.is_none());
@@ -1286,6 +1293,7 @@ Hello
                     allowed_tools: vec!["Read".to_string(), "Edit".to_string()],
                     disallowed_tools: vec![],
                     allow_bypass_permissions: false,
+                    skills: vec!["testing-philosophy".to_string()],
                 }),
                 codex: Some(CodexAgentConfig {
                     model: Some("gpt-5.3-codex".to_string()),
@@ -1293,6 +1301,7 @@ Hello
                     approval_policy: Some("never".to_string()),
                     sandbox_mode: Some("danger-full-access".to_string()),
                     multi_agent: Some(true),
+                    skills: vec!["react-best-practices".to_string()],
                     ..Default::default()
                 }),
             },
@@ -1307,11 +1316,13 @@ Hello
         assert_eq!(claude.model.as_deref(), Some("claude-sonnet-4-6"));
         assert_eq!(claude.effort.as_deref(), Some("high"));
         assert_eq!(claude.allowed_tools, vec!["Read", "Edit"]);
+        assert_eq!(claude.skills, vec!["testing-philosophy"]);
 
         let codex = parsed.config.agent.codex.as_ref().unwrap();
         assert_eq!(codex.model.as_deref(), Some("gpt-5.3-codex"));
         assert_eq!(codex.approval_policy.as_deref(), Some("never"));
         assert_eq!(codex.multi_agent, Some(true));
+        assert_eq!(codex.skills, vec!["react-best-practices"]);
     }
 
     #[test]

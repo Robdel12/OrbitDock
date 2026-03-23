@@ -9,7 +9,7 @@ use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::{render_prompt, IssueContext};
-use crate::domain::mission_control::skills::resolve_skill_inputs;
+use crate::domain::mission_control::skills::{read_skill_content_for_claude, resolve_skill_inputs};
 use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
 use crate::infrastructure::persistence::mission_control::{
     update_mission_issue_state_sync, MissionIssueStateUpdate,
@@ -335,12 +335,11 @@ pub async fn dispatch_issue(
     })
     .await;
 
-    // Resolve configured skills to SkillInput values (Codex only)
-    let mission_skills = resolve_skill_inputs(&resolved.skills);
-
     // Send the prompt as the first message via the connector action channel
     match provider {
         Provider::Codex => {
+            // Codex: resolve skill names to SkillInput values and attach natively
+            let mission_skills = resolve_skill_inputs(&resolved.skills);
             if let Some(tx) = registry.get_codex_action_tx(&session_id) {
                 let _ = tx
                     .send(CodexAction::SendMessage {
@@ -355,10 +354,15 @@ pub async fn dispatch_issue(
             }
         }
         Provider::Claude => {
+            // Claude: read skill content and prepend to the prompt
+            let claude_prompt = match read_skill_content_for_claude(&resolved.skills) {
+                Some(skill_content) => format!("{skill_content}\n\n{prompt}"),
+                None => prompt,
+            };
             if let Some(tx) = registry.get_claude_action_tx(&session_id) {
                 let _ = tx
                     .send(ClaudeAction::SendMessage {
-                        content: prompt,
+                        content: claude_prompt,
                         model: resolved.model,
                         effort: resolved.effort,
                         images: vec![],
