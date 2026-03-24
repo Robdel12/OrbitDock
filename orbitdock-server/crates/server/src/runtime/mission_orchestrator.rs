@@ -14,6 +14,8 @@ use tracing::{debug, error, info, warn};
 use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
+use crate::domain::workspaces::local::LocalWorkspaceProvider;
+use crate::domain::workspaces::WorkspaceProvider;
 use crate::infrastructure::persistence::mission_control::{
     load_manually_queued_issues, load_mission_by_id, load_mission_issues, load_missions,
     load_retry_ready_issues, MissionIssueRow, MissionRow,
@@ -316,6 +318,9 @@ async fn process_mission(
     )
     .await;
 
+    // Construct workspace provider for dispatch
+    let workspace_provider: Arc<dyn WorkspaceProvider> = Arc::new(LocalWorkspaceProvider::new());
+
     // Skip candidate fetch + dispatch for manual-only missions
     if workflow.config.trigger.kind == "manual_only" {
         broadcast_mission_delta_by_id(registry, &mission.id).await;
@@ -373,7 +378,6 @@ async fn process_mission(
         let candidate = candidate.clone();
         let mission_id = mission.id.clone();
         let provider_str = chosen_provider;
-        let tracker = tracker.clone();
         let ctx = DispatchContext {
             repo_root: mission.repo_root.clone(),
             prompt_template: workflow.prompt_template.clone(),
@@ -381,6 +385,8 @@ async fn process_mission(
             agent_config: workflow.config.agent.clone(),
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+            tracker: tracker.clone(),
+            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {
@@ -391,7 +397,6 @@ async fn process_mission(
                 &provider_str,
                 &ctx,
                 1, // first attempt for new candidates
-                &tracker,
             )
             .await;
 
@@ -451,7 +456,6 @@ async fn process_mission(
         let registry = registry.clone();
         let mission_id = mission.id.clone();
         let provider_str = chosen_provider;
-        let tracker = tracker.clone();
         let ctx = DispatchContext {
             repo_root: mission.repo_root.clone(),
             prompt_template: workflow.prompt_template.clone(),
@@ -459,6 +463,8 @@ async fn process_mission(
             agent_config: workflow.config.agent.clone(),
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+            tracker: tracker.clone(),
+            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {
@@ -469,7 +475,6 @@ async fn process_mission(
                 &provider_str,
                 &ctx,
                 attempt,
-                &tracker,
             )
             .await;
 
@@ -531,7 +536,6 @@ async fn process_mission(
         let registry = registry.clone();
         let mission_id = mission.id.clone();
         let provider_str = chosen_provider;
-        let tracker = tracker.clone();
         let ctx = DispatchContext {
             repo_root: mission.repo_root.clone(),
             prompt_template: workflow.prompt_template.clone(),
@@ -539,6 +543,8 @@ async fn process_mission(
             agent_config: workflow.config.agent.clone(),
             worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
             state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+            tracker: tracker.clone(),
+            workspace_provider: workspace_provider.clone(),
         };
 
         tokio::spawn(async move {
@@ -549,7 +555,6 @@ async fn process_mission(
                 &provider_str,
                 &ctx,
                 attempt,
-                &tracker,
             )
             .await;
 

@@ -1403,6 +1403,10 @@ pub async fn dispatch_mission_issue(
         agent_config: workflow.config.agent.clone(),
         worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
         state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
+        tracker,
+        workspace_provider: Arc::new(
+            crate::domain::workspaces::local::LocalWorkspaceProvider::new(),
+        ),
     };
 
     tokio::spawn(async move {
@@ -1413,7 +1417,6 @@ pub async fn dispatch_mission_issue(
             &provider_str,
             &ctx,
             1,
-            &tracker,
         )
         .await;
 

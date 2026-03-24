@@ -1,0 +1,362 @@
+//! Local workspace provider — creates a git worktree on the host machine
+//! and starts the agent session locally.
+//!
+//! This is the default provider and wraps the exact same logic that was
+//! previously inline in `dispatch_issue()`.  Solo users (and anyone not
+//! using a remote workspace provider) get this automatically.
+
+use async_trait::async_trait;
+use orbitdock_protocol::Provider;
+use tracing::warn;
+
+use crate::connectors::claude_session::ClaudeAction;
+use crate::connectors::codex_session::CodexAction;
+use crate::domain::mission_control::skills::{read_skill_content_for_claude, resolve_skill_inputs};
+use crate::runtime::session_creation::{
+    launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
+};
+
+use super::{DispatchRequest, DispatchResult, WorkspaceError, WorkspaceProvider};
+
+/// Derive a git branch name from an issue identifier.
+///
+/// Lowercases the identifier and replaces spaces and slashes with hyphens,
+/// then prefixes with `mission/`.
+pub(crate) fn mission_branch_name(identifier: &str) -> String {
+    format!(
+        "mission/{}",
+        identifier.to_lowercase().replace([' ', '/'], "-")
+    )
+}
+
+/// Build the `.mcp.json` content for mission tools.
+pub(crate) fn build_mcp_config(
+    tracker_kind: &str,
+    tracker_api_key: &str,
+    issue_id: &str,
+    issue_identifier: &str,
+    mission_id: &str,
+    orbitdock_bin: &str,
+) -> serde_json::Value {
+    let (api_key_env, tracker_kind_str) = match tracker_kind {
+        "github" => ("GITHUB_TOKEN", "github"),
+        _ => ("LINEAR_API_KEY", "linear"),
+    };
+
+    serde_json::json!({
+        "mcpServers": {
+            "orbitdock-mission": {
+                "command": orbitdock_bin,
+                "args": ["mcp-mission-tools"],
+                "env": {
+                    api_key_env: tracker_api_key,
+                    "ORBITDOCK_TRACKER_KIND": tracker_kind_str,
+                    "ORBITDOCK_ISSUE_ID": issue_id,
+                    "ORBITDOCK_ISSUE_IDENTIFIER": issue_identifier,
+                    "ORBITDOCK_MISSION_ID": mission_id,
+                }
+            }
+        }
+    })
+}
+
+/// Workspace provider that creates a local git worktree and starts the
+/// agent session on the host machine.
+pub(crate) struct LocalWorkspaceProvider;
+
+impl LocalWorkspaceProvider {
+    pub(crate) fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl WorkspaceProvider for LocalWorkspaceProvider {
+    async fn dispatch(&self, req: &DispatchRequest) -> Result<DispatchResult, WorkspaceError> {
+        // ── 1. Workspace provisioning ────────────────────────────────
+
+        let branch_name = mission_branch_name(&req.issue.identifier);
+
+        // Fetch latest refs so the worktree starts from the current remote HEAD
+        if let Err(err) = crate::domain::git::repo::fetch_origin(&req.repo_root).await {
+            warn!(
+                component = "mission_control",
+                event = "dispatch.fetch_failed",
+                error = %err,
+                "git fetch origin failed — worktree will use local state"
+            );
+        }
+
+        // Create worktree via the runtime helper (also persists the record)
+        let remote_base = format!("origin/{}", req.base_branch);
+        let (worktree_path, worktree_id) =
+            match crate::runtime::worktree_creation::create_tracked_worktree(
+                &req.registry,
+                &req.repo_root,
+                &branch_name,
+                Some(&remote_base),
+                orbitdock_protocol::WorktreeOrigin::Agent,
+                req.worktree_root_dir.as_deref(),
+                true, // always clean up stale worktrees
+            )
+            .await
+            {
+                Ok(summary) => (summary.worktree_path, summary.id),
+                Err(err) => {
+                    return Err(WorkspaceError::Failed(format!(
+                        "Worktree creation failed: {err}"
+                    )));
+                }
+            };
+
+        // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
+        if let Some(ref api_key_value) = req.tracker_api_key {
+            let orbitdock_bin = std::env::current_exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "orbitdock".to_string());
+
+            let mcp_config = build_mcp_config(
+                &req.tracker_kind,
+                api_key_value,
+                &req.issue.id,
+                &req.issue.identifier,
+                &req.mission_id,
+                &orbitdock_bin,
+            );
+
+            let mcp_path = format!("{worktree_path}/.mcp.json");
+            if let Err(err) = tokio::fs::write(
+                &mcp_path,
+                serde_json::to_string_pretty(&mcp_config).unwrap_or_default(),
+            )
+            .await
+            {
+                warn!(
+                    component = "mission_control",
+                    event = "dispatch.mcp_write_failed",
+                    worktree_path = %worktree_path,
+                    error = %err,
+                    "Failed to write .mcp.json for mission tools; continuing without"
+                );
+            }
+        }
+
+        // ── 2. Session creation and agent launch ─────────────────────
+
+        let provider: Provider = req.provider_str.parse().map_err(|_| {
+            WorkspaceError::Failed(format!("Invalid mission provider: {}", req.provider_str))
+        })?;
+
+        let resolved = req.agent_config.resolve_for_provider(&req.provider_str);
+
+        // Merge OrbitDock CLI + mission-specific instructions
+        let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
+        let mission_ref = crate::domain::instructions::mission_agent_instructions();
+        let orbitdock_instructions = format!("{cli_ref}\n\n{mission_ref}");
+        let developer_instructions = match resolved.developer_instructions {
+            Some(ref existing) => Some(format!("{existing}\n\n{orbitdock_instructions}")),
+            None => Some(orbitdock_instructions),
+        };
+
+        // Build dynamic tool specs for Codex sessions
+        let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> =
+            crate::domain::mission_control::tools::mission_tool_definitions()
+                .into_iter()
+                .map(|t| codex_protocol::dynamic_tools::DynamicToolSpec {
+                    name: t.name,
+                    description: t.description,
+                    input_schema: t.input_schema,
+                    defer_loading: false,
+                })
+                .collect();
+
+        let session_id = orbitdock_protocol::new_id();
+        let request = DirectSessionRequest {
+            provider,
+            cwd: worktree_path,
+            model: resolved.model.clone(),
+            approval_policy: resolved.approval_policy,
+            sandbox_mode: resolved.sandbox_mode,
+            permission_mode: resolved.permission_mode,
+            allowed_tools: resolved.allowed_tools,
+            disallowed_tools: resolved.disallowed_tools,
+            effort: resolved.effort.clone(),
+            collaboration_mode: resolved.collaboration_mode,
+            multi_agent: resolved.multi_agent,
+            personality: resolved.personality,
+            service_tier: resolved.service_tier,
+            developer_instructions,
+            mission_id: Some(req.mission_id.clone()),
+            issue_identifier: Some(req.issue.identifier.clone()),
+            worktree_id: Some(worktree_id),
+            dynamic_tools,
+            allow_bypass_permissions: resolved.allow_bypass_permissions,
+            codex_config_mode: None,
+            codex_config_profile: None,
+            codex_model_provider: None,
+            codex_config_source: None,
+            codex_config_overrides: None,
+        };
+
+        let persisted =
+            prepare_persist_direct_session(&req.registry, session_id.clone(), request).await;
+        launch_prepared_direct_session(&req.registry, persisted)
+            .await
+            .map_err(|e| WorkspaceError::Failed(format!("Failed to launch session: {e}")))?;
+
+        // ── 3. Prompt delivery ───────────────────────────────────────
+
+        match provider {
+            Provider::Codex => {
+                let mission_skills = resolve_skill_inputs(&resolved.skills);
+                if let Some(tx) = req.registry.get_codex_action_tx(&session_id) {
+                    let _ = tx
+                        .send(CodexAction::SendMessage {
+                            content: req.prompt.clone(),
+                            model: resolved.model,
+                            effort: resolved.effort,
+                            skills: mission_skills,
+                            images: vec![],
+                            mentions: vec![],
+                        })
+                        .await;
+                }
+            }
+            Provider::Claude => {
+                let claude_prompt = match read_skill_content_for_claude(&resolved.skills) {
+                    Some(skill_content) => format!("{skill_content}\n\n{}", req.prompt),
+                    None => req.prompt.clone(),
+                };
+                if let Some(tx) = req.registry.get_claude_action_tx(&session_id) {
+                    let _ = tx
+                        .send(ClaudeAction::SendMessage {
+                            content: claude_prompt,
+                            model: resolved.model,
+                            effort: resolved.effort,
+                            images: vec![],
+                        })
+                        .await;
+                }
+            }
+        }
+
+        Ok(DispatchResult { session_id })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── mission_branch_name ──────────────────────────────────────────────
+
+    #[test]
+    fn branch_name_basic_identifier() {
+        assert_eq!(mission_branch_name("PROJ-42"), "mission/proj-42");
+    }
+
+    #[test]
+    fn branch_name_lowercases() {
+        assert_eq!(mission_branch_name("ISSUE-123"), "mission/issue-123");
+    }
+
+    #[test]
+    fn branch_name_replaces_spaces() {
+        assert_eq!(
+            mission_branch_name("My Issue Name"),
+            "mission/my-issue-name"
+        );
+    }
+
+    #[test]
+    fn branch_name_replaces_slashes() {
+        assert_eq!(
+            mission_branch_name("owner/repo#123"),
+            "mission/owner-repo#123"
+        );
+    }
+
+    #[test]
+    fn branch_name_replaces_mixed_separators() {
+        assert_eq!(
+            mission_branch_name("Org/Team Project 99"),
+            "mission/org-team-project-99"
+        );
+    }
+
+    #[test]
+    fn branch_name_preserves_hyphens() {
+        assert_eq!(
+            mission_branch_name("already-hyphenated"),
+            "mission/already-hyphenated"
+        );
+    }
+
+    // ── build_mcp_config ─────────────────────────────────────────────────
+
+    #[test]
+    fn mcp_config_linear_tracker() {
+        let config = build_mcp_config(
+            "linear",
+            "lin_api_test123",
+            "issue-1",
+            "PROJ-42",
+            "mission-1",
+            "/usr/bin/orbitdock",
+        );
+
+        let server = &config["mcpServers"]["orbitdock-mission"];
+        assert_eq!(server["command"], "/usr/bin/orbitdock");
+        assert_eq!(server["args"][0], "mcp-mission-tools");
+        assert_eq!(server["env"]["LINEAR_API_KEY"], "lin_api_test123");
+        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "linear");
+        assert_eq!(server["env"]["ORBITDOCK_ISSUE_ID"], "issue-1");
+        assert_eq!(server["env"]["ORBITDOCK_ISSUE_IDENTIFIER"], "PROJ-42");
+        assert_eq!(server["env"]["ORBITDOCK_MISSION_ID"], "mission-1");
+        // Linear tracker should NOT have GITHUB_TOKEN
+        assert!(server["env"]["GITHUB_TOKEN"].is_null());
+    }
+
+    #[test]
+    fn mcp_config_github_tracker() {
+        let config = build_mcp_config(
+            "github",
+            "ghp_test456",
+            "issue-2",
+            "owner/repo#7",
+            "mission-2",
+            "/usr/bin/orbitdock",
+        );
+
+        let server = &config["mcpServers"]["orbitdock-mission"];
+        assert_eq!(server["env"]["GITHUB_TOKEN"], "ghp_test456");
+        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "github");
+        // GitHub tracker should NOT have LINEAR_API_KEY
+        assert!(server["env"]["LINEAR_API_KEY"].is_null());
+    }
+
+    #[test]
+    fn mcp_config_unknown_tracker_defaults_to_linear() {
+        let config = build_mcp_config(
+            "jira",
+            "jira_key",
+            "issue-3",
+            "JIRA-99",
+            "mission-3",
+            "/usr/bin/orbitdock",
+        );
+
+        let server = &config["mcpServers"]["orbitdock-mission"];
+        // Unknown tracker kinds fall back to LINEAR_API_KEY env var
+        assert_eq!(server["env"]["LINEAR_API_KEY"], "jira_key");
+        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "linear");
+    }
+
+    // ── WorkspaceError ───────────────────────────────────────────────────
+
+    #[test]
+    fn workspace_error_display() {
+        let err = WorkspaceError::Failed("git worktree add failed".to_string());
+        assert_eq!(err.to_string(), "git worktree add failed");
+    }
+}
