@@ -13,7 +13,6 @@ final class SessionDetailViewModel {
   var conversationJumpTarget: ConversationJumpTarget?
   var isPinned = true
   var unreadCount = 0
-  var scrollToBottomTrigger = 0
   var selectedSkills: Set<String> = []
   var layoutConfig: LayoutConfiguration = .conversationOnly {
     didSet {
@@ -112,7 +111,6 @@ final class SessionDetailViewModel {
     SessionDetailConversationChromeState(
       isPinned: isPinned,
       unreadCount: unreadCount,
-      scrollToBottomTrigger: scrollToBottomTrigger,
       pendingApprovalPanelOpenSignal: pendingApprovalPanelOpenSignal
     )
   }
@@ -181,7 +179,6 @@ final class SessionDetailViewModel {
 
     isPinned = state.isPinned
     unreadCount = state.unreadCount
-    scrollToBottomTrigger = state.scrollToBottomTrigger
   }
 
   func handlePinnedChange(_ pinned: Bool) {
@@ -208,12 +205,6 @@ final class SessionDetailViewModel {
         oldCount: oldCount,
         newCount: newCount
       )
-    )
-  }
-
-  func handleComposerHeightChanged() {
-    applyConversationChromeState(
-      SessionDetailConversationChromePlanner.composerHeightChanged(current: conversationChromeState)
     )
   }
 

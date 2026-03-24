@@ -6,20 +6,11 @@
 //  Heights are automatic — no manual measurement or caching needed.
 //
 //  Follow (pin-to-bottom) logic:
-//  - Sentinel onAppear re-pins when user scrolls back to the bottom.
-//  - Sentinel onDisappear marks the sentinel as off-screen but does NOT
-//    immediately unpin — content growth also pushes the sentinel off-screen
-//    before auto-scroll corrects it.
-//  - Unpin only happens when a USER-INITIATED scroll ends with the sentinel
-//    still off-screen. User scroll is detected via platform scroll-view
-//    notifications (macOS) or pan gesture tracking (iOS) through
-//    TimelineUserScrollDetector.
-//
-//  Initial positioning strategy:
-//  - Use .defaultScrollAnchor(.bottom) for the first layout pass.
-//  - Follow with a single non-animated scrollTo after the first yield when
-//    the timeline is pinned, which avoids "blank until scroll" reveal races
-//    without hiding the entire conversation behind an overlay.
+//  - The timeline owns a bound scroll position anchored to the bottom sentinel.
+//  - When pinned, the bound position stays on the bottom sentinel so container
+//    height and content height changes preserve bottom alignment declaratively.
+//  - User-driven scrolling is detected from SwiftUI scroll phase changes. We
+//    only unpin after a user scroll settles away from the bottom.
 //
 
 import SwiftUI
@@ -30,14 +21,16 @@ struct TimelineScrollView: View {
   let clients: ServerClients
   let onLoadMore: (() -> Void)?
   let isPinned: Bool
-  let scrollToBottomTrigger: Int
   let onReachedBottom: () -> Void
   let onLeftBottomByUser: () -> Void
 
-  @State private var sentinelVisible = true
-  @State private var userIsLiveScrolling = false
+  private static let bottomSentinelID = "timeline-bottom"
 
-  @State private var didPerformInitialScroll = false
+  @State private var bottomSentinelVisible = true
+  @State private var scrollPositionID: String? = bottomSentinelID
+  @State private var userDrivenScrollInFlight = false
+  @State private var hasInitializedScrollPosition = false
+
 
   init(
     viewModel: ConversationTimelineViewModel,
@@ -45,7 +38,6 @@ struct TimelineScrollView: View {
     clients: ServerClients,
     onLoadMore: (() -> Void)?,
     isPinned: Bool,
-    scrollToBottomTrigger: Int,
     onReachedBottom: @escaping () -> Void,
     onLeftBottomByUser: @escaping () -> Void
   ) {
@@ -54,112 +46,98 @@ struct TimelineScrollView: View {
     self.clients = clients
     self.onLoadMore = onLoadMore
     self.isPinned = isPinned
-    self.scrollToBottomTrigger = scrollToBottomTrigger
     self.onReachedBottom = onReachedBottom
     self.onLeftBottomByUser = onLeftBottomByUser
-  }
-
-  /// Lightweight value that changes when auto-scroll should fire.
-  /// Captures entry count (new messages) and a coarse streaming bucket
-  /// for the last message so we do not scroll on every single token.
-  private var autoScrollVersion: Int {
-    let displayedEntries = viewModel.displayedEntries
-    var h = displayedEntries.count
-    if let last = displayedEntries.last {
-      h = h &* 31 &+ last.id.hashValue
-      switch last.row {
-        case let .assistant(msg) where msg.isStreaming:
-          h = h &* 31 &+ streamingBucket(for: msg.content)
-        case let .thinking(msg) where msg.isStreaming:
-          h = h &* 31 &+ streamingBucket(for: msg.content)
-        default: break
-      }
-    }
-    return h
   }
 
   var body: some View {
     let displayed = viewModel.displayedEntries
 
-    ScrollViewReader { proxy in
-      ScrollView(.vertical) {
-        LazyVStack(spacing: 0) {
-          // Pagination sentinel — triggers history load when scrolled into view.
-          // Identity changes when older messages prepend (first entry's sequence
-          // changes), so onAppear fires again for the next page.
-          Color.clear
-            .frame(height: 1)
-            .id("pagination-\(displayed.first?.sequence ?? 0)")
-            .onAppear {
-              guard didPerformInitialScroll, !isPinned else { return }
-              onLoadMore?()
-            }
-
-          ForEach(displayed) { entry in
-            TimelineRowHost(
-              entry: entry,
-              sessionId: sessionId,
-              clients: clients,
-              viewModel: viewModel
-            )
-            .id(entry.id)
+    ScrollView(.vertical) {
+      LazyVStack(spacing: 0) {
+        // Pagination sentinel — triggers history load when scrolled into view.
+        // Identity changes when older messages prepend (first entry's sequence
+        // changes), so onAppear fires again for the next page.
+        Color.clear
+          .frame(height: 1)
+          .id("pagination-\(displayed.first?.sequence ?? 0)")
+          .onAppear {
+            guard hasInitializedScrollPosition, !isPinned else { return }
+            onLoadMore?()
           }
 
-          // Bottom sentinel — tracks viewport visibility for pin state.
-          // Also signals that the scroll view has settled at the bottom (isReady).
-          Color.clear
-            .frame(height: 1)
-            .id("timeline-bottom")
-            .onAppear {
-              sentinelVisible = true
-              guard !isPinned else { return }
-              onReachedBottom()
-            }
-            .onDisappear {
-              sentinelVisible = false
-              guard isPinned, userIsLiveScrolling else { return }
-              onLeftBottomByUser()
-            }
+        ForEach(displayed) { entry in
+          TimelineRowHost(
+            entry: entry,
+            sessionId: sessionId,
+            clients: clients,
+            viewModel: viewModel
+          )
+          .id(entry.id)
         }
-        .background {
-          TimelineUserScrollDetector(isUserScrolling: $userIsLiveScrolling)
-            .frame(width: 0, height: 0)
-        }
+
+        // Bottom sentinel — the declarative pinned target and visibility probe.
+        Color.clear
+          .frame(height: 1)
+          .id(Self.bottomSentinelID)
+          .onScrollVisibilityChange(threshold: 0.001) { isVisible in
+            bottomSentinelVisible = isVisible
+            guard isVisible, !isPinned else { return }
+            onReachedBottom()
+          }
       }
-      .scrollDismissesKeyboard(.interactively)
-      .defaultScrollAnchor(.bottom)
-      .background(Color.backgroundPrimary)
-      .task {
-        guard !didPerformInitialScroll else { return }
-        didPerformInitialScroll = true
-        await Task.yield()
-        guard isPinned else { return }
-        scrollToBottom(with: proxy)
+      .scrollTargetLayout()
+    }
+    .scrollDismissesKeyboard(.interactively)
+    .defaultScrollAnchor(.bottom)
+    .scrollPosition(id: $scrollPositionID, anchor: .bottom)
+    .background(Color.backgroundPrimary)
+    .task {
+      guard !hasInitializedScrollPosition else { return }
+      hasInitializedScrollPosition = true
+      if isPinned {
+        setPinnedScrollPosition()
       }
-      .onChange(of: autoScrollVersion) { _, _ in
-        guard isPinned else { return }
-        scrollToBottom(with: proxy)
+    }
+    .onChange(of: isPinned) { _, pinned in
+      guard pinned else { return }
+      setPinnedScrollPosition()
+    }
+    .onScrollPhaseChange { _, newPhase in
+      if isUserDrivenScrollPhase(newPhase) {
+        userDrivenScrollInFlight = true
+        return
       }
-      .onChange(of: scrollToBottomTrigger) { _, _ in
-        scrollToBottom(with: proxy)
+
+      if newPhase == .animating {
+        userDrivenScrollInFlight = false
+        return
       }
-      .onChange(of: userIsLiveScrolling) { _, isScrolling in
-        guard !isScrolling, isPinned, !sentinelVisible else { return }
-        onLeftBottomByUser()
-      }
+
+      guard newPhase == .idle else { return }
+      defer { userDrivenScrollInFlight = false }
+
+      guard userDrivenScrollInFlight else { return }
+      guard isPinned, !bottomSentinelVisible else { return }
+      onLeftBottomByUser()
     }
   }
 
-  private func scrollToBottom(with proxy: ScrollViewProxy) {
+  private func setPinnedScrollPosition() {
     var transaction = Transaction()
     transaction.animation = nil
     withTransaction(transaction) {
-      proxy.scrollTo("timeline-bottom", anchor: .bottom)
+      scrollPositionID = Self.bottomSentinelID
     }
   }
 
-  private func streamingBucket(for content: String) -> Int {
-    content.count / 32
+  private func isUserDrivenScrollPhase(_ phase: ScrollPhase) -> Bool {
+    switch phase {
+      case .tracking, .interacting, .decelerating:
+        true
+      case .idle, .animating:
+        false
+    }
   }
 }
 

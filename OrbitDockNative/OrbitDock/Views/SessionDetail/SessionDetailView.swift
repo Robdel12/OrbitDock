@@ -93,8 +93,7 @@ struct SessionDetailView: View {
           isPinned: viewModel.isPinned,
           unreadCount: viewModel.unreadCount,
           onJumpToLatest: viewModel.jumpConversationToLatest,
-          onTogglePinned: viewModel.toggleConversationPinnedState,
-          onComposerHeightChanged: viewModel.handleComposerHeightChanged
+          onTogglePinned: viewModel.toggleConversationPinnedState
         )
       } takeOverBar: {
         TakeOverInputBar(

@@ -3,7 +3,6 @@ import Foundation
 struct SessionDetailConversationChromeState: Equatable {
   var isPinned: Bool
   var unreadCount: Int
-  var scrollToBottomTrigger: Int
   var pendingApprovalPanelOpenSignal: Int
 }
 
@@ -39,16 +38,6 @@ enum SessionDetailConversationChromePlanner {
     return next
   }
 
-  static func composerHeightChanged(
-    current: SessionDetailConversationChromeState
-  ) -> SessionDetailConversationChromeState {
-    guard current.isPinned else { return current }
-
-    var next = current
-    next.scrollToBottomTrigger += 1
-    return next
-  }
-
   static func openPendingApprovalPanel(
     current: SessionDetailConversationChromeState
   ) -> SessionDetailConversationChromeState {
@@ -56,7 +45,6 @@ enum SessionDetailConversationChromePlanner {
     next.pendingApprovalPanelOpenSignal += 1
     next.isPinned = true
     next.unreadCount = 0
-    next.scrollToBottomTrigger += 1
     return next
   }
 
@@ -66,7 +54,6 @@ enum SessionDetailConversationChromePlanner {
     var next = current
     next.isPinned = true
     next.unreadCount = 0
-    next.scrollToBottomTrigger += 1
     return next
   }
 

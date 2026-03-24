@@ -21,7 +21,6 @@ struct DirectSessionComposer: View {
   let unreadCount: Int
   let onJumpToLatest: () -> Void
   let onTogglePinned: () -> Void
-  let onComposerHeightChanged: () -> Void
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
@@ -55,8 +54,7 @@ struct DirectSessionComposer: View {
     isPinned: Bool,
     unreadCount: Int,
     onJumpToLatest: @escaping () -> Void,
-    onTogglePinned: @escaping () -> Void,
-    onComposerHeightChanged: @escaping () -> Void
+    onTogglePinned: @escaping () -> Void
   ) {
     self.sessionId = sessionId
     self.sessionStore = sessionStore
@@ -66,7 +64,6 @@ struct DirectSessionComposer: View {
     self.unreadCount = unreadCount
     self.onJumpToLatest = onJumpToLatest
     self.onTogglePinned = onTogglePinned
-    self.onComposerHeightChanged = onComposerHeightChanged
 
     let initialViewModel = DirectSessionComposerViewModel()
     initialViewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
@@ -350,10 +347,6 @@ struct DirectSessionComposer: View {
         await dictationController.cancel()
         clearDictationDraftState()
       }
-    }
-    .onChange(of: inputState.focus.measuredHeight) { _, _ in
-      guard isPinned else { return }
-      onComposerHeightChanged()
     }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
       guard dictationController.isRecording else { return }
@@ -646,7 +639,6 @@ struct DirectSessionComposer: View {
   @Previewable @State var skills: Set<String> = []
   @Previewable @State var pinned = true
   @Previewable @State var unread = 0
-  @Previewable @State var scroll = 0
   let runtimeRegistry = ServerRuntimeRegistry(
     endpointsProvider: { [] },
     runtimeFactory: { ServerRuntime(endpoint: $0) },
@@ -663,18 +655,12 @@ struct DirectSessionComposer: View {
     onJumpToLatest: {
       pinned = true
       unread = 0
-      scroll += 1
     },
     onTogglePinned: {
       pinned.toggle()
       if pinned {
         unread = 0
-        scroll += 1
       }
-    },
-    onComposerHeightChanged: {
-      guard pinned else { return }
-      scroll += 1
     }
   )
   .environment(runtimeRegistry)

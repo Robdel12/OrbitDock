@@ -13,7 +13,6 @@ struct SessionDetailConversationSection: View {
   @Binding var jumpToMessageTarget: ConversationJumpTarget?
   let isPinned: Bool
   let unreadCount: Int
-  let scrollToBottomTrigger: Int
   let onJumpToLatest: () -> Void
   let onReachedBottom: () -> Void
   let onLeftBottomByUser: () -> Void
@@ -31,7 +30,6 @@ struct SessionDetailConversationSection: View {
       jumpToMessageTarget: $jumpToMessageTarget,
       isPinned: isPinned,
       unreadCount: unreadCount,
-      scrollToBottomTrigger: scrollToBottomTrigger,
       onJumpToLatest: onJumpToLatest,
       onReachedBottom: onReachedBottom,
       onLeftBottomByUser: onLeftBottomByUser,

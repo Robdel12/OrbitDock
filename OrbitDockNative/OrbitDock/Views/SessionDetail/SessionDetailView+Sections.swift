@@ -119,7 +119,6 @@ extension SessionDetailView {
       jumpToMessageTarget: $viewModel.conversationJumpTarget,
       isPinned: viewModel.isPinned,
       unreadCount: viewModel.unreadCount,
-      scrollToBottomTrigger: viewModel.scrollToBottomTrigger,
       onJumpToLatest: viewModel.jumpConversationToLatest,
       onReachedBottom: viewModel.handleConversationTimelineReachedBottom,
       onLeftBottomByUser: viewModel.handleConversationTimelineLeftBottomByUser,

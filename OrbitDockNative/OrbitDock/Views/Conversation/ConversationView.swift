@@ -17,7 +17,6 @@ struct ConversationView: View {
 
   let isPinned: Bool
   let unreadCount: Int
-  let scrollToBottomTrigger: Int
   let onJumpToLatest: () -> Void
   let onReachedBottom: () -> Void
   let onLeftBottomByUser: () -> Void
@@ -102,7 +101,6 @@ struct ConversationView: View {
           viewModel.loadOlderMessages()
         },
         isPinned: isPinned,
-        scrollToBottomTrigger: scrollToBottomTrigger,
         onReachedBottom: onReachedBottom,
         onLeftBottomByUser: onLeftBottomByUser
       )
@@ -122,7 +120,6 @@ enum ConversationLoadState: Equatable {
 #Preview {
   @Previewable @State var isPinned = true
   @Previewable @State var unreadCount = 0
-  @Previewable @State var scrollTrigger = 0
   @Previewable @State var jumpTarget: ConversationJumpTarget?
 
   ConversationView(
@@ -134,11 +131,9 @@ enum ConversationLoadState: Equatable {
     jumpToMessageTarget: $jumpTarget,
     isPinned: isPinned,
     unreadCount: unreadCount,
-    scrollToBottomTrigger: scrollTrigger,
     onJumpToLatest: {
       isPinned = true
       unreadCount = 0
-      scrollTrigger += 1
     },
     onReachedBottom: {
       isPinned = true
