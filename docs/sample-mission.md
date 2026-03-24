@@ -60,8 +60,8 @@ agent:
 
 Skills listed under `agent.<provider>.skills` are loaded at mission dispatch time. Missing skills are logged and skipped — the mission still dispatches.
 
-- **Codex**: Skills are attached natively to the initial `SendMessage`. Each name resolves to `~/.codex/skills/{name}/SKILL.md`.
-- **Claude**: Skill content is read from `~/.claude/skills/{name}/SKILL.md` and prepended to the initial prompt (Claude has no native `skills` parameter).
+- **Codex**: Skills are attached natively to the initial `SendMessage`. Each name resolves first from `~/.codex/skills/{name}/SKILL.md`, then falls back to repo-local `.codex/skills/{name}/SKILL.md`.
+- **Claude**: Skill content is read and prepended to the initial prompt (Claude has no native `skills` parameter). Resolution checks `~/.claude/skills/{name}/SKILL.md` first, then repo-local `.claude/skills/{name}/SKILL.md`.
 
 ## Priority mode (Claude primary, Codex overflow)
 
