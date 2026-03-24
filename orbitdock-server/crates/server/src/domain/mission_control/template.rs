@@ -4,56 +4,88 @@
 /// at dispatch time. The YAML front matter configures the orchestrator with
 /// `MissionConfig` keys at the top level.
 pub fn default_mission_template(provider: &str, tracker: &str) -> String {
-    let (states_hint, dispatch_state, complete_state, issue_label) = match tracker {
+    let (states_hint, dispatch_state, complete_state, issue_label, tracker_label) = match tracker {
         "github" => (
             r#"[Ready, Backlog]"#,
             "In progress",
             "In review",
             "GitHub issue",
+            "GitHub",
         ),
         _ => (
             r#"[Todo, "In Progress"]"#,
             "In Progress",
             "In Review",
             "Linear issue",
+            "Linear",
         ),
     };
 
     format!(
         r#"---
+# ── Tracker ────────────────────────────────────────────────────────────
+# Which issue tracker to poll. Values: linear, github
 tracker: {tracker}
 
+# ── Provider ───────────────────────────────────────────────────────────
+# Controls which AI provider(s) execute missions.
 provider:
+  # strategy: single | priority | round_robin
+  #   single      — all issues go to `primary`
+  #   priority    — fill `primary` first, overflow to `secondary`
+  #   round_robin — alternate between `primary` and `secondary`
   strategy: single
+  # primary: claude | codex
   primary: {provider}
+  # secondary: claude | codex          # required for priority / round_robin
+  # max_concurrent_primary: 3          # max sessions on primary before overflow (priority only)
   max_concurrent: 3
 
+# ── Agent settings (per-provider) ──────────────────────────────────────
+# Uncomment and configure the provider(s) you use. Missions run headless,
+# so defaults are tuned for autonomous, unattended operation.
+#
 # agent:
 #   claude:
-#     # model: claude-sonnet-4-6
-#     # effort: high
-#     permission_mode: acceptEdits      # mission-safe default (agents run headless)
+#     model: claude-sonnet-4-6           # any Claude model ID
+#     effort: high                       # low | medium | high
+#     permission_mode: acceptEdits       # plan | default | auto-edit | auto | bypass
+#     # allowed_tools: ["Bash(git:*)"]   # only allow these tools (default for missions)
+#     # disallowed_tools: ["Bash(rm:*)"] # block these tools (default for missions)
+#     # skills: [testing-philosophy]     # inject skills from ~/.claude/skills/<name>/SKILL.md
 #   codex:
-#     # model: gpt-5.3-codex
-#     # effort: medium
-#     approval_policy: never           # fullAuto — sandbox provides safety
-#     sandbox_mode: workspace-write    # mission-safe default
+#     model: gpt-5.3-codex               # any Codex model ID
+#     effort: medium                     # low | medium | high
+#     approval_policy: never             # untrusted | on-failure | on-request | never (fullAuto)
+#     sandbox_mode: workspace-write      # workspace-write | danger-full-access
+#     # collaboration_mode: default      # default | plan
+#     # multi_agent: false               # enable multi-agent mode
+#     # personality: null                # personality preset
+#     # service_tier: fast               # fast | flex
+#     # developer_instructions: ""       # custom developer instructions
+#     # skills: [testing-philosophy]     # attach skills from ~/.codex/skills/<name>/SKILL.md
 
+# ── Trigger ────────────────────────────────────────────────────────────
+# How and when Mission Control looks for new issues.
 trigger:
+  # kind: polling | manual_only
   kind: polling
-  interval: 60
-  # filters:
-  #   labels: []
+  interval: 60                           # polling interval in seconds
+  # filters:                             # narrow which issues get picked up
+  #   labels: [agent-ready]              # only issues with these labels
   #   states: {states_hint}
-  #   project: YOUR_PROJECT
-  #   team: YOUR_TEAM
+  #   project: YOUR_PROJECT              # {tracker_label} project key
+  #   team: YOUR_TEAM                    # {tracker_label} team key
 
+# ── Orchestration ──────────────────────────────────────────────────────
+# Runtime behavior for dispatched sessions.
 orchestration:
-  max_retries: 3
-  stall_timeout: 600
-  base_branch: main
-  state_on_dispatch: "{dispatch_state}"
-  state_on_complete: "{complete_state}"
+  max_retries: 3                         # max retry attempts per issue
+  stall_timeout: 600                     # kill + retry after N seconds of inactivity
+  base_branch: main                      # base branch for worktrees
+  # worktree_root_dir: .orbitdock-worktrees  # override worktree location
+  state_on_dispatch: "{dispatch_state}"  # tracker state set when dispatched
+  state_on_complete: "{complete_state}"  # tracker state set when session completes
 ---
 
 You are working on {issue_label} `{{{{ issue.identifier }}}}`: {{{{ issue.title }}}}
@@ -95,10 +127,12 @@ You are working in a git worktree on branch `mission/{{{{ issue.identifier | dow
 - Stop early only for true blockers (missing auth, permissions, secrets).
 - Do not expand scope. File follow-up issues for anything tangential.
 - Keep the workpad updated — it is the primary way humans track your progress.
+- Use gitmoji in commit messages and PR titles (e.g. ✨, 🐛, ♻️, 🔧).
 - Prefer rebases over merges when syncing with the base branch.
 - **NEVER create merge commits.** Keep mission branches linear.
 - **NEVER merge PRs.** Create the PR, verify CI passes, and address any review feedback — but leave merging to a human.
 - Write detailed PR descriptions: summarize what changed and why, call out new tests, non-obvious decisions, and anything a reviewer wouldn't expect.
+- Use gitmoji in PR titles (e.g. ✨, 🐛, ♻️, 🔧).
 "#
     )
 }
@@ -162,5 +196,90 @@ mod tests {
         assert_eq!(def.config.orchestration.base_branch, "main");
         assert_eq!(def.config.orchestration.state_on_dispatch, "In Progress");
         assert_eq!(def.config.orchestration.state_on_complete, "In Review");
+    }
+
+    // ── Commented option docs ─────────────────────────────────────────
+
+    #[test]
+    fn template_documents_provider_strategy_options() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("single"));
+        assert!(tmpl.contains("priority"));
+        assert!(tmpl.contains("round_robin"));
+        assert!(tmpl.contains("secondary:"));
+        assert!(tmpl.contains("max_concurrent_primary:"));
+    }
+
+    #[test]
+    fn template_documents_agent_claude_options() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("permission_mode:"));
+        assert!(tmpl.contains("plan | default | auto-edit | auto | bypass"));
+        assert!(tmpl.contains("allowed_tools:"));
+        assert!(tmpl.contains("disallowed_tools:"));
+        assert!(tmpl.contains("effort:"));
+        assert!(tmpl.contains("low | medium | high"));
+        assert!(tmpl.contains("skills:"));
+    }
+
+    #[test]
+    fn template_documents_agent_codex_options() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("approval_policy:"));
+        assert!(tmpl.contains("untrusted | on-failure | on-request | never"));
+        assert!(tmpl.contains("sandbox_mode:"));
+        assert!(tmpl.contains("workspace-write | danger-full-access"));
+        assert!(tmpl.contains("collaboration_mode:"));
+        assert!(tmpl.contains("multi_agent:"));
+        assert!(tmpl.contains("service_tier:"));
+        assert!(tmpl.contains("developer_instructions:"));
+    }
+
+    #[test]
+    fn template_documents_trigger_options() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("polling | manual_only"));
+        assert!(tmpl.contains("labels:"));
+        assert!(tmpl.contains("states:"));
+        assert!(tmpl.contains("project:"));
+        assert!(tmpl.contains("team:"));
+    }
+
+    #[test]
+    fn template_documents_orchestration_options() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("worktree_root_dir:"));
+        assert!(tmpl.contains("stall_timeout:"));
+        assert!(tmpl.contains("state_on_dispatch:"));
+        assert!(tmpl.contains("state_on_complete:"));
+    }
+
+    #[test]
+    fn template_github_tracker_uses_github_hints() {
+        let tmpl = default_mission_template("claude", "github");
+        assert!(tmpl.contains("tracker: github"));
+        assert!(tmpl.contains("GitHub issue"));
+        assert!(tmpl.contains("GitHub project key"));
+        assert!(tmpl.contains("GitHub team key"));
+        assert!(tmpl.contains("[Ready, Backlog]"));
+    }
+
+    #[test]
+    fn template_linear_tracker_uses_linear_hints() {
+        let tmpl = default_mission_template("claude", "linear");
+        assert!(tmpl.contains("tracker: linear"));
+        assert!(tmpl.contains("Linear issue"));
+        assert!(tmpl.contains("Linear project key"));
+        assert!(tmpl.contains("Linear team key"));
+    }
+
+    #[test]
+    fn template_github_parses_as_valid_mission_file() {
+        let tmpl = default_mission_template("codex", "github");
+        let def = crate::domain::mission_control::config::parse_mission_file(&tmpl).unwrap();
+        assert_eq!(def.config.tracker, "github");
+        assert_eq!(def.config.provider.primary, "codex");
+        assert_eq!(def.config.orchestration.state_on_dispatch, "In progress");
+        assert_eq!(def.config.orchestration.state_on_complete, "In review");
     }
 }
