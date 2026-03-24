@@ -79,34 +79,11 @@ struct MissionListView: View {
 
   private var missionsList: some View {
     ScrollView {
-      VStack(spacing: Spacing.md) {
-        // Header bar
-        HStack {
-          Text("Missions")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-
-          Text("\(viewModel.missions.count)")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-
-          Spacer()
-
-          Button {
-            viewModel.showNewMission = true
-          } label: {
-            Label("New Mission", systemImage: "plus")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm_)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .fill(Color.accent.opacity(OpacityTier.light))
-              )
-          }
-          .buttonStyle(.plain)
-        }
+      VStack(alignment: .leading, spacing: Spacing.lg) {
+        MissionOverviewHeader(
+          missions: viewModel.missions,
+          onNewMission: { viewModel.showNewMission = true }
+        )
 
         ForEach(viewModel.missions) { agg in
           let missionsClient = runtimeRegistry.runtimesByEndpointId[agg.endpointId]?.clients.missions
@@ -148,6 +125,177 @@ struct MissionListView: View {
 
 }
 
+private struct MissionOverviewHeader: View {
+  let missions: [AggregatedMissionSummary]
+  let onNewMission: () -> Void
+
+  private var activeCount: Int {
+    missions.filter { $0.mission.enabled && !$0.mission.paused }.count
+  }
+
+  private var pausedCount: Int {
+    missions.filter(\.mission.paused).count
+  }
+
+  private var repoCount: Int {
+    Set(missions.map(\.mission.repoRoot)).count
+  }
+
+  private var activeIssues: Int {
+    missions.reduce(0) { $0 + Int($1.mission.activeCount) }
+  }
+
+  private var queuedIssues: Int {
+    missions.reduce(0) { $0 + Int($1.mission.queuedCount) }
+  }
+
+  private var completedIssues: Int {
+    missions.reduce(0) { $0 + Int($1.mission.completedCount) }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      HStack(alignment: .top, spacing: Spacing.lg) {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+          Text("AUTONOMOUS ORCHESTRATION")
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+
+          HStack(spacing: Spacing.sm) {
+            Text("Mission Control")
+              .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.textPrimary)
+
+            Text("\(missions.count)")
+              .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, Spacing.xxs)
+              .background(Color.backgroundTertiary, in: Capsule())
+          }
+
+          Text("A cleaner flight deck for every repository mission, with status that stays stable as live updates stream in.")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: 560, alignment: .leading)
+        }
+
+        Spacer(minLength: Spacing.md)
+
+        Button(action: onNewMission) {
+          Label("New Mission", systemImage: "plus")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.accent)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(Color.accent.opacity(OpacityTier.light))
+            )
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .stroke(Color.accent.opacity(OpacityTier.medium), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+      }
+
+      metricsGrid
+    }
+    .padding(Spacing.lg)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    )
+    .shadow(color: Color.accent.opacity(0.05), radius: 18, y: 6)
+  }
+
+  @ViewBuilder
+  private var metricsGrid: some View {
+    ViewThatFits(in: .horizontal) {
+      LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.md, alignment: .top), count: 4),
+        alignment: .leading,
+        spacing: Spacing.md
+      ) {
+        metricCards
+      }
+
+      LazyVGrid(
+        columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.md, alignment: .top), count: 2),
+        alignment: .leading,
+        spacing: Spacing.md
+      ) {
+        metricCards
+      }
+
+      LazyVGrid(
+        columns: [GridItem(.flexible(), spacing: Spacing.md, alignment: .top)],
+        alignment: .leading,
+        spacing: Spacing.md
+      ) {
+        metricCards
+      }
+    }
+  }
+
+  private var metricCards: some View {
+    Group {
+      MissionOverviewMetric(title: "Active Missions", value: "\(activeCount)", detail: "\(repoCount) repos", tint: .feedbackPositive)
+      MissionOverviewMetric(title: "Paused", value: "\(pausedCount)", detail: "Hold + resume", tint: .feedbackCaution)
+      MissionOverviewMetric(title: "Issues In Flight", value: "\(activeIssues)", detail: "\(queuedIssues) queued", tint: .accent)
+      MissionOverviewMetric(title: "Completed", value: "\(completedIssues)", detail: "Across all missions", tint: .textTertiary)
+    }
+  }
+}
+
+private struct MissionOverviewMetric: View {
+  let title: String
+  let value: String
+  let detail: String
+  let tint: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      Text(title.uppercased())
+        .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+
+      Text(value)
+        .font(.system(size: TypeScale.headline, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.textPrimary)
+
+      Text(detail)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textTertiary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.lg_)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundCode)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(0.7), lineWidth: 1)
+    )
+    .overlay(alignment: .topLeading) {
+      Capsule()
+        .fill(tint.opacity(OpacityTier.vivid))
+        .frame(width: 18, height: 3)
+        .padding(.leading, Spacing.md)
+        .padding(.top, Spacing.sm)
+    }
+    .shadow(color: tint.opacity(0.08), radius: 12, y: 4)
+  }
+}
+
 // MARK: - Mission Row
 
 private struct MissionRowView: View {
@@ -179,141 +327,75 @@ private struct MissionRowView: View {
     mission.activeCount + mission.queuedCount + mission.completedCount + mission.failedCount
   }
 
+  private var statusGlowColor: Color {
+    if mission.paused { return .feedbackCaution }
+    if mission.enabled { return .accent }
+    return .clear
+  }
+
   var body: some View {
-    HStack(spacing: 0) {
-      // Left status edge
-      RoundedRectangle(cornerRadius: 1.5)
-        .fill(statusColor)
-        .frame(width: EdgeBar.width)
-        .padding(.vertical, Spacing.sm)
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(alignment: .top, spacing: Spacing.md) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+            Text(mission.repoName)
+              .font(.system(size: TypeScale.large, weight: .semibold, design: .rounded))
+              .foregroundStyle(Color.textPrimary)
 
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        // Top row: name + badges + actions
-        HStack(alignment: .center) {
-          Text(mission.name)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-
-          // Endpoint tag (multi-server)
-          if let endpointName {
-            HStack(spacing: Spacing.gap) {
-              Image(systemName: "server.rack")
-                .font(.system(size: IconScale.xs, weight: .semibold))
-              Text(endpointName)
-                .font(.system(size: TypeScale.mini, weight: .semibold))
+            if mission.repoName.localizedCaseInsensitiveCompare(mission.name) != .orderedSame {
+              Text(mission.name)
+                .font(.system(size: TypeScale.caption, weight: .medium))
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
             }
-            .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.backgroundTertiary, in: Capsule())
           }
 
-          // Provider tag
-          HStack(spacing: Spacing.gap) {
-            Image(systemName: mission.resolvedProvider.icon)
-              .font(.system(size: IconScale.xs, weight: .semibold))
-            Text(mission.resolvedProvider.displayName)
-              .font(.system(size: TypeScale.mini, weight: .semibold))
-          }
-          .foregroundStyle(mission.resolvedProvider.accentColor)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(mission.resolvedProvider.accentColor.opacity(OpacityTier.subtle), in: Capsule())
-
-          // Tracker tag
-          HStack(spacing: Spacing.gap) {
-            Image(systemName: "link")
-              .font(.system(size: IconScale.xs, weight: .semibold))
-            Text(mission.trackerKind.capitalized)
-              .font(.system(size: TypeScale.mini, weight: .semibold))
-          }
-          .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(Color.backgroundTertiary, in: Capsule())
-
-          Spacer()
-
-          missionActions
-
-          statusBadge
+          Text(mission.repoRoot)
+            .font(.system(size: TypeScale.micro, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+            .truncationMode(.middle)
         }
 
-        // Repo path
-        Text(mission.repoRoot)
-          .font(.system(size: TypeScale.micro, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-          .fixedSize(horizontal: false, vertical: true)
+        Spacer(minLength: Spacing.md)
 
-        // Bottom row: contextual status
-        if needsSetup {
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "bolt.horizontal.circle")
-              .font(.system(size: IconScale.sm, weight: .medium))
-              .foregroundStyle(Color.accent)
-            Text("Needs mission file setup")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.accent)
-
-            Image(systemName: "chevron.right")
-              .font(.system(size: 8, weight: .bold))
-              .foregroundStyle(Color.accent.opacity(OpacityTier.strong))
-          }
-        } else if let parseError = mission.parseError {
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "exclamationmark.triangle")
-              .font(.system(size: IconScale.sm))
-              .foregroundStyle(Color.feedbackNegative)
-            Text(parseError)
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.feedbackNegative)
-              .lineLimit(1)
-          }
-        } else if hasAnyIssues {
-          // Has real data — show stats
-          HStack(spacing: Spacing.lg_) {
-            MissionStatChip(count: mission.activeCount, label: "Active", color: Color.statusWorking)
-            MissionStatChip(count: mission.queuedCount, label: "Queued", color: Color.feedbackCaution)
-            MissionStatChip(count: mission.completedCount, label: "Done", color: Color.feedbackPositive)
-
-            if mission.failedCount > 0 {
-              MissionStatChip(count: mission.failedCount, label: "Failed", color: Color.feedbackNegative)
-            }
-          }
-        } else if mission.orchestratorStatus == "no_api_key" {
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "exclamationmark.triangle")
-              .font(.system(size: IconScale.sm))
-              .foregroundStyle(Color.feedbackCaution)
-            Text("API key needed")
-              .font(.system(size: TypeScale.micro, weight: .medium))
-              .foregroundStyle(Color.feedbackCaution)
-          }
-        } else {
-          // Zero issues — show polling status
-          HStack(spacing: Spacing.sm_) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-              .font(.system(size: IconScale.sm))
-              .foregroundStyle(Color.textQuaternary)
-            Text("Polling for issues")
-              .font(.system(size: TypeScale.micro))
-              .foregroundStyle(Color.textQuaternary)
-          }
+        HStack(spacing: Spacing.sm) {
+          statusBadge
+          MissionSignalPill(label: mission.flightStatus, icon: "antenna.radiowaves.left.and.right", tint: mission.flightStatusColor)
+          missionActions
         }
       }
-      .padding(.leading, Spacing.md)
-      .padding(.trailing, Spacing.lg_)
-      .padding(.vertical, Spacing.md)
+
+      ViewThatFits(in: .horizontal) {
+        HStack(alignment: .top, spacing: Spacing.lg) {
+          missionDetailsColumn
+
+          Rectangle()
+            .fill(Color.surfaceBorder.opacity(0.8))
+            .frame(width: 1)
+            .padding(.vertical, Spacing.xs)
+
+          missionSummaryPanel
+        }
+
+        VStack(alignment: .leading, spacing: Spacing.md) {
+          missionDetailsColumn
+          missionSummaryPanel
+        }
+      }
     }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.lg_)
     .background(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(isHovering ? Color.surfaceHover : Color.backgroundSecondary)
     )
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
-        .strokeBorder(Color.surfaceBorder, lineWidth: isHovering ? 1 : 0)
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .strokeBorder(Color.surfaceBorder.opacity(isHovering ? 1 : 0.45), lineWidth: 1)
     )
-    .clipShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+    .shadow(color: statusGlowColor.opacity(isHovering ? 0.12 : 0.05), radius: 18, y: 6)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
     .onHover { hovering in
       withAnimation(Motion.hover) { isHovering = hovering }
     }
@@ -321,6 +403,116 @@ private struct MissionRowView: View {
       Button("OK", role: .cancel) {}
     } message: {
       Text(actionError ?? "")
+    }
+  }
+
+  private var missionDetailsColumn: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm_) {
+        if let endpointName {
+          MissionMetaChip(label: endpointName, icon: "server.rack", tint: .textTertiary, fill: Color.backgroundTertiary)
+        }
+        MissionMetaChip(
+          label: mission.resolvedProvider.displayName,
+          icon: mission.resolvedProvider.icon,
+          tint: mission.resolvedProvider.accentColor,
+          fill: mission.resolvedProvider.accentColor.opacity(OpacityTier.subtle)
+        )
+        MissionMetaChip(label: mission.trackerKind.capitalized, icon: "link", tint: .textTertiary, fill: Color.backgroundTertiary)
+        if totalIssues > 0 {
+          MissionMetaChip(
+            label: "\(totalIssues) tracked",
+            icon: "number",
+            tint: .textSecondary,
+            fill: Color.backgroundTertiary
+          )
+        }
+      }
+
+      statusContent
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var missionSummaryPanel: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "waveform.path.ecg")
+          .font(.system(size: IconScale.xs, weight: .semibold))
+          .foregroundStyle(mission.flightStatusColor)
+
+        Text("Mission Pulse")
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+      }
+
+      if hasAnyIssues {
+        HStack(spacing: Spacing.sm) {
+          MissionSummaryMetric(value: mission.activeCount, label: "Active", tint: .statusWorking)
+          MissionSummaryMetric(value: mission.queuedCount, label: "Queued", tint: .feedbackCaution)
+          MissionSummaryMetric(value: mission.completedCount, label: "Done", tint: .feedbackPositive)
+
+          if mission.failedCount > 0 {
+            MissionSummaryMetric(value: mission.failedCount, label: "Failed", tint: .feedbackNegative)
+          }
+        }
+      } else {
+        HStack(spacing: Spacing.sm_) {
+          Circle()
+            .fill(statusColor)
+            .frame(width: 7, height: 7)
+
+          Text(mission.flightStatus)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(statusColor)
+        }
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.md)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundCode)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(0.6), lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private var statusContent: some View {
+    if needsSetup {
+      MissionBanner(
+        icon: "bolt.horizontal.circle",
+        text: "Needs mission file setup",
+        tint: .accent
+      )
+    } else if let parseError = mission.parseError {
+      MissionBanner(
+        icon: "exclamationmark.triangle",
+        text: parseError,
+        tint: .feedbackNegative
+      )
+    } else if hasAnyIssues {
+      MissionBanner(
+        icon: "checklist",
+        text: totalIssues == 1 ? "1 tracked issue moving through this mission" : "\(totalIssues) tracked issues moving through this mission",
+        tint: .textTertiary
+      )
+    } else if mission.orchestratorStatus == "no_api_key" {
+      MissionBanner(
+        icon: "exclamationmark.triangle",
+        text: "API key needed",
+        tint: .feedbackCaution
+      )
+    } else {
+      MissionBanner(
+        icon: "antenna.radiowaves.left.and.right",
+        text: "Polling for issues",
+        tint: .textQuaternary
+      )
     }
   }
 
@@ -345,6 +537,7 @@ private struct MissionRowView: View {
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.xs)
       .background(color.opacity(OpacityTier.light), in: Capsule())
+      .shadow(color: color.opacity(0.14), radius: 10, y: 2)
   }
 
   // MARK: - Stat Pills
@@ -394,7 +587,7 @@ private struct MissionRowView: View {
       Image(systemName: "ellipsis")
         .font(.system(size: 10, weight: .bold))
         .foregroundStyle(Color.textTertiary)
-        .frame(width: 24, height: 24)
+        .frame(width: 26, height: 26)
         .background(
           Color.backgroundTertiary.opacity(0.6),
           in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
@@ -432,5 +625,98 @@ private struct MissionRowView: View {
     } catch {
       actionError = error.localizedDescription
     }
+  }
+}
+
+private struct MissionMetaChip: View {
+  let label: String
+  let icon: String
+  let tint: Color
+  let fill: Color
+
+  var body: some View {
+    HStack(spacing: Spacing.gap) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.xs, weight: .semibold))
+      Text(label)
+        .font(.system(size: TypeScale.mini, weight: .semibold))
+        .lineLimit(1)
+    }
+    .foregroundStyle(tint)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.xxs)
+    .background(fill, in: Capsule())
+  }
+}
+
+private struct MissionSignalPill: View {
+  let label: String
+  let icon: String
+  let tint: Color
+
+  var body: some View {
+    Label(label, systemImage: icon)
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(tint)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(tint.opacity(OpacityTier.light), in: Capsule())
+      .overlay(
+        Capsule()
+          .stroke(tint.opacity(OpacityTier.medium), lineWidth: 1)
+      )
+      .shadow(color: tint.opacity(0.10), radius: 10, y: 2)
+  }
+}
+
+private struct MissionBanner: View {
+  let icon: String
+  let text: String
+  let tint: Color
+
+  var body: some View {
+    HStack(spacing: Spacing.sm_) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(tint)
+
+      Text(text)
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(tint)
+        .lineLimit(1)
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundCode)
+    )
+  }
+}
+
+private struct MissionSummaryMetric: View {
+  let value: UInt32
+  let label: String
+  let tint: Color
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
+      Text("\(value)")
+        .font(.system(size: TypeScale.large, weight: .semibold, design: .monospaced))
+        .foregroundStyle(Color.textPrimary)
+
+      HStack(spacing: Spacing.xxs) {
+        Circle()
+          .fill(tint)
+          .frame(width: 5, height: 5)
+
+        Text(label)
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

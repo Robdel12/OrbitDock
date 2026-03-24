@@ -41,12 +41,7 @@ final class MissionListViewModel {
       }
     }
 
-    missions = all.sorted { lhs, rhs in
-      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
-      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
-      if lhsActive != rhsActive { return lhsActive }
-      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
-    }
+    missions = sortMissions(all)
 
     error = missions.isEmpty && all.isEmpty ? nil : nil
     isLoading = false
@@ -55,6 +50,26 @@ final class MissionListViewModel {
   func applyMissionListSnapshotIfNeeded() {
     let snapshot = aggregatedMissionsSnapshot
     guard !snapshot.isEmpty else { return }
-    missions = snapshot
+    missions = mergeMissions(current: missions, incoming: snapshot)
+  }
+
+  private func mergeMissions(
+    current: [AggregatedMissionSummary],
+    incoming: [AggregatedMissionSummary]
+  ) -> [AggregatedMissionSummary] {
+    var mergedByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+    for mission in incoming {
+      mergedByID[mission.id] = mission
+    }
+    return sortMissions(Array(mergedByID.values))
+  }
+
+  private func sortMissions(_ missions: [AggregatedMissionSummary]) -> [AggregatedMissionSummary] {
+    missions.sorted { lhs, rhs in
+      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
+      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
+      if lhsActive != rhsActive { return lhsActive }
+      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
+    }
   }
 }
