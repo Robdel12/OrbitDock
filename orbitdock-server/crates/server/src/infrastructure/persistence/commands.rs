@@ -363,6 +363,7 @@ pub enum PersistCommand {
         name: Option<String>,
         enabled: Option<bool>,
         paused: Option<bool>,
+        tracker_kind: Option<String>,
         config_json: Option<String>,
         prompt_template: Option<String>,
         parse_error: Option<Option<String>>,

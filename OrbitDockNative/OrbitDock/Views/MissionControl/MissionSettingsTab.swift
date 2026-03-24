@@ -4,7 +4,7 @@ struct MissionSettingsTab: View {
   let settings: MissionSettings?
   let repoRoot: String
   let missionId: String
-  let trackerKind: String
+  let initialTrackerKind: String
   let missionFileName: String
   let http: ServerHTTPClient?
   let isCompact: Bool
@@ -56,6 +56,7 @@ struct MissionSettingsTab: View {
   @State private var showFullTemplate = false
 
   // Tracker
+  @State private var editTrackerKind = "linear"
   @State private var trackerKeyConfigured = false
   @State private var trackerKeySource: String?
   @State private var newApiKey = ""
@@ -70,10 +71,13 @@ struct MissionSettingsTab: View {
         newApiKey: $newApiKey,
         isSavingKey: $isSavingKey,
         keyError: $keyError,
-        trackerKind: trackerKind,
+        trackerKind: editTrackerKind,
         http: http,
         onUpdated: onUpdated
       )
+
+      // Tracker kind picker
+      trackerKindPicker
 
       // Source control context
       HStack(spacing: Spacing.sm_) {
@@ -121,10 +125,14 @@ struct MissionSettingsTab: View {
       saveFooter
     }
     .onAppear {
+      editTrackerKind = settings?.tracker ?? initialTrackerKind
       populateFromSettings()
       Task { await fetchTrackerKeyStatus() }
     }
     .onChange(of: settings) { _, _ in populateFromSettings() }
+    .onChange(of: editTrackerKind) { _, _ in
+      Task { await fetchTrackerKeyStatus() }
+    }
   }
 
   // MARK: - Composed Sections
@@ -148,7 +156,7 @@ struct MissionSettingsTab: View {
       editStates: $editStates,
       editProject: $editProject,
       editTeam: $editTeam,
-      trackerKind: trackerKind,
+      trackerKind: editTrackerKind,
       isCompact: isCompact
     )
   }
@@ -161,7 +169,7 @@ struct MissionSettingsTab: View {
       worktreeRootDir: $worktreeRootDir,
       stateOnDispatch: $stateOnDispatch,
       stateOnComplete: $stateOnComplete,
-      trackerKind: trackerKind,
+      trackerKind: editTrackerKind,
       repoRoot: repoRoot,
       isCompact: isCompact
     )
@@ -248,6 +256,35 @@ struct MissionSettingsTab: View {
       .background(Color.backgroundTertiary.opacity(0.6), in: Capsule())
   }
 
+  // MARK: - Tracker Kind Picker
+
+  private var trackerKindPicker: some View {
+    HStack(spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "arrow.triangle.swap")
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(Color.accent)
+        Text("Issue Tracker")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+      }
+
+      Spacer()
+
+      Picker("", selection: $editTrackerKind) {
+        Text("Linear").tag("linear")
+        Text("GitHub").tag("github")
+      }
+      .pickerStyle(.segmented)
+      .frame(width: 180)
+    }
+    .padding(Spacing.md)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .fill(Color.backgroundTertiary.opacity(0.5))
+    )
+  }
+
   // MARK: - Save Footer
 
   private var saveFooter: some View {
@@ -328,6 +365,7 @@ struct MissionSettingsTab: View {
   }
 
   private func populateFromResponse(_ s: MissionSettings) {
+    editTrackerKind = s.tracker
     triggerKind = s.trigger.kind
     pollInterval = s.trigger.interval
     editLabels = s.trigger.filters.labels.joined(separator: ", ")
@@ -421,7 +459,7 @@ struct MissionSettingsTab: View {
     }
     do {
       let response: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
-      let info = trackerKind == "github" ? response.github : response.linear
+      let info = editTrackerKind == "github" ? response.github : response.linear
       trackerKeyConfigured = info.configured
       trackerKeySource = info.source
     } catch {
@@ -477,7 +515,8 @@ struct MissionSettingsTab: View {
       worktreeRootDir: worktreeRootDir.isEmpty ? .some(nil) : .some(worktreeRootDir),
       stateOnDispatch: stateOnDispatch,
       stateOnComplete: stateOnComplete,
-      promptTemplate: nil
+      promptTemplate: nil,
+      tracker: editTrackerKind
     )
 
     do {
@@ -540,6 +579,7 @@ private struct UpdateSettingsBody: Encodable {
   let stateOnDispatch: String?
   let stateOnComplete: String?
   let promptTemplate: String?
+  let tracker: String?
 
   enum CodingKeys: String, CodingKey {
     case providerStrategy = "provider_strategy"
@@ -573,6 +613,7 @@ private struct UpdateSettingsBody: Encodable {
     case stateOnDispatch = "state_on_dispatch"
     case stateOnComplete = "state_on_complete"
     case promptTemplate = "prompt_template"
+    case tracker
   }
 }
 

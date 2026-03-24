@@ -1340,4 +1340,32 @@ Hello
         let claude = def.config.agent.claude.as_ref().unwrap();
         assert_eq!(claude.model.as_deref(), Some("test-model"));
     }
+
+    // ── apply_update: tracker ─────────────────────────────────────────
+
+    #[test]
+    fn apply_update_changes_tracker() {
+        let mut config = MissionConfig::default();
+        assert_eq!(config.tracker, "linear");
+
+        config.apply_update(MissionConfigUpdate {
+            tracker: Some("github".to_string()),
+            ..Default::default()
+        });
+        assert_eq!(config.tracker, "github");
+    }
+
+    #[test]
+    fn apply_update_leaves_tracker_unchanged_when_none() {
+        let mut config = MissionConfig {
+            tracker: "github".to_string(),
+            ..Default::default()
+        };
+
+        config.apply_update(MissionConfigUpdate {
+            tracker: None,
+            ..Default::default()
+        });
+        assert_eq!(config.tracker, "github");
+    }
 }

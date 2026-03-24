@@ -1639,6 +1639,7 @@ pub(super) fn execute_command(
             name,
             enabled,
             paused,
+            tracker_kind,
             config_json,
             prompt_template,
             parse_error,
@@ -1660,6 +1661,12 @@ pub(super) fn execute_command(
                 conn.execute(
                     "UPDATE missions SET paused = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
                     params![paused as i64, id],
+                )?;
+            }
+            if let Some(ref tracker_kind) = tracker_kind {
+                conn.execute(
+                    "UPDATE missions SET tracker_kind = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                    params![tracker_kind, id],
                 )?;
             }
             if let Some(ref config_json) = config_json {

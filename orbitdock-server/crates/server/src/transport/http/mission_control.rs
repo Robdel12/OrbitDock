@@ -310,6 +310,7 @@ pub async fn update_mission(
             name: req.name,
             enabled: req.enabled,
             paused: req.paused,
+            tracker_kind: None,
             config_json: None,
             prompt_template: None,
             parse_error: None,
@@ -698,6 +699,7 @@ pub async fn scaffold_mission_file(
             name: None,
             enabled: None,
             paused: None,
+            tracker_kind: None,
             config_json: Some(config_json),
             prompt_template: Some(prompt_template.clone()),
             parse_error: Some(None),
@@ -772,6 +774,7 @@ pub async fn migrate_workflow_to_mission(
             name: None,
             enabled: None,
             paused: None,
+            tracker_kind: None,
             config_json: Some(config_json),
             prompt_template: Some(prompt_template.clone()),
             parse_error: Some(None),
@@ -1336,6 +1339,9 @@ pub async fn update_mission_settings(
         (MissionConfig::default(), String::new())
     };
 
+    // Capture tracker update before moving req fields
+    let tracker_kind_update = req.tracker.clone();
+
     // Merge request fields into config
     config.apply_update(MissionConfigUpdate {
         provider_strategy: req.provider_strategy,
@@ -1396,7 +1402,7 @@ pub async fn update_mission_settings(
         .await
         .map_err(|e| internal("write_error", format!("Failed to write MISSION.md: {e}")))?;
 
-    // Persist to DB
+    // Persist to DB — keep tracker_kind in lockstep with config.tracker
     let config_json = serde_json::to_string(&config).unwrap_or_default();
     let _ = registry
         .persist()
@@ -1405,12 +1411,19 @@ pub async fn update_mission_settings(
             name: None,
             enabled: None,
             paused: None,
+            tracker_kind: tracker_kind_update.clone(),
             config_json: Some(config_json.clone()),
             prompt_template: Some(prompt_tmpl.clone()),
             parse_error: Some(None),
             mission_file_path: None,
         })
         .await;
+
+    // Update in-memory mission so the response reflects the new tracker_kind
+    let mut updated_mission = mission.clone();
+    if let Some(ref tk) = tracker_kind_update {
+        updated_mission.tracker_kind = tk.clone();
+    }
 
     info!(
         component = "mission_control",
@@ -1429,7 +1442,7 @@ pub async fn update_mission_settings(
     };
     let response = build_detail_response(
         &registry,
-        &mission,
+        &updated_mission,
         issue_rows,
         orchestrator_running,
         Some(settings),

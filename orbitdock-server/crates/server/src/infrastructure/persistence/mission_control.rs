@@ -1011,4 +1011,27 @@ mod tests {
             std::path::PathBuf::from("/home/user/project/MISSION.md")
         );
     }
+
+    // ── tracker_kind update ───────────────────────────────────────────
+
+    #[test]
+    fn tracker_kind_can_be_updated_after_creation() {
+        let conn = setup_test_db();
+        insert_mission(&conn, "m1", "Switch Test", "2026-03-01T00:00:00.000Z");
+
+        // Verify initial tracker_kind is "linear"
+        let before = load_mission_by_id(&conn, "m1").unwrap().unwrap();
+        assert_eq!(before.tracker_kind, "linear");
+
+        // Update tracker_kind to "github"
+        conn.execute(
+            "UPDATE missions SET tracker_kind = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+            params!["github", "m1"],
+        )
+        .unwrap();
+
+        let after = load_mission_by_id(&conn, "m1").unwrap().unwrap();
+        assert_eq!(after.tracker_kind, "github");
+        assert_ne!(before.updated_at, after.updated_at);
+    }
 }
