@@ -542,8 +542,9 @@ const MessageComposer = ({
   // Guard against recursive sync between state and DOM.
   const suppressSync = useRef(false)
 
-  // Determine if we're in steer mode
-  const isSteering = isWorking && !!value.trim() && !attachments.length
+  // Determine if we're in steer mode — active when agent is working and
+  // the user has typed text or attached images (server accepts both).
+  const isSteering = isWorking && (!!value.trim() || attachments.length > 0)
 
   // Restore draft when switching sessions.
   useEffect(() => {
@@ -747,9 +748,19 @@ const MessageComposer = ({
 
     // When the agent is actively working, steer the current turn instead of
     // queuing a new user message — unless there's no steer handler.
-    if (isWorking && onSteer && text && !attachments.length) {
-      onSteer(text)
+    if (isWorking && onSteer && (text || attachments.length)) {
+      let payload = { content: text }
+      if (attachments.length) {
+        payload.images = attachments.map(({ dataUrl, mimeType, name }) => ({
+          input_type: 'url',
+          value: dataUrl,
+          mime_type: mimeType,
+          display_name: name,
+        }))
+      }
+      onSteer(payload)
       setValue('')
+      setAttachments([])
       clearDraft(sessionId)
       if (editorRef.current) {
         editorRef.current.textContent = ''
