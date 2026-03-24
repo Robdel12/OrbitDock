@@ -22,14 +22,16 @@ make build-ios
 make test-unit
 make rust-build
 make rust-check
+make rust-check-workspace
 make rust-test
 make rust-run
 make rust-run-debug
-make cli-build
-make cli-run ARGS='session list'
+make cli ARGS='session list'
 ```
 
 Rust workflow policy still applies here: use `make rust-*` targets instead of plain `cargo`.
+Those targets also auto-enable `sccache` when it is installed and keep Rust artifacts under the shared repo cache.
+Shared Make configuration lives at the repo root, and target families are split under `make/*.mk`.
 
 ## Local Server Setup
 

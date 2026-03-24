@@ -26,6 +26,7 @@ The repo rules are simple:
 
 - keep durable business truth on the server
 - use `make rust-*` targets instead of plain `cargo`
+- keep shared Make config in the root `Makefile` and target families in `make/*.mk`
 - keep SQLite ownership in the Rust server
 - prefer focused docs in `docs/` over growing this file again
 
@@ -40,6 +41,7 @@ The repo rules are simple:
 - [docs/client-networking.md](docs/client-networking.md) — networking lifecycle and readiness rules
 - [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract
 - [docs/UI_CROSS_PLATFORM_GUIDELINES.md](docs/UI_CROSS_PLATFORM_GUIDELINES.md) — shared cross-platform UI rules
+- [docs/design-system.md](docs/design-system.md) — unified design system (Cosmic Harbor)
 - [docs/typography.md](docs/typography.md) — typography system
 - [docs/local-development.md](docs/local-development.md) — setup flow, file locations, CLI basics
 - [docs/debugging.md](docs/debugging.md) — logs, filters, and inspection commands

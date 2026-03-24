@@ -31,6 +31,7 @@ For durable client-side guardrails, read [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CL
 For the shorter “how should new client code feel?” version, read [CLIENT_DESIGN_PRINCIPLES.md](CLIENT_DESIGN_PRINCIPLES.md).
 
 For the day-to-day repo workflow, commands, and testing expectations, read [repo-workflow.md](repo-workflow.md).
+The root `Makefile` keeps shared config and help text, while target families now live under `make/*.mk`.
 
 For the architecture and persistence rules that shape most changes, read [engineering-guardrails.md](engineering-guardrails.md).
 
@@ -136,7 +137,8 @@ make test-all     # Both
 # Server
 make rust-build   # Build Rust server
 make rust-test    # Run all server tests
-make rust-check   # cargo check --workspace
+make rust-check   # Fast compile check for the shipped Rust package graph
+make rust-check-workspace   # Full workspace compile check
 
 # Quality
 make fmt          # Format Swift + Rust

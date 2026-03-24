@@ -48,17 +48,19 @@ make fmt
 make lint
 make rust-build
 make rust-check
+make rust-check-workspace
 make rust-test
 make rust-ci
 make rust-run
 make rust-run-debug
-make cli-build
-make cli-run ARGS='session list'
+make cli ARGS='session list'
 ```
 
 ## Rust Workflow Policy
 
 Use `make rust-*` targets for normal Rust development.
+They route artifacts into the shared repo cache, auto-enable `sccache` when available, and avoid duplicate target directories from ad-hoc cargo invocations.
+The root [Makefile](/Users/robertdeluca/Developer/OrbitDock/Makefile) now keeps shared config and help text, while target families live under `make/*.mk`.
 
 Do not run plain `cargo` commands unless you are adding or fixing a Make target. The Make targets carry the repo's intended cache and build settings and avoid duplicate build directories.
 
@@ -76,7 +78,8 @@ Use the smallest meaningful test set that gives real confidence.
 
 ### Rust
 
-- use `make rust-check` for compile-level validation
+- use `make rust-check` for the fast shipped-package compile check
+- use `make rust-check-workspace` when you're changing shared crates or workspace wiring
 - use `make rust-test` for behavior changes
 - use `make rust-ci` when you need the full Rust quality pass
 

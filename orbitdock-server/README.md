@@ -552,14 +552,15 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 make rust-build               # dev build
 make rust-run                 # run locally (127.0.0.1:4000, opens dev console in a TTY)
 make rust-run-lan             # run on LAN (0.0.0.0:4000, opens dev console in a TTY)
-make rust-run-remote          # run on 0.0.0.0:4000 (same as rust-run-lan)
 make rust-run-debug           # run with debug logs, opens dev console in a TTY
 make rust-generate-token      # issue and print a secure token
-make rust-check               # fast compile check
+make rust-check               # fast compile check for the shipped package graph
+make rust-check-workspace     # full workspace compile check
 make rust-ci                  # fmt + clippy + tests
 ```
 
 Use `make rust-*` targets for routine development. Avoid plain `cargo` commands unless you're adding a missing Make target, because direct cargo invocations can bypass repo cache settings and create duplicate `target` directories.
+The root `Makefile` now keeps shared config and help text, while the target families themselves live under `make/*.mk`.
 
 ### Build Cache + Disk Hygiene
 
@@ -570,10 +571,11 @@ make rust-env                 # print active Rust build/caching settings
 make rust-size                # inspect target + sccache disk usage
 make rust-clean-incremental   # remove only incremental caches
 make rust-clean-debug         # remove dev/test artifacts only
+make rust-clean-release       # reclaim release + packaging artifacts
 make rust-clean-sccache       # clear sccache files
 ```
 
-`sccache` is opt-in (`RUST_SCCACHE=on`) so local builds remain stable even when wrapper tooling is unavailable.
+`sccache` auto-enables when it is installed and passes a wrapper probe. Override with `RUST_SCCACHE=off` if you need to bypass it, or `RUST_SCCACHE=on` if you want builds to fail when the wrapper is missing or unusable. The local cache defaults to `5G` via `SCCACHE_CACHE_SIZE`.
 
 You usually do not need `cargo clean`. Use the partial-clean targets above first.
 
@@ -583,7 +585,7 @@ You usually do not need `cargo clean`. Use the partial-clean targets above first
 make rust-build-darwin
 ```
 
-Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock` for Apple Silicon.
+Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock` for Apple Silicon. On Apple Silicon hosts it reuses the native release artifact instead of building a duplicate `aarch64-apple-darwin` release tree.
 
 ## Dependencies
 

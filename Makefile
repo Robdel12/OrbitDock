@@ -2,6 +2,8 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
+# ── Apple / Xcode configuration ───────────────────────────────────────────────
+
 XCODE_PROJECT ?= OrbitDockNative/OrbitDock.xcodeproj
 XCODE_SCHEME ?= OrbitDock
 XCODE_DESTINATION ?= platform=macOS,arch=arm64
@@ -26,28 +28,35 @@ ifeq ($(CI),true)
 XCODE_MACOS_CODE_SIGN_FLAGS = CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY=""
 endif
 
+# ── Rust build configuration ─────────────────────────────────────────────────
+
 RUST_WORKSPACE_DIR ?= orbitdock-server
 RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
 RUST_LEGACY_TARGET_DIR ?= $(abspath $(RUST_WORKSPACE_DIR)/target)
 RUST_BIN_PACKAGE ?= orbitdock
 RUST_PATH_PREFIX ?= $(HOME)/.cargo/bin:/opt/homebrew/bin:/usr/local/bin
 RUST_PATH ?= $(RUST_PATH_PREFIX):$(PATH)
+RUST_HOST_TARGET ?= $(shell PATH="$(RUST_PATH_PREFIX):$$PATH" rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 RUST_RUN_BIND ?= 127.0.0.1:4000
 RUST_RUN_LAN_BIND ?= 0.0.0.0:4000
-RUST_RUN_REMOTE_BIND ?= 0.0.0.0:4000
 
 SCCACHE_DIR ?= $(abspath .cache/rust/sccache)
-SCCACHE_CACHE_SIZE ?= 10G
-RUST_SCCACHE ?= off
+SCCACHE_CACHE_SIZE ?= 5G
+RUST_SCCACHE ?= auto
 SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
+RUSTC_BIN := $(shell PATH="$(RUST_PATH_PREFIX):$$PATH" rustup which rustc 2>/dev/null)
+SCCACHE_READY := $(shell if [ -n "$(SCCACHE_BIN)" ] && [ -n "$(RUSTC_BIN)" ] && "$(SCCACHE_BIN)" "$(RUSTC_BIN)" -vV >/dev/null 2>&1; then echo 1; fi)
 
 LINUX_AARCH64_PROFILE_PRESET ?= release-lowmem
 LINUX_AARCH64_DOCKER_JOBS ?= 1
+
+# ── Tooling / SDK configuration ──────────────────────────────────────────────
 
 CLAUDE_SDK_DOCS_DIR ?= orbitdock-server/docs
 CLAUDE_SDK_VERSION ?= 0.2.62
 CLAUDE_SDK_PACKAGE ?= @anthropic-ai/claude-agent-sdk
 CLAUDE_SDK_VERSION_FILE ?= $(CLAUDE_SDK_DOCS_DIR)/claude-agent-sdk-version.json
+WEB_APP_DIR ?= orbitdock-web
 
 XCODEBUILD_ARGS = -derivedDataPath "$(abspath $(XCODE_DERIVED_DATA_DIR))" -packageCachePath "$(abspath $(XCODE_PACKAGE_CACHE_DIR))" -clonedSourcePackagesDirPath "$(abspath $(XCODE_SOURCE_PACKAGES_DIR))"
 XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_DIR))" SWIFTPM_MODULECACHE_OVERRIDE="$(abspath $(XCODE_SWIFTPM_MODULECACHE_DIR))"
@@ -67,7 +76,7 @@ ifeq ($(RUST_SCCACHE),on)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER=sccache CARGO_BUILD_RUSTC_WRAPPER=sccache
 else ifeq ($(RUST_SCCACHE),off)
 RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
-else ifneq ($(strip $(SCCACHE_BIN)),)
+else ifeq ($(strip $(SCCACHE_READY)),1)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER="$(SCCACHE_BIN)" CARGO_BUILD_RUSTC_WRAPPER="$(SCCACHE_BIN)"
 else
 RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
@@ -75,23 +84,6 @@ endif
 
 RUST_WORKSPACE_PREFIX = cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV)
 RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
-
-.PHONY: \
-	help \
-	build build-ios build-all run-ios-device clean test test-all test-unit test-unit-ios test-ui \
-	fmt lint swift-fmt swift-lint \
-	rust-ci rust-build rust-build-release rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint \
-	rust-run rust-run-lan rust-run-remote rust-run-debug rust-generate-token \
-	rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 \
-	rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 \
-	rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate \
-	release \
-	rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero \
-	cli \
-	rust-env rust-lock-status rust-unlock rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache \
-	rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 \
-	xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist \
-	web-install web-dev web-build web-test web-lint web-lint-fix web-fmt web-fmt-check web-ci
 
 define run_xcode_logged
 @$(MAKE) xcode-cache-dirs
@@ -159,12 +151,27 @@ docker run --rm --platform $(2) -v "$$tmpdir:/work" --entrypoint /work/orbitdock
 rm -rf "$$tmpdir"
 endef
 
+define run_rust_start
+	@args=(); \
+	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
+		args+=(--dev-console); \
+	fi; \
+	$(1) run -p $(RUST_BIN_PACKAGE) -- start $(2) "$${args[@]}"
+endef
+
+include make/swift.mk
+include make/rust.mk
+include make/claude-sdk.mk
+include make/web.mk
+
+.PHONY: help
+
 help:
+	@echo "Swift + App:"
 	@echo "make build      Build the macOS app"
 	@echo "make build-ios  Build the iOS app"
 	@echo "make build-all  Build both macOS and iOS"
 	@echo "make run-ios-device DEVICE='<device name>' | DEVICE_ID=<id>  Build, install, and launch on a physical iOS device"
-	@echo "make test       Run unit tests (no UI tests)"
 	@echo "make test-unit  Run unit tests only (OrbitDockTests)"
 	@echo "make test-unit-ios Run iOS unit tests only (OrbitDock iOSTests)"
 	@echo "make test-ui    Run UI tests only (OrbitDockUITests)"
@@ -174,11 +181,13 @@ help:
 	@echo "make lint       Lint Swift + Rust code"
 	@echo "make swift-fmt  Format Swift with SwiftFormat"
 	@echo "make swift-lint Lint Swift formatting with SwiftFormat --lint"
+	@echo ""
+	@echo "Rust:"
 	@echo "make rust-build Build Rust orbitdock binary"
 	@echo "make rust-build-release Build Rust orbitdock binary in release mode for the host platform"
 	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock binary"
-	@echo "make rust-build-universal Alias for rust-build-darwin (legacy target name)"
-	@echo "make rust-check Run cargo check for Rust workspace"
+	@echo "make rust-check Run fast cargo check for the shipped Rust package graph"
+	@echo "make rust-check-workspace Run cargo check for the full Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-ci    Run Rust fmt check + clippy + tests"
 	@echo "make rust-fmt   Format Rust with cargo fmt"
@@ -186,10 +195,11 @@ help:
 	@echo "make rust-lint  Lint Rust workspace"
 	@echo "make rust-run   Run orbitdock locally (127.0.0.1:4000 by default)"
 	@echo "make rust-run-lan Run on LAN without auth (trusted network/dev only)"
-	@echo "make rust-run-remote Run orbitdock on 0.0.0.0 (requires DB token or ORBITDOCK_AUTH_TOKEN)"
 	@echo "make rust-run-debug Run orbitdock with debug logs"
 	@echo "make rust-generate-token Issue a secure auth token (stored hashed in DB)"
 	@echo "make cli ARGS='...'    Run the debug orbitdock binary with arbitrary args"
+	@echo ""
+	@echo "Release + Cache:"
 	@echo "make rust-release-darwin Build + package orbitdock-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
@@ -202,9 +212,7 @@ help:
 	@echo "make rust-release-linux-smoke Build both fast local-validation Linux zips"
 	@echo "make rust-release-linux-test Run both Linux zips in matching Docker containers (--version)"
 	@echo "make rust-release-linux-validate Build smoke zips + run smoke tests"
-	@echo "make release             Alias for rust-release-darwin"
 	@echo "make rust-size           Show Rust target/sccache disk usage"
-	@echo "make rust-sccache-start  Start sccache server"
 	@echo "make rust-sccache-stats  Show sccache stats"
 	@echo "make rust-sccache-zero   Reset sccache stats"
 	@echo "make rust-env            Show Rust/sccache env state"
@@ -215,351 +223,8 @@ help:
 	@echo "make rust-clean-sccache  Remove local sccache files"
 	@echo "make rust-clean          Clean all Rust build artifacts"
 	@echo "make rust-clean-release  Clean Rust release artifacts only"
+	@echo ""
+	@echo "Other:"
 	@echo "make claude-sdk-version  Show installed Claude Agent SDK + Claude Code version"
 	@echo "make claude-sdk-update CLAUDE_SDK_VERSION=0.2.62  Update local docs SDK install and metadata"
 	@echo "make claude-sdk-audit-checklist  Print required source audit checklist"
-
-build:
-	$(call run_xcode_logged,$(XCODEBUILD_MACOS) build,xcodebuild-build.log)
-
-build-ios:
-	$(call run_xcode_logged,$(XCODEBUILD_IOS) build,xcodebuild-build-ios.log)
-
-build-all: build build-ios
-
-run-ios-device:
-	@$(MAKE) xcode-cache-dirs
-	@mkdir -p $(XCODEBUILD_LOG_DIR)
-	@set -euo pipefail; \
-	device_name="$${DEVICE:-$(XCODE_IOS_DEVICE_NAME)}"; \
-	device_id="$${DEVICE_ID:-$(XCODE_IOS_DEVICE_ID)}"; \
-	if [[ -z "$$device_name" && -z "$$device_id" ]]; then \
-		echo "Provide DEVICE='<device name>' or DEVICE_ID=<id>."; \
-		exit 1; \
-	fi; \
-	if [[ -z "$$device_id" ]]; then \
-		device_id="$$(xcrun xcdevice list | ruby -rjson -e 'devices = JSON.parse(STDIN.read); name = ARGV[0].downcase; device = devices.find { |d| !d["simulator"] && d["available"] && d["name"].to_s.downcase == name }; puts device["identifier"] if device' "$$device_name")"; \
-	fi; \
-	if [[ -z "$$device_id" ]]; then \
-		echo "Could not resolve iOS device '$$device_name'. Pass DEVICE_ID=<id> to override."; \
-		exit 1; \
-	fi; \
-	echo "Building for device $$device_name ($$device_id)"; \
-	set -o pipefail; \
-	$(XCODEBUILD_ENV) xcodebuild \
-		-project $(XCODE_PROJECT) \
-		-scheme "$(XCODE_IOS_SCHEME)" \
-		-destination "id=$$device_id" \
-		$(XCODE_IOS_DEVICE_BUILD_FLAGS) \
-		$(XCODEBUILD_ARGS) \
-		build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-run-ios-device.log" | xcbeautify --quiet; \
-	app_path="$(abspath $(XCODE_DERIVED_DATA_DIR))/Build/Products/Debug-iphoneos/OrbitDock iOS.app"; \
-	if [[ ! -d "$$app_path" ]]; then \
-		echo "Built app not found at $$app_path"; \
-		exit 1; \
-	fi; \
-	echo "Installing $$app_path"; \
-	xcrun devicectl device install app --device "$$device_id" "$$app_path"; \
-	echo "Launching $(XCODE_IOS_DEVICE_BUNDLE_ID)"; \
-	xcrun devicectl device process launch --device "$$device_id" "$(XCODE_IOS_DEVICE_BUNDLE_ID)"
-
-test: test-unit
-
-test-unit:
-	$(call run_xcode_pretty,$(XCODEBUILD_UNIT_TEST) -parallel-testing-enabled NO test)
-
-test-unit-ios:
-	$(call run_xcode_pretty,$(XCODEBUILD_IOS_UNIT_TEST) -parallel-testing-enabled NO -only-testing:"OrbitDock iOSTests" test)
-
-test-ui:
-	$(call run_xcode_pretty,$(XCODEBUILD_MACOS) -only-testing:OrbitDockUITests test)
-
-test-all:
-	$(call run_xcode_pretty,$(XCODEBUILD_MACOS) test)
-
-clean:
-	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD_MACOS) clean
-
-fmt: swift-fmt rust-fmt web-fmt
-
-lint: swift-lint rust-lint web-lint
-
-swift-fmt:
-	swiftformat OrbitDockNative
-
-swift-lint:
-	swiftformat --lint OrbitDockNative
-
-rust-env:
-	@echo "RUST_SCCACHE=$(RUST_SCCACHE)"
-	@echo "SCCACHE_BIN=$(if $(strip $(SCCACHE_BIN)),$(SCCACHE_BIN),<not found>)"
-	@echo "RUST_TARGET_DIR=$(RUST_TARGET_DIR)"
-	@echo "SCCACHE_DIR=$(SCCACHE_DIR)"
-	@echo "CARGO_INCREMENTAL=0"
-	@echo "RUSTC_WRAPPER=$$RUSTC_WRAPPER"
-	@echo "CARGO_BUILD_RUSTC_WRAPPER=$$CARGO_BUILD_RUSTC_WRAPPER"
-	@echo "SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)"
-	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
-		echo "LEGACY_TARGET_DIR=$(RUST_LEGACY_TARGET_DIR) (present)"; \
-	else \
-		echo "LEGACY_TARGET_DIR=<none>"; \
-	fi
-	@echo "Using Rust env: $(RUST_ENV)"
-
-rust-lock-status:
-	@set -euo pipefail; \
-	$(call require_lsof,rust-lock-status); \
-	$(call gather_cargo_lock_files); \
-	echo "Cargo lock files:"; \
-	printf '  %s\n' "$${lock_files[@]}"; \
-	$(call gather_cargo_lock_pids); \
-	if [[ $${#lock_pids[@]} -eq 0 ]]; then \
-		echo ""; \
-		echo "No active processes hold these lock files."; \
-		exit 0; \
-	fi; \
-	echo ""; \
-	echo "Active lock holders:"; \
-	ps -o pid,ppid,etime,state,command -p "$$(IFS=,; echo "$${lock_pids[*]}")"
-
-rust-unlock:
-	@set -euo pipefail; \
-	$(call require_lsof,rust-unlock); \
-	$(call gather_cargo_lock_files); \
-	$(call gather_cargo_lock_pids); \
-	if [[ $${#lock_pids[@]} -eq 0 ]]; then \
-		echo "No active lock holders found."; \
-		exit 0; \
-	fi; \
-	echo "Stopping Cargo lock holders: $${lock_pids[*]}"; \
-	for pid in "$${lock_pids[@]}"; do \
-		kill "$$pid" 2>/dev/null || true; \
-	done; \
-	remaining_pids=(); \
-	while IFS= read -r remaining_pid; do \
-		remaining_pids+=("$$remaining_pid"); \
-	done < <(lsof -t "$${lock_files[@]}" 2>/dev/null | sort -u); \
-	if [[ $${#remaining_pids[@]} -gt 0 ]]; then \
-		echo "Force-killing remaining lock holders: $${remaining_pids[*]}"; \
-		for pid in "$${remaining_pids[@]}"; do \
-			kill -9 "$$pid" 2>/dev/null || true; \
-		done; \
-	fi; \
-	echo "Cargo lock holders cleared."
-
-rust-size:
-	@if [[ -d "$(RUST_TARGET_DIR)" ]]; then \
-		echo "Rust target dir size:"; \
-		du -sh "$(RUST_TARGET_DIR)"; \
-		echo ""; \
-		echo "Largest target subdirs:"; \
-		du -sh "$(RUST_TARGET_DIR)"/* 2>/dev/null | sort -h | tail -n 30; \
-	else \
-		echo "Rust target dir not found: $(RUST_TARGET_DIR)"; \
-	fi
-	@if [[ -d "$(SCCACHE_DIR)" ]]; then \
-		echo ""; \
-		echo "sccache dir size:"; \
-		du -sh "$(SCCACHE_DIR)"; \
-	fi
-	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
-		echo ""; \
-		echo "legacy target dir size:"; \
-		du -sh "$(RUST_LEGACY_TARGET_DIR)"; \
-	fi
-
-rust-sccache-start:
-	$(call with_sccache,--start-server >/dev/null 2>&1 || true)
-
-rust-sccache-stop:
-	$(call with_sccache,--stop-server >/dev/null 2>&1 || true)
-
-rust-sccache-zero:
-	$(call with_sccache,--zero-stats)
-
-rust-sccache-stats:
-	$(call with_sccache,--show-stats)
-
-rust-ci: rust-fmt-check rust-lint rust-test
-
-rust-build:
-	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE)
-
-rust-build-release: web-build
-	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release
-
-rust-build-darwin: web-build
-	$(RUST_WORKSPACE_PREFIX) rustup target add aarch64-apple-darwin
-	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release --target aarch64-apple-darwin
-	@mkdir -p "$(RUST_TARGET_DIR)/darwin-arm64"
-	cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
-	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
-	@./OrbitDockNative/Scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
-
-rust-build-universal: rust-build-darwin
-
-rust-check:
-	$(RUST_CARGO) check --workspace
-
-rust-test:
-	cd $(RUST_WORKSPACE_DIR) && RUST_MIN_STACK=8388608 $(RUST_ENV) cargo test --workspace -- --test-threads=1
-
-rust-fmt:
-	$(RUST_CARGO) fmt --all
-
-rust-fmt-check:
-	$(RUST_CARGO) fmt --all -- --check
-
-rust-lint:
-	$(RUST_CARGO) clippy --workspace --all-targets -- -D warnings
-
-rust-run:
-	@args=(); \
-	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
-		args+=(--dev-console); \
-	fi; \
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_BIND) "$${args[@]}"
-
-rust-run-lan:
-	@args=(); \
-	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
-		args+=(--dev-console); \
-	fi; \
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_LAN_BIND) "$${args[@]}"
-
-rust-run-remote:
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- start --bind $(RUST_RUN_REMOTE_BIND)
-
-rust-run-debug:
-	@args=(); \
-	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
-		args+=(--dev-console); \
-	fi; \
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p $(RUST_BIN_PACKAGE) -- start "$${args[@]}"
-
-rust-generate-token:
-	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- generate-token
-
-cli:
-	$(RUST_ENV) "$(RUST_TARGET_DIR)/debug/orbitdock" $(ARGS)
-
-rust-release-darwin: web-build
-	$(call package_release,darwin,)
-
-rust-release-linux: web-build
-	$(call package_release,linux,)
-
-rust-release-linux-all: rust-release-linux-x86_64 rust-release-linux-aarch64
-
-rust-release-linux-x86_64: web-build
-	$(call package_release,linux-x86_64,)
-
-rust-release-linux-aarch64: web-build
-	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=$(LINUX_AARCH64_PROFILE_PRESET) ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=$(LINUX_AARCH64_DOCKER_JOBS))
-
-rust-release-linux-smoke: rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64
-
-rust-release-linux-smoke-x86_64: web-build
-	$(call package_release,linux-x86_64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
-
-rust-release-linux-smoke-aarch64: web-build
-	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
-
-rust-smoke-linux: rust-smoke-linux-x86_64 rust-smoke-linux-aarch64
-
-rust-smoke-linux-x86_64:
-	$(call smoke_linux_zip,x86_64,linux/amd64)
-
-rust-smoke-linux-aarch64:
-	$(call smoke_linux_zip,aarch64,linux/arm64)
-
-rust-release-linux-test: rust-smoke-linux
-
-rust-release-linux-validate: rust-release-linux-smoke rust-release-linux-test
-
-release: rust-release-darwin
-
-rust-clean:
-	$(RUST_CARGO) clean
-
-rust-clean-debug:
-	$(RUST_CARGO) clean --profile dev
-	$(RUST_CARGO) clean --profile test
-
-rust-clean-incremental:
-	@if [[ -d "$(RUST_TARGET_DIR)" ]]; then \
-		find "$(RUST_TARGET_DIR)" -type d -name incremental -prune -exec rm -rf {} +; \
-		echo "Removed incremental caches under $(RUST_TARGET_DIR)"; \
-	else \
-		echo "Rust target dir not found: $(RUST_TARGET_DIR)"; \
-	fi
-
-rust-clean-sccache:
-	@rm -rf "$(SCCACHE_DIR)"
-	@echo "Removed sccache dir: $(SCCACHE_DIR)"
-
-rust-clean-release-darwin:
-	$(RUST_CARGO) clean --profile release --target aarch64-apple-darwin
-	@rm -rf "$(RUST_TARGET_DIR)/darwin-arm64" "$(RUST_TARGET_DIR)/universal"
-
-rust-clean-release-linux: rust-clean-release-linux-x86_64
-
-rust-clean-release-linux-x86_64:
-	$(RUST_CARGO) clean --profile release --target x86_64-unknown-linux-gnu
-
-rust-clean-release-linux-aarch64:
-	$(RUST_CARGO) clean --profile release --target aarch64-unknown-linux-gnu
-
-rust-clean-release: rust-clean-release-darwin rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64
-
-xcode-cache-dirs:
-	@mkdir -p $(XCODE_DERIVED_DATA_DIR) $(XCODE_PACKAGE_CACHE_DIR) $(XCODE_SOURCE_PACKAGES_DIR) $(XCODE_CLANG_MODULE_CACHE_DIR) $(XCODE_SWIFTPM_MODULECACHE_DIR)
-
-claude-sdk-version:
-	@node -e 'const fs=require("fs");const path="$(CLAUDE_SDK_DOCS_DIR)/node_modules/@anthropic-ai/claude-agent-sdk/package.json";if(!fs.existsSync(path)){console.error("Claude Agent SDK not installed: "+path);process.exit(1);}const pkg=JSON.parse(fs.readFileSync(path,"utf8"));console.log(`${pkg.name}@${pkg.version} (claudeCodeVersion=${pkg.claudeCodeVersion??"unknown"})`);'
-
-claude-sdk-update:
-	cd $(CLAUDE_SDK_DOCS_DIR) && npm install $(CLAUDE_SDK_PACKAGE)@$(CLAUDE_SDK_VERSION)
-	@node -e 'const fs=require("fs");const pkgPath="$(CLAUDE_SDK_DOCS_DIR)/node_modules/@anthropic-ai/claude-agent-sdk/package.json";if(!fs.existsSync(pkgPath)){console.error("Missing installed SDK package: "+pkgPath);process.exit(1);}const pkg=JSON.parse(fs.readFileSync(pkgPath,"utf8"));const out={packageName:pkg.name,sdkVersion:pkg.version,claudeCodeVersion:pkg.claudeCodeVersion??null,sourcePath:"orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk",officialOverview:"https://platform.claude.com/docs/en/agent-sdk/overview",auditDoc:`orbitdock-server/docs/claude-agent-sdk-${pkg.version}-source-audit.md`};fs.writeFileSync("$(CLAUDE_SDK_VERSION_FILE)",JSON.stringify(out,null,2)+"\n");console.log(`Wrote $(CLAUDE_SDK_VERSION_FILE)`);'
-
-claude-sdk-audit-checklist:
-	@echo "Claude Agent SDK audit checklist:"
-	@echo "1. Update local install: make claude-sdk-update CLAUDE_SDK_VERSION=<version>"
-	@echo "2. Inspect source of truth files:"
-	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs"
-	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts"
-	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts"
-	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/cli.js"
-	@echo "3. Record findings in a local ignored note if needed"
-	@echo "4. Generated metadata is local-only: orbitdock-server/docs/claude-agent-sdk-version.json"
-	@echo "5. If official docs differ, treat local source as truth"
-
-web-install:
-	cd orbitdock-web && npm install
-
-web-dev:
-	cd orbitdock-web && npm run dev
-
-web-build:
-	cd orbitdock-web && npm run build
-
-web-test:
-	cd orbitdock-web && npm test
-
-web-test-e2e:
-	cd orbitdock-web && npm run test:e2e
-
-web-lint:
-	cd orbitdock-web && npm run lint
-
-web-lint-fix:
-	cd orbitdock-web && npm run lint:fix
-
-web-fmt:
-	cd orbitdock-web && npm run format
-
-web-fmt-check:
-	cd orbitdock-web && npm run format:check
-
-web-ci: web-lint web-build web-test web-test-e2e
