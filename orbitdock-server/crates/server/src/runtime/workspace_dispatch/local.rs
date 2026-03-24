@@ -1,9 +1,8 @@
-//! Local workspace provider — creates a git worktree on the host machine
-//! and starts the agent session locally.
+//! Local workspace provider for mission dispatch.
 //!
-//! This is the default provider and wraps the exact same logic that was
-//! previously inline in `dispatch_issue()`.  Solo users (and anyone not
-//! using a remote workspace provider) get this automatically.
+//! This provider creates a git worktree on the host machine and starts the
+//! agent session locally. It preserves OrbitDock's existing local behavior
+//! behind the runtime-owned workspace dispatch boundary.
 
 use async_trait::async_trait;
 use orbitdock_protocol::Provider;
@@ -73,11 +72,8 @@ impl LocalWorkspaceProvider {
 #[async_trait]
 impl WorkspaceProvider for LocalWorkspaceProvider {
     async fn dispatch(&self, req: &DispatchRequest) -> Result<DispatchResult, WorkspaceError> {
-        // ── 1. Workspace provisioning ────────────────────────────────
-
         let branch_name = mission_branch_name(&req.issue.identifier);
 
-        // Fetch latest refs so the worktree starts from the current remote HEAD
         if let Err(err) = crate::domain::git::repo::fetch_origin(&req.repo_root).await {
             warn!(
                 component = "mission_control",
@@ -87,7 +83,6 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
             );
         }
 
-        // Create worktree via the runtime helper (also persists the record)
         let remote_base = format!("origin/{}", req.base_branch);
         let (worktree_path, worktree_id) =
             match crate::runtime::worktree_creation::create_tracked_worktree(
@@ -97,7 +92,7 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
                 Some(&remote_base),
                 orbitdock_protocol::WorktreeOrigin::Agent,
                 req.worktree_root_dir.as_deref(),
-                true, // always clean up stale worktrees
+                true,
             )
             .await
             {
@@ -109,7 +104,6 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
                 }
             };
 
-        // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
         if let Some(ref api_key_value) = req.tracker_api_key {
             let orbitdock_bin = std::env::current_exe()
                 .map(|p| p.to_string_lossy().to_string())
@@ -141,15 +135,12 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
             }
         }
 
-        // ── 2. Session creation and agent launch ─────────────────────
-
         let provider: Provider = req.provider_str.parse().map_err(|_| {
             WorkspaceError::Failed(format!("Invalid mission provider: {}", req.provider_str))
         })?;
 
         let resolved = req.agent_config.resolve_for_provider(&req.provider_str);
 
-        // Merge OrbitDock CLI + mission-specific instructions
         let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
         let mission_ref = crate::domain::instructions::mission_agent_instructions();
         let orbitdock_instructions = format!("{cli_ref}\n\n{mission_ref}");
@@ -158,7 +149,6 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
             None => Some(orbitdock_instructions),
         };
 
-        // Build dynamic tool specs for Codex sessions
         let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> =
             crate::domain::mission_control::tools::mission_tool_definitions()
                 .into_iter()
@@ -204,8 +194,6 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
             .await
             .map_err(|e| WorkspaceError::Failed(format!("Failed to launch session: {e}")))?;
 
-        // ── 3. Prompt delivery ───────────────────────────────────────
-
         match provider {
             Provider::Codex => {
                 let mission_skills = resolve_skill_inputs(&resolved.skills);
@@ -247,8 +235,6 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── mission_branch_name ──────────────────────────────────────────────
 
     #[test]
     fn branch_name_basic_identifier() {
@@ -292,8 +278,6 @@ mod tests {
         );
     }
 
-    // ── build_mcp_config ─────────────────────────────────────────────────
-
     #[test]
     fn mcp_config_linear_tracker() {
         let config = build_mcp_config(
@@ -313,7 +297,6 @@ mod tests {
         assert_eq!(server["env"]["ORBITDOCK_ISSUE_ID"], "issue-1");
         assert_eq!(server["env"]["ORBITDOCK_ISSUE_IDENTIFIER"], "PROJ-42");
         assert_eq!(server["env"]["ORBITDOCK_MISSION_ID"], "mission-1");
-        // Linear tracker should NOT have GITHUB_TOKEN
         assert!(server["env"]["GITHUB_TOKEN"].is_null());
     }
 
@@ -331,7 +314,6 @@ mod tests {
         let server = &config["mcpServers"]["orbitdock-mission"];
         assert_eq!(server["env"]["GITHUB_TOKEN"], "ghp_test456");
         assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "github");
-        // GitHub tracker should NOT have LINEAR_API_KEY
         assert!(server["env"]["LINEAR_API_KEY"].is_null());
     }
 
@@ -347,12 +329,9 @@ mod tests {
         );
 
         let server = &config["mcpServers"]["orbitdock-mission"];
-        // Unknown tracker kinds fall back to LINEAR_API_KEY env var
         assert_eq!(server["env"]["LINEAR_API_KEY"], "jira_key");
         assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "linear");
     }
-
-    // ── WorkspaceError ───────────────────────────────────────────────────
 
     #[test]
     fn workspace_error_display() {

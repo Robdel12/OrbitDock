@@ -1405,7 +1405,7 @@ pub async fn dispatch_mission_issue(
         state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
         tracker,
         workspace_provider: Arc::new(
-            crate::domain::workspaces::local::LocalWorkspaceProvider::new(),
+            crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider::new(),
         ),
     };
 

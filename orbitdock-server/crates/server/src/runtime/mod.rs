@@ -29,4 +29,5 @@ pub(crate) mod session_runtime_helpers;
 pub(crate) mod session_subscriptions;
 pub(crate) mod session_takeover;
 pub(crate) mod transcript_sync_policy;
+pub(crate) mod workspace_dispatch;
 pub(crate) mod worktree_creation;

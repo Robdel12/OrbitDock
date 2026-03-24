@@ -9,11 +9,11 @@ use tracing::{info, warn};
 use crate::domain::mission_control::config::AgentConfig;
 use crate::domain::mission_control::prompt::{render_prompt, IssueContext};
 use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
-use crate::domain::workspaces::{DispatchRequest, WorkspaceIssueRef, WorkspaceProvider};
 use crate::infrastructure::persistence::mission_control::{
     update_mission_issue_state_sync, MissionIssueStateUpdate,
 };
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::workspace_dispatch::{DispatchRequest, WorkspaceIssueRef, WorkspaceProvider};
 
 /// Mission-level configuration shared across all issue dispatches.
 pub struct DispatchContext {

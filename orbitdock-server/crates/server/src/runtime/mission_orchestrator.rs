@@ -14,14 +14,14 @@ use tracing::{debug, error, info, warn};
 use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
-use crate::domain::workspaces::local::LocalWorkspaceProvider;
-use crate::domain::workspaces::WorkspaceProvider;
 use crate::infrastructure::persistence::mission_control::{
     load_manually_queued_issues, load_mission_by_id, load_mission_issues, load_missions,
     load_retry_ready_issues, MissionIssueRow, MissionRow,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider;
+use crate::runtime::workspace_dispatch::WorkspaceProvider;
 
 use super::mission_dispatch::{dispatch_issue, DispatchContext};
 use super::mission_reconciliation::reconcile_mission;
