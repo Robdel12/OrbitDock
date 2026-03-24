@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   orbitdock-unit-tests:
-    name: OrbitDock Unit Tests
+    name: macOS Unit Tests
     runs-on: macos-15
     timeout-minutes: 30
 

@@ -22,7 +22,7 @@ defaults:
 
 jobs:
   check:
-    name: Lint, Build & Test
+    name: Web Lint, Build & Test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
