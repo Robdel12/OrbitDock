@@ -161,6 +161,16 @@ pub enum SessionStatus {
     Ended,
 }
 
+/// Outcome of a steer-turn attempt, surfaced to clients.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SteerOutcome {
+    /// The steer was accepted by the active turn.
+    Accepted,
+    /// No active turn was running; fell back to starting a new turn.
+    FellBackToNewTurn,
+}
+
 /// Work status - what the agent is currently doing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -513,6 +523,8 @@ pub struct SessionSummary {
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     #[serde(default)]
+    pub steerable: bool,
+    #[serde(default)]
     pub token_usage: TokenUsage,
     #[serde(default)]
     pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
@@ -791,6 +803,7 @@ impl SessionSummary {
             pending_tool_family: self.pending_tool_family,
             forked_from_session_id: self.forked_from_session_id.clone(),
             mission_id: self.mission_id.clone(),
+            steerable: self.steerable,
             issue_identifier: self.issue_identifier.clone(),
         }
     }
@@ -831,6 +844,7 @@ impl From<SessionSummary> for SessionListItem {
             active_worker_count: summary.active_worker_count,
             pending_tool_family: summary.pending_tool_family,
             forked_from_session_id: summary.forked_from_session_id,
+            steerable: summary.steerable,
             mission_id: summary.mission_id,
             issue_identifier: summary.issue_identifier,
         }
@@ -921,6 +935,9 @@ pub struct SessionState {
     pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    /// Server-computed: true when the session accepts steer requests.
+    #[serde(default)]
+    pub steerable: bool,
     pub pending_approval: Option<ApprovalRequest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
@@ -1051,6 +1068,8 @@ pub struct SessionListItem {
     pub model: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default)]
+    pub steerable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1119,6 +1138,7 @@ impl SessionListItem {
             model: summary.model.clone(),
             status: summary.status,
             work_status: summary.work_status,
+            steerable: summary.steerable,
             codex_integration_mode: summary.codex_integration_mode,
             claude_integration_mode: summary.claude_integration_mode,
             started_at: summary.started_at.clone(),
@@ -1221,6 +1241,10 @@ pub struct StateChanges {
     pub status: Option<SessionStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_status: Option<WorkStatus>,
+    /// Server-computed flag: true when the session accepts steer requests.
+    /// Derived from work_status (and potentially other factors in the future).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub steerable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_approval: Option<Option<ApprovalRequest>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2040,6 +2064,7 @@ mod tests {
             last_message: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Working,
+            steerable: true,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
             has_pending_approval: false,

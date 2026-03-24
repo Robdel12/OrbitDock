@@ -1555,6 +1555,7 @@ mod tests {
             last_message: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            steerable: false,
             token_usage: TokenUsage::default(),
             token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
             has_pending_approval: false,

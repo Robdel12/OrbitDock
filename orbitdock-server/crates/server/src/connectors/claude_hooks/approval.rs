@@ -197,6 +197,7 @@ mod tests {
             provider: Provider::Claude,
             status: SessionStatus::Active,
             work_status: WorkStatus::Permission,
+            steerable: false,
             project_path: "/repo".to_string(),
             project_name: None,
             transcript_path: None,

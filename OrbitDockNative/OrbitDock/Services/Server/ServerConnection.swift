@@ -761,6 +761,8 @@ final class ServerConnection {
         emit(.missionDelta(missionId: missionId, issues: issues, summary: summary))
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         emit(.missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt))
+      case .steerOutcome:
+        break // Outcome is informational; steerable state flows via session_delta
       case .directoryListing, .recentProjectsList, .openAiKeyStatus,
            .codexUsageResult, .claudeUsageResult:
         break

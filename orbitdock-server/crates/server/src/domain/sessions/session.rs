@@ -338,6 +338,7 @@ pub struct SessionSnapshot {
     pub provider: Provider,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    pub steerable: bool,
     pub project_path: String,
     pub project_name: Option<String>,
     pub transcript_path: Option<String>,
@@ -444,6 +445,7 @@ pub struct SessionHandle {
     // ── Session lifecycle ───────────────────────────────────────────
     status: SessionStatus,
     work_status: WorkStatus,
+    steerable: bool,
     last_tool: Option<String>,
 
     // ── Conversation data ───────────────────────────────────────────
@@ -723,6 +725,7 @@ impl SessionHandle {
             provider,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            steerable: false,
             project_path: identity.project_path.clone(),
             project_name: None,
             transcript_path: None,
@@ -789,6 +792,7 @@ impl SessionHandle {
             claude_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            steerable: false,
             last_tool: None,
             rows: Vec::new(),
             total_row_count: 0,
@@ -857,6 +861,7 @@ impl SessionHandle {
             provider: identity.provider,
             status,
             work_status,
+            steerable: work_status == WorkStatus::Working,
             project_path: identity.project_path.clone(),
             project_name: identity.project_name.clone(),
             transcript_path: identity.transcript_path.clone(),
@@ -926,6 +931,7 @@ impl SessionHandle {
             claude_integration_mode: None,
             status,
             work_status,
+            steerable: work_status == WorkStatus::Working,
             last_tool: None,
             rows,
             total_row_count: 0,
@@ -1020,6 +1026,7 @@ impl SessionHandle {
             summary: self.display.summary.clone(),
             status: self.status,
             work_status: self.work_status,
+            steerable: self.steerable,
             token_usage: self.token_usage.clone(),
             token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             has_pending_approval: self.pending_approval.is_some()
@@ -1151,6 +1158,7 @@ impl SessionHandle {
             unread_count: self.unread_count,
             mission_id: self.mission_id.clone(),
             issue_identifier: self.issue_identifier.clone(),
+            steerable: self.steerable,
             allow_bypass_permissions: self.allow_bypass_permissions,
             rows: vec![],
             total_row_count: 0,
@@ -1916,6 +1924,9 @@ impl SessionHandle {
         if let Some(work_status) = changes.work_status {
             self.work_status = work_status;
         }
+        if let Some(steerable) = changes.steerable {
+            self.steerable = steerable;
+        }
         if let Some(ref pending_approval) = changes.pending_approval {
             if let Some(approval) = pending_approval.as_ref() {
                 self.queue_pending_approval(
@@ -2066,6 +2077,7 @@ impl SessionHandle {
             provider: self.identity.provider,
             status: self.status,
             work_status: self.work_status,
+            steerable: self.steerable,
             project_path: self.identity.project_path.clone(),
             project_name: self.identity.project_name.clone(),
             transcript_path: self.identity.transcript_path.clone(),

@@ -117,6 +117,7 @@ final class SessionObservable {
   var transcriptPath: String?
   var status: Session.SessionStatus = .active
   var workStatus: Session.WorkStatus = .unknown
+  var steerable: Bool = false
   var attentionReason: Session.AttentionReason = .none
   var lastActivityAt: Date?
   var lastFilesPersistedAt: Date?

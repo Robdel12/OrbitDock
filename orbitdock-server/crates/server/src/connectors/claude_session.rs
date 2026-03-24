@@ -292,6 +292,34 @@ pub fn start_event_loop(
                                 }
                             }
                         }
+                        ClaudeAction::SteerTurn { content, message_id, images } => {
+                            match session.connector.send_message(content, None, None, images).await {
+                                Ok(()) => {
+                                    session_handle.broadcast(
+                                        ServerMessage::SteerOutcome {
+                                            session_id: session_id.clone(),
+                                            message_id: message_id.clone(),
+                                            outcome: orbitdock_protocol::SteerOutcome::Accepted,
+                                        },
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        component = "claude_connector",
+                                        event = "claude.steer.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Steer turn failed"
+                                    );
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::Error(format!("Steer failed: {e}")),
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                            }
+                        }
                         _ => {
                             if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
                                 error!(

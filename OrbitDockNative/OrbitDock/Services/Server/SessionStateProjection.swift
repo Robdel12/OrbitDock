@@ -47,6 +47,7 @@ struct SessionDetailSnapshotProjection {
   let transcriptPath: String?
   let status: Session.SessionStatus
   let workStatus: Session.WorkStatus
+  let steerable: Bool
   let attentionReason: Session.AttentionReason
   let lastActivityAt: Date?
   let lastFilesPersistedAt: Date?
@@ -116,6 +117,7 @@ struct SessionDetailSnapshotProjection {
       transcriptPath: session.transcriptPath,
       status: session.status,
       workStatus: session.workStatus,
+      steerable: session.steerable,
       attentionReason: session.attentionReason,
       lastActivityAt: session.lastActivityAt,
       lastFilesPersistedAt: session.lastFilesPersistedAt,
@@ -165,6 +167,7 @@ struct SessionDetailSnapshotProjection {
 struct SessionStateProjection {
   let status: Session.SessionStatus?
   let workStatus: Session.WorkStatus?
+  let steerable: Bool?
   let attentionReason: Session.AttentionReason?
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
@@ -204,6 +207,7 @@ struct SessionStateProjection {
     SessionStateProjection(
       status: changes.status.map { $0 == .active ? .active : .ended },
       workStatus: changes.workStatus.map { $0.toSessionWorkStatus() },
+      steerable: changes.steerable,
       attentionReason: changes.workStatus.map { $0.toAttentionReason() },
       tokenUsage: changes.tokenUsage,
       tokenUsageSnapshotKind: changes.tokenUsageSnapshotKind,
@@ -301,6 +305,10 @@ extension Session {
 
     if let workStatus = projection.workStatus {
       self.workStatus = workStatus
+    }
+
+    if let steerable = projection.steerable {
+      self.steerable = steerable
     }
 
     if let attentionReason = projection.attentionReason {
@@ -443,6 +451,7 @@ extension SessionObservable {
     transcriptPath = projection.transcriptPath
     status = projection.status
     workStatus = projection.workStatus
+    steerable = projection.steerable
     attentionReason = projection.attentionReason
     lastActivityAt = projection.lastActivityAt
     lastFilesPersistedAt = projection.lastFilesPersistedAt
@@ -494,6 +503,7 @@ extension SessionObservable {
   func applyResumeSummary(_ summary: ServerSessionSummary) {
     status = summary.status == .active ? .active : .ended
     workStatus = summary.workStatus.toSessionWorkStatus()
+    steerable = summary.steerable
     attentionReason = summary.workStatus.toAttentionReason()
     endedAt = nil
     endReason = nil
@@ -513,6 +523,10 @@ extension SessionObservable {
         promptSuggestions.removeAll()
         rateLimitInfo = nil
       }
+    }
+
+    if let steerable = projection.steerable {
+      self.steerable = steerable
     }
 
     if let attentionReason = projection.attentionReason {

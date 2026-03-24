@@ -55,6 +55,7 @@ const KNOWN_SERVER_TYPES = new Set([
   'mcp_startup_complete',
   'skills_update_available',
   'subagent_tools_list',
+  'steer_outcome',
   'error',
 ])
 

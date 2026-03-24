@@ -308,9 +308,13 @@ pub async fn handle_session_command(
 
         // -- Compound operations --
         SessionCommand::ApplyDelta {
-            changes,
+            mut changes,
             persist_op,
         } => {
+            // Derive steerable from work_status so clients never compute it locally.
+            if let Some(ws) = changes.work_status {
+                changes.steerable = Some(ws == WorkStatus::Working);
+            }
             let session_id = handle.id().to_string();
             handle.apply_changes(&changes);
             if let Some(op) = persist_op {

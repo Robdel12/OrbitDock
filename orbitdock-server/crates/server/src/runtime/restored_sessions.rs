@@ -132,6 +132,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         last_message: restored.last_message,
         status,
         work_status,
+        steerable: work_status == WorkStatus::Working,
         rows: restored.rows,
         total_row_count,
         has_more_before: false,

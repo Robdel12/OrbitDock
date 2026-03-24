@@ -195,6 +195,7 @@ struct ServerSessionListItem: Codable, Identifiable {
   let model: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let steerable: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let startedAt: String?
@@ -232,6 +233,7 @@ struct ServerSessionListItem: Codable, Identifiable {
     model: String?,
     status: ServerSessionStatus,
     workStatus: ServerWorkStatus,
+    steerable: Bool = false,
     codexIntegrationMode: ServerCodexIntegrationMode?,
     claudeIntegrationMode: ServerClaudeIntegrationMode?,
     startedAt: String?,
@@ -268,6 +270,7 @@ struct ServerSessionListItem: Codable, Identifiable {
     self.model = model
     self.status = status
     self.workStatus = workStatus
+    self.steerable = steerable
     self.codexIntegrationMode = codexIntegrationMode
     self.claudeIntegrationMode = claudeIntegrationMode
     self.startedAt = startedAt
@@ -306,6 +309,7 @@ struct ServerSessionListItem: Codable, Identifiable {
     case model
     case status
     case workStatus = "work_status"
+    case steerable
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
     case startedAt = "started_at"
@@ -475,6 +479,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let summary: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let steerable: Bool
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let hasPendingApproval: Bool
@@ -530,6 +535,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
+    case steerable
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case hasPendingApproval = "has_pending_approval"
@@ -744,6 +750,7 @@ struct ServerSessionState: Codable, Identifiable {
   let summary: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let steerable: Bool
   let rows: [ServerConversationRowEntry]
   let totalRowCount: UInt64?
   let hasMoreBefore: Bool?
@@ -811,6 +818,7 @@ struct ServerSessionState: Codable, Identifiable {
     case summary
     case status
     case workStatus = "work_status"
+    case steerable
     case messages
     case rows
     case totalRowCount = "total_row_count"
@@ -883,6 +891,7 @@ struct ServerSessionState: Codable, Identifiable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
     rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
@@ -964,6 +973,7 @@ struct ServerSessionState: Codable, Identifiable {
     try container.encodeIfPresent(summary, forKey: .summary)
     try container.encode(status, forKey: .status)
     try container.encode(workStatus, forKey: .workStatus)
+    try container.encode(steerable, forKey: .steerable)
     try container.encode(rows, forKey: .rows)
     try container.encodeIfPresent(totalRowCount, forKey: .totalRowCount)
     try container.encodeIfPresent(hasMoreBefore, forKey: .hasMoreBefore)
@@ -1097,6 +1107,7 @@ struct ServerSessionInstructions: Decodable, Sendable {
 struct ServerStateChanges: Codable {
   let status: ServerSessionStatus?
   let workStatus: ServerWorkStatus?
+  let steerable: Bool?
   let pendingApproval: ServerApprovalRequest??
   let tokenUsage: ServerTokenUsage?
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
@@ -1140,6 +1151,7 @@ struct ServerStateChanges: Codable {
   init(
     status: ServerSessionStatus? = nil,
     workStatus: ServerWorkStatus? = nil,
+    steerable: Bool? = nil,
     pendingApproval: ServerApprovalRequest?? = nil,
     tokenUsage: ServerTokenUsage? = nil,
     tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind? = nil,
@@ -1182,6 +1194,7 @@ struct ServerStateChanges: Codable {
   ) {
     self.status = status
     self.workStatus = workStatus
+    self.steerable = steerable
     self.pendingApproval = pendingApproval
     self.tokenUsage = tokenUsage
     self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
@@ -1226,6 +1239,7 @@ struct ServerStateChanges: Codable {
   enum CodingKeys: String, CodingKey {
     case status
     case workStatus = "work_status"
+    case steerable
     case pendingApproval = "pending_approval"
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
@@ -1271,6 +1285,7 @@ struct ServerStateChanges: Codable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     status = try container.decodeIfPresent(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decodeIfPresent(ServerWorkStatus.self, forKey: .workStatus)
+    steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable)
     pendingApproval = try container.decodePatchValue(ServerApprovalRequest.self, forKey: .pendingApproval)
     tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)
     tokenUsageSnapshotKind = try container.decodeIfPresent(

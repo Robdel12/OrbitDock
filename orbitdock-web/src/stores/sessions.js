@@ -45,6 +45,7 @@ const handleSessionDelta = (sessionId, changes) => {
   const updated = { ...current }
   if (changes.status != null) updated.status = changes.status
   if (changes.work_status != null) updated.work_status = changes.work_status
+  if (changes.steerable != null) updated.steerable = changes.steerable
   if (changes.custom_name !== undefined) updated.custom_name = changes.custom_name
   if (changes.summary !== undefined) updated.summary = changes.summary
   if (changes.first_prompt !== undefined) updated.first_prompt = changes.first_prompt

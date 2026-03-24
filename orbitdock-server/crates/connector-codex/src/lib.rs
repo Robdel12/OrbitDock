@@ -31,13 +31,8 @@ pub use self::config::discover_models;
 use self::runtime::EventLoopState;
 use orbitdock_connector_core::ConnectorEvent;
 
-/// Outcome of a steer_turn attempt
-pub enum SteerOutcome {
-    /// The steer was accepted by the active turn
-    Accepted,
-    /// No active turn was running; fell back to starting a new turn
-    FellBackToNewTurn,
-}
+/// Re-export from protocol for connector use.
+pub use orbitdock_protocol::SteerOutcome;
 
 /// Codex connector using direct codex-core integration
 pub struct CodexConnector {

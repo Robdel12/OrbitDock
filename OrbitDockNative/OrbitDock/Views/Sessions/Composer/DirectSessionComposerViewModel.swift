@@ -393,6 +393,7 @@ final class DirectSessionComposerViewModel {
       branch: session.branch,
       repositoryRoot: session.repositoryRoot,
       isWorktree: session.isWorktree,
+      steerable: session.steerable,
       workStatus: session.workStatus,
       isActive: session.isActive,
       isDirectCodex: session.isDirectCodex,
@@ -452,6 +453,7 @@ struct DirectSessionComposerSessionState {
   let branch: String?
   let repositoryRoot: String?
   let isWorktree: Bool
+  let steerable: Bool
   let workStatus: Session.WorkStatus
   let isActive: Bool
   let isDirectCodex: Bool
@@ -553,6 +555,7 @@ struct DirectSessionComposerSessionState {
     branch: nil,
     repositoryRoot: nil,
     isWorktree: false,
+    steerable: false,
     workStatus: .unknown,
     isActive: false,
     isDirectCodex: false,

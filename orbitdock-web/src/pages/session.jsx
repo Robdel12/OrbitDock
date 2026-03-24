@@ -302,6 +302,7 @@ const SessionPage = () => {
 
   const isEnded = session?.status === 'ended' || session?.work_status === 'ended'
   const isWorking = session?.work_status === 'working'
+  const isSteerable = session?.steerable ?? false
   const isPassive = session?.work_status === 'reply' || session?.work_status === 'ended'
   const showTakeover = session?.status === 'active' && isPassive
   const showWorktreeBanner = isEnded && session?.is_worktree && !!session?.worktree_id
@@ -488,6 +489,7 @@ const SessionPage = () => {
           onEnd={handleEnd}
           disabled={isEnded}
           isWorking={isWorking}
+          isSteerable={isSteerable}
           isPending={isPending}
           isEnded={isEnded}
           isConnected={connectionState.value === 'connected'}

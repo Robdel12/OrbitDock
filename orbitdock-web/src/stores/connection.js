@@ -126,6 +126,9 @@ const routeMessage = (msg) => {
     case 'turn_diff_snapshot':
       if (conversationHandler) conversationHandler(msg)
       break
+    case 'steer_outcome':
+      // Informational — steerable state is already applied via session_delta
+      break
   }
 }
 

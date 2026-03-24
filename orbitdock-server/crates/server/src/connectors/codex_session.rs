@@ -123,14 +123,39 @@ pub fn start_event_loop(
                 Some(action) = action_rx.recv() => {
                     match action {
                         CodexAction::SteerTurn {
-                            content: _,
-                            message_id: _,
-                            images: _,
-                            mentions: _,
+                            content,
+                            message_id,
+                            images,
+                            mentions,
                         } => {
-                            // Steer turn outcome tracking is now handled via
-                            // ConversationRowsChanged in the transition layer.
-                            // No separate MessageUpdate needed.
+                            match session.connector.steer_turn(&content, &images, &mentions).await {
+                                Ok(outcome) => {
+                                    session_handle.broadcast(
+                                        orbitdock_protocol::ServerMessage::SteerOutcome {
+                                            session_id: session_id.clone(),
+                                            message_id,
+                                            outcome,
+                                        },
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        component = "codex_connector",
+                                        event = "codex.steer.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Steer turn failed"
+                                    );
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        orbitdock_connector_core::ConnectorEvent::Error(
+                                            format!("Steer failed: {e}"),
+                                        ),
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                            }
                         }
                         CodexAction::Interrupt => {
                             match session.connector.interrupt().await {

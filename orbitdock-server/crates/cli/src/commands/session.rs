@@ -1333,6 +1333,7 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::MissionsList { .. } => "missions_list",
         ServerMessage::MissionDelta { .. } => "mission_delta",
         ServerMessage::MissionHeartbeat { .. } => "mission_heartbeat",
+        ServerMessage::SteerOutcome { .. } => "steer_outcome",
     }
 }
 

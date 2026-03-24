@@ -69,6 +69,14 @@ pub enum ServerMessage {
         forked_from_thread_id: Option<String>,
     },
 
+    // Steer outcome — tells clients whether a steer attached to the active
+    // turn or fell back to starting a new one.
+    SteerOutcome {
+        session_id: String,
+        message_id: String,
+        outcome: crate::types::SteerOutcome,
+    },
+
     // Approval history
     ApprovalsList {
         session_id: Option<String>,

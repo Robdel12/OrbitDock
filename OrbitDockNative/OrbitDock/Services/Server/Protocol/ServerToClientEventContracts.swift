@@ -45,6 +45,7 @@ enum ServerToClientMessage: Codable {
   case filesPersisted(sessionId: String, files: [String])
   case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
   case rateLimitEvent(sessionId: String, info: ServerRateLimitInfo)
+  case steerOutcome(sessionId: String, messageId: String, outcome: String)
 
   // MARK: Approvals and review
 

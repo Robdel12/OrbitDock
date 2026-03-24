@@ -54,6 +54,7 @@ extension ServerSessionState {
       transcriptPath: transcriptPath,
       status: status == .active ? .active : .ended,
       workStatus: workStatus.toSessionWorkStatus(),
+      steerable: steerable,
       attentionReason: workStatus.toAttentionReason(),
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       lastFilesPersistedAt: nil,

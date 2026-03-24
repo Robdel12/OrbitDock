@@ -122,6 +122,7 @@ struct Session: Identifiable, Hashable, Sendable {
   let transcriptPath: String?
   var status: SessionStatus
   var workStatus: WorkStatus
+  var steerable: Bool = false
   let startedAt: Date?
   var endedAt: Date?
   let endReason: String?

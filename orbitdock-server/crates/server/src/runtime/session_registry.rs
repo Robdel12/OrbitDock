@@ -336,6 +336,7 @@ impl SessionRegistry {
                     pending_tool_family: None,
                     forked_from_session_id: None,
                     mission_id: None,
+                    steerable: snap.steerable,
                     issue_identifier: None,
                     allow_bypass_permissions: false,
                 }

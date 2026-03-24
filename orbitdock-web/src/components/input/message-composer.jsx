@@ -507,6 +507,7 @@ const MessageComposer = ({
   onEnd,
   disabled,
   isWorking,
+  isSteerable,
   isPending,
   isEnded,
   isConnected,
@@ -542,9 +543,9 @@ const MessageComposer = ({
   // Guard against recursive sync between state and DOM.
   const suppressSync = useRef(false)
 
-  // Determine if we're in steer mode — active when agent is working and
-  // the user has typed text or attached images (server accepts both).
-  const isSteering = isWorking && (!!value.trim() || attachments.length > 0)
+  // Determine if we're in steer mode — active when server says session is
+  // steerable and the user has typed text or attached images.
+  const isSteering = isSteerable && (!!value.trim() || attachments.length > 0)
 
   // Restore draft when switching sessions.
   useEffect(() => {
@@ -746,9 +747,9 @@ const MessageComposer = ({
       return
     }
 
-    // When the agent is actively working, steer the current turn instead of
-    // queuing a new user message — unless there's no steer handler.
-    if (isWorking && onSteer && (text || attachments.length)) {
+    // When the server says the session is steerable, steer the current turn
+    // instead of queuing a new user message.
+    if (isSteerable && onSteer && (text || attachments.length)) {
       const payload = { content: text }
       if (attachments.length) {
         payload.images = attachments.map(({ dataUrl, mimeType, name }) => ({
