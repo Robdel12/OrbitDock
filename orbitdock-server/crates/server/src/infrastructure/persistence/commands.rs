@@ -1050,12 +1050,10 @@ impl From<&PersistCommand> for Option<SyncCommand> {
                 session_id: session_id.clone(),
                 info: info.clone(),
             },
-            PersistCommand::UpsertSubagents { session_id, infos } => {
-                SyncCommand::UpsertSubagents {
-                    session_id: session_id.clone(),
-                    infos: infos.clone(),
-                }
-            }
+            PersistCommand::UpsertSubagents { session_id, infos } => SyncCommand::UpsertSubagents {
+                session_id: session_id.clone(),
+                infos: infos.clone(),
+            },
             PersistCommand::RolloutSessionUpsert {
                 id,
                 thread_id,
@@ -1723,9 +1721,7 @@ impl From<SyncCommand> for PersistCommand {
                 tag,
                 status,
             },
-            SyncCommand::ReviewCommentDelete { id } => {
-                PersistCommand::ReviewCommentDelete { id }
-            }
+            SyncCommand::ReviewCommentDelete { id } => PersistCommand::ReviewCommentDelete { id },
             SyncCommand::SetIntegrationMode {
                 session_id,
                 codex_mode,
@@ -2636,7 +2632,10 @@ mod tests {
 
         match restored {
             PersistCommand::RowAppend { sequence_tx, .. } => {
-                assert!(sequence_tx.is_none(), "sync restore should not recreate response channels");
+                assert!(
+                    sequence_tx.is_none(),
+                    "sync restore should not recreate response channels"
+                );
             }
             other => panic!("expected row append after restore, got {other:?}"),
         }
