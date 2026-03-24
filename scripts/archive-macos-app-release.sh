@@ -7,7 +7,20 @@ DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$DIST_DIR/OrbitDock.xcarchive}"
 APP_NAME="${APP_NAME:-OrbitDock}"
 VERSION="${VERSION:?VERSION is required}"
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml}"
+
+# Channel support: stable (default), beta, nightly.
+# Sets SPARKLE_FEED_URL automatically when not explicitly provided.
+CHANNEL="${CHANNEL:-stable}"
+case "$CHANNEL" in
+  stable)  _DEFAULT_FEED="https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml" ;;
+  beta)    _DEFAULT_FEED="https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast-beta.xml" ;;
+  nightly) _DEFAULT_FEED="https://github.com/Robdel12/OrbitDock/releases/download/nightly/appcast-nightly.xml" ;;
+  *)
+    echo "error: unknown channel '$CHANNEL' (expected stable, beta, or nightly)"
+    exit 1
+    ;;
+esac
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-$_DEFAULT_FEED}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:?SPARKLE_PUBLIC_ED_KEY is required}"
 MACOS_DEVELOPMENT_TEAM="${MACOS_DEVELOPMENT_TEAM:?MACOS_DEVELOPMENT_TEAM is required}"
 

@@ -1,0 +1,98 @@
+name: Nightly macOS Release
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Daily at 06:00 UTC
+  workflow_dispatch:
+
+env:
+  APP_NAME: OrbitDock
+  CHANNEL: nightly
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+jobs:
+  nightly:
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.3'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Compute nightly version
+        id: version
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          BASE_VERSION="${LATEST_TAG#v}"
+          DATE_STAMP=$(date -u +%Y%m%d)
+          NIGHTLY_VERSION="${BASE_VERSION}-nightly.${DATE_STAMP}"
+          BUILD_NUMBER="${DATE_STAMP}01"
+          echo "version=$NIGHTLY_VERSION" >> $GITHUB_OUTPUT
+          echo "build_number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Nightly version: $NIGHTLY_VERSION (build $BUILD_NUMBER)"
+
+      - name: Set Xcode version numbers
+        run: |
+          cd OrbitDockNative
+          agvtool new-marketing-version "${{ steps.version.outputs.version }}"
+          agvtool new-version -all "${{ steps.version.outputs.build_number }}"
+
+      - name: Archive, notarize, and package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANNEL: nightly
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          MACOS_DEVELOPMENT_TEAM: ${{ secrets.MACOS_DEVELOPMENT_TEAM }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY }}
+        run: ./scripts/archive-macos-app-release.sh
+
+      - name: Generate nightly appcast
+        env:
+          SITE_DIR: ${{ github.workspace }}/dist
+          RELEASE_TAG: nightly
+          CHANNEL: nightly
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+          DOWNLOAD_URL_PREFIX: https://github.com/${{ github.repository }}/releases/download/nightly/
+        run: ./scripts/generate-sparkle-appcast.sh
+
+      - name: Publish to nightly release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Delete existing nightly release/tag if present
+          gh release delete nightly --yes 2>/dev/null || true
+          git push origin :refs/tags/nightly 2>/dev/null || true
+
+          # Create fresh nightly prerelease
+          gh release create nightly \
+            --title "$APP_NAME Nightly ($VERSION)" \
+            --notes "Automated nightly build from \`main\` at $(date -u +%Y-%m-%d).
+
+          **Version:** $VERSION
+          **Commit:** ${{ github.sha }}
+
+          > Nightly builds may be unstable. Use Stable or Beta channels for production." \
+            --prerelease \
+            dist/${APP_NAME}-${VERSION}.zip \
+            dist/${APP_NAME}-${VERSION}.zip.sha256 \
+            dist/appcast-nightly.xml

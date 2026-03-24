@@ -6,8 +6,21 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SITE_DIR="${SITE_DIR:?SITE_DIR is required}"
 RELEASE_TAG="${RELEASE_TAG:?RELEASE_TAG is required}"
 SPARKLE_PRIVATE_ED_KEY="${SPARKLE_PRIVATE_ED_KEY:?SPARKLE_PRIVATE_ED_KEY is required}"
+
+# Channel support: stable (default), beta, nightly.
+# Sets APPCAST_FILENAME automatically when CHANNEL is provided.
+CHANNEL="${CHANNEL:-stable}"
+case "$CHANNEL" in
+  stable)  APPCAST_FILENAME="${APPCAST_FILENAME:-appcast.xml}" ;;
+  beta)    APPCAST_FILENAME="${APPCAST_FILENAME:-appcast-beta.xml}" ;;
+  nightly) APPCAST_FILENAME="${APPCAST_FILENAME:-appcast-nightly.xml}" ;;
+  *)
+    echo "error: unknown channel '$CHANNEL' (expected stable, beta, or nightly)"
+    exit 1
+    ;;
+esac
+
 DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/Robdel12/OrbitDock/releases/download/${RELEASE_TAG}/}"
-APPCAST_FILENAME="${APPCAST_FILENAME:-appcast.xml}"
 
 VERSION="${RELEASE_TAG#v}"
 APP_NAME="${APP_NAME:-OrbitDock}"
@@ -43,4 +56,4 @@ printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$SPARKLE_BIN_DIR/generate_appcast" \
   -o "$APPCAST_FILENAME" \
   "$SITE_DIR"
 
-echo "Generated $SITE_DIR/$APPCAST_FILENAME"
+echo "Generated $SITE_DIR/$APPCAST_FILENAME (channel=$CHANNEL)"

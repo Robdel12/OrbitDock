@@ -39,7 +39,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
   var subtitle: String {
     switch self {
       case .workspace:
-        "Editor, naming, and local dictation"
+        "Updates, editor, and local dictation"
       case .integrations:
         "Claude hooks and Codex account"
       case .missionControl:
@@ -78,12 +78,22 @@ struct SettingsView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
 
+  #if os(macOS)
+    let appUpdater: AppUpdater?
+  #endif
   private let showsCloseButton: Bool
   @State private var selectedPane: SettingsPane = .workspace
 
-  init(showsCloseButton: Bool = false) {
-    self.showsCloseButton = showsCloseButton
-  }
+  #if os(macOS)
+    init(appUpdater: AppUpdater? = nil, showsCloseButton: Bool = false) {
+      self.appUpdater = appUpdater
+      self.showsCloseButton = showsCloseButton
+    }
+  #else
+    init(showsCloseButton: Bool = false) {
+      self.showsCloseButton = showsCloseButton
+    }
+  #endif
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
     let endpointCount = runtimeRegistry.runtimes.count
@@ -271,7 +281,11 @@ struct SettingsView: View {
       Group {
         switch selectedPane {
           case .workspace:
-            GeneralSettingsView()
+            #if os(macOS)
+              GeneralSettingsView(appUpdater: appUpdater ?? nil)
+            #else
+              GeneralSettingsView()
+            #endif
           case .integrations:
             SetupSettingsView()
           case .missionControl:
@@ -319,7 +333,11 @@ struct SettingsView: View {
       Group {
         switch selectedPane {
           case .workspace:
-            GeneralSettingsView()
+            #if os(macOS)
+              GeneralSettingsView(appUpdater: appUpdater ?? nil)
+            #else
+              GeneralSettingsView()
+            #endif
           case .integrations:
             SetupSettingsView()
           case .missionControl:
@@ -339,8 +357,16 @@ struct SettingsView: View {
 
 // MARK: - Preview
 
-#Preview {
-  let preview = PreviewRuntime(scenario: .settings)
-  preview.inject(SettingsView())
-    .preferredColorScheme(.dark)
-}
+#if os(macOS)
+  #Preview {
+    let preview = PreviewRuntime(scenario: .settings)
+    preview.inject(SettingsView(appUpdater: AppUpdater()))
+      .preferredColorScheme(.dark)
+  }
+#else
+  #Preview {
+    let preview = PreviewRuntime(scenario: .settings)
+    preview.inject(SettingsView())
+      .preferredColorScheme(.dark)
+  }
+#endif

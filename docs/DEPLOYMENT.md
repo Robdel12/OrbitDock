@@ -118,18 +118,23 @@ Use `ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=<n>` to cap Docker cargo parallelis
 
 ### macOS App Releases with Sparkle
 
-OrbitDock’s macOS app now uses Sparkle with an appcast attached directly to GitHub Releases:
+OrbitDock uses Sparkle for macOS app updates with three update channels:
 
-```text
-https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml
-```
+| Channel | Feed URL | Publishing |
+|---------|----------|------------|
+| **Stable** | `releases/latest/download/appcast.xml` | Manual (maintainer) |
+| **Beta** | `releases/latest/download/appcast-beta.xml` | Manual (maintainer) |
+| **Nightly** | `releases/download/nightly/appcast-nightly.xml` | Automated (CI) |
 
-Current maintainer flow is fully manual:
+Users choose their update channel in **Preferences → Workspace → Updates**. The default is Stable. Each channel has its own appcast so stable users never see non-stable builds.
+
+#### Stable / Beta releases (manual)
 
 1. Archive and notarize the macOS app locally:
 
 ```bash
 VERSION=0.4.0 \
+CHANNEL=stable \
 SPARKLE_PUBLIC_ED_KEY="<public key>" \
 MACOS_DEVELOPMENT_TEAM="<team id>" \
 APPLE_NOTARY_KEY_ID="<key id>" \
@@ -138,23 +143,47 @@ APPLE_NOTARY_PRIVATE_KEY="$(cat AuthKey_ABC123XYZ.p8)" \
 ./scripts/archive-macos-app-release.sh
 ```
 
+Set `CHANNEL=beta` for beta releases. This compiles the matching feed URL into the binary.
+
 2. Upload `dist/OrbitDock-<version>.zip` and `dist/OrbitDock-<version>.zip.sha256` to the matching GitHub Release.
-3. Generate `appcast.xml` locally:
+3. Generate the appcast locally:
 
 ```bash
 SITE_DIR=/tmp/orbitdock-release-assets \
 RELEASE_TAG=v0.4.0 \
+CHANNEL=stable \
 SPARKLE_PRIVATE_ED_KEY="<private key>" \
 ./scripts/generate-sparkle-appcast.sh
 ```
 
-4. Upload the generated `appcast.xml` to that same GitHub Release.
+Set `CHANNEL=beta` to generate `appcast-beta.xml` instead.
 
-Sparkle key notes:
+4. Upload the generated appcast to that same GitHub Release.
+
+#### Nightly releases (automated)
+
+The `.github/workflows/nightly.yml` workflow runs daily at 06:00 UTC (and on manual dispatch). It:
+
+1. Computes a nightly version like `0.4.0-nightly.20260324`
+2. Archives, notarizes, and signs the macOS app
+3. Generates `appcast-nightly.xml`
+4. Publishes everything to a rolling `nightly` GitHub prerelease
+
+Required repository secrets for the nightly workflow:
+
+- `SPARKLE_PUBLIC_ED_KEY` — compiled into the app
+- `SPARKLE_PRIVATE_ED_KEY` — signs the appcast
+- `MACOS_DEVELOPMENT_TEAM` — Apple team ID for code signing
+- `APPLE_NOTARY_KEY_ID` — App Store Connect API key ID
+- `APPLE_NOTARY_ISSUER_ID` — App Store Connect issuer ID
+- `APPLE_NOTARY_PRIVATE_KEY` — App Store Connect API private key (`.p8` contents)
+
+#### Sparkle key notes
 
 - `SPARKLE_PUBLIC_ED_KEY` is compiled into the app and used to verify updates.
-- `SPARKLE_PRIVATE_ED_KEY` is used to sign `appcast.xml`.
+- `SPARKLE_PRIVATE_ED_KEY` is used to sign appcast files.
 - Generate the keypair with Sparkle’s `generate_keys` tool. Export the private key for local publishing with `generate_keys -x private_key.txt`.
+- All channels share the same Sparkle keypair — the signing is per-appcast, not per-channel.
 
 ### Cloud Providers
 
