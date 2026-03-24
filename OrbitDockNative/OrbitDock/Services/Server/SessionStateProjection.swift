@@ -47,7 +47,7 @@ struct SessionDetailSnapshotProjection {
   let transcriptPath: String?
   let status: Session.SessionStatus
   let workStatus: Session.WorkStatus
-  let steerable: Bool
+  var steerable: Bool = false
   let attentionReason: Session.AttentionReason
   let lastActivityAt: Date?
   let lastFilesPersistedAt: Date?
