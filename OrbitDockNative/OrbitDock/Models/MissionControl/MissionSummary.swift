@@ -21,6 +21,7 @@ struct MissionSummary: Codable, Identifiable, Equatable {
   let lastPolledAt: String?
   let pollInterval: UInt64?
   let missionFilePath: String?
+  let trackerKeySource: String?
 
   enum CodingKeys: String, CodingKey {
     case id, name
@@ -41,6 +42,7 @@ struct MissionSummary: Codable, Identifiable, Equatable {
     case lastPolledAt = "last_polled_at"
     case pollInterval = "poll_interval"
     case missionFilePath = "mission_file_path"
+    case trackerKeySource = "tracker_key_source"
   }
 }
 

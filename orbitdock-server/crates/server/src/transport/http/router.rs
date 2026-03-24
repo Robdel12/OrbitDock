@@ -395,6 +395,16 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
             post(super::trigger_mission_poll),
         )
         .route(
+            "/api/missions/{mission_id}/tracker-key",
+            get(super::get_mission_tracker_key)
+                .put(super::set_mission_tracker_key)
+                .delete(super::delete_mission_tracker_key),
+        )
+        .route(
+            "/api/missions/{mission_id}/adopt-global-key",
+            post(super::adopt_global_tracker_key),
+        )
+        .route(
             "/api/server/linear-key",
             get(super::check_linear_key)
                 .post(super::set_linear_key)

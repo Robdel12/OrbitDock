@@ -161,7 +161,8 @@ pub async fn dispatch_issue(
 
     // Write .mcp.json for mission tools (Claude auto-discovers this at startup)
     let tracker_kind = tracker.kind();
-    let api_key_for_mcp = crate::support::api_keys::resolve_tracker_api_key(tracker_kind);
+    let api_key_for_mcp =
+        crate::support::api_keys::resolve_tracker_api_key_for_mission(mission_id, tracker_kind);
     if let Some(api_key_value) = api_key_for_mcp {
         let (api_key_env, tracker_kind_str) = match tracker_kind {
             "github" => ("GITHUB_TOKEN", "github"),

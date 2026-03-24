@@ -355,6 +355,7 @@ pub enum PersistCommand {
         config_json: Option<String>,
         prompt_template: Option<String>,
         mission_file_path: Option<String>,
+        tracker_api_key: Option<String>,
     },
 
     /// Update mission settings
@@ -368,6 +369,13 @@ pub enum PersistCommand {
         prompt_template: Option<String>,
         parse_error: Option<Option<String>>,
         mission_file_path: Option<Option<String>>,
+    },
+
+    /// Set or clear a mission-scoped tracker API key (encrypted at rest).
+    MissionSetTrackerKey {
+        mission_id: String,
+        /// `Some(key)` to set, `None` to clear.
+        key: Option<String>,
     },
 
     /// Delete a mission

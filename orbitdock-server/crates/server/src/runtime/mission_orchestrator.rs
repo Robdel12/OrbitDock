@@ -759,6 +759,11 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
             })
         },
         mission_file_path: mission.mission_file_path.clone(),
+        tracker_key_source: crate::support::api_keys::tracker_key_source_for_mission(
+            &mission.id,
+            &mission.tracker_kind,
+        )
+        .map(|s| s.to_string()),
     };
 
     let msg = orbitdock_protocol::ServerMessage::MissionDelta {

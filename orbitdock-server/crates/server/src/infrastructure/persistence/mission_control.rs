@@ -24,6 +24,8 @@ pub struct MissionRow {
     pub mission_file_path: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Mission-scoped tracker API key (decrypted). `None` means fall through to global.
+    pub tracker_api_key: Option<String>,
 }
 
 impl MissionRow {
@@ -37,8 +39,11 @@ impl MissionRow {
         std::path::Path::new(&self.repo_root).join(file_name)
     }
 
-    /// Map a row whose SELECT list matches the 14-column missions schema.
+    /// Map a row whose SELECT list matches the 15-column missions schema.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
+        let raw_tracker_key: Option<String> = row.get(14)?;
+        let tracker_api_key =
+            raw_tracker_key.and_then(|v| crate::infrastructure::crypto::decrypt(&v));
         Ok(Self {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -54,6 +59,7 @@ impl MissionRow {
             mission_file_path: row.get(11)?,
             created_at: row.get(12)?,
             updated_at: row.get(13)?,
+            tracker_api_key,
         })
     }
 }
@@ -113,7 +119,7 @@ pub fn load_missions(conn: &Connection) -> Result<Vec<MissionRow>> {
         .prepare(
             "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
                     enabled, paused, last_parsed_at, parse_error, mission_file_path,
-                    created_at, updated_at
+                    created_at, updated_at, tracker_api_key
              FROM missions
              ORDER BY created_at DESC",
         )
@@ -138,7 +144,7 @@ pub fn load_missions_with_counts(
         .prepare(
             "SELECT m.id, m.name, m.repo_root, m.tracker_kind, m.provider, m.config_json,
                     m.prompt_template, m.enabled, m.paused, m.last_parsed_at, m.parse_error,
-                    m.mission_file_path, m.created_at, m.updated_at,
+                    m.mission_file_path, m.created_at, m.updated_at, m.tracker_api_key,
                     COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state IN ('queued','retry_queued') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state = 'completed' THEN 1 END),
@@ -153,10 +159,10 @@ pub fn load_missions_with_counts(
     let rows = stmt
         .query_map([], |row| {
             let mission = MissionRow::from_row(row)?;
-            let active: u32 = row.get::<_, Option<u32>>(14)?.unwrap_or(0);
-            let queued: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
-            let completed: u32 = row.get::<_, Option<u32>>(16)?.unwrap_or(0);
-            let failed: u32 = row.get::<_, Option<u32>>(17)?.unwrap_or(0);
+            let active: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
+            let queued: u32 = row.get::<_, Option<u32>>(16)?.unwrap_or(0);
+            let completed: u32 = row.get::<_, Option<u32>>(17)?.unwrap_or(0);
+            let failed: u32 = row.get::<_, Option<u32>>(18)?.unwrap_or(0);
             Ok((mission, (active, queued, completed, failed)))
         })
         .context("query load_missions_with_counts")?
@@ -171,7 +177,7 @@ pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionR
         .query_row(
             "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
                     enabled, paused, last_parsed_at, parse_error, mission_file_path,
-                    created_at, updated_at
+                    created_at, updated_at, tracker_api_key
              FROM missions WHERE id = ?1",
             params![id],
             MissionRow::from_row,
@@ -180,6 +186,33 @@ pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionR
         .context("query load_mission_by_id")?;
 
     Ok(row)
+}
+
+/// Load just the tracker API key for a mission (synchronous, for credential resolution).
+pub fn load_mission_tracker_key(mission_id: &str) -> Option<String> {
+    let db_path = crate::infrastructure::paths::db_path();
+    if !db_path.exists() {
+        return None;
+    }
+
+    let conn = Connection::open(&db_path).ok()?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+    )
+    .ok()?;
+
+    let raw: Option<String> = conn
+        .query_row(
+            "SELECT tracker_api_key FROM missions WHERE id = ?1",
+            params![mission_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()?;
+
+    raw.and_then(|v| crate::infrastructure::crypto::decrypt(&v))
 }
 
 /// Count how many missions share the same repo root directory.
@@ -957,6 +990,7 @@ mod tests {
             mission_file_path: None,
             created_at: String::new(),
             updated_at: String::new(),
+            tracker_api_key: None,
         };
         assert_eq!(
             row.resolved_mission_path(),
@@ -981,6 +1015,7 @@ mod tests {
             mission_file_path: Some("docs/CUSTOM.md".into()),
             created_at: String::new(),
             updated_at: String::new(),
+            tracker_api_key: None,
         };
         assert_eq!(
             row.resolved_mission_path(),
@@ -1005,6 +1040,7 @@ mod tests {
             mission_file_path: Some(String::new()),
             created_at: String::new(),
             updated_at: String::new(),
+            tracker_api_key: None,
         };
         assert_eq!(
             row.resolved_mission_path(),

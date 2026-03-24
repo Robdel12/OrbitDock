@@ -43,7 +43,11 @@ struct MissionControlDefaultsView: View {
 
   private var trackerKeysSection: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
-      sectionHeader("Tracker API Keys", icon: "key")
+      sectionHeader("Default Tracker API Keys", icon: "key")
+
+      Text("Server-wide default keys. Missions with their own key will use that instead.")
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textQuaternary)
 
       // Linear
       VStack(alignment: .leading, spacing: Spacing.md) {

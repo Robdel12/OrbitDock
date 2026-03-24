@@ -197,6 +197,7 @@ pub async fn create_mission(
             config_json: None,
             prompt_template: None,
             mission_file_path: mission_file_path.clone(),
+            tracker_api_key: None,
         })
         .await;
 
@@ -216,11 +217,17 @@ pub async fn create_mission(
     })?;
 
     let orchestrator_status =
-        if crate::support::api_keys::resolve_tracker_api_key(&req.tracker_kind).is_none() {
+        if crate::support::api_keys::resolve_tracker_api_key_for_mission(&id, &req.tracker_kind)
+            .is_none()
+        {
             Some("no_api_key".to_string())
         } else {
             Some("polling".to_string())
         };
+
+    let tracker_key_source =
+        crate::support::api_keys::tracker_key_source_for_mission(&id, &req.tracker_kind)
+            .map(|s| s.to_string());
 
     Ok(Json(MissionSummary {
         id,
@@ -242,6 +249,7 @@ pub async fn create_mission(
         last_polled_at: None,
         poll_interval: None,
         mission_file_path,
+        tracker_key_source,
     }))
 }
 
@@ -960,6 +968,170 @@ pub async fn delete_github_key(
     Ok(Json(GitHubKeyStatusResponse { configured: false }))
 }
 
+// ── Mission-scoped tracker key endpoints ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct MissionTrackerKeyResponse {
+    pub configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SetMissionTrackerKeyRequest {
+    pub key: String,
+}
+
+/// GET /api/missions/:id/tracker-key
+pub async fn get_mission_tracker_key(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<MissionTrackerKeyResponse> {
+    let mid = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    let source = crate::support::api_keys::tracker_key_source_for_mission(
+        &mission.id,
+        &mission.tracker_kind,
+    );
+    Ok(Json(MissionTrackerKeyResponse {
+        configured: source.is_some(),
+        source: source.map(|s| s.to_string()),
+    }))
+}
+
+/// PUT /api/missions/:id/tracker-key
+pub async fn set_mission_tracker_key(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+    Json(body): Json<SetMissionTrackerKeyRequest>,
+) -> ApiResult<MissionTrackerKeyResponse> {
+    let mid = mission_id.clone();
+    let _mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    info!(
+        component = "mission_control",
+        event = "api.mission_tracker_key.set",
+        mission_id = %mission_id,
+        "Mission-scoped tracker key set via REST"
+    );
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionSetTrackerKey {
+            mission_id: mission_id.clone(),
+            key: Some(body.key),
+        })
+        .await;
+
+    // Broadcast updated mission state (key status may change orchestrator_status)
+    broadcast_mission_delta_by_id(&registry, &mission_id).await;
+
+    Ok(Json(MissionTrackerKeyResponse {
+        configured: true,
+        source: Some("mission".to_string()),
+    }))
+}
+
+/// DELETE /api/missions/:id/tracker-key
+pub async fn delete_mission_tracker_key(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<MissionTrackerKeyResponse> {
+    let mid = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    info!(
+        component = "mission_control",
+        event = "api.mission_tracker_key.deleted",
+        mission_id = %mission_id,
+        "Mission-scoped tracker key deleted via REST"
+    );
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionSetTrackerKey {
+            mission_id: mission_id.clone(),
+            key: None,
+        })
+        .await;
+
+    // Broadcast updated mission state
+    broadcast_mission_delta_by_id(&registry, &mission_id).await;
+
+    // Check if global fallback still provides a key
+    let source =
+        crate::support::api_keys::resolve_tracker_api_key(&mission.tracker_kind).map(|_| {
+            if std::env::var(match mission.tracker_kind.as_str() {
+                "github" => "GITHUB_TOKEN",
+                _ => "LINEAR_API_KEY",
+            })
+            .map(|k| !k.is_empty())
+            .unwrap_or(false)
+            {
+                "env"
+            } else {
+                "global"
+            }
+        });
+
+    Ok(Json(MissionTrackerKeyResponse {
+        configured: source.is_some(),
+        source: source.map(|s| s.to_string()),
+    }))
+}
+
+/// POST /api/missions/:id/adopt-global-key
+///
+/// Copies the currently-resolved global tracker key into the mission's
+/// scoped credential. This is the migration path for existing missions.
+pub async fn adopt_global_tracker_key(
+    State(registry): State<Arc<SessionRegistry>>,
+    Path(mission_id): Path<String>,
+) -> ApiResult<MissionTrackerKeyResponse> {
+    let mid = mission_id.clone();
+    let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
+        .await?
+        .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+
+    let global_key = crate::support::api_keys::resolve_tracker_api_key(&mission.tracker_kind)
+        .ok_or_else(|| {
+            bad_request(
+                "no_global_key",
+                format!("No global {} key configured to adopt", mission.tracker_kind),
+            )
+        })?;
+
+    info!(
+        component = "mission_control",
+        event = "api.mission_tracker_key.adopted",
+        mission_id = %mission_id,
+        tracker_kind = %mission.tracker_kind,
+        "Adopted global tracker key into mission scope"
+    );
+
+    let _ = registry
+        .persist()
+        .send(PersistCommand::MissionSetTrackerKey {
+            mission_id: mission_id.clone(),
+            key: Some(global_key),
+        })
+        .await;
+
+    broadcast_mission_delta_by_id(&registry, &mission_id).await;
+
+    Ok(Json(MissionTrackerKeyResponse {
+        configured: true,
+        source: Some("mission".to_string()),
+    }))
+}
+
 // ── Tracker keys endpoint ────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -1121,9 +1293,9 @@ pub async fn start_mission_orchestrator_endpoint(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    let tracker_kind = mission.tracker_kind.clone();
-    let tracker = crate::support::api_keys::build_tracker(&tracker_kind)
-        .map_err(|e| bad_request("no_api_key", e.to_string()))?;
+    let tracker =
+        crate::support::api_keys::build_tracker_for_mission(&mission.id, &mission.tracker_kind)
+            .map_err(|e| bad_request("no_api_key", e.to_string()))?;
 
     if !registry.try_start_orchestrator() {
         return Err(conflict(
@@ -1174,9 +1346,10 @@ pub async fn dispatch_mission_issue(
         .await?
         .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-    // 2. Build tracker for this mission's kind
-    let tracker = crate::support::api_keys::build_tracker(&mission.tracker_kind)
-        .map_err(|e| bad_request("no_api_key", e.to_string()))?;
+    // 2. Build tracker for this mission (mission-scoped key resolution)
+    let tracker =
+        crate::support::api_keys::build_tracker_for_mission(&mission.id, &mission.tracker_kind)
+            .map_err(|e| bad_request("no_api_key", e.to_string()))?;
 
     // 3. Parse MISSION.md
     let mission_file_path = mission.resolved_mission_path();
@@ -1800,6 +1973,10 @@ fn summary_from_row(
         )
     };
 
+    let tracker_key_source =
+        crate::support::api_keys::tracker_key_source_for_mission(&row.id, &row.tracker_kind)
+            .map(|s| s.to_string());
+
     MissionSummary {
         id: row.id.clone(),
         name: row.name.clone(),
@@ -1820,6 +1997,7 @@ fn summary_from_row(
         last_polled_at: None,
         poll_interval: None,
         mission_file_path: row.mission_file_path.clone(),
+        tracker_key_source,
     }
 }
 

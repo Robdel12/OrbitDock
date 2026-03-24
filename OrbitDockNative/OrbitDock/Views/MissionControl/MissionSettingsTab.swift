@@ -72,6 +72,7 @@ struct MissionSettingsTab: View {
         isSavingKey: $isSavingKey,
         keyError: $keyError,
         trackerKind: editTrackerKind,
+        missionId: missionId,
         http: http,
         onUpdated: onUpdated
       )
@@ -449,19 +450,12 @@ struct MissionSettingsTab: View {
 
   private func fetchTrackerKeyStatus() async {
     guard let http else { return }
-    struct TrackerKeysResponse: Decodable {
-      let linear: TrackerKeyInfo
-      let github: TrackerKeyInfo
-      struct TrackerKeyInfo: Decodable {
-        let configured: Bool
-        let source: String?
-      }
-    }
     do {
-      let response: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
-      let info = editTrackerKind == "github" ? response.github : response.linear
-      trackerKeyConfigured = info.configured
-      trackerKeySource = info.source
+      let response: MissionTrackerKeyResponse = try await http.get(
+        "/api/missions/\(missionId)/tracker-key"
+      )
+      trackerKeyConfigured = response.configured
+      trackerKeySource = response.source
     } catch {
       // Non-critical — status just won't show
     }

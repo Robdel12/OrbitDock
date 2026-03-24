@@ -7,6 +7,7 @@ struct MissionTrackerSection: View {
   @Binding var isSavingKey: Bool
   @Binding var keyError: String?
   let trackerKind: String
+  let missionId: String
   let http: ServerHTTPClient?
   let onUpdated: () async -> Void
 
@@ -23,11 +24,34 @@ struct MissionTrackerSection: View {
   }
 
   private var keyEndpoint: String {
-    isGitHub ? "/api/server/github-key" : "/api/server/linear-key"
+    "/api/missions/\(missionId)/tracker-key"
   }
 
   private var placeholder: String {
     isGitHub ? "ghp_..." : "lin_api_..."
+  }
+
+  private var sourceDescription: String {
+    switch trackerKeySource {
+    case "mission":
+      return "Mission-scoped key"
+    case "env":
+      return "\(envVarName) environment variable"
+    case "global":
+      return "Server default key"
+    default:
+      return "Saved in OrbitDock"
+    }
+  }
+
+  /// Mission-scoped keys can be removed. Env and global fallback keys cannot.
+  private var canRemoveKey: Bool {
+    trackerKeySource == "mission"
+  }
+
+  /// Show "Own it" when using a global or env key that isn't mission-scoped yet.
+  private var canAdoptGlobalKey: Bool {
+    trackerKeySource != "mission" && trackerKeyConfigured
   }
 
   private var scopeHint: some View {
@@ -70,7 +94,7 @@ struct MissionTrackerSection: View {
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textPrimary)
         Spacer()
-        Text("Stored on server")
+        Text("Encrypted on server")
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textQuaternary)
       }
@@ -86,16 +110,26 @@ struct MissionTrackerSection: View {
               .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(Color.textPrimary)
 
-            if let source = trackerKeySource {
-              Text("Source: \(source == "env" ? "\(envVarName) environment variable" : "saved in OrbitDock")")
-                .font(.system(size: TypeScale.micro))
-                .foregroundStyle(Color.textTertiary)
-            }
+            Text(sourceDescription)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
           }
 
           Spacer()
 
-          if trackerKeySource != "env" {
+          if canAdoptGlobalKey {
+            Button {
+              Task { await adoptGlobalKey() }
+            } label: {
+              Text("Own it")
+                .font(.system(size: TypeScale.micro, weight: .medium))
+                .foregroundStyle(Color.accent)
+            }
+            .buttonStyle(.plain)
+            .help("Copy the server key into this mission so it's independent of other missions")
+          }
+
+          if canRemoveKey {
             Button {
               Task { await deleteTrackerKey() }
             } label: {
@@ -176,13 +210,14 @@ struct MissionTrackerSection: View {
     isSavingKey = true
     keyError = nil
     do {
-      let _: TrackerKeyResponse = try await http.post(
-        keyEndpoint,
+      let _: MissionTrackerKeyResponse = try await http.request(
+        path: keyEndpoint,
+        method: "PUT",
         body: SetTrackerKeyBody(key: newApiKey)
       )
       newApiKey = ""
       trackerKeyConfigured = true
-      trackerKeySource = "settings"
+      trackerKeySource = "mission"
       await onUpdated()
     } catch {
       keyError = "Failed to save: \(error.localizedDescription)"
@@ -193,15 +228,33 @@ struct MissionTrackerSection: View {
   private func deleteTrackerKey() async {
     guard let http else { return }
     do {
-      let _: TrackerKeyResponse = try await http.request(
+      let response: MissionTrackerKeyResponse = try await http.request(
         path: keyEndpoint,
         method: "DELETE"
       )
-      trackerKeyConfigured = false
-      trackerKeySource = nil
+      trackerKeyConfigured = response.configured
+      trackerKeySource = response.source
       await onUpdated()
     } catch {
       keyError = "Failed to remove: \(error.localizedDescription)"
     }
+  }
+
+  private func adoptGlobalKey() async {
+    guard let http else { return }
+    isSavingKey = true
+    keyError = nil
+    do {
+      let _: MissionTrackerKeyResponse = try await http.post(
+        "/api/missions/\(missionId)/adopt-global-key",
+        body: EmptyBody()
+      )
+      trackerKeyConfigured = true
+      trackerKeySource = "mission"
+      await onUpdated()
+    } catch {
+      keyError = "Failed to adopt key: \(error.localizedDescription)"
+    }
+    isSavingKey = false
   }
 }

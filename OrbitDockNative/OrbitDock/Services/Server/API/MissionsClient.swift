@@ -129,7 +129,37 @@ struct MissionsClient: Sendable {
     )
   }
 
-  // MARK: - Tracker Keys
+  // MARK: - Mission-Scoped Tracker Keys
+
+  func getMissionTrackerKey(_ missionId: String) async throws -> MissionTrackerKeyResponse {
+    try await http.get(
+      "/api/missions/\(requestBuilder.encodePathComponent(missionId))/tracker-key"
+    )
+  }
+
+  func setMissionTrackerKey(_ missionId: String, key: String) async throws -> MissionTrackerKeyResponse {
+    try await http.request(
+      path: "/api/missions/\(requestBuilder.encodePathComponent(missionId))/tracker-key",
+      method: "PUT",
+      body: SetTrackerKeyBody(key: key)
+    )
+  }
+
+  func deleteMissionTrackerKey(_ missionId: String) async throws -> MissionTrackerKeyResponse {
+    try await http.request(
+      path: "/api/missions/\(requestBuilder.encodePathComponent(missionId))/tracker-key",
+      method: "DELETE"
+    )
+  }
+
+  func adoptGlobalKey(_ missionId: String) async throws -> MissionTrackerKeyResponse {
+    try await http.post(
+      "/api/missions/\(requestBuilder.encodePathComponent(missionId))/adopt-global-key",
+      body: EmptyBody()
+    )
+  }
+
+  // MARK: - Global Tracker Keys
 
   func getTrackerKeys() async throws -> TrackerKeysResponse {
     try await http.get("/api/server/tracker-keys")
@@ -180,6 +210,11 @@ struct MissionsClient: Sendable {
 struct MissionSettingsUpdateResponse: Decodable {
   let summary: MissionSummary
   let settings: MissionSettings?
+}
+
+struct MissionTrackerKeyResponse: Decodable {
+  let configured: Bool
+  let source: String?
 }
 
 struct TrackerKeysResponse: Decodable {

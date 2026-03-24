@@ -1915,6 +1915,9 @@ pub struct MissionSummary {
     /// Custom mission file path (e.g. `MISSION-foo.md`). `None` means default `MISSION.md`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mission_file_path: Option<String>,
+    /// Where the tracker credential comes from: "mission", "env", "global", or `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tracker_key_source: Option<String>,
 }
 
 /// A single issue tracked by a mission.

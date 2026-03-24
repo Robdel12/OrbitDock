@@ -40,8 +40,9 @@ pub(crate) use messages::{
 };
 #[allow(unused_imports)]
 pub(crate) use mission_control::{
-    load_all_active_mission_issues, load_mission_by_id, load_mission_issues, load_missions,
-    load_missions_with_counts, MissionIssueRow, MissionRow,
+    load_all_active_mission_issues, load_mission_by_id, load_mission_issues,
+    load_mission_tracker_key, load_missions, load_missions_with_counts, MissionIssueRow,
+    MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
@@ -1627,11 +1628,17 @@ pub(super) fn execute_command(
             config_json,
             prompt_template,
             mission_file_path,
+            tracker_api_key,
         } => {
+            let encrypted_key = tracker_api_key.as_deref().and_then(|k| {
+                crate::infrastructure::crypto::encrypt(k)
+                    .map_err(|e| tracing::warn!("Failed to encrypt tracker key: {e}"))
+                    .ok()
+            });
             conn.execute(
-                "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path],
+                "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path, tracker_api_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![id, name, repo_root, tracker_kind, provider, config_json, prompt_template, mission_file_path, encrypted_key],
             )?;
         }
         PersistCommand::MissionUpdate {
@@ -1693,6 +1700,21 @@ pub(super) fn execute_command(
                     params![mission_file_path, id],
                 )?;
             }
+        }
+        PersistCommand::MissionSetTrackerKey { mission_id, key } => {
+            let stored = match key {
+                Some(ref plaintext) => crate::infrastructure::crypto::encrypt(plaintext)
+                    .map_err(|e| {
+                        tracing::warn!("Failed to encrypt mission tracker key: {e}");
+                        rusqlite::Error::ToSqlConversionFailure(Box::new(e))
+                    })?
+                    .into(),
+                None => None,
+            };
+            conn.execute(
+                "UPDATE missions SET tracker_api_key = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
+                params![stored, mission_id],
+            )?;
         }
         PersistCommand::MissionDelete { id } => {
             conn.execute(
