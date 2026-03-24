@@ -82,7 +82,8 @@ enum MarkdownSystemParser {
   private static func parseUncached(_ markdown: String, style: ContentStyle) -> [MarkdownBlock] {
     guard !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
 
-    let document = Document(parsing: markdown)
+    let normalizedMarkdown = normalizeChatListContinuations(in: markdown)
+    let document = Document(parsing: normalizedMarkdown)
     var blocks: [MarkdownBlock] = []
 
     for child in document.children {
@@ -271,6 +272,68 @@ enum MarkdownSystemParser {
 
   // MARK: - List Normalization (blockquote use only)
 
+  private struct ListLineContext {
+    let indentCount: Int
+    let continuationIndent: String
+  }
+
+  private static func normalizeChatListContinuations(in source: String) -> String {
+    var lines = source.components(separatedBy: "\n")
+    var activeListContext: ListLineContext?
+    var insideCodeFence = false
+    var index = 0
+
+    while index < lines.count {
+      let line = lines[index]
+
+      if togglesCodeFence(line) {
+        insideCodeFence.toggle()
+        activeListContext = nil
+        index += 1
+        continue
+      }
+
+      if insideCodeFence {
+        index += 1
+        continue
+      }
+
+      if line.trimmingCharacters(in: .whitespaces).isEmpty {
+        index += 1
+        continue
+      }
+
+      if let listContext = parseListLineContext(from: line) {
+        activeListContext = listContext
+        index += 1
+        continue
+      }
+
+      guard let activeListContext,
+            shouldNormalizeLooseContinuation(
+              startingAt: index,
+              lines: lines,
+              activeListContext: activeListContext
+            )
+      else {
+        activeListContext = nil
+        index += 1
+        continue
+      }
+
+      while index < lines.count {
+        let candidate = lines[index]
+        if candidate.trimmingCharacters(in: .whitespaces).isEmpty { break }
+        if parseListLineContext(from: candidate) != nil { break }
+        if hasLeadingWhitespace(candidate) || startsWithBlockSyntax(candidate) { break }
+        lines[index] = activeListContext.continuationIndent + candidate
+        index += 1
+      }
+    }
+
+    return lines.joined(separator: "\n")
+  }
+
   private static func normalizeListDisplaySource(_ source: String) -> String {
     var normalized = source
     normalized = renumberOrderedListMarkers(in: normalized)
@@ -351,6 +414,71 @@ enum MarkdownSystemParser {
     }
 
     return renumbered.joined(separator: "\n")
+  }
+
+  private static func parseListLineContext(from line: String) -> ListLineContext? {
+    let pattern = #"^(\s*)(?:[-+*]\s+(?:\[(?: |x|X)\]\s+)?|\d+[.)]\s+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+    let nsLine = line as NSString
+    let range = NSRange(location: 0, length: nsLine.length)
+    guard let match = regex.firstMatch(in: line, options: [], range: range) else { return nil }
+    let fullRange = match.range(at: 0)
+    let indentRange = match.range(at: 1)
+    guard fullRange.location != NSNotFound, indentRange.location != NSNotFound else { return nil }
+
+    let indent = nsLine.substring(with: indentRange)
+    let continuationWidth = max(fullRange.length, indent.count + 2)
+    return ListLineContext(
+      indentCount: indent.count,
+      continuationIndent: String(repeating: " ", count: continuationWidth)
+    )
+  }
+
+  private static func shouldNormalizeLooseContinuation(
+    startingAt index: Int,
+    lines: [String],
+    activeListContext: ListLineContext
+  ) -> Bool {
+    let line = lines[index]
+    guard !hasLeadingWhitespace(line), !startsWithBlockSyntax(line) else { return false }
+
+    var lookahead = index
+    while lookahead < lines.count {
+      let candidate = lines[lookahead]
+      if candidate.trimmingCharacters(in: .whitespaces).isEmpty {
+        lookahead += 1
+        continue
+      }
+      guard let nextListContext = parseListLineContext(from: candidate) else {
+        return false
+      }
+      return nextListContext.indentCount <= activeListContext.indentCount + 2
+    }
+
+    return false
+  }
+
+  private static func hasLeadingWhitespace(_ line: String) -> Bool {
+    guard let first = line.first else { return false }
+    return first == " " || first == "\t"
+  }
+
+  private static func startsWithBlockSyntax(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return false }
+    return trimmed.hasPrefix("#")
+      || trimmed.hasPrefix(">")
+      || trimmed.hasPrefix("|")
+      || trimmed.hasPrefix("```")
+      || trimmed.hasPrefix("~~~")
+      || trimmed == "---"
+      || trimmed == "***"
+      || trimmed == "___"
+  }
+
+  private static func togglesCodeFence(_ line: String) -> Bool {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    return trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~")
   }
 
   // MARK: - Cache Machinery
