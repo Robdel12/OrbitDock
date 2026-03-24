@@ -74,6 +74,12 @@ private func serverWorkStatus(
       return .waiting
     case .permission:
       return .permission
+    case .question:
+      return .question
+    case .reply:
+      return .reply
+    case .ended:
+      return .ended
   }
 }
 

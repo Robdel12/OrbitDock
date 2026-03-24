@@ -33,6 +33,17 @@ struct MissionToolExecutionContext {
     context: MissionToolContext,
 }
 
+struct DynamicToolCallRequest<'a> {
+    session: &'a mut CodexSession,
+    handle: &'a SessionHandle,
+    state: &'a Arc<SessionRegistry>,
+    persist_tx: &'a mpsc::Sender<PersistCommand>,
+    session_id: &'a str,
+    call_id: String,
+    tool_name: String,
+    arguments: Value,
+}
+
 /// Start the Codex session event forwarding loop.
 ///
 /// The actor owns the `SessionHandle` directly -- no `Arc<Mutex>`.
@@ -97,16 +108,16 @@ pub fn start_event_loop(
                         arguments,
                     } = &event
                     {
-                        handle_dynamic_tool_call(
-                            &mut session,
-                            &session_handle,
-                            &state,
-                            &persist,
-                            &session_id,
-                            call_id.clone(),
-                            tool_name.clone(),
-                            arguments.clone(),
-                        )
+                        handle_dynamic_tool_call(DynamicToolCallRequest {
+                            session: &mut session,
+                            handle: &session_handle,
+                            state: &state,
+                            persist_tx: &persist,
+                            session_id: &session_id,
+                            call_id: call_id.clone(),
+                            tool_name: tool_name.clone(),
+                            arguments: arguments.clone(),
+                        })
                         .await;
                         continue;
                     }
@@ -262,16 +273,18 @@ pub fn start_event_loop(
     (actor_handle, action_tx)
 }
 
-async fn handle_dynamic_tool_call(
-    session: &mut CodexSession,
-    handle: &SessionHandle,
-    state: &Arc<SessionRegistry>,
-    persist_tx: &mpsc::Sender<PersistCommand>,
-    session_id: &str,
-    call_id: String,
-    tool_name: String,
-    arguments: Value,
-) {
+async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
+    let DynamicToolCallRequest {
+        session,
+        handle,
+        state,
+        persist_tx,
+        session_id,
+        call_id,
+        tool_name,
+        arguments,
+    } = request;
+
     let result = execute_dynamic_mission_tool(handle, state, &tool_name, arguments).await;
 
     let (success, output, blocked, completed_state, pr_url) = match result {
