@@ -97,6 +97,7 @@ fn steer_entry(id: &str, sequence: u64) -> ConversationRowEntry {
         session_id: "test-session".to_string(),
         sequence,
         turn_id: None,
+        turn_status: Default::default(),
         row: ConversationRow::Steer(MessageRowContent {
             id: id.to_string(),
             content: format!("steer from {id}"),

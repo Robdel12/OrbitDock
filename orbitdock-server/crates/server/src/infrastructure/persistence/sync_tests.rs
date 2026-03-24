@@ -18,6 +18,7 @@ fn sample_row_entry(sequence: u64) -> ConversationRowEntry {
         session_id: "session-1".into(),
         sequence,
         turn_id: Some("turn-1".into()),
+        turn_status: Default::default(),
         row: ConversationRow::User(MessageRowContent {
             id: format!("row-{sequence}"),
             content: "hello".into(),

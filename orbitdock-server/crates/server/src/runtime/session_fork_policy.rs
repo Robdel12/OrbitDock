@@ -141,6 +141,7 @@ mod tests {
             session_id: "session-1".to_string(),
             sequence: 0,
             turn_id: None,
+            turn_status: Default::default(),
             row: if is_steer {
                 ConversationRow::Steer(MessageRowContent {
                     id: id.to_string(),

@@ -494,6 +494,15 @@ impl From<SyncCommand> for PersistCommand {
                 issue_id,
                 pr_url,
             },
+            SyncCommand::RowsTurnStatusUpdate {
+                session_id,
+                row_ids,
+                status,
+            } => PersistCommand::RowsTurnStatusUpdate {
+                session_id,
+                row_ids,
+                status,
+            },
         }
     }
 }

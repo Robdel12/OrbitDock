@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, TurnStatus};
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
     Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
@@ -305,6 +305,11 @@ pub enum SyncCommand {
         mission_id: String,
         issue_id: String,
         pr_url: String,
+    },
+    RowsTurnStatusUpdate {
+        session_id: String,
+        row_ids: Vec<String>,
+        status: TurnStatus,
     },
 }
 

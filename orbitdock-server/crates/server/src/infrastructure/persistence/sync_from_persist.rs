@@ -540,6 +540,15 @@ impl From<&PersistCommand> for Option<SyncCommand> {
                 issue_id: issue_id.clone(),
                 pr_url: pr_url.clone(),
             },
+            PersistCommand::RowsTurnStatusUpdate {
+                session_id,
+                row_ids,
+                status,
+            } => SyncCommand::RowsTurnStatusUpdate {
+                session_id: session_id.clone(),
+                row_ids: row_ids.clone(),
+                status: *status,
+            },
         })
     }
 }
