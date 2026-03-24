@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::oneshot;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -7,13 +7,12 @@ use orbitdock_protocol::{
     Provider, SessionStatus, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
-/// Commands that can be persisted.
-#[derive(Debug)]
-pub enum PersistCommand {
-    /// Create a new session
-    SessionCreate(Box<SessionCreateParams>),
+use super::super::commands::{ApprovalRequestedParams, SessionCreateParams};
 
-    /// Update session status/work_status
+/// Serializable mirror of `PersistCommand` for remote workspace sync.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SyncCommand {
+    SessionCreate(Box<SyncSessionCreateParams>),
     SessionUpdate {
         id: String,
         status: Option<SessionStatus>,
@@ -21,47 +20,32 @@ pub enum PersistCommand {
         last_activity_at: Option<String>,
         last_progress_at: Option<String>,
     },
-
-    /// End a session
-    SessionEnd { id: String, reason: String },
-
-    /// Append a conversation row
+    SessionEnd {
+        id: String,
+        reason: String,
+    },
     RowAppend {
         session_id: String,
         entry: ConversationRowEntry,
         viewer_present: bool,
-        /// Authoritative DB-assigned sequence when known (for replica replay).
-        assigned_sequence: Option<u64>,
-        /// When set, the DB-assigned sequence is sent back after INSERT.
-        sequence_tx: Option<oneshot::Sender<u64>>,
+        sequence: u64,
     },
-
-    /// Upsert a conversation row (update existing or insert new)
     RowUpsert {
         session_id: String,
         entry: ConversationRowEntry,
         viewer_present: bool,
-        /// Authoritative DB-assigned sequence when known (for replica replay).
-        assigned_sequence: Option<u64>,
-        /// When set, the DB-assigned sequence is sent back after INSERT/UPDATE.
-        sequence_tx: Option<oneshot::Sender<u64>>,
+        sequence: u64,
     },
-
-    /// Update token usage
     TokensUpdate {
         session_id: String,
         usage: TokenUsage,
         snapshot_kind: TokenUsageSnapshotKind,
     },
-
-    /// Update diff/plan for session
     TurnStateUpdate {
         session_id: String,
         diff: Option<String>,
         plan: Option<String>,
     },
-
-    /// Persist a per-turn diff snapshot
     TurnDiffInsert {
         session_id: String,
         turn_id: String,
@@ -73,38 +57,30 @@ pub enum PersistCommand {
         context_window: u64,
         snapshot_kind: TokenUsageSnapshotKind,
     },
-
-    /// Store codex-core thread ID for a session
     SetThreadId {
         session_id: String,
         thread_id: String,
     },
-
-    /// End any non-direct session row that accidentally uses a direct thread id as session id
-    CleanupThreadShadowSession { thread_id: String, reason: String },
-
-    /// Store Claude SDK session ID for a direct Claude session
+    CleanupThreadShadowSession {
+        thread_id: String,
+        reason: String,
+    },
     SetClaudeSdkSessionId {
         session_id: String,
         claude_sdk_session_id: String,
     },
-
-    /// End the hook-created shadow row for a managed Claude direct session
     CleanupClaudeShadowSession {
         claude_sdk_session_id: String,
         reason: String,
     },
-
-    /// Set custom name for a session
     SetCustomName {
         session_id: String,
         custom_name: Option<String>,
     },
-
-    /// Set AI-generated summary for a session
-    SetSummary { session_id: String, summary: String },
-
-    /// Persist session autonomy configuration
+    SetSummary {
+        session_id: String,
+        summary: String,
+    },
     SetSessionConfig {
         session_id: String,
         approval_policy: Option<Option<String>>,
@@ -123,17 +99,13 @@ pub enum PersistCommand {
         codex_config_source: Option<CodexConfigSource>,
         codex_config_overrides_json: Option<String>,
     },
-
-    /// Mark messages as read up to a given sequence number
     MarkSessionRead {
         session_id: String,
         up_to_sequence: i64,
     },
-
-    /// Reactivate an ended session (for resume)
-    ReactivateSession { id: String },
-
-    /// Upsert a Claude hook-backed session
+    ReactivateSession {
+        id: String,
+    },
     ClaudeSessionUpsert {
         id: String,
         project_path: String,
@@ -152,8 +124,6 @@ pub enum PersistCommand {
         is_worktree: bool,
         git_sha: Option<String>,
     },
-
-    /// Update Claude session state/metadata from hook events
     ClaudeSessionUpdate {
         id: String,
         work_status: Option<String>,
@@ -171,57 +141,45 @@ pub enum PersistCommand {
         first_prompt: Option<String>,
         compact_count_increment: bool,
     },
-
-    /// End Claude session
-    ClaudeSessionEnd { id: String, reason: Option<String> },
-
-    /// Increment prompt counter for Claude hook session
+    ClaudeSessionEnd {
+        id: String,
+        reason: Option<String>,
+    },
     ClaudePromptIncrement {
         id: String,
         first_prompt: Option<String>,
     },
-
-    /// Increment tool counter for Claude hook session
-    ClaudeToolIncrement { id: String },
-
-    /// Increment tool counter for any direct session (transition-driven)
-    ToolCountIncrement { session_id: String },
-
-    /// Update model name for a session
-    ModelUpdate { session_id: String, model: String },
-
-    /// Update effort level for a session
+    ClaudeToolIncrement {
+        id: String,
+    },
+    ToolCountIncrement {
+        session_id: String,
+    },
+    ModelUpdate {
+        session_id: String,
+        model: String,
+    },
     EffortUpdate {
         session_id: String,
         effort: Option<String>,
     },
-
-    /// Create/refresh subagent row
     ClaudeSubagentStart {
         id: String,
         session_id: String,
         agent_type: String,
     },
-
-    /// End subagent row
     ClaudeSubagentEnd {
         id: String,
         transcript_path: Option<String>,
     },
-
-    /// Upsert a provider-reported subagent/worker row
     UpsertSubagent {
         session_id: String,
         info: SubagentInfo,
     },
-
-    /// Upsert multiple provider-reported subagent/worker rows in one persistence pass
     UpsertSubagents {
         session_id: String,
         infos: Vec<SubagentInfo>,
     },
-
-    /// Upsert a passive rollout-backed Codex session
     RolloutSessionUpsert {
         id: String,
         thread_id: String,
@@ -233,8 +191,6 @@ pub enum PersistCommand {
         transcript_path: String,
         started_at: String,
     },
-
-    /// Update rollout-backed session state
     RolloutSessionUpdate {
         id: String,
         project_path: Option<String>,
@@ -250,23 +206,17 @@ pub enum PersistCommand {
         last_tool_at: Option<Option<String>>,
         custom_name: Option<Option<String>>,
     },
-
-    /// Increment rollout prompt counter and set first prompt if missing
     RolloutPromptIncrement {
         id: String,
         first_prompt: Option<String>,
     },
-
-    /// Increment direct Codex prompt counter and set first prompt if missing
     CodexPromptIncrement {
         id: String,
         first_prompt: Option<String>,
     },
-
-    /// Increment rollout tool counter
-    RolloutToolIncrement { id: String },
-
-    /// Upsert a rollout checkpoint for an active/passive Codex JSONL file cursor
+    RolloutToolIncrement {
+        id: String,
+    },
     UpsertRolloutCheckpoint {
         path: String,
         offset: u64,
@@ -275,21 +225,15 @@ pub enum PersistCommand {
         model_provider: Option<String>,
         ignore_existing: bool,
     },
-
-    /// Delete a rollout checkpoint when a tracked file should be pruned
-    DeleteRolloutCheckpoint { path: String },
-
-    /// Persist an approval request event
-    ApprovalRequested(Box<ApprovalRequestedParams>),
-
-    /// Persist the user decision for an approval request
+    DeleteRolloutCheckpoint {
+        path: String,
+    },
+    ApprovalRequested(Box<SyncApprovalRequestedParams>),
     ApprovalDecision {
         session_id: String,
         request_id: String,
         decision: String,
     },
-
-    /// Create a review comment
     ReviewCommentCreate {
         id: String,
         session_id: String,
@@ -300,26 +244,20 @@ pub enum PersistCommand {
         body: String,
         tag: Option<String>,
     },
-
-    /// Update a review comment
     ReviewCommentUpdate {
         id: String,
         body: Option<String>,
         tag: Option<String>,
         status: Option<String>,
     },
-
-    /// Delete a review comment
-    ReviewCommentDelete { id: String },
-
-    /// Update integration mode for a session (takeover: passive → direct)
+    ReviewCommentDelete {
+        id: String,
+    },
     SetIntegrationMode {
         session_id: String,
         codex_mode: Option<String>,
         claude_mode: Option<String>,
     },
-
-    /// Update environment info (cwd, git branch, git sha, worktree)
     EnvironmentUpdate {
         session_id: String,
         cwd: Option<String>,
@@ -328,11 +266,6 @@ pub enum PersistCommand {
         repository_root: Option<String>,
         is_worktree: Option<bool>,
     },
-
-    /// Upsert a key-value config entry
-    SetConfig { key: String, value: String },
-
-    /// Persist a new worktree row
     WorktreeCreate {
         id: String,
         repo_root: String,
@@ -341,51 +274,11 @@ pub enum PersistCommand {
         base_branch: Option<String>,
         created_by: String,
     },
-
-    /// Update worktree lifecycle status
     WorktreeUpdateStatus {
         id: String,
         status: String,
         last_session_ended_at: Option<String>,
     },
-
-    /// Create a new mission
-    MissionCreate {
-        id: String,
-        name: String,
-        repo_root: String,
-        tracker_kind: String,
-        provider: String,
-        config_json: Option<String>,
-        prompt_template: Option<String>,
-        mission_file_path: Option<String>,
-        tracker_api_key: Option<String>,
-    },
-
-    /// Update mission settings
-    MissionUpdate {
-        id: String,
-        name: Option<String>,
-        enabled: Option<bool>,
-        paused: Option<bool>,
-        tracker_kind: Option<String>,
-        config_json: Option<String>,
-        prompt_template: Option<String>,
-        parse_error: Option<Option<String>>,
-        mission_file_path: Option<Option<String>>,
-    },
-
-    /// Set or clear a mission-scoped tracker API key (encrypted at rest).
-    MissionSetTrackerKey {
-        mission_id: String,
-        /// `Some(key)` to set, `None` to clear.
-        key: Option<String>,
-    },
-
-    /// Delete a mission
-    MissionDelete { id: String },
-
-    /// Upsert a mission issue row
     MissionIssueUpsert {
         id: String,
         mission_id: String,
@@ -397,8 +290,6 @@ pub enum PersistCommand {
         provider: Option<String>,
         url: Option<String>,
     },
-
-    /// Update mission issue orchestration state (keyed on mission_id + issue_id)
     MissionIssueUpdateState {
         mission_id: String,
         issue_id: String,
@@ -417,26 +308,17 @@ pub enum PersistCommand {
     },
 }
 
-impl PersistCommand {
-    /// Returns true if this command has a response channel that the caller is awaiting.
-    /// The writer should flush immediately when any batched command needs a response.
-    pub fn has_response_channel(&self) -> bool {
-        matches!(
-            self,
-            PersistCommand::RowAppend {
-                sequence_tx: Some(_),
-                ..
-            } | PersistCommand::RowUpsert {
-                sequence_tx: Some(_),
-                ..
-            }
-        )
-    }
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncEnvelope {
+    pub sequence: u64,
+    pub workspace_id: String,
+    pub timestamp: String,
+    pub command: SyncCommand,
 }
 
-/// Payload for `PersistCommand::SessionCreate`, boxed to keep the enum small.
-#[derive(Debug)]
-pub struct SessionCreateParams {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncSessionCreateParams {
     pub id: String,
     pub provider: Provider,
     pub project_path: String,
@@ -463,9 +345,70 @@ pub struct SessionCreateParams {
     pub worktree_id: Option<String>,
 }
 
-/// Payload for `PersistCommand::ApprovalRequested`, boxed to keep the enum small.
-#[derive(Debug)]
-pub struct ApprovalRequestedParams {
+impl From<&SessionCreateParams> for SyncSessionCreateParams {
+    fn from(value: &SessionCreateParams) -> Self {
+        Self {
+            id: value.id.clone(),
+            provider: value.provider,
+            project_path: value.project_path.clone(),
+            project_name: value.project_name.clone(),
+            branch: value.branch.clone(),
+            model: value.model.clone(),
+            approval_policy: value.approval_policy.clone(),
+            sandbox_mode: value.sandbox_mode.clone(),
+            permission_mode: value.permission_mode.clone(),
+            collaboration_mode: value.collaboration_mode.clone(),
+            multi_agent: value.multi_agent,
+            personality: value.personality.clone(),
+            service_tier: value.service_tier.clone(),
+            developer_instructions: value.developer_instructions.clone(),
+            codex_config_mode: value.codex_config_mode,
+            codex_config_profile: value.codex_config_profile.clone(),
+            codex_model_provider: value.codex_model_provider.clone(),
+            codex_config_source: value.codex_config_source,
+            codex_config_overrides_json: value.codex_config_overrides_json.clone(),
+            forked_from_session_id: value.forked_from_session_id.clone(),
+            mission_id: value.mission_id.clone(),
+            issue_identifier: value.issue_identifier.clone(),
+            allow_bypass_permissions: value.allow_bypass_permissions,
+            worktree_id: value.worktree_id.clone(),
+        }
+    }
+}
+
+impl From<SyncSessionCreateParams> for SessionCreateParams {
+    fn from(value: SyncSessionCreateParams) -> Self {
+        Self {
+            id: value.id,
+            provider: value.provider,
+            project_path: value.project_path,
+            project_name: value.project_name,
+            branch: value.branch,
+            model: value.model,
+            approval_policy: value.approval_policy,
+            sandbox_mode: value.sandbox_mode,
+            permission_mode: value.permission_mode,
+            collaboration_mode: value.collaboration_mode,
+            multi_agent: value.multi_agent,
+            personality: value.personality,
+            service_tier: value.service_tier,
+            developer_instructions: value.developer_instructions,
+            codex_config_mode: value.codex_config_mode,
+            codex_config_profile: value.codex_config_profile,
+            codex_model_provider: value.codex_model_provider,
+            codex_config_source: value.codex_config_source,
+            codex_config_overrides_json: value.codex_config_overrides_json,
+            forked_from_session_id: value.forked_from_session_id,
+            mission_id: value.mission_id,
+            issue_identifier: value.issue_identifier,
+            allow_bypass_permissions: value.allow_bypass_permissions,
+            worktree_id: value.worktree_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncApprovalRequestedParams {
     pub session_id: String,
     pub request_id: String,
     pub approval_type: ApprovalType,
@@ -490,4 +433,66 @@ pub struct ApprovalRequestedParams {
     pub mcp_server_name: Option<String>,
     pub network_host: Option<String>,
     pub network_protocol: Option<String>,
+}
+
+impl From<&ApprovalRequestedParams> for SyncApprovalRequestedParams {
+    fn from(value: &ApprovalRequestedParams) -> Self {
+        Self {
+            session_id: value.session_id.clone(),
+            request_id: value.request_id.clone(),
+            approval_type: value.approval_type,
+            tool_name: value.tool_name.clone(),
+            tool_input: value.tool_input.clone(),
+            command: value.command.clone(),
+            file_path: value.file_path.clone(),
+            diff: value.diff.clone(),
+            question: value.question.clone(),
+            question_prompts: value.question_prompts.clone(),
+            preview: value.preview.clone(),
+            permission_reason: value.permission_reason.clone(),
+            requested_permissions: value.requested_permissions.clone(),
+            granted_permissions: value.granted_permissions.clone(),
+            cwd: value.cwd.clone(),
+            proposed_amendment: value.proposed_amendment.clone(),
+            permission_suggestions: value.permission_suggestions.clone(),
+            elicitation_mode: value.elicitation_mode.clone(),
+            elicitation_schema: value.elicitation_schema.clone(),
+            elicitation_url: value.elicitation_url.clone(),
+            elicitation_message: value.elicitation_message.clone(),
+            mcp_server_name: value.mcp_server_name.clone(),
+            network_host: value.network_host.clone(),
+            network_protocol: value.network_protocol.clone(),
+        }
+    }
+}
+
+impl From<SyncApprovalRequestedParams> for ApprovalRequestedParams {
+    fn from(value: SyncApprovalRequestedParams) -> Self {
+        Self {
+            session_id: value.session_id,
+            request_id: value.request_id,
+            approval_type: value.approval_type,
+            tool_name: value.tool_name,
+            tool_input: value.tool_input,
+            command: value.command,
+            file_path: value.file_path,
+            diff: value.diff,
+            question: value.question,
+            question_prompts: value.question_prompts,
+            preview: value.preview,
+            permission_reason: value.permission_reason,
+            requested_permissions: value.requested_permissions,
+            granted_permissions: value.granted_permissions,
+            cwd: value.cwd,
+            proposed_amendment: value.proposed_amendment,
+            permission_suggestions: value.permission_suggestions,
+            elicitation_mode: value.elicitation_mode,
+            elicitation_schema: value.elicitation_schema,
+            elicitation_url: value.elicitation_url,
+            elicitation_message: value.elicitation_message,
+            mcp_server_name: value.mcp_server_name,
+            network_host: value.network_host,
+            network_protocol: value.network_protocol,
+        }
+    }
 }

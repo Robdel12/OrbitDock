@@ -17,6 +17,7 @@ mod review_comments;
 mod session_reads;
 mod startup_cleanup;
 mod subagents;
+mod sync;
 mod transcripts;
 mod usage;
 mod worktrees;
@@ -356,6 +357,7 @@ pub(super) fn execute_command(
             session_id,
             entry,
             viewer_present,
+            assigned_sequence,
             sequence_tx,
         } => {
             let row_id = entry.id().to_string();
@@ -370,15 +372,16 @@ pub(super) fn execute_command(
             // DB computes sequence as MAX(sequence)+1 — single source of truth.
             conn.execute(
                 "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
-                 VALUES (?1, ?2, ?3, ?4, ?5,
-                   COALESCE((SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?6)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+                   (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
+                   ?7)",
                 params![
                     row_id,
                     session_id,
                     row_type,
                     content_text.as_deref().unwrap_or(""),
                     now.clone(),
+                    assigned_sequence.map(|sequence| sequence as i64),
                     row_data,
                 ],
             )?;
@@ -449,6 +452,7 @@ pub(super) fn execute_command(
             session_id,
             entry,
             viewer_present,
+            assigned_sequence,
             sequence_tx,
         } => {
             let row_id = entry.id().to_string();
@@ -461,9 +465,9 @@ pub(super) fn execute_command(
             // DB computes sequence on insert; ON CONFLICT preserves original ordering.
             conn.execute(
                 "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data)
-                 VALUES (?1, ?2, ?3, ?4, ?5,
-                   COALESCE((SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?6)
+                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+                   (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
+                   ?7)
                  ON CONFLICT(id) DO UPDATE SET
                    type = excluded.type,
                    content = excluded.content,
@@ -474,6 +478,7 @@ pub(super) fn execute_command(
                     row_type,
                     content_text.as_deref().unwrap_or(""),
                     now.clone(),
+                    assigned_sequence.map(|sequence| sequence as i64),
                     row_data,
                 ],
             )?;

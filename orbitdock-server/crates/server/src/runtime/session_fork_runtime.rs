@@ -226,6 +226,7 @@ pub(crate) async fn finalize_codex_fork_session(
         let _ = persist_tx
             .send(PersistCommand::RowAppend {
                 session_id: new_session_id.clone(),
+                assigned_sequence: Some(entry.sequence),
                 entry,
                 viewer_present: false,
                 sequence_tx: None,

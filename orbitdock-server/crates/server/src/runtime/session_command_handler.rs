@@ -393,6 +393,7 @@ pub async fn handle_session_command(
                     session_id: session_id.clone(),
                     entry: entry.clone(),
                     viewer_present,
+                    assigned_sequence: None,
                     sequence_tx: Some(seq_tx),
                 })
                 .await;
@@ -442,6 +443,7 @@ pub async fn handle_session_command(
                     session_id: session_id.clone(),
                     entry: entry.clone(),
                     viewer_present: handle.has_active_viewers(),
+                    assigned_sequence: None,
                     sequence_tx: Some(seq_tx),
                 })
                 .await;
@@ -499,6 +501,7 @@ pub async fn handle_session_command(
                     session_id: session_id.clone(),
                     entry: entry.clone(),
                     viewer_present: handle.has_active_viewers(),
+                    assigned_sequence: None,
                     sequence_tx: Some(seq_tx),
                 })
                 .await;
@@ -567,6 +570,7 @@ pub async fn handle_session_command(
                         session_id: session_id.clone(),
                         entry: entry.clone(),
                         viewer_present: handle.has_active_viewers(),
+                        assigned_sequence: None,
                         sequence_tx: Some(seq_tx),
                     })
                     .await;

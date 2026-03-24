@@ -401,6 +401,7 @@ pub(crate) async fn sync_transcript_messages(
                             session_id: session_id.clone(),
                             entry: entry.clone(),
                             viewer_present: false,
+                            assigned_sequence: Some(entry.sequence),
                             sequence_tx: None,
                         },
                     )
