@@ -168,7 +168,19 @@ final class SessionObservable {
       case .awaitingPermission: return .permission
       case .awaitingQuestion: return .question
       case .awaitingReply: return .reply
-      case .none: return workStatus == .working ? .working : .reply
+      case .none:
+        switch workStatus {
+          case .working:
+            return .working
+          case .permission:
+            return .permission
+          case .question:
+            return .question
+          case .waiting, .reply, .unknown:
+            return .reply
+          case .ended:
+            return .ended
+        }
     }
   }
 

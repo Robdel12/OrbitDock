@@ -55,7 +55,7 @@ extension DirectSessionComposer {
   }
 
   var isSessionWorking: Bool {
-    obs.steerable
+    obs.workStatus == .working
   }
 
   var isSessionActive: Bool {

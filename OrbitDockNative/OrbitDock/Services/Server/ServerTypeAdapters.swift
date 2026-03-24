@@ -35,9 +35,11 @@ extension ServerWorkStatus {
   nonisolated func toSessionWorkStatus() -> Session.WorkStatus {
     switch self {
       case .working: .working
-      case .waiting, .reply, .ended: .waiting
+      case .waiting: .waiting
       case .permission: .permission
-      case .question: .permission // question shows as permission in the old model
+      case .question: .question
+      case .reply: .reply
+      case .ended: .ended
     }
   }
 

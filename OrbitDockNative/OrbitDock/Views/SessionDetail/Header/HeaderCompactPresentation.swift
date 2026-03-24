@@ -45,8 +45,10 @@ struct HeaderCompactPresentation: Equatable {
   private static func statusColor(for workStatus: Session.WorkStatus) -> Color {
     switch workStatus {
       case .working: .statusWorking
-      case .waiting: .statusReply
+      case .waiting, .reply: .statusReply
       case .permission: .statusPermission
+      case .question: .statusQuestion
+      case .ended: .statusEnded
       case .unknown: .statusWorking.opacity(0.6)
     }
   }
@@ -56,6 +58,9 @@ struct HeaderCompactPresentation: Equatable {
       case .working: "bolt.fill"
       case .waiting: "clock.fill"
       case .permission: "lock.fill"
+      case .question: "questionmark.bubble.fill"
+      case .reply: "bubble.left"
+      case .ended: "moon.fill"
       case .unknown: "circle.fill"
     }
   }
@@ -65,6 +70,9 @@ struct HeaderCompactPresentation: Equatable {
       case .working: "Working"
       case .waiting: "Waiting"
       case .permission: "Approval"
+      case .question: "Question"
+      case .reply: "Ready"
+      case .ended: "Ended"
       case .unknown: "Active"
     }
   }

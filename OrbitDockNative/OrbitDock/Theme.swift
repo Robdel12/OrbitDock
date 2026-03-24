@@ -481,7 +481,6 @@ enum SessionDisplayStatus: Sendable {
       default: false
     }
   }
-
 }
 
 extension SessionDisplayStatus: Equatable {

@@ -262,6 +262,7 @@ extension SessionStore {
     let summaryStillBlocked = obs.attentionReason == .awaitingPermission
       || obs.attentionReason == .awaitingQuestion
       || obs.workStatus == .permission
+      || obs.workStatus == .question
     let transition = SessionControlStateReducer.deltaTransition(
       current: controlState(sessionId: sessionId, observable: obs),
       changes: changes,

@@ -220,6 +220,9 @@ struct Session: Identifiable, Hashable, Sendable {
     case working // Agent is actively processing
     case waiting // Waiting for user input
     case permission // Waiting for permission approval
+    case question // Waiting for an answer to a direct question
+    case reply // Turn finished; ready for the next prompt
+    case ended // Session has ended
     case unknown // Unknown state
   }
 
@@ -557,7 +560,18 @@ struct Session: Identifiable, Hashable, Sendable {
       case .awaitingReply:
         return .reply
       case .none:
-        return workStatus == .working ? .working : .reply
+        switch workStatus {
+          case .working:
+            return .working
+          case .permission:
+            return .permission
+          case .question:
+            return .question
+          case .waiting, .reply, .unknown:
+            return .reply
+          case .ended:
+            return .ended
+        }
     }
   }
 
@@ -585,3 +599,28 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 }
 
+extension Session {
+  mutating func applyPendingApprovalSummary(_ request: ServerApprovalRequest) {
+    applyPendingApprovalProjection(SessionPendingApprovalProjection(request: request))
+  }
+
+  mutating func clearPendingApprovalSummary(resetAttention: Bool) {
+    pendingApprovalId = nil
+    pendingToolName = nil
+    pendingToolInput = nil
+    pendingPermissionDetail = nil
+    pendingQuestion = nil
+
+    guard resetAttention else { return }
+
+    if attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion {
+      attentionReason = .none
+    }
+    switch workStatus {
+      case .permission, .question:
+        workStatus = .working
+      case .working, .waiting, .reply, .ended, .unknown:
+        break
+    }
+  }
+}
