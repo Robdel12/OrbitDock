@@ -76,6 +76,22 @@ pub enum BinaryCommand {
         /// Disable serving the embedded web UI
         #[arg(long, env = "ORBITDOCK_NO_WEB", default_value_t = false)]
         no_web: bool,
+
+        /// Internal: run as a managed workspace that syncs local persistence upstream.
+        #[arg(long, hide = true, default_value_t = false)]
+        managed: bool,
+
+        /// Internal: managed workspace id for upstream sync.
+        #[arg(long, hide = true, env = "ORBITDOCK_WORKSPACE_ID")]
+        workspace_id: Option<String>,
+
+        /// Internal: upstream control-plane URL for sync replication.
+        #[arg(long, hide = true, env = "ORBITDOCK_SYNC_URL")]
+        sync_url: Option<String>,
+
+        /// Internal: upstream bearer token for sync replication.
+        #[arg(long, hide = true, env = "ORBITDOCK_SYNC_TOKEN")]
+        sync_token: Option<String>,
     },
 
     /// Bootstrap a fresh machine (create dirs and run migrations)
@@ -1211,6 +1227,38 @@ mod tests {
         match cli.command {
             Some(BinaryCommand::Start { dev_console, .. }) => {
                 assert!(dev_console);
+            }
+            other => panic!("expected start command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn binary_cli_parses_hidden_managed_start_flags() {
+        let cli = BinaryCli::try_parse_from([
+            "orbitdock",
+            "start",
+            "--managed",
+            "--workspace-id",
+            "workspace-1",
+            "--sync-url",
+            "https://control-plane.example",
+            "--sync-token",
+            "sync-token-1",
+        ])
+        .expect("binary cli should parse managed start flags");
+
+        match cli.command {
+            Some(BinaryCommand::Start {
+                managed,
+                workspace_id,
+                sync_url,
+                sync_token,
+                ..
+            }) => {
+                assert!(managed);
+                assert_eq!(workspace_id.as_deref(), Some("workspace-1"));
+                assert_eq!(sync_url.as_deref(), Some("https://control-plane.example"));
+                assert_eq!(sync_token.as_deref(), Some("sync-token-1"));
             }
             other => panic!("expected start command, got {other:?}"),
         }

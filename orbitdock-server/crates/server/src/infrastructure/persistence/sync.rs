@@ -1,5 +1,7 @@
 #[path = "sync_from_persist.rs"]
 mod from_persist;
+#[path = "sync_plan.rs"]
+mod plan;
 #[cfg(test)]
 #[path = "sync_tests.rs"]
 mod tests;
@@ -8,6 +10,8 @@ mod to_persist;
 #[path = "sync_types.rs"]
 mod types;
 
-#[cfg(test)]
-pub(crate) use types::SyncEnvelope;
-pub(crate) use types::{SyncApprovalRequestedParams, SyncCommand, SyncSessionCreateParams};
+pub(crate) use plan::SyncPlan;
+pub(crate) use types::{
+    SyncApprovalRequestedParams, SyncBatchRequest, SyncCommand, SyncEnvelope,
+    SyncSessionCreateParams,
+};

@@ -28,7 +28,8 @@ use crate::domain::sessions::session::{
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
-    create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
+    create_persistence_channel, create_sync_channel, create_sync_shutdown_channel,
+    load_sessions_for_startup, PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
@@ -37,6 +38,13 @@ use crate::VERSION;
 /// Per-request body budget for REST uploads. Image attachments are uploaded
 /// one at a time, so this should comfortably exceed the client-side single-image limit.
 const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug, Clone)]
+pub struct ManagedSyncRunOptions {
+    pub workspace_id: String,
+    pub server_url: String,
+    pub auth_token: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct ServerRunOptions {
@@ -49,6 +57,7 @@ pub struct ServerRunOptions {
     pub tls_key: Option<PathBuf>,
     pub logging: ServerLoggingOptions,
     pub serve_web: bool,
+    pub managed_sync: Option<ManagedSyncRunOptions>,
 }
 
 pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
@@ -175,8 +184,26 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
+    let (sync_shutdown_tx, sync_tx) = if let Some(sync_options) = options.managed_sync.clone() {
+        let (sync_tx, sync_rx) = create_sync_channel();
+        let (sync_shutdown_tx, sync_shutdown_rx) = create_sync_shutdown_channel();
+        let sync_writer = SyncWriter::new_with_shutdown(
+            sync_rx,
+            sync_shutdown_rx,
+            SyncWriterConfig::new(
+                sync_options.workspace_id,
+                sync_options.server_url,
+                sync_options.auth_token,
+            ),
+        )?;
+        tokio::spawn(sync_writer.run());
+        (Some(sync_shutdown_tx), Some(sync_tx))
+    } else {
+        (None, None)
+    };
+
     let (persist_tx, persist_rx) = create_persistence_channel();
-    let persistence_writer = PersistenceWriter::new(persist_rx);
+    let persistence_writer = PersistenceWriter::new(persist_rx, sync_tx);
     tokio::spawn(persistence_writer.run());
 
     if persisted_is_primary.is_none() {
@@ -614,6 +641,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
+    let shutdown_sync = sync_shutdown_tx.clone();
 
     let mut app = Router::new()
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
@@ -681,7 +709,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
         tokio::spawn(async move {
-            shutdown_signal(shutdown_state, shutdown_persist).await;
+            shutdown_signal(shutdown_state, shutdown_persist, shutdown_sync).await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
         });
 
@@ -704,7 +732,11 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         let _pid_guard = PidFileGuard;
 
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
+            .with_graceful_shutdown(shutdown_signal(
+                shutdown_state,
+                shutdown_persist,
+                shutdown_sync,
+            ))
             .await?;
     }
 
@@ -822,8 +854,15 @@ fn process_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {
+async fn shutdown_signal(
+    _state: Arc<SessionRegistry>,
+    _persist_tx: mpsc::Sender<PersistCommand>,
+    sync_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+) {
     let _ = tokio::signal::ctrl_c().await;
+    if let Some(sync_shutdown_tx) = sync_shutdown_tx {
+        let _ = sync_shutdown_tx.send(true);
+    }
     info!(
         component = "server",
         event = "server.shutdown",

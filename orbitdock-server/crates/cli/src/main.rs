@@ -150,6 +150,10 @@ fn main() -> anyhow::Result<()> {
         tls_key,
         dev_console,
         no_web,
+        managed,
+        workspace_id,
+        sync_url,
+        sync_token,
     ) = match cli.command {
         Some(Command::Start {
             bind,
@@ -160,6 +164,10 @@ fn main() -> anyhow::Result<()> {
             tls_key,
             dev_console,
             no_web,
+            managed,
+            workspace_id,
+            sync_url,
+            sync_token,
         }) => (
             bind,
             auth_token,
@@ -169,6 +177,10 @@ fn main() -> anyhow::Result<()> {
             tls_key,
             dev_console,
             no_web,
+            managed,
+            workspace_id,
+            sync_url,
+            sync_token,
         ),
         _ => (
             cli.bind.unwrap_or_else(|| "0.0.0.0:4000".parse().unwrap()),
@@ -179,7 +191,31 @@ fn main() -> anyhow::Result<()> {
             None,
             false,
             false,
+            false,
+            None,
+            None,
+            None,
         ),
+    };
+
+    let managed_sync = if managed {
+        let workspace_id = workspace_id
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("--managed requires --workspace-id"))?;
+        let server_url = sync_url
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("--managed requires --sync-url"))?;
+        let auth_token = sync_token
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("--managed requires --sync-token"))?;
+
+        Some(orbitdock_server::ManagedSyncRunOptions {
+            workspace_id,
+            server_url,
+            auth_token,
+        })
+    } else {
+        None
     };
 
     let runtime = tokio::runtime::Runtime::new()?;
@@ -193,6 +229,7 @@ fn main() -> anyhow::Result<()> {
         tls_key,
         logging: orbitdock_server::ServerLoggingOptions::default(),
         serve_web: !no_web,
+        managed_sync,
     };
 
     let should_use_dev_console =

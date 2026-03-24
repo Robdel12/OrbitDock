@@ -3,13 +3,21 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
-use super::PersistCommand;
+use super::sync::SyncPlan;
+use super::{PersistCommand, SyncCommand};
+
+#[derive(Debug)]
+pub(crate) struct FlushBatchResult {
+    pub command_count: usize,
+    pub sync_commands: Vec<SyncCommand>,
+}
 
 /// Persistence writer that batches SQLite writes.
 pub struct PersistenceWriter {
     rx: mpsc::Receiver<PersistCommand>,
+    sync_tx: Option<mpsc::Sender<SyncCommand>>,
     db_path: PathBuf,
     batch: Vec<PersistCommand>,
     batch_size: usize,
@@ -18,18 +26,30 @@ pub struct PersistenceWriter {
 
 impl PersistenceWriter {
     /// Create a new persistence writer.
-    pub fn new(rx: mpsc::Receiver<PersistCommand>) -> Self {
+    pub fn new(
+        rx: mpsc::Receiver<PersistCommand>,
+        sync_tx: Option<mpsc::Sender<SyncCommand>>,
+    ) -> Self {
         let db_path = crate::infrastructure::paths::db_path();
-
-        Self {
-            rx,
-            db_path,
-            batch: Vec::with_capacity(100),
-            batch_size: 50,
-            flush_interval: Duration::from_millis(100),
-        }
+        Self::build(rx, sync_tx, db_path, 50, Duration::from_millis(100))
     }
 
+    fn build(
+        rx: mpsc::Receiver<PersistCommand>,
+        sync_tx: Option<mpsc::Sender<SyncCommand>>,
+        db_path: PathBuf,
+        batch_size: usize,
+        flush_interval: Duration,
+    ) -> Self {
+        Self {
+            rx,
+            sync_tx,
+            db_path,
+            batch: Vec::with_capacity(100),
+            batch_size,
+            flush_interval,
+        }
+    }
     /// Run the persistence writer (call from tokio::spawn).
     pub async fn run(mut self) {
         info!(
@@ -45,12 +65,25 @@ impl PersistenceWriter {
 
         loop {
             tokio::select! {
-                Some(cmd) = self.rx.recv() => {
-                    let needs_flush_now = cmd.has_response_channel();
-                    self.batch.push(cmd);
+                maybe_cmd = self.rx.recv() => {
+                    match maybe_cmd {
+                        Some(cmd) => {
+                            let needs_flush_now = cmd.has_response_channel();
+                            self.batch.push(cmd);
 
-                    if needs_flush_now || self.batch.len() >= self.batch_size {
-                        self.flush().await;
+                            if needs_flush_now || self.batch.len() >= self.batch_size {
+                                self.flush().await;
+                            }
+                        }
+                        None => {
+                            self.flush().await;
+                            info!(
+                                component = "persistence",
+                                event = "persistence.writer.stopped",
+                                "Persistence writer channel closed"
+                            );
+                            return;
+                        }
                     }
                 }
 
@@ -73,13 +106,27 @@ impl PersistenceWriter {
         let result = tokio::task::spawn_blocking(move || flush_batch(&db_path, batch)).await;
 
         match result {
-            Ok(Ok(count)) => {
+            Ok(Ok(result)) => {
                 debug!(
                     component = "persistence",
                     event = "persistence.flush.succeeded",
-                    command_count = count,
+                    command_count = result.command_count,
+                    sync_command_count = result.sync_commands.len(),
                     "Persisted batched commands"
                 );
+
+                if let Some(sync_tx) = &self.sync_tx {
+                    for command in result.sync_commands {
+                        if sync_tx.send(command).await.is_err() {
+                            warn!(
+                                component = "persistence",
+                                event = "persistence.sync_channel.closed",
+                                "Sync writer channel closed, dropping post-commit sync commands"
+                            );
+                            break;
+                        }
+                    }
+                }
             }
             Ok(Err(error)) => {
                 error!(
@@ -111,7 +158,7 @@ pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Rece
 pub(crate) fn flush_batch(
     db_path: &PathBuf,
     batch: Vec<PersistCommand>,
-) -> Result<usize, rusqlite::Error> {
+) -> Result<FlushBatchResult, rusqlite::Error> {
     let conn = Connection::open(db_path)?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -121,8 +168,10 @@ pub(crate) fn flush_batch(
 
     let count = batch.len();
     let tx = conn.unchecked_transaction()?;
+    let mut sync_commands = Vec::new();
 
     for cmd in batch {
+        let sync_plan = SyncPlan::from_command(&cmd);
         if let Err(error) = super::execute_command(&tx, cmd) {
             error!(
                 component = "persistence",
@@ -130,17 +179,37 @@ pub(crate) fn flush_batch(
                 error = %error,
                 "Failed to execute persistence command"
             );
+            continue;
+        }
+
+        let sync_command = match sync_plan.row_id() {
+            Some(row_id) => {
+                let assigned_sequence: i64 = tx.query_row(
+                    "SELECT sequence FROM messages WHERE id = ?1",
+                    rusqlite::params![row_id],
+                    |row| row.get(0),
+                )?;
+                sync_plan.into_sync_command_with_sequence(assigned_sequence as u64)
+            }
+            None => sync_plan.into_sync_command_with_sequence(0),
+        };
+
+        if let Some(sync_command) = sync_command {
+            sync_commands.push(sync_command);
         }
     }
 
     tx.commit()?;
-    Ok(count)
+    Ok(FlushBatchResult {
+        command_count: count,
+        sync_commands,
+    })
 }
 
 #[cfg(test)]
 pub(crate) fn flush_batch_for_test(
     db_path: &PathBuf,
     batch: Vec<PersistCommand>,
-) -> Result<usize, rusqlite::Error> {
+) -> Result<FlushBatchResult, rusqlite::Error> {
     flush_batch(db_path, batch)
 }

@@ -323,6 +323,11 @@ pub struct SyncEnvelope {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncBatchRequest {
+    pub commands: Vec<SyncEnvelope>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncSessionCreateParams {
     pub id: String,
     pub provider: Provider,

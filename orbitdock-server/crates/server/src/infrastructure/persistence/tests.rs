@@ -6,8 +6,10 @@ use orbitdock_protocol::conversation_contracts::{
 
 use super::commands::PersistCommand;
 use super::messages::load_messages_from_db;
+use super::SyncCommand;
 
 fn setup_test_db() -> (Connection, std::path::PathBuf, tempfile::TempDir) {
+    crate::support::test_support::ensure_server_test_data_dir();
     let dir = tempfile::TempDir::new().unwrap();
     let db_path = dir.path().join("test.db");
     let conn = Connection::open(&db_path).unwrap();
@@ -149,6 +151,71 @@ fn row_append_stores_correct_sequence() {
     assert_eq!(rows[0].sequence, 0);
     assert_eq!(rows[1].sequence, 1);
     assert_eq!(rows[2].sequence, 2);
+}
+
+#[test]
+fn flush_batch_emits_row_sync_commands_with_db_assigned_sequences() {
+    let (conn, db_path, _dir) = setup_test_db();
+    drop(conn);
+
+    let batch = vec![
+        PersistCommand::RowAppend {
+            session_id: "test-session".to_string(),
+            viewer_present: false,
+            assigned_sequence: None,
+            sequence_tx: None,
+            entry: user_entry("row-a", 0),
+        },
+        PersistCommand::RowAppend {
+            session_id: "test-session".to_string(),
+            viewer_present: true,
+            assigned_sequence: None,
+            sequence_tx: None,
+            entry: assistant_entry("row-b", 0),
+        },
+    ];
+
+    let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    assert_eq!(result.command_count, 2);
+    assert_eq!(result.sync_commands.len(), 2);
+    assert!(matches!(
+        &result.sync_commands[0],
+        SyncCommand::RowAppend { sequence: 0, .. }
+    ));
+    assert!(matches!(
+        &result.sync_commands[1],
+        SyncCommand::RowAppend { sequence: 1, .. }
+    ));
+}
+
+#[test]
+fn flush_batch_skips_non_syncable_commands() {
+    let (conn, db_path, _dir) = setup_test_db();
+    drop(conn);
+
+    let batch = vec![
+        PersistCommand::SetConfig {
+            key: "workspace_provider".to_string(),
+            value: "local".to_string(),
+        },
+        PersistCommand::RowAppend {
+            session_id: "test-session".to_string(),
+            viewer_present: false,
+            assigned_sequence: None,
+            sequence_tx: None,
+            entry: user_entry("row-syncable", 0),
+        },
+    ];
+
+    let result = super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    assert_eq!(result.command_count, 2);
+    assert_eq!(result.sync_commands.len(), 1);
+    assert!(matches!(
+        &result.sync_commands[0],
+        SyncCommand::RowAppend { .. }
+    ));
 }
 
 #[test]
