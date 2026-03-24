@@ -6,7 +6,7 @@ impl PersistCommand {
     ///
     /// This is the only sound way to sync row mutations because the control plane
     /// must replay the exact sequence chosen by the workspace's SQLite writer.
-    pub fn into_sync_with_assigned_sequence(&self, assigned_sequence: u64) -> Option<SyncCommand> {
+    pub fn sync_with_assigned_sequence(&self, assigned_sequence: u64) -> Option<SyncCommand> {
         match self {
             PersistCommand::RowAppend {
                 session_id,

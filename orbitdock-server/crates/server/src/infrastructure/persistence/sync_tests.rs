@@ -496,7 +496,7 @@ fn row_sync_requires_authoritative_sequence() {
     );
 
     let sync = persist
-        .into_sync_with_assigned_sequence(0)
+        .sync_with_assigned_sequence(0)
         .expect("row append should sync once the DB sequence is known");
     let restored = PersistCommand::from(sync);
 
