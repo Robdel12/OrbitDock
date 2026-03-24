@@ -60,6 +60,7 @@ fn log_unhandled_wrapper(
 fn message_row(row: &ConversationRow) -> Option<&MessageRowContent> {
     match row {
         ConversationRow::User(message)
+        | ConversationRow::Steer(message)
         | ConversationRow::Assistant(message)
         | ConversationRow::Thinking(message)
         | ConversationRow::System(message) => Some(message),
@@ -77,6 +78,7 @@ fn message_passthrough_unmodified(original: &ConversationRow, upgraded: &Convers
 fn message_row_type(row: &ConversationRow) -> &'static str {
     match row {
         ConversationRow::User(_) => "user",
+        ConversationRow::Steer(_) => "steer",
         ConversationRow::Assistant(_) => "assistant",
         ConversationRow::Thinking(_) => "thinking",
         ConversationRow::System(_) => "system",

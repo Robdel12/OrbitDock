@@ -316,6 +316,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }
@@ -333,6 +334,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }
@@ -573,6 +575,7 @@ mod tests {
                 is_streaming,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         };
 

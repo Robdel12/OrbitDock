@@ -4,7 +4,7 @@ use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use orbitdock_protocol::conversation_contracts::RowPageSummary;
-use orbitdock_protocol::{ServerMessage, SessionState};
+use orbitdock_protocol::{ServerMessage, SessionState, WorkStatus};
 
 use crate::support::snapshot_compaction::{
     prepare_snapshot_for_transport, replay_has_oversize_event, sanitize_replay_event_for_transport,
@@ -19,7 +19,18 @@ pub(crate) enum OutboundMessage {
     Pong(Bytes),
 }
 
-pub(crate) async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
+fn normalize_transport_message(msg: &mut ServerMessage) {
+    if let ServerMessage::SessionDelta { changes, .. } = msg {
+        if changes.steerable.is_none() {
+            if let Some(work_status) = changes.work_status {
+                changes.steerable = Some(work_status == WorkStatus::Working);
+            }
+        }
+    }
+}
+
+pub(crate) async fn send_json(tx: &mpsc::Sender<OutboundMessage>, mut msg: ServerMessage) {
+    normalize_transport_message(&mut msg);
     let _ = tx.send(OutboundMessage::Json(Box::new(msg))).await;
 }
 
@@ -142,7 +153,8 @@ pub(crate) fn spawn_broadcast_forwarder(
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
-                Ok(msg) => {
+                Ok(mut msg) => {
+                    normalize_transport_message(&mut msg);
                     if outbound_tx
                         .send(OutboundMessage::Json(Box::new(msg)))
                         .await
@@ -171,4 +183,65 @@ pub(crate) fn spawn_broadcast_forwarder(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_transport_message;
+    use orbitdock_protocol::{ServerMessage, StateChanges, WorkStatus};
+
+    #[test]
+    fn session_delta_working_sets_steerable_when_missing() {
+        let mut message = ServerMessage::SessionDelta {
+            session_id: "session-1".to_string(),
+            changes: Box::new(StateChanges {
+                work_status: Some(WorkStatus::Working),
+                ..Default::default()
+            }),
+        };
+
+        normalize_transport_message(&mut message);
+
+        let ServerMessage::SessionDelta { changes, .. } = message else {
+            panic!("expected session delta");
+        };
+        assert_eq!(changes.steerable, Some(true));
+    }
+
+    #[test]
+    fn session_delta_waiting_sets_steerable_false_when_missing() {
+        let mut message = ServerMessage::SessionDelta {
+            session_id: "session-1".to_string(),
+            changes: Box::new(StateChanges {
+                work_status: Some(WorkStatus::Waiting),
+                ..Default::default()
+            }),
+        };
+
+        normalize_transport_message(&mut message);
+
+        let ServerMessage::SessionDelta { changes, .. } = message else {
+            panic!("expected session delta");
+        };
+        assert_eq!(changes.steerable, Some(false));
+    }
+
+    #[test]
+    fn session_delta_keeps_explicit_steerable_value() {
+        let mut message = ServerMessage::SessionDelta {
+            session_id: "session-1".to_string(),
+            changes: Box::new(StateChanges {
+                work_status: Some(WorkStatus::Waiting),
+                steerable: Some(true),
+                ..Default::default()
+            }),
+        };
+
+        normalize_transport_message(&mut message);
+
+        let ServerMessage::SessionDelta { changes, .. } = message else {
+            panic!("expected session delta");
+        };
+        assert_eq!(changes.steerable, Some(true));
+    }
 }

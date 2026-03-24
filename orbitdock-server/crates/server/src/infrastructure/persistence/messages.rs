@@ -11,10 +11,14 @@ fn row_entry_from_db(
 ) -> Result<Option<ConversationRowEntry>, rusqlite::Error> {
     let sequence: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
     let row_data: Option<String> = row.get(5)?;
+    let msg_type: String = row.get(1)?;
 
     let conversation_row = if let Some(json) = row_data {
         match serde_json::from_str::<ConversationRow>(&json) {
-            Ok(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
+            Ok(cr) => crate::domain::conversation_semantics::upgrade_row(
+                Provider::Claude,
+                normalize_legacy_message_kind(&msg_type, &json, cr),
+            ),
             Err(_) => return Ok(None),
         }
     } else {
@@ -48,16 +52,45 @@ fn legacy_row_from_db(row: &rusqlite::Row<'_>) -> Option<ConversationRow> {
         is_streaming: false,
         images: Vec::new(),
         memory_citation: None,
+        delivery_status: None,
     };
 
     match msg_type.as_str() {
         "user" => Some(ConversationRow::User(msg)),
+        "steer" => Some(ConversationRow::Steer(msg)),
         "assistant" => Some(ConversationRow::Assistant(msg)),
         "thinking" => Some(ConversationRow::Thinking(msg)),
         "system" => Some(ConversationRow::System(msg)),
         // Tool, approval, question, etc. — render as system messages so they're visible
         _ => Some(ConversationRow::System(msg)),
     }
+}
+
+fn normalize_legacy_message_kind(
+    msg_type: &str,
+    raw_json: &str,
+    row: ConversationRow,
+) -> ConversationRow {
+    match (msg_type, row) {
+        ("steer", ConversationRow::User(message)) => ConversationRow::Steer(message),
+        ("user", ConversationRow::User(message)) if raw_json_contains_legacy_steer(raw_json) => {
+            ConversationRow::Steer(message)
+        }
+        (_, row) => row,
+    }
+}
+
+fn raw_json_contains_legacy_steer(raw_json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(raw_json)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("input_kind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .as_deref()
+        == Some("steer")
 }
 
 pub(super) fn load_messages_from_db(

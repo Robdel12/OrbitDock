@@ -225,6 +225,7 @@ pub(crate) fn thinking_row_entry(id: String, content: String) -> ConversationRow
         is_streaming: true,
         images: vec![],
         memory_citation: None,
+        delivery_status: None,
     }))
 }
 
@@ -238,6 +239,7 @@ pub(crate) fn finalized_thinking_row_entry(id: String, content: String) -> Conve
         is_streaming: false,
         images: vec![],
         memory_citation: None,
+        delivery_status: None,
     }))
 }
 

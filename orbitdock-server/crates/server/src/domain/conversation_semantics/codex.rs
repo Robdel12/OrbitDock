@@ -31,6 +31,12 @@ pub(crate) fn upgrade_row(row: ConversationRow) -> ConversationRow {
             }
             ConversationRow::User(message)
         }
+        ConversationRow::Steer(message) => {
+            if let Some(worker) = parse_subagent_notification(&message.id, &message.content) {
+                return ConversationRow::Worker(worker);
+            }
+            ConversationRow::Steer(message)
+        }
         ConversationRow::Assistant(message) => {
             if let Some(worker) = parse_subagent_notification(&message.id, &message.content) {
                 return ConversationRow::Worker(worker);

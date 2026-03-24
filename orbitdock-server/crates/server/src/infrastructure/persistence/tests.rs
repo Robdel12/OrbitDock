@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, MessageRowContent,
+    rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
 
 use super::commands::PersistCommand;
@@ -66,6 +66,7 @@ fn user_entry(id: &str, sequence: u64) -> ConversationRowEntry {
             is_streaming: false,
             images: vec![],
             memory_citation: None,
+            delivery_status: None,
         }),
     }
 }
@@ -83,6 +84,25 @@ fn assistant_entry(id: &str, sequence: u64) -> ConversationRowEntry {
             is_streaming: false,
             images: vec![],
             memory_citation: None,
+            delivery_status: None,
+        }),
+    }
+}
+
+fn steer_entry(id: &str, sequence: u64) -> ConversationRowEntry {
+    ConversationRowEntry {
+        session_id: "test-session".to_string(),
+        sequence,
+        turn_id: None,
+        row: ConversationRow::Steer(MessageRowContent {
+            id: id.to_string(),
+            content: format!("steer from {id}"),
+            turn_id: None,
+            timestamp: None,
+            is_streaming: false,
+            images: vec![],
+            memory_citation: None,
+            delivery_status: Some(MessageDeliveryStatus::Pending),
         }),
     }
 }
@@ -210,6 +230,37 @@ fn row_upsert_inserts_when_not_existing() {
     assert_eq!(rows[0].id(), "new-row");
     // DB computes sequence as MAX+1 (0 for first row), ignoring app-provided value
     assert_eq!(rows[0].sequence, 0);
+}
+
+#[test]
+fn steer_rows_persist_as_steer_type() {
+    let (conn, db_path, _dir) = setup_test_db();
+    drop(conn);
+
+    let batch = vec![PersistCommand::RowAppend {
+        session_id: "test-session".to_string(),
+        viewer_present: false,
+        sequence_tx: None,
+        entry: steer_entry("steer-1", 0),
+    }];
+
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    let row_type: String = conn
+        .query_row(
+            "SELECT type FROM messages WHERE id = 'steer-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let rows = load_messages_from_db(&conn, "test-session").unwrap();
+
+    assert_eq!(row_type, "steer");
+    match &rows[0].row {
+        ConversationRow::Steer(_) => {}
+        other => panic!("expected user row, got {other:?}"),
+    }
 }
 
 #[test]

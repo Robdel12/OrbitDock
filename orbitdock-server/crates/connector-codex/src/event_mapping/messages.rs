@@ -24,6 +24,7 @@ pub(crate) async fn handle_user_message(
         is_streaming: false,
         images: vec![],
         memory_citation: None,
+        delivery_status: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -55,6 +56,7 @@ pub(crate) async fn handle_agent_message(
                     .collect(),
                 rollout_ids: citation.rollout_ids,
             }),
+            delivery_status: None,
         }));
         vec![ConnectorEvent::ConversationRowUpdated {
             row_id: streaming_msg.message_id,
@@ -81,6 +83,7 @@ pub(crate) async fn handle_agent_message(
                     .collect(),
                 rollout_ids: citation.rollout_ids,
             }),
+            delivery_status: None,
         }));
         vec![ConnectorEvent::ConversationRowCreated(entry)]
     }

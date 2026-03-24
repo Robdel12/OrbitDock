@@ -12,6 +12,12 @@ pub struct SendMessageResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct SteerTurnResponse {
+    pub accepted: bool,
+    pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+}
+
+#[derive(Debug, Serialize)]
 pub struct UploadedImageAttachmentResponse {
     pub image: ImageInput,
 }
@@ -209,7 +215,7 @@ pub async fn post_steer_turn(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<SteerTurnRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<(StatusCode, Json<SteerTurnResponse>), (StatusCode, Json<ApiErrorResponse>)> {
     if body.content.is_empty() && body.images.is_empty() && body.mentions.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -222,7 +228,7 @@ pub async fn post_steer_turn(
 
     let message_id = next_http_message_id("steer-http");
 
-    crate::runtime::message_dispatch::dispatch_steer_turn(
+    let steer_row = crate::runtime::message_dispatch::dispatch_steer_turn(
         &state,
         session_id.clone(),
         body.content,
@@ -235,7 +241,10 @@ pub async fn post_steer_turn(
 
     Ok((
         StatusCode::ACCEPTED,
-        Json(AcceptedResponse { accepted: true }),
+        Json(SteerTurnResponse {
+            accepted: true,
+            row: steer_row,
+        }),
     ))
 }
 

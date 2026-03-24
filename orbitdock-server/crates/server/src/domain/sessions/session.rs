@@ -555,11 +555,14 @@ pub struct SessionRestoreData {
 
 /// Returns true if the row is NOT a user message (used for unread counting).
 fn is_non_user_row(entry: &ConversationRowEntry) -> bool {
-    !matches!(entry.row, ConversationRow::User(_))
+    !entry.row.is_user_input()
 }
 
 fn is_non_user_row_summary(entry: &RowEntrySummary) -> bool {
-    !matches!(entry.row, ConversationRowSummary::User(_))
+    !matches!(
+        entry.row,
+        ConversationRowSummary::User(_) | ConversationRowSummary::Steer(_)
+    )
 }
 
 #[allow(dead_code)]
@@ -567,6 +570,7 @@ fn is_message_row(entry: &ConversationRowEntry) -> bool {
     matches!(
         entry.row,
         ConversationRow::User(_)
+            | ConversationRow::Steer(_)
             | ConversationRow::Assistant(_)
             | ConversationRow::Thinking(_)
             | ConversationRow::System(_)
@@ -577,6 +581,7 @@ fn is_message_row_summary(entry: &RowEntrySummary) -> bool {
     matches!(
         entry.row,
         ConversationRowSummary::User(_)
+            | ConversationRowSummary::Steer(_)
             | ConversationRowSummary::Assistant(_)
             | ConversationRowSummary::Thinking(_)
             | ConversationRowSummary::System(_)
@@ -1327,13 +1332,15 @@ impl SessionHandle {
     /// Check if a user row with this content already exists (dedup for connector echo)
     #[allow(dead_code)]
     pub fn has_user_row_with_content(&self, content: &str) -> bool {
-        self.rows.iter().rev().take(5).any(|entry| {
-            if let ConversationRow::User(ref row) = entry.row {
-                row.content == content
-            } else {
-                false
-            }
-        })
+        self.rows
+            .iter()
+            .rev()
+            .take(5)
+            .any(|entry| match &entry.row {
+                ConversationRow::User(row) => row.content == content,
+                ConversationRow::Steer(_) => false,
+                _ => false,
+            })
     }
 
     /// Set model
@@ -2361,7 +2368,9 @@ fn normalize_request_id(value: &str) -> &str {
 mod tests {
     use super::*;
     use crate::support::session_time::parse_unix_z;
-    use orbitdock_protocol::conversation_contracts::MessageRowContent;
+    use orbitdock_protocol::conversation_contracts::{
+        rows::MessageDeliveryStatus, MessageRowContent,
+    };
 
     fn pending_approval_session() -> SessionHandle {
         SessionHandle::new(
@@ -2384,6 +2393,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }
@@ -2536,5 +2546,29 @@ mod tests {
             session.timestamps.last_progress_at,
             original_last_progress_at
         );
+    }
+
+    #[test]
+    fn steer_rows_do_not_count_for_user_echo_dedup() {
+        let mut session = pending_approval_session();
+        let steer = ConversationRowEntry {
+            session_id: "session-1".to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Steer(MessageRowContent {
+                id: "steer-1".to_string(),
+                content: "same content".to_string(),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+                memory_citation: None,
+                delivery_status: Some(MessageDeliveryStatus::Pending),
+            }),
+        };
+
+        session.add_row(steer);
+
+        assert!(!session.has_user_row_with_content("same content"));
     }
 }

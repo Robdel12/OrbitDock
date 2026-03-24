@@ -376,6 +376,7 @@ pub(crate) fn load_messages_from_transcript(
                         is_streaming: false,
                         images: vec![],
                         memory_citation: None,
+                        delivery_status: None,
                     };
                     let conversation_row = match role {
                         ParsedRole::User => ConversationRow::User(msg),

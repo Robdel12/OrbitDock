@@ -29,6 +29,14 @@ pub struct MemoryCitationEntry {
     pub note: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageDeliveryStatus {
+    Pending,
+    Accepted,
+    FellBackToNewTurn,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRowContent {
     pub id: String,
@@ -45,6 +53,8 @@ pub struct MessageRowContent {
     pub images: Vec<ImageInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_citation: Option<MemoryCitation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_status: Option<MessageDeliveryStatus>,
 }
 
 pub type UserRow = MessageRowContent;
@@ -240,6 +250,7 @@ impl ConversationRowEntry {
     pub fn id(&self) -> &str {
         match &self.row {
             ConversationRow::User(row)
+            | ConversationRow::Steer(row)
             | ConversationRow::Assistant(row)
             | ConversationRow::Thinking(row)
             | ConversationRow::System(row) => &row.id,
@@ -307,6 +318,7 @@ pub struct ToolRow {
 #[serde(tag = "row_type", rename_all = "snake_case")]
 pub enum ConversationRow {
     User(UserRow),
+    Steer(UserRow),
     Assistant(AssistantRow),
     Thinking(ThinkingRow),
     Context(ContextRow),
@@ -400,6 +412,7 @@ impl ToolRow {
 #[serde(tag = "row_type", rename_all = "snake_case")]
 pub enum ConversationRowSummary {
     User(UserRow),
+    Steer(UserRow),
     Assistant(AssistantRow),
     Thinking(ThinkingRow),
     Context(ContextRow),
@@ -418,10 +431,23 @@ pub enum ConversationRowSummary {
 }
 
 impl ConversationRow {
+    pub fn is_steer(&self) -> bool {
+        matches!(self, ConversationRow::Steer(_))
+    }
+
+    pub fn starts_turn(&self) -> bool {
+        matches!(self, ConversationRow::User(_))
+    }
+
+    pub fn is_user_input(&self) -> bool {
+        matches!(self, ConversationRow::User(_) | ConversationRow::Steer(_))
+    }
+
     /// Convert to wire-safe summary.
     pub fn to_summary(&self) -> ConversationRowSummary {
         match self {
             ConversationRow::User(r) => ConversationRowSummary::User(r.clone()),
+            ConversationRow::Steer(r) => ConversationRowSummary::Steer(r.clone()),
             ConversationRow::Assistant(r) => ConversationRowSummary::Assistant(r.clone()),
             ConversationRow::Thinking(r) => ConversationRowSummary::Thinking(r.clone()),
             ConversationRow::System(r) => ConversationRowSummary::System(r.clone()),
@@ -457,6 +483,7 @@ impl RowEntrySummary {
     pub fn id(&self) -> &str {
         match &self.row {
             ConversationRowSummary::User(row)
+            | ConversationRowSummary::Steer(row)
             | ConversationRowSummary::Assistant(row)
             | ConversationRowSummary::Thinking(row)
             | ConversationRowSummary::System(row) => &row.id,
@@ -505,6 +532,7 @@ pub struct RowPageSummary {
 pub fn extract_row_content_str(row: &ConversationRow) -> String {
     match row {
         ConversationRow::User(m)
+        | ConversationRow::Steer(m)
         | ConversationRow::Assistant(m)
         | ConversationRow::Thinking(m)
         | ConversationRow::System(m) => m.content.clone(),
@@ -531,6 +559,7 @@ pub fn extract_row_content_str(row: &ConversationRow) -> String {
 pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
     match row {
         ConversationRowSummary::User(m)
+        | ConversationRowSummary::Steer(m)
         | ConversationRowSummary::Assistant(m)
         | ConversationRowSummary::Thinking(m)
         | ConversationRowSummary::System(m) => m.content.clone(),
@@ -582,6 +611,7 @@ mod tests {
                     pixel_height: None,
                 }],
                 memory_citation: None,
+                delivery_status: None,
             }),
         };
 
@@ -607,6 +637,23 @@ mod tests {
         let decoded: ConversationRowEntry =
             serde_json::from_value(json).expect("deserialize conversation row");
         assert_eq!(decoded, entry);
+    }
+
+    #[test]
+    fn steer_rows_do_not_start_turns() {
+        let row = ConversationRow::Steer(MessageRowContent {
+            id: "steer-1".to_string(),
+            content: "nudge".to_string(),
+            turn_id: None,
+            timestamp: None,
+            is_streaming: false,
+            images: vec![],
+            memory_citation: None,
+            delivery_status: Some(super::MessageDeliveryStatus::Pending),
+        });
+
+        assert!(row.is_steer());
+        assert!(!row.starts_turn());
     }
 
     #[test]

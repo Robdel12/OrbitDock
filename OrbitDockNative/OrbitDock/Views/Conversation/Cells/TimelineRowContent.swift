@@ -26,6 +26,7 @@ struct TimelineRowContent: View {
 
   private var isUserRow: Bool {
     if case .user = entry.row { return true }
+    if case .steer = entry.row { return true }
     return false
   }
 
@@ -53,7 +54,20 @@ struct TimelineRowContent: View {
           images: convertImages(msg.images),
           memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
-          imageLoader: imageLoader
+          imageLoader: imageLoader,
+          isSteer: false,
+          deliveryStatus: msg.deliveryStatus
+        )
+
+      case let .steer(msg):
+        MessageRowView(
+          role: .user, content: msg.content,
+          images: convertImages(msg.images),
+          memoryCitation: msg.memoryCitation,
+          isStreaming: msg.isStreaming,
+          imageLoader: imageLoader,
+          isSteer: true,
+          deliveryStatus: msg.deliveryStatus
         )
 
       case let .assistant(msg):
@@ -62,7 +76,9 @@ struct TimelineRowContent: View {
           images: convertImages(msg.images),
           memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
-          imageLoader: imageLoader
+          imageLoader: imageLoader,
+          isSteer: false,
+          deliveryStatus: msg.deliveryStatus
         )
 
       case let .system(msg):
@@ -71,7 +87,9 @@ struct TimelineRowContent: View {
           images: convertImages(msg.images),
           memoryCitation: msg.memoryCitation,
           isStreaming: msg.isStreaming,
-          imageLoader: imageLoader
+          imageLoader: imageLoader,
+          isSteer: false,
+          deliveryStatus: msg.deliveryStatus
         )
 
       case let .thinking(msg):

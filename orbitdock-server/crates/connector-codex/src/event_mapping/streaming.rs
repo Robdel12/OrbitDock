@@ -71,6 +71,7 @@ pub(crate) async fn handle_agent_message_content_delta(
                 is_streaming: true,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }));
             *streaming = Some(StreamingMessage {
                 message_id: msg_id,
@@ -93,6 +94,7 @@ pub(crate) async fn handle_agent_message_content_delta(
                     is_streaming: true,
                     images: vec![],
                     memory_citation: None,
+                    delivery_status: None,
                 }));
                 vec![ConnectorEvent::ConversationRowUpdated {
                     row_id: streaming_msg.message_id.clone(),
@@ -122,6 +124,7 @@ pub(crate) async fn handle_agent_message_delta(
                 is_streaming: true,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }));
             *streaming = Some(StreamingMessage {
                 message_id: msg_id,
@@ -149,6 +152,7 @@ pub(crate) async fn handle_agent_message_delta(
                 is_streaming: true,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }));
             vec![ConnectorEvent::ConversationRowUpdated {
                 row_id: streaming_msg.message_id.clone(),
@@ -486,6 +490,7 @@ pub(crate) fn handle_raw_response_item(
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }));
             vec![ConnectorEvent::ConversationRowCreated(entry)]
         }

@@ -551,9 +551,10 @@ pub(crate) fn handle_dynamic_tool_call_request(
 ) -> Vec<ConnectorEvent> {
     let call_id = event.call_id.clone();
     let tool = event.tool.clone();
-    vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-        ToolRow {
-            id: call_id,
+    let arguments = event.arguments.clone();
+    vec![
+        ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
+            id: call_id.clone(),
             provider: Provider::Codex,
             family: ToolFamily::Generic,
             kind: ToolKind::DynamicToolCall,
@@ -568,13 +569,18 @@ pub(crate) fn handle_dynamic_tool_call_request(
             grouping_key: None,
             invocation: json!({
                 "tool_name": tool,
-                "raw_input": event.arguments,
+                "raw_input": arguments,
             }),
             result: None,
             render_hints: Default::default(),
             tool_display: None,
+        })),
+        ConnectorEvent::DynamicToolCallRequested {
+            call_id,
+            tool_name: event.tool,
+            arguments: event.arguments,
         },
-    ))]
+    ]
 }
 
 pub(crate) fn handle_dynamic_tool_call_response(

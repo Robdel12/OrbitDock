@@ -370,6 +370,10 @@ enum SessionWorkerRosterPlanner {
         title = "Worker prompt"
         iconName = "arrow.up.circle.fill"
         tint = .accent
+      case .steer:
+        title = "Worker steer"
+        iconName = "arrow.up.circle.badge.clock"
+        tint = .composerSteer
       case .assistant:
         title = "Worker reply"
         iconName = "sparkles"
@@ -446,6 +450,7 @@ enum SessionWorkerRosterPlanner {
   private static func threadEntryBody(for entry: ServerConversationRowEntry) -> String? {
     let body: String? = switch entry.row {
       case let .user(message),
+           let .steer(message),
            let .assistant(message),
            let .thinking(message),
            let .system(message):
@@ -654,6 +659,8 @@ enum SessionWorkerRosterPlanner {
         "System"
       case .user:
         "User"
+      case .steer:
+        "Steer"
     }
   }
 
@@ -716,6 +723,8 @@ enum SessionWorkerRosterPlanner {
         "gearshape.2.fill"
       case .user:
         "person.fill"
+      case .steer:
+        "arrow.up.circle.fill"
       case .plan:
         "map.fill"
       case .hook:
@@ -884,6 +893,7 @@ enum SessionWorkerRosterPlanner {
   private static func entryTimestamp(_ entry: ServerConversationRowEntry) -> Date? {
     switch entry.row {
       case let .user(message),
+           let .steer(message),
            let .assistant(message),
            let .thinking(message),
            let .system(message):

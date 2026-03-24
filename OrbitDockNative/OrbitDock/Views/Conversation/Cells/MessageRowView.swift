@@ -15,6 +15,8 @@ struct MessageRowView: View {
   let memoryCitation: ServerMemoryCitation?
   let isStreaming: Bool
   let imageLoader: ImageLoader?
+  let isSteer: Bool
+  let deliveryStatus: ServerConversationMessageDeliveryStatus?
 
   enum Role: String {
     case user, assistant, system
@@ -52,9 +54,9 @@ struct MessageRowView: View {
     let bubbleMax: CGFloat = sizeClass == .compact ? 320 : 640
 
     return VStack(alignment: .trailing, spacing: Spacing.xs) {
-      Text("You")
+      Text(userHeaderTitle)
         .font(.system(size: TypeScale.chatLabel, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
+        .foregroundStyle(userHeaderColor)
 
       if let imageLoader, !images.isEmpty {
         MessageImageView(
@@ -73,7 +75,7 @@ struct MessageRowView: View {
     .frame(maxWidth: bubbleMax, alignment: .trailing)
     .overlay(alignment: .trailing) {
       Rectangle()
-        .fill(Color.accent.opacity(0.3))
+        .fill(userAccentColor.opacity(0.32))
         .frame(width: EdgeBar.width)
     }
     .padding(.vertical, Spacing.sm)
@@ -127,6 +129,23 @@ struct MessageRowView: View {
     }
     .padding(.vertical, Spacing.xs)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var userHeaderTitle: String {
+    guard isSteer else { return "You" }
+    switch deliveryStatus {
+      case .pending: return "Pending Steer"
+      case .accepted, nil: return "Steer"
+      case .fellBackToNewTurn: return "Steer Sent As New Turn"
+    }
+  }
+
+  private var userHeaderColor: Color {
+    isSteer ? .composerSteer : .textTertiary
+  }
+
+  private var userAccentColor: Color {
+    isSteer ? .composerSteer : .accent
   }
 }
 

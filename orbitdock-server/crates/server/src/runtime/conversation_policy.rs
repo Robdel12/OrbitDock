@@ -1,4 +1,4 @@
-use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 
 use crate::domain::sessions::conversation::ConversationPage;
 
@@ -108,5 +108,5 @@ pub(crate) fn expected_page_row_count(
 }
 
 fn row_starts_turn(entry: &ConversationRowEntry) -> bool {
-    matches!(entry.row, ConversationRow::User(_))
+    entry.row.starts_turn()
 }

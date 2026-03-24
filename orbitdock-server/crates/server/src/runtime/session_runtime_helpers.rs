@@ -436,6 +436,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }

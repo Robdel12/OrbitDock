@@ -306,6 +306,7 @@ impl WatcherRuntime {
                             is_streaming: false,
                             images: vec![],
                             memory_citation: None,
+                            delivery_status: None,
                         }),
                         "assistant" => ConversationRow::Assistant(MessageRowContent {
                             id: msg_id,
@@ -315,6 +316,7 @@ impl WatcherRuntime {
                             is_streaming: false,
                             images: vec![],
                             memory_citation: None,
+                            delivery_status: None,
                         }),
                         "tool" | "tool_result" => ConversationRow::Tool(ToolRow {
                             id: msg_id,
@@ -350,6 +352,7 @@ impl WatcherRuntime {
                             is_streaming: false,
                             images: vec![],
                             memory_citation: None,
+                            delivery_status: None,
                         }),
                     };
                     self.append_chat_message(AppendChatMessageArgs { session_id, row })

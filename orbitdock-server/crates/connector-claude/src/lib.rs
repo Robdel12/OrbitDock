@@ -1467,6 +1467,7 @@ impl ClaudeConnector {
                         is_streaming: false,
                         images: vec![],
                         memory_citation: None,
+                        delivery_status: None,
                     });
                     vec![ConnectorEvent::ConversationRowCreated(make_entry(
                         &session_id,
@@ -2063,6 +2064,7 @@ impl ClaudeConnector {
                         is_streaming: false,
                         images: vec![],
                         memory_citation: None,
+                        delivery_status: None,
                     });
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                         session_id, row,
@@ -2110,6 +2112,7 @@ impl ClaudeConnector {
                         is_streaming: false,
                         images: vec![],
                         memory_citation: None,
+                        delivery_status: None,
                     });
                     events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                         session_id, row,
@@ -2225,6 +2228,7 @@ impl ClaudeConnector {
                     is_streaming: false,
                     images,
                     memory_citation: None,
+                    delivery_status: None,
                 }),
             )));
         }
@@ -2434,6 +2438,7 @@ impl ClaudeConnector {
                             is_streaming: true,
                             images: vec![],
                             memory_citation: None,
+                            delivery_status: None,
                         });
                         events.push(ConnectorEvent::ConversationRowCreated(make_entry(
                             session_id, row,
@@ -2449,6 +2454,7 @@ impl ClaudeConnector {
                             is_streaming: true,
                             images: vec![],
                             memory_citation: None,
+                            delivery_status: None,
                         });
                         events.push(ConnectorEvent::ConversationRowUpdated {
                             row_id: msg_id,
@@ -2934,6 +2940,7 @@ fn flush_streaming(
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             });
             events.push(ConnectorEvent::ConversationRowUpdated {
                 row_id: mid,

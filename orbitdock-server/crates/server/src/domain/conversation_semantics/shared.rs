@@ -35,6 +35,7 @@ pub(crate) fn handled_wrappers() -> &'static [&'static str] {
 pub(crate) fn upgrade_row(row: ConversationRow) -> ConversationRow {
     match row {
         ConversationRow::User(message) => upgrade_message_row(message, ConversationRow::User),
+        ConversationRow::Steer(message) => upgrade_message_row(message, ConversationRow::Steer),
         ConversationRow::Assistant(message) => {
             upgrade_message_row(message, ConversationRow::Assistant)
         }
@@ -596,6 +597,7 @@ mod tests {
             is_streaming: false,
             images: vec![],
             memory_citation: None,
+            delivery_status: None,
         })
     }
 
@@ -626,6 +628,7 @@ mod tests {
             is_streaming: false,
             images: vec![],
             memory_citation: None,
+            delivery_status: None,
         }));
 
         match row {

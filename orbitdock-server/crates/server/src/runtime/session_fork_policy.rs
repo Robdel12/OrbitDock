@@ -43,7 +43,7 @@ pub(crate) fn truncate_rows_before_nth_user_row(
     let mut cut_idx: Option<usize> = None;
 
     for (idx, entry) in rows.iter().enumerate() {
-        if matches!(entry.row, ConversationRow::User(_)) {
+        if entry.row.starts_turn() {
             if user_count == nth_user_row as usize {
                 cut_idx = Some(idx);
                 break;
@@ -69,6 +69,7 @@ pub(crate) fn remap_rows_for_fork(
             // Update the ID inside the row variant
             match &mut entry.row {
                 ConversationRow::User(row)
+                | ConversationRow::Steer(row)
                 | ConversationRow::Assistant(row)
                 | ConversationRow::Thinking(row)
                 | ConversationRow::System(row) => {
@@ -125,5 +126,59 @@ pub(crate) fn select_fork_rows(
         source_rows
     } else {
         rollout_rows
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_rows_before_nth_user_row;
+    use orbitdock_protocol::conversation_contracts::{
+        rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
+    };
+
+    fn user_row(id: &str, content: &str, is_steer: bool) -> ConversationRowEntry {
+        ConversationRowEntry {
+            session_id: "session-1".to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: if is_steer {
+                ConversationRow::Steer(MessageRowContent {
+                    id: id.to_string(),
+                    content: content.to_string(),
+                    turn_id: None,
+                    timestamp: None,
+                    is_streaming: false,
+                    images: vec![],
+                    memory_citation: None,
+                    delivery_status: Some(MessageDeliveryStatus::Pending),
+                })
+            } else {
+                ConversationRow::User(MessageRowContent {
+                    id: id.to_string(),
+                    content: content.to_string(),
+                    turn_id: None,
+                    timestamp: None,
+                    is_streaming: false,
+                    images: vec![],
+                    memory_citation: None,
+                    delivery_status: Some(MessageDeliveryStatus::Pending),
+                })
+            },
+        }
+    }
+
+    #[test]
+    fn truncate_counts_real_user_turns_and_skips_steers() {
+        let rows = vec![
+            user_row("user-1", "first", false),
+            user_row("steer-1", "nudge", true),
+            user_row("user-2", "second", false),
+        ];
+
+        let truncated = truncate_rows_before_nth_user_row(&rows, Some(1));
+
+        assert_eq!(truncated.len(), 2);
+        assert_eq!(truncated[0].id(), "user-1");
+        assert_eq!(truncated[1].id(), "steer-1");
     }
 }

@@ -18,7 +18,7 @@ extension SessionStore {
     request.skills = skills
     request.images = images
     request.mentions = mentions
-    try await clients.conversation.sendMessage(sessionId, request: request)
+    _ = try await clients.conversation.sendMessage(sessionId, request: request)
 
     triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: content)
   }
@@ -32,7 +32,8 @@ extension SessionStore {
     var request = ConversationClient.SteerTurnRequest(content: content)
     request.images = images
     request.mentions = mentions
-    try await clients.conversation.steerTurn(sessionId, request: request)
+    let response = try await clients.conversation.steerTurn(sessionId, request: request)
+    session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
   }
 
   func approveTool(

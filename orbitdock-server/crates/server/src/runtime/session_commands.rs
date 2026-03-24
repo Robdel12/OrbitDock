@@ -158,6 +158,11 @@ pub enum SessionCommand {
     UpsertRowAndBroadcast {
         entry: ConversationRowEntry,
     },
+    /// Update a steer row's delivery status after the provider resolves it.
+    UpdateSteerOutcome {
+        message_id: String,
+        outcome: orbitdock_protocol::SteerOutcome,
+    },
     /// Record a question answer on the most recent unanswered question tool row.
     /// Finds the newest AskUserQuestion tool row with no result and sets its
     /// output to the provided answer text.

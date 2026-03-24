@@ -163,6 +163,14 @@ pub enum ConnectorEvent {
     /// session loop before generic state-machine transitions.
     SubagentsUpdated { subagents: Vec<SubagentInfo> },
 
+    /// Provider-reported dynamic tool request that must be executed by the
+    /// session loop before generic state-machine transitions.
+    DynamicToolCallRequested {
+        call_id: String,
+        tool_name: String,
+        arguments: serde_json::Value,
+    },
+
     /// Error occurred
     Error(String),
 }

@@ -5,13 +5,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::oneshot;
 use tracing::{debug, warn};
 
+use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::PermissionGrantScope;
 use orbitdock_protocol::{ImageInput, MentionInput, SkillInput, WorkStatus};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::message_dispatch_policy::{build_user_row_entry, plan_send_message};
+use crate::runtime::message_dispatch_policy::{
+    build_user_row_entry, plan_send_message, PromptRowKind,
+};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
@@ -164,6 +167,8 @@ pub(crate) async fn dispatch_send_message(
         content.clone(),
         ts_millis,
         persisted_images.clone(),
+        PromptRowKind::User,
+        Some(MessageDeliveryStatus::Accepted),
     );
 
     actor
@@ -228,7 +233,8 @@ pub(crate) async fn dispatch_steer_turn(
     images: Vec<ImageInput>,
     mentions: Vec<MentionInput>,
     message_id: String,
-) -> Result<(), DispatchMessageError> {
+) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
+{
     let codex_tx = state.get_codex_action_tx(&session_id);
     let claude_tx = state.get_claude_action_tx(&session_id);
     let Some(actor) = state.get_session(&session_id) else {
@@ -253,10 +259,14 @@ pub(crate) async fn dispatch_steer_turn(
         content.clone(),
         ts_millis,
         persisted_images.clone(),
+        PromptRowKind::Steer,
+        Some(MessageDeliveryStatus::Pending),
     );
 
     actor
-        .send(SessionCommand::AddRowAndBroadcast { entry: steer_entry })
+        .send(SessionCommand::AddRowAndBroadcast {
+            entry: steer_entry.clone(),
+        })
         .await;
 
     if let Some(tx) = codex_tx {
@@ -278,7 +288,7 @@ pub(crate) async fn dispatch_steer_turn(
             .await;
     }
 
-    Ok(())
+    Ok(steer_entry)
 }
 
 pub(crate) async fn dispatch_interrupt(

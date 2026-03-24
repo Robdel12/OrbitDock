@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
     compute_tool_display, ConversationRow, ToolDisplayInput,
 };
@@ -229,7 +230,7 @@ pub async fn handle_session_command(
                 .rows()
                 .iter()
                 .rev()
-                .filter(|entry| matches!(entry.row, ConversationRow::User(_)))
+                .filter(|entry| entry.row.starts_turn())
                 .nth(num_turns_from_end.saturating_sub(1) as usize)
                 .map(|entry| entry.id().to_string());
             let _ = reply.send(result);
@@ -462,6 +463,60 @@ pub async fn handle_session_command(
                 total_row_count: handle.message_count() as u64,
             };
             handle.broadcast(rows_changed);
+        }
+        SessionCommand::UpdateSteerOutcome {
+            message_id,
+            outcome,
+        } => {
+            let Some(mut entry) = handle.row_by_id(&message_id).cloned() else {
+                return;
+            };
+
+            let next_status = match outcome {
+                orbitdock_protocol::SteerOutcome::Accepted => MessageDeliveryStatus::Accepted,
+                orbitdock_protocol::SteerOutcome::FellBackToNewTurn => {
+                    MessageDeliveryStatus::FellBackToNewTurn
+                }
+            };
+
+            let mut should_upsert = false;
+            if let ConversationRow::Steer(ref mut row) = entry.row {
+                row.delivery_status = Some(next_status);
+                should_upsert = true;
+            }
+
+            if !should_upsert {
+                return;
+            }
+
+            let session_id = handle.id().to_string();
+            let row_id = entry.id().to_string();
+            let entry = handle.upsert_row(entry);
+
+            let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
+            let _ = persist_tx
+                .send(PersistCommand::RowUpsert {
+                    session_id: session_id.clone(),
+                    entry: entry.clone(),
+                    viewer_present: handle.has_active_viewers(),
+                    sequence_tx: Some(seq_tx),
+                })
+                .await;
+
+            if let Ok(db_seq) = seq_rx.await {
+                handle.set_row_sequence(&row_id, db_seq);
+            }
+
+            let summary = handle
+                .row_by_id(&row_id)
+                .map(|r| r.to_summary())
+                .unwrap_or_else(|| entry.to_summary());
+            handle.broadcast(ServerMessage::ConversationRowsChanged {
+                session_id,
+                upserted: vec![summary],
+                removed_row_ids: vec![],
+                total_row_count: handle.message_count() as u64,
+            });
         }
         SessionCommand::RecordQuestionAnswer { answer_text } => {
             // Find the newest AskUserQuestion tool row that has no result yet.
@@ -827,7 +882,9 @@ pub(crate) fn spawn_interrupt_watchdog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, MessageRowContent};
+    use orbitdock_protocol::conversation_contracts::{
+        rows::MessageDeliveryStatus, ConversationRowEntry, MessageRowContent,
+    };
 
     fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
         ConversationRowEntry {
@@ -842,6 +899,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }
@@ -879,6 +937,40 @@ mod tests {
             "session-1",
             "user-codex-1",
             "different",
+        ));
+
+        assert!(!should_suppress_connector_user_echo(&handle, &event));
+    }
+
+    #[test]
+    fn does_not_suppress_user_echo_from_matching_steer_content() {
+        let mut handle = SessionHandle::new(
+            "session-1".to_string(),
+            Provider::Codex,
+            "/repo".to_string(),
+        );
+        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+
+        handle.add_row(ConversationRowEntry {
+            session_id: "session-1".to_string(),
+            sequence: 0,
+            turn_id: None,
+            row: ConversationRow::Steer(MessageRowContent {
+                id: "steer-http-1".to_string(),
+                content: "hello world".to_string(),
+                turn_id: None,
+                timestamp: None,
+                is_streaming: false,
+                images: vec![],
+                memory_citation: None,
+                delivery_status: Some(MessageDeliveryStatus::Pending),
+            }),
+        });
+
+        let event = ConnectorEvent::ConversationRowCreated(user_entry(
+            "session-1",
+            "user-codex-1",
+            "hello world",
         ));
 
         assert!(!should_suppress_connector_user_echo(&handle, &event));

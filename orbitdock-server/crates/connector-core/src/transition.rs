@@ -327,7 +327,9 @@ impl From<ConnectorEvent> for Input {
             ConnectorEvent::FilesPersisted { files } => Input::FilesPersisted { files },
             ConnectorEvent::Error(msg) => Input::Error(msg),
             // Handled in event loop before reaching transitions
-            ConnectorEvent::HookSessionId(_) | ConnectorEvent::SubagentsUpdated { .. } => {
+            ConnectorEvent::HookSessionId(_)
+            | ConnectorEvent::SubagentsUpdated { .. }
+            | ConnectorEvent::DynamicToolCallRequested { .. } => {
                 unreachable!()
             }
         }
@@ -672,6 +674,7 @@ pub fn transition(
                     is_streaming: false,
                     images: vec![],
                     memory_citation: None,
+                    delivery_status: None,
                 }),
             };
             state.rows.push(entry.clone());
@@ -1267,6 +1270,7 @@ pub fn transition(
                     is_streaming: false,
                     images: vec![],
                     memory_citation: None,
+                    delivery_status: None,
                 }),
             };
             state.rows.push(compact_entry.clone());
@@ -2529,6 +2533,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }
@@ -2546,6 +2551,7 @@ mod tests {
                 is_streaming: false,
                 images: vec![],
                 memory_citation: None,
+                delivery_status: None,
             }),
         }
     }

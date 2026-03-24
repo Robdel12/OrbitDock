@@ -1,3 +1,4 @@
+use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, MessageRowContent,
 };
@@ -13,6 +14,12 @@ pub(crate) struct SendMessagePlan {
     pub action_model: Option<String>,
     pub session_effort_update: Option<String>,
     pub connector_effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PromptRowKind {
+    User,
+    Steer,
 }
 
 pub(crate) fn plan_send_message(
@@ -44,19 +51,27 @@ pub(crate) fn build_user_row_entry(
     content: String,
     timestamp_millis: u128,
     images: Vec<ImageInput>,
+    kind: PromptRowKind,
+    delivery_status: Option<MessageDeliveryStatus>,
 ) -> ConversationRowEntry {
+    let row = MessageRowContent {
+        id: message_id,
+        content,
+        turn_id: None,
+        timestamp: Some(iso_timestamp(timestamp_millis)),
+        is_streaming: false,
+        images,
+        memory_citation: None,
+        delivery_status,
+    };
+
     ConversationRowEntry {
         session_id: session_id.to_string(),
         sequence: 0,
         turn_id: None,
-        row: ConversationRow::User(MessageRowContent {
-            id: message_id,
-            content,
-            turn_id: None,
-            timestamp: Some(iso_timestamp(timestamp_millis)),
-            is_streaming: false,
-            images,
-            memory_citation: None,
-        }),
+        row: match kind {
+            PromptRowKind::User => ConversationRow::User(row),
+            PromptRowKind::Steer => ConversationRow::Steer(row),
+        },
     }
 }

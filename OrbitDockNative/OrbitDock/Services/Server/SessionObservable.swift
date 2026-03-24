@@ -531,6 +531,7 @@ final class SessionObservable {
   private func rowTypeKey(for entry: ServerConversationRowEntry) -> String {
     switch entry.row {
       case .user: "user"
+      case .steer: "steer"
       case .assistant: "assistant"
       case .thinking: "thinking"
       case .context: "context"

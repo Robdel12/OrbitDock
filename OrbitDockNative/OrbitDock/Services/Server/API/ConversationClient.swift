@@ -1,6 +1,16 @@
 import Foundation
 
 struct ConversationClient: Sendable {
+  struct SendMessageResponse: Decodable {
+    let accepted: Bool
+    let row: ServerConversationRowEntry
+  }
+
+  struct SteerTurnResponse: Decodable {
+    let accepted: Bool
+    let row: ServerConversationRowEntry
+  }
+
   struct SendMessageRequest: Encodable {
     let content: String
     var model: String?
@@ -91,17 +101,16 @@ struct ConversationClient: Sendable {
     )
   }
 
-  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws {
-    let _: ServerAcceptedResponse = try await http.post(
+  func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> SendMessageResponse {
+    try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages",
       body: request
     )
   }
 
-  func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws {
-    try await http.sendVoid(
+  func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws -> SteerTurnResponse {
+    try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/steer",
-      method: "POST",
       body: request
     )
   }

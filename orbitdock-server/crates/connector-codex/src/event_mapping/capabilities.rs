@@ -89,6 +89,7 @@ pub(crate) fn handle_list_custom_prompts_response(
         is_streaming: false,
         images: vec![],
         memory_citation: None,
+        delivery_status: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
@@ -119,6 +120,7 @@ pub(crate) fn handle_get_history_entry_response(
         is_streaming: false,
         images: vec![],
         memory_citation: None,
+        delivery_status: None,
     }));
     vec![ConnectorEvent::ConversationRowCreated(entry)]
 }

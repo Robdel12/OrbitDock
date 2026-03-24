@@ -11,6 +11,7 @@ import Foundation
 
 enum ServerConversationRowType: Codable, Equatable {
   case user
+  case steer
   case assistant
   case thinking
   case context
@@ -32,6 +33,7 @@ enum ServerConversationRowType: Codable, Equatable {
     let value = try decoder.singleValueContainer().decode(String.self)
     switch value {
       case "user": self = .user
+      case "steer": self = .steer
       case "assistant": self = .assistant
       case "thinking": self = .thinking
       case "context": self = .context
@@ -57,6 +59,7 @@ enum ServerConversationRowType: Codable, Equatable {
     var container = encoder.singleValueContainer()
     switch self {
       case .user: try container.encode("user")
+      case .steer: try container.encode("steer")
       case .assistant: try container.encode("assistant")
       case .thinking: try container.encode("thinking")
       case .context: try container.encode("context")
@@ -193,6 +196,12 @@ enum ServerConversationToolStatus: String, Codable {
   case needsInput = "needs_input"
 }
 
+enum ServerConversationMessageDeliveryStatus: String, Codable {
+  case pending
+  case accepted
+  case fellBackToNewTurn = "fell_back_to_new_turn"
+}
+
 enum ServerConversationActivityGroupKind: String, Codable {
   case toolBlock = "tool_block"
   case workerBlock = "worker_block"
@@ -237,6 +246,7 @@ struct ServerConversationMessageRow: Codable {
   let isStreaming: Bool
   let images: [ServerImageInput]?
   let memoryCitation: ServerMemoryCitation?
+  let deliveryStatus: ServerConversationMessageDeliveryStatus?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -246,6 +256,27 @@ struct ServerConversationMessageRow: Codable {
     case isStreaming = "is_streaming"
     case images
     case memoryCitation = "memory_citation"
+    case deliveryStatus = "delivery_status"
+  }
+
+  init(
+    id: String,
+    content: String,
+    turnId: String? = nil,
+    timestamp: String? = nil,
+    isStreaming: Bool = false,
+    images: [ServerImageInput]? = nil,
+    memoryCitation: ServerMemoryCitation? = nil,
+    deliveryStatus: ServerConversationMessageDeliveryStatus? = nil
+  ) {
+    self.id = id
+    self.content = content
+    self.turnId = turnId
+    self.timestamp = timestamp
+    self.isStreaming = isStreaming
+    self.images = images
+    self.memoryCitation = memoryCitation
+    self.deliveryStatus = deliveryStatus
   }
 }
 
@@ -680,6 +711,7 @@ struct ServerConversationTaskRow: Codable {
 
 enum ServerConversationRow: Codable {
   case user(ServerConversationMessageRow)
+  case steer(ServerConversationMessageRow)
   case assistant(ServerConversationMessageRow)
   case thinking(ServerConversationMessageRow)
   case context(ServerConversationContextRow)
@@ -706,6 +738,8 @@ enum ServerConversationRow: Codable {
     switch rowType {
       case .user:
         self = try .user(ServerConversationMessageRow(from: decoder))
+      case .steer:
+        self = try .steer(ServerConversationMessageRow(from: decoder))
       case .assistant:
         self = try .assistant(ServerConversationMessageRow(from: decoder))
       case .thinking:
@@ -754,6 +788,8 @@ enum ServerConversationRow: Codable {
   func encode(to encoder: Encoder) throws {
     switch self {
       case let .user(row):
+        try row.encode(to: encoder)
+      case let .steer(row):
         try row.encode(to: encoder)
       case let .assistant(row):
         try row.encode(to: encoder)
@@ -805,6 +841,7 @@ struct ServerConversationRowEntry: Codable, Identifiable {
   var id: String {
     switch row {
       case let .user(message),
+           let .steer(message),
            let .assistant(message),
            let .thinking(message),
            let .system(message):

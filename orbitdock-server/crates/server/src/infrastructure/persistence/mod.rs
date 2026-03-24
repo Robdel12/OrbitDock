@@ -365,7 +365,7 @@ pub(super) fn execute_command(
 
             // Extract content for last_message updates
             let content_text = extract_row_content(&entry.row);
-            let is_user = matches!(&entry.row, ConversationRow::User(_));
+            let is_user = entry.row.is_user_input();
 
             // DB computes sequence as MAX(sequence)+1 — single source of truth.
             conn.execute(
@@ -396,7 +396,9 @@ pub(super) fn execute_command(
             // Update last_message for dashboard context lines (user + assistant only)
             if matches!(
                 &entry.row,
-                ConversationRow::User(_) | ConversationRow::Assistant(_)
+                ConversationRow::User(_)
+                    | ConversationRow::Steer(_)
+                    | ConversationRow::Assistant(_)
             ) {
                 if let Some(content) = &content_text {
                     let truncated: String = content.chars().take(200).collect();
@@ -453,7 +455,7 @@ pub(super) fn execute_command(
             let row_type = row_type_str(&entry.row);
             let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
             let content_text = extract_row_content(&entry.row);
-            let is_user = matches!(&entry.row, ConversationRow::User(_));
+            let is_user = entry.row.is_user_input();
             let now = chrono_now();
 
             // DB computes sequence on insert; ON CONFLICT preserves original ordering.
@@ -463,6 +465,7 @@ pub(super) fn execute_command(
                    COALESCE((SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
                    ?6)
                  ON CONFLICT(id) DO UPDATE SET
+                   type = excluded.type,
                    content = excluded.content,
                    row_data = excluded.row_data",
                 params![
@@ -488,7 +491,9 @@ pub(super) fn execute_command(
             // Update last_message for completed user/assistant rows
             if matches!(
                 &entry.row,
-                ConversationRow::User(_) | ConversationRow::Assistant(_)
+                ConversationRow::User(_)
+                    | ConversationRow::Steer(_)
+                    | ConversationRow::Assistant(_)
             ) {
                 if let Some(content) = &content_text {
                     let truncated: String = content.chars().take(200).collect();
@@ -1921,6 +1926,7 @@ pub fn load_rollout_checkpoints(
 fn row_type_str(row: &ConversationRow) -> &'static str {
     match row {
         ConversationRow::User(_) => "user",
+        ConversationRow::Steer(_) => "steer",
         ConversationRow::Assistant(_) => "assistant",
         ConversationRow::Thinking(_) => "thinking",
         ConversationRow::Context(_) => "context",
@@ -1942,6 +1948,7 @@ fn row_type_str(row: &ConversationRow) -> &'static str {
 fn extract_row_content(row: &ConversationRow) -> Option<String> {
     match row {
         ConversationRow::User(m)
+        | ConversationRow::Steer(m)
         | ConversationRow::Assistant(m)
         | ConversationRow::Thinking(m)
         | ConversationRow::System(m) => Some(m.content.clone()),
