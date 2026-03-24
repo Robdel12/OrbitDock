@@ -18,6 +18,7 @@ final class SessionDetailViewModel {
   var layoutConfig: LayoutConfiguration = .conversationOnly {
     didSet {
       syncSectionPresentations()
+      syncWorkerDetailPresentation()
     }
   }
 
@@ -39,6 +40,8 @@ final class SessionDetailViewModel {
   var worktreeState = SessionDetailWorktreeState.empty
   var reviewState = SessionDetailReviewState.empty
   var workerState = SessionDetailWorkerState.empty
+  var workerRosterPresentation: SessionWorkerRosterPresentation?
+  var workerDetailPresentation: SessionWorkerDetailPresentation?
   var conversationPresentation = SessionDetailConversationSectionPresentation.empty
   var reviewPresentation = SessionDetailReviewSectionPresentation.empty
   var footerMode: SessionDetailFooterMode = .passive
@@ -124,37 +127,6 @@ final class SessionDetailViewModel {
       totalTokens: usageSource.totalTokens ?? 0,
       costCalculator: modelPricingService?.calculatorSnapshot ?? .fallback
     )
-  }
-
-  var workerRosterPresentation: SessionWorkerRosterPresentation? {
-    SessionWorkerRosterPlanner.presentation(subagents: workerState.subagents)
-  }
-
-  var workerDetailPresentation: SessionWorkerDetailPresentation? {
-    guard layoutConfig != .reviewOnly, let selectedWorkerId else { return nil }
-
-    let hasLoadedWorkerPayload =
-      workerState.subagentTools[selectedWorkerId] != nil || workerState.subagentMessages[selectedWorkerId] != nil
-
-    guard hasLoadedWorkerPayload else { return nil }
-
-    return SessionWorkerRosterPlanner.detailPresentation(
-      subagents: workerState.subagents,
-      selectedWorkerID: selectedWorkerId,
-      toolsByWorker: workerState.subagentTools,
-      messagesByWorker: workerState.subagentMessages,
-      timelineEntries: workerState.timelineEntries
-    )
-  }
-
-  var workerSelectionSignature: [String] {
-    workerState.subagents.map {
-      [
-        $0.id,
-        $0.status?.rawValue ?? "none",
-        $0.lastActivityAt ?? "",
-      ].joined(separator: "|")
-    }
   }
 
   var diffFileCount: Int {
@@ -318,10 +290,14 @@ final class SessionDetailViewModel {
   }
 
   func syncSelectedWorker() {
-    selectedWorkerId = SessionWorkerRosterPlanner.preferredSelectedWorkerID(
+    let nextSelectedWorkerId = SessionWorkerRosterPlanner.preferredSelectedWorkerID(
       currentSelectionID: selectedWorkerId,
       subagents: workerState.subagents
     )
+    if selectedWorkerId != nextSelectedWorkerId {
+      selectedWorkerId = nextSelectedWorkerId
+    }
+    syncWorkerDetailPresentation()
   }
 
   func loadSelectedWorkerTools(for workerId: String? = nil) {
@@ -333,6 +309,7 @@ final class SessionDetailViewModel {
   func selectWorkerInPanel(_ workerId: String) {
     guard !workerId.isEmpty else { return }
     selectedWorkerId = workerId
+    syncWorkerDetailPresentation()
     loadSelectedWorkerTools(for: workerId)
   }
 
@@ -442,11 +419,36 @@ final class SessionDetailViewModel {
     worktreeState = snapshot.worktreeState
     reviewState = snapshot.reviewState
     workerState = snapshot.workerState
+    workerRosterPresentation = SessionWorkerRosterPlanner.presentation(subagents: workerState.subagents)
+    syncSelectedWorker()
     conversationPresentation = snapshot.conversationPresentation
     reviewPresentation = snapshot.reviewPresentation(layoutConfig: layoutConfig)
     footerMode = snapshot.footerMode
     currentTool = snapshot.currentTool
     lastActivityAt = snapshot.lastActivityAt
+  }
+
+  private func syncWorkerDetailPresentation() {
+    guard layoutConfig != .reviewOnly, let selectedWorkerId else {
+      workerDetailPresentation = nil
+      return
+    }
+
+    let hasLoadedWorkerPayload =
+      workerState.subagentTools[selectedWorkerId] != nil || workerState.subagentMessages[selectedWorkerId] != nil
+
+    guard hasLoadedWorkerPayload else {
+      workerDetailPresentation = nil
+      return
+    }
+
+    workerDetailPresentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: workerState.subagents,
+      selectedWorkerID: selectedWorkerId,
+      toolsByWorker: workerState.subagentTools,
+      messagesByWorker: workerState.subagentMessages,
+      timelineEntries: workerState.timelineEntries
+    )
   }
 
   private func syncSectionPresentations() {

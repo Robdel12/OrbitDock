@@ -120,6 +120,9 @@ struct SessionDetailView: View {
         fallbackStore: sessionStore,
         modelPricingService: modelPricingService
       )
+      if showWorkerPanel {
+        viewModel.loadSelectedWorkerTools()
+      }
     }
     #if os(iOS)
     .navigationTitle(screenPresentation.displayName)
@@ -134,10 +137,12 @@ struct SessionDetailView: View {
     }
     #endif
     .environment(scopedServerState)
-    .onAppear(perform: handleOnAppear)
-    .onDisappear(perform: handleOnDisappear)
     .onChange(of: viewModel.isPinned) { _, pinned in
       viewModel.handlePinnedChange(pinned)
+    }
+    .onChange(of: showWorkerPanel) { _, visible in
+      guard visible else { return }
+      viewModel.loadSelectedWorkerTools()
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -162,9 +167,6 @@ struct SessionDetailView: View {
     // Diff-available banner trigger
     .onChange(of: viewModel.reviewState.diff) { oldDiff, newDiff in
       handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
-    }
-    .onChange(of: workerSelectionSignature) { _, _ in
-      viewModel.syncSelectedWorker()
     }
   }
 

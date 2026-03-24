@@ -87,12 +87,16 @@ enum SessionWorkerRosterPlanner {
     let conversationEvents: [SessionWorkerDetailPresentation.ConversationEvent]
   }
 
+  private struct RankedWorker {
+    let subagent: ServerSubagentInfo
+    let isActive: Bool
+    let sortDate: Date
+  }
+
   private static let iso8601Formatter = ISO8601DateFormatter()
 
   static func presentation(subagents: [ServerSubagentInfo]) -> SessionWorkerRosterPresentation? {
-    let workers = subagents
-      .sorted(by: workerSort)
-      .map(workerPresentation)
+    let workers = sortedSubagents(subagents).map(workerPresentation)
 
     guard !workers.isEmpty else { return nil }
 
@@ -120,16 +124,13 @@ enum SessionWorkerRosterPlanner {
     currentSelectionID: String?,
     subagents: [ServerSubagentInfo]
   ) -> String? {
-    let sorted = subagents.sorted(by: workerSort)
-    guard !sorted.isEmpty else { return nil }
-
     if let currentSelectionID,
-       sorted.contains(where: { $0.id == currentSelectionID })
+       subagents.contains(where: { $0.id == currentSelectionID })
     {
       return currentSelectionID
     }
 
-    return sorted.first?.id
+    return sortedSubagents(subagents).first?.id
   }
 
   static func detailPresentation(
@@ -179,14 +180,25 @@ enum SessionWorkerRosterPlanner {
     )
   }
 
-  private static func workerSort(lhs: ServerSubagentInfo, rhs: ServerSubagentInfo) -> Bool {
-    let lhsActive = isActive(lhs.status)
-    let rhsActive = isActive(rhs.status)
-    if lhsActive != rhsActive {
-      return lhsActive && !rhsActive
+  private static func sortedSubagents(_ subagents: [ServerSubagentInfo]) -> [ServerSubagentInfo] {
+    subagents
+      .map {
+        RankedWorker(
+          subagent: $0,
+          isActive: isActive($0.status),
+          sortDate: sortDate(for: $0)
+        )
+      }
+      .sorted(by: rankedWorkerSort)
+      .map(\.subagent)
+  }
+
+  private static func rankedWorkerSort(lhs: RankedWorker, rhs: RankedWorker) -> Bool {
+    if lhs.isActive != rhs.isActive {
+      return lhs.isActive && !rhs.isActive
     }
 
-    return sortDate(for: lhs) > sortDate(for: rhs)
+    return lhs.sortDate > rhs.sortDate
   }
 
   private static func workerPresentation(subagent: ServerSubagentInfo) -> SessionWorkerRosterPresentation.Worker {
@@ -566,9 +578,9 @@ enum SessionWorkerRosterPlanner {
       )
     }
 
-    let children = subagents
-      .filter { $0.parentSubagentId == subagent.id }
-      .sorted(by: workerSort)
+    let children = sortedSubagents(
+      subagents.filter { $0.parentSubagentId == subagent.id }
+    )
 
     for child in children {
       let status = statusPresentation(child.status)

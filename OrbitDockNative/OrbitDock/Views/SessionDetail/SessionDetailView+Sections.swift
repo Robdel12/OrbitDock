@@ -10,10 +10,6 @@ extension SessionDetailView {
     return viewModel.workerDetailPresentation
   }
 
-  var workerSelectionSignature: [String] {
-    viewModel.workerSelectionSignature
-  }
-
   @ViewBuilder
   var workerCompanionPanel: some View {
     if let workerRosterPresentation, showWorkerPanel {
