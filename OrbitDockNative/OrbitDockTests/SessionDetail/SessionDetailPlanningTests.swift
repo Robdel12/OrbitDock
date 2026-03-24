@@ -19,14 +19,12 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: false,
         unreadCount: 6,
-        scrollToBottomTrigger: 2,
         pendingApprovalPanelOpenSignal: 4
       )
     )
 
     #expect(next.isPinned)
     #expect(next.unreadCount == 0)
-    #expect(next.scrollToBottomTrigger == 3)
     #expect(next.pendingApprovalPanelOpenSignal == 5)
   }
 
@@ -35,14 +33,12 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: false,
         unreadCount: 3,
-        scrollToBottomTrigger: 9,
         pendingApprovalPanelOpenSignal: 1
       )
     )
 
     #expect(next.isPinned)
     #expect(next.unreadCount == 0)
-    #expect(next.scrollToBottomTrigger == 10)
     #expect(next.pendingApprovalPanelOpenSignal == 1)
   }
 
@@ -51,14 +47,12 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: true,
         unreadCount: 2,
-        scrollToBottomTrigger: 7,
         pendingApprovalPanelOpenSignal: 3
       )
     )
 
     #expect(!next.isPinned)
     #expect(next.unreadCount == 2)
-    #expect(next.scrollToBottomTrigger == 7)
     #expect(next.pendingApprovalPanelOpenSignal == 3)
   }
 
@@ -67,14 +61,12 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: false,
         unreadCount: 5,
-        scrollToBottomTrigger: 4,
         pendingApprovalPanelOpenSignal: 2
       )
     )
 
     #expect(next.isPinned)
     #expect(next.unreadCount == 0)
-    #expect(next.scrollToBottomTrigger == 4)
     #expect(next.pendingApprovalPanelOpenSignal == 2)
   }
 
@@ -83,14 +75,12 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: true,
         unreadCount: 1,
-        scrollToBottomTrigger: 8,
         pendingApprovalPanelOpenSignal: 0
       )
     )
 
     #expect(!next.isPinned)
     #expect(next.unreadCount == 1)
-    #expect(next.scrollToBottomTrigger == 8)
   }
 
   @Test func receivingEntriesWhilePausedIncrementsUnreadCount() {
@@ -98,7 +88,6 @@ struct SessionDetailPlanningTests {
       current: SessionDetailConversationChromeState(
         isPinned: false,
         unreadCount: 2,
-        scrollToBottomTrigger: 3,
         pendingApprovalPanelOpenSignal: 1
       ),
       oldCount: 10,
@@ -107,21 +96,6 @@ struct SessionDetailPlanningTests {
 
     #expect(!next.isPinned)
     #expect(next.unreadCount == 5)
-    #expect(next.scrollToBottomTrigger == 3)
-  }
-
-  @Test func composerHeightChangeRequestsBottomScrollOnlyWhenFollowing() {
-    let next = SessionDetailConversationChromePlanner.composerHeightChanged(
-      current: SessionDetailConversationChromeState(
-        isPinned: true,
-        unreadCount: 0,
-        scrollToBottomTrigger: 6,
-        pendingApprovalPanelOpenSignal: 1
-      )
-    )
-
-    #expect(next.isPinned)
-    #expect(next.scrollToBottomTrigger == 7)
   }
 
   @Test func onAppearPlanSubscribesAndLoadsApprovalsForDirectSessions() {

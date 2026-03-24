@@ -705,7 +705,7 @@ struct NewSessionSheet: View {
         return response.sessionId
       },
       sendBootstrapPrompt: { sessionId, prompt in
-        try await store.clients.conversation.sendMessage(
+        _ = try await store.clients.conversation.sendMessage(
           sessionId,
           request: ConversationClient.SendMessageRequest(content: prompt)
         )
