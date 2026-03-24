@@ -104,20 +104,56 @@ struct DashboardView: View {
     layoutMode: DashboardLayoutMode,
     containerWidth: CGFloat
   ) -> some View {
-    let _ = containerWidth
+    let showSidebar = DashboardLayoutMode.shouldShowMissionControlSidebar(
+      horizontalSizeClass: horizontalSizeClass,
+      containerWidth: containerWidth
+    )
 
-    VStack(spacing: 0) {
-      ActivityStreamToolbar(
-        totalCount: viewModel.dashboardConversations.count,
-        counts: viewModel.dashboardCounts,
-        directCount: viewModel.dashboardDirectCount,
-        filter: $viewModel.activeWorkbenchFilter,
-        sort: $viewModel.activeSort,
-        providerFilter: $viewModel.activeProviderFilter,
-        sortOptions: [.recent, .status, .name]
-      )
+    let sidebarGroups = ConversationProjectGroupBuilder.build(
+      from: viewModel.sidebarConversations,
+      customOrder: viewModel.projectOrder
+    )
+    let hasMultipleEndpoints = Set(
+      viewModel.sidebarConversations.map(\.sessionRef.endpointId)
+    ).count > 1
 
-      missionControlScrollView(layoutMode: layoutMode)
+    HStack(spacing: 0) {
+      if showSidebar {
+        ProjectNavigator(
+          groups: sidebarGroups,
+          totalConversationCount: viewModel.sidebarConversations.count,
+          hasMultipleEndpoints: hasMultipleEndpoints,
+          projectFilter: $viewModel.activeProjectFilter,
+          projectOrder: $viewModel.projectOrder,
+          width: effectiveSidebarWidth(for: containerWidth),
+          totalCount: viewModel.dashboardConversations.count,
+          counts: viewModel.dashboardCounts,
+          directCount: viewModel.dashboardDirectCount,
+          workbenchFilter: $viewModel.activeWorkbenchFilter,
+          sort: $viewModel.activeSort,
+          providerFilter: $viewModel.activeProviderFilter,
+          sortOptions: [.recent, .status, .name]
+        )
+
+        sidebarResizeHandle(containerWidth: containerWidth)
+      }
+
+      VStack(spacing: 0) {
+        // Toolbar only shows when sidebar is hidden (phone/small iPad)
+        if !showSidebar {
+          ActivityStreamToolbar(
+            totalCount: viewModel.dashboardConversations.count,
+            counts: viewModel.dashboardCounts,
+            directCount: viewModel.dashboardDirectCount,
+            filter: $viewModel.activeWorkbenchFilter,
+            sort: $viewModel.activeSort,
+            providerFilter: $viewModel.activeProviderFilter,
+            sortOptions: [.recent, .status, .name]
+          )
+        }
+
+        missionControlScrollView(layoutMode: layoutMode)
+      }
     }
   }
 
@@ -155,6 +191,7 @@ struct DashboardView: View {
           MissionControlCommandDeck(
             conversations: viewModel.filteredDashboardConversations,
             projectFilter: $viewModel.activeProjectFilter,
+            projectOrder: viewModel.projectOrder,
             selectedIndex: viewModel.selectedIndex
           )
         }

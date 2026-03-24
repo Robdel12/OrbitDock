@@ -10,6 +10,21 @@ final class DashboardViewModel {
   var activeProviderFilter: ActiveSessionProviderFilter = .all
   var activeProjectFilter: String?
 
+  /// Custom project ordering — persisted to UserDefaults.
+  /// Empty array means "use alphabetical order."
+  var projectOrder: [String] = {
+    guard let data = UserDefaults.standard.data(forKey: "dashboard.projectOrder"),
+          let paths = try? JSONDecoder().decode([String].self, from: data)
+    else { return [] }
+    return paths
+  }() {
+    didSet {
+      if let data = try? JSONEncoder().encode(projectOrder) {
+        UserDefaults.standard.set(data, forKey: "dashboard.projectOrder")
+      }
+    }
+  }
+
   @ObservationIgnored private weak var appStore: AppStore?
 
   func bind(appStore: AppStore) {
@@ -35,6 +50,18 @@ final class DashboardViewModel {
       sort: activeSort,
       providerFilter: activeProviderFilter,
       projectFilter: activeProjectFilter
+    )
+  }
+
+  /// Conversations filtered by workbench + provider, but NOT by project.
+  /// Used by the ProjectNavigator so all projects remain visible even when one is selected.
+  var sidebarConversations: [DashboardConversationRecord] {
+    DashboardConversationDeckPlanner.build(
+      from: dashboardConversations,
+      filter: activeWorkbenchFilter,
+      sort: activeSort,
+      providerFilter: activeProviderFilter,
+      projectFilter: nil
     )
   }
 

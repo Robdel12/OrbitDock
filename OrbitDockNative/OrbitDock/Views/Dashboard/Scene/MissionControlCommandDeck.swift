@@ -5,6 +5,7 @@ struct MissionControlCommandDeck: View {
 
   let conversations: [DashboardConversationRecord]
   @Binding var projectFilter: String?
+  let projectOrder: [String]
   let selectedIndex: Int
 
   private var layoutMode: DashboardLayoutMode {
@@ -16,26 +17,7 @@ struct MissionControlCommandDeck: View {
   }
 
   private var groupedProjects: [ConversationProjectGroup] {
-    // Group by (project path, endpoint) so same project on different servers stays separate
-    let groups = Dictionary(grouping: conversations) { conv in
-      ConversationGroupKey(path: conv.groupingPath, endpointId: conv.sessionRef.endpointId)
-    }
-
-    return groups.compactMap { key, conversations in
-      guard let first = conversations.first else { return nil }
-      return ConversationProjectGroup(
-        path: key.path,
-        endpointId: key.endpointId,
-        endpointName: first.endpointName,
-        name: first.displayProjectName,
-        conversations: conversations,
-        attentionCount: conversations.filter(\.displayStatus.needsAttention).count,
-        workingCount: conversations.filter { $0.displayStatus == .working }.count,
-        readyCount: conversations.filter { $0.displayStatus == .reply }.count,
-        lastActivityAt: conversations.compactMap { $0.lastActivityAt ?? $0.startedAt }.max()
-      )
-    }
-    .sorted(by: sortGroups)
+    ConversationProjectGroupBuilder.build(from: conversations, customOrder: projectOrder)
   }
 
   private var selectedConversationID: String? {
@@ -52,7 +34,7 @@ struct MissionControlCommandDeck: View {
   }
 
   private var conversationFeed: some View {
-    VStack(alignment: .leading, spacing: Spacing.xl) {
+    VStack(alignment: .leading, spacing: Spacing.xxl) {
       ForEach(groupedProjects) { group in
         ConversationProjectSection(
           group: group,
@@ -87,45 +69,6 @@ struct MissionControlCommandDeck: View {
     )
   }
 
-  private func sortGroups(lhs: ConversationProjectGroup, rhs: ConversationProjectGroup) -> Bool {
-    if lhs.attentionCount != rhs.attentionCount {
-      return lhs.attentionCount > rhs.attentionCount
-    }
-    if lhs.workingCount != rhs.workingCount {
-      return lhs.workingCount > rhs.workingCount
-    }
-    return (lhs.lastActivityAt ?? .distantPast) > (rhs.lastActivityAt ?? .distantPast)
-  }
-}
-
-// MARK: - Project Grouping
-
-private struct ConversationGroupKey: Hashable {
-  let path: String
-  let endpointId: UUID
-}
-
-private struct ConversationProjectGroup: Identifiable {
-  let path: String
-  let endpointId: UUID
-  let endpointName: String?
-  let name: String
-  let conversations: [DashboardConversationRecord]
-  let attentionCount: Int
-  let workingCount: Int
-  let readyCount: Int
-  let lastActivityAt: Date?
-
-  var id: String {
-    "\(path)::\(endpointId.uuidString)"
-  }
-
-  /// The most urgent status color in this group — used for the section signal dot
-  var signalColor: Color {
-    if attentionCount > 0 { return .statusPermission }
-    if workingCount > 0 { return .statusWorking }
-    return .statusReply
-  }
 }
 
 private struct ConversationProjectSection: View {
@@ -135,28 +78,92 @@ private struct ConversationProjectSection: View {
   @Binding var projectFilter: String?
   let layoutMode: DashboardLayoutMode
 
+  @State private var isExpanded = false
+
+  private let sessionCap = 4
+
   private var isFocused: Bool {
     projectFilter == group.path
+  }
+
+  /// When a specific project is filtered, show all sessions (no cap)
+  private var shouldCap: Bool {
+    projectFilter == nil
+  }
+
+  private var visibleConversations: [DashboardConversationRecord] {
+    let sorted = group.sortedConversations
+    if !shouldCap || isExpanded || sorted.count <= sessionCap {
+      return sorted
+    }
+    return Array(sorted.prefix(sessionCap))
+  }
+
+  private var overflowCount: Int {
+    guard shouldCap else { return 0 }
+    return max(0, group.sortedConversations.count - sessionCap)
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       sectionHeader
 
-      VStack(spacing: 0) {
-        ForEach(Array(group.conversations.enumerated()), id: \.element.id) { index, conversation in
+      VStack(spacing: Spacing.sm) {
+        ForEach(Array(visibleConversations.enumerated()), id: \.element.id) { index, conversation in
           conversationView(for: conversation)
-
-          // Thin divider between compact rows
-          if conversation.displayStatus == .reply || conversation.displayStatus == .ended {
-            if index < group.conversations.count - 1 {
-              Rectangle()
-                .fill(Color.surfaceBorder)
-                .frame(height: 0.5)
-                .padding(.leading, Spacing.lg)
-            }
-          }
         }
+      }
+
+      disclosureButton
+    }
+    .onChange(of: selectedConversationID) { _, newID in
+      guard let newID, shouldCap, !isExpanded else { return }
+      let hidden = Set(group.sortedConversations.dropFirst(sessionCap).map(\.id))
+      if hidden.contains(newID) {
+        withAnimation(Motion.standard) {
+          isExpanded = true
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var disclosureButton: some View {
+    if overflowCount > 0 {
+      if isExpanded {
+        Button {
+          withAnimation(Motion.standard) {
+            isExpanded = false
+          }
+        } label: {
+          HStack(spacing: Spacing.sm_) {
+            Image(systemName: "chevron.up")
+              .font(.system(size: IconScale.sm, weight: .semibold))
+            Text("Show less")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(Color.textTertiary)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.sm)
+        }
+        .buttonStyle(.plain)
+      } else {
+        Button {
+          withAnimation(Motion.standard) {
+            isExpanded = true
+          }
+        } label: {
+          HStack(spacing: Spacing.sm_) {
+            Image(systemName: "chevron.down")
+              .font(.system(size: IconScale.sm, weight: .semibold))
+            Text("Show \(overflowCount) more")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(Color.accent)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.sm)
+        }
+        .buttonStyle(.plain)
       }
     }
   }
@@ -174,7 +181,6 @@ private struct ConversationProjectSection: View {
           layoutMode: layoutMode
         )
         .equatable()
-        .padding(.bottom, Spacing.sm)
         .id(DashboardScrollIDs.session(conversation.id))
 
       case .working:
@@ -185,7 +191,6 @@ private struct ConversationProjectSection: View {
           layoutMode: layoutMode
         )
         .equatable()
-        .padding(.bottom, Spacing.sm)
         .id(DashboardScrollIDs.session(conversation.id))
 
       case .reply, .ended:
@@ -202,17 +207,37 @@ private struct ConversationProjectSection: View {
 
   // MARK: Section Header — sector label with signal dot + station callsign
 
+  private enum SectionTier {
+    case hot      // attentionCount > 0
+    case active   // workingCount > 0
+    case idle     // only docked/ended
+  }
+
+  private var sectionTier: SectionTier {
+    if group.attentionCount > 0 { return .hot }
+    if group.workingCount > 0 { return .active }
+    return .idle
+  }
+
   private var sectionHeader: some View {
-    HStack(alignment: .center, spacing: Spacing.sm_) {
-      // Signal dot — reflects the most urgent status in this group
+    let tier = sectionTier
+
+    return HStack(alignment: .center, spacing: Spacing.sm_) {
+      // Signal dot — size and glow scale with urgency
       Circle()
         .fill(group.signalColor)
-        .frame(width: 6, height: 6)
-        .shadow(color: group.signalColor.opacity(0.5), radius: 4, y: 0)
+        .frame(width: dotSize(tier), height: dotSize(tier))
+        .shadow(
+          color: tier == .idle
+            ? Color.clear
+            : group.signalColor.opacity(tier == .hot ? 0.6 : 0.4),
+          radius: tier == .hot ? 6 : 4,
+          y: 0
+        )
 
       Text(group.name.uppercased())
-        .font(.system(size: TypeScale.caption, weight: .bold))
-        .foregroundStyle(Color.textTertiary)
+        .font(.system(size: headerFontSize(tier), weight: headerFontWeight(tier)))
+        .foregroundStyle(headerColor(tier))
         .tracking(1.5)
 
       // Station callsign — which server this group is from
@@ -238,11 +263,11 @@ private struct ConversationProjectSection: View {
         stateCluster
       }
 
-      // Scanline divider
+      // Scanline divider — tinted for hot sections
       Rectangle()
         .fill(
           LinearGradient(
-            colors: [Color.surfaceBorder, Color.surfaceBorder.opacity(0.3)],
+            colors: scanlineColors(tier),
             startPoint: .leading,
             endPoint: .trailing
           )
@@ -250,6 +275,49 @@ private struct ConversationProjectSection: View {
         .frame(height: 0.5)
 
       focusButton
+    }
+  }
+
+  private func dotSize(_ tier: SectionTier) -> CGFloat {
+    switch tier {
+      case .hot: 8
+      case .active: 6
+      case .idle: 5
+    }
+  }
+
+  private func headerFontSize(_ tier: SectionTier) -> CGFloat {
+    switch tier {
+      case .hot: TypeScale.meta
+      case .active: TypeScale.caption
+      case .idle: TypeScale.caption
+    }
+  }
+
+  private func headerFontWeight(_ tier: SectionTier) -> Font.Weight {
+    switch tier {
+      case .hot: .heavy
+      case .active: .bold
+      case .idle: .semibold
+    }
+  }
+
+  private func headerColor(_ tier: SectionTier) -> Color {
+    switch tier {
+      case .hot: .textSecondary
+      case .active: .textTertiary
+      case .idle: .textQuaternary
+    }
+  }
+
+  private func scanlineColors(_ tier: SectionTier) -> [Color] {
+    switch tier {
+      case .hot:
+        [group.signalColor.opacity(0.3), group.signalColor.opacity(0.05)]
+      case .active:
+        [Color.surfaceBorder, Color.surfaceBorder.opacity(0.3)]
+      case .idle:
+        [Color.surfaceBorder.opacity(0.6), Color.surfaceBorder.opacity(0.15)]
     }
   }
 
