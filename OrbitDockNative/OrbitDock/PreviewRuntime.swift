@@ -44,7 +44,7 @@ struct PreviewRuntime {
       endpointName: endpoint.name
     )
     for session in Self.previewSessions(endpoint: endpoint) {
-      sessionStore.session(session.id).applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
+      sessionStore.session(session.id).populateFromPreviewSession(session)
     }
     sessionStore.codexModels = Self.previewCodexModels()
     sessionStore.codexAccountStatus = ServerCodexAccountStatus(

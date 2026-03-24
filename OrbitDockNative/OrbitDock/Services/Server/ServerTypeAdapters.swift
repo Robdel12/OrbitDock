@@ -9,98 +9,7 @@
 
 import Foundation
 
-private enum RootSessionAdapterSupport {
-  static func provider(from provider: ServerProvider) -> Provider {
-    provider == .codex ? .codex : .claude
-  }
-
-  static func codexMode(provider: ServerProvider, mode: ServerCodexIntegrationMode?) -> CodexIntegrationMode? {
-    guard provider == .codex else { return nil }
-    return mode?.toSessionMode() ?? .direct
-  }
-
-  static func claudeMode(provider: ServerProvider, mode: ServerClaudeIntegrationMode?) -> ClaudeIntegrationMode? {
-    guard provider == .claude else { return nil }
-    return mode?.toSessionMode()
-  }
-}
-
-// MARK: - ServerSessionState → Detail Projection
-
-extension ServerSessionState {
-  func toDetailSnapshotProjection() -> SessionDetailSnapshotProjection {
-    SessionDetailSnapshotProjection(
-      endpointId: nil,
-      endpointName: nil,
-      projectPath: projectPath,
-      projectName: projectName,
-      branch: gitBranch,
-      model: model,
-      effort: effort,
-      collaborationMode: collaborationMode,
-      multiAgent: multiAgent,
-      personality: personality,
-      serviceTier: serviceTier,
-      developerInstructions: developerInstructions,
-      codexConfigSource: codexConfigSource,
-      codexConfigMode: codexConfigMode,
-      codexConfigProfile: codexConfigProfile,
-      codexModelProvider: codexModelProvider,
-      codexConfigOverrides: codexConfigOverrides,
-      summary: summary,
-      customName: customName,
-      firstPrompt: firstPrompt,
-      lastMessage: lastMessage,
-      transcriptPath: transcriptPath,
-      status: status == .active ? .active : .ended,
-      workStatus: workStatus.toSessionWorkStatus(),
-      steerable: steerable,
-      attentionReason: workStatus.toAttentionReason(),
-      lastActivityAt: parseServerTimestamp(lastActivityAt),
-      lastFilesPersistedAt: nil,
-      lastTool: nil,
-      lastToolAt: nil,
-      inputTokens: Int(tokenUsage.inputTokens),
-      outputTokens: Int(tokenUsage.outputTokens),
-      cachedTokens: Int(tokenUsage.cachedTokens),
-      contextWindow: Int(tokenUsage.contextWindow),
-      totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
-      totalCostUSD: 0,
-      provider: RootSessionAdapterSupport.provider(from: provider),
-      codexIntegrationMode: RootSessionAdapterSupport.codexMode(provider: provider, mode: codexIntegrationMode),
-      claudeIntegrationMode: RootSessionAdapterSupport.claudeMode(provider: provider, mode: claudeIntegrationMode),
-      codexThreadId: nil,
-      pendingApprovalId: pendingApprovalId,
-      pendingToolName: pendingToolName,
-      pendingToolInput: pendingToolInput,
-      pendingPermissionDetail: nil,
-      pendingQuestion: pendingQuestion,
-      promptCount: 0,
-      toolCount: 0,
-      startedAt: parseServerTimestamp(startedAt),
-      endedAt: nil,
-      endReason: nil,
-      tokenUsageSnapshotKind: tokenUsageSnapshotKind,
-      gitSha: gitSha,
-      currentCwd: currentCwd,
-      repositoryRoot: repositoryRoot,
-      isWorktree: isWorktree ?? false,
-      worktreeId: worktreeId,
-      unreadCount: unreadCount ?? 0,
-      currentDiff: currentDiff,
-      cumulativeDiff: cumulativeDiff,
-      currentPlan: currentPlan,
-      turnDiffs: turnDiffs,
-      currentTurnId: currentTurnId,
-      turnCount: turnCount,
-      subagents: subagents,
-      missionId: missionId,
-      issueIdentifier: issueIdentifier,
-      allowBypassPermissions: allowBypassPermissions ?? false
-    )
-  }
-
-}
+// MARK: - ServerWorkStatus → Session types
 
 extension ServerCodexIntegrationMode {
   func toSessionMode() -> CodexIntegrationMode {
@@ -262,7 +171,7 @@ private func mimeTypeForExtension(_ ext: String) -> String {
 // MARK: - Timestamp Parsing
 
 /// Parse server timestamps (Unix seconds or ISO 8601)
-private func parseServerTimestamp(_ string: String?) -> Date? {
+func parseServerTimestamp(_ string: String?) -> Date? {
   guard let string, !string.isEmpty else { return nil }
 
   // Try Unix seconds first (what the Rust server sends: "1738800000Z")

@@ -246,7 +246,7 @@ extension SessionStore {
       oldestSequence: conversation.oldestSequence,
       isBootstrap: true
     )
-    obs.applySnapshotProjection(state.toDetailSnapshotProjection())
+    obs.applyServerSnapshot(state)
     let transition = SessionControlStateReducer.snapshotTransition(
       current: controlState(sessionId: state.id, observable: obs),
       snapshot: state,
@@ -257,9 +257,8 @@ extension SessionStore {
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
     let obs = self.session(sessionId)
-    let projection = SessionStateProjection.from(changes)
 
-    obs.applyProjection(projection)
+    obs.applyServerDelta(changes)
     let summaryStillBlocked = obs.attentionReason == .awaitingPermission
       || obs.attentionReason == .awaitingQuestion
       || obs.workStatus == .permission

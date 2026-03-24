@@ -4,33 +4,45 @@ import Testing
 
 @MainActor
 struct SessionStatusConsistencyTests {
-  @Test func sessionDisplayStatusPrefersAttentionReasonOverWorkStatus() {
-    let permissionSession = Session(
+  @Test func rootSessionNodeDisplayStatusPrefersAttentionReasonOverWorkStatus() {
+    let permissionNode = makeRootSessionNode(from: Session(
       id: "permission-session",
+      endpointId: UUID(),
+      endpointName: nil,
+      endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .waiting,
       attentionReason: .awaitingPermission
-    )
-    #expect(SessionDisplayStatus.from(permissionSession) == .permission)
+    ))
+    #expect(permissionNode.displayStatus == .permission)
 
-    let questionSession = Session(
+    let questionNode = makeRootSessionNode(from: Session(
       id: "question-session",
+      endpointId: UUID(),
+      endpointName: nil,
+      endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .working,
       attentionReason: .awaitingQuestion
-    )
-    #expect(SessionDisplayStatus.from(questionSession) == .question)
+    ))
+    #expect(questionNode.displayStatus == .question)
 
-    let replySession = Session(
+    let replyNode = makeRootSessionNode(from: Session(
       id: "reply-session",
+      endpointId: UUID(),
+      endpointName: nil,
+      endpointConnectionStatus: .connected,
       projectPath: "/tmp/project",
+      projectName: nil,
       status: .active,
       workStatus: .working,
       attentionReason: .awaitingReply
-    )
-    #expect(SessionDisplayStatus.from(replySession) == .reply)
+    ))
+    #expect(replyNode.displayStatus == .reply)
   }
 
   @Test func notificationMessagesFollowDisplayStatusInsteadOfRawWorkStatus() {

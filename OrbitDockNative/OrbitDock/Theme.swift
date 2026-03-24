@@ -482,22 +482,6 @@ enum SessionDisplayStatus: Sendable {
     }
   }
 
-  static func from(_ session: Session) -> SessionDisplayStatus {
-    guard session.isActive else { return .ended }
-
-    switch session.attentionReason {
-      case .awaitingPermission:
-        return .permission
-      case .awaitingQuestion:
-        return .question
-      case .awaitingReply:
-        return .reply
-      case .none:
-        // Fall back to work status
-        return session.workStatus == .working ? .working : .reply
-    }
-  }
-
 }
 
 extension SessionDisplayStatus: Equatable {
@@ -562,12 +546,6 @@ struct SessionStatusBadge: View {
     }
   }
 
-  init(session: Session, showIcon: Bool = true, size: BadgeSize = .regular) {
-    self.status = SessionDisplayStatus.from(session)
-    self.showIcon = showIcon
-    self.size = size
-  }
-
   init(status: SessionDisplayStatus, showIcon: Bool = true, size: BadgeSize = .regular) {
     self.status = status
     self.showIcon = showIcon
@@ -604,12 +582,6 @@ struct SessionStatusDot: View {
   let status: SessionDisplayStatus
   var size: CGFloat = IconScale.xs
   var showGlow: Bool = true
-
-  init(session: Session, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
-    status = SessionDisplayStatus.from(session)
-    self.size = size
-    self.showGlow = showGlow
-  }
 
   init(status: SessionDisplayStatus, size: CGFloat = IconScale.xs, showGlow: Bool = true) {
     self.status = status

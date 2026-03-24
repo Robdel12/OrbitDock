@@ -126,7 +126,7 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
     endedSession.lastMessage = "Wrapped up with a short findings list and two follow-up suggestions."
 
     let reviewObservable = sessionStore.session(reviewSession.id)
-    reviewObservable.applySnapshotProjection(SessionDetailSnapshotProjection.from(reviewSession))
+    reviewObservable.populateFromPreviewSession(reviewSession)
     reviewObservable.applyConversationPage(
       rows: demoConversationRows(sessionId: reviewSession.id, projectPath: reviewSession.projectPath),
       hasMoreBefore: false,
@@ -135,7 +135,7 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
     )
 
     let endedObservable = sessionStore.session(endedSession.id)
-    endedObservable.applySnapshotProjection(SessionDetailSnapshotProjection.from(endedSession))
+    endedObservable.populateFromPreviewSession(endedSession)
     endedObservable.applyConversationPage(
       rows: endedConversationRows(sessionId: endedSession.id),
       hasMoreBefore: false,

@@ -4,54 +4,36 @@ import Testing
 
 @MainActor
 struct SessionStateProjectionTests {
-  @Test func sessionApplyPendingApprovalSummarySetsPermissionFieldsFromServerRequest() {
-    var session = Session(
-      id: "session-1",
-      projectPath: "/tmp/project",
-      status: .active,
-      workStatus: .working,
-      attentionReason: .none,
-      provider: .codex,
-      codexIntegrationMode: .direct
-    )
+  @Test func sessionObservableApplyPendingApprovalSetsPermissionFields() {
+    let observable = SessionObservable(id: "session-1")
 
-    session.applyPendingApprovalSummary(execApprovalRequest())
+    observable.applyPendingApproval(execApprovalRequest())
 
-    #expect(session.pendingApprovalId == "req-1")
-    #expect(session.pendingToolName == "Bash")
-    #expect(session.pendingToolInput == #"{"command":"git status"}"#)
-    #expect(session.pendingPermissionDetail == "git status")
-    #expect(session.pendingQuestion == nil)
-    #expect(session.attentionReason == .awaitingPermission)
-    #expect(session.workStatus == .permission)
+    #expect(observable.pendingApprovalId == "req-1")
+    #expect(observable.pendingToolName == "Bash")
+    #expect(observable.pendingToolInput == #"{"command":"git status"}"#)
+    #expect(observable.pendingPermissionDetail == "git status")
+    #expect(observable.pendingQuestion == nil)
+    #expect(observable.attentionReason == .awaitingPermission)
+    #expect(observable.workStatus == .permission)
   }
 
-  @Test func sessionClearPendingApprovalSummaryClearsFieldsAndResetsAttentionWhenRequested() {
-    var session = Session(
-      id: "session-1",
-      projectPath: "/tmp/project",
-      status: .active,
-      workStatus: .permission,
-      attentionReason: .awaitingQuestion,
-      pendingToolName: "AskUserQuestion",
-      pendingPermissionDetail: "Need input",
-      pendingQuestion: "Ship it?",
-      provider: .codex,
-      codexIntegrationMode: .direct,
-      pendingApprovalId: "req-q"
-    )
+  @Test func sessionObservableClearPendingApprovalResetsAttentionWhenRequested() {
+    let observable = SessionObservable(id: "session-1")
+    observable.applyPendingApproval(questionApprovalRequest())
 
-    session.clearPendingApprovalSummary(resetAttention: true)
+    observable.clearPendingApprovalDetails(resetAttention: true)
 
-    #expect(session.pendingApprovalId == nil)
-    #expect(session.pendingToolName == nil)
-    #expect(session.pendingPermissionDetail == nil)
-    #expect(session.pendingQuestion == nil)
-    #expect(session.attentionReason == .none)
-    #expect(session.workStatus == .working)
+    #expect(observable.pendingApproval == nil)
+    #expect(observable.pendingApprovalId == nil)
+    #expect(observable.pendingToolName == nil)
+    #expect(observable.pendingPermissionDetail == nil)
+    #expect(observable.pendingQuestion == nil)
+    #expect(observable.attentionReason == .none)
+    #expect(observable.workStatus == .working)
   }
 
-  @Test func sessionObservableApplySnapshotProjectionMirrorsDetailFields() {
+  @Test func sessionObservablePopulateFromPreviewSessionMirrorsDetailFields() {
     let observable = SessionObservable(id: "session-1")
     let session = Session(
       id: "session-1",
@@ -84,7 +66,7 @@ struct SessionStateProjectionTests {
       contextWindow: 200_000
     )
 
-    observable.applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
+    observable.populateFromPreviewSession(session)
 
     #expect(observable.endpointName == "Primary")
     #expect(observable.projectPath == "/tmp/project")
@@ -102,7 +84,7 @@ struct SessionStateProjectionTests {
     #expect(observable.contextWindow == 200_000)
   }
 
-  @Test func sessionObservableApplyProjectionUpdatesSubagentsFromServerDelta() {
+  @Test func sessionObservableApplyServerDeltaUpdatesSubagents() {
     let observable = SessionObservable(id: "session-1")
     let worker = ServerSubagentInfo(
       id: "worker-1",
@@ -120,53 +102,16 @@ struct SessionStateProjectionTests {
       lastActivityAt: "2026-03-12T10:00:01Z"
     )
 
-    let projection = SessionStateProjection.from(
-      ServerStateChanges(
-        status: nil,
-        workStatus: nil,
-        pendingApproval: nil,
-        tokenUsage: nil,
-        tokenUsageSnapshotKind: nil,
-        currentDiff: nil,
-        currentPlan: nil,
-        customName: nil,
-        summary: nil,
-        codexIntegrationMode: nil,
-        claudeIntegrationMode: nil,
-        approvalPolicy: nil,
-        sandboxMode: nil,
-        collaborationMode: nil,
-        multiAgent: nil,
-        personality: nil,
-        serviceTier: nil,
-        developerInstructions: nil,
-        lastActivityAt: nil,
-        currentTurnId: nil,
-        turnCount: nil,
-        gitBranch: nil,
-        gitSha: nil,
-        currentCwd: nil,
-        subagents: [worker],
-        firstPrompt: nil,
-        lastMessage: nil,
-        model: nil,
-        effort: nil,
-        permissionMode: nil,
-        approvalVersion: nil,
-        repositoryRoot: nil,
-        isWorktree: nil,
-        unreadCount: nil
-      )
+    observable.applyServerDelta(
+      ServerStateChanges(subagents: [worker])
     )
-
-    observable.applyProjection(projection)
 
     #expect(observable.subagents.count == 1)
     #expect(observable.subagents.first?.id == "worker-1")
     #expect(observable.subagents.first?.status == .running)
   }
 
-  @Test func sessionObservableApplyProjectionPreservesInterruptedSubagentStatus() {
+  @Test func sessionObservableApplyServerDeltaPreservesInterruptedSubagentStatus() {
     let observable = SessionObservable(id: "session-1")
     let worker = ServerSubagentInfo(
       id: "worker-1",
@@ -184,209 +129,60 @@ struct SessionStateProjectionTests {
       lastActivityAt: "2026-03-12T10:00:01Z"
     )
 
-    let projection = SessionStateProjection.from(
-      ServerStateChanges(
-        status: nil,
-        workStatus: nil,
-        pendingApproval: nil,
-        tokenUsage: nil,
-        tokenUsageSnapshotKind: nil,
-        currentDiff: nil,
-        currentPlan: nil,
-        customName: nil,
-        summary: nil,
-        codexIntegrationMode: nil,
-        claudeIntegrationMode: nil,
-        approvalPolicy: nil,
-        sandboxMode: nil,
-        collaborationMode: nil,
-        multiAgent: nil,
-        personality: nil,
-        serviceTier: nil,
-        developerInstructions: nil,
-        lastActivityAt: nil,
-        currentTurnId: nil,
-        turnCount: nil,
-        gitBranch: nil,
-        gitSha: nil,
-        currentCwd: nil,
-        subagents: [worker],
-        firstPrompt: nil,
-        lastMessage: nil,
-        model: nil,
-        effort: nil,
-        permissionMode: nil,
-        approvalVersion: nil,
-        repositoryRoot: nil,
-        isWorktree: nil,
-        unreadCount: nil
-      )
+    observable.applyServerDelta(
+      ServerStateChanges(subagents: [worker])
     )
-
-    observable.applyProjection(projection)
 
     #expect(observable.subagents.first?.status == .interrupted)
   }
 
-  @Test func sessionDetailSnapshotProjectionCapturesDetailMirrorFields() {
-    var session = Session(
-      id: "session-1",
-      endpointId: UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
-      endpointName: "Primary",
-      projectPath: "/tmp/project",
-      projectName: "project",
-      branch: "main",
-      model: "claude-opus",
-      transcriptPath: "/tmp/transcript.jsonl",
-      status: .active,
-      workStatus: .waiting,
-      startedAt: Date(timeIntervalSince1970: 100),
-      endReason: "completed",
-      totalTokens: 321,
-      lastActivityAt: Date(timeIntervalSince1970: 200),
-      attentionReason: .awaitingReply,
-      provider: .claude,
-      claudeIntegrationMode: .direct,
-      inputTokens: 120,
-      outputTokens: 201,
-      cachedTokens: 12,
-      contextWindow: 200_000
-    )
-    session.effort = "high"
-    session.summary = "Refactor session store"
-    session.customName = "Important Session"
-    session.firstPrompt = "Please refactor this"
-    session.lastMessage = "Latest message"
-    session.endedAt = Date(timeIntervalSince1970: 150)
-    session.totalCostUSD = 1.25
-    session.lastTool = "Bash"
-    session.lastToolAt = Date(timeIntervalSince1970: 201)
-    session.pendingToolName = "Bash"
-    session.pendingToolInput = #"{"command":"pwd"}"#
-    session.pendingPermissionDetail = "pwd"
-    session.pendingQuestion = "Continue?"
-    session.pendingApprovalId = "req-42"
-    session.promptCount = 3
-    session.toolCount = 9
-    session.gitSha = "abc123"
-    session.currentCwd = "/tmp/project/subdir"
-    session.repositoryRoot = "/tmp/project"
-    session.isWorktree = true
-    session.worktreeId = "wt-1"
-    session.unreadCount = 7
-
-    let projection = SessionDetailSnapshotProjection.from(session)
-
-    #expect(projection.endpointName == "Primary")
-    #expect(projection.projectPath == "/tmp/project")
-    #expect(projection.model == "claude-opus")
-    #expect(projection.pendingApprovalId == "req-42")
-    #expect(projection.pendingPermissionDetail == "pwd")
-    #expect(projection.totalTokens == 321)
-    #expect(projection.totalCostUSD == 1.25)
-    #expect(projection.repositoryRoot == "/tmp/project")
-    #expect(projection.isWorktree)
-    #expect(projection.worktreeId == "wt-1")
-    #expect(projection.unreadCount == 7)
-  }
-
-  @Test func snapshotProjectionHydratesDiffPlanTurnAndSubagentFields() {
+  @Test func sessionObservableApplyServerSnapshotHydratesDiffPlanTurnAndSubagentFields() throws {
     let observable = SessionObservable(id: "session-1")
 
-    let turnDiff = ServerTurnDiff(
-      turnId: "turn-42",
-      diff: "diff --git a/file.swift b/file.swift",
-      inputTokens: 10,
-      outputTokens: 5,
-      cachedTokens: 2,
-      contextWindow: 100_000
-    )
-    let subagent = ServerSubagentInfo(
-      id: "worker-1",
-      agentType: "worker",
-      startedAt: "2026-03-22T10:00:00Z",
-      endedAt: nil,
-      provider: .codex,
-      label: "Leibniz",
-      status: .running,
-      taskSummary: "Check Makefile",
-      resultSummary: nil,
-      errorSummary: nil,
-      parentSubagentId: nil,
-      model: "gpt-5.4",
-      lastActivityAt: "2026-03-22T10:00:01Z"
-    )
-
-    let projection = SessionDetailSnapshotProjection(
-      endpointId: nil,
-      endpointName: nil,
-      projectPath: "/tmp/project",
-      projectName: nil,
-      branch: nil,
-      model: nil,
-      effort: nil,
-      collaborationMode: nil,
-      multiAgent: nil,
-      personality: nil,
-      serviceTier: nil,
-      developerInstructions: nil,
-      codexConfigSource: nil,
-      codexConfigMode: nil,
-      codexConfigProfile: nil,
-      codexModelProvider: nil,
-      codexConfigOverrides: nil,
-      summary: nil,
-      customName: nil,
-      firstPrompt: nil,
-      lastMessage: nil,
-      transcriptPath: nil,
-      status: .active,
-      workStatus: .working,
-      attentionReason: .none,
-      lastActivityAt: nil,
-      lastFilesPersistedAt: nil,
-      lastTool: nil,
-      lastToolAt: nil,
-      inputTokens: nil,
-      outputTokens: nil,
-      cachedTokens: nil,
-      contextWindow: nil,
-      totalTokens: 0,
-      totalCostUSD: 0,
-      provider: .claude,
-      codexIntegrationMode: nil,
-      claudeIntegrationMode: .direct,
-      codexThreadId: nil,
-      pendingApprovalId: nil,
-      pendingToolName: nil,
-      pendingToolInput: nil,
-      pendingPermissionDetail: nil,
-      pendingQuestion: nil,
-      promptCount: 0,
-      toolCount: 0,
-      startedAt: nil,
-      endedAt: nil,
-      endReason: nil,
-      tokenUsageSnapshotKind: .lifetimeTotals,
-      gitSha: nil,
-      currentCwd: nil,
-      repositoryRoot: nil,
-      isWorktree: false,
-      worktreeId: nil,
-      unreadCount: 0,
-      currentDiff: "diff --git a/file.swift",
-      cumulativeDiff: "cumulative diff content",
-      currentPlan: #"[{"step":"Refactor","status":"inProgress"}]"#,
-      turnDiffs: [turnDiff],
-      currentTurnId: "turn-42",
-      turnCount: 3,
-      subagents: [subagent],
-      missionId: nil,
-      issueIdentifier: nil,
-      allowBypassPermissions: false
+    let state = try decodeServerSessionState(
+      """
+      {
+        "id": "session-1",
+        "provider": "claude",
+        "project_path": "/tmp/project",
+        "status": "active",
+        "work_status": "working",
+        "steerable": true,
+        "token_usage": {"input_tokens": 0, "output_tokens": 0, "cached_tokens": 0, "context_window": 0},
+        "token_usage_snapshot_kind": "lifetime_totals",
+        "turn_count": 3,
+        "current_turn_id": "turn-42",
+        "current_diff": "diff --git a/file.swift",
+        "cumulative_diff": "cumulative diff content",
+        "current_plan": "[{\\"step\\":\\"Refactor\\",\\"status\\":\\"inProgress\\"}]",
+        "turn_diffs": [
+          {
+            "turn_id": "turn-42",
+            "diff": "diff --git a/file.swift b/file.swift",
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cached_tokens": 2,
+            "context_window": 100000
+          }
+        ],
+        "subagents": [
+          {
+            "id": "worker-1",
+            "agent_type": "worker",
+            "started_at": "2026-03-22T10:00:00Z",
+            "provider": "codex",
+            "label": "Leibniz",
+            "status": "running",
+            "task_summary": "Check Makefile",
+            "model": "gpt-5.4",
+            "last_activity_at": "2026-03-22T10:00:01Z"
+          }
+        ]
+      }
+      """
     )
 
-    observable.applySnapshotProjection(projection)
+    observable.applyServerSnapshot(state)
 
     #expect(observable.diff == "diff --git a/file.swift")
     #expect(observable.cumulativeDiff == "cumulative diff content")
@@ -458,7 +254,7 @@ struct SessionStateProjectionTests {
     #expect(observable.pendingShellContext.isEmpty)
   }
 
-  @Test func sessionStateProjectionAppliesSharedDeltaFieldsToListAndDetail() throws {
+  @Test func sessionObservableApplyServerDeltaAppliesSharedFields() throws {
     let changes = try decodeChanges(
       """
       {
@@ -492,36 +288,11 @@ struct SessionStateProjectionTests {
       }
       """
     )
-    let projection = SessionStateProjection.from(changes)
 
-    var session = Session(
-      id: "session-1",
-      projectPath: "/tmp/project",
-      status: .active,
-      workStatus: .waiting,
-      attentionReason: .awaitingReply,
-      provider: .codex,
-      codexIntegrationMode: .direct
-    )
     let observable = SessionObservable(id: "session-1")
     observable.promptSuggestions = ["keep me?"]
 
-    session.applyProjection(projection)
-    observable.applyProjection(projection)
-
-    #expect(session.workStatus == .working)
-    #expect(session.attentionReason == .none)
-    #expect(session.totalTokens == 165)
-    #expect(session.tokenUsageSnapshotKind == .contextTurn)
-    #expect(session.currentDiff == "diff --git a/file.swift b/file.swift")
-    #expect(session.customName == "Pinned Session")
-    #expect(session.summary == "Refactor the client runtime")
-    #expect(session.branch == "main")
-    #expect(session.currentCwd == "/tmp/project")
-    #expect(session.repositoryRoot == "/tmp/repo")
-    #expect(session.isWorktree)
-    #expect(session.unreadCount == 7)
-    #expect(session.lastActivityAt == Date(timeIntervalSince1970: 1_234))
+    observable.applyServerDelta(changes)
 
     #expect(observable.workStatus == .working)
     #expect(observable.attentionReason == .none)
@@ -536,7 +307,7 @@ struct SessionStateProjectionTests {
     #expect(observable.unreadCount == 7)
   }
 
-  @Test func sessionAndObservableApplyTokenUsageKeepSnapshotKindInSync() {
+  @Test func sessionObservableApplyTokenUsageKeepsSnapshotKindInSync() {
     let usage = ServerTokenUsage(
       inputTokens: 50,
       outputTokens: 25,
@@ -544,26 +315,9 @@ struct SessionStateProjectionTests {
       contextWindow: 1_000
     )
 
-    var session = Session(
-      id: "session-1",
-      projectPath: "/tmp/project",
-      status: .active,
-      workStatus: .working,
-      attentionReason: .none,
-      provider: .claude,
-      claudeIntegrationMode: .direct
-    )
     let observable = SessionObservable(id: "session-1")
 
-    session.applyTokenUsage(usage, snapshotKind: .lifetimeTotals)
     observable.applyTokenUsage(usage, snapshotKind: .lifetimeTotals)
-
-    #expect(session.inputTokens == 50)
-    #expect(session.outputTokens == 25)
-    #expect(session.cachedTokens == 10)
-    #expect(session.contextWindow == 1_000)
-    #expect(session.totalTokens == 75)
-    #expect(session.tokenUsageSnapshotKind == .lifetimeTotals)
 
     #expect(observable.inputTokens == 50)
     #expect(observable.outputTokens == 25)
@@ -585,25 +339,9 @@ struct SessionStateProjectionTests {
       snapshotKind: .contextTurn
     )
 
-    var session = Session(
-      id: "session-1",
-      projectPath: "/tmp/project",
-      status: .active,
-      workStatus: .working,
-      attentionReason: .none,
-      provider: .claude,
-      claudeIntegrationMode: .direct
-    )
     let observable = SessionObservable(id: "session-1")
 
-    session.applyTurnDiffSnapshot(projection)
     observable.applyTurnDiffSnapshot(projection)
-
-    #expect(session.inputTokens == 40)
-    #expect(session.outputTokens == 15)
-    #expect(session.cachedTokens == 5)
-    #expect(session.contextWindow == 2_000)
-    #expect(session.tokenUsageSnapshotKind == .contextTurn)
 
     #expect(observable.turnDiffs.count == 1)
     #expect(observable.turnDiffs.first?.turnId == "turn-1")
@@ -649,7 +387,7 @@ struct SessionStateProjectionTests {
     #expect(observable.tokenUsageSnapshotKind == .lifetimeTotals)
   }
 
-  @Test func sessionAndObservableShareTokenUsageSemantics() {
+  @Test func sessionObservableTokenUsageSemanticsMatchSessionStruct() {
     let session = Session(
       id: "session-1",
       projectPath: "/tmp/project",
@@ -664,7 +402,7 @@ struct SessionStateProjectionTests {
     )
     let observable = SessionObservable(id: "session-1")
 
-    observable.applySnapshotProjection(SessionDetailSnapshotProjection.from(session))
+    observable.populateFromPreviewSession(session)
 
     #expect(observable.effectiveContextInputTokens == session.effectiveContextInputTokens)
     #expect(observable.contextFillPercent == session.contextFillPercent)
@@ -759,6 +497,10 @@ struct SessionStateProjectionTests {
 
   private func decodeChanges(_ json: String) throws -> ServerStateChanges {
     try JSONDecoder().decode(ServerStateChanges.self, from: Data(json.utf8))
+  }
+
+  private func decodeServerSessionState(_ json: String) throws -> ServerSessionState {
+    try JSONDecoder().decode(ServerSessionState.self, from: Data(json.utf8))
   }
 
   private func assistantRow(
