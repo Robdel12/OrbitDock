@@ -1190,6 +1190,12 @@ pub struct DashboardConversationItem {
     pub context_line: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alert_context: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     #[serde(default)]

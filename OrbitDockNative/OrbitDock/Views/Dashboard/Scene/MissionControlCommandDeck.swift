@@ -2,7 +2,6 @@ import SwiftUI
 
 struct MissionControlCommandDeck: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(AppRouter.self) private var router
 
   let conversations: [DashboardConversationRecord]
   @Binding var projectFilter: String?
@@ -59,12 +58,8 @@ struct MissionControlCommandDeck: View {
           group: group,
           showEndpointName: hasMultipleEndpoints,
           selectedConversationID: selectedConversationID,
-          selectedProjectPath: projectFilter,
+          projectFilter: $projectFilter,
           layoutMode: layoutMode,
-          onFocusProject: {
-            projectFilter = projectFilter == group.path ? nil : group.path
-          },
-          onOpenConversation: selectConversation
         )
       }
     }
@@ -90,10 +85,6 @@ struct MissionControlCommandDeck: View {
             .stroke(Color.surfaceBorder, lineWidth: 1)
         )
     )
-  }
-
-  private func selectConversation(_ conversation: DashboardConversationRecord) {
-    router.selectSession(conversation.sessionRef, source: .dashboardStream)
   }
 
   private func sortGroups(lhs: ConversationProjectGroup, rhs: ConversationProjectGroup) -> Bool {
@@ -141,13 +132,11 @@ private struct ConversationProjectSection: View {
   let group: ConversationProjectGroup
   let showEndpointName: Bool
   let selectedConversationID: String?
-  let selectedProjectPath: String?
+  @Binding var projectFilter: String?
   let layoutMode: DashboardLayoutMode
-  let onFocusProject: () -> Void
-  let onOpenConversation: (DashboardConversationRecord) -> Void
 
   private var isFocused: Bool {
-    selectedProjectPath == group.path
+    projectFilter == group.path
   }
 
   var body: some View {
@@ -182,9 +171,9 @@ private struct ConversationProjectSection: View {
           conversation: conversation,
           isSelected: isSelected,
           showEndpointName: showEndpointName,
-          layoutMode: layoutMode,
-          onOpen: { onOpenConversation(conversation) }
+          layoutMode: layoutMode
         )
+        .equatable()
         .padding(.bottom, Spacing.sm)
         .id(DashboardScrollIDs.session(conversation.id))
 
@@ -193,9 +182,9 @@ private struct ConversationProjectSection: View {
           conversation: conversation,
           isSelected: isSelected,
           showEndpointName: showEndpointName,
-          layoutMode: layoutMode,
-          onOpen: { onOpenConversation(conversation) }
+          layoutMode: layoutMode
         )
+        .equatable()
         .padding(.bottom, Spacing.sm)
         .id(DashboardScrollIDs.session(conversation.id))
 
@@ -204,9 +193,9 @@ private struct ConversationProjectSection: View {
           conversation: conversation,
           isSelected: isSelected,
           showEndpointName: showEndpointName,
-          layoutMode: layoutMode,
-          onOpen: { onOpenConversation(conversation) }
+          layoutMode: layoutMode
         )
+        .equatable()
         .id(DashboardScrollIDs.session(conversation.id))
     }
   }
@@ -305,7 +294,7 @@ private struct ConversationProjectSection: View {
 
   private var focusButton: some View {
     Button(isFocused ? "Show all" : "Track") {
-      onFocusProject()
+      projectFilter = isFocused ? nil : group.path
     }
     .buttonStyle(.plain)
     .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -327,12 +316,13 @@ private struct ConversationProjectSection: View {
 
 // MARK: - Tier 1: Compact Row (Ready / Ended)
 
-private struct CompactConversationRow: View {
+private struct CompactConversationRow: View, Equatable {
+  @Environment(AppRouter.self) private var router
+
   let conversation: DashboardConversationRecord
   let isSelected: Bool
   let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
-  let onOpen: () -> Void
 
   @State private var isHovering = false
 
@@ -346,15 +336,8 @@ private struct CompactConversationRow: View {
     return RelativeClock.shortLabel(for: date)
   }
 
-  private var previewText: String {
-    stripMarkdown(
-      conversation.lastMessage ?? conversation.contextLine
-        ?? "Waiting for your next message."
-    )
-  }
-
   var body: some View {
-    Button(action: onOpen) {
+    Button(action: openConversation) {
       VStack(alignment: .leading, spacing: 3) {
         // Line 1: Title + recency
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
@@ -378,7 +361,7 @@ private struct CompactConversationRow: View {
 
         // Line 2: Preview + trailing metadata
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-          Text(previewText)
+          Text(conversation.compactPreviewText)
             .font(.system(size: TypeScale.caption, weight: .regular))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
@@ -434,14 +417,14 @@ private struct CompactConversationRow: View {
         endpointTag(name)
       }
 
-      if let branch = conversation.branch, !branch.isEmpty {
-        Text(truncateBranch(branch, max: 16))
+      if let branch = conversation.compactBranchLabel {
+        Text(branch)
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
       }
 
-      if let model = conversation.model {
-        Text(displayNameForModel(model, provider: conversation.provider))
+      if let model = conversation.modelDisplayLabel {
+        Text(model)
           .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textQuaternary)
       }
@@ -449,27 +432,30 @@ private struct CompactConversationRow: View {
       diffLabel(for: conversation)
     }
   }
+
+  private func openConversation() {
+    router.selectSession(conversation.sessionRef, source: .dashboardStream)
+  }
+
+  static func == (lhs: CompactConversationRow, rhs: CompactConversationRow) -> Bool {
+    lhs.conversation == rhs.conversation
+      && lhs.isSelected == rhs.isSelected
+      && lhs.showEndpointName == rhs.showEndpointName
+      && lhs.layoutMode == rhs.layoutMode
+  }
 }
 
 // MARK: - Tier 2: Activity Card (Working)
 
-private struct ActivityConversationCard: View {
+private struct ActivityConversationCard: View, Equatable {
+  @Environment(AppRouter.self) private var router
+
   let conversation: DashboardConversationRecord
   let isSelected: Bool
   let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
-  let onOpen: () -> Void
 
   @State private var isHovering = false
-
-  private var activityLine: String {
-    if let toolName = conversation.pendingToolName {
-      return "Running \(toolName)"
-    }
-    return stripMarkdown(
-      conversation.lastMessage ?? conversation.contextLine ?? "Processing…"
-    )
-  }
 
   private var recencyLabel: String {
     let date = conversation.lastActivityAt ?? conversation.startedAt
@@ -478,7 +464,7 @@ private struct ActivityConversationCard: View {
   }
 
   var body: some View {
-    Button(action: onOpen) {
+    Button(action: openConversation) {
       VStack(alignment: .leading, spacing: Spacing.sm_) {
         // Title + recency
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
@@ -499,7 +485,7 @@ private struct ActivityConversationCard: View {
         }
 
         // Activity context
-        Text(activityLine)
+        Text(conversation.activitySummaryText)
           .font(.system(size: TypeScale.body, weight: .regular))
           .foregroundStyle(Color.textSecondary)
           .lineLimit(1)
@@ -530,14 +516,14 @@ private struct ActivityConversationCard: View {
             endpointTag(name)
           }
 
-          if let branch = conversation.branch, !branch.isEmpty {
-            Text(truncateBranch(branch, max: 20))
+          if let branch = conversation.expandedBranchLabel {
+            Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if let model = conversation.model, !layoutMode.isPhoneCompact {
-            Text(displayNameForModel(model, provider: conversation.provider))
+          if let model = conversation.modelDisplayLabel, !layoutMode.isPhoneCompact {
+            Text(model)
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
@@ -561,6 +547,17 @@ private struct ActivityConversationCard: View {
     .buttonStyle(.plain)
     .modifier(DashboardConversationActionsModifier(conversation: conversation))
     .onHover { isHovering = $0 }
+  }
+
+  private func openConversation() {
+    router.selectSession(conversation.sessionRef, source: .dashboardStream)
+  }
+
+  static func == (lhs: ActivityConversationCard, rhs: ActivityConversationCard) -> Bool {
+    lhs.conversation == rhs.conversation
+      && lhs.isSelected == rhs.isSelected
+      && lhs.showEndpointName == rhs.showEndpointName
+      && lhs.layoutMode == rhs.layoutMode
   }
 
   private var cardBackground: some View {
@@ -597,30 +594,18 @@ private struct ActivityConversationCard: View {
 
 // MARK: - Tier 3: Alert Card (Permission / Question)
 
-private struct AlertConversationCard: View {
+private struct AlertConversationCard: View, Equatable {
+  @Environment(AppRouter.self) private var router
+
   let conversation: DashboardConversationRecord
   let isSelected: Bool
   let showEndpointName: Bool
   let layoutMode: DashboardLayoutMode
-  let onOpen: () -> Void
 
   @State private var isHovering = false
 
   private var statusColor: Color {
     conversation.displayStatus.color
-  }
-
-  private var contextText: String {
-    if let pendingQuestion = conversation.pendingQuestion, !pendingQuestion.isEmpty {
-      return pendingQuestion
-    }
-    if let pendingToolName = conversation.pendingToolName {
-      return formatToolContext(toolName: pendingToolName, input: conversation.pendingToolInput)
-    }
-    return stripMarkdown(
-      conversation.lastMessage ?? conversation.contextLine
-        ?? "Needs your attention."
-    )
   }
 
   private var statusIcon: String {
@@ -638,7 +623,7 @@ private struct AlertConversationCard: View {
   }
 
   var body: some View {
-    Button(action: onOpen) {
+    Button(action: openConversation) {
       VStack(alignment: .leading, spacing: Spacing.md_) {
         // Title + recency
         HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
@@ -659,7 +644,7 @@ private struct AlertConversationCard: View {
         }
 
         // Pending context — the reason this card is big
-        Text(contextText)
+        Text(conversation.alertContextText)
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.textSecondary)
           .lineLimit(3)
@@ -685,14 +670,14 @@ private struct AlertConversationCard: View {
             endpointTag(name)
           }
 
-          if let branch = conversation.branch, !branch.isEmpty {
-            Text(truncateBranch(branch, max: 20))
+          if let branch = conversation.expandedBranchLabel {
+            Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textQuaternary)
           }
 
-          if let model = conversation.model, !layoutMode.isPhoneCompact {
-            Text(displayNameForModel(model, provider: conversation.provider))
+          if let model = conversation.modelDisplayLabel, !layoutMode.isPhoneCompact {
+            Text(model)
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textQuaternary)
           }
@@ -716,6 +701,17 @@ private struct AlertConversationCard: View {
     .buttonStyle(.plain)
     .modifier(DashboardConversationActionsModifier(conversation: conversation))
     .onHover { isHovering = $0 }
+  }
+
+  private func openConversation() {
+    router.selectSession(conversation.sessionRef, source: .dashboardStream)
+  }
+
+  static func == (lhs: AlertConversationCard, rhs: AlertConversationCard) -> Bool {
+    lhs.conversation == rhs.conversation
+      && lhs.isSelected == rhs.isSelected
+      && lhs.showEndpointName == rhs.showEndpointName
+      && lhs.layoutMode == rhs.layoutMode
   }
 
   private var cardBackground: some View {
@@ -857,64 +853,6 @@ private struct DashboardConversationSwipeActions: ViewModifier {
       content
     #endif
   }
-}
-
-// MARK: - Utilities
-
-/// Format a tool call into a human-readable description for dashboard previews.
-/// Extracts the most meaningful parameter from known tools instead of dumping raw JSON.
-private func formatToolContext(toolName: String, input: String?) -> String {
-  guard let input, !input.isEmpty,
-        let data = input.data(using: .utf8),
-        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-  else {
-    return "Wants to run \(toolName)"
-  }
-
-  switch toolName {
-    case "Bash":
-      if let command = json["command"] as? String {
-        return command
-      }
-    case "Edit":
-      if let path = json["file_path"] as? String {
-        return "Edit \(URL(fileURLWithPath: path).lastPathComponent)"
-      }
-    case "Write":
-      if let path = json["file_path"] as? String {
-        return "Write \(URL(fileURLWithPath: path).lastPathComponent)"
-      }
-    case "Read":
-      if let path = json["file_path"] as? String {
-        return "Read \(URL(fileURLWithPath: path).lastPathComponent)"
-      }
-    case "Grep":
-      if let pattern = json["pattern"] as? String {
-        return "Search for \"\(pattern)\""
-      }
-    case "Glob":
-      if let pattern = json["pattern"] as? String {
-        return "Find files matching \(pattern)"
-      }
-    default:
-      break
-  }
-
-  return "Wants to run \(toolName)"
-}
-
-private func truncateBranch(_ branch: String, max: Int) -> String {
-  if branch.count <= max { return branch }
-  return "\(branch.prefix(max - 1))…"
-}
-
-private func stripMarkdown(_ text: String) -> String {
-  text
-    .replacingOccurrences(of: "**", with: "")
-    .replacingOccurrences(of: "__", with: "")
-    .replacingOccurrences(of: "`", with: "")
-    .replacingOccurrences(of: "## ", with: "")
-    .replacingOccurrences(of: "# ", with: "")
 }
 
 private enum RelativeClock {

@@ -371,6 +371,20 @@ impl SessionRegistry {
                     snap.first_prompt.as_deref(),
                     snap.last_message.as_deref(),
                 );
+                let preview_text =
+                    dashboard_preview_text(snap.last_message.as_deref(), context_line.as_deref());
+                let activity_summary = dashboard_activity_summary(
+                    snap.pending_tool_name.as_deref(),
+                    snap.last_message.as_deref(),
+                    context_line.as_deref(),
+                );
+                let alert_context = dashboard_alert_context(
+                    snap.pending_question.as_deref(),
+                    snap.pending_tool_name.as_deref(),
+                    snap.pending_tool_input.as_deref(),
+                    snap.last_message.as_deref(),
+                    context_line.as_deref(),
+                );
 
                 DashboardConversationItem {
                     session_id: snap.id.clone(),
@@ -401,6 +415,9 @@ impl SessionRegistry {
                     pending_tool_name: snap.pending_tool_name.clone(),
                     pending_tool_input: snap.pending_tool_input.clone(),
                     pending_question: snap.pending_question.clone(),
+                    preview_text: Some(preview_text),
+                    activity_summary: Some(activity_summary),
+                    alert_context: Some(alert_context),
                     tool_count: 0,
                     active_worker_count: 0,
                     issue_identifier: None,
@@ -627,6 +644,89 @@ fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
     }
 }
 
+fn dashboard_preview_text(last_message: Option<&str>, context_line: Option<&str>) -> String {
+    sanitize_dashboard_text(
+        last_message
+            .or(context_line)
+            .unwrap_or("Waiting for your next message."),
+    )
+}
+
+fn dashboard_activity_summary(
+    pending_tool_name: Option<&str>,
+    last_message: Option<&str>,
+    context_line: Option<&str>,
+) -> String {
+    if let Some(tool_name) = pending_tool_name {
+        return format!("Running {tool_name}");
+    }
+
+    sanitize_dashboard_text(last_message.or(context_line).unwrap_or("Processing…"))
+}
+
+fn dashboard_alert_context(
+    pending_question: Option<&str>,
+    pending_tool_name: Option<&str>,
+    pending_tool_input: Option<&str>,
+    last_message: Option<&str>,
+    context_line: Option<&str>,
+) -> String {
+    if let Some(question) = pending_question.filter(|value| !value.is_empty()) {
+        return question.to_string();
+    }
+
+    if let Some(tool_name) = pending_tool_name {
+        return format_tool_context(tool_name, pending_tool_input);
+    }
+
+    sanitize_dashboard_text(
+        last_message
+            .or(context_line)
+            .unwrap_or("Needs your attention."),
+    )
+}
+
+fn sanitize_dashboard_text(text: &str) -> String {
+    text.replace("**", "")
+        .replace("__", "")
+        .replace('`', "")
+        .replace("## ", "")
+        .replace("# ", "")
+}
+
+fn format_tool_context(tool_name: &str, input: Option<&str>) -> String {
+    let Some(input) = input.filter(|value| !value.is_empty()) else {
+        return format!("Wants to run {tool_name}");
+    };
+
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(input) else {
+        return format!("Wants to run {tool_name}");
+    };
+
+    match tool_name {
+        "Bash" => json
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned),
+        "Edit" | "Write" | "Read" => json
+            .get("file_path")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|path| std::path::Path::new(path).file_name())
+            .and_then(|name| name.to_str())
+            .map(|name| format!("{tool_name} {name}")),
+        "Grep" => json
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .map(|pattern| format!("Search for \"{pattern}\"")),
+        "Glob" => json
+            .get("pattern")
+            .and_then(serde_json::Value::as_str)
+            .map(|pattern| format!("Find files matching {pattern}")),
+        _ => None,
+    }
+    .unwrap_or_else(|| format!("Wants to run {tool_name}"))
+}
+
 fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
     let diff = diff?.trim();
     if diff.is_empty() {
@@ -721,5 +821,43 @@ mod tests {
         let conversations = registry.get_dashboard_conversations();
         assert_eq!(conversations.len(), 1);
         assert_eq!(conversations[0].session_id, "active-session");
+    }
+
+    #[tokio::test]
+    async fn dashboard_conversations_include_server_owned_summary_fields() {
+        ensure_server_test_data_dir();
+        let (persist_tx, _persist_rx) = mpsc::channel(8);
+        let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+        let mut session = SessionHandle::new(
+            "summary-session".to_string(),
+            Provider::Codex,
+            "/tmp/orbitdock-summary".to_string(),
+        );
+        session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        session.set_first_prompt(Some("Check the latest output".to_string()));
+        session.set_last_message(Some("## Heading with `code`".to_string()));
+        session.set_pending_attention(
+            Some("Bash".to_string()),
+            Some(r#"{"command":"ls -la"}"#.to_string()),
+            None,
+        );
+        session.set_work_status(WorkStatus::Waiting);
+        session.refresh_snapshot();
+        registry.add_session(session);
+
+        let conversations = registry.get_dashboard_conversations();
+        assert_eq!(conversations.len(), 1);
+
+        let conversation = &conversations[0];
+        assert_eq!(
+            conversation.preview_text.as_deref(),
+            Some("Heading with code")
+        );
+        assert_eq!(
+            conversation.activity_summary.as_deref(),
+            Some("Running Bash")
+        );
+        assert_eq!(conversation.alert_context.as_deref(), Some("ls -la"));
     }
 }

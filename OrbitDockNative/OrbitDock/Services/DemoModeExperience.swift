@@ -248,6 +248,9 @@ diff --git a/OrbitDockNative/OrbitDock/Services/DemoModeExperience.swift b/Orbit
         displayTitle: "App Review Demo",
         contextLine: "Minimal seeded conversation for App Review",
         lastMessage: "I added a lightweight Explore Demo flow and seeded a sample session.",
+        previewText: "I added a lightweight Explore Demo flow and seeded a sample session.",
+        activitySummary: "I added a lightweight Explore Demo flow and seeded a sample session.",
+        alertContext: "I added a lightweight Explore Demo flow and seeded a sample session.",
         startedAt: iso8601Timestamp(now.addingTimeInterval(-4_200)),
         lastActivityAt: iso8601Timestamp(now.addingTimeInterval(-180)),
         unreadCount: 0,
@@ -411,6 +414,9 @@ extension ServerDashboardConversationItem {
     displayTitle: String,
     contextLine: String?,
     lastMessage: String?,
+    previewText: String?,
+    activitySummary: String?,
+    alertContext: String?,
     startedAt: String?,
     lastActivityAt: String?,
     unreadCount: UInt64,
@@ -441,6 +447,9 @@ extension ServerDashboardConversationItem {
     self.displayTitle = displayTitle
     self.contextLine = contextLine
     self.lastMessage = lastMessage
+    self.previewText = previewText
+    self.activitySummary = activitySummary
+    self.alertContext = alertContext
     self.startedAt = startedAt
     self.lastActivityAt = lastActivityAt
     self.unreadCount = unreadCount

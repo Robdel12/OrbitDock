@@ -124,6 +124,11 @@ Returns aggregated conversation records for the dashboard view. This is a higher
 
 Response: array of `DashboardConversationItem` objects.
 
+Notes:
+
+- `preview_text`, `activity_summary`, and `alert_context` are server-derived plain-text summaries for dashboard cards.
+- Clients should treat them as the shared semantic source of truth and only apply layout-specific presentation on top.
+
 #### `GET /api/sessions/{session_id}`
 
 Returns full session state.

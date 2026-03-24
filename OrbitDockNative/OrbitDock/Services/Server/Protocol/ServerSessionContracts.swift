@@ -376,6 +376,9 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
   let displayTitle: String
   let contextLine: String?
   let lastMessage: String?
+  let previewText: String?
+  let activitySummary: String?
+  let alertContext: String?
   let startedAt: String?
   let lastActivityAt: String?
   let unreadCount: UInt64
@@ -411,6 +414,9 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     case displayTitle = "display_title"
     case contextLine = "context_line"
     case lastMessage = "last_message"
+    case previewText = "preview_text"
+    case activitySummary = "activity_summary"
+    case alertContext = "alert_context"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case unreadCount = "unread_count"
@@ -447,6 +453,9 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     displayTitle = try container.decode(String.self, forKey: .displayTitle)
     contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
     lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+    previewText = try container.decodeIfPresent(String.self, forKey: .previewText)
+    activitySummary = try container.decodeIfPresent(String.self, forKey: .activitySummary)
+    alertContext = try container.decodeIfPresent(String.self, forKey: .alertContext)
     startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
     lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
     unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount) ?? 0
