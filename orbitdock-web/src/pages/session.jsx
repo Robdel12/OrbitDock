@@ -49,8 +49,8 @@ const SessionPage = () => {
   // Pending: true between send and the first WS user row that confirms receipt.
   const [isPending, setIsPending] = useState(false)
 
-  // Claude approval policy — initialised from session once it loads.
-  const [approvalPolicy, setApprovalPolicy] = useState('ask')
+  // Claude permission mode — initialised from session once it loads, updated via store deltas.
+  const [permissionMode, setPermissionMode] = useState('default')
 
   // Token usage from tokens_updated WS events.
   const [tokenUsage, setTokenUsage] = useState(null)
@@ -198,12 +198,13 @@ const SessionPage = () => {
     }
   }, [sessionId])
 
-  // Seed the local approval policy from the session object whenever the
+  // Seed the local permission mode from the session object whenever the
   // session loads or changes (e.g. navigating between sessions).
+  // The store is updated by WS session_delta events, so this stays in sync.
   useEffect(() => {
-    const policy = selected.value?.approval_policy
-    if (policy) setApprovalPolicy(policy)
-  }, [sessionId, selected.value?.approval_policy])
+    const mode = selected.value?.permission_mode
+    if (mode) setPermissionMode(mode)
+  }, [sessionId, selected.value?.permission_mode])
 
   if (!sessionId) return null
   if (isBootstrapping) return <SessionSkeleton />
@@ -225,12 +226,12 @@ const SessionPage = () => {
     })
   }
 
-  const handleApprovalPolicyChange = (policy) => {
-    const previousPolicy = approvalPolicy
-    setApprovalPolicy(policy)
-    http.patch(`/api/sessions/${sessionId}/config`, { approval_policy: policy }).catch((err) => {
-      console.warn('[session] approval policy update failed:', err.message)
-      setApprovalPolicy(previousPolicy)
+  const handlePermissionModeChange = (mode) => {
+    const previousMode = permissionMode
+    setPermissionMode(mode)
+    http.patch(`/api/sessions/${sessionId}/config`, { permission_mode: mode }).catch((err) => {
+      console.warn('[session] permission mode update failed:', err.message)
+      setPermissionMode(previousMode)
     })
   }
 
@@ -494,8 +495,8 @@ const SessionPage = () => {
           isEnded={isEnded}
           isConnected={connectionState.value === 'connected'}
           provider={session?.provider}
-          approvalPolicy={approvalPolicy}
-          onApprovalPolicyChange={handleApprovalPolicyChange}
+          permissionMode={permissionMode}
+          onPermissionModeChange={handlePermissionModeChange}
           projectPath={session?.project_path || session?.repository_root}
           skills={liveSkills}
           session={session}

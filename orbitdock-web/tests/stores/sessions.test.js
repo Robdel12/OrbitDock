@@ -42,6 +42,24 @@ describe('sessions store', () => {
       handleSessionDelta('s1', { work_status: 'reply' })
       assert.strictEqual(sessions.value.get('s1').work_status, 'reply')
     })
+
+    it('applies permission_mode from delta', () => {
+      handleSessionsList([{ id: 's1', status: 'active', work_status: 'working', permission_mode: 'default' }])
+      handleSessionDelta('s1', { permission_mode: 'plan' })
+      assert.strictEqual(sessions.value.get('s1').permission_mode, 'plan')
+    })
+
+    it('clears permission_mode when delta sets null', () => {
+      handleSessionsList([{ id: 's1', status: 'active', work_status: 'working', permission_mode: 'plan' }])
+      handleSessionDelta('s1', { permission_mode: null })
+      assert.strictEqual(sessions.value.get('s1').permission_mode, null)
+    })
+
+    it('preserves permission_mode when delta does not include it', () => {
+      handleSessionsList([{ id: 's1', status: 'active', work_status: 'working', permission_mode: 'acceptEdits' }])
+      handleSessionDelta('s1', { work_status: 'reply' })
+      assert.strictEqual(sessions.value.get('s1').permission_mode, 'acceptEdits')
+    })
   })
 
   describe('handleSessionEnded', () => {
@@ -117,6 +135,19 @@ describe('sessions store', () => {
       const session = sessions.value.get('sess-1')
       assert.strictEqual(session.branch, 'feature/resume-fix')
       assert.strictEqual(session.git_branch, 'feature/resume-fix')
+    })
+
+    it('applies permission_mode from resume summary', () => {
+      handleSessionsList([endedSession()])
+
+      applyResumeSummary('sess-1', {
+        id: 'sess-1',
+        status: 'active',
+        work_status: 'working',
+        permission_mode: 'acceptEdits',
+      })
+
+      assert.strictEqual(sessions.value.get('sess-1').permission_mode, 'acceptEdits')
     })
   })
 })

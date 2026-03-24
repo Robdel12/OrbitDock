@@ -54,6 +54,7 @@ const handleSessionDelta = (sessionId, changes) => {
     updated.git_branch = changes.git_branch
     updated.branch = changes.git_branch
   }
+  if (changes.permission_mode !== undefined) updated.permission_mode = changes.permission_mode
   // Recompute display_title when the underlying name fields change
   if (changes.custom_name !== undefined || changes.summary !== undefined || changes.first_prompt !== undefined) {
     updated.display_title = updated.custom_name || updated.summary || updated.first_prompt || updated.display_title

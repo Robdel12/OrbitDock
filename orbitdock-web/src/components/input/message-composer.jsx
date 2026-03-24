@@ -512,8 +512,8 @@ const MessageComposer = ({
   isEnded,
   isConnected,
   provider,
-  approvalPolicy,
-  onApprovalPolicyChange,
+  permissionMode,
+  onPermissionModeChange,
   projectPath,
   skills,
   session,
@@ -1146,22 +1146,30 @@ const MessageComposer = ({
                   Disconnected
                 </span>
               )}
-              {provider === 'claude' && approvalPolicy && (
+              {provider === 'claude' && permissionMode && (
                 <button
                   type="button"
                   class={`${styles.statusItem} ${styles.statusPill} ${styles.statusPillClickable}`}
                   onClick={
-                    onApprovalPolicyChange
+                    onPermissionModeChange
                       ? () => {
-                          const policies = ['ask', 'auto-edit', 'auto-full']
-                          const idx = policies.indexOf(approvalPolicy)
-                          onApprovalPolicyChange(policies[(idx + 1) % policies.length])
+                          const modes = ['default', 'plan', 'acceptEdits', 'bypassPermissions']
+                          const idx = modes.indexOf(permissionMode)
+                          onPermissionModeChange(modes[(idx + 1) % modes.length])
                         }
                       : undefined
                   }
                   title="Click to cycle permission mode"
                 >
-                  {approvalPolicy === 'ask' ? 'Ask' : approvalPolicy === 'auto-edit' ? 'Auto-Edit' : 'Auto-Full'}
+                  {permissionMode === 'plan'
+                    ? 'Plan Mode'
+                    : permissionMode === 'acceptEdits'
+                      ? 'Accept Edits'
+                      : permissionMode === 'bypassPermissions'
+                        ? 'Bypass'
+                        : permissionMode === 'dontAsk'
+                          ? "Don't Ask"
+                          : 'Default'}
                 </button>
               )}
               {tokenInfo && (

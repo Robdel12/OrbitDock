@@ -44,20 +44,21 @@ const CodexEffortPicker = ({ value, onChange }) => (
 )
 
 // ---------------------------------------------------------------------------
-// Claude permission policy picker
+// Claude permission mode picker
 // ---------------------------------------------------------------------------
 
-const POLICY_OPTIONS = [
-  { value: 'ask', label: 'Ask', description: 'Ask before every tool call' },
-  { value: 'auto-edit', label: 'Auto-Edit', description: 'Auto-approve file edits' },
-  { value: 'auto-full', label: 'Auto-Full', description: 'Auto-approve everything' },
+const PERMISSION_MODE_OPTIONS = [
+  { value: 'default', label: 'Default', description: 'Normal permission checking' },
+  { value: 'plan', label: 'Plan', description: 'Plan mode — propose changes without executing' },
+  { value: 'acceptEdits', label: 'Accept Edits', description: 'Auto-approve file edits' },
+  { value: 'bypassPermissions', label: 'Bypass', description: 'Bypass all permission checks' },
 ]
 
 const ClaudePermissionPicker = ({ value, onChange }) => (
   <div class={styles.control}>
     <span class={styles.label}>Permissions</span>
     <SegmentedControl
-      options={POLICY_OPTIONS}
+      options={PERMISSION_MODE_OPTIONS}
       value={value}
       onChange={onChange}
       colorVar="var(--color-provider-claude)"
@@ -69,13 +70,13 @@ const ClaudePermissionPicker = ({ value, onChange }) => (
 // ProviderControls — renders the right control based on provider
 // ---------------------------------------------------------------------------
 
-const ProviderControls = ({ provider, effort, onEffortChange, approvalPolicy, onApprovalPolicyChange }) => {
+const ProviderControls = ({ provider, effort, onEffortChange, permissionMode, onPermissionModeChange }) => {
   if (provider === 'codex') {
     return <CodexEffortPicker value={effort} onChange={onEffortChange} />
   }
 
   if (provider === 'claude') {
-    return <ClaudePermissionPicker value={approvalPolicy} onChange={onApprovalPolicyChange} />
+    return <ClaudePermissionPicker value={permissionMode} onChange={onPermissionModeChange} />
   }
 
   return null
