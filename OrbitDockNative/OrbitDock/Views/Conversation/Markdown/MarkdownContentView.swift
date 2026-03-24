@@ -2,12 +2,8 @@
 //  MarkdownContentView.swift
 //  OrbitDock
 //
-//  Drop-in SwiftUI replacement for MarkdownContentRepresentable.
-//  No availableWidth, no height measurement, no NSViewRepresentable.
-//
-//  Large content (>50 lines or >8K chars) is truncated before parsing
-//  to prevent SwiftUI from choking on massive Text views. Users can
-//  expand inline to see the full content.
+//  Thin composition layer for conversation markdown rendering.
+//  The heavy lifting now lives in the segment projector and prose builder.
 //
 
 import SwiftUI
@@ -38,7 +34,6 @@ struct MarkdownContentView: View {
       return lines.prefix(Self.collapsedLineCount).joined(separator: "\n")
     }
 
-    // Character-based truncation (few lines but very long)
     let end = content.index(
       content.startIndex,
       offsetBy: Self.maxCharacterCount,
@@ -51,32 +46,75 @@ struct MarkdownContentView: View {
     MarkdownStreamingProjection.make(content: visibleContent, isStreaming: isStreaming)
   }
 
-  var body: some View {
+  private var collapseButtonTitle: String {
+    guard !isExpanded else { return "Show less" }
+
+    if lines.count > Self.collapseLineThreshold {
+      let hiddenCount = max(lines.count - Self.collapsedLineCount, 0)
+      return "Show \(hiddenCount) more lines"
+    }
+
+    return "Show more"
+  }
+
+  private var renderSegments: [MarkdownRenderSegment] {
     let stablePrefix = streamingProjection.stablePrefix
-    let streamingTail = streamingProjection.streamingTail
-    let blocks = MarkdownSystemParser.parse(stablePrefix, style: style)
+    let cached = MarkdownRenderSegmentCache.resolve(
+      markdown: stablePrefix,
+      style: style
+    )
+    var segments = cached.segments
 
-    if !blocks.isEmpty || !streamingTail.isEmpty {
+    guard !streamingProjection.streamingTail.isEmpty else { return segments }
+
+    let tailBlock = MarkdownBlock.text(streamingProjection.streamingTail)
+    if let lastSegment = segments.last,
+       case let .prose(prose) = lastSegment
+    {
+      let mergedProse = MarkdownRenderSegment.Prose(
+        identity: prose.identity,
+        sourceBlockRange: prose.sourceBlockRange,
+        blocks: prose.blocks + [tailBlock]
+      )
+      segments[segments.count - 1] = .prose(mergedProse)
+    } else {
+      let startBlockIndex = cached.blockCount
+      segments.append(
+        .prose(
+          MarkdownRenderSegment.Prose(
+            identity: .init(kind: .prose, startBlockIndex: startBlockIndex),
+            sourceBlockRange: startBlockIndex..<(startBlockIndex + 1),
+            blocks: [tailBlock]
+          )
+        )
+      )
+    }
+
+    return segments
+  }
+
+  var body: some View {
+    let segments = renderSegments
+
+    if !segments.isEmpty {
       VStack(alignment: .leading, spacing: 0) {
-        if !blocks.isEmpty {
-          MarkdownBlockView(blocks: blocks, style: style)
-        }
+        ForEach(Array(segments.enumerated()), id: \.element.identity) { index, segment in
+          let previous = index > 0 ? segments[index - 1] : nil
+          let spacing = MarkdownRenderSegmentProjector.segmentSpacing(
+            previous: previous,
+            current: segment,
+            style: style
+          )
 
-        if !streamingTail.isEmpty {
-          Text(verbatim: streamingTail)
-            .foregroundStyle(tailForegroundStyle)
-            .lineSpacing(MarkdownTypography.bodyLineSpacing(style: style))
-            .font(MarkdownTypography.bodyFont(style: style))
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
+          MarkdownSegmentView(segment: segment, style: style)
+            .padding(.top, spacing)
         }
 
         if shouldCollapse {
           Button {
             isExpanded.toggle()
           } label: {
-            let hiddenCount = lines.count - Self.collapsedLineCount
-            Text(isExpanded ? "Show less" : "Show \(hiddenCount) more lines")
+            Text(collapseButtonTitle)
               .font(.system(size: TypeScale.meta, weight: .medium))
               .foregroundStyle(Color.textTertiary)
               .padding(.top, 6)
@@ -85,15 +123,66 @@ struct MarkdownContentView: View {
           .transaction { $0.animation = nil }
         }
       }
+      .tint(Color.markdownLink)
+      .textSelection(.enabled)
+    } else if shouldCollapse {
+      Button {
+        isExpanded.toggle()
+      } label: {
+        Text(collapseButtonTitle)
+          .font(.system(size: TypeScale.meta, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+          .padding(.top, 6)
+      }
+      .buttonStyle(.plain)
+      .transaction { $0.animation = nil }
+    }
+  }
+}
+
+private enum MarkdownRenderSegmentCache {
+  struct Value: Sendable {
+    let blockCount: Int
+    let segments: [MarkdownRenderSegment]
+  }
+
+  private final class Box: NSObject {
+    let value: Value
+
+    init(_ value: Value) {
+      self.value = value
     }
   }
 
-  private var tailForegroundStyle: Color {
-    switch style {
+  private static let cache: NSCache<NSString, Box> = {
+    let cache = NSCache<NSString, Box>()
+    cache.countLimit = 192
+    return cache
+  }()
+
+  static func resolve(markdown: String, style: ContentStyle) -> Value {
+    let key = "\(style.cacheToken)|\(markdown)" as NSString
+    if let cached = cache.object(forKey: key) {
+      return cached.value
+    }
+
+    let blocks = MarkdownSystemParser.parse(markdown, style: style)
+    let value = Value(
+      blockCount: blocks.count,
+      segments: MarkdownRenderSegmentProjector.project(blocks)
+    )
+    cache.setObject(Box(value), forKey: key)
+    return value
+  }
+}
+
+private extension ContentStyle {
+  var cacheToken: String {
+    switch self {
       case .standard:
-        .textPrimary
+        "standard"
       case .thinking:
-        .textSecondary
+        "thinking"
     }
   }
 }

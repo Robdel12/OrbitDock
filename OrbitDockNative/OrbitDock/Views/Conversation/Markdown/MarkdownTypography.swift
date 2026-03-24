@@ -55,7 +55,8 @@ enum MarkdownTypography {
   static func headingColor(level: Int) -> Color {
     switch level {
       case 1, 2: .textPrimary
-      default: Color.white.opacity(0.85)
+      case 3: .textSecondary
+      default: .textSecondary
     }
   }
 
@@ -73,6 +74,15 @@ enum MarkdownTypography {
     .system(size: bodySize(style: style))
   }
 
+  static func bodyForegroundColor(style: ContentStyle) -> Color {
+    switch style {
+      case .standard:
+        .textPrimary
+      case .thinking:
+        .textSecondary
+    }
+  }
+
   static func bodySize(style: ContentStyle) -> CGFloat {
     switch style {
       case .standard: TypeScale.chatBody // 15pt
@@ -87,6 +97,34 @@ enum MarkdownTypography {
       case .standard: 4
       case .thinking: 3
     }
+  }
+
+  static func paragraphSpacing(style: ContentStyle) -> String {
+    style == .thinking ? "\n" : "\n\n"
+  }
+
+  static func listContinuationSpacing(style: ContentStyle) -> String {
+    "\n"
+  }
+
+  static func listChildSpacing(style: ContentStyle) -> String {
+    "\n"
+  }
+
+  static func blockquoteForegroundColor(style: ContentStyle) -> Color {
+    style == .standard ? .textSecondary : .textTertiary
+  }
+
+  static func blockquotePrefixColor(style: ContentStyle) -> Color {
+    style == .standard ? .textQuaternary : .textQuaternary
+  }
+
+  static func blockquotePrefix(style: ContentStyle) -> String {
+    "▎ "
+  }
+
+  static func listIndentString(depth: Int) -> String {
+    String(repeating: "\u{00A0}\u{00A0}", count: depth + 1)
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
