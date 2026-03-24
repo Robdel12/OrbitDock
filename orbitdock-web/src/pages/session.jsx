@@ -354,7 +354,7 @@ const SessionPage = () => {
   }
 
   const handleSteer = (payload) => {
-    let body = { content: payload.content || '' }
+    const body = { content: payload.content || '' }
     if (payload.images?.length) body.images = payload.images
     http.post(`/api/sessions/${sessionId}/steer`, body).catch((err) => {
       console.warn('[session] steer failed:', err.message)

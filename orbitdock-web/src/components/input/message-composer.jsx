@@ -749,7 +749,7 @@ const MessageComposer = ({
     // When the agent is actively working, steer the current turn instead of
     // queuing a new user message — unless there's no steer handler.
     if (isWorking && onSteer && (text || attachments.length)) {
-      let payload = { content: text }
+      const payload = { content: text }
       if (attachments.length) {
         payload.images = attachments.map(({ dataUrl, mimeType, name }) => ({
           input_type: 'url',
