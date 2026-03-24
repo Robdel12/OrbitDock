@@ -365,6 +365,7 @@ pub async fn create_session(
             worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: body.allow_bypass_permissions,
+            claude_extra_env: Vec::new(),
             codex_config_mode: resolved_codex
                 .as_ref()
                 .map(|resolved| resolved.effective_settings.config_mode),

@@ -21,6 +21,7 @@ buildServer.json
 # Note: Package.resolved is force-tracked (git add -f) for CI reproducibility
 xcuserdata/
 .claude/
+.mcp.json
 
 # Swift Package Manager
 .build/

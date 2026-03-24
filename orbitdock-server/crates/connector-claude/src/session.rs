@@ -25,6 +25,7 @@ pub struct ClaudeSessionConfig<'a> {
     pub disallowed_tools: &'a [String],
     pub effort: Option<&'a str>,
     pub allow_bypass_permissions: bool,
+    pub extra_env: &'a [(String, String)],
 }
 
 #[derive(Debug)]

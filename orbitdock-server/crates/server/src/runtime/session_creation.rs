@@ -57,6 +57,7 @@ pub(crate) struct DirectSessionRequest {
     /// When true, pass `--allow-dangerously-skip-permissions` to the Claude CLI,
     /// enabling mid-session switches to `bypassPermissions` mode.
     pub allow_bypass_permissions: bool,
+    pub claude_extra_env: Vec<(String, String)>,
     pub codex_config_mode: Option<CodexConfigMode>,
     pub codex_config_profile: Option<String>,
     pub codex_model_provider: Option<String>,
@@ -328,6 +329,7 @@ pub(crate) async fn launch_prepared_direct_session(
                     disallowed_tools: &request.disallowed_tools,
                     effort: request.effort.as_deref(),
                     allow_bypass_permissions: request.allow_bypass_permissions,
+                    extra_env: &request.claude_extra_env,
                 },
             )
             .await
@@ -451,6 +453,7 @@ mod tests {
             worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            claude_extra_env: Vec::new(),
             codex_config_mode: None,
             codex_config_profile: None,
             codex_model_provider: None,

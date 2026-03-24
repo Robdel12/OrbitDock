@@ -148,6 +148,7 @@ pub(crate) async fn start_direct_claude_session(
         disallowed_tools,
         effort,
         allow_bypass_permissions,
+        extra_env,
     } = request;
     let session_id = session_id.to_string();
     let claude_session = ClaudeSession::new(
@@ -161,6 +162,7 @@ pub(crate) async fn start_direct_claude_session(
             disallowed_tools,
             effort,
             allow_bypass_permissions,
+            extra_env,
         },
     )
     .await
@@ -212,6 +214,7 @@ pub(crate) struct StartDirectClaudeRequest<'a> {
     pub disallowed_tools: &'a [String],
     pub effort: Option<&'a str>,
     pub allow_bypass_permissions: bool,
+    pub extra_env: &'a [(String, String)],
 }
 
 fn spawn_claude_init_watchdog(

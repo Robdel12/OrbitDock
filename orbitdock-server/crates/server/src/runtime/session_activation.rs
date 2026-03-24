@@ -432,6 +432,7 @@ async fn start_lazy_claude_connector(
                 disallowed_tools: &[],
                 effort: None,
                 allow_bypass_permissions: false,
+                extra_env: &[],
             },
         )
         .await

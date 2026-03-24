@@ -28,32 +28,41 @@ pub(crate) fn mission_branch_name(identifier: &str) -> String {
     )
 }
 
-/// Build the `.mcp.json` content for mission tools.
-pub(crate) fn build_mcp_config(
+/// Build inherited env vars for mission tools.
+pub(crate) fn build_mission_tool_env(
     tracker_kind: &str,
     tracker_api_key: &str,
     issue_id: &str,
     issue_identifier: &str,
     mission_id: &str,
-    orbitdock_bin: &str,
-) -> serde_json::Value {
+) -> Vec<(String, String)> {
     let (api_key_env, tracker_kind_str) = match tracker_kind {
         "github" => ("GITHUB_TOKEN", "github"),
         _ => ("LINEAR_API_KEY", "linear"),
     };
 
+    vec![
+        (api_key_env.to_string(), tracker_api_key.to_string()),
+        (
+            "ORBITDOCK_TRACKER_KIND".to_string(),
+            tracker_kind_str.to_string(),
+        ),
+        ("ORBITDOCK_ISSUE_ID".to_string(), issue_id.to_string()),
+        (
+            "ORBITDOCK_ISSUE_IDENTIFIER".to_string(),
+            issue_identifier.to_string(),
+        ),
+        ("ORBITDOCK_MISSION_ID".to_string(), mission_id.to_string()),
+    ]
+}
+
+/// Build the `.mcp.json` content for mission tools without secrets.
+pub(crate) fn build_mcp_config(orbitdock_bin: &str) -> serde_json::Value {
     serde_json::json!({
         "mcpServers": {
             "orbitdock-mission": {
                 "command": orbitdock_bin,
-                "args": ["mcp-mission-tools"],
-                "env": {
-                    api_key_env: tracker_api_key,
-                    "ORBITDOCK_TRACKER_KIND": tracker_kind_str,
-                    "ORBITDOCK_ISSUE_ID": issue_id,
-                    "ORBITDOCK_ISSUE_IDENTIFIER": issue_identifier,
-                    "ORBITDOCK_MISSION_ID": mission_id,
-                }
+                "args": ["mcp-mission-tools"]
             }
         }
     })
@@ -104,19 +113,26 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
                 }
             };
 
-        if let Some(ref api_key_value) = req.tracker_api_key {
+        let claude_extra_env = req
+            .tracker_api_key
+            .as_ref()
+            .map(|api_key_value| {
+                build_mission_tool_env(
+                    &req.tracker_kind,
+                    api_key_value,
+                    &req.issue.id,
+                    &req.issue.identifier,
+                    &req.mission_id,
+                )
+            })
+            .unwrap_or_default();
+
+        if !claude_extra_env.is_empty() {
             let orbitdock_bin = std::env::current_exe()
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| "orbitdock".to_string());
 
-            let mcp_config = build_mcp_config(
-                &req.tracker_kind,
-                api_key_value,
-                &req.issue.id,
-                &req.issue.identifier,
-                &req.mission_id,
-                &orbitdock_bin,
-            );
+            let mcp_config = build_mcp_config(&orbitdock_bin);
 
             let mcp_path = format!("{worktree_path}/.mcp.json");
             if let Err(err) = tokio::fs::write(
@@ -181,6 +197,7 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
             worktree_id: Some(worktree_id),
             dynamic_tools,
             allow_bypass_permissions: resolved.allow_bypass_permissions,
+            claude_extra_env,
             codex_config_mode: None,
             codex_config_profile: None,
             codex_model_provider: None,
@@ -280,57 +297,85 @@ mod tests {
 
     #[test]
     fn mcp_config_linear_tracker() {
-        let config = build_mcp_config(
+        let config = build_mcp_config("/usr/bin/orbitdock");
+
+        let server = &config["mcpServers"]["orbitdock-mission"];
+        assert_eq!(server["command"], "/usr/bin/orbitdock");
+        assert_eq!(server["args"][0], "mcp-mission-tools");
+        assert!(server.get("env").is_none());
+    }
+
+    #[test]
+    fn mission_tool_env_linear_tracker() {
+        let env = build_mission_tool_env(
             "linear",
             "lin_api_test123",
             "issue-1",
             "PROJ-42",
             "mission-1",
-            "/usr/bin/orbitdock",
         );
 
-        let server = &config["mcpServers"]["orbitdock-mission"];
-        assert_eq!(server["command"], "/usr/bin/orbitdock");
-        assert_eq!(server["args"][0], "mcp-mission-tools");
-        assert_eq!(server["env"]["LINEAR_API_KEY"], "lin_api_test123");
-        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "linear");
-        assert_eq!(server["env"]["ORBITDOCK_ISSUE_ID"], "issue-1");
-        assert_eq!(server["env"]["ORBITDOCK_ISSUE_IDENTIFIER"], "PROJ-42");
-        assert_eq!(server["env"]["ORBITDOCK_MISSION_ID"], "mission-1");
-        assert!(server["env"]["GITHUB_TOKEN"].is_null());
+        let env_map: std::collections::HashMap<_, _> = env.into_iter().collect();
+        assert_eq!(
+            env_map.get("LINEAR_API_KEY").map(String::as_str),
+            Some("lin_api_test123")
+        );
+        assert_eq!(
+            env_map.get("ORBITDOCK_TRACKER_KIND").map(String::as_str),
+            Some("linear")
+        );
+        assert_eq!(
+            env_map.get("ORBITDOCK_ISSUE_ID").map(String::as_str),
+            Some("issue-1")
+        );
+        assert_eq!(
+            env_map
+                .get("ORBITDOCK_ISSUE_IDENTIFIER")
+                .map(String::as_str),
+            Some("PROJ-42")
+        );
+        assert_eq!(
+            env_map.get("ORBITDOCK_MISSION_ID").map(String::as_str),
+            Some("mission-1")
+        );
+        assert!(!env_map.contains_key("GITHUB_TOKEN"));
     }
 
     #[test]
-    fn mcp_config_github_tracker() {
-        let config = build_mcp_config(
+    fn mission_tool_env_github_tracker() {
+        let env = build_mission_tool_env(
             "github",
             "ghp_test456",
             "issue-2",
             "owner/repo#7",
             "mission-2",
-            "/usr/bin/orbitdock",
         );
 
-        let server = &config["mcpServers"]["orbitdock-mission"];
-        assert_eq!(server["env"]["GITHUB_TOKEN"], "ghp_test456");
-        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "github");
-        assert!(server["env"]["LINEAR_API_KEY"].is_null());
+        let env_map: std::collections::HashMap<_, _> = env.into_iter().collect();
+        assert_eq!(
+            env_map.get("GITHUB_TOKEN").map(String::as_str),
+            Some("ghp_test456")
+        );
+        assert_eq!(
+            env_map.get("ORBITDOCK_TRACKER_KIND").map(String::as_str),
+            Some("github")
+        );
+        assert!(!env_map.contains_key("LINEAR_API_KEY"));
     }
 
     #[test]
-    fn mcp_config_unknown_tracker_defaults_to_linear() {
-        let config = build_mcp_config(
-            "jira",
-            "jira_key",
-            "issue-3",
-            "JIRA-99",
-            "mission-3",
-            "/usr/bin/orbitdock",
-        );
+    fn mission_tool_env_unknown_tracker_defaults_to_linear() {
+        let env = build_mission_tool_env("jira", "jira_key", "issue-3", "JIRA-99", "mission-3");
 
-        let server = &config["mcpServers"]["orbitdock-mission"];
-        assert_eq!(server["env"]["LINEAR_API_KEY"], "jira_key");
-        assert_eq!(server["env"]["ORBITDOCK_TRACKER_KIND"], "linear");
+        let env_map: std::collections::HashMap<_, _> = env.into_iter().collect();
+        assert_eq!(
+            env_map.get("LINEAR_API_KEY").map(String::as_str),
+            Some("jira_key")
+        );
+        assert_eq!(
+            env_map.get("ORBITDOCK_TRACKER_KIND").map(String::as_str),
+            Some("linear")
+        );
     }
 
     #[test]

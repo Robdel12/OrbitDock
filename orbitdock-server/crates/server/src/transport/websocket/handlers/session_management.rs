@@ -82,6 +82,7 @@ pub(crate) async fn handle_create_session(
             worktree_id: None,
             dynamic_tools: Vec::new(),
             allow_bypass_permissions: false,
+            claude_extra_env: Vec::new(),
             codex_config_mode: None,
             codex_config_profile: None,
             codex_model_provider: None,

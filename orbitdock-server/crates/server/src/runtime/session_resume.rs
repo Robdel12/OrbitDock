@@ -176,6 +176,7 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
                     disallowed_tools: &[],
                     effort: None,
                     allow_bypass_permissions,
+                    extra_env: &[],
                 },
             )
             .await

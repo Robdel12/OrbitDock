@@ -221,6 +221,7 @@ pub(crate) async fn handle(
                             disallowed_tools: &[],
                             effort: None,
                             allow_bypass_permissions: false,
+                            extra_env: &[],
                         },
                     )
                     .await
@@ -878,6 +879,7 @@ pub(crate) async fn handle(
                             disallowed_tools: &dt,
                             effort: None,
                             allow_bypass_permissions: false,
+                            extra_env: &[],
                         },
                     )
                     .await

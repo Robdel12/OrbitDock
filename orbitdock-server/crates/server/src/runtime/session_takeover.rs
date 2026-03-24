@@ -489,6 +489,7 @@ async fn complete_claude_takeover(
                 disallowed_tools: &disallowed_tools,
                 effort: None,
                 allow_bypass_permissions: false,
+                extra_env: &[],
             },
         )
         .await

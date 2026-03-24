@@ -2,6 +2,8 @@
 //!
 //! Launched as `orbitdock mcp-mission-tools` by Claude Code when it discovers
 //! the `.mcp.json` written into the worktree by mission dispatch.
+//! Mission dispatch injects tracker credentials and issue context into the
+//! Claude process environment so secrets do not need to live in `.mcp.json`.
 //!
 //! Env vars:
 //!   ORBITDOCK_TRACKER_KIND     — Tracker kind: "linear" (default) or "github"

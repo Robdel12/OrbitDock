@@ -64,6 +64,7 @@ pub(crate) async fn start_claude_fork_session(
             disallowed_tools,
             effort: None,
             allow_bypass_permissions: false,
+            extra_env: &[],
         },
     )
     .await
