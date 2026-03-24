@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn actor_throttles_streaming_row_update_broadcasts_but_emits_final_row() {
+    async fn actor_skips_tiny_initial_streaming_broadcasts_and_emits_final_row() {
         let (persist_tx, _writer_handle) = spawn_mock_writer();
         let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
 
@@ -624,9 +624,6 @@ mod tests {
             }
         }
 
-        assert_eq!(
-            emitted_contents,
-            vec![("a".to_string(), true), ("abcd".to_string(), false)]
-        );
+        assert_eq!(emitted_contents, vec![("abcd".to_string(), false)]);
     }
 }
