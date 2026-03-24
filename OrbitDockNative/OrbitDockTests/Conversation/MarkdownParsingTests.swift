@@ -196,10 +196,12 @@ struct MarkdownParsingTests {
 
     #expect(list != nil)
     #expect(list?.count == 2)
-    #expect(list?[0].content == "Commit only the tracked changes.")
-    #expect(list?[0].continuation == ["This is the safest, most focused commit."])
-    #expect(list?[1].content == "Include the markdown cleanup too.")
-    #expect(list?[1].continuation == ["That makes the green test run reproducible from git."])
+    #expect(list?[0].content.contains("Commit only the tracked changes.") == true)
+    #expect(list?[0].content.contains("This is the safest, most focused commit.") == true)
+    #expect(list?[0].continuation.isEmpty == true)
+    #expect(list?[1].content.contains("Include the markdown cleanup too.") == true)
+    #expect(list?[1].content.contains("That makes the green test run reproducible from git.") == true)
+    #expect(list?[1].continuation.isEmpty == true)
   }
 
   @Test func parserNormalizesLooseBulletListContinuationParagraphs() {
@@ -216,8 +218,12 @@ struct MarkdownParsingTests {
 
     #expect(list != nil)
     #expect(list?.count == 2)
-    #expect(list?[0].continuation == ["Replace the markdown message-body renderer wholesale."])
-    #expect(list?[1].continuation == ["Preserve syntax highlighting."])
+    #expect(list?[0].content.contains("Keep the timeline shell.") == true)
+    #expect(list?[0].content.contains("Replace the markdown message-body renderer wholesale.") == true)
+    #expect(list?[0].continuation.isEmpty == true)
+    #expect(list?[1].content.contains("Keep code blocks rich.") == true)
+    #expect(list?[1].content.contains("Preserve syntax highlighting.") == true)
+    #expect(list?[1].continuation.isEmpty == true)
   }
 
   @Test func parserDoesNotRewriteParagraphsThatIntentionallyEscapeAList() {

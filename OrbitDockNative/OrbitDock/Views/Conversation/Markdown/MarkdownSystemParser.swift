@@ -243,25 +243,27 @@ enum MarkdownSystemParser {
     for child in node.children {
       switch child {
         case let p as Paragraph:
-          let text = markdownSource(for: p).trimmingCharacters(in: .newlines)
-          if isFirst {
-            content = text
-            isFirst = false
-          } else if !text.isEmpty {
-            continuation.append(text)
+          let segments = splitListParagraphSegments(markdownSource(for: p))
+          for segment in segments {
+            if isFirst {
+              content = segment
+              isFirst = false
+            } else if !segment.isEmpty {
+              continuation.append(segment)
+            }
           }
         case let ol as OrderedList:
           children.append(contentsOf: parseOrderedList(ol))
         case let ul as UnorderedList:
           children.append(contentsOf: parseUnorderedList(ul))
         default:
-          let text = markdownSource(for: child).trimmingCharacters(in: .newlines)
-          if !text.isEmpty {
+          let segments = splitListParagraphSegments(markdownSource(for: child))
+          for segment in segments where !segment.isEmpty {
             if isFirst {
-              content = text
+              content = segment
               isFirst = false
             } else {
-              continuation.append(text)
+              continuation.append(segment)
             }
           }
       }
@@ -320,6 +322,9 @@ enum MarkdownSystemParser {
         index += 1
         continue
       }
+
+      lines.insert(activeListContext.continuationIndent, at: index)
+      index += 1
 
       while index < lines.count {
         let candidate = lines[index]
@@ -432,6 +437,35 @@ enum MarkdownSystemParser {
       indentCount: indent.count,
       continuationIndent: String(repeating: " ", count: continuationWidth)
     )
+  }
+
+  private static func splitListParagraphSegments(_ source: String) -> [String] {
+    let trimmed = source.trimmingCharacters(in: .newlines)
+    guard !trimmed.isEmpty else { return [] }
+
+    guard let regex = try? NSRegularExpression(pattern: #"\n(?:[ \t]{2,}|\n+[ \t]*)"#) else {
+      return [trimmed]
+    }
+
+    let range = NSRange(trimmed.startIndex..., in: trimmed)
+    var segments: [String] = []
+    var lastIndex = trimmed.startIndex
+
+    for match in regex.matches(in: trimmed, options: [], range: range) {
+      guard let matchRange = Range(match.range, in: trimmed) else { continue }
+      let segment = trimmed[lastIndex..<matchRange.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+      if !segment.isEmpty {
+        segments.append(String(segment))
+      }
+      lastIndex = matchRange.upperBound
+    }
+
+    let tail = trimmed[lastIndex...].trimmingCharacters(in: .whitespacesAndNewlines)
+    if !tail.isEmpty {
+      segments.append(String(tail))
+    }
+
+    return segments.isEmpty ? [trimmed] : segments
   }
 
   private static func shouldNormalizeLooseContinuation(
