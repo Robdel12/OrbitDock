@@ -14,10 +14,8 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: 0
-  # Keep in sync with Makefile RUST_TARGET_DIR convention
+  # Keep in sync with Makefile RUST_TARGET_DIR convention (.cache/rust/target)
   CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/rust/target
-  # Activate sccache through the Makefile's RUSTC_WRAPPER wiring
-  RUST_SCCACHE: "on"
 
 jobs:
   check:
@@ -32,15 +30,8 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Layer 1: sccache — caches individual rustc invocations in the
-      # GitHub Actions cache backend. Gives per-crate hits even when the
-      # target directory is partially stale. The Makefile reads RUST_SCCACHE=on
-      # and sets RUSTC_WRAPPER=sccache automatically.
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-
-      # Layer 2: Swatinem/rust-cache — caches Cargo registry + target dir
-      # with automatic pruning of stale artifacts. Keyed off Cargo.lock so
+      # Swatinem/rust-cache — caches Cargo registry + target dir with
+      # automatic pruning of stale artifacts. Keyed off Cargo.lock so
       # routine PRs that don't change deps get near-instant restores.
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -59,7 +50,3 @@ jobs:
 
       - name: rust test
         run: make rust-test
-
-      - name: sccache stats
-        if: always()
-        run: sccache --show-stats
