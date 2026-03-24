@@ -14,6 +14,10 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: 0
+  # Keep in sync with Makefile RUST_TARGET_DIR convention
+  CARGO_TARGET_DIR: ${{ github.workspace }}/.cache/rust/target
+  # Activate sccache through the Makefile's RUSTC_WRAPPER wiring
+  RUST_SCCACHE: "on"
 
 jobs:
   check:
@@ -28,19 +32,24 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo artifacts
-        uses: actions/cache@v4
+      # Layer 1: sccache — caches individual rustc invocations in the
+      # GitHub Actions cache backend. Gives per-crate hits even when the
+      # target directory is partially stale. The Makefile reads RUST_SCCACHE=on
+      # and sets RUSTC_WRAPPER=sccache automatically.
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      # Layer 2: Swatinem/rust-cache — caches Cargo registry + target dir
+      # with automatic pruning of stale artifacts. Keyed off Cargo.lock so
+      # routine PRs that don't change deps get near-instant restores.
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ~/.cargo/git/checkouts/
-            .cache/rust/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock', 'orbitdock-server/Cargo.toml', '.github/workflows/rust-ci.yml', 'Makefile') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock') }}-
-            ${{ runner.os }}-cargo-
+          workspaces: "orbitdock-server -> ../.cache/rust/target"
+          # Include workflow + Makefile in the key so cache busts on CI
+          # or build-config changes, not just dependency changes.
+          shared-key: "rust-ci"
+          cache-on-failure: true
 
       - name: rust fmt check
         run: make rust-fmt-check
@@ -50,3 +59,7 @@ jobs:
 
       - name: rust test
         run: make rust-test
+
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats
