@@ -28,8 +28,8 @@ use crate::domain::sessions::session::{
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
-    create_persistence_channel, create_sync_channel, create_sync_shutdown_channel,
-    load_sessions_for_startup, PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
+    create_persistence_channel, create_sync_channel, load_sessions_for_startup, PersistCommand,
+    PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
@@ -184,12 +184,10 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         }
     }
 
-    let (sync_shutdown_tx, sync_tx) = if let Some(sync_options) = options.managed_sync.clone() {
+    let sync_tx = if let Some(sync_options) = options.managed_sync.clone() {
         let (sync_tx, sync_rx) = create_sync_channel();
-        let (sync_shutdown_tx, sync_shutdown_rx) = create_sync_shutdown_channel();
-        let sync_writer = SyncWriter::new_with_shutdown(
+        let sync_writer = SyncWriter::new(
             sync_rx,
-            sync_shutdown_rx,
             SyncWriterConfig::new(
                 sync_options.workspace_id,
                 sync_options.server_url,
@@ -197,9 +195,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             ),
         )?;
         tokio::spawn(sync_writer.run());
-        (Some(sync_shutdown_tx), Some(sync_tx))
+        Some(sync_tx)
     } else {
-        (None, None)
+        None
     };
 
     let (persist_tx, persist_rx) = create_persistence_channel();
@@ -641,8 +639,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
 
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
-    let shutdown_sync = sync_shutdown_tx.clone();
-
     let mut app = Router::new()
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
         .route("/ws", get(ws_handler))
@@ -709,7 +705,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         let handle = axum_server::Handle::new();
         let shutdown_handle = handle.clone();
         tokio::spawn(async move {
-            shutdown_signal(shutdown_state, shutdown_persist, shutdown_sync).await;
+            shutdown_signal(shutdown_state, shutdown_persist).await;
             shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
         });
 
@@ -732,11 +728,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         let _pid_guard = PidFileGuard;
 
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal(
-                shutdown_state,
-                shutdown_persist,
-                shutdown_sync,
-            ))
+            .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
             .await?;
     }
 
@@ -854,15 +846,8 @@ fn process_alive(pid: u32) -> bool {
     unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
-async fn shutdown_signal(
-    _state: Arc<SessionRegistry>,
-    _persist_tx: mpsc::Sender<PersistCommand>,
-    sync_shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
-) {
+async fn shutdown_signal(_state: Arc<SessionRegistry>, _persist_tx: mpsc::Sender<PersistCommand>) {
     let _ = tokio::signal::ctrl_c().await;
-    if let Some(sync_shutdown_tx) = sync_shutdown_tx {
-        let _ = sync_shutdown_tx.send(true);
-    }
     info!(
         component = "server",
         event = "server.shutdown",

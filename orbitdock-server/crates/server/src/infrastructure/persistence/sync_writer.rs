@@ -38,11 +38,12 @@ pub struct SyncWriterConfig {
 
 impl SyncWriterConfig {
     pub fn new(workspace_id: String, server_url: String, auth_token: String) -> Self {
+        let spool_dir = paths::sync_spool_dir_for_workspace(&workspace_id);
         Self {
             workspace_id,
             server_url: server_url.trim_end_matches('/').to_string(),
             auth_token,
-            spool_dir: paths::sync_spool_dir(),
+            spool_dir,
             batch_size: DEFAULT_BATCH_SIZE,
             flush_interval: DEFAULT_FLUSH_INTERVAL,
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
@@ -65,6 +66,11 @@ pub struct SyncWriter {
 }
 
 impl SyncWriter {
+    pub fn new(rx: mpsc::Receiver<SyncCommand>, config: SyncWriterConfig) -> anyhow::Result<Self> {
+        let (_shutdown_tx, shutdown_rx) = create_sync_shutdown_channel();
+        Self::new_with_shutdown(rx, shutdown_rx, config)
+    }
+
     pub fn new_with_shutdown(
         rx: mpsc::Receiver<SyncCommand>,
         shutdown_rx: watch::Receiver<bool>,
@@ -665,6 +671,41 @@ mod tests {
         let next = load_next_sequence(&spool_dir).expect("load sequence");
 
         assert_eq!(next, 42);
+    }
+
+    #[test]
+    fn load_spooled_envelopes_stays_within_workspace_scoped_spool_dir() {
+        let tempdir = TempDir::new().expect("tempdir");
+        let sync_root = tempdir.path().join("sync-spool");
+        let workspace_one_dir = sync_root.join("workspace-1");
+        let workspace_two_dir = sync_root.join("workspace-2");
+        std::fs::create_dir_all(&workspace_one_dir).expect("create workspace one spool dir");
+        std::fs::create_dir_all(&workspace_two_dir).expect("create workspace two spool dir");
+
+        let workspace_one = SyncEnvelope {
+            sequence: 1,
+            workspace_id: "workspace-1".into(),
+            timestamp: "2026-03-24T12:00:00Z".into(),
+            command: sample_sync_command(),
+        };
+        let workspace_two = SyncEnvelope {
+            sequence: 7,
+            workspace_id: "workspace-2".into(),
+            timestamp: "2026-03-24T12:01:00Z".into(),
+            command: sample_sync_command(),
+        };
+
+        spool_envelopes(&workspace_one_dir, std::slice::from_ref(&workspace_one))
+            .expect("spool workspace one envelope");
+        spool_envelopes(&workspace_two_dir, std::slice::from_ref(&workspace_two))
+            .expect("spool workspace two envelope");
+
+        let loaded = load_spooled_envelopes(&workspace_one_dir).expect("load workspace one spool");
+
+        assert_eq!(loaded.len(), 1);
+        let (_, _, envelope) = loaded.front().expect("workspace one envelope present");
+        assert_eq!(envelope.workspace_id, "workspace-1");
+        assert_eq!(envelope.sequence, 1);
     }
 
     #[tokio::test]

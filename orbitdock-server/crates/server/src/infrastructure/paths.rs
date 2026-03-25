@@ -57,6 +57,10 @@ pub fn sync_spool_dir() -> PathBuf {
     data_dir().join("sync-spool")
 }
 
+pub fn sync_spool_dir_for_workspace(workspace_id: &str) -> PathBuf {
+    sync_spool_dir().join(workspace_id)
+}
+
 /// Legacy JSON checkpoint path for the rollout watcher.
 ///
 /// New durable checkpoints live in SQLite; this path is only used for one-time import

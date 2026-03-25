@@ -55,9 +55,7 @@ pub(crate) use startup_cleanup::{
 };
 pub(crate) use subagents::{load_subagent_transcript_path, load_subagents_for_session};
 pub(crate) use sync::{SyncBatchRequest, SyncCommand, SyncEnvelope};
-pub(crate) use sync_writer::{
-    create_sync_channel, create_sync_shutdown_channel, SyncWriter, SyncWriterConfig,
-};
+pub(crate) use sync_writer::{create_sync_channel, SyncWriter, SyncWriterConfig};
 #[allow(unused_imports)]
 pub(crate) use transcripts::{
     extract_summary_from_transcript, extract_summary_from_transcript_path,
