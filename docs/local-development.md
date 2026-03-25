@@ -79,6 +79,7 @@ Common paths:
 - server log: `<data_dir>/logs/server.log`
 - codex log: `<data_dir>/logs/codex.log`
 - hook spool: `<data_dir>/spool/`
+- managed sync spool: `<data_dir>/sync-spool/<workspace_id>/`
 - codex rollout watcher state: `<data_dir>/codex-rollout-state.json`
 - launchd plist: `~/Library/LaunchAgents/com.orbitdock.server.plist`
 
@@ -114,6 +115,7 @@ Useful commands:
 orbitdock init
 orbitdock install-hooks
 orbitdock start
+orbitdock start --managed --workspace-id <WORKSPACE_ID> --sync-url <CONTROL_PLANE_URL> --sync-token <TOKEN>
 orbitdock install-service --enable
 orbitdock status
 
@@ -137,6 +139,24 @@ orbitdock worktree list
 ```
 
 Output is human-readable in a TTY and JSON when piped or when you pass `--json`.
+
+## Managed Mode
+
+Managed mode is the advanced server startup path for remote or provisioned workspaces.
+
+Use it when a workspace should keep local SQLite as its source of truth and replicate committed persistence upstream to a control-plane OrbitDock server.
+
+Example:
+
+```bash
+orbitdock start \
+  --managed \
+  --workspace-id workspace-123 \
+  --sync-url https://orbitdock.example.com \
+  --sync-token odtk_example_secret
+```
+
+Managed mode is not part of the normal local app install flow. For local development on your own machine, keep using plain `orbitdock start` or the `make rust-run*` targets.
 
 ## Mission Control
 

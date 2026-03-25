@@ -77,20 +77,20 @@ pub enum BinaryCommand {
         #[arg(long, env = "ORBITDOCK_NO_WEB", default_value_t = false)]
         no_web: bool,
 
-        /// Internal: run as a managed workspace that syncs local persistence upstream.
-        #[arg(long, hide = true, default_value_t = false)]
+        /// Run as a managed workspace that syncs local persistence to an upstream control plane.
+        #[arg(long, default_value_t = false)]
         managed: bool,
 
-        /// Internal: managed workspace id for upstream sync.
-        #[arg(long, hide = true, env = "ORBITDOCK_WORKSPACE_ID")]
+        /// Managed workspace id used for upstream sync replication.
+        #[arg(long, env = "ORBITDOCK_WORKSPACE_ID")]
         workspace_id: Option<String>,
 
-        /// Internal: upstream control-plane URL for sync replication.
-        #[arg(long, hide = true, env = "ORBITDOCK_SYNC_URL")]
+        /// Upstream control-plane URL for sync replication.
+        #[arg(long, env = "ORBITDOCK_SYNC_URL")]
         sync_url: Option<String>,
 
-        /// Internal: upstream bearer token for sync replication.
-        #[arg(long, hide = true, env = "ORBITDOCK_SYNC_TOKEN")]
+        /// Upstream bearer token for sync replication.
+        #[arg(long, env = "ORBITDOCK_SYNC_TOKEN")]
         sync_token: Option<String>,
     },
 
@@ -1233,7 +1233,7 @@ mod tests {
     }
 
     #[test]
-    fn binary_cli_parses_hidden_managed_start_flags() {
+    fn binary_cli_parses_managed_start_flags() {
         let cli = BinaryCli::try_parse_from([
             "orbitdock",
             "start",
@@ -1262,5 +1262,19 @@ mod tests {
             }
             other => panic!("expected start command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn binary_cli_help_lists_managed_start_flags() {
+        let mut command = BinaryCli::command();
+        let start = command
+            .find_subcommand_mut("start")
+            .expect("start subcommand should exist");
+        let help = start.render_long_help().to_string();
+
+        assert!(help.contains("--managed"));
+        assert!(help.contains("--workspace-id"));
+        assert!(help.contains("--sync-url"));
+        assert!(help.contains("--sync-token"));
     }
 }
