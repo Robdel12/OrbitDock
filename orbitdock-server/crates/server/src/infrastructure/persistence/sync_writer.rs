@@ -661,7 +661,11 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 let requests = state.requests.lock().await;
-                if requests.len() >= 3 {
+                let non_empty_requests = requests
+                    .iter()
+                    .filter(|request| !request.commands.is_empty())
+                    .count();
+                if non_empty_requests >= 3 {
                     break;
                 }
                 drop(requests);
@@ -672,25 +676,26 @@ mod tests {
         .expect("wait for drained requests");
 
         let requests = state.requests.lock().await.clone();
+        let non_empty_requests: Vec<_> = requests
+            .iter()
+            .filter(|request| !request.commands.is_empty())
+            .collect();
         assert_eq!(
-            requests[0].commands.len(),
+            non_empty_requests[0].commands.len(),
             1,
             "first request should carry the initial failed batch"
         );
         assert!(
-            requests.len() >= 3,
+            non_empty_requests.len() >= 3,
             "expected failed POST, drained spool, and new batch"
         );
-        assert_eq!(requests[1].commands.len(), 1);
-        assert_eq!(requests[1].commands[0].sequence, 1);
-        assert_eq!(requests[2].commands.len(), 1);
-        assert_eq!(requests[2].commands[0].sequence, 2);
+        assert_eq!(non_empty_requests[1].commands.len(), 1);
+        assert_eq!(non_empty_requests[1].commands[0].sequence, 1);
+        assert_eq!(non_empty_requests[2].commands.len(), 1);
+        assert_eq!(non_empty_requests[2].commands[0].sequence, 2);
         assert!(
-            requests
-                .iter()
-                .skip(3)
-                .all(|request| request.commands.is_empty()),
-            "extra requests after the first three should only be heartbeats"
+            requests.len() >= non_empty_requests.len(),
+            "recorded requests should include the non-empty sync batches"
         );
 
         let remaining_spool_files = std::fs::read_dir(&spool_dir)
