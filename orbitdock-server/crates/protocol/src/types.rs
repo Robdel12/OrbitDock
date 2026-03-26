@@ -21,6 +21,33 @@ impl std::str::FromStr for Provider {
     }
 }
 
+/// Where mission workspaces should be provisioned and run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceProviderKind {
+    #[default]
+    Local,
+}
+
+impl WorkspaceProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+        }
+    }
+}
+
+impl std::str::FromStr for WorkspaceProviderKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            other => Err(format!("unsupported workspace provider '{other}'")),
+        }
+    }
+}
+
 /// Codex integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -2171,7 +2198,7 @@ mod tests {
         CodexApprovalPolicy, CodexGranularApprovalPolicy, OrchestrationState, Provider,
         SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus,
         SessionStatus, SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind,
-        WorkStatus,
+        WorkStatus, WorkspaceProviderKind,
     };
 
     #[test]
@@ -2374,6 +2401,23 @@ mod tests {
     #[test]
     fn provisioning_state_can_advance_to_running() {
         assert!(OrchestrationState::Provisioning.can_transition_to(&OrchestrationState::Running));
+    }
+
+    #[test]
+    fn workspace_provider_kind_parses_local() {
+        assert_eq!(
+            "local".parse::<WorkspaceProviderKind>().expect("parse local provider"),
+            WorkspaceProviderKind::Local
+        );
+    }
+
+    #[test]
+    fn workspace_provider_kind_rejects_unknown_values() {
+        let error = "daytona"
+            .parse::<WorkspaceProviderKind>()
+            .expect_err("unknown provider should fail");
+
+        assert!(error.contains("unsupported workspace provider"));
     }
 
     // classify_tool_family and ensure_tool_family tests removed —

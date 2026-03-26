@@ -9,8 +9,15 @@ fn main() -> anyhow::Result<()> {
     let data_dir = orbitdock_server::init_data_dir(cli.data_dir.as_deref());
 
     match &cli.command {
-        Some(Command::Init { server_url }) => {
-            return orbitdock_server::admin::initialize_data_dir(&data_dir, server_url)
+        Some(Command::Init {
+            server_url,
+            workspace_provider,
+        }) => {
+            return orbitdock_server::admin::initialize_data_dir(
+                &data_dir,
+                server_url,
+                *workspace_provider,
+            )
         }
         Some(Command::InstallHooks {
             settings_path,
@@ -154,6 +161,7 @@ fn main() -> anyhow::Result<()> {
         workspace_id,
         sync_url,
         sync_token,
+        workspace_provider,
     ) = match cli.command {
         Some(Command::Start {
             bind,
@@ -168,6 +176,7 @@ fn main() -> anyhow::Result<()> {
             workspace_id,
             sync_url,
             sync_token,
+            workspace_provider,
         }) => (
             bind,
             auth_token,
@@ -181,6 +190,7 @@ fn main() -> anyhow::Result<()> {
             workspace_id,
             sync_url,
             sync_token,
+            workspace_provider,
         ),
         _ => (
             cli.bind.unwrap_or_else(|| "0.0.0.0:4000".parse().unwrap()),
@@ -192,6 +202,7 @@ fn main() -> anyhow::Result<()> {
             false,
             false,
             false,
+            None,
             None,
             None,
             None,
@@ -230,6 +241,7 @@ fn main() -> anyhow::Result<()> {
         logging: orbitdock_server::ServerLoggingOptions::default(),
         serve_web: !no_web,
         managed_sync,
+        workspace_provider_override: workspace_provider,
     };
 
     let should_use_dev_console =

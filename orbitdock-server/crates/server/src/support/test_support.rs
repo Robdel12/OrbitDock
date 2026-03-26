@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Once, OnceLock};
 
+use orbitdock_protocol::WorkspaceProviderKind;
 use tokio::sync::{mpsc, Mutex};
 
 use crate::infrastructure::paths;
@@ -31,6 +32,7 @@ pub(crate) fn new_test_session_registry(is_primary: bool) -> Arc<SessionRegistry
         persist_tx,
         paths::db_path(),
         is_primary,
+        WorkspaceProviderKind::Local,
     ))
 }
 

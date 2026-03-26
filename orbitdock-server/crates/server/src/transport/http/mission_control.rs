@@ -1413,6 +1413,14 @@ pub async fn dispatch_mission_issue(
 
     let reg = registry.clone();
     let mid_dispatch = mission.id.clone();
+    let workspace_provider =
+        crate::runtime::workspace_dispatch::build_workspace_provider(registry.workspace_provider_kind())
+            .map_err(|error| {
+                internal(
+                    "workspace_provider_invalid",
+                    format!("Failed to resolve workspace provider: {error}"),
+                )
+            })?;
     let ctx = crate::runtime::mission_dispatch::DispatchContext {
         repo_root: mission.repo_root.clone(),
         prompt_template: workflow.prompt_template.clone(),
@@ -1421,9 +1429,7 @@ pub async fn dispatch_mission_issue(
         worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
         state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
         tracker,
-        workspace_provider: Arc::new(
-            crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider::new(),
-        ),
+        workspace_provider,
     };
 
     tokio::spawn(async move {

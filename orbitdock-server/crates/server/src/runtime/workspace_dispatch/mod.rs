@@ -10,6 +10,7 @@ pub(crate) mod local;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use orbitdock_protocol::WorkspaceProviderKind;
 
 use crate::domain::mission_control::config::AgentConfig;
 
@@ -82,3 +83,11 @@ impl std::fmt::Display for WorkspaceError {
 }
 
 impl std::error::Error for WorkspaceError {}
+
+pub(crate) fn build_workspace_provider(
+    provider_kind: WorkspaceProviderKind,
+) -> anyhow::Result<Arc<dyn WorkspaceProvider>> {
+    match provider_kind {
+        WorkspaceProviderKind::Local => Ok(Arc::new(local::LocalWorkspaceProvider::new())),
+    }
+}

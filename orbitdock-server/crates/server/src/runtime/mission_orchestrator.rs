@@ -20,8 +20,7 @@ use crate::infrastructure::persistence::mission_control::{
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::workspace_dispatch::local::LocalWorkspaceProvider;
-use crate::runtime::workspace_dispatch::WorkspaceProvider;
+use crate::runtime::workspace_dispatch::{build_workspace_provider, WorkspaceProvider};
 
 use super::mission_dispatch::{dispatch_issue, DispatchContext};
 use super::mission_reconciliation::reconcile_mission;
@@ -319,7 +318,8 @@ async fn process_mission(
     .await;
 
     // Construct workspace provider for dispatch
-    let workspace_provider: Arc<dyn WorkspaceProvider> = Arc::new(LocalWorkspaceProvider::new());
+    let workspace_provider: Arc<dyn WorkspaceProvider> =
+        build_workspace_provider(registry.workspace_provider_kind())?;
 
     // Skip candidate fetch + dispatch for manual-only missions
     if workflow.config.trigger.kind == "manual_only" {

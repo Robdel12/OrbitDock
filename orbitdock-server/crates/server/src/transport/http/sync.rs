@@ -131,7 +131,7 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<&str> {
 mod tests {
     use super::*;
     use axum::http::{header::AUTHORIZATION, HeaderValue};
-    use orbitdock_protocol::{Provider, SessionControlMode};
+    use orbitdock_protocol::{Provider, SessionControlMode, WorkspaceProviderKind};
 
     use crate::infrastructure::{
         auth_tokens,
@@ -173,7 +173,10 @@ mod tests {
         let (persist_tx, _persist_rx) = tokio::sync::mpsc::channel(8);
         (
             Arc::new(SessionRegistry::new_with_primary_and_db_path(
-                persist_tx, db_path, true,
+                persist_tx,
+                db_path,
+                true,
+                WorkspaceProviderKind::Local,
             )),
             issued.token,
             guard,

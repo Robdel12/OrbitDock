@@ -7,6 +7,8 @@ use std::io::{self, BufRead, Write};
 use std::net::SocketAddr;
 use std::path::Path;
 
+use orbitdock_protocol::WorkspaceProviderKind;
+
 use super::{init, install_hooks, install_service, status};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -63,7 +65,7 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
     render_setup_warnings(&plan);
 
     println!("  Running init...");
-    init::initialize_data_dir(data_dir, &plan.init_url)?;
+    init::initialize_data_dir(data_dir, &plan.init_url, WorkspaceProviderKind::Local)?;
 
     if plan.should_install_hooks {
         println!("  Installing Claude Code hooks...");

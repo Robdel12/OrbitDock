@@ -6,13 +6,19 @@
 
 use std::path::Path;
 
+use orbitdock_protocol::WorkspaceProviderKind;
+
 use crate::infrastructure::auth_tokens;
 use crate::infrastructure::migration_runner;
 use crate::infrastructure::paths;
 
 use super::hook_forward;
 
-pub fn initialize_data_dir(data_dir: &Path, _server_url: &str) -> anyhow::Result<()> {
+pub fn initialize_data_dir(
+    data_dir: &Path,
+    _server_url: &str,
+    workspace_provider: WorkspaceProviderKind,
+) -> anyhow::Result<()> {
     let installer_mode = installer_mode();
     println!();
 
@@ -31,7 +37,13 @@ pub fn initialize_data_dir(data_dir: &Path, _server_url: &str) -> anyhow::Result
     let db_path = paths::db_path();
     let mut conn = rusqlite::Connection::open(&db_path)?;
     migration_runner::run_migrations(&mut conn)?;
+    conn.execute(
+        "INSERT INTO config (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        rusqlite::params!["workspace_provider", workspace_provider.as_str()],
+    )?;
     println!("  Database initialized at {}", db_path.display());
+    println!("  Workspace provider set to {}", workspace_provider.as_str());
 
     // 4. Auto-provision local auth token (idempotent — skips if tokens exist)
     // Check both DB tokens and the encrypted hook config — if the config lost
