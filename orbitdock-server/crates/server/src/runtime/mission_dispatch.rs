@@ -13,7 +13,9 @@ use crate::infrastructure::persistence::mission_control::{
     update_mission_issue_state_sync, MissionIssueStateUpdate,
 };
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::workspace_dispatch::{DispatchRequest, WorkspaceIssueRef, WorkspaceProvider};
+use crate::runtime::workspace_dispatch::{
+    build_workspace_provider, DispatchRequest, WorkspaceIssueRef,
+};
 
 /// Mission-level configuration shared across all issue dispatches.
 pub struct DispatchContext {
@@ -24,7 +26,6 @@ pub struct DispatchContext {
     pub worktree_root_dir: Option<String>,
     pub state_on_dispatch: String,
     pub tracker: Arc<dyn Tracker>,
-    pub workspace_provider: Arc<dyn WorkspaceProvider>,
 }
 
 /// Dispatch a single issue: manage state transitions and delegate workspace
@@ -121,7 +122,11 @@ pub async fn dispatch_issue(
         registry: registry.clone(),
     };
 
-    let result = match ctx.workspace_provider.dispatch(&dispatch_request).await {
+    // Resolve the provider at dispatch time so runtime config changes take
+    // effect on the next launched issue rather than after an outer loop ends.
+    let workspace_provider = build_workspace_provider(registry.workspace_provider_kind())?;
+
+    let result = match workspace_provider.dispatch(&dispatch_request).await {
         Ok(r) => r,
         Err(err) => {
             warn!(
