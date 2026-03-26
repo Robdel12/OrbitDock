@@ -162,7 +162,8 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_provider_endpoint_returns_authoritative_state_and_enqueues_config_write() {
-        let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true);
+        let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true);
+        drop(guard);
 
         let Json(updated) = set_workspace_provider(
             State(state.clone()),
@@ -174,7 +175,10 @@ mod tests {
         .expect("set workspace provider should succeed");
 
         assert_eq!(updated.workspace_provider, WorkspaceProviderKind::Local);
-        assert_eq!(state.workspace_provider_kind(), WorkspaceProviderKind::Local);
+        assert_eq!(
+            state.workspace_provider_kind(),
+            WorkspaceProviderKind::Local
+        );
 
         let command = persist_rx
             .recv()

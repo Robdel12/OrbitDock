@@ -7,8 +7,7 @@ mod recent_projects;
 use dashmap::DashMap;
 use orbitdock_protocol::{
     ClientPrimaryClaim, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
-    DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary,
-    WorkspaceProviderKind,
+    DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary, WorkspaceProviderKind,
 };
 use rusqlite::Connection;
 use std::path::PathBuf;

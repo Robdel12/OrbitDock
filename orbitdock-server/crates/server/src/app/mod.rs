@@ -15,8 +15,7 @@ use axum::{
 };
 use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
-    SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
-    WorkspaceProviderKind,
+    SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
 };
 use tokio::sync::{mpsc, watch};
 use tower_http::cors::CorsLayer;
@@ -932,31 +931,6 @@ fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::resolve_workspace_provider_kind;
-    use orbitdock_protocol::WorkspaceProviderKind;
-
-    #[test]
-    fn workspace_provider_override_wins_over_persisted_value() {
-        let resolved = resolve_workspace_provider_kind(
-            Some(WorkspaceProviderKind::Local),
-            Some("local".to_string()),
-        )
-        .expect("workspace provider should resolve");
-
-        assert_eq!(resolved, WorkspaceProviderKind::Local);
-    }
-
-    #[test]
-    fn workspace_provider_defaults_to_local_when_missing() {
-        let resolved =
-            resolve_workspace_provider_kind(None, None).expect("workspace provider should default");
-
-        assert_eq!(resolved, WorkspaceProviderKind::Local);
-    }
-}
-
 fn write_pid_file() {
     let pid_path = crate::infrastructure::paths::pid_file_path();
     if let Err(error) = std::fs::write(&pid_path, std::process::id().to_string()) {
@@ -1179,4 +1153,29 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
             "Background spool replay completed"
         );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_workspace_provider_kind;
+    use orbitdock_protocol::WorkspaceProviderKind;
+
+    #[test]
+    fn workspace_provider_override_wins_over_persisted_value() {
+        let resolved = resolve_workspace_provider_kind(
+            Some(WorkspaceProviderKind::Local),
+            Some("local".to_string()),
+        )
+        .expect("workspace provider should resolve");
+
+        assert_eq!(resolved, WorkspaceProviderKind::Local);
+    }
+
+    #[test]
+    fn workspace_provider_defaults_to_local_when_missing() {
+        let resolved =
+            resolve_workspace_provider_kind(None, None).expect("workspace provider should default");
+
+        assert_eq!(resolved, WorkspaceProviderKind::Local);
+    }
 }

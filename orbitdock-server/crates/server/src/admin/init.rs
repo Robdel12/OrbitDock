@@ -43,7 +43,10 @@ pub fn initialize_data_dir(
         rusqlite::params!["workspace_provider", workspace_provider.as_str()],
     )?;
     println!("  Database initialized at {}", db_path.display());
-    println!("  Workspace provider set to {}", workspace_provider.as_str());
+    println!(
+        "  Workspace provider set to {}",
+        workspace_provider.as_str()
+    );
 
     // 4. Auto-provision local auth token (idempotent — skips if tokens exist)
     // Check both DB tokens and the encrypted hook config — if the config lost

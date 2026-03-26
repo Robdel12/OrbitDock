@@ -2406,7 +2406,9 @@ mod tests {
     #[test]
     fn workspace_provider_kind_parses_local() {
         assert_eq!(
-            "local".parse::<WorkspaceProviderKind>().expect("parse local provider"),
+            "local"
+                .parse::<WorkspaceProviderKind>()
+                .expect("parse local provider"),
             WorkspaceProviderKind::Local
         );
     }

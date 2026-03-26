@@ -22,6 +22,7 @@ pub struct SetupOptions {
     pub mode: Option<Mode>,
     pub bind: Option<SocketAddr>,
     pub server_url: Option<String>,
+    pub workspace_provider: Option<WorkspaceProviderKind>,
     pub skip_service: bool,
     pub skip_hooks: bool,
 }
@@ -30,6 +31,7 @@ pub struct SetupOptions {
 struct SetupPlan {
     mode: Mode,
     bind: SocketAddr,
+    workspace_provider: WorkspaceProviderKind,
     init_url: String,
     hook_url: Option<String>,
     should_issue_token: bool,
@@ -48,7 +50,11 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
         Some(m) => m,
         None => prompt_mode()?,
     };
-    let plan = plan_setup(mode, &opts);
+    let workspace_provider = match opts.workspace_provider {
+        Some(provider) => provider,
+        None => prompt_workspace_provider()?,
+    };
+    let plan = plan_setup(mode, workspace_provider, &opts);
 
     let auth_token = if plan.should_issue_token {
         println!("  Generating auth token...");
@@ -65,7 +71,7 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
     render_setup_warnings(&plan);
 
     println!("  Running init...");
-    init::initialize_data_dir(data_dir, &plan.init_url, WorkspaceProviderKind::Local)?;
+    init::initialize_data_dir(data_dir, &plan.init_url, plan.workspace_provider)?;
 
     if plan.should_install_hooks {
         println!("  Installing Claude Code hooks...");
@@ -86,7 +92,11 @@ pub fn run_setup_wizard(data_dir: &Path, opts: SetupOptions) -> anyhow::Result<(
     Ok(())
 }
 
-fn plan_setup(mode: Mode, opts: &SetupOptions) -> SetupPlan {
+fn plan_setup(
+    mode: Mode,
+    workspace_provider: WorkspaceProviderKind,
+    opts: &SetupOptions,
+) -> SetupPlan {
     let bind = opts.bind.unwrap_or_else(|| match mode {
         Mode::Local => "0.0.0.0:4000".parse().unwrap(),
         Mode::Remote => "0.0.0.0:4000".parse().unwrap(),
@@ -96,6 +106,7 @@ fn plan_setup(mode: Mode, opts: &SetupOptions) -> SetupPlan {
     SetupPlan {
         mode,
         bind,
+        workspace_provider,
         init_url: match mode {
             Mode::Local => local_connect_url.clone(),
             Mode::Remote => "http://127.0.0.1:4000".to_string(),
@@ -132,6 +143,7 @@ fn render_setup_summary(plan: &SetupPlan, auth_token_issued: bool) {
     match plan.mode {
         Mode::Local => {
             println!("  Mode:    Local");
+            println!("  Provider: {}", plan.workspace_provider.as_str());
             println!("  Bind:    {}", plan.bind);
             println!(
                 "  Health:  {}/health",
@@ -142,6 +154,7 @@ fn render_setup_summary(plan: &SetupPlan, auth_token_issued: bool) {
         }
         Mode::Remote => {
             println!("  Mode:    Remote");
+            println!("  Provider: {}", plan.workspace_provider.as_str());
             println!("  Bind:    {}", plan.bind);
             println!();
             println!("  Start the server:");
@@ -185,23 +198,48 @@ fn prompt_mode() -> anyhow::Result<Mode> {
     }
 }
 
+fn prompt_workspace_provider() -> anyhow::Result<WorkspaceProviderKind> {
+    println!("  Which workspace provider should OrbitDock use?");
+    println!();
+    println!("    1) Local    — create git worktrees and run agents on this machine");
+    println!();
+    print!("  Choice [1]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input)?;
+    let trimmed = input.trim();
+
+    match trimmed {
+        "" | "1" | "local" => Ok(WorkspaceProviderKind::Local),
+        _ => {
+            println!("  Invalid choice, defaulting to local.");
+            Ok(WorkspaceProviderKind::Local)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{plan_setup, Mode, SetupOptions};
+    use orbitdock_protocol::WorkspaceProviderKind;
 
     #[test]
     fn local_setup_plan_defaults_to_lan_bind() {
         let plan = plan_setup(
             Mode::Local,
+            WorkspaceProviderKind::Local,
             &SetupOptions {
                 mode: Some(Mode::Local),
                 bind: None,
                 server_url: None,
+                workspace_provider: Some(WorkspaceProviderKind::Local),
                 skip_service: false,
                 skip_hooks: false,
             },
         );
 
+        assert_eq!(plan.workspace_provider, WorkspaceProviderKind::Local);
         assert_eq!(plan.bind.to_string(), "0.0.0.0:4000");
         assert_eq!(plan.init_url, "http://127.0.0.1:4000");
         assert_eq!(plan.hook_url, None);
@@ -215,10 +253,12 @@ mod tests {
     fn remote_setup_plan_defaults_to_remote_bind_and_warns_without_public_url() {
         let plan = plan_setup(
             Mode::Remote,
+            WorkspaceProviderKind::Local,
             &SetupOptions {
                 mode: Some(Mode::Remote),
                 bind: None,
                 server_url: None,
+                workspace_provider: Some(WorkspaceProviderKind::Local),
                 skip_service: false,
                 skip_hooks: false,
             },
@@ -235,10 +275,12 @@ mod tests {
     fn setup_plan_respects_skip_flags_and_explicit_remote_url() {
         let plan = plan_setup(
             Mode::Remote,
+            WorkspaceProviderKind::Local,
             &SetupOptions {
                 mode: Some(Mode::Remote),
                 bind: Some("10.0.0.5:4000".parse().unwrap()),
                 server_url: Some("https://dock.example.com:4000".to_string()),
+                workspace_provider: Some(WorkspaceProviderKind::Local),
                 skip_service: true,
                 skip_hooks: true,
             },

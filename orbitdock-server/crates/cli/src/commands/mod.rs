@@ -1,5 +1,6 @@
 mod approval;
 mod codex;
+mod config;
 mod fs;
 mod health;
 mod mcp;
@@ -32,6 +33,7 @@ pub async fn dispatch(command: &Command, config: &ClientConfig) -> i32 {
         Command::Model { action } => model::run(action, &rest, &output).await,
         Command::Usage { action } => usage::run(action, &rest, &output).await,
         Command::Server { action } => server::run(action, &rest, &output).await,
+        Command::Config { action } => config::run(action, &rest, &output).await,
         Command::Codex { action } => codex::run(action, &rest, &output).await,
         Command::Worktree { action } => worktree::run(action, &rest, &output).await,
         Command::Mission { action } => mission::run(action, &rest, &output).await,

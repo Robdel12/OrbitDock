@@ -100,6 +100,7 @@ fn main() -> anyhow::Result<()> {
             remote,
             bind,
             server_url,
+            workspace_provider,
             skip_service,
             skip_hooks,
         }) => {
@@ -116,6 +117,7 @@ fn main() -> anyhow::Result<()> {
                     mode,
                     bind: *bind,
                     server_url: server_url.clone(),
+                    workspace_provider: *workspace_provider,
                     skip_service: *skip_service,
                     skip_hooks: *skip_hooks,
                 },
