@@ -83,6 +83,7 @@ pub struct MissionIssueRow {
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
     pub url: Option<String>,
+    pub workspace_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub pr_url: Option<String>,
@@ -96,7 +97,7 @@ pub struct MissionCleanupCandidateRow {
 }
 
 impl MissionIssueRow {
-    /// Map a row whose SELECT list matches the 18-column mission_issues schema.
+    /// Map a row whose SELECT list matches the 19-column mission_issues schema.
     pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
         Ok(Self {
             id: row.get(0)?,
@@ -114,9 +115,10 @@ impl MissionIssueRow {
             started_at: row.get(12)?,
             completed_at: row.get(13)?,
             url: row.get(14)?,
-            created_at: row.get(15)?,
-            updated_at: row.get(16)?,
-            pr_url: row.get(17)?,
+            workspace_id: row.get(15)?,
+            created_at: row.get(16)?,
+            updated_at: row.get(17)?,
+            pr_url: row.get(18)?,
         })
     }
 }
@@ -152,7 +154,7 @@ pub fn load_missions_with_counts(
             "SELECT m.id, m.name, m.repo_root, m.tracker_kind, m.provider, m.config_json,
                     m.prompt_template, m.enabled, m.paused, m.last_parsed_at, m.parse_error,
                     m.mission_file_path, m.created_at, m.updated_at, m.tracker_api_key,
-                    COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed') THEN 1 END),
+                    COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed','provisioning') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state IN ('queued','retry_queued') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state = 'completed' THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state = 'failed' THEN 1 END)
@@ -239,7 +241,7 @@ pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<Mi
         .prepare(
             "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, created_at, updated_at, pr_url
+                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
              ORDER BY created_at ASC",
@@ -303,7 +305,7 @@ pub fn load_retry_ready_issues(
         .prepare(
             "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, created_at, updated_at, pr_url
+                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
                AND orchestration_state = 'retry_queued'
@@ -335,7 +337,7 @@ pub fn load_manually_queued_issues(
     // Build a set of placeholders for the exclusion list
     let base_query = "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, created_at, updated_at
+                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
                AND orchestration_state = 'queued'";
@@ -465,7 +467,7 @@ pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIs
             "SELECT mi.id, mi.mission_id, mi.issue_id, mi.issue_identifier, mi.issue_title,
                     mi.issue_state, mi.orchestration_state, mi.session_id, mi.provider,
                     mi.attempt, mi.last_error, mi.retry_due_at, mi.started_at,
-                    mi.completed_at, mi.url, mi.created_at, mi.updated_at, mi.pr_url
+                    mi.completed_at, mi.url, mi.workspace_id, mi.created_at, mi.updated_at, mi.pr_url
              FROM mission_issues mi
              JOIN missions m ON m.id = mi.mission_id
              WHERE m.enabled = 1

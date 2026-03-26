@@ -16,6 +16,7 @@ mod session_actions;
 mod session_lifecycle;
 mod sessions;
 mod shell;
+mod sync;
 #[cfg(test)]
 mod test_support;
 mod worktrees;
@@ -97,4 +98,5 @@ pub use sessions::{
     search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
+pub use sync::post_sync_batch;
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

@@ -439,7 +439,7 @@ pub async fn retry_mission_issue(
     })?;
 
     // End any active session before re-queuing
-    if state == "running" || state == "claimed" {
+    if state == "running" || state == "claimed" || state == "provisioning" {
         if let Some(ref sid) = session_id {
             crate::runtime::session_mutations::end_session(&registry, sid).await;
         }
@@ -559,7 +559,9 @@ pub async fn transition_mission_issue(
     }
 
     // End any active session when leaving an active state
-    if current_state == OrchestrationState::Running || current_state == OrchestrationState::Claimed
+    if current_state == OrchestrationState::Running
+        || current_state == OrchestrationState::Claimed
+        || current_state == OrchestrationState::Provisioning
     {
         if let Some(ref sid) = session_id {
             crate::runtime::session_mutations::end_session(&registry, sid).await;
@@ -604,6 +606,14 @@ pub async fn transition_mission_issue(
                 last_error: Some(Some(reason.as_deref().unwrap_or("Manually stopped"))),
                 started_at: None,
                 completed_at: Some(Some(&now)),
+            },
+            OrchestrationState::Provisioning => MissionIssueStateUpdate {
+                orchestration_state: &target_str,
+                session_id: None,
+                attempt: None,
+                last_error: Some(None),
+                started_at: None,
+                completed_at: Some(None),
             },
             OrchestrationState::Blocked => MissionIssueStateUpdate {
                 orchestration_state: &target_str,
@@ -2056,7 +2066,7 @@ fn mission_row_to_summary_with_issues(
 
     for issue in issue_rows {
         match issue.orchestration_state.as_str() {
-            "running" | "claimed" => active_count += 1,
+            "running" | "claimed" | "provisioning" => active_count += 1,
             "queued" | "retry_queued" => queued_count += 1,
             "completed" => completed_count += 1,
             "failed" => failed_count += 1,

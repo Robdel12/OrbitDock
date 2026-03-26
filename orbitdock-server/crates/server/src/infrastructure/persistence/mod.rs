@@ -21,6 +21,7 @@ mod sync;
 mod sync_writer;
 mod transcripts;
 mod usage;
+mod workspace_sync;
 mod worktrees;
 mod writer;
 
@@ -55,6 +56,8 @@ pub(crate) use startup_cleanup::{
     cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
 };
 pub(crate) use subagents::{load_subagent_transcript_path, load_subagents_for_session};
+#[cfg(test)]
+pub(crate) use sync::SyncSessionCreateParams;
 pub(crate) use sync::{SyncBatchRequest, SyncCommand, SyncEnvelope};
 pub(crate) use sync_writer::{
     create_sync_channel, create_sync_shutdown_channel, SyncWriter, SyncWriterConfig,
@@ -69,6 +72,9 @@ pub(crate) use transcripts::{
 };
 use usage::{
     persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot, TurnSnapshotRow,
+};
+pub(crate) use workspace_sync::{
+    apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
 };
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;

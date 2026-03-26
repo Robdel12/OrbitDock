@@ -315,6 +315,7 @@ fn filesystem_routes() -> Router<Arc<SessionRegistry>> {
         .route("/api/git/init", post(super::git_init_endpoint))
         .route("/api/fs/browse", get(super::browse_directory))
         .route("/api/fs/recent-projects", get(super::list_recent_projects))
+        .route("/api/sync", post(super::post_sync_batch))
 }
 
 fn worktree_routes() -> Router<Arc<SessionRegistry>> {

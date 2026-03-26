@@ -621,6 +621,10 @@ pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &
                     active_count += 1;
                     OrchestrationState::Claimed
                 }
+                "provisioning" => {
+                    active_count += 1;
+                    OrchestrationState::Provisioning
+                }
                 "running" => {
                     active_count += 1;
                     OrchestrationState::Running

@@ -117,9 +117,13 @@ pub fn revoke_token(id: &str) -> anyhow::Result<bool> {
 }
 
 pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
+    Ok(resolve_active_token_id(token)?.is_some())
+}
+
+pub fn resolve_active_token_id(token: &str) -> anyhow::Result<Option<String>> {
     let token_candidates = parse_token_candidates(token);
     if token_candidates.is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
 
     let conn = open_runtime_connection()?;
@@ -159,11 +163,11 @@ pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
                  WHERE id = ?1",
                 params![id],
             );
-            return Ok(true);
+            return Ok(Some(id.to_string()));
         }
     }
 
-    Ok(false)
+    Ok(None)
 }
 
 fn open_admin_connection() -> anyhow::Result<Connection> {

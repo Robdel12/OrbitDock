@@ -1978,6 +1978,7 @@ pub struct WorktreeSummary {
 pub enum OrchestrationState {
     Queued,
     Claimed,
+    Provisioning,
     Running,
     RetryQueued,
     Completed,
@@ -1990,7 +1991,14 @@ impl OrchestrationState {
     pub fn allowed_transitions(&self) -> Vec<OrchestrationState> {
         match self {
             Self::Queued => vec![Self::Completed, Self::Blocked],
-            Self::Claimed => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
+            Self::Claimed => vec![
+                Self::Queued,
+                Self::Provisioning,
+                Self::Completed,
+                Self::Blocked,
+                Self::Failed,
+            ],
+            Self::Provisioning => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
             Self::Running => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
             Self::RetryQueued => vec![Self::Queued, Self::Completed, Self::Blocked],
             Self::Failed => vec![Self::Queued, Self::Completed],
@@ -2009,6 +2017,7 @@ impl OrchestrationState {
         match self {
             Self::Queued => "queued",
             Self::Claimed => "claimed",
+            Self::Provisioning => "provisioning",
             Self::Running => "running",
             Self::RetryQueued => "retry_queued",
             Self::Completed => "completed",
@@ -2022,6 +2031,7 @@ impl OrchestrationState {
         match s {
             "queued" => Some(Self::Queued),
             "claimed" => Some(Self::Claimed),
+            "provisioning" => Some(Self::Provisioning),
             "running" => Some(Self::Running),
             "retry_queued" => Some(Self::RetryQueued),
             "completed" => Some(Self::Completed),
