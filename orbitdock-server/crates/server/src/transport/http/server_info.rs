@@ -162,7 +162,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_provider_endpoint_returns_authoritative_state_and_enqueues_config_write() {
-        let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true);
+        let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
         drop(guard);
 
         let Json(updated) = set_workspace_provider(
