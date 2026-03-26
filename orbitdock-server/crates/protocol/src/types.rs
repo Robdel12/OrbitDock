@@ -1998,7 +1998,15 @@ impl OrchestrationState {
                 Self::Blocked,
                 Self::Failed,
             ],
-            Self::Provisioning => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
+            Self::Provisioning => {
+                vec![
+                    Self::Queued,
+                    Self::Running,
+                    Self::Completed,
+                    Self::Blocked,
+                    Self::Failed,
+                ]
+            }
             Self::Running => vec![Self::Queued, Self::Completed, Self::Blocked, Self::Failed],
             Self::RetryQueued => vec![Self::Queued, Self::Completed, Self::Blocked],
             Self::Failed => vec![Self::Queued, Self::Completed],
@@ -2160,9 +2168,10 @@ pub enum SessionPermissionRules {
 #[cfg(test)]
 mod tests {
     use super::{
-        CodexApprovalPolicy, CodexGranularApprovalPolicy, Provider, SessionControlMode,
-        SessionLifecycleState, SessionListItem, SessionListStatus, SessionStatus, SessionSummary,
-        SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+        CodexApprovalPolicy, CodexGranularApprovalPolicy, OrchestrationState, Provider,
+        SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus,
+        SessionStatus, SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind,
+        WorkStatus,
     };
 
     #[test]
@@ -2360,6 +2369,11 @@ mod tests {
                 .expect("deserialize session surface"),
             SessionSurface::Conversation
         );
+    }
+
+    #[test]
+    fn provisioning_state_can_advance_to_running() {
+        assert!(OrchestrationState::Provisioning.can_transition_to(&OrchestrationState::Running));
     }
 
     // classify_tool_family and ensure_tool_family tests removed —

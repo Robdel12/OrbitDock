@@ -58,10 +58,15 @@ pub(crate) fn apply_workspace_sync_batch(
     target: &WorkspaceSyncTarget,
     envelopes: &[SyncEnvelope],
 ) -> Result<WorkspaceSyncApplyResult> {
-    let current_acked = current_workspace_acked_through(conn, &target.workspace_id)?;
+    let tx = conn
+        .unchecked_transaction()
+        .context("begin workspace sync transaction")?;
+    let current_acked = current_workspace_acked_through(&tx, &target.workspace_id)?;
 
     if envelopes.is_empty() {
-        update_workspace_sync_state(conn, &target.workspace_id, current_acked)?;
+        update_workspace_sync_state(&tx, &target.workspace_id, current_acked)?;
+        tx.commit()
+            .context("commit workspace heartbeat transaction")?;
         return Ok(WorkspaceSyncApplyResult {
             acked_through: current_acked,
             touched_mission_ids: target.mission_id.clone().into_iter().collect(),
@@ -76,16 +81,15 @@ pub(crate) fn apply_workspace_sync_batch(
         .collect();
 
     if filtered.is_empty() {
-        update_workspace_sync_state(conn, &target.workspace_id, current_acked)?;
+        update_workspace_sync_state(&tx, &target.workspace_id, current_acked)?;
+        tx.commit()
+            .context("commit workspace replay-ack transaction")?;
         return Ok(WorkspaceSyncApplyResult {
             acked_through: current_acked,
             touched_mission_ids: target.mission_id.clone().into_iter().collect(),
         });
     }
 
-    let tx = conn
-        .unchecked_transaction()
-        .context("begin workspace sync transaction")?;
     let mut touched_mission_ids: HashSet<String> = target.mission_id.clone().into_iter().collect();
 
     for envelope in &filtered {
@@ -247,6 +251,19 @@ fn collect_touched_missions(
             if let Some(mission_id) = &params.mission_id {
                 touched.insert(mission_id.clone());
             }
+        }
+        crate::infrastructure::persistence::SyncCommand::MissionIssueUpsert {
+            mission_id, ..
+        }
+        | crate::infrastructure::persistence::SyncCommand::MissionIssueUpdateState {
+            mission_id,
+            ..
+        }
+        | crate::infrastructure::persistence::SyncCommand::MissionIssueSetPrUrl {
+            mission_id,
+            ..
+        } => {
+            touched.insert(mission_id.clone());
         }
         crate::infrastructure::persistence::SyncCommand::SessionUpdate { id, .. }
         | crate::infrastructure::persistence::SyncCommand::SessionEnd { id, .. }
@@ -470,5 +487,38 @@ mod tests {
 
         let result = apply_workspace_sync_batch(&mut conn, &target, &[]).unwrap();
         assert_eq!(result.acked_through, 0);
+    }
+
+    #[test]
+    fn apply_workspace_sync_batch_marks_mission_issue_commands_as_touched() {
+        let mut conn = setup_test_db();
+        insert_workspace(&conn, "workspace-1", "token-1");
+        let target = resolve_workspace_sync_target(&conn, "token-1")
+            .unwrap()
+            .unwrap();
+
+        let result = apply_workspace_sync_batch(
+            &mut conn,
+            &target,
+            &[SyncEnvelope {
+                sequence: 1,
+                workspace_id: "workspace-1".into(),
+                timestamp: chrono_now(),
+                command: SyncCommand::MissionIssueUpdateState {
+                    mission_id: "mission-1".into(),
+                    issue_id: "issue-1".into(),
+                    orchestration_state: "provisioning".into(),
+                    session_id: None,
+                    attempt: Some(1),
+                    last_error: Some(None),
+                    retry_due_at: None,
+                    started_at: None,
+                    completed_at: None,
+                },
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(result.touched_mission_ids, vec!["mission-1".to_string()]);
     }
 }
