@@ -10,6 +10,7 @@ mod setup;
 mod status;
 mod tunnel;
 mod upgrade;
+mod upgrade_executor;
 
 pub use doctor::print_diagnostics;
 pub use ensure_path::ensure_shell_path;
@@ -32,3 +33,4 @@ pub use status::{
 };
 pub use tunnel::start_cloudflare_tunnel;
 pub use upgrade::check_for_update;
+pub use upgrade_executor::{execute_upgrade, UpgradeOptions};
