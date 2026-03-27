@@ -16,6 +16,7 @@ enum BeaconPhase {
 }
 
 struct ServerSetupView: View {
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var host: String = ServerSetupViewPlanner.defaultHost()
@@ -76,6 +77,8 @@ struct ServerSetupView: View {
 
         serverHelpSection
           .frame(maxWidth: 420)
+
+        demoModeButton
 
         Spacer(minLength: Spacing.xxl)
       }
@@ -199,11 +202,11 @@ struct ServerSetupView: View {
 
   private var titleSection: some View {
     VStack(spacing: Spacing.md) {
-      Text("Mission Control")
+      Text("Welcome to OrbitDock")
         .font(.system(size: TypeScale.headline, weight: .bold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("Connect your OrbitDock server to start tracking AI sessions.")
+      Text("Your AI coding sessions, organized and observable. Connect to your server to get started.")
         .font(.system(size: TypeScale.subhead))
         .foregroundStyle(Color.textSecondary)
         .multilineTextAlignment(.center)
@@ -344,6 +347,23 @@ struct ServerSetupView: View {
     }
     .padding(Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  // MARK: - Demo Mode
+
+  private var demoModeButton: some View {
+    Button {
+      appRuntime.enterDemoMode()
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: "play.circle")
+          .font(.system(size: TypeScale.body))
+        Text("Try demo mode")
+          .font(.system(size: TypeScale.body))
+      }
+      .foregroundStyle(Color.accent)
+    }
+    .buttonStyle(.plain)
   }
 
   // MARK: - Shared Components
