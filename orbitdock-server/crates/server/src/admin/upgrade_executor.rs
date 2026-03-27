@@ -48,23 +48,12 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
   // 2. Determine target version
   let client = GitHubReleasesClient::new();
   let release = if let Some(ref tag) = opts.target_version {
-    // Fetch all releases and find the one matching the tag
     let tag_with_v = if tag.starts_with('v') {
       tag.clone()
     } else {
       format!("v{tag}")
     };
-    let r = client.fetch_latest_release(channel).await?;
-    match r {
-      Some(r) if r.tag_name == tag_with_v => Some(r),
-      _ => {
-        // Try fetching the specific tag via the releases list
-        anyhow::bail!(
-          "Release {tag_with_v} not found in the {channel} channel. \
-           Use --channel to specify a different channel."
-        );
-      }
-    }
+    client.fetch_release_by_tag(&tag_with_v).await?
   } else {
     client.fetch_latest_release(channel).await?
   };

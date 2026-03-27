@@ -104,6 +104,50 @@ impl GitHubReleasesClient {
     }))
   }
 
+  /// Fetch a specific release by tag name (e.g. "v0.6.0").
+  pub async fn fetch_release_by_tag(&self, tag: &str) -> anyhow::Result<Option<ReleaseInfo>> {
+    let url = format!("https://api.github.com/repos/{REPO_SLUG}/releases/tags/{tag}");
+
+    let resp = self
+      .http
+      .get(&url)
+      .header("User-Agent", format!("orbitdock/{VERSION}"))
+      .header("Accept", "application/vnd.github+json")
+      .send()
+      .await?;
+
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+      return Ok(None);
+    }
+
+    if resp.status() == reqwest::StatusCode::FORBIDDEN {
+      anyhow::bail!("GitHub API rate limit exceeded — try again later");
+    }
+
+    let status = resp.status();
+    if !status.is_success() {
+      let text = resp.text().await.unwrap_or_default();
+      anyhow::bail!("GitHub API returned {status}: {text}");
+    }
+
+    let r: GitHubRelease = resp.json().await?;
+    Ok(Some(ReleaseInfo {
+      tag_name: r.tag_name,
+      html_url: r.html_url,
+      published_at: r.published_at,
+      prerelease: r.prerelease,
+      assets: r
+        .assets
+        .into_iter()
+        .map(|a| ReleaseAsset {
+          name: a.name,
+          browser_download_url: a.browser_download_url,
+          size: a.size,
+        })
+        .collect(),
+    }))
+  }
+
   /// Check whether an update is available for the current binary.
   pub async fn check_for_update(
     &self,
