@@ -49,6 +49,7 @@ liquid = { workspace = true }
 serde_yaml = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+semver = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

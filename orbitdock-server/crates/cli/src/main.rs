@@ -115,6 +115,12 @@ fn main() -> anyhow::Result<()> {
         orbitdock_server::admin::SetupOptions { path: setup_path },
       );
     }
+    Some(Command::Upgrade { check: _, channel }) => {
+      return orbitdock_server::admin::check_for_update(
+        cli.json || !std::io::stdout().is_terminal(),
+        channel.clone(),
+      );
+    }
     Some(Command::RemoteSetup) => {
       return orbitdock_server::admin::guide_remote_setup(&data_dir);
     }

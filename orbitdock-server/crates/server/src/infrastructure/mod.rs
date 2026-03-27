@@ -3,6 +3,7 @@ pub(crate) mod auth_tokens;
 pub(crate) mod crypto;
 pub(crate) mod daytona;
 pub(crate) mod github;
+pub(crate) mod github_releases;
 pub(crate) mod images;
 pub(crate) mod linear;
 pub(crate) mod logging;

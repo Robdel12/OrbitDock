@@ -1,0 +1,255 @@
+use reqwest::Client;
+use tracing::debug;
+
+use super::types::{ReleaseAsset, ReleaseInfo, UpdateChannel, UpdateCheckResult};
+use crate::VERSION;
+
+const REPO_SLUG: &str = "Robdel12/OrbitDock";
+
+/// Lightweight client for the GitHub Releases REST API.
+///
+/// No authentication required — OrbitDock is a public repo.
+/// Unauthenticated rate limit: 60 requests/hour.
+pub struct GitHubReleasesClient {
+  http: Client,
+}
+
+/// Raw release object from the GitHub API (only the fields we need).
+#[derive(serde::Deserialize)]
+struct GitHubRelease {
+  tag_name: String,
+  html_url: String,
+  published_at: Option<String>,
+  prerelease: bool,
+  assets: Vec<GitHubAsset>,
+}
+
+#[derive(serde::Deserialize)]
+struct GitHubAsset {
+  name: String,
+  browser_download_url: String,
+  size: u64,
+}
+
+impl GitHubReleasesClient {
+  pub fn new() -> Self {
+    Self {
+      http: Client::new(),
+    }
+  }
+
+  /// Fetch the latest release matching the given channel.
+  pub async fn fetch_latest_release(
+    &self,
+    channel: UpdateChannel,
+  ) -> anyhow::Result<Option<ReleaseInfo>> {
+    let url = format!("https://api.github.com/repos/{REPO_SLUG}/releases");
+
+    let resp = self
+      .http
+      .get(&url)
+      .header("User-Agent", format!("orbitdock/{VERSION}"))
+      .header("Accept", "application/vnd.github+json")
+      .query(&[("per_page", "30")])
+      .send()
+      .await?;
+
+    // Check rate limiting
+    let remaining = resp
+      .headers()
+      .get("x-ratelimit-remaining")
+      .and_then(|v| v.to_str().ok())
+      .and_then(|v| v.parse::<u64>().ok());
+
+    if let Some(rem) = remaining {
+      if rem < 10 {
+        tracing::warn!(
+          component = "github_releases",
+          remaining = rem,
+          "GitHub API rate limit nearly exhausted"
+        );
+      }
+    }
+
+    if resp.status() == reqwest::StatusCode::FORBIDDEN && remaining == Some(0) {
+      anyhow::bail!("GitHub API rate limit exceeded — try again later");
+    }
+
+    let status = resp.status();
+    if !status.is_success() {
+      let text = resp.text().await.unwrap_or_default();
+      anyhow::bail!("GitHub API returned {status}: {text}");
+    }
+
+    let releases: Vec<GitHubRelease> = resp.json().await?;
+
+    let matching = releases.into_iter().find(|r| matches_channel(r, channel));
+
+    Ok(matching.map(|r| {
+      ReleaseInfo {
+        tag_name: r.tag_name,
+        html_url: r.html_url,
+        published_at: r.published_at,
+        prerelease: r.prerelease,
+        assets: r
+          .assets
+          .into_iter()
+          .map(|a| ReleaseAsset {
+            name: a.name,
+            browser_download_url: a.browser_download_url,
+            size: a.size,
+          })
+          .collect(),
+      }
+    }))
+  }
+
+  /// Check whether an update is available for the current binary.
+  pub async fn check_for_update(
+    &self,
+    channel: UpdateChannel,
+  ) -> anyhow::Result<UpdateCheckResult> {
+    let current = semver::Version::parse(VERSION)
+      .map_err(|e| anyhow::anyhow!("Failed to parse current version '{VERSION}': {e}"))?;
+
+    let latest_release = self.fetch_latest_release(channel).await?;
+
+    let (update_available, latest_version, release_url) = match &latest_release {
+      Some(release) => {
+        let available = match release.version() {
+          Some(latest_ver) => is_update(&current, &latest_ver, channel),
+          // Nightly with non-semver tag — compare by published_at
+          None if channel == UpdateChannel::Nightly => true,
+          None => false,
+        };
+
+        (
+          available,
+          Some(release.tag_name.clone()),
+          Some(release.html_url.clone()),
+        )
+      }
+      None => (false, None, None),
+    };
+
+    debug!(
+      component = "github_releases",
+      current = %current,
+      latest = latest_version.as_deref().unwrap_or("none"),
+      channel = %channel,
+      update_available,
+      "Update check complete"
+    );
+
+    Ok(UpdateCheckResult {
+      current_version: current.to_string(),
+      latest_version,
+      update_available,
+      channel,
+      release_url,
+    })
+  }
+}
+
+/// Check whether a release matches the requested channel.
+fn matches_channel(release: &GitHubRelease, channel: UpdateChannel) -> bool {
+  match channel {
+    UpdateChannel::Stable => !release.prerelease,
+    UpdateChannel::Beta => release.prerelease && release.tag_name.contains("-beta"),
+    UpdateChannel::Nightly => {
+      release.tag_name == "nightly" || (release.prerelease && release.tag_name.contains("-nightly"))
+    }
+  }
+}
+
+/// Determine if `latest` is a meaningful upgrade over `current` for the given channel.
+fn is_update(current: &semver::Version, latest: &semver::Version, channel: UpdateChannel) -> bool {
+  match channel {
+    // Stable: only upgrade to higher stable versions (ignore prereleases)
+    UpdateChannel::Stable => latest > current && latest.pre.is_empty(),
+    // Beta/Nightly: any higher version is an upgrade
+    UpdateChannel::Beta | UpdateChannel::Nightly => latest > current,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn release(tag: &str, prerelease: bool) -> GitHubRelease {
+    GitHubRelease {
+      tag_name: tag.to_string(),
+      html_url: format!("https://github.com/{REPO_SLUG}/releases/tag/{tag}"),
+      published_at: None,
+      prerelease,
+      assets: vec![],
+    }
+  }
+
+  #[test]
+  fn stable_matches_non_prerelease() {
+    assert!(matches_channel(
+      &release("v0.7.0", false),
+      UpdateChannel::Stable
+    ));
+    assert!(!matches_channel(
+      &release("v0.7.0-beta.1", true),
+      UpdateChannel::Stable
+    ));
+  }
+
+  #[test]
+  fn beta_matches_beta_prerelease() {
+    assert!(matches_channel(
+      &release("v0.7.0-beta.1", true),
+      UpdateChannel::Beta
+    ));
+    assert!(!matches_channel(
+      &release("v0.7.0", false),
+      UpdateChannel::Beta
+    ));
+    assert!(!matches_channel(
+      &release("nightly", true),
+      UpdateChannel::Beta
+    ));
+  }
+
+  #[test]
+  fn nightly_matches_nightly() {
+    assert!(matches_channel(
+      &release("nightly", true),
+      UpdateChannel::Nightly
+    ));
+    assert!(matches_channel(
+      &release("v0.7.0-nightly.20260327", true),
+      UpdateChannel::Nightly
+    ));
+    assert!(!matches_channel(
+      &release("v0.7.0", false),
+      UpdateChannel::Nightly
+    ));
+  }
+
+  #[test]
+  fn stable_update_check() {
+    let current = semver::Version::new(0, 6, 0);
+    let newer = semver::Version::new(0, 7, 0);
+    let older = semver::Version::new(0, 5, 0);
+    let same = semver::Version::new(0, 6, 0);
+    let beta = semver::Version::parse("0.7.0-beta.1").unwrap();
+
+    assert!(is_update(&current, &newer, UpdateChannel::Stable));
+    assert!(!is_update(&current, &older, UpdateChannel::Stable));
+    assert!(!is_update(&current, &same, UpdateChannel::Stable));
+    // Beta version should NOT be an upgrade on stable channel
+    assert!(!is_update(&current, &beta, UpdateChannel::Stable));
+  }
+
+  #[test]
+  fn beta_update_check() {
+    let current = semver::Version::new(0, 6, 0);
+    let beta = semver::Version::parse("0.7.0-beta.1").unwrap();
+
+    assert!(is_update(&current, &beta, UpdateChannel::Beta));
+  }
+}

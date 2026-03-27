@@ -301,6 +301,17 @@ pub enum BinaryCommand {
     action: ShellAction,
   },
 
+  /// Check for server updates or upgrade to a new version
+  Upgrade {
+    /// Only check for updates, don't install
+    #[arg(long)]
+    check: bool,
+
+    /// Override the update channel for this check (stable|beta|nightly)
+    #[arg(long)]
+    channel: Option<String>,
+  },
+
   /// Generate shell completions
   Completions { shell: clap_complete::Shell },
 }
