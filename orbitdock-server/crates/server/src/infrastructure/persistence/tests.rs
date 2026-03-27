@@ -33,6 +33,7 @@ fn setup_test_db() -> (
         "PRAGMA journal_mode = WAL;
          PRAGMA busy_timeout = 5000;
          PRAGMA synchronous = NORMAL;
+         PRAGMA foreign_keys = ON;
 
          CREATE TABLE IF NOT EXISTS sessions (
            id TEXT PRIMARY KEY,
@@ -114,7 +115,7 @@ fn setup_test_db() -> (
 
          CREATE TABLE IF NOT EXISTS messages (
            id TEXT PRIMARY KEY,
-           session_id TEXT NOT NULL,
+           session_id TEXT NOT NULL REFERENCES sessions(id),
            type TEXT NOT NULL DEFAULT '',
            content TEXT NOT NULL DEFAULT '',
            timestamp TEXT,
@@ -128,7 +129,7 @@ fn setup_test_db() -> (
            ON messages(session_id, sequence);
 
          CREATE TABLE IF NOT EXISTS turn_diffs (
-           session_id TEXT NOT NULL,
+           session_id TEXT NOT NULL REFERENCES sessions(id),
            turn_id TEXT NOT NULL,
            diff TEXT NOT NULL,
            input_tokens INTEGER NOT NULL DEFAULT 0,
@@ -519,7 +520,7 @@ fn row_append_ignore_deduplicates_by_id() {
     let (conn, db_path, _dir, _guard) = setup_test_db();
     drop(conn);
 
-    // INSERT OR IGNORE means second insert with same id is silently dropped
+    // ON CONFLICT(id) DO NOTHING means second insert with same id is silently dropped
     let batch = vec![
         PersistCommand::RowAppend {
             session_id: "test-session".to_string(),
@@ -542,11 +543,11 @@ fn row_append_ignore_deduplicates_by_id() {
     let conn = Connection::open(&db_path).unwrap();
     let rows = load_messages_from_db(&conn, "test-session").unwrap();
 
-    // Only one row should exist — the first one wins with INSERT OR IGNORE
+    // Only one row should exist — the first one wins with ON CONFLICT(id) DO NOTHING
     assert_eq!(rows.len(), 1);
     assert_eq!(
         rows[0].sequence, 0,
-        "first insert wins with INSERT OR IGNORE"
+        "first insert wins with ON CONFLICT(id) DO NOTHING"
     );
 }
 
@@ -1083,5 +1084,47 @@ fn mission_clear_tracker_key() {
     assert!(
         key.is_none(),
         "tracker_api_key should be NULL after clearing"
+    );
+}
+
+#[test]
+fn row_append_fk_violation_rejects_orphan_message() {
+    let (conn, db_path, _dir, _guard) = setup_test_db();
+    drop(conn);
+
+    // Mix a valid command with an FK-violating one (ghost-session doesn't exist).
+    // The batch should succeed overall — the orphan is skipped, the valid one persists.
+    let batch = vec![
+        PersistCommand::RowAppend {
+            session_id: "test-session".to_string(),
+            viewer_present: false,
+            assigned_sequence: None,
+            sequence_tx: None,
+            entry: user_entry("valid-msg", 0),
+        },
+        PersistCommand::RowAppend {
+            session_id: "ghost-session".to_string(),
+            viewer_present: false,
+            assigned_sequence: None,
+            sequence_tx: None,
+            entry: {
+                let mut e = user_entry("orphan-msg", 0);
+                e.session_id = "ghost-session".to_string();
+                e
+            },
+        },
+    ];
+
+    super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+    let conn = Connection::open(&db_path).unwrap();
+    let valid_rows = load_messages_from_db(&conn, "test-session").unwrap();
+    assert_eq!(valid_rows.len(), 1, "valid message should be persisted");
+
+    let ghost_rows = load_messages_from_db(&conn, "ghost-session").unwrap();
+    assert_eq!(
+        ghost_rows.len(),
+        0,
+        "orphan message must NOT be persisted (FK violation)"
     );
 }

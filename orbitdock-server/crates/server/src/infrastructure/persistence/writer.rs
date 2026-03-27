@@ -163,7 +163,8 @@ pub(crate) fn flush_batch(
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA busy_timeout = 5000;
-         PRAGMA synchronous = NORMAL;",
+         PRAGMA synchronous = NORMAL;
+         PRAGMA foreign_keys = ON;",
     )?;
 
     let count = batch.len();
@@ -171,14 +172,26 @@ pub(crate) fn flush_batch(
     let mut sync_commands = Vec::new();
 
     for cmd in batch {
+        let cmd_type = cmd.type_name();
         let sync_plan = SyncPlan::from_command(&cmd);
         if let Err(error) = super::execute_command(&tx, cmd) {
-            error!(
-                component = "persistence",
-                event = "persistence.command.failed",
-                error = %error,
-                "Failed to execute persistence command"
-            );
+            if is_foreign_key_violation(&error) {
+                warn!(
+                    component = "persistence",
+                    event = "persistence.command.fk_violation",
+                    error = %error,
+                    command_type = cmd_type,
+                    "FK constraint violation — parent row may not exist"
+                );
+            } else {
+                error!(
+                    component = "persistence",
+                    event = "persistence.command.failed",
+                    error = %error,
+                    command_type = cmd_type,
+                    "Failed to execute persistence command"
+                );
+            }
             continue;
         }
 
@@ -204,6 +217,19 @@ pub(crate) fn flush_batch(
         command_count: count,
         sync_commands,
     })
+}
+
+fn is_foreign_key_violation(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                extended_code: rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY,
+                ..
+            },
+            _
+        )
+    )
 }
 
 #[cfg(test)]

@@ -61,7 +61,8 @@ pub async fn post_sync_batch(
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA busy_timeout = 5000;
-             PRAGMA synchronous = NORMAL;",
+             PRAGMA synchronous = NORMAL;
+             PRAGMA foreign_keys = ON;",
         )?;
 
         let target = resolve_workspace_sync_target(&conn, &token_id_clone)?

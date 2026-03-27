@@ -412,11 +412,14 @@ pub(super) fn execute_command(
             let is_user = entry.row.is_user_input();
 
             // DB computes sequence as MAX(sequence)+1 — single source of truth.
+            // ON CONFLICT(id) DO NOTHING deduplicates by PK only — FK violations
+            // on session_id still bubble up (unlike INSERT OR IGNORE which swallows all).
             conn.execute(
-                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
+                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
                  VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7, ?8)",
+                   ?7, ?8)
+                 ON CONFLICT(id) DO NOTHING",
                 params![
                     row_id,
                     session_id,

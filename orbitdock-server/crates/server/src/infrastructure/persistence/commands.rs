@@ -428,6 +428,66 @@ pub enum PersistCommand {
 }
 
 impl PersistCommand {
+    /// Short label for structured logging.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            PersistCommand::SessionCreate(_) => "SessionCreate",
+            PersistCommand::SessionUpdate { .. } => "SessionUpdate",
+            PersistCommand::SessionEnd { .. } => "SessionEnd",
+            PersistCommand::RowAppend { .. } => "RowAppend",
+            PersistCommand::RowUpsert { .. } => "RowUpsert",
+            PersistCommand::TokensUpdate { .. } => "TokensUpdate",
+            PersistCommand::TurnStateUpdate { .. } => "TurnStateUpdate",
+            PersistCommand::TurnDiffInsert { .. } => "TurnDiffInsert",
+            PersistCommand::SetThreadId { .. } => "SetThreadId",
+            PersistCommand::CleanupThreadShadowSession { .. } => "CleanupThreadShadowSession",
+            PersistCommand::SetClaudeSdkSessionId { .. } => "SetClaudeSdkSessionId",
+            PersistCommand::CleanupClaudeShadowSession { .. } => "CleanupClaudeShadowSession",
+            PersistCommand::SetCustomName { .. } => "SetCustomName",
+            PersistCommand::SetSummary { .. } => "SetSummary",
+            PersistCommand::SetSessionConfig { .. } => "SetSessionConfig",
+            PersistCommand::MarkSessionRead { .. } => "MarkSessionRead",
+            PersistCommand::ReactivateSession { .. } => "ReactivateSession",
+            PersistCommand::ClaudeSessionUpsert { .. } => "ClaudeSessionUpsert",
+            PersistCommand::ClaudeSessionUpdate { .. } => "ClaudeSessionUpdate",
+            PersistCommand::ClaudeSessionEnd { .. } => "ClaudeSessionEnd",
+            PersistCommand::ClaudePromptIncrement { .. } => "ClaudePromptIncrement",
+            PersistCommand::ClaudeToolIncrement { .. } => "ClaudeToolIncrement",
+            PersistCommand::ToolCountIncrement { .. } => "ToolCountIncrement",
+            PersistCommand::ModelUpdate { .. } => "ModelUpdate",
+            PersistCommand::EffortUpdate { .. } => "EffortUpdate",
+            PersistCommand::ClaudeSubagentStart { .. } => "ClaudeSubagentStart",
+            PersistCommand::ClaudeSubagentEnd { .. } => "ClaudeSubagentEnd",
+            PersistCommand::UpsertSubagent { .. } => "UpsertSubagent",
+            PersistCommand::UpsertSubagents { .. } => "UpsertSubagents",
+            PersistCommand::RolloutSessionUpsert { .. } => "RolloutSessionUpsert",
+            PersistCommand::RolloutSessionUpdate { .. } => "RolloutSessionUpdate",
+            PersistCommand::RolloutPromptIncrement { .. } => "RolloutPromptIncrement",
+            PersistCommand::CodexPromptIncrement { .. } => "CodexPromptIncrement",
+            PersistCommand::RolloutToolIncrement { .. } => "RolloutToolIncrement",
+            PersistCommand::UpsertRolloutCheckpoint { .. } => "UpsertRolloutCheckpoint",
+            PersistCommand::DeleteRolloutCheckpoint { .. } => "DeleteRolloutCheckpoint",
+            PersistCommand::ApprovalRequested(_) => "ApprovalRequested",
+            PersistCommand::ApprovalDecision { .. } => "ApprovalDecision",
+            PersistCommand::ReviewCommentCreate { .. } => "ReviewCommentCreate",
+            PersistCommand::ReviewCommentUpdate { .. } => "ReviewCommentUpdate",
+            PersistCommand::ReviewCommentDelete { .. } => "ReviewCommentDelete",
+            PersistCommand::SetIntegrationMode { .. } => "SetIntegrationMode",
+            PersistCommand::EnvironmentUpdate { .. } => "EnvironmentUpdate",
+            PersistCommand::SetConfig { .. } => "SetConfig",
+            PersistCommand::WorktreeCreate { .. } => "WorktreeCreate",
+            PersistCommand::WorktreeUpdateStatus { .. } => "WorktreeUpdateStatus",
+            PersistCommand::MissionCreate { .. } => "MissionCreate",
+            PersistCommand::MissionUpdate { .. } => "MissionUpdate",
+            PersistCommand::MissionSetTrackerKey { .. } => "MissionSetTrackerKey",
+            PersistCommand::MissionDelete { .. } => "MissionDelete",
+            PersistCommand::MissionIssueUpsert { .. } => "MissionIssueUpsert",
+            PersistCommand::MissionIssueUpdateState { .. } => "MissionIssueUpdateState",
+            PersistCommand::MissionIssueSetPrUrl { .. } => "MissionIssueSetPrUrl",
+            PersistCommand::RowsTurnStatusUpdate { .. } => "RowsTurnStatusUpdate",
+        }
+    }
+
     /// Returns true if this command has a response channel that the caller is awaiting.
     /// The writer should flush immediately when any batched command needs a response.
     pub fn has_response_channel(&self) -> bool {
