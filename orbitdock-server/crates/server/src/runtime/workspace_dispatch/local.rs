@@ -17,13 +17,76 @@ use super::{DispatchRequest, DispatchResult, WorkspaceError, WorkspaceProvider};
 
 /// Derive a git branch name from an issue identifier.
 ///
-/// Lowercases the identifier and replaces spaces and slashes with hyphens,
-/// then prefixes with `mission/`.
+/// Lowercases the identifier, replaces any non-alphanumeric character with a
+/// hyphen, and collapses consecutive hyphens. This produces a slug that is
+/// safe for filesystem paths, URLs, and module specifiers.
 pub(crate) fn mission_branch_name(identifier: &str) -> String {
-  format!(
+  let slug: String = identifier
+    .to_lowercase()
+    .chars()
+    .map(|c| if c.is_alphanumeric() { c } else { '-' })
+    .collect::<String>()
+    .split('-')
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join("-");
+
+  format!("mission/{slug}")
+}
+
+/// Pre-v0.8 naming: only replaced spaces and slashes. Returns `None` when the
+/// legacy name would be identical to the current one (no cleanup needed).
+fn legacy_mission_branch_name(identifier: &str) -> Option<String> {
+  let legacy = format!(
     "mission/{}",
     identifier.to_lowercase().replace([' ', '/'], "-")
-  )
+  );
+  let current = mission_branch_name(identifier);
+  if legacy != current {
+    Some(legacy)
+  } else {
+    None
+  }
+}
+
+/// Best-effort cleanup of a worktree + branch left behind by the old naming
+/// scheme. Failures are logged but never block dispatch.
+async fn cleanup_legacy_worktree(
+  repo_root: &str,
+  legacy_branch: &str,
+  worktree_root: Option<&str>,
+) {
+  let worktree_path = if let Some(root) = worktree_root.filter(|r| !r.trim().is_empty()) {
+    format!("{}/{}", root.trim().trim_end_matches('/'), legacy_branch)
+  } else {
+    format!(
+      "{}/.orbitdock-worktrees/{}",
+      repo_root.trim().trim_end_matches('/'),
+      legacy_branch
+    )
+  };
+
+  if let Err(err) = crate::domain::git::repo::remove_worktree(repo_root, &worktree_path, true).await
+  {
+    tracing::debug!(
+        component = "mission_control",
+        event = "dispatch.legacy_worktree_cleanup",
+        legacy_branch,
+        error = %err,
+        "No legacy worktree to clean up (expected on fresh installs)"
+    );
+  }
+
+  // Delete the stale branch regardless of whether the worktree was present
+  if let Err(err) = crate::domain::git::repo::delete_branch(repo_root, legacy_branch).await {
+    tracing::debug!(
+        component = "mission_control",
+        event = "dispatch.legacy_branch_cleanup",
+        legacy_branch,
+        error = %err,
+        "No legacy branch to clean up"
+    );
+  }
 }
 
 /// Build inherited env vars for mission tools.
@@ -80,6 +143,14 @@ impl LocalWorkspaceProvider {
 impl WorkspaceProvider for LocalWorkspaceProvider {
   async fn dispatch(&self, req: &DispatchRequest) -> Result<DispatchResult, WorkspaceError> {
     let branch_name = mission_branch_name(&req.issue.identifier);
+
+    // Clean up worktrees created under the pre-v0.8 naming scheme (which
+    // preserved `#` and other reserved chars). Without this, a retry after
+    // upgrade would create a second worktree at the new sanitized path while
+    // the old one stays orphaned on disk.
+    if let Some(legacy) = legacy_mission_branch_name(&req.issue.identifier) {
+      cleanup_legacy_worktree(&req.repo_root, &legacy, req.worktree_root_dir.as_deref()).await;
+    }
 
     if let Err(err) = crate::domain::git::repo::fetch_origin(&req.repo_root).await {
       warn!(
@@ -250,10 +321,26 @@ mod tests {
   }
 
   #[test]
-  fn branch_name_replaces_slashes() {
+  fn branch_name_replaces_slashes_and_hash() {
     assert_eq!(
       mission_branch_name("owner/repo#123"),
-      "mission/owner-repo#123"
+      "mission/owner-repo-123"
+    );
+  }
+
+  #[test]
+  fn branch_name_sanitizes_reserved_url_characters() {
+    assert_eq!(
+      mission_branch_name("org/repo#42?q=1&x=2"),
+      "mission/org-repo-42-q-1-x-2"
+    );
+  }
+
+  #[test]
+  fn branch_name_collapses_consecutive_special_chars() {
+    assert_eq!(
+      mission_branch_name("foo---bar!!!baz"),
+      "mission/foo-bar-baz"
     );
   }
 
@@ -354,6 +441,26 @@ mod tests {
       env_map.get("ORBITDOCK_TRACKER_KIND").map(String::as_str),
       Some("linear")
     );
+  }
+
+  #[test]
+  fn legacy_name_returns_some_when_identifier_has_reserved_chars() {
+    // GitHub-style identifier — old naming preserved `#`
+    assert_eq!(
+      legacy_mission_branch_name("owner/repo#123"),
+      Some("mission/owner-repo#123".to_string())
+    );
+  }
+
+  #[test]
+  fn legacy_name_returns_none_when_names_match() {
+    // Linear-style identifier — no reserved chars, old == new
+    assert_eq!(legacy_mission_branch_name("PROJ-42"), None);
+  }
+
+  #[test]
+  fn legacy_name_returns_none_for_plain_text() {
+    assert_eq!(legacy_mission_branch_name("already-hyphenated"), None);
   }
 
   #[test]
