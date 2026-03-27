@@ -66,6 +66,8 @@ struct DashboardConversationRecordTests {
       \(claudeModeJSON)
       "status": "\(status)",
       "work_status": "\(workStatus)",
+      "control_mode": "direct",
+      "lifecycle_state": "open",
       "list_status": "\(listStatus)",
       "display_title": "Dashboard Session",
       "context_line": "Investigate dashboard controls",

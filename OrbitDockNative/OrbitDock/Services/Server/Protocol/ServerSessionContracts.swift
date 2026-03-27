@@ -213,154 +213,29 @@ struct ServerSessionListItem: Codable, Identifiable {
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let startedAt: String?
   let lastActivityAt: String?
-  let unreadCount: UInt64?
-  let hasTurnDiff: Bool?
+  let unreadCount: UInt64
+  let hasTurnDiff: Bool
   let pendingToolName: String?
   let repositoryRoot: String?
-  let isWorktree: Bool?
+  let isWorktree: Bool
   let worktreeId: String?
-  let totalTokens: UInt64?
-  let totalCostUSD: Double?
-  let inputTokens: UInt64?
-  let outputTokens: UInt64?
-  let cachedTokens: UInt64?
-  let displayTitle: String?
+  let totalTokens: UInt64
+  let totalCostUSD: Double
+  let inputTokens: UInt64
+  let outputTokens: UInt64
+  let cachedTokens: UInt64
+  let displayTitle: String
   let displayTitleSortKey: String?
   let displaySearchText: String?
   let contextLine: String?
-  let listStatus: ServerSessionListStatus?
-  let summaryRevision: UInt64?
+  let listStatus: ServerSessionListStatus
+  let summaryRevision: UInt64
   let effort: String?
-  let activeWorkerCount: UInt64?
+  let activeWorkerCount: UInt64
   let pendingToolFamily: String?
   let forkedFromSessionId: String?
   let missionId: String?
   let issueIdentifier: String?
-
-  init(
-    id: String,
-    provider: ServerProvider,
-    projectPath: String,
-    projectName: String?,
-    gitBranch: String?,
-    model: String?,
-    status: ServerSessionStatus,
-    workStatus: ServerWorkStatus,
-    controlMode: ServerSessionControlMode = .passive,
-    lifecycleState: ServerSessionLifecycleState = .ended,
-    steerable: Bool = false,
-    codexIntegrationMode: ServerCodexIntegrationMode?,
-    claudeIntegrationMode: ServerClaudeIntegrationMode?,
-    startedAt: String?,
-    lastActivityAt: String?,
-    unreadCount: UInt64?,
-    hasTurnDiff: Bool?,
-    pendingToolName: String?,
-    repositoryRoot: String?,
-    isWorktree: Bool?,
-    worktreeId: String?,
-    totalTokens: UInt64?,
-    totalCostUSD: Double?,
-    inputTokens: UInt64? = nil,
-    outputTokens: UInt64? = nil,
-    cachedTokens: UInt64? = nil,
-    displayTitle: String?,
-    displayTitleSortKey: String?,
-    displaySearchText: String?,
-    contextLine: String?,
-    listStatus: ServerSessionListStatus?,
-    summaryRevision: UInt64? = nil,
-    effort: String?,
-    activeWorkerCount: UInt64? = nil,
-    pendingToolFamily: String? = nil,
-    forkedFromSessionId: String? = nil,
-    missionId: String? = nil,
-    issueIdentifier: String? = nil
-  ) {
-    self.id = id
-    self.provider = provider
-    self.projectPath = projectPath
-    self.projectName = projectName
-    self.gitBranch = gitBranch
-    self.model = model
-    self.status = status
-    self.workStatus = workStatus
-    self.controlMode = controlMode
-    self.lifecycleState = lifecycleState
-    self.steerable = steerable
-    self.codexIntegrationMode = codexIntegrationMode
-    self.claudeIntegrationMode = claudeIntegrationMode
-    self.startedAt = startedAt
-    self.lastActivityAt = lastActivityAt
-    self.unreadCount = unreadCount
-    self.hasTurnDiff = hasTurnDiff
-    self.pendingToolName = pendingToolName
-    self.repositoryRoot = repositoryRoot
-    self.isWorktree = isWorktree
-    self.worktreeId = worktreeId
-    self.totalTokens = totalTokens
-    self.totalCostUSD = totalCostUSD
-    self.inputTokens = inputTokens
-    self.outputTokens = outputTokens
-    self.cachedTokens = cachedTokens
-    self.displayTitle = displayTitle
-    self.displayTitleSortKey = displayTitleSortKey
-    self.displaySearchText = displaySearchText
-    self.contextLine = contextLine
-    self.listStatus = listStatus
-    self.summaryRevision = summaryRevision
-    self.effort = effort
-    self.activeWorkerCount = activeWorkerCount
-    self.pendingToolFamily = pendingToolFamily
-    self.forkedFromSessionId = forkedFromSessionId
-    self.missionId = missionId
-    self.issueIdentifier = issueIdentifier
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
-    provider = try container.decode(ServerProvider.self, forKey: .provider)
-    projectPath = try container.decode(String.self, forKey: .projectPath)
-    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
-    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
-    model = try container.decodeIfPresent(String.self, forKey: .model)
-    status = try container.decode(ServerSessionStatus.self, forKey: .status)
-    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
-    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
-    steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
-    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(
-      ServerClaudeIntegrationMode.self,
-      forKey: .claudeIntegrationMode
-    )
-    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
-    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
-    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
-    hasTurnDiff = try container.decodeIfPresent(Bool.self, forKey: .hasTurnDiff)
-    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
-    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
-    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
-    totalTokens = try container.decodeIfPresent(UInt64.self, forKey: .totalTokens)
-    totalCostUSD = try container.decodeIfPresent(Double.self, forKey: .totalCostUSD)
-    inputTokens = try container.decodeIfPresent(UInt64.self, forKey: .inputTokens)
-    outputTokens = try container.decodeIfPresent(UInt64.self, forKey: .outputTokens)
-    cachedTokens = try container.decodeIfPresent(UInt64.self, forKey: .cachedTokens)
-    displayTitle = try container.decodeIfPresent(String.self, forKey: .displayTitle)
-    displayTitleSortKey = try container.decodeIfPresent(String.self, forKey: .displayTitleSortKey)
-    displaySearchText = try container.decodeIfPresent(String.self, forKey: .displaySearchText)
-    contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
-    listStatus = try container.decodeIfPresent(ServerSessionListStatus.self, forKey: .listStatus)
-    summaryRevision = try container.decodeIfPresent(UInt64.self, forKey: .summaryRevision)
-    effort = try container.decodeIfPresent(String.self, forKey: .effort)
-    activeWorkerCount = try container.decodeIfPresent(UInt64.self, forKey: .activeWorkerCount)
-    pendingToolFamily = try container.decodeIfPresent(String.self, forKey: .pendingToolFamily)
-    forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
-    missionId = try container.decodeIfPresent(String.self, forKey: .missionId)
-    issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
-  }
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -415,14 +290,6 @@ struct ServerDashboardDiffPreview: Codable, Equatable {
     case additions
     case deletions
     case filePaths = "file_paths"
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    fileCount = try container.decodeIfPresent(UInt32.self, forKey: .fileCount) ?? 0
-    additions = try container.decodeIfPresent(UInt32.self, forKey: .additions) ?? 0
-    deletions = try container.decodeIfPresent(UInt32.self, forKey: .deletions) ?? 0
-    filePaths = try container.decodeIfPresent([String].self, forKey: .filePaths) ?? []
   }
 }
 
@@ -502,47 +369,6 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     case issueIdentifier = "issue_identifier"
     case effort
   }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    sessionId = try container.decode(String.self, forKey: .sessionId)
-    provider = try container.decode(ServerProvider.self, forKey: .provider)
-    projectPath = try container.decode(String.self, forKey: .projectPath)
-    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
-    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
-    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
-    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree) ?? false
-    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
-    model = try container.decodeIfPresent(String.self, forKey: .model)
-    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(
-      ServerClaudeIntegrationMode.self,
-      forKey: .claudeIntegrationMode
-    )
-    status = try container.decode(ServerSessionStatus.self, forKey: .status)
-    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
-    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
-    listStatus = try container.decode(ServerSessionListStatus.self, forKey: .listStatus)
-    displayTitle = try container.decode(String.self, forKey: .displayTitle)
-    contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
-    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
-    previewText = try container.decodeIfPresent(String.self, forKey: .previewText)
-    activitySummary = try container.decodeIfPresent(String.self, forKey: .activitySummary)
-    alertContext = try container.decodeIfPresent(String.self, forKey: .alertContext)
-    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
-    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
-    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount) ?? 0
-    hasTurnDiff = try container.decodeIfPresent(Bool.self, forKey: .hasTurnDiff) ?? false
-    diffPreview = try container.decodeIfPresent(ServerDashboardDiffPreview.self, forKey: .diffPreview)
-    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-    pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
-    pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
-    toolCount = try container.decodeIfPresent(UInt64.self, forKey: .toolCount) ?? 0
-    activeWorkerCount = try container.decodeIfPresent(UInt32.self, forKey: .activeWorkerCount) ?? 0
-    issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
-    effort = try container.decodeIfPresent(String.self, forKey: .effort)
-  }
 }
 
 // MARK: - Session Summary
@@ -562,8 +388,8 @@ struct ServerSessionSummary: Codable, Identifiable {
   let lifecycleState: ServerSessionLifecycleState
   let acceptsUserInput: Bool
   let steerable: Bool
-  let tokenUsage: ServerTokenUsage?
-  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
+  let tokenUsage: ServerTokenUsage
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
   let hasPendingApproval: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
@@ -571,7 +397,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
   let permissionMode: String?
-  let allowBypassPermissions: Bool?
+  let allowBypassPermissions: Bool
   let collaborationMode: String?
   let multiAgent: Bool?
   let personality: String?
@@ -596,15 +422,15 @@ struct ServerSessionSummary: Codable, Identifiable {
   let effort: String?
   let approvalVersion: UInt64?
   let repositoryRoot: String?
-  let isWorktree: Bool?
+  let isWorktree: Bool
   let worktreeId: String?
-  let unreadCount: UInt64?
-  let displayTitle: String?
+  let unreadCount: UInt64
+  let displayTitle: String
   let displayTitleSortKey: String?
   let displaySearchText: String?
   let contextLine: String?
-  let listStatus: String?
-  let summaryRevision: UInt64?
+  let listStatus: ServerSessionListStatus
+  let summaryRevision: UInt64
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -666,78 +492,6 @@ struct ServerSessionSummary: Codable, Identifiable {
     case summaryRevision = "summary_revision"
   }
 
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
-    provider = try container.decode(ServerProvider.self, forKey: .provider)
-    projectPath = try container.decode(String.self, forKey: .projectPath)
-    transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
-    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
-    model = try container.decodeIfPresent(String.self, forKey: .model)
-    customName = try container.decodeIfPresent(String.self, forKey: .customName)
-    summary = try container.decodeIfPresent(String.self, forKey: .summary)
-    status = try container.decode(ServerSessionStatus.self, forKey: .status)
-    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
-    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
-    acceptsUserInput = try container.decodeIfPresent(Bool.self, forKey: .acceptsUserInput) ?? false
-    steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
-    tokenUsage = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage)
-    tokenUsageSnapshotKind = try container.decodeIfPresent(
-      ServerTokenUsageSnapshotKind.self,
-      forKey: .tokenUsageSnapshotKind
-    )
-    hasPendingApproval = try container.decodeIfPresent(Bool.self, forKey: .hasPendingApproval) ?? false
-    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(
-      ServerClaudeIntegrationMode.self,
-      forKey: .claudeIntegrationMode
-    )
-    approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
-    approvalPolicyDetails = try container.decodeIfPresent(
-      ServerCodexApprovalPolicy.self,
-      forKey: .approvalPolicyDetails
-    )
-    sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
-    permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
-    allowBypassPermissions = try container.decodeIfPresent(Bool.self, forKey: .allowBypassPermissions)
-    collaborationMode = try container.decodeIfPresent(String.self, forKey: .collaborationMode)
-    multiAgent = try container.decodeIfPresent(Bool.self, forKey: .multiAgent)
-    personality = try container.decodeIfPresent(String.self, forKey: .personality)
-    serviceTier = try container.decodeIfPresent(String.self, forKey: .serviceTier)
-    developerInstructions = try container.decodeIfPresent(String.self, forKey: .developerInstructions)
-    codexConfigSource = try container.decodeIfPresent(ServerCodexConfigSource.self, forKey: .codexConfigSource)
-    codexConfigMode = try container.decodeIfPresent(ServerCodexConfigMode.self, forKey: .codexConfigMode)
-    codexConfigProfile = try container.decodeIfPresent(String.self, forKey: .codexConfigProfile)
-    codexModelProvider = try container.decodeIfPresent(String.self, forKey: .codexModelProvider)
-    codexConfigOverrides = try container.decodeIfPresent(
-      ServerCodexSessionOverrides.self,
-      forKey: .codexConfigOverrides
-    )
-    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-    pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
-    pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
-    pendingApprovalId = try container.decodeIfPresent(String.self, forKey: .pendingApprovalId)
-    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
-    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
-    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
-    gitSha = try container.decodeIfPresent(String.self, forKey: .gitSha)
-    currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
-    firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
-    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
-    effort = try container.decodeIfPresent(String.self, forKey: .effort)
-    approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
-    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
-    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
-    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
-    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
-    displayTitle = try container.decodeIfPresent(String.self, forKey: .displayTitle)
-    displayTitleSortKey = try container.decodeIfPresent(String.self, forKey: .displayTitleSortKey)
-    displaySearchText = try container.decodeIfPresent(String.self, forKey: .displaySearchText)
-    contextLine = try container.decodeIfPresent(String.self, forKey: .contextLine)
-    listStatus = try container.decodeIfPresent(String.self, forKey: .listStatus)
-    summaryRevision = try container.decodeIfPresent(UInt64.self, forKey: .summaryRevision)
-  }
 }
 
 // MARK: - Turn Diffs
@@ -913,8 +667,8 @@ struct ServerSessionState: Codable, Identifiable {
   let acceptsUserInput: Bool
   let steerable: Bool
   let rows: [ServerConversationRowEntry]
-  let totalRowCount: UInt64?
-  let hasMoreBefore: Bool?
+  let totalRowCount: UInt64
+  let hasMoreBefore: Bool
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
   let pendingApproval: ServerApprovalRequest?
@@ -929,7 +683,7 @@ struct ServerSessionState: Codable, Identifiable {
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
   let permissionMode: String?
-  let allowBypassPermissions: Bool?
+  let allowBypassPermissions: Bool
   let collaborationMode: String?
   let multiAgent: Bool?
   let personality: String?
@@ -962,9 +716,9 @@ struct ServerSessionState: Codable, Identifiable {
   let terminalApp: String?
   let approvalVersion: UInt64?
   let repositoryRoot: String?
-  let isWorktree: Bool?
+  let isWorktree: Bool
   let worktreeId: String?
-  let unreadCount: UInt64?
+  let unreadCount: UInt64
   let missionId: String?
   let issueIdentifier: String?
 
@@ -983,10 +737,8 @@ struct ServerSessionState: Codable, Identifiable {
     case lifecycleState = "lifecycle_state"
     case acceptsUserInput = "accepts_user_input"
     case steerable
-    case messages
     case rows
     case totalRowCount = "total_row_count"
-    case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -1040,164 +792,6 @@ struct ServerSessionState: Codable, Identifiable {
     case unreadCount = "unread_count"
     case missionId = "mission_id"
     case issueIdentifier = "issue_identifier"
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    let decodedID = try container.decode(String.self, forKey: .id)
-    id = decodedID
-    provider = try container.decode(ServerProvider.self, forKey: .provider)
-    projectPath = try container.decode(String.self, forKey: .projectPath)
-    transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
-    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
-    model = try container.decodeIfPresent(String.self, forKey: .model)
-    customName = try container.decodeIfPresent(String.self, forKey: .customName)
-    summary = try container.decodeIfPresent(String.self, forKey: .summary)
-    status = try container.decode(ServerSessionStatus.self, forKey: .status)
-    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
-    controlMode = try container.decodeIfPresent(ServerSessionControlMode.self, forKey: .controlMode) ?? .passive
-    lifecycleState = try container.decodeIfPresent(ServerSessionLifecycleState.self, forKey: .lifecycleState) ?? .ended
-    acceptsUserInput = try container.decodeIfPresent(Bool.self, forKey: .acceptsUserInput) ?? false
-    steerable = try container.decodeIfPresent(Bool.self, forKey: .steerable) ?? false
-    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
-    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
-    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
-    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount
-    hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore)
-    oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
-    newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
-    pendingApproval = try container.decodeIfPresent(ServerApprovalRequest.self, forKey: .pendingApproval)
-    tokenUsage = try container.decode(ServerTokenUsage.self, forKey: .tokenUsage)
-    tokenUsageSnapshotKind =
-      try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind) ?? .unknown
-    currentDiff = try container.decodeIfPresent(String.self, forKey: .currentDiff)
-    cumulativeDiff = try container.decodeIfPresent(String.self, forKey: .cumulativeDiff)
-    currentPlan = try container.decodeIfPresent(String.self, forKey: .currentPlan)
-    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
-    claudeIntegrationMode = try container.decodeIfPresent(
-      ServerClaudeIntegrationMode.self,
-      forKey: .claudeIntegrationMode
-    )
-    approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
-    approvalPolicyDetails = try container.decodeIfPresent(
-      ServerCodexApprovalPolicy.self,
-      forKey: .approvalPolicyDetails
-    )
-    sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
-    permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
-    collaborationMode = try container.decodeIfPresent(String.self, forKey: .collaborationMode)
-    multiAgent = try container.decodeIfPresent(Bool.self, forKey: .multiAgent)
-    personality = try container.decodeIfPresent(String.self, forKey: .personality)
-    serviceTier = try container.decodeIfPresent(String.self, forKey: .serviceTier)
-    developerInstructions = try container.decodeIfPresent(String.self, forKey: .developerInstructions)
-    codexConfigSource = try container.decodeIfPresent(ServerCodexConfigSource.self, forKey: .codexConfigSource)
-    codexConfigMode = try container.decodeIfPresent(ServerCodexConfigMode.self, forKey: .codexConfigMode)
-    codexConfigProfile = try container.decodeIfPresent(String.self, forKey: .codexConfigProfile)
-    codexModelProvider = try container.decodeIfPresent(String.self, forKey: .codexModelProvider)
-    codexConfigOverrides = try container.decodeIfPresent(
-      ServerCodexSessionOverrides.self,
-      forKey: .codexConfigOverrides
-    )
-    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
-    pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
-    pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
-    pendingApprovalId = try container.decodeIfPresent(String.self, forKey: .pendingApprovalId)
-    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
-    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
-    forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
-    revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
-    currentTurnId = try container.decodeIfPresent(String.self, forKey: .currentTurnId)
-    turnCount = try container.decodeIfPresent(UInt64.self, forKey: .turnCount) ?? 0
-    turnDiffs = try container.decodeIfPresent([ServerTurnDiff].self, forKey: .turnDiffs) ?? []
-    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
-    gitSha = try container.decodeIfPresent(String.self, forKey: .gitSha)
-    currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
-    firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
-    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
-    subagents = try container.decodeIfPresent([ServerSubagentInfo].self, forKey: .subagents) ?? []
-    effort = try container.decodeIfPresent(String.self, forKey: .effort)
-    terminalSessionId = try container.decodeIfPresent(String.self, forKey: .terminalSessionId)
-    terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp)
-    approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
-    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
-    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
-    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
-    unreadCount = try container.decodeIfPresent(UInt64.self, forKey: .unreadCount)
-    missionId = try container.decodeIfPresent(String.self, forKey: .missionId)
-    issueIdentifier = try container.decodeIfPresent(String.self, forKey: .issueIdentifier)
-    allowBypassPermissions = try container.decodeIfPresent(Bool.self, forKey: .allowBypassPermissions)
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(provider, forKey: .provider)
-    try container.encode(projectPath, forKey: .projectPath)
-    try container.encodeIfPresent(transcriptPath, forKey: .transcriptPath)
-    try container.encodeIfPresent(projectName, forKey: .projectName)
-    try container.encodeIfPresent(model, forKey: .model)
-    try container.encodeIfPresent(customName, forKey: .customName)
-    try container.encodeIfPresent(summary, forKey: .summary)
-    try container.encode(status, forKey: .status)
-    try container.encode(workStatus, forKey: .workStatus)
-    try container.encode(controlMode, forKey: .controlMode)
-    try container.encode(lifecycleState, forKey: .lifecycleState)
-    try container.encode(acceptsUserInput, forKey: .acceptsUserInput)
-    try container.encode(steerable, forKey: .steerable)
-    try container.encode(rows, forKey: .rows)
-    try container.encodeIfPresent(totalRowCount, forKey: .totalRowCount)
-    try container.encodeIfPresent(hasMoreBefore, forKey: .hasMoreBefore)
-    try container.encodeIfPresent(oldestSequence, forKey: .oldestSequence)
-    try container.encodeIfPresent(newestSequence, forKey: .newestSequence)
-    try container.encodeIfPresent(pendingApproval, forKey: .pendingApproval)
-    try container.encode(tokenUsage, forKey: .tokenUsage)
-    try container.encode(tokenUsageSnapshotKind, forKey: .tokenUsageSnapshotKind)
-    try container.encodeIfPresent(currentDiff, forKey: .currentDiff)
-    try container.encodeIfPresent(cumulativeDiff, forKey: .cumulativeDiff)
-    try container.encodeIfPresent(currentPlan, forKey: .currentPlan)
-    try container.encodeIfPresent(codexIntegrationMode, forKey: .codexIntegrationMode)
-    try container.encodeIfPresent(claudeIntegrationMode, forKey: .claudeIntegrationMode)
-    try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-    try container.encodeIfPresent(approvalPolicyDetails, forKey: .approvalPolicyDetails)
-    try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
-    try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
-    try container.encodeIfPresent(collaborationMode, forKey: .collaborationMode)
-    try container.encodeIfPresent(multiAgent, forKey: .multiAgent)
-    try container.encodeIfPresent(personality, forKey: .personality)
-    try container.encodeIfPresent(serviceTier, forKey: .serviceTier)
-    try container.encodeIfPresent(developerInstructions, forKey: .developerInstructions)
-    try container.encodeIfPresent(codexConfigSource, forKey: .codexConfigSource)
-    try container.encodeIfPresent(codexConfigMode, forKey: .codexConfigMode)
-    try container.encodeIfPresent(codexConfigProfile, forKey: .codexConfigProfile)
-    try container.encodeIfPresent(codexModelProvider, forKey: .codexModelProvider)
-    try container.encodeIfPresent(codexConfigOverrides, forKey: .codexConfigOverrides)
-    try container.encodeIfPresent(pendingToolName, forKey: .pendingToolName)
-    try container.encodeIfPresent(pendingToolInput, forKey: .pendingToolInput)
-    try container.encodeIfPresent(pendingQuestion, forKey: .pendingQuestion)
-    try container.encodeIfPresent(pendingApprovalId, forKey: .pendingApprovalId)
-    try container.encodeIfPresent(startedAt, forKey: .startedAt)
-    try container.encodeIfPresent(lastActivityAt, forKey: .lastActivityAt)
-    try container.encodeIfPresent(forkedFromSessionId, forKey: .forkedFromSessionId)
-    try container.encodeIfPresent(revision, forKey: .revision)
-    try container.encodeIfPresent(currentTurnId, forKey: .currentTurnId)
-    try container.encode(turnCount, forKey: .turnCount)
-    try container.encode(turnDiffs, forKey: .turnDiffs)
-    try container.encodeIfPresent(gitBranch, forKey: .gitBranch)
-    try container.encodeIfPresent(gitSha, forKey: .gitSha)
-    try container.encodeIfPresent(currentCwd, forKey: .currentCwd)
-    try container.encodeIfPresent(firstPrompt, forKey: .firstPrompt)
-    try container.encodeIfPresent(lastMessage, forKey: .lastMessage)
-    try container.encode(subagents, forKey: .subagents)
-    try container.encodeIfPresent(effort, forKey: .effort)
-    try container.encodeIfPresent(terminalSessionId, forKey: .terminalSessionId)
-    try container.encodeIfPresent(terminalApp, forKey: .terminalApp)
-    try container.encodeIfPresent(approvalVersion, forKey: .approvalVersion)
-    try container.encodeIfPresent(repositoryRoot, forKey: .repositoryRoot)
-    try container.encodeIfPresent(isWorktree, forKey: .isWorktree)
-    try container.encodeIfPresent(worktreeId, forKey: .worktreeId)
-    try container.encodeIfPresent(unreadCount, forKey: .unreadCount)
-    try container.encodeIfPresent(missionId, forKey: .missionId)
-    try container.encodeIfPresent(issueIdentifier, forKey: .issueIdentifier)
   }
 }
 

@@ -67,7 +67,13 @@ struct SessionStoreControlStateSyncTests {
             "project_path": "/tmp/project",
             "status": "active",
             "work_status": "question",
-            "messages": [],
+            "control_mode": "direct",
+            "lifecycle_state": "open",
+            "accepts_user_input": true,
+            "steerable": false,
+            "rows": [],
+            "total_row_count": 0,
+            "has_more_before": false,
             "token_usage": {
               "input_tokens": 0,
               "output_tokens": 0,
@@ -75,7 +81,12 @@ struct SessionStoreControlStateSyncTests {
               "context_window": 0
             },
             "token_usage_snapshot_kind": "unknown",
+            "allow_bypass_permissions": false,
             "turn_count": 0,
+            "turn_diffs": [],
+            "subagents": [],
+            "is_worktree": false,
+            "unread_count": 0,
             "has_pending_approval": true,
             "pending_approval": {
               "id": "req-2",
@@ -119,10 +130,13 @@ struct SessionStoreControlStateSyncTests {
             "project_path": "/tmp/project",
             "status": "active",
             "work_status": "waiting",
+            "control_mode": "direct",
             "lifecycle_state": "open",
-            "steerable": false,
             "accepts_user_input": true,
-            "messages": [],
+            "steerable": false,
+            "rows": [],
+            "total_row_count": 0,
+            "has_more_before": false,
             "token_usage": {
               "input_tokens": 0,
               "output_tokens": 0,
@@ -130,7 +144,12 @@ struct SessionStoreControlStateSyncTests {
               "context_window": 0
             },
             "token_usage_snapshot_kind": "unknown",
-            "turn_count": 0
+            "allow_bypass_permissions": false,
+            "turn_count": 0,
+            "turn_diffs": [],
+            "subagents": [],
+            "is_worktree": false,
+            "unread_count": 0
           }
           """
         )
@@ -168,7 +187,13 @@ struct SessionStoreControlStateSyncTests {
             "project_path": "/tmp/project",
             "status": "active",
             "work_status": "working",
-            "messages": [],
+            "control_mode": "direct",
+            "lifecycle_state": "open",
+            "accepts_user_input": true,
+            "steerable": false,
+            "rows": [],
+            "total_row_count": 0,
+            "has_more_before": false,
             "token_usage": {
               "input_tokens": 0,
               "output_tokens": 0,
@@ -176,7 +201,11 @@ struct SessionStoreControlStateSyncTests {
               "context_window": 0
             },
             "token_usage_snapshot_kind": "unknown",
+            "allow_bypass_permissions": false,
             "turn_count": 0,
+            "turn_diffs": [],
+            "is_worktree": false,
+            "unread_count": 0,
             "subagents": [
               {
                 "id": "worker-1",
@@ -215,7 +244,13 @@ struct SessionStoreControlStateSyncTests {
       "project_path": "/tmp/project",
       "status": "active",
       "work_status": "waiting",
-      "messages": [],
+      "control_mode": "direct",
+      "lifecycle_state": "open",
+      "accepts_user_input": true,
+      "steerable": false,
+      "rows": [],
+      "total_row_count": 0,
+      "has_more_before": false,
       "token_usage": {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -223,7 +258,12 @@ struct SessionStoreControlStateSyncTests {
         "context_window": 0
       },
       "token_usage_snapshot_kind": "unknown",
+      "allow_bypass_permissions": false,
       "turn_count": 0,
+      "turn_diffs": [],
+      "subagents": [],
+      "is_worktree": false,
+      "unread_count": 0,
       "has_pending_approval": false,
       "claude_integration_mode": "direct"
     }

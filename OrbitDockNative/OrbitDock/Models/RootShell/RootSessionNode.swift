@@ -364,11 +364,11 @@ extension RootSessionNode {
     self.model = session.model
     self.startedAt = RootSessionNode.parseTimestamp(session.startedAt)
     self.lastActivityAt = RootSessionNode.parseTimestamp(session.lastActivityAt)
-    self.unreadCount = session.unreadCount ?? 0
-    self.hasTurnDiff = session.hasTurnDiff ?? false
+    self.unreadCount = session.unreadCount
+    self.hasTurnDiff = session.hasTurnDiff
     self.pendingToolName = session.pendingToolName
     self.repositoryRoot = session.repositoryRoot
-    self.isWorktree = session.isWorktree ?? false
+    self.isWorktree = session.isWorktree
     self.worktreeId = session.worktreeId
     self.codexIntegrationMode = RootSessionNode.codexMode(
       provider: session.provider,
@@ -381,11 +381,11 @@ extension RootSessionNode {
     self.effort = session.effort
     self.missionId = session.missionId
     self.issueIdentifier = session.issueIdentifier
-    self.totalTokens = Int(session.totalTokens ?? 0)
-    self.inputTokens = Int(session.inputTokens ?? 0)
-    self.outputTokens = Int(session.outputTokens ?? 0)
-    self.cachedTokens = Int(session.cachedTokens ?? 0)
-    self.totalCostUSD = session.totalCostUSD ?? 0
+    self.totalTokens = Int(session.totalTokens)
+    self.inputTokens = Int(session.inputTokens)
+    self.outputTokens = Int(session.outputTokens)
+    self.cachedTokens = Int(session.cachedTokens)
+    self.totalCostUSD = session.totalCostUSD
     self.isActive = status == .active
     self.showsInMissionControl = RootSessionNode.showsInMissionControl(
       provider: provider,

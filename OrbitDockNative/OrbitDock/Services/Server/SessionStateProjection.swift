@@ -112,9 +112,9 @@ extension SessionObservable {
     gitSha = state.gitSha
     currentCwd = state.currentCwd
     repositoryRoot = state.repositoryRoot
-    isWorktree = state.isWorktree ?? false
+    isWorktree = state.isWorktree
     worktreeId = state.worktreeId
-    unreadCount = state.unreadCount ?? 0
+    unreadCount = state.unreadCount
     diff = state.currentDiff
     cumulativeDiff = state.cumulativeDiff
     plan = state.currentPlan
@@ -124,7 +124,7 @@ extension SessionObservable {
     subagents = state.subagents
     missionId = state.missionId
     issueIdentifier = state.issueIdentifier
-    allowBypassPermissions = state.allowBypassPermissions ?? false
+    allowBypassPermissions = state.allowBypassPermissions
   }
 
   /// Apply the session summary returned by the resume HTTP response.

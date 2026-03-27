@@ -16,6 +16,9 @@ struct RootSessionNodeTests {
       model: "gpt-5.4",
       status: .active,
       workStatus: .reply,
+      controlMode: .passive,
+      lifecycleState: .open,
+      steerable: false,
       codexIntegrationMode: .passive,
       claudeIntegrationMode: nil,
       startedAt: "2026-03-11T01:00:00Z",
@@ -28,12 +31,21 @@ struct RootSessionNodeTests {
       worktreeId: nil,
       totalTokens: 0,
       totalCostUSD: 0,
-      displayTitle: nil,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      displayTitle: "OrbitDock",
       displayTitleSortKey: nil,
       displaySearchText: nil,
       contextLine: "<task>Investigate root perf</task>",
-      listStatus: nil,
-      effort: nil
+      listStatus: .reply,
+      summaryRevision: 0,
+      effort: nil,
+      activeWorkerCount: 0,
+      pendingToolFamily: nil,
+      forkedFromSessionId: nil,
+      missionId: nil,
+      issueIdentifier: nil
     )
 
     let node = RootSessionNode(
@@ -63,6 +75,9 @@ struct RootSessionNodeTests {
       model: "claude-sonnet-4",
       status: .active,
       workStatus: .working,
+      controlMode: .direct,
+      lifecycleState: .open,
+      steerable: false,
       codexIntegrationMode: nil,
       claudeIntegrationMode: .direct,
       startedAt: "2026-03-11T01:00:00Z",
@@ -74,13 +89,22 @@ struct RootSessionNodeTests {
       isWorktree: true,
       worktreeId: "wt-1",
       totalTokens: 2_048,
-      totalCostUSD: nil,
+      totalCostUSD: 0,
+      inputTokens: 1_024,
+      outputTokens: 1_024,
+      cachedTokens: 0,
       displayTitle: "Server Title",
       displayTitleSortKey: "server title",
       displaySearchText: "server title feature/root-rewrite claude-sonnet-4",
       contextLine: "Ready for review",
       listStatus: .working,
-      effort: nil
+      summaryRevision: 0,
+      effort: nil,
+      activeWorkerCount: 0,
+      pendingToolFamily: nil,
+      forkedFromSessionId: nil,
+      missionId: nil,
+      issueIdentifier: nil
     )
 
     let node = RootSessionNode(
@@ -110,6 +134,9 @@ struct RootSessionNodeTests {
       model: "gpt-5.4",
       status: .active,
       workStatus: .waiting,
+      controlMode: .direct,
+      lifecycleState: .open,
+      steerable: false,
       codexIntegrationMode: .direct,
       claudeIntegrationMode: nil,
       startedAt: "2026-03-11T01:00:00Z",
@@ -122,12 +149,21 @@ struct RootSessionNodeTests {
       worktreeId: nil,
       totalTokens: 0,
       totalCostUSD: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
       displayTitle: "OrbitDock agent spawn testing",
       displayTitleSortKey: "orbitdock agent spawn testing",
       displaySearchText: "orbitdock agent spawn testing main",
       contextLine: "Latest worker state fix",
       listStatus: .reply,
-      effort: nil
+      summaryRevision: 0,
+      effort: nil,
+      activeWorkerCount: 0,
+      pendingToolFamily: nil,
+      forkedFromSessionId: nil,
+      missionId: nil,
+      issueIdentifier: nil
     )
 
     let node = RootSessionNode(

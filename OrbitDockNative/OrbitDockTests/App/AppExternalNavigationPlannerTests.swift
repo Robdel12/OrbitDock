@@ -96,6 +96,9 @@ private func makeSessionListItem(id: String) -> ServerSessionListItem {
     model: "gpt-5.4",
     status: .active,
     workStatus: .reply,
+    controlMode: .passive,
+    lifecycleState: .open,
+    steerable: false,
     codexIntegrationMode: .passive,
     claudeIntegrationMode: nil,
     startedAt: "2026-03-11T10:00:00Z",
@@ -108,11 +111,20 @@ private func makeSessionListItem(id: String) -> ServerSessionListItem {
     worktreeId: nil,
     totalTokens: 0,
     totalCostUSD: 0.0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedTokens: 0,
     displayTitle: "OrbitDock",
     displayTitleSortKey: "orbitdock",
     displaySearchText: "orbitdock main",
     contextLine: nil,
-    listStatus: nil,
-    effort: nil
+    listStatus: .reply,
+    summaryRevision: 0,
+    effort: nil,
+    activeWorkerCount: 0,
+    pendingToolFamily: nil,
+    forkedFromSessionId: nil,
+    missionId: nil,
+    issueIdentifier: nil
   )
 }

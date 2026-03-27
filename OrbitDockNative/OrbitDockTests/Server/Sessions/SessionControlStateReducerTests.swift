@@ -15,7 +15,13 @@ struct SessionControlStateReducerTests {
           "project_path": "/tmp/project",
           "status": "active",
           "work_status": "waiting",
-          "messages": [],
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
+          "rows": [],
+          "total_row_count": 0,
+          "has_more_before": false,
           "token_usage": {
             "input_tokens": 0,
             "output_tokens": 0,
@@ -32,8 +38,13 @@ struct SessionControlStateReducerTests {
           "approval_policy": "never",
           "sandbox_mode": "danger-full-access",
           "permission_mode": "plan",
+          "allow_bypass_permissions": false,
           "approval_version": 8,
-          "turn_count": 0
+          "turn_count": 0,
+          "turn_diffs": [],
+          "subagents": [],
+          "is_worktree": false,
+          "unread_count": 0
         }
         """
       ),

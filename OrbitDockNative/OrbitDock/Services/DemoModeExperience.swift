@@ -322,6 +322,7 @@ struct DemoModeExperience {
         workStatus: .working,
         controlMode: .direct,
         lifecycleState: .open,
+        steerable: false,
         codexIntegrationMode: nil,
         claudeIntegrationMode: .direct,
         startedAt: iso8601(now.addingTimeInterval(-1_800)),
@@ -334,12 +335,21 @@ struct DemoModeExperience {
         worktreeId: nil,
         totalTokens: 42_600,
         totalCostUSD: 1.28,
+        inputTokens: 21_300,
+        outputTokens: 21_300,
+        cachedTokens: 0,
         displayTitle: "Warp Drive",
         displayTitleSortKey: "warp drive",
         displaySearchText: "warp drive ftl route pathfinder nebula-api",
         contextLine: "Implementing FTL route calculation engine",
         listStatus: .working,
-        effort: "high"
+        summaryRevision: 0,
+        effort: "high",
+        activeWorkerCount: 0,
+        pendingToolFamily: nil,
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       ),
       // Navigation Array — Codex, permission
       ServerSessionListItem(
@@ -353,6 +363,7 @@ struct DemoModeExperience {
         workStatus: .permission,
         controlMode: .direct,
         lifecycleState: .open,
+        steerable: false,
         codexIntegrationMode: .direct,
         claudeIntegrationMode: nil,
         startedAt: iso8601(now.addingTimeInterval(-3_600)),
@@ -365,13 +376,21 @@ struct DemoModeExperience {
         worktreeId: nil,
         totalTokens: 28_400,
         totalCostUSD: 0.86,
+        inputTokens: 14_200,
+        outputTokens: 14_200,
+        cachedTokens: 0,
         displayTitle: "Navigation Array",
         displayTitleSortKey: "navigation array",
         displaySearchText: "navigation array drift coordinate fix nebula-api",
         contextLine: "Wants to edit coordinate_transform.rs",
         listStatus: .permission,
+        summaryRevision: 0,
         effort: "high",
-        pendingToolFamily: "file_change"
+        activeWorkerCount: 0,
+        pendingToolFamily: "file_change",
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       ),
       // Shield Harmonics — Claude, reply
       ServerSessionListItem(
@@ -385,6 +404,7 @@ struct DemoModeExperience {
         workStatus: .waiting,
         controlMode: .direct,
         lifecycleState: .open,
+        steerable: false,
         codexIntegrationMode: nil,
         claudeIntegrationMode: .direct,
         startedAt: iso8601(now.addingTimeInterval(-7_200)),
@@ -397,12 +417,21 @@ struct DemoModeExperience {
         worktreeId: nil,
         totalTokens: 18_950,
         totalCostUSD: 0.34,
+        inputTokens: 9_475,
+        outputTokens: 9_475,
+        cachedTokens: 0,
         displayTitle: "Shield Harmonics",
         displayTitleSortKey: "shield harmonics",
         displaySearchText: "shield harmonics integrity ring visualization orbital-ui",
         contextLine: "Want me to add haptic feedback on critical hits?",
         listStatus: .reply,
-        effort: "medium"
+        summaryRevision: 0,
+        effort: "medium",
+        activeWorkerCount: 0,
+        pendingToolFamily: nil,
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       ),
       // Docking Bay Cleanup — Codex, ended
       ServerSessionListItem(
@@ -416,6 +445,7 @@ struct DemoModeExperience {
         workStatus: .ended,
         controlMode: .direct,
         lifecycleState: .ended,
+        steerable: false,
         codexIntegrationMode: .direct,
         claudeIntegrationMode: nil,
         startedAt: iso8601(now.addingTimeInterval(-14_400)),
@@ -428,12 +458,21 @@ struct DemoModeExperience {
         worktreeId: nil,
         totalTokens: 31_200,
         totalCostUSD: 0.47,
+        inputTokens: 15_600,
+        outputTokens: 15_600,
+        cachedTokens: 0,
         displayTitle: "Docking Bay Cleanup",
         displayTitleSortKey: "docking bay cleanup",
         displaySearchText: "docking bay cleanup legacy migration nebula-api",
         contextLine: "Removed 847 lines, migrated 12 callers",
         listStatus: .ended,
-        effort: "medium"
+        summaryRevision: 0,
+        effort: "medium",
+        activeWorkerCount: 0,
+        pendingToolFamily: nil,
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       ),
       // Comms Array — Qwen via OpenRouter, question
       ServerSessionListItem(
@@ -447,6 +486,7 @@ struct DemoModeExperience {
         workStatus: .question,
         controlMode: .direct,
         lifecycleState: .open,
+        steerable: false,
         codexIntegrationMode: .direct,
         claudeIntegrationMode: nil,
         startedAt: iso8601(now.addingTimeInterval(-5_400)),
@@ -459,12 +499,21 @@ struct DemoModeExperience {
         worktreeId: nil,
         totalTokens: 15_700,
         totalCostUSD: 0.22,
+        inputTokens: 7_850,
+        outputTokens: 7_850,
+        cachedTokens: 0,
         displayTitle: "Comms Array",
         displayTitleSortKey: "comms array",
         displaySearchText: "comms array transmission panel orbital-ui openrouter qwen",
         contextLine: "Encrypted transmissions — inline lock or separate section?",
         listStatus: .question,
-        effort: "medium"
+        summaryRevision: 0,
+        effort: "medium",
+        activeWorkerCount: 0,
+        pendingToolFamily: nil,
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       ),
     ]
   }
@@ -977,87 +1026,3 @@ struct DemoModeExperience {
   }
 }
 
-// MARK: - Convenience Inits for Demo Data
-
-extension ServerDashboardDiffPreview {
-  init(fileCount: UInt32, additions: UInt32, deletions: UInt32, filePaths: [String]) {
-    self.fileCount = fileCount
-    self.additions = additions
-    self.deletions = deletions
-    self.filePaths = filePaths
-  }
-}
-
-extension ServerDashboardConversationItem {
-  init(
-    sessionId: String,
-    provider: ServerProvider,
-    projectPath: String,
-    projectName: String?,
-    repositoryRoot: String?,
-    gitBranch: String?,
-    isWorktree: Bool,
-    worktreeId: String?,
-    model: String?,
-    codexIntegrationMode: ServerCodexIntegrationMode?,
-    claudeIntegrationMode: ServerClaudeIntegrationMode?,
-    status: ServerSessionStatus,
-    workStatus: ServerWorkStatus,
-    controlMode: ServerSessionControlMode = .passive,
-    lifecycleState: ServerSessionLifecycleState = .ended,
-    listStatus: ServerSessionListStatus,
-    displayTitle: String,
-    contextLine: String?,
-    lastMessage: String?,
-    previewText: String?,
-    activitySummary: String?,
-    alertContext: String?,
-    startedAt: String?,
-    lastActivityAt: String?,
-    unreadCount: UInt64,
-    hasTurnDiff: Bool,
-    diffPreview: ServerDashboardDiffPreview?,
-    pendingToolName: String?,
-    pendingToolInput: String?,
-    pendingQuestion: String?,
-    toolCount: UInt64,
-    activeWorkerCount: UInt32,
-    issueIdentifier: String?,
-    effort: String?
-  ) {
-    self.sessionId = sessionId
-    self.provider = provider
-    self.projectPath = projectPath
-    self.projectName = projectName
-    self.repositoryRoot = repositoryRoot
-    self.gitBranch = gitBranch
-    self.isWorktree = isWorktree
-    self.worktreeId = worktreeId
-    self.model = model
-    self.codexIntegrationMode = codexIntegrationMode
-    self.claudeIntegrationMode = claudeIntegrationMode
-    self.status = status
-    self.workStatus = workStatus
-    self.controlMode = controlMode
-    self.lifecycleState = lifecycleState
-    self.listStatus = listStatus
-    self.displayTitle = displayTitle
-    self.contextLine = contextLine
-    self.lastMessage = lastMessage
-    self.previewText = previewText
-    self.activitySummary = activitySummary
-    self.alertContext = alertContext
-    self.startedAt = startedAt
-    self.lastActivityAt = lastActivityAt
-    self.unreadCount = unreadCount
-    self.hasTurnDiff = hasTurnDiff
-    self.diffPreview = diffPreview
-    self.pendingToolName = pendingToolName
-    self.pendingToolInput = pendingToolInput
-    self.pendingQuestion = pendingQuestion
-    self.toolCount = toolCount
-    self.activeWorkerCount = activeWorkerCount
-    self.issueIdentifier = issueIdentifier
-    self.effort = effort
-  }
-}

@@ -16,6 +16,9 @@ struct ServerSessionContractsTests {
         "model": "gpt-5.4",
         "status": "active",
         "work_status": "working",
+        "control_mode": "passive",
+        "lifecycle_state": "open",
+        "steerable": false,
         "codex_integration_mode": "passive",
         "started_at": "2026-03-11T01:00:00Z",
         "last_activity_at": "2026-03-11T02:00:00Z",
@@ -25,12 +28,16 @@ struct ServerSessionContractsTests {
         "is_worktree": false,
         "total_tokens": 42,
         "total_cost_usd": 0,
+        "input_tokens": 20,
+        "output_tokens": 22,
+        "cached_tokens": 0,
         "display_title": "OrbitDock",
         "display_title_sort_key": "orbitdock",
         "display_search_text": "orbitdock main",
         "context_line": "Context",
         "list_status": "working",
-        "summary_revision": 17
+        "summary_revision": 17,
+        "active_worker_count": 0
       }
       """.utf8
     )
@@ -51,7 +58,19 @@ struct ServerSessionContractsTests {
         "project_name": "OrbitDock",
         "status": "active",
         "work_status": "reply",
+        "control_mode": "passive",
+        "lifecycle_state": "open",
+        "accepts_user_input": true,
+        "steerable": false,
+        "token_usage": {
+          "input_tokens": 10,
+          "output_tokens": 20,
+          "cached_tokens": 0,
+          "context_window": 200000
+        },
+        "token_usage_snapshot_kind": "lifetime_totals",
         "has_pending_approval": false,
+        "allow_bypass_permissions": false,
         "is_worktree": false,
         "unread_count": 0,
         "display_title": "OrbitDock",
@@ -80,12 +99,23 @@ struct ServerSessionContractsTests {
           "project_name": "OrbitDock",
           "status": "active",
           "work_status": "working",
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
           "token_usage": {
             "input_tokens": 12,
             "output_tokens": 34,
             "cached_tokens": 0,
             "context_window": 200000
           },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "is_worktree": false,
+          "unread_count": 0,
+          "turn_count": 1,
+          "turn_diffs": [],
+          "subagents": [],
           "rows": [
             {
               "session_id": "session-worker",
@@ -152,12 +182,23 @@ struct ServerSessionContractsTests {
           "project_name": "OrbitDock",
           "status": "active",
           "work_status": "permission",
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
           "token_usage": {
             "input_tokens": 1,
             "output_tokens": 2,
             "cached_tokens": 0,
             "context_window": 200000
           },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "is_worktree": false,
+          "unread_count": 0,
+          "turn_count": 2,
+          "turn_diffs": [],
+          "subagents": [],
           "rows": [
             {
               "session_id": "session-compat",
@@ -233,12 +274,23 @@ struct ServerSessionContractsTests {
           "project_name": "OrbitDock",
           "status": "active",
           "work_status": "working",
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
           "token_usage": {
             "input_tokens": 3,
             "output_tokens": 5,
             "cached_tokens": 0,
             "context_window": 200000
           },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "is_worktree": false,
+          "unread_count": 0,
+          "turn_count": 1,
+          "turn_diffs": [],
+          "subagents": [],
           "rows": [
             {
               "session_id": "session-shell-compat",
@@ -287,6 +339,10 @@ struct ServerSessionContractsTests {
           "project_name": "OrbitDock",
           "status": "active",
           "work_status": "waiting",
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
           "codex_config_mode": "custom",
           "approval_policy": "on-request",
           "approval_policy_details": "on-request",
@@ -296,6 +352,13 @@ struct ServerSessionContractsTests {
             "cached_tokens": 0,
             "context_window": 200000
           },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "is_worktree": false,
+          "unread_count": 0,
+          "turn_count": 0,
+          "turn_diffs": [],
+          "subagents": [],
           "rows": [],
           "total_row_count": 0,
           "has_more_before": false

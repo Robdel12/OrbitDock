@@ -594,7 +594,7 @@ pub struct SessionSummary {
   pub sandbox_mode: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default)]
   pub allow_bypass_permissions: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub collaboration_mode: Option<String>,
@@ -1013,7 +1013,7 @@ pub struct SessionState {
   pub pending_approval: Option<ApprovalRequest>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  #[serde(default)]
   pub allow_bypass_permissions: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub collaboration_mode: Option<String>,
@@ -1075,7 +1075,7 @@ pub struct SessionState {
   pub current_turn_id: Option<String>,
   #[serde(default)]
   pub turn_count: u64,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub turn_diffs: Vec<TurnDiff>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub git_branch: Option<String>,
@@ -1083,7 +1083,7 @@ pub struct SessionState {
   pub git_sha: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub current_cwd: Option<String>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub subagents: Vec<SubagentInfo>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub effort: Option<String>,
@@ -1115,7 +1115,7 @@ pub struct SessionState {
   pub issue_identifier: Option<String>,
 
   // -- Conversation row payload (server-populated) --
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  #[serde(default)]
   pub rows: Vec<crate::conversation_contracts::ConversationRowEntry>,
   #[serde(default)]
   pub total_row_count: u64,

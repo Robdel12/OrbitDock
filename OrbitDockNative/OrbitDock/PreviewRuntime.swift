@@ -205,6 +205,7 @@ struct PreviewRuntime {
         workStatus: serverWorkStatus(for: $0.workStatus, attentionReason: $0.attentionReason),
         controlMode: previewControlMode(for: $0),
         lifecycleState: previewLifecycleState(for: $0),
+        steerable: false,
         codexIntegrationMode: $0.codexIntegrationMode.map(serverCodexMode),
         claudeIntegrationMode: $0.claudeIntegrationMode.map(serverClaudeMode),
         startedAt: $0.startedAt.map(iso8601Timestamp),
@@ -217,12 +218,21 @@ struct PreviewRuntime {
         worktreeId: $0.worktreeId,
         totalTokens: UInt64(max($0.totalTokens, 0)),
         totalCostUSD: $0.totalCostUSD,
+        inputTokens: UInt64(max($0.inputTokens ?? 0, 0)),
+        outputTokens: UInt64(max($0.outputTokens ?? 0, 0)),
+        cachedTokens: UInt64(max($0.cachedTokens ?? 0, 0)),
         displayTitle: $0.displayName,
         displayTitleSortKey: $0.normalizedDisplayName,
         displaySearchText: $0.displaySearchText,
         contextLine: $0.summary ?? $0.firstPrompt,
-        listStatus: nil,
-        effort: $0.effort
+        listStatus: .ended,
+        summaryRevision: 0,
+        effort: $0.effort,
+        activeWorkerCount: 0,
+        pendingToolFamily: nil,
+        forkedFromSessionId: nil,
+        missionId: nil,
+        issueIdentifier: nil
       )
     }
   }

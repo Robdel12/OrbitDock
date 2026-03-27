@@ -480,6 +480,7 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     workStatus: previewWorkStatus(for: session),
     controlMode: previewControlMode(for: session),
     lifecycleState: previewLifecycleState(for: session),
+    steerable: false,
     codexIntegrationMode: session.codexIntegrationMode == .passive ? .passive : .direct,
     claudeIntegrationMode: session
       .provider == .claude ? (session.claudeIntegrationMode == .passive ? .passive : .direct) : nil,
@@ -493,12 +494,21 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     worktreeId: session.worktreeId,
     totalTokens: UInt64(max(session.totalTokens, 0)),
     totalCostUSD: session.totalCostUSD,
+    inputTokens: UInt64(max(session.inputTokens ?? 0, 0)),
+    outputTokens: UInt64(max(session.outputTokens ?? 0, 0)),
+    cachedTokens: UInt64(max(session.cachedTokens ?? 0, 0)),
     displayTitle: session.displayName,
     displayTitleSortKey: session.normalizedDisplayName,
     displaySearchText: session.displaySearchText,
     contextLine: session.summary,
-    listStatus: nil,
-    effort: session.effort
+    listStatus: .ended,
+    summaryRevision: 0,
+    effort: session.effort,
+    activeWorkerCount: 0,
+    pendingToolFamily: nil,
+    forkedFromSessionId: nil,
+    missionId: nil,
+    issueIdentifier: nil
   )
 
   return RootSessionNode(

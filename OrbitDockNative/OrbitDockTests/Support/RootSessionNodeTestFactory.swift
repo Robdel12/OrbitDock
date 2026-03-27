@@ -12,6 +12,19 @@ func makeRootSessionNode(
 ) -> RootSessionNode {
   let resolvedEndpointID = endpointId ?? session.endpointId ?? rootShellTestEndpointID
 
+  let resolvedWorkStatus = serverWorkStatus(
+    from: session.workStatus,
+    attentionReason: session.attentionReason
+  )
+  let resolvedListStatus: ServerSessionListStatus = switch resolvedWorkStatus {
+    case .working: .working
+    case .waiting: .reply
+    case .permission: .permission
+    case .question: .question
+    case .reply: .reply
+    case .ended: .ended
+  }
+
   let listItem = ServerSessionListItem(
     id: session.id,
     provider: session.provider == .codex ? .codex : .claude,
@@ -20,10 +33,10 @@ func makeRootSessionNode(
     gitBranch: session.branch,
     model: session.model,
     status: session.status == .active ? .active : .ended,
-    workStatus: serverWorkStatus(
-      from: session.workStatus,
-      attentionReason: session.attentionReason
-    ),
+    workStatus: resolvedWorkStatus,
+    controlMode: .passive,
+    lifecycleState: session.status == .active ? .open : .ended,
+    steerable: false,
     codexIntegrationMode: session.codexIntegrationMode.map(serverCodexMode),
     claudeIntegrationMode: session.claudeIntegrationMode.map(serverClaudeMode),
     startedAt: session.startedAt.map(formatServerDate),
@@ -36,12 +49,21 @@ func makeRootSessionNode(
     worktreeId: session.worktreeId,
     totalTokens: UInt64(max(session.totalTokens, 0)),
     totalCostUSD: session.totalCostUSD,
+    inputTokens: UInt64(max(session.inputTokens ?? 0, 0)),
+    outputTokens: UInt64(max(session.outputTokens ?? 0, 0)),
+    cachedTokens: UInt64(max(session.cachedTokens ?? 0, 0)),
     displayTitle: session.displayName,
     displayTitleSortKey: session.normalizedDisplayName,
     displaySearchText: session.displaySearchText,
     contextLine: session.summary,
-    listStatus: nil,
-    effort: session.effort
+    listStatus: resolvedListStatus,
+    summaryRevision: 0,
+    effort: session.effort,
+    activeWorkerCount: 0,
+    pendingToolFamily: nil,
+    forkedFromSessionId: nil,
+    missionId: nil,
+    issueIdentifier: nil
   )
 
   return RootSessionNode(
