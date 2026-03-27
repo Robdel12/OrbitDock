@@ -136,7 +136,13 @@ struct SessionStoreReconnectRecoveryTests {
       "project_path": "/tmp/project",
       "status": "active",
       "work_status": "waiting",
-      "messages": [],
+      "control_mode": "direct",
+      "lifecycle_state": "open",
+      "accepts_user_input": true,
+      "steerable": false,
+      "rows": [],
+      "total_row_count": 0,
+      "has_more_before": false,
       "token_usage": {
         "input_tokens": 0,
         "output_tokens": 0,
@@ -144,7 +150,12 @@ struct SessionStoreReconnectRecoveryTests {
         "context_window": 0
       },
       "token_usage_snapshot_kind": "unknown",
+      "allow_bypass_permissions": false,
       "turn_count": 0,
+      "turn_diffs": [],
+      "subagents": [],
+      "is_worktree": false,
+      "unread_count": 0,
       "has_pending_approval": false,
       "claude_integration_mode": "direct",
       "revision": \(revision)

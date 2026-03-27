@@ -283,7 +283,7 @@ struct ServerDashboardDiffPreview: Codable, Equatable {
   let fileCount: UInt32
   let additions: UInt32
   let deletions: UInt32
-  let filePaths: [String]
+  var filePaths: [String] = []
 
   enum CodingKeys: String, CodingKey {
     case fileCount = "file_count"
