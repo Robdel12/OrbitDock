@@ -3,11 +3,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SITE_DIR="${SITE_DIR:?SITE_DIR is required}"
-RELEASE_TAG="${RELEASE_TAG:?RELEASE_TAG is required}"
+SITE_DIR="${SITE_DIR:-$ROOT_DIR/dist}"
+RELEASE_TAG="${RELEASE_TAG:-$(git -C "$ROOT_DIR" describe --tags --abbrev=0 2>/dev/null || echo "")}"
+if [[ -z "$RELEASE_TAG" ]]; then
+  echo "error: no git tag found — set RELEASE_TAG or create a tag first"
+  exit 1
+fi
 RELEASE_VERSION="${RELEASE_VERSION:-${RELEASE_TAG#v}}"
 SPARKLE_PRIVATE_ED_KEY="${SPARKLE_PRIVATE_ED_KEY:?SPARKLE_PRIVATE_ED_KEY is required}"
-XCODE_DERIVED_DATA_PATH="${XCODE_DERIVED_DATA_PATH:-}"
+XCODE_DERIVED_DATA_PATH="${XCODE_DERIVED_DATA_PATH:-$ROOT_DIR/.build/release-deriveddata}"
 
 # Channel support: stable (default), beta, nightly.
 # Sets APPCAST_FILENAME automatically when CHANNEL is provided.
@@ -35,31 +39,39 @@ if [[ ! -f "$ARCHIVE_PATH" ]]; then
   exit 1
 fi
 
-SPARKLE_SEARCH_ROOT="${XCODE_DERIVED_DATA_PATH:-$HOME/Library/Developer/Xcode/DerivedData}"
-SPARKLE_BIN_DIR="$(find "$SPARKLE_SEARCH_ROOT" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' | head -n 1)"
+SPARKLE_BIN_DIR=""
+for search_root in "$XCODE_DERIVED_DATA_PATH" "$HOME/Library/Developer/Xcode/DerivedData"; do
+  [[ -d "$search_root" ]] || continue
+  SPARKLE_BIN_DIR="$(find "$search_root" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' 2>/dev/null | head -n 1 || true)"
+  [[ -n "$SPARKLE_BIN_DIR" ]] && break
+done
 if [[ -z "$SPARKLE_BIN_DIR" ]]; then
-  SPARKLE_BIN_DIR="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*SourcePackages/artifacts/sparkle/Sparkle/bin' | head -n 1)"
-  if [[ -z "$SPARKLE_BIN_DIR" ]]; then
-    echo "error: Sparkle tools not found in Xcode DerivedData"
-    exit 1
-  fi
+  echo "error: Sparkle tools not found — build the project in Xcode first so SPM resolves Sparkle"
+  exit 1
 fi
 
 mkdir -p "$SITE_DIR"
-touch "$SITE_DIR/.nojekyll"
 
-if [[ ! -f "$RELEASE_NOTES_PATH" ]]; then
+STAGING_DIR="$(mktemp -d)"
+trap 'rm -rf "$STAGING_DIR"' EXIT
+
+cp "$ARCHIVE_PATH" "$STAGING_DIR/"
+
+RELEASE_NOTES_PATH="$STAGING_DIR/${APP_NAME}-${VERSION}.md"
+if [[ ! -f "$SITE_DIR/${APP_NAME}-${VERSION}.md" ]]; then
   {
     printf '# %s %s\n\n' "$APP_NAME" "$VERSION"
     printf 'See the GitHub release for details.\n'
   } > "$RELEASE_NOTES_PATH"
+else
+  cp "$SITE_DIR/${APP_NAME}-${VERSION}.md" "$RELEASE_NOTES_PATH"
 fi
 
 printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$SPARKLE_BIN_DIR/generate_appcast" \
   --ed-key-file - \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --embed-release-notes \
-  -o "$APPCAST_FILENAME" \
-  "$SITE_DIR"
+  -o "$SITE_DIR/$APPCAST_FILENAME" \
+  "$STAGING_DIR"
 
 echo "Generated $SITE_DIR/$APPCAST_FILENAME (channel=$CHANNEL)"
