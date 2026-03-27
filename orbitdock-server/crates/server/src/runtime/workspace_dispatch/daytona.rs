@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -9,7 +8,8 @@ use serde_json::json;
 use crate::domain::git::repo::resolve_origin_url;
 use crate::infrastructure::auth_tokens;
 use crate::infrastructure::daytona::{
-  DaytonaClient, DaytonaConfig, DaytonaExecRequest, DaytonaWorkspaceCreateRequest,
+  DaytonaClient, DaytonaConfig, DaytonaGitCloneRequest, DaytonaSandboxCreateRequest,
+  DaytonaSandboxState, DaytonaToolboxClient, DaytonaToolboxExecRequest,
 };
 use crate::infrastructure::persistence::{
   insert_workspace_record, load_workspace_record, update_workspace_record, WorkspaceRecord,
@@ -35,24 +35,18 @@ impl DaytonaWorkspaceProvider {
 
   async fn exec_required_success(
     &self,
-    workspace_external_id: &str,
-    request: DaytonaExecRequest,
+    toolbox: &DaytonaToolboxClient,
+    request: DaytonaToolboxExecRequest,
     context: &str,
   ) -> Result<()> {
-    let result = self
-      .client
-      .exec_in_workspace(workspace_external_id, &request)
-      .await?;
+    let result = toolbox.execute_command(&request).await?;
     if result.exit_code == 0 {
       return Ok(());
     }
 
-    let stderr = result.stderr.trim();
-    let stdout = result.stdout.trim();
-    let detail = if !stderr.is_empty() {
-      stderr
-    } else if !stdout.is_empty() {
-      stdout
+    let output = result.result.trim();
+    let detail = if !output.is_empty() {
+      output
     } else {
       "no output"
     };
@@ -104,15 +98,16 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
 
     let workspace = match self
       .client
-      .create_workspace(&DaytonaWorkspaceCreateRequest {
+      .create_sandbox(&DaytonaSandboxCreateRequest {
         name: format!("orbitdock-{}", req.issue.identifier.to_lowercase()),
-        repository_url: repo_url.clone(),
-        branch: branch_name.clone(),
         image: req
           .workspace_config
           .image
           .clone()
           .unwrap_or_else(|| self.client.config().image.clone()),
+        target: self.client.config().target.clone(),
+        cpu: req.workspace_config.resources.cpu,
+        memory_gib: parse_memory_gib(req.workspace_config.resources.memory.as_deref()),
       })
       .await
     {
@@ -120,10 +115,74 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
       Err(error) => {
         let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
         return Err(WorkspaceError::Failed(format!(
-          "Create Daytona workspace failed: {error}"
+          "Create Daytona sandbox failed: {error}"
         )));
       }
     };
+
+    let workspace = if workspace.state == DaytonaSandboxState::Started {
+      workspace
+    } else {
+      match self.client.wait_for_sandbox_started(&workspace.id).await {
+        Ok(workspace) => workspace,
+        Err(error) => {
+          let _ = self.client.delete_sandbox(&workspace.id).await;
+          let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
+          return Err(WorkspaceError::Failed(format!(
+            "Wait for Daytona sandbox start failed: {error}"
+          )));
+        }
+      }
+    };
+
+    let toolbox = self.client.toolbox_client(&workspace);
+    let work_dir = match toolbox.get_work_dir().await {
+      Ok(path) => path,
+      Err(error) => {
+        let _ = self.client.delete_sandbox(&workspace.id).await;
+        let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
+        return Err(WorkspaceError::Failed(format!(
+          "Resolve Daytona work dir failed: {error}"
+        )));
+      }
+    };
+    let repo_path = repo_checkout_path(&work_dir);
+
+    if let Err(error) = toolbox
+      .git_clone(&DaytonaGitCloneRequest {
+        url: repo_url.clone(),
+        path: repo_path.clone(),
+        branch: Some(branch_name.clone()),
+      })
+      .await
+    {
+      let _ = self.client.delete_sandbox(&workspace.id).await;
+      let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
+      return Err(WorkspaceError::Failed(format!(
+        "Clone repository into Daytona sandbox failed: {error}"
+      )));
+    }
+
+    for setup_command in &req.workspace_config.setup_commands {
+      if let Err(error) = self
+        .exec_required_success(
+          &toolbox,
+          DaytonaToolboxExecRequest {
+            command: setup_command.clone(),
+            cwd: Some(repo_path.clone()),
+            timeout_secs: Some(600),
+          },
+          "run Daytona workspace setup command",
+        )
+        .await
+      {
+        let _ = self.client.delete_sandbox(&workspace.id).await;
+        let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
+        return Err(WorkspaceError::Failed(format!(
+          "Workspace setup command failed: {error}"
+        )));
+      }
+    }
 
     let launch_plan = DaytonaLaunchPlan::build(
       self.client.config(),
@@ -131,6 +190,7 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
       &workspace_id,
       &session_id,
       &sync_token.token,
+      &repo_path,
     )
     .map_err(|error| {
       WorkspaceError::Failed(format!("Build Daytona launch plan failed: {error}"))
@@ -138,13 +198,13 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
 
     if let Err(error) = self
       .exec_required_success(
-        &workspace.id,
+        &toolbox,
         launch_plan.start_server_request(),
         "start remote OrbitDock",
       )
       .await
     {
-      let _ = self.client.delete_workspace(&workspace.id).await;
+      let _ = self.client.delete_sandbox(&workspace.id).await;
       let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
       return Err(WorkspaceError::Failed(format!(
         "Start remote OrbitDock failed: {error}"
@@ -153,13 +213,13 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
 
     if let Err(error) = self
       .exec_required_success(
-        &workspace.id,
+        &toolbox,
         launch_plan.wait_for_server_request(),
         "wait for managed OrbitDock health",
       )
       .await
     {
-      let _ = self.client.delete_workspace(&workspace.id).await;
+      let _ = self.client.delete_sandbox(&workspace.id).await;
       let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
       return Err(WorkspaceError::Failed(format!(
         "Managed OrbitDock did not become healthy: {error}"
@@ -168,13 +228,13 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
 
     if let Err(error) = self
       .exec_required_success(
-        &workspace.id,
+        &toolbox,
         launch_plan.start_session_request(),
         "start managed session",
       )
       .await
     {
-      let _ = self.client.delete_workspace(&workspace.id).await;
+      let _ = self.client.delete_sandbox(&workspace.id).await;
       let _ = mark_workspace_failed(req.registry.clone(), workspace_id.clone()).await;
       return Err(WorkspaceError::Failed(format!(
         "Managed session start failed: {error}"
@@ -187,7 +247,11 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
         id: &workspace_id,
         external_id: Some(&workspace.id),
         status: "running",
-        connection_info: Some(&json!({ "daytona_workspace_name": workspace.name })),
+        connection_info: Some(&json!({
+          "daytona_sandbox_name": workspace.name,
+          "daytona_toolbox_proxy_url": workspace.toolbox_proxy_url,
+          "repo_path": repo_path,
+        })),
         ready: true,
         destroyed: false,
       },
@@ -205,6 +269,7 @@ struct DaytonaLaunchPlan {
   sync_url: String,
   sync_token: String,
   workspace_id: String,
+  repo_path: String,
 }
 
 impl DaytonaLaunchPlan {
@@ -214,6 +279,7 @@ impl DaytonaLaunchPlan {
     workspace_id: &str,
     session_id: &str,
     sync_token: &str,
+    repo_path: &str,
   ) -> Result<Self> {
     let resolved = req.agent_config.resolve_for_provider(&req.provider_str);
     let cli_ref = crate::domain::instructions::orbitdock_system_instructions();
@@ -227,7 +293,7 @@ impl DaytonaLaunchPlan {
     let request = json!({
       "session_id": session_id,
       "provider": req.provider_str,
-      "cwd": ".",
+      "cwd": repo_path,
       "model": resolved.model,
       "approval_policy": resolved.approval_policy,
       "sandbox_mode": resolved.sandbox_mode,
@@ -258,62 +324,73 @@ impl DaytonaLaunchPlan {
       sync_url: config.server_public_url.clone(),
       sync_token: sync_token.to_string(),
       workspace_id: workspace_id.to_string(),
+      repo_path: repo_path.to_string(),
     })
   }
 
-  fn start_server_request(&self) -> DaytonaExecRequest {
-    let mut env = HashMap::new();
-    env.insert("ORBITDOCK_SYNC_URL".into(), self.sync_url.clone());
-    env.insert("ORBITDOCK_SYNC_TOKEN".into(), self.sync_token.clone());
-    env.insert("ORBITDOCK_WORKSPACE_ID".into(), self.workspace_id.clone());
-
-    DaytonaExecRequest {
-      command: vec![
-        "sh".into(),
-        "-lc".into(),
-        "nohup orbitdock start --bind 127.0.0.1:4000 --allow-insecure-no-auth --managed --workspace-id \"$ORBITDOCK_WORKSPACE_ID\" --sync-url \"$ORBITDOCK_SYNC_URL\" --sync-token \"$ORBITDOCK_SYNC_TOKEN\" >/tmp/orbitdock-managed.log 2>&1 & echo $! >/tmp/orbitdock-managed.pid".into(),
-      ],
-      env,
+  fn start_server_request(&self) -> DaytonaToolboxExecRequest {
+    DaytonaToolboxExecRequest {
+      command: format!(
+        "nohup orbitdock start --bind 127.0.0.1:4000 --allow-insecure-no-auth --managed --workspace-id {} --sync-url {} --sync-token {} >/tmp/orbitdock-managed.log 2>&1 & echo $! >/tmp/orbitdock-managed.pid",
+        shell_quote(&self.workspace_id),
+        shell_quote(&self.sync_url),
+        shell_quote(&self.sync_token),
+      ),
+      cwd: Some(self.repo_path.clone()),
+      timeout_secs: Some(10),
     }
   }
 
-  fn wait_for_server_request(&self) -> DaytonaExecRequest {
-    DaytonaExecRequest {
-      command: vec![
-        "sh".into(),
-        "-lc".into(),
-        "for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:4000/health >/dev/null && exit 0; sleep 1; done; exit 1".into(),
-      ],
-      env: HashMap::new(),
+  fn wait_for_server_request(&self) -> DaytonaToolboxExecRequest {
+    DaytonaToolboxExecRequest {
+      command: "for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:4000/health >/dev/null && exit 0; sleep 1; done; exit 1".into(),
+      cwd: Some(self.repo_path.clone()),
+      timeout_secs: Some(70),
     }
   }
 
-  fn start_session_request(&self) -> DaytonaExecRequest {
-    let mut env = HashMap::new();
-    env.insert(
-      "ORBITDOCK_MANAGED_SESSION_REQUEST_B64".into(),
-      self.managed_request_base64.clone(),
-    );
-    DaytonaExecRequest {
-      command: vec![
-        "sh".into(),
-        "-lc".into(),
-        "orbitdock managed-session-start --server-url http://127.0.0.1:4000 --request-base64 \"$ORBITDOCK_MANAGED_SESSION_REQUEST_B64\"".into(),
-      ],
-      env,
+  fn start_session_request(&self) -> DaytonaToolboxExecRequest {
+    DaytonaToolboxExecRequest {
+      command: format!(
+        "orbitdock managed-session-start --server-url http://127.0.0.1:4000 --request-base64 {}",
+        shell_quote(&self.managed_request_base64),
+      ),
+      cwd: Some(self.repo_path.clone()),
+      timeout_secs: Some(30),
     }
   }
 
-  fn graceful_shutdown_request() -> DaytonaExecRequest {
-    DaytonaExecRequest {
-      command: vec![
-        "sh".into(),
-        "-lc".into(),
-        "if [ ! -f /tmp/orbitdock-managed.pid ]; then exit 0; fi; pid=$(cat /tmp/orbitdock-managed.pid); kill -INT \"$pid\" 2>/dev/null || true; for _ in $(seq 1 35); do kill -0 \"$pid\" 2>/dev/null || exit 0; sleep 1; done; exit 1".into(),
-      ],
-      env: HashMap::new(),
+  fn graceful_shutdown_request() -> DaytonaToolboxExecRequest {
+    DaytonaToolboxExecRequest {
+      command: "if [ ! -f /tmp/orbitdock-managed.pid ]; then exit 0; fi; pid=$(cat /tmp/orbitdock-managed.pid); kill -INT \"$pid\" 2>/dev/null || true; for _ in $(seq 1 35); do kill -0 \"$pid\" 2>/dev/null || exit 0; sleep 1; done; exit 1".into(),
+      cwd: None,
+      timeout_secs: Some(40),
     }
   }
+}
+
+fn repo_checkout_path(work_dir: &str) -> String {
+  format!("{}/orbitdock-repo", work_dir.trim_end_matches('/'))
+}
+
+fn parse_memory_gib(raw: Option<&str>) -> Option<u32> {
+  let raw = raw?.trim();
+  if raw.is_empty() {
+    return None;
+  }
+
+  let normalized = raw
+    .strip_suffix("Gi")
+    .or_else(|| raw.strip_suffix("GB"))
+    .or_else(|| raw.strip_suffix('G'))
+    .unwrap_or(raw)
+    .trim();
+
+  normalized.parse::<u32>().ok()
+}
+
+fn shell_quote(value: &str) -> String {
+  format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 async fn resolve_mission_issue_row_id(
@@ -458,21 +535,31 @@ pub(crate) async fn destroy_daytona_workspace(
 
   if let Some(external_id) = workspace.external_id.as_deref() {
     let client = DaytonaClient::new(DaytonaConfig::load()?)?;
-    let shutdown = client
-      .exec_in_workspace(external_id, &DaytonaLaunchPlan::graceful_shutdown_request())
-      .await?;
-    if shutdown.exit_code != 0 {
-      tracing::warn!(
-        component = "workspace_provider",
-        event = "daytona.shutdown.nonzero_exit",
-        workspace_id = %workspace.id,
-        external_id = %external_id,
-        exit_code = shutdown.exit_code,
-        stderr = %shutdown.stderr,
-        "Managed workspace shutdown did not exit cleanly before delete"
-      );
+    if let Some(sandbox) = client.get_sandbox(external_id).await? {
+      if matches!(
+        sandbox.state,
+        DaytonaSandboxState::Started
+          | DaytonaSandboxState::Starting
+          | DaytonaSandboxState::Stopping
+      ) {
+        let shutdown = client
+          .toolbox_client(&sandbox)
+          .execute_command(&DaytonaLaunchPlan::graceful_shutdown_request())
+          .await?;
+        if shutdown.exit_code != 0 {
+          tracing::warn!(
+            component = "workspace_provider",
+            event = "daytona.shutdown.nonzero_exit",
+            workspace_id = %workspace.id,
+            external_id = %external_id,
+            exit_code = shutdown.exit_code,
+            output = %shutdown.result,
+            "Managed workspace shutdown did not exit cleanly before delete"
+          );
+        }
+      }
     }
-    client.delete_workspace(external_id).await?;
+    client.delete_sandbox(external_id).await?;
   }
 
   update_workspace(
@@ -502,6 +589,7 @@ mod tests {
       api_key: "secret".into(),
       server_public_url: "https://dock.example.com".into(),
       image: "image:latest".into(),
+      target: None,
     };
     let request = DispatchRequest {
       repo_root: "/repo".into(),
@@ -526,13 +614,42 @@ mod tests {
       prompt: "Fix it".into(),
       registry: crate::support::test_support::new_test_session_registry(true),
     };
-    let plan = DaytonaLaunchPlan::build(&config, &request, "workspace-1", "session-1", "token-1")
-      .expect("build launch plan");
+    let plan = DaytonaLaunchPlan::build(
+      &config,
+      &request,
+      "workspace-1",
+      "session-1",
+      "token-1",
+      "/sandbox/orbitdock-repo",
+    )
+    .expect("build launch plan");
 
     assert!(plan.sync_url.contains("dock.example.com"));
     assert!(plan.managed_request_base64.len() > 10);
-    assert!(plan.start_server_request().command[2].contains("orbitdock start"));
-    assert!(plan.start_server_request().command[2].contains("orbitdock-managed.pid"));
-    assert!(plan.start_session_request().command[2].contains("managed-session-start"));
+    assert_eq!(
+      plan.start_server_request().cwd.as_deref(),
+      Some("/sandbox/orbitdock-repo")
+    );
+    assert!(plan
+      .start_server_request()
+      .command
+      .contains("orbitdock start"));
+    assert!(plan
+      .start_server_request()
+      .command
+      .contains("orbitdock-managed.pid"));
+    assert!(plan
+      .start_session_request()
+      .command
+      .contains("managed-session-start"));
+  }
+
+  #[test]
+  fn parse_memory_gib_accepts_common_gib_forms() {
+    assert_eq!(super::parse_memory_gib(Some("8Gi")), Some(8));
+    assert_eq!(super::parse_memory_gib(Some("16GB")), Some(16));
+    assert_eq!(super::parse_memory_gib(Some("4G")), Some(4));
+    assert_eq!(super::parse_memory_gib(Some("2")), Some(2));
+    assert_eq!(super::parse_memory_gib(Some("bad")), None);
   }
 }
