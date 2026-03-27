@@ -20,9 +20,6 @@ struct PreviewRuntime {
   let notificationCoordinator: NotificationCoordinator
   let appStore: AppStore
   let externalNavigationCenter: AppExternalNavigationCenter
-  #if os(macOS)
-    let serverManager: ServerManager
-  #endif
 
   init(scenario: Scenario = .dashboard) {
     let endpoint = Self.previewEndpoint()
@@ -102,12 +99,6 @@ struct PreviewRuntime {
     self.externalNavigationCenter = AppExternalNavigationCenter()
     self.appStore = AppStore(runtimeRegistry: runtimeRegistry)
     self.appStore.router = router
-
-    #if os(macOS)
-      self.serverManager = ServerManager(
-        previewInstallState: scenario == .serverSetup ? .notConfigured : .running
-      )
-    #endif
   }
 
   @ViewBuilder
@@ -121,9 +112,6 @@ struct PreviewRuntime {
       .environment(router)
       .environment(\.rootSessionActions, rootSessionActions)
       .environment(appStore)
-    #if os(macOS)
-      .environment(\.serverManager, serverManager)
-    #endif
   }
 
   private static func previewEndpoint() -> ServerEndpoint {

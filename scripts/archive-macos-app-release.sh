@@ -40,8 +40,6 @@ rm -rf "$ARCHIVE_PATH"
 
 pushd "$ROOT_DIR" >/dev/null
 
-make rust-build-darwin
-
 XCODEBUILD_ARGS=(
   archive
   -project OrbitDockNative/OrbitDock.xcodeproj

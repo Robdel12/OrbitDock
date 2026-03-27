@@ -17,20 +17,12 @@ enum BeaconPhase {
 
 struct ServerSetupView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  #if os(macOS)
-    @Environment(\.serverManager) private var serverManager
-  #endif
 
   @State private var host: String = ServerSetupViewPlanner.defaultHost()
   @State private var authToken: String = ""
   @State private var isConnecting = false
   @State private var connectionError: String?
   @State private var beaconPhase: BeaconPhase = .idle
-  #if os(macOS)
-    @State private var isInstalling = false
-    @State private var installComplete = false
-    @State private var installError: String?
-  #endif
 
   private let endpointSettings: ServerEndpointSettingsClient
 
@@ -82,10 +74,8 @@ struct ServerSetupView: View {
         connectionForm
           .frame(maxWidth: 420)
 
-        #if os(macOS)
-          installSection
-            .frame(maxWidth: 420)
-        #endif
+        serverHelpSection
+          .frame(maxWidth: 420)
 
         Spacer(minLength: Spacing.xxl)
       }
@@ -338,75 +328,23 @@ struct ServerSetupView: View {
       .frame(height: 1)
   }
 
-  // MARK: - macOS Install Section
+  // MARK: - Server Help
 
-  #if os(macOS)
-    private var installSection: some View {
-      VStack(spacing: Spacing.md) {
-        if installComplete {
-          installSuccessBanner
-        }
+  private var serverHelpSection: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("Need a server?")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
 
-        Button {
-          installLocally()
-        } label: {
-          HStack(spacing: Spacing.sm_) {
-            if isInstalling {
-              ProgressView()
-                .controlSize(.small)
-            }
-            Text(installComplete ? "Reinstall Server" : "Set up a local server")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
+      Text("Install OrbitDock on your Mac or Linux machine, then connect using its IP address.")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
 
-            Image(systemName: "chevron.right")
-              .font(.system(size: IconScale.sm, weight: .semibold))
-              .foregroundStyle(Color.textQuaternary)
-          }
-        }
-        .buttonStyle(.plain)
-        .disabled(isInstalling)
-
-        if let installError {
-          errorBanner(installError)
-        }
-      }
+      codePill("curl -fsSL https://orbitdock.dev/install.sh | sh")
     }
-
-    private var installSuccessBanner: some View {
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "checkmark.circle.fill")
-            .foregroundStyle(Color.feedbackPositive)
-            .font(.system(size: 14))
-          Text("Server running on 127.0.0.1:4000")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-        }
-
-        Text("Get your token by running:")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textSecondary)
-
-        Text("orbitdock auth local-token")
-          .font(.system(size: TypeScale.caption, design: .monospaced))
-          .foregroundStyle(Color.accent)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(
-            Color.accent.opacity(OpacityTier.subtle),
-            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          )
-          .textSelection(.enabled)
-      }
-      .padding(Spacing.md)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        Color.feedbackPositive.opacity(OpacityTier.light),
-        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-      )
-    }
-  #endif
+    .padding(Spacing.md)
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
 
   // MARK: - Shared Components
 
@@ -429,6 +367,21 @@ struct ServerSetupView: View {
     .padding(.bottom, Spacing.md)
   }
 
+  // MARK: - Code Pill
+
+  private func codePill(_ text: String) -> some View {
+    Text(text)
+      .font(.system(size: TypeScale.caption, design: .monospaced))
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(
+        Color.accent.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+      )
+      .textSelection(.enabled)
+  }
+
   // MARK: - Actions
 
   private func connect() {
@@ -436,11 +389,7 @@ struct ServerSetupView: View {
     isConnecting = true
 
     let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-    #if os(macOS)
-      let isLocal = ServerSetupViewPlanner.isLoopbackHost(trimmedHost)
-    #else
-      let isLocal = false
-    #endif
+    let isLocal = ServerSetupViewPlanner.isLoopbackHost(trimmedHost)
 
     let result: Result<[ServerEndpoint], ServerSetupConnectError> = if isLocal {
       ServerSetupViewPlanner.buildLocalEndpoint(
@@ -471,24 +420,6 @@ struct ServerSetupView: View {
     }
   }
 
-  #if os(macOS)
-    private func installLocally() {
-      isInstalling = true
-      installError = nil
-      installComplete = false
-
-      Task {
-        do {
-          try await serverManager.install()
-          installComplete = true
-          host = "127.0.0.1"
-        } catch {
-          installError = serverManager.installError ?? error.localizedDescription
-        }
-        isInstalling = false
-      }
-    }
-  #endif
 }
 
 #Preview {

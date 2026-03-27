@@ -10,13 +10,11 @@ enum AppContentDestination: Equatable {
 enum AppWindowPlanner {
   static func contentDestination(
     connectedRuntimeCount: Int,
-    installState: ServerInstallState,
     hasEndpoints: Bool = true,
     selectedSessionRef: SessionRef?
   ) -> AppContentDestination {
     if shouldShowSetup(
       connectedRuntimeCount: connectedRuntimeCount,
-      installState: installState,
       hasEndpoints: hasEndpoints
     ) {
       return .setup
@@ -31,13 +29,11 @@ enum AppWindowPlanner {
 
   static func contentDestination(
     connectedRuntimeCount: Int,
-    installState: ServerInstallState,
     hasEndpoints: Bool = true,
     route: AppRoute
   ) -> AppContentDestination {
     if shouldShowSetup(
       connectedRuntimeCount: connectedRuntimeCount,
-      installState: installState,
       hasEndpoints: hasEndpoints
     ) {
       return .setup
@@ -55,12 +51,10 @@ enum AppWindowPlanner {
 
   static func shouldShowSetup(
     connectedRuntimeCount: Int,
-    installState: ServerInstallState,
     hasEndpoints: Bool = true
   ) -> Bool {
     if connectedRuntimeCount > 0 { return false }
     if !hasEndpoints { return true }
-    if case .notConfigured = installState { return true }
     return false
   }
 

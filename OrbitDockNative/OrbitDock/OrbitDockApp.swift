@@ -59,7 +59,6 @@ struct OrbitDockApp: App {
 
       Settings {
         SettingsView(appUpdater: appUpdater)
-          .environment(\.serverManager, appRuntime.serverManager)
           .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)

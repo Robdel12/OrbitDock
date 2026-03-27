@@ -11,31 +11,19 @@ struct ContentView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
   @Environment(NotificationCoordinator.self) private var notificationCoordinator
-  #if os(macOS)
-    @Environment(\.serverManager) private var serverManager
-  #endif
 
   private var isAnyRefreshingCachedSessions: Bool {
     false
-  }
-
-  private var currentInstallState: ServerInstallState {
-    #if os(macOS)
-      serverManager.installState
-    #else
-      .remote
-    #endif
   }
 
   private var hasEndpoints: Bool {
     runtimeRegistry.hasConfiguredEndpoints
   }
 
-  /// Show setup view when server is not configured and not connected
+  /// Show setup view when no endpoints are configured and not connected
   private var shouldShowSetup: Bool {
     AppWindowPlanner.shouldShowSetup(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
-      installState: currentInstallState,
       hasEndpoints: hasEndpoints
     )
   }
@@ -43,7 +31,6 @@ struct ContentView: View {
   private var contentDestination: AppContentDestination {
     AppWindowPlanner.contentDestination(
       connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
-      installState: currentInstallState,
       hasEndpoints: hasEndpoints,
       route: router.route
     )
@@ -106,7 +93,6 @@ struct ContentView: View {
       switch contentDestination {
         case .setup:
           ServerSetupView()
-            .onAppear {}
         case let .session(ref):
           SessionDetailView(
             sessionId: ref.sessionId,
@@ -122,7 +108,6 @@ struct ContentView: View {
           .id(ref.id)
         case .dashboard:
           dashboardView
-            .onAppear {}
       }
     }
   }

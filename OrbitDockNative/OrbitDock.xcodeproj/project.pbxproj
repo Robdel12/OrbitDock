@@ -187,7 +187,6 @@
 				80BCD0BC2F2C834F00D91F91 /* Sources */,
 				80BCD0BD2F2C834F00D91F91 /* Frameworks */,
 				80BCD0BE2F2C834F00D91F91 /* Resources */,
-				80BCD8502F30590000D91F91 /* Bundle OrbitDock Server */,
 			);
 			buildRules = (
 			);
@@ -311,28 +310,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		80BCD8502F30590000D91F91 /* Bundle OrbitDock Server */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Bundle OrbitDock Server";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/bash;
-			shellScript = "\"${SRCROOT}/Scripts/build-cli.sh\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		800E7CB22F46B778007CADF5 /* Sources */ = {

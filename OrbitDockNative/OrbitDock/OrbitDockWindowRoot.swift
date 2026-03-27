@@ -50,9 +50,6 @@ struct OrbitDockWindowRoot: View {
         quickSwitcherOverlay
       }
     }
-    #if os(macOS)
-    .environment(\.serverManager, appRuntime.serverManager)
-    #endif
     .environment(appRuntime.runtimeRegistry)
     .environment(appRuntime.usageServiceRegistry)
     .environment(appRuntime.notificationCoordinator)

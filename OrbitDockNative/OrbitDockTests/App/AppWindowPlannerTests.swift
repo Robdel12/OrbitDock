@@ -4,12 +4,12 @@ import Testing
 
 @MainActor
 struct AppWindowPlannerTests {
-  @Test func contentDestinationPrefersSetupWhenServerIsNotConfigured() {
+  @Test func contentDestinationPrefersSetupWhenNoEndpointsConfigured() {
     let ref = SessionRef(endpointId: UUID(), sessionId: "session-1")
 
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 0,
-      installState: .notConfigured,
+      hasEndpoints: false,
       route: .session(ref)
     )
 
@@ -21,7 +21,6 @@ struct AppWindowPlannerTests {
 
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 1,
-      installState: .running,
       route: .session(ref)
     )
 
@@ -31,7 +30,6 @@ struct AppWindowPlannerTests {
   @Test func contentDestinationFallsBackToDashboardWithoutSelection() {
     let destination = AppWindowPlanner.contentDestination(
       connectedRuntimeCount: 1,
-      installState: .running,
       route: .dashboard(.missionControl)
     )
 

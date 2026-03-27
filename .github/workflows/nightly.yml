@@ -71,14 +71,6 @@ jobs:
         with:
           xcode-version: '16.3'
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: "orbitdock-server -> ../.cache/rust/target"
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -134,8 +126,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID || secrets.MACOS_DEVELOPMENT_TEAM || secrets.APPLE_TEAM_ID }}
-          CARGO_PROFILE_RELEASE_LTO: "false"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: ./scripts/archive-macos-app-release.sh
 
       - name: Prepare nightly changelog context
