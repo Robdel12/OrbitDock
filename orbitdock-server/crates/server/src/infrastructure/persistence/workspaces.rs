@@ -67,13 +67,14 @@ pub(crate) fn load_workspace_record(
     .query_row(params![workspace_id], |row| {
       Ok(WorkspaceRecord {
         id: row.get(0)?,
-        provider: row.get::<_, String>(1)?.parse().map_err(|error| {
-          rusqlite::Error::FromSqlConversionFailure(
+        provider: row
+          .get::<_, String>(1)?
+          .parse()
+          .map_err(|error| rusqlite::Error::FromSqlConversionFailure(
             1,
             rusqlite::types::Type::Text,
             Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
-          )
-        })?,
+          ))?,
         external_id: row.get(2)?,
         status: row.get(3)?,
         last_heartbeat_at: row.get(4)?,
