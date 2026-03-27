@@ -3,8 +3,10 @@
 //! Quick tunnel (no account): spins up a temporary `trycloudflare.com` URL.
 //! Named tunnel (account required): uses an existing tunnel name.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use crate::infrastructure::paths;
 
@@ -43,7 +45,7 @@ pub fn start_cloudflare_tunnel(port: u16, name: Option<&str>) -> anyhow::Result<
           println!("  ══════════════════════════════════════════");
           println!();
           println!("  Connect a remote machine:");
-          println!("    orbitdock install-hooks --server-url {}", url);
+          println!("    orbitdock setup client");
           println!();
           println!("  Press Ctrl+C to stop the tunnel.");
           println!();
@@ -62,6 +64,87 @@ pub fn start_cloudflare_tunnel(port: u16, name: Option<&str>) -> anyhow::Result<
   }
 
   Ok(())
+}
+
+/// Check if cloudflared is available, offering to install it if not.
+///
+/// Returns the path to the cloudflared binary on success.
+pub fn ensure_cloudflared() -> anyhow::Result<String> {
+  match find_cloudflared() {
+    Ok(path) => {
+      println!("  cloudflared found: {}", path);
+      Ok(path)
+    }
+    Err(_) => {
+      if cfg!(target_os = "macos") {
+        println!("  cloudflared not found.");
+        print!("  Install via Homebrew? [Y/n] ");
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().lock().read_line(&mut input)?;
+        let trimmed = input.trim().to_ascii_lowercase();
+
+        if trimmed.is_empty() || trimmed == "y" || trimmed == "yes" {
+          println!("  Installing cloudflared...");
+          let status = Command::new("brew")
+            .args(["install", "cloudflared"])
+            .status()?;
+          if !status.success() {
+            anyhow::bail!("brew install cloudflared failed");
+          }
+          find_cloudflared()
+        } else {
+          anyhow::bail!("cloudflared is required for Cloudflare Tunnel setup")
+        }
+      } else {
+        anyhow::bail!(
+          "cloudflared not found.\n\n\
+           Install it:\n\
+           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+           -o ~/.orbitdock/bin/cloudflared && chmod +x ~/.orbitdock/bin/cloudflared\n\n\
+           Or download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        )
+      }
+    }
+  }
+}
+
+/// Start a quick tunnel and extract the public URL.
+///
+/// Returns the child process (still running) and the extracted URL.
+/// The caller is responsible for the child's lifetime.
+pub fn start_tunnel_and_extract_url(port: u16) -> anyhow::Result<(Child, String)> {
+  let cloudflared = find_cloudflared()?;
+  let mut child = start_quick_tunnel(&cloudflared, port)?;
+
+  let stderr = child
+    .stderr
+    .take()
+    .ok_or_else(|| anyhow::anyhow!("no stderr from cloudflared"))?;
+
+  // Read stderr on a background thread so we can apply a timeout.
+  let (tx, rx) = mpsc::channel::<String>();
+  std::thread::spawn(move || {
+    let reader = BufReader::new(stderr);
+    for line in reader.lines().map_while(Result::ok) {
+      if tx.send(line).is_err() {
+        break;
+      }
+    }
+  });
+
+  let deadline = Instant::now() + Duration::from_secs(60);
+  while let Ok(line) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+    if line.contains("trycloudflare.com") || line.contains(".cloudflare") {
+      if let Some(url) = extract_url(&line) {
+        return Ok((child, url));
+      }
+    }
+  }
+
+  let _ = child.kill();
+  anyhow::bail!("Timed out waiting for cloudflared to print tunnel URL (60s)")
 }
 
 fn find_cloudflared() -> anyhow::Result<String> {
@@ -119,7 +202,7 @@ fn start_named_tunnel(cloudflared: &str, port: u16, name: &str) -> anyhow::Resul
   Ok(child)
 }
 
-fn extract_url(line: &str) -> Option<String> {
+pub(crate) fn extract_url(line: &str) -> Option<String> {
   // Find HTTPS URLs in the line
   for word in line.split_whitespace() {
     let candidate = word
@@ -129,4 +212,27 @@ fn extract_url(line: &str) -> Option<String> {
     }
   }
   None
+}
+
+#[cfg(test)]
+mod tests {
+  use super::extract_url;
+
+  #[test]
+  fn extract_url_finds_trycloudflare_url() {
+    let line =
+      "2024-01-15T12:00:00Z INF +-----------------------------------------------------------+";
+    assert_eq!(extract_url(line), None);
+
+    let line = "2024-01-15T12:00:00Z INF |  https://abc-def.trycloudflare.com  |";
+    assert_eq!(
+      extract_url(line),
+      Some("https://abc-def.trycloudflare.com".to_string())
+    );
+  }
+
+  #[test]
+  fn extract_url_handles_no_url() {
+    assert_eq!(extract_url("just some text with no url"), None);
+  }
 }

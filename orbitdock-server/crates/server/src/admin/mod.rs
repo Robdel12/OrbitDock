@@ -24,7 +24,7 @@ pub use install_service::{
 };
 pub use pair::print_pairing_details;
 pub use remote_setup::guide_remote_setup;
-pub use setup::{run_setup_wizard, Mode as SetupMode, SetupOptions};
+pub use setup::{run_setup_wizard, SetupOptions, SetupPath};
 pub use status::{
   issue_auth_token, print_auth_tokens, print_generated_auth_token, print_local_token,
   print_server_status, revoke_auth_token,

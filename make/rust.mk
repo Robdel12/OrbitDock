@@ -116,7 +116,7 @@ rust-build-darwin: web-build
 		cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"; \
 	fi
 	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
-	@./OrbitDockNative/Scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
+	@./scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
 
 rust-check:
 	$(RUST_CARGO) check -p $(RUST_BIN_PACKAGE)

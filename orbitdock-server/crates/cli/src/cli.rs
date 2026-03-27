@@ -37,6 +37,13 @@ pub struct BinaryCli {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum SetupPath {
+  Local,
+  Server,
+  Client,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
 pub enum HookForwardType {
   ClaudeSessionStart,
   ClaudeSessionEnd,
@@ -173,31 +180,15 @@ pub enum BinaryCommand {
     action: AuthAction,
   },
 
-  /// Interactive setup wizard (init + hooks + token + service)
+  /// Interactive setup wizard
   Setup {
-    #[arg(long, conflicts_with = "remote")]
-    local: bool,
-
-    #[arg(long, conflicts_with = "local")]
-    remote: bool,
-
-    #[arg(long)]
-    bind: Option<std::net::SocketAddr>,
-
-    #[arg(long)]
-    server_url: Option<String>,
-
-    #[arg(long)]
-    workspace_provider: Option<WorkspaceProviderKind>,
-
-    #[arg(long)]
-    skip_service: bool,
-
-    #[arg(long)]
-    skip_hooks: bool,
+    /// Setup path: local, server, or client
+    #[arg(value_enum)]
+    path: Option<SetupPath>,
   },
 
-  /// Guide secure remote exposure for an existing install
+  /// Deprecated: use `orbitdock setup server` instead
+  #[command(hide = true)]
   RemoteSetup,
 
   /// Expose the server via Cloudflare Tunnel

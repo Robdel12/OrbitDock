@@ -18,65 +18,35 @@ The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aar
 
 - Installs `orbitdock` to `~/.orbitdock/bin/`
 - Ensures `~/.orbitdock/bin` is on shell `PATH`
-- Runs `orbitdock init`
-- Prompts before installing Claude Code hooks
-- Prompts before installing the background service
+
+After installing, run `orbitdock setup` to complete configuration.
 
 Optional flags:
 
-- `--skip-hooks` skip Claude hook setup
-- `--skip-service` skip launchd/systemd install
-- `--enable-service` install and start the background service without prompting
-- `--server-url <url>` hooks-only mode for a remote server (skips service install)
-- `--auth-token <token>` remote server auth token for non-interactive hooks-only install
 - `--version <tag>` install a specific release tag (for example `v1.2.3`)
 - `--force-source` skip prebuilt download and build from source with Cargo
 - `-y, --yes` accept installer defaults without prompting
 
-On interactive runs, the installer asks before editing `~/.claude/settings.json` and before
-installing a launchd/systemd service. On non-interactive runs, it keeps the install lightweight by
-default and only installs the service when you pass `--enable-service`.
-
-### Standalone Setup
+### Setup Wizard
 
 The binary is fully self-contained — database migrations are baked in at compile time. No source tree, no Xcode, no app bundle.
 
 ```bash
-# Bootstrap everything: data dir + database + auth token
-orbitdock init
-
-# Wire up Claude Code hooks (you'll need Claude Code installed already)
-# Automatically picks up the auth token provisioned by init
-orbitdock install-hooks
-
-# Start the server
-orbitdock start
+orbitdock setup           # interactive — pick Local, Server, or Client
+orbitdock setup local     # server + Claude Code on this machine
+orbitdock setup server    # other devices connect to this machine
+orbitdock setup client    # connect to an existing OrbitDock server
 ```
 
-`init` auto-provisions a local auth token — the hash is stored in the database and the plaintext is encrypted into `hook-forward.json`. All subsequent commands (`install-hooks`, `install-service`) pick it up automatically. To retrieve the token for other tools: `orbitdock auth local-token`.
+**Local** initializes the database, installs Claude Code hooks, and starts the background service.
+
+**Server** asks how clients should reach this machine (Cloudflare Tunnel, Tailscale, reverse proxy, or direct bind), checks prerequisites, starts the service, and prints the real URL and auth token.
+
+**Client** prompts for a server URL and auth token, tests the connection, and installs Claude Code hooks.
+
+Re-running `setup` on an existing installation shows the current state and asks before reconfiguring.
 
 Codex direct sessions work immediately — the server embeds codex-core, so you can create and control Codex sessions without a separate CLI install.
-
-### Running Remotely
-
-For a dev server or headless machine:
-
-```bash
-# Secure remote onboarding
-orbitdock remote-setup
-```
-
-`remote-setup` guides exposure mode, creates a fresh auth token, optionally reconfigures the background
-service, and prints the exact next commands for pairing clients and forwarding hooks.
-
-Connect a remote developer machine (hooks only — no local server needed):
-
-```bash
-orbitdock install-hooks \
-  --server-url https://your-server:4000
-```
-
-`install-hooks` will prompt for the auth token and store it encrypted in `~/.orbitdock/hook-forward.json`.
 For non-interactive setup, pass `--auth-token <token>` or set `ORBITDOCK_AUTH_TOKEN`.
 
 Or run it as a system service so it survives reboots:

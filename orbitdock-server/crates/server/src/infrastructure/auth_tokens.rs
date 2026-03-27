@@ -116,6 +116,17 @@ pub fn revoke_token(id: &str) -> anyhow::Result<bool> {
   Ok(updated > 0)
 }
 
+pub fn revoke_all_tokens() -> anyhow::Result<u64> {
+  let conn = open_admin_connection()?;
+  let updated = conn.execute(
+    "UPDATE auth_tokens
+         SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE revoked_at IS NULL",
+    [],
+  )?;
+  Ok(updated as u64)
+}
+
 pub fn verify_bearer_token(token: &str) -> anyhow::Result<bool> {
   Ok(resolve_active_token_id(token)?.is_some())
 }

@@ -113,7 +113,7 @@ refresh_darwin_archive_binary() {
   mkdir -p "$darwin_output_dir"
   cp "$binary_path" "$darwin_output_dir/orbitdock"
   chmod +x "$darwin_output_dir/orbitdock"
-  "$REPO_ROOT/OrbitDockNative/Scripts/server-source-fingerprint.sh" > "$darwin_output_dir/orbitdock.gitsha"
+  "$REPO_ROOT/scripts/server-source-fingerprint.sh" > "$darwin_output_dir/orbitdock.gitsha"
 }
 
 build_linux_target() {

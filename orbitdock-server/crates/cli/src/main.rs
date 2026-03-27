@@ -95,32 +95,15 @@ fn main() -> anyhow::Result<()> {
     Some(Command::Pair { tunnel_url, no_qr }) => {
       return orbitdock_server::admin::print_pairing_details(tunnel_url.as_deref(), !*no_qr);
     }
-    Some(Command::Setup {
-      local,
-      remote,
-      bind,
-      server_url,
-      workspace_provider,
-      skip_service,
-      skip_hooks,
-    }) => {
-      let mode = if *remote {
-        Some(orbitdock_server::admin::SetupMode::Remote)
-      } else if *local {
-        Some(orbitdock_server::admin::SetupMode::Local)
-      } else {
-        None
-      };
+    Some(Command::Setup { path }) => {
+      let setup_path = path.map(|p| match p {
+        orbitdock_cli::cli::SetupPath::Local => orbitdock_server::admin::SetupPath::Local,
+        orbitdock_cli::cli::SetupPath::Server => orbitdock_server::admin::SetupPath::Server,
+        orbitdock_cli::cli::SetupPath::Client => orbitdock_server::admin::SetupPath::Client,
+      });
       return orbitdock_server::admin::run_setup_wizard(
         &data_dir,
-        orbitdock_server::admin::SetupOptions {
-          mode,
-          bind: *bind,
-          server_url: server_url.clone(),
-          workspace_provider: *workspace_provider,
-          skip_service: *skip_service,
-          skip_hooks: *skip_hooks,
-        },
+        orbitdock_server::admin::SetupOptions { path: setup_path },
       );
     }
     Some(Command::RemoteSetup) => {

@@ -13,12 +13,13 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 ### Setup wizard
 
 ```bash
-orbitdock setup --local    # localhost only
-orbitdock remote-setup     # secure remote exposure onboarding
+orbitdock setup           # interactive — pick Local, Server, or Client
+orbitdock setup local     # server + Claude Code on this machine
+orbitdock setup server    # other devices connect to this machine
+orbitdock setup client    # connect to an existing OrbitDock server
 ```
 
-`setup` is for local machine bootstrap. Use `remote-setup` when you want to expose an existing install
-securely to other machines.
+`setup` handles everything: initialization, hooks, background service, and network exposure.
 
 ## Deployment Topologies
 
@@ -27,13 +28,10 @@ securely to other machines.
 The simplest setup. Server and Claude Code run on the same machine.
 
 ```bash
-orbitdock setup --local
-# or manually:
-orbitdock init
-orbitdock install-hooks
-orbitdock install-service --enable
+orbitdock setup local
 ```
 
+This initializes the database, installs Claude Code hooks, and starts the background service.
 Health check: `curl http://127.0.0.1:4000/health`
 
 ### Remote VPS / Cloud VM
@@ -43,32 +41,25 @@ Run the server on a VPS, connect from your dev machine.
 **On the server:**
 
 ```bash
-orbitdock remote-setup
+orbitdock setup server
 ```
+
+The wizard asks how clients should reach this server (Cloudflare Tunnel, Tailscale, reverse proxy, or direct).
+It checks prerequisites, starts the service, and prints the URL and auth token.
 
 **On your dev machine** (hooks only — no local server):
 
 ```bash
+orbitdock setup client
+```
+
+Enter the server URL and auth token when prompted. The wizard tests the connection and installs hooks.
+
+For non-interactive hook setup, you can still use the lower-level command:
+
+```bash
 orbitdock install-hooks \
   --server-url https://your-server.example.com:4000
-```
-
-`remote-setup` prints the exact client URL and auth token instructions after it configures the server side.
-`install-hooks` will prompt for the token and store it encrypted in `~/.orbitdock/hook-forward.json`.
-For non-interactive setup, pass `--auth-token <token>` or set `ORBITDOCK_AUTH_TOKEN`.
-
-Or use the install script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash -s -- --server-url https://your-server.example.com:4000
-```
-
-The installer forwards `--auth-token` / `ORBITDOCK_AUTH_TOKEN` when you need a non-interactive remote install.
-The simplest non-interactive flow is:
-
-```bash
-export ORBITDOCK_AUTH_TOKEN=<token>
-curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash -s -- --server-url https://your-server.example.com:4000
 ```
 
 ### Home Server (Raspberry Pi / NAS)
@@ -225,13 +216,12 @@ orbitdock tunnel --name orbitdock
 
 ### Tailscale
 
-The server auto-detects Tailscale during `init` and prints your Tailscale IP. `init` also provisions an auth token automatically.
+The server auto-detects Tailscale during setup.
 
 ```bash
-orbitdock init
-orbitdock start --bind 0.0.0.0:4000
-# Access via your Tailscale IP: http://100.x.y.z:4000
-# Auth token: orbitdock auth local-token
+orbitdock setup server   # choose Tailscale when prompted
+# Prints your Tailscale IP: http://100.x.y.z:4000
+# Auth token is shown during setup
 ```
 
 `0.0.0.0:4000` is the server's bind address, not a client destination.
@@ -342,6 +332,13 @@ If auth is enabled, enter the token separately after scanning. The QR code only 
 Point Claude Code hooks at the remote server without running a local server:
 
 ```bash
+orbitdock setup client
+# Enter server URL and auth token when prompted
+```
+
+Or use the lower-level command for automation:
+
+```bash
 orbitdock install-hooks \
   --server-url https://your-server.example.com:4000
 ```
@@ -397,10 +394,14 @@ cp ~/backups/orbitdock-20240115.db ~/.orbitdock/orbitdock.db
 
 ### Upgrading
 
+Re-run the install script to update the binary:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 # Migrations run automatically on startup
 ```
+
+The install script only updates the binary — it won't re-prompt about hooks or services.
 
 ## Troubleshooting
 

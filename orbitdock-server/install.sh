@@ -25,47 +25,21 @@ REPO_URL="${ORBITDOCK_SERVER_REPO_URL:-https://github.com/${REPO_SLUG}.git}"
 SOURCE_REF="${ORBITDOCK_SERVER_REF:-main}"
 VERSION="${ORBITDOCK_SERVER_VERSION:-latest}"
 INSTALL_ROOT="${ORBITDOCK_INSTALL_ROOT:-$HOME/.orbitdock}"
-SKIP_HOOKS="${ORBITDOCK_SKIP_HOOKS:-0}"
-SKIP_SERVICE="${ORBITDOCK_SKIP_SERVICE:-0}"
-ENABLE_SERVICE="${ORBITDOCK_ENABLE_SERVICE:-0}"
-ASSUME_DEFAULTS=0
 FORCE_SOURCE="${ORBITDOCK_FORCE_SOURCE:-0}"
-SERVER_URL=""
-AUTH_TOKEN="${ORBITDOCK_AUTH_TOKEN:-}"
 
 # ── Parse flags ───────────────────────────────────────────────────────────
+require_flag_value() {
+  local flag="$1"
+  local value="${2-}"
+
+  if [[ -z "$value" || "$value" == --* ]]; then
+    err "Missing value for $flag"
+    exit 1
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --server-url)
-      require_flag_value "$1" "${2-}"
-      SERVER_URL="$2"
-      shift 2
-      ;;
-    --server-url=*)
-      SERVER_URL="${1#*=}"
-      shift
-      ;;
-    --auth-token)
-      require_flag_value "$1" "${2-}"
-      AUTH_TOKEN="$2"
-      shift 2
-      ;;
-    --auth-token=*)
-      AUTH_TOKEN="${1#*=}"
-      shift
-      ;;
-    --skip-hooks)
-      SKIP_HOOKS=1
-      shift
-      ;;
-    --skip-service)
-      SKIP_SERVICE=1
-      shift
-      ;;
-    --enable-service)
-      ENABLE_SERVICE=1
-      shift
-      ;;
     --version)
       require_flag_value "$1" "${2-}"
       VERSION="$2"
@@ -80,22 +54,18 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -y|--yes)
-      ASSUME_DEFAULTS=1
       shift
       ;;
     -h|--help)
       echo "Usage: install.sh [OPTIONS]"
       echo ""
       echo "Options:"
-      echo "  --server-url <url>   Remote server URL (hooks-only mode — skips service install)"
-      echo "  --auth-token <token> Remote server auth token (or set ORBITDOCK_AUTH_TOKEN)"
-      echo "  --skip-hooks         Skip Claude hook installation"
-      echo "  --skip-service       Skip system service installation"
-      echo "  --enable-service     Install and start the background service without prompting"
       echo "  --version <ver>      Install specific version tag (default: latest)"
       echo "  --force-source       Build from source instead of downloading a prebuilt binary"
       echo "  -y, --yes            Accept installer defaults without prompting"
       echo "  -h, --help           Show this help"
+      echo ""
+      echo "After installing, run: orbitdock setup"
       exit 0
       ;;
     *)
@@ -104,11 +74,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-# When --server-url is provided, run in hooks-only mode (skip service install)
-if [[ -n "$SERVER_URL" ]]; then
-  SKIP_SERVICE=1
-fi
 
 mkdir -p "$INSTALL_ROOT/bin"
 
@@ -119,138 +84,6 @@ normalize_tag() {
     echo "$raw"
   else
     echo "v$raw"
-  fi
-}
-
-require_flag_value() {
-  local flag="$1"
-  local value="${2-}"
-
-  if [[ -z "$value" || "$value" == --* ]]; then
-    err "Missing value for $flag"
-    exit 1
-  fi
-}
-
-can_prompt() {
-  [[ "$ASSUME_DEFAULTS" != "1" ]] && [[ -r /dev/tty ]] && [[ -w /dev/tty ]]
-}
-
-prompt_yes_no() {
-  local prompt="$1"
-  local default_answer="$2"
-  local reply
-
-  if ! can_prompt; then
-    return 2
-  fi
-
-  while true; do
-    printf "  %s " "$prompt" > /dev/tty
-    if ! IFS= read -r reply < /dev/tty; then
-      return 2
-    fi
-
-    if [[ -z "$reply" ]]; then
-      reply="$default_answer"
-    fi
-
-    case "$reply" in
-      y|Y|yes|YES|Yes) return 0 ;;
-      n|N|no|NO|No) return 1 ;;
-      *)
-        printf "  Please answer y or n.\n" > /dev/tty
-        ;;
-    esac
-  done
-}
-
-select_install_options() {
-  INSTALL_HOOKS=1
-  INSTALL_SERVICE=0
-
-  if [[ "$SKIP_HOOKS" == "1" ]]; then
-    INSTALL_HOOKS=0
-  elif can_prompt; then
-    echo "" > /dev/tty
-    if [[ -n "$SERVER_URL" ]]; then
-      printf "  This install can configure Claude Code to forward events to %s.\n" "$SERVER_URL" > /dev/tty
-      printf "  You can skip this for now and run it later.\n\n" > /dev/tty
-      if prompt_yes_no "Install Claude Code hooks for this remote server now? [Y/n]" "Y"; then
-        INSTALL_HOOKS=1
-      else
-        INSTALL_HOOKS=0
-      fi
-    else
-      printf "  Local setup can also configure Claude Code hooks and a background service.\n" > /dev/tty
-      printf "  Both can be done later if you'd rather keep this install lightweight.\n\n" > /dev/tty
-      if prompt_yes_no "Install Claude Code hooks into ~/.claude/settings.json now? [Y/n]" "Y"; then
-        INSTALL_HOOKS=1
-      else
-        INSTALL_HOOKS=0
-      fi
-    fi
-  fi
-
-  if [[ -n "$SERVER_URL" || "$SKIP_SERVICE" == "1" ]]; then
-    INSTALL_SERVICE=0
-  elif [[ "$ENABLE_SERVICE" == "1" ]]; then
-    INSTALL_SERVICE=1
-  elif can_prompt; then
-    if prompt_yes_no "Install and start OrbitDock as a background service? [y/N]" "N"; then
-      INSTALL_SERVICE=1
-    else
-      INSTALL_SERVICE=0
-    fi
-  fi
-}
-
-wait_for_local_health() {
-  local attempt=1
-
-  while [[ "$attempt" -le 20 ]]; do
-    if "$SERVER_BIN" health >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.25
-    attempt=$((attempt + 1))
-  done
-
-  return 1
-}
-
-print_recent_service_logs() {
-  local stdout_log="$INSTALL_ROOT/logs/launchd-stdout.log"
-  local stderr_log="$INSTALL_ROOT/logs/launchd-stderr.log"
-  local showed_logs=0
-
-  if [[ -f "$stderr_log" ]]; then
-    echo ""
-    warn "Recent launchd stderr:"
-    if command -v tail >/dev/null 2>&1; then
-      tail -n 40 "$stderr_log"
-    else
-      cat "$stderr_log"
-    fi
-    showed_logs=1
-  fi
-
-  if [[ -f "$stdout_log" ]]; then
-    echo ""
-    warn "Recent launchd stdout:"
-    if command -v tail >/dev/null 2>&1; then
-      tail -n 40 "$stdout_log"
-    else
-      cat "$stdout_log"
-    fi
-    showed_logs=1
-  fi
-
-  if [[ "$showed_logs" == "1" ]]; then
-    echo ""
-    echo "  Full log files:"
-    echo "    $stderr_log"
-    echo "    $stdout_log"
   fi
 }
 
@@ -518,110 +351,19 @@ else
   USED_INSTALLER_PATH_SETUP=1
 fi
 
-# ── Setup ─────────────────────────────────────────────────────────────────
-select_install_options
-
-info "Initializing OrbitDock..."
-
-if [[ -n "$SERVER_URL" ]]; then
-  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" init --server-url "$SERVER_URL"
-else
-  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" init
-fi
-
-HOOKS_INSTALLED=0
-if [[ "$INSTALL_HOOKS" == "1" ]]; then
-  info "Installing Claude Code hooks..."
-  if [[ -n "$SERVER_URL" ]]; then
-    if [[ -n "$AUTH_TOKEN" ]]; then
-      ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks --server-url "$SERVER_URL" --auth-token "$AUTH_TOKEN"
-    else
-      ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks --server-url "$SERVER_URL"
-    fi
-  else
-    ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-hooks
-  fi
-  HOOKS_INSTALLED=1
-else
-  info "Skipping Claude Code hooks for now."
-fi
-
-SERVICE_ENABLED=0
-HEALTH_OK=0
-if [[ "$INSTALL_SERVICE" == "1" ]]; then
-  info "Installing and starting the background service..."
-  ORBITDOCK_INSTALLER_MODE=1 "$SERVER_BIN" install-service --enable
-  SERVICE_ENABLED=1
-  if [[ -z "$SERVER_URL" ]] && wait_for_local_health; then
-    HEALTH_OK=1
-  fi
-elif [[ "$SKIP_SERVICE" == "1" ]]; then
-  if [[ -n "$SERVER_URL" ]]; then
-    info "Skipping service install (hooks-only mode for remote server)."
-  else
-    warn "Skipping service installation (--skip-service)."
-  fi
-else
-  info "Background service not installed."
-fi
-
-# ── Summary ───────────────────────────────────────────────────────────────
+# ── Done ──────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}Installation complete!${RESET}"
 echo ""
 ok "Binary installed: $SERVER_BIN"
-
-if [[ -n "$SERVER_URL" ]]; then
-  if [[ "$HOOKS_INSTALLED" == "1" ]]; then
-    ok "Claude Code hooks will forward to: $SERVER_URL"
-  else
-    warn "Claude Code hooks were not installed."
-    echo "  Install them later with:"
-    echo "    orbitdock install-hooks --server-url $SERVER_URL"
-  fi
-  echo ""
-  echo "  No local server is running on this machine."
-  echo "  Local Claude Code events will be forwarded to $SERVER_URL once hooks are installed."
-else
-  if [[ "$HOOKS_INSTALLED" == "1" ]]; then
-    ok "Claude Code hooks installed"
-  else
-    info "Claude Code hooks not installed"
-    echo "  Install them later with:"
-    echo "    orbitdock install-hooks"
-  fi
-  echo ""
-  if [[ "$SERVICE_ENABLED" == "1" && "$HEALTH_OK" == "1" ]]; then
-    ok "Local server is running: http://127.0.0.1:4000/health"
-    echo ""
-    echo "  Next:"
-    echo "    orbitdock status"
-    echo "    orbitdock doctor"
-  elif [[ "$SERVICE_ENABLED" == "1" ]]; then
-    warn "Background service installed, but the server is not healthy yet."
-    print_recent_service_logs
-    echo ""
-    echo "  Check:"
-    echo "    orbitdock status"
-    echo "    orbitdock doctor"
-  else
-    info "Background service not installed"
-    echo ""
-    echo "  Start it when you're ready:"
-    echo "    orbitdock start"
-    echo ""
-    echo "  Or install it as a service later:"
-    echo "    orbitdock install-service --enable"
-  fi
-  echo ""
-  echo "  Want secure remote access later?"
-  echo "    orbitdock remote-setup"
-fi
+echo ""
+echo "  Get started:"
+echo "    orbitdock setup"
+echo ""
 
 if [[ "$USED_INSTALLER_PATH_SETUP" == "1" && "$NEEDS_PATH_RELOAD" == "1" ]]; then
-  echo ""
-  warn "Restart your terminal, or run:"
+  warn "Restart your terminal first, or run:"
   echo ""
   echo "  export PATH=\"$BIN_DIR:\$PATH\""
+  echo ""
 fi
-echo ""

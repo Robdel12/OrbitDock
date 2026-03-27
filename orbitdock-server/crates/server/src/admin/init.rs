@@ -99,7 +99,7 @@ fn installer_mode() -> bool {
   std::env::var_os("ORBITDOCK_INSTALLER_MODE").is_some()
 }
 
-fn detect_tailscale_ip() -> Option<String> {
+pub(crate) fn detect_tailscale_ip() -> Option<String> {
   let output = std::process::Command::new("tailscale")
     .args(["status", "--json"])
     .output()
