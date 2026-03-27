@@ -75,8 +75,9 @@ pub use review_comments::{
 };
 pub use router::build_router;
 pub use server_info::{
-  check_open_ai_key, get_server_meta, get_workspace_provider, set_client_primary_claim,
-  set_open_ai_key, set_server_role, set_workspace_provider,
+  check_open_ai_key, get_server_meta, get_workspace_provider, get_workspace_provider_config_value,
+  set_client_primary_claim, set_open_ai_key, set_server_role, set_workspace_provider,
+  set_workspace_provider_config_value, test_workspace_provider,
 };
 pub use server_meta::{
   fetch_claude_usage, fetch_codex_usage, list_claude_models, list_codex_models,

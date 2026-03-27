@@ -88,6 +88,12 @@ impl DaytonaConfig {
       target,
     })
   }
+
+  pub(crate) fn validate_runtime() -> Result<Self> {
+    let config = Self::load()?;
+    let _client = DaytonaClient::new(config.clone())?;
+    Ok(config)
+  }
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +180,17 @@ impl DaytonaClient {
 
   pub(crate) fn config(&self) -> &DaytonaConfig {
     &self.config
+  }
+
+  pub(crate) async fn check_health(&self) -> Result<()> {
+    let response = self
+      .http
+      .get(format!("{}/health", self.config.api_url))
+      .send()
+      .await
+      .context("check Daytona health")?;
+    let _ = error_for_status(response, "check Daytona health")?;
+    Ok(())
   }
 
   pub(crate) async fn create_sandbox(

@@ -275,6 +275,15 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       "/api/server/workspace-provider",
       get(super::get_workspace_provider).put(super::set_workspace_provider),
     )
+    .route(
+      "/api/server/workspace-provider/config/{key}",
+      get(super::get_workspace_provider_config_value)
+        .put(super::set_workspace_provider_config_value),
+    )
+    .route(
+      "/api/server/workspace-provider/test",
+      post(super::test_workspace_provider),
+    )
     .route("/api/server/role", put(super::set_server_role))
     .route(
       "/api/client/primary-claim",

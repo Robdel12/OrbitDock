@@ -1062,6 +1062,64 @@ pub enum MissionAction {
     #[arg(long, short = 'p')]
     provider: Option<String>,
   },
+
+  /// Manage mission workspace provider defaults and diagnostics
+  Provider {
+    #[command(subcommand)]
+    action: MissionProviderAction,
+  },
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum MissionProviderAction {
+  /// Show the current mission workspace provider default
+  Get,
+
+  /// Set the default mission workspace provider
+  Set {
+    #[arg(value_enum)]
+    provider: WorkspaceProviderKind,
+  },
+
+  /// Read provider-specific mission runtime configuration
+  Config {
+    #[command(subcommand)]
+    action: MissionProviderConfigAction,
+  },
+
+  /// Validate the current mission workspace provider configuration
+  Test,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum MissionProviderConfigKey {
+  #[value(name = "public-server-url")]
+  PublicServerUrl,
+  #[value(name = "daytona-api-url")]
+  DaytonaApiUrl,
+  #[value(name = "daytona-api-key")]
+  DaytonaApiKey,
+  #[value(name = "daytona-image")]
+  DaytonaImage,
+  #[value(name = "daytona-target")]
+  DaytonaTarget,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum MissionProviderConfigAction {
+  /// Read a provider config value
+  Get {
+    #[arg(value_enum)]
+    key: MissionProviderConfigKey,
+  },
+
+  /// Update a provider config value
+  Set {
+    #[arg(value_enum)]
+    key: MissionProviderConfigKey,
+
+    value: String,
+  },
 }
 
 // ── MCP ──────────────────────────────────────────────────────
@@ -1372,6 +1430,114 @@ mod tests {
           },
       }) => assert_eq!(value, "local"),
       other => panic!("expected config set command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_mission_provider_get() {
+    let cli = BinaryCli::try_parse_from(["orbitdock", "mission", "provider", "get"])
+      .expect("binary cli should parse mission provider get");
+
+    match cli.command {
+      Some(BinaryCommand::Mission {
+        action: MissionAction::Provider {
+          action: MissionProviderAction::Get,
+        },
+      }) => {}
+      other => panic!("expected mission provider get command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_mission_provider_set() {
+    let cli = BinaryCli::try_parse_from(["orbitdock", "mission", "provider", "set", "daytona"])
+      .expect("binary cli should parse mission provider set");
+
+    match cli.command {
+      Some(BinaryCommand::Mission {
+        action:
+          MissionAction::Provider {
+            action: MissionProviderAction::Set { provider },
+          },
+      }) => {
+        assert_eq!(provider, WorkspaceProviderKind::Daytona);
+      }
+      other => panic!("expected mission provider set command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_mission_provider_config_get() {
+    let cli = BinaryCli::try_parse_from([
+      "orbitdock",
+      "mission",
+      "provider",
+      "config",
+      "get",
+      "daytona-api-url",
+    ])
+    .expect("binary cli should parse mission provider config get");
+
+    match cli.command {
+      Some(BinaryCommand::Mission {
+        action:
+          MissionAction::Provider {
+            action:
+              MissionProviderAction::Config {
+                action:
+                  MissionProviderConfigAction::Get {
+                    key: MissionProviderConfigKey::DaytonaApiUrl,
+                  },
+              },
+          },
+      }) => {}
+      other => panic!("expected mission provider config get command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_mission_provider_config_set() {
+    let cli = BinaryCli::try_parse_from([
+      "orbitdock",
+      "mission",
+      "provider",
+      "config",
+      "set",
+      "daytona-target",
+      "team-a",
+    ])
+    .expect("binary cli should parse mission provider config set");
+
+    match cli.command {
+      Some(BinaryCommand::Mission {
+        action:
+          MissionAction::Provider {
+            action:
+              MissionProviderAction::Config {
+                action:
+                  MissionProviderConfigAction::Set {
+                    key: MissionProviderConfigKey::DaytonaTarget,
+                    value,
+                  },
+              },
+          },
+      }) => assert_eq!(value, "team-a"),
+      other => panic!("expected mission provider config set command, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn binary_cli_parses_mission_provider_test() {
+    let cli = BinaryCli::try_parse_from(["orbitdock", "mission", "provider", "test"])
+      .expect("binary cli should parse mission provider test");
+
+    match cli.command {
+      Some(BinaryCommand::Mission {
+        action: MissionAction::Provider {
+          action: MissionProviderAction::Test,
+        },
+      }) => {}
+      other => panic!("expected mission provider test command, got {other:?}"),
     }
   }
 

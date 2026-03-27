@@ -1,7 +1,9 @@
-use orbitdock_protocol::MissionSummary;
+use orbitdock_protocol::{MissionSummary, WorkspaceProviderKind};
 use serde::{Deserialize, Serialize};
 
-use crate::cli::MissionAction;
+use crate::cli::{
+  MissionAction, MissionProviderAction, MissionProviderConfigAction, MissionProviderConfigKey,
+};
 use crate::client::rest::RestClient;
 use crate::error::EXIT_SUCCESS;
 use crate::output::Output;
@@ -60,6 +62,46 @@ struct MissionDetailJsonEnvelope {
   issues: Vec<orbitdock_protocol::MissionIssueItem>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct WorkspaceProviderConfigResponse {
+  workspace_provider: WorkspaceProviderKind,
+}
+
+#[derive(Debug, Serialize)]
+struct SetWorkspaceProviderRequest {
+  workspace_provider: WorkspaceProviderKind,
+}
+
+#[derive(Debug, Serialize)]
+struct MissionProviderJsonResponse {
+  ok: bool,
+  provider: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MissionProviderConfigResponse {
+  key: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  value: Option<String>,
+  configured: bool,
+  secret: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct SetMissionProviderConfigRequest {
+  value: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MissionProviderTestResponse {
+  ok: bool,
+  provider: String,
+  message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EmptyJsonObject {}
+
 fn provider_str(provider: &orbitdock_protocol::Provider) -> &'static str {
   match provider {
     orbitdock_protocol::Provider::Claude => "claude",
@@ -94,7 +136,188 @@ pub async fn run(action: &MissionAction, rest: &RestClient, output: &Output) -> 
       issue,
       provider,
     } => dispatch(rest, output, mission_id, issue, provider.as_deref()).await,
+    MissionAction::Provider { action } => provider(rest, output, action).await,
   }
+}
+
+async fn provider(rest: &RestClient, output: &Output, action: &MissionProviderAction) -> i32 {
+  match action {
+    MissionProviderAction::Get => provider_get(rest, output).await,
+    MissionProviderAction::Set { provider } => provider_set(rest, output, *provider).await,
+    MissionProviderAction::Config { action } => provider_config(rest, output, action).await,
+    MissionProviderAction::Test => provider_test(rest, output).await,
+  }
+}
+
+async fn provider_get(rest: &RestClient, output: &Output) -> i32 {
+  match rest
+    .get::<WorkspaceProviderConfigResponse>("/api/server/workspace-provider")
+    .await
+    .into_result()
+  {
+    Ok(response) => {
+      print_provider(output, response.workspace_provider);
+      EXIT_SUCCESS
+    }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
+}
+
+async fn provider_set(rest: &RestClient, output: &Output, provider: WorkspaceProviderKind) -> i32 {
+  match rest
+    .put_json::<_, WorkspaceProviderConfigResponse>(
+      "/api/server/workspace-provider",
+      &SetWorkspaceProviderRequest {
+        workspace_provider: provider,
+      },
+    )
+    .await
+    .into_result()
+  {
+    Ok(response) => {
+      print_provider(output, response.workspace_provider);
+      EXIT_SUCCESS
+    }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
+}
+
+fn print_provider(output: &Output, provider: WorkspaceProviderKind) {
+  if output.json {
+    output.print_json_pretty(&MissionProviderJsonResponse {
+      ok: true,
+      provider: provider.as_str().to_string(),
+    });
+  } else {
+    println!("mission.provider={}", provider.as_str());
+  }
+}
+
+async fn provider_config(
+  rest: &RestClient,
+  output: &Output,
+  action: &MissionProviderConfigAction,
+) -> i32 {
+  match action {
+    MissionProviderConfigAction::Get { key } => provider_config_get(rest, output, *key).await,
+    MissionProviderConfigAction::Set { key, value } => {
+      provider_config_set(rest, output, *key, value).await
+    }
+  }
+}
+
+async fn provider_config_get(
+  rest: &RestClient,
+  output: &Output,
+  key: MissionProviderConfigKey,
+) -> i32 {
+  let path = format!(
+    "/api/server/workspace-provider/config/{}",
+    provider_config_key_str(key)
+  );
+  match rest
+    .get::<MissionProviderConfigResponse>(&path)
+    .await
+    .into_result()
+  {
+    Ok(response) => {
+      print_provider_config(output, &response);
+      EXIT_SUCCESS
+    }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
+}
+
+async fn provider_config_set(
+  rest: &RestClient,
+  output: &Output,
+  key: MissionProviderConfigKey,
+  value: &str,
+) -> i32 {
+  let path = format!(
+    "/api/server/workspace-provider/config/{}",
+    provider_config_key_str(key)
+  );
+  match rest
+    .put_json::<_, MissionProviderConfigResponse>(
+      &path,
+      &SetMissionProviderConfigRequest {
+        value: value.to_string(),
+      },
+    )
+    .await
+    .into_result()
+  {
+    Ok(response) => {
+      print_provider_config(output, &response);
+      EXIT_SUCCESS
+    }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
+}
+
+async fn provider_test(rest: &RestClient, output: &Output) -> i32 {
+  match rest
+    .post_json::<_, MissionProviderTestResponse>(
+      "/api/server/workspace-provider/test",
+      &EmptyJsonObject {},
+    )
+    .await
+    .into_result()
+  {
+    Ok(response) => {
+      if output.json {
+        output.print_json_pretty(&response);
+      } else {
+        println!(
+          "mission.provider.test={} {}",
+          response.provider, response.message
+        );
+      }
+      EXIT_SUCCESS
+    }
+    Err((code, err)) => {
+      output.print_error(&err);
+      code
+    }
+  }
+}
+
+fn provider_config_key_str(key: MissionProviderConfigKey) -> &'static str {
+  match key {
+    MissionProviderConfigKey::PublicServerUrl => "public-server-url",
+    MissionProviderConfigKey::DaytonaApiUrl => "daytona-api-url",
+    MissionProviderConfigKey::DaytonaApiKey => "daytona-api-key",
+    MissionProviderConfigKey::DaytonaImage => "daytona-image",
+    MissionProviderConfigKey::DaytonaTarget => "daytona-target",
+  }
+}
+
+fn print_provider_config(output: &Output, response: &MissionProviderConfigResponse) {
+  if output.json {
+    output.print_json_pretty(response);
+    return;
+  }
+
+  let rendered_value = match (&response.value, response.configured, response.secret) {
+    (_, false, _) => "<unset>".to_string(),
+    (Some(value), _, false) => value.clone(),
+    (None, true, true) => "<configured>".to_string(),
+    _ => "<configured>".to_string(),
+  };
+  println!("mission.provider.config.{}={rendered_value}", response.key);
 }
 
 async fn enable(
