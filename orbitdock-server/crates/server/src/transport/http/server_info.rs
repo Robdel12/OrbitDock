@@ -79,6 +79,16 @@ impl WorkspaceProviderConfigKey {
   fn is_secret(self) -> bool {
     matches!(self, Self::DaytonaApiKey)
   }
+
+  fn env_var(self) -> Option<&'static str> {
+    match self {
+      Self::PublicServerUrl => Some("ORBITDOCK_PUBLIC_SERVER_URL"),
+      Self::DaytonaApiUrl => Some("ORBITDOCK_DAYTONA_API_URL"),
+      Self::DaytonaApiKey => Some("ORBITDOCK_DAYTONA_API_KEY"),
+      Self::DaytonaImage => Some("ORBITDOCK_DAYTONA_IMAGE"),
+      Self::DaytonaTarget => Some("ORBITDOCK_DAYTONA_TARGET"),
+    }
+  }
 }
 
 #[derive(Debug, Serialize)]
@@ -88,6 +98,8 @@ pub struct WorkspaceProviderConfigValueResponse {
   pub value: Option<String>,
   pub configured: bool,
   pub secret: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,9 +203,9 @@ pub async fn set_workspace_provider_config_value(
     })
     .await;
 
-  Ok(Json(workspace_provider_config_value_response(
-    key,
-    Some(value),
+  let persisted = if value.is_empty() { None } else { Some(value) };
+  Ok(Json(resolve_workspace_provider_config_value(
+    key, persisted,
   )))
 }
 
@@ -213,7 +225,7 @@ pub async fn test_workspace_provider(
         .await
         .map_err(|err| bad_request("workspace_provider_test_failed", err.to_string()))?;
       format!(
-        "daytona mission workspace provider is reachable at {}",
+        "daytona mission workspace provider preflight passed; control plane is reachable at {}",
         config.api_url
       )
     }
@@ -239,18 +251,46 @@ fn read_workspace_provider_config_value(
       }
     });
 
-  workspace_provider_config_value_response(key, persisted)
+  resolve_workspace_provider_config_value(key, persisted)
+}
+
+fn resolve_workspace_provider_config_value(
+  key: WorkspaceProviderConfigKey,
+  persisted_value: Option<String>,
+) -> WorkspaceProviderConfigValueResponse {
+  let env_value = key.env_var().and_then(|env_key| {
+    std::env::var(env_key).ok().and_then(|value| {
+      let trimmed = value.trim().to_string();
+      if trimmed.is_empty() {
+        None
+      } else {
+        Some(trimmed)
+      }
+    })
+  });
+  let source = if env_value.is_some() {
+    Some("env".to_string())
+  } else if persisted_value.is_some() {
+    Some("settings".to_string())
+  } else {
+    None
+  };
+  let effective_value = env_value.or(persisted_value);
+
+  workspace_provider_config_value_response(key, effective_value, source)
 }
 
 fn workspace_provider_config_value_response(
   key: WorkspaceProviderConfigKey,
   value: Option<String>,
+  source: Option<String>,
 ) -> WorkspaceProviderConfigValueResponse {
   WorkspaceProviderConfigValueResponse {
     key: key.key().to_string(),
     value: if key.is_secret() { None } else { value.clone() },
     configured: value.is_some(),
     secret: key.is_secret(),
+    source,
   }
 }
 
@@ -324,6 +364,34 @@ mod tests {
   use super::*;
   use crate::transport::http::test_support::new_persist_test_state;
 
+  struct EnvVarGuard {
+    key: &'static str,
+    original: Option<String>,
+  }
+
+  impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+      let original = std::env::var(key).ok();
+      unsafe {
+        std::env::set_var(key, value);
+      }
+      Self { key, original }
+    }
+  }
+
+  impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+      match &self.original {
+        Some(value) => unsafe {
+          std::env::set_var(self.key, value);
+        },
+        None => unsafe {
+          std::env::remove_var(self.key);
+        },
+      }
+    }
+  }
+
   #[tokio::test]
   async fn workspace_provider_endpoint_returns_authoritative_state_and_enqueues_config_write() {
     let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
@@ -377,6 +445,7 @@ mod tests {
     assert!(updated.configured);
     assert!(updated.secret);
     assert_eq!(updated.value, None);
+    assert_eq!(updated.source.as_deref(), Some("settings"));
 
     let command = persist_rx
       .recv()
@@ -401,5 +470,80 @@ mod tests {
     assert!(response.ok);
     assert_eq!(response.provider, "local");
     assert!(response.message.contains("ready"));
+  }
+
+  #[tokio::test]
+  async fn workspace_provider_config_endpoint_reports_env_override_as_effective_source() {
+    let _env_guard = EnvVarGuard::set("ORBITDOCK_DAYTONA_API_URL", "https://env.daytona.example");
+    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
+    drop(guard);
+
+    let Json(updated) = set_workspace_provider_config_value(
+      State(state),
+      Path("daytona-api-url".to_string()),
+      Json(SetWorkspaceProviderConfigValueRequest {
+        value: "https://settings.daytona.example".to_string(),
+      }),
+    )
+    .await
+    .expect("set workspace provider config should succeed");
+
+    assert_eq!(updated.key, "daytona-api-url");
+    assert_eq!(
+      updated.value.as_deref(),
+      Some("https://env.daytona.example")
+    );
+    assert!(updated.configured);
+    assert_eq!(updated.source.as_deref(), Some("env"));
+
+    let command = persist_rx
+      .recv()
+      .await
+      .expect("workspace provider config update should enqueue persistence");
+    assert!(matches!(
+      command,
+      PersistCommand::SetConfig { ref key, ref value }
+        if key == "daytona_api_url" && value == "https://settings.daytona.example"
+    ));
+
+    let Json(reloaded) = get_workspace_provider_config_value(Path("daytona-api-url".to_string()))
+      .await
+      .expect("get workspace provider config should succeed");
+    assert_eq!(
+      reloaded.value.as_deref(),
+      Some("https://env.daytona.example")
+    );
+    assert_eq!(reloaded.source.as_deref(), Some("env"));
+  }
+
+  #[tokio::test]
+  async fn workspace_provider_config_endpoint_treats_blank_values_as_clear() {
+    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
+    drop(guard);
+
+    let Json(updated) = set_workspace_provider_config_value(
+      State(state),
+      Path("daytona-target".to_string()),
+      Json(SetWorkspaceProviderConfigValueRequest {
+        value: "   ".to_string(),
+      }),
+    )
+    .await
+    .expect("clear workspace provider config should succeed");
+
+    assert_eq!(updated.key, "daytona-target");
+    assert!(!updated.configured);
+    assert_eq!(updated.value, None);
+    assert_eq!(updated.source, None);
+
+    let command = persist_rx
+      .recv()
+      .await
+      .expect("workspace provider config clear should enqueue persistence");
+    assert!(matches!(
+      command,
+      PersistCommand::SetConfig { ref key, ref value }
+        if key == "daytona_target" && value.is_empty()
+    ));
   }
 }

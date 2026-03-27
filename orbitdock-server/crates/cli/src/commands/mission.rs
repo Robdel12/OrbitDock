@@ -85,6 +85,8 @@ struct MissionProviderConfigResponse {
   value: Option<String>,
   configured: bool,
   secret: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  source: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -317,7 +319,17 @@ fn print_provider_config(output: &Output, response: &MissionProviderConfigRespon
     (None, true, true) => "<configured>".to_string(),
     _ => "<configured>".to_string(),
   };
-  println!("mission.provider.config.{}={rendered_value}", response.key);
+  match response.source.as_deref() {
+    Some(source) => {
+      println!(
+        "mission.provider.config.{}={rendered_value} (source={source})",
+        response.key
+      );
+    }
+    None => {
+      println!("mission.provider.config.{}={rendered_value}", response.key);
+    }
+  }
 }
 
 async fn enable(
