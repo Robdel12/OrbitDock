@@ -133,7 +133,6 @@ fn main() -> anyhow::Result<()> {
         force: *force,
         yes: *yes,
         restart: *restart,
-        json_output,
       });
     }
     Some(Command::RemoteSetup) => {

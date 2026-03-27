@@ -60,7 +60,7 @@ bytes = "1"
 notify = "7"
 arc-swap = "1"
 dashmap = "6"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 clap = { version = "4", features = ["derive", "env"] }
 dirs = "6"
 libc = "0.2"

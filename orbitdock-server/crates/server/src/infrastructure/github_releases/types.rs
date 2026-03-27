@@ -36,6 +36,20 @@ impl FromStr for UpdateChannel {
   }
 }
 
+impl UpdateChannel {
+  /// Resolve the active update channel from an optional override or persisted config.
+  pub fn resolve(override_value: Option<&str>) -> anyhow::Result<Self> {
+    match override_value {
+      Some(s) => s.parse(),
+      None => Ok(
+        crate::infrastructure::persistence::load_config_value("update_channel")
+          .and_then(|v: String| v.parse::<UpdateChannel>().ok())
+          .unwrap_or_default(),
+      ),
+    }
+  }
+}
+
 /// A single release from the GitHub Releases API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseInfo {

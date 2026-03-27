@@ -3,11 +3,11 @@ use std::io::{Read as IoRead, Write as IoWrite};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
+use tokio::io::AsyncWriteExt;
 
 use crate::infrastructure::github_releases::client::GitHubReleasesClient;
 use crate::infrastructure::github_releases::types::{ReleaseAsset, UpdateChannel};
 use crate::infrastructure::paths::upgrade_tmp_dir;
-use crate::infrastructure::persistence::load_config_value;
 use crate::VERSION;
 
 pub struct UpgradeOptions {
@@ -16,8 +16,10 @@ pub struct UpgradeOptions {
   pub force: bool,
   pub yes: bool,
   pub restart: bool,
-  pub json_output: bool,
 }
+
+const LAUNCHD_PLIST: &str = "Library/LaunchAgents/com.orbitdock.server.plist";
+const SYSTEMD_UNIT: &str = ".config/systemd/user/orbitdock-server.service";
 
 pub fn execute_upgrade(opts: UpgradeOptions) -> anyhow::Result<()> {
   let runtime = tokio::runtime::Runtime::new()?;
@@ -25,14 +27,8 @@ pub fn execute_upgrade(opts: UpgradeOptions) -> anyhow::Result<()> {
 }
 
 async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
-  let channel = match &opts.channel_override {
-    Some(s) => s.parse::<UpdateChannel>()?,
-    None => load_config_value("update_channel")
-      .and_then(|v: String| v.parse::<UpdateChannel>().ok())
-      .unwrap_or_default(),
-  };
+  let channel = UpdateChannel::resolve(opts.channel_override.as_deref())?;
 
-  // 1. Determine current binary location
   let current_exe = std::env::current_exe()?.canonicalize()?;
   let install_dir = default_install_dir();
 
@@ -45,7 +41,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     );
   }
 
-  // 2. Determine target version
   let client = GitHubReleasesClient::new();
   let release = if let Some(ref tag) = opts.target_version {
     let tag_with_v = if tag.starts_with('v') {
@@ -66,11 +61,10 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     }
   };
 
-  // 3. Compare versions
   let current = semver::Version::parse(VERSION)?;
   let skip = match release.version() {
     Some(ref latest) => !opts.force && latest <= &current,
-    None => false, // nightly — always allow
+    None => false,
   };
 
   if skip {
@@ -78,7 +72,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     return Ok(());
   }
 
-  // 4. Select platform asset
   let asset_name = platform_asset_name()?;
   let checksum_name = format!("{asset_name}.sha256");
 
@@ -96,7 +89,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
 
   let checksum_asset = release.assets.iter().find(|a| a.name == checksum_name);
 
-  // 5. Confirm with user
   println!(
     "→ Upgrade: v{VERSION} → {} (channel: {channel})",
     release.tag_name
@@ -114,7 +106,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     }
   }
 
-  // 6. Prepare temp directory (clean up leftover from interrupted upgrades)
   let tmp_dir = upgrade_tmp_dir();
   if tmp_dir.exists() {
     fs::remove_dir_all(&tmp_dir)?;
@@ -124,15 +115,23 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
   let zip_path = tmp_dir.join(&asset_name);
   let checksum_path = tmp_dir.join(&checksum_name);
 
-  // 7. Download
+  // Download zip and checksum concurrently
   println!("  Downloading {asset_name}...");
-  download_asset(zip_asset, &zip_path).await?;
-
-  if let Some(cs_asset) = checksum_asset {
-    download_asset(cs_asset, &checksum_path).await?;
+  let http = client.http();
+  match checksum_asset {
+    Some(cs_asset) => {
+      let (zip_result, cs_result) = tokio::join!(
+        stream_download(http, zip_asset, &zip_path),
+        stream_download(http, cs_asset, &checksum_path),
+      );
+      zip_result?;
+      cs_result?;
+    }
+    None => {
+      stream_download(http, zip_asset, &zip_path).await?;
+    }
   }
 
-  // 8. Verify checksum
   if checksum_path.exists() {
     print!("  Verifying checksum...");
     verify_checksum(&zip_path, &checksum_path)?;
@@ -141,50 +140,41 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     println!("  ⚠ No checksum file available — skipping verification");
   }
 
-  // 9. Extract binary from zip
   print!("  Extracting...");
   let extracted_binary = extract_binary(&zip_path, &tmp_dir)?;
   println!(" ✓");
 
-  // 10. Stage: backup current, swap in new
   let backup_path = current_exe.with_extension("bak");
   print!("  Swapping binary...");
 
-  // Set permissions before swap
   #[cfg(unix)]
   {
     use std::os::unix::fs::PermissionsExt;
     fs::set_permissions(&extracted_binary, fs::Permissions::from_mode(0o755))?;
   }
 
-  // Backup current binary
   if backup_path.exists() {
     fs::remove_file(&backup_path)?;
   }
   fs::rename(&current_exe, &backup_path)?;
 
-  // Move new binary into place
   if let Err(e) = fs::rename(&extracted_binary, &current_exe) {
-    // Restore backup on failure
     let _ = fs::rename(&backup_path, &current_exe);
     anyhow::bail!("Failed to install new binary: {e}");
   }
   println!(" ✓");
 
-  // 11. Verify new binary
   print!("  Verifying new binary...");
   let output = std::process::Command::new(&current_exe)
     .arg("--version")
     .output()?;
 
   if !output.status.success() {
-    // Rollback
     let _ = fs::rename(&backup_path, &current_exe);
     anyhow::bail!("New binary failed --version check, rolled back to previous version");
   }
   println!(" ✓");
 
-  // 12. Clean up temp dir
   let _ = fs::remove_dir_all(&tmp_dir);
 
   println!(
@@ -193,7 +183,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     backup_path.display()
   );
 
-  // 13. Service restart guidance
   if opts.restart {
     attempt_service_restart()?;
   } else {
@@ -226,9 +215,13 @@ fn default_install_dir() -> PathBuf {
     .unwrap_or_else(|| PathBuf::from("/usr/local"))
 }
 
-async fn download_asset(asset: &ReleaseAsset, dest: &Path) -> anyhow::Result<()> {
-  let client = reqwest::Client::new();
-  let resp = client
+/// Stream a release asset to disk without buffering the entire response in memory.
+async fn stream_download(
+  http: &reqwest::Client,
+  asset: &ReleaseAsset,
+  dest: &Path,
+) -> anyhow::Result<()> {
+  let resp = http
     .get(&asset.browser_download_url)
     .header("User-Agent", format!("orbitdock/{VERSION}"))
     .send()
@@ -238,13 +231,19 @@ async fn download_asset(asset: &ReleaseAsset, dest: &Path) -> anyhow::Result<()>
     anyhow::bail!("Failed to download {}: HTTP {}", asset.name, resp.status());
   }
 
-  let bytes = resp.bytes().await?;
-  fs::write(dest, &bytes)?;
+  let mut file = tokio::fs::File::create(dest).await?;
+  let mut stream = resp.bytes_stream();
+  use futures::StreamExt;
+  while let Some(chunk) = stream.next().await {
+    let chunk = chunk?;
+    file.write_all(&chunk).await?;
+  }
+  file.flush().await?;
+
   Ok(())
 }
 
 fn verify_checksum(zip_path: &Path, checksum_path: &Path) -> anyhow::Result<()> {
-  // Read expected checksum (format: "<hash>  <filename>" or just "<hash>")
   let expected_raw = fs::read_to_string(checksum_path)?;
   let expected = expected_raw
     .split_whitespace()
@@ -252,7 +251,6 @@ fn verify_checksum(zip_path: &Path, checksum_path: &Path) -> anyhow::Result<()> 
     .ok_or_else(|| anyhow::anyhow!("Empty checksum file"))?
     .to_lowercase();
 
-  // Compute actual checksum
   let mut file = fs::File::open(zip_path)?;
   let mut hasher = Sha256::new();
   let mut buf = [0u8; 8192];
@@ -279,42 +277,40 @@ fn extract_binary(zip_path: &Path, dest_dir: &Path) -> anyhow::Result<PathBuf> {
   let file = fs::File::open(zip_path)?;
   let mut archive = zip::ZipArchive::new(file)?;
 
-  // Look for the `orbitdock` binary in the archive
   let binary_name = "orbitdock";
-  let mut found = false;
   let out_path = dest_dir.join(binary_name);
 
   for i in 0..archive.len() {
     let mut entry = archive.by_index(i)?;
     let name = entry.name().to_string();
 
-    // Match "orbitdock" at any path level in the archive
     if name == binary_name || name.ends_with(&format!("/{binary_name}")) {
       let mut out_file = fs::File::create(&out_path)?;
       std::io::copy(&mut entry, &mut out_file)?;
-      found = true;
-      break;
+      return Ok(out_path);
     }
   }
 
-  if !found {
-    anyhow::bail!(
-      "Archive does not contain an '{binary_name}' binary. \
-       Found: {}",
-      (0..archive.len())
-        .filter_map(|i| archive.by_index(i).ok().map(|e| e.name().to_string()))
-        .collect::<Vec<_>>()
-        .join(", ")
-    );
-  }
+  anyhow::bail!(
+    "Archive does not contain an '{binary_name}' binary. Found: {}",
+    (0..archive.len())
+      .filter_map(|i| archive.by_index(i).ok().map(|e| e.name().to_string()))
+      .collect::<Vec<_>>()
+      .join(", ")
+  )
+}
 
-  Ok(out_path)
+fn service_plist_path() -> Option<PathBuf> {
+  dirs::home_dir().map(|h| h.join(LAUNCHD_PLIST))
+}
+
+fn service_unit_path() -> Option<PathBuf> {
+  dirs::home_dir().map(|h| h.join(SYSTEMD_UNIT))
 }
 
 fn print_restart_guidance() {
   if cfg!(target_os = "macos") {
-    let plist = dirs::home_dir().map(|h| h.join("Library/LaunchAgents/com.orbitdock.server.plist"));
-    if let Some(ref p) = plist {
+    if let Some(ref p) = service_plist_path() {
       if p.exists() {
         println!("\nTo restart the service:");
         println!("  launchctl kickstart -k gui/$(id -u)/com.orbitdock.server");
@@ -324,8 +320,7 @@ fn print_restart_guidance() {
   }
 
   if cfg!(target_os = "linux") {
-    let unit = dirs::home_dir().map(|h| h.join(".config/systemd/user/orbitdock-server.service"));
-    if let Some(ref p) = unit {
+    if let Some(ref p) = service_unit_path() {
       if p.exists() {
         println!("\nTo restart the service:");
         println!("  systemctl --user restart orbitdock-server");
@@ -339,11 +334,10 @@ fn print_restart_guidance() {
 
 fn attempt_service_restart() -> anyhow::Result<()> {
   if cfg!(target_os = "macos") {
-    let plist = dirs::home_dir().map(|h| h.join("Library/LaunchAgents/com.orbitdock.server.plist"));
-    if let Some(ref p) = plist {
+    if let Some(ref p) = service_plist_path() {
       if p.exists() {
         println!("  Restarting launchd service...");
-        let uid = unsafe { libc::getuid() };
+        let uid = unsafe { libc::geteuid() };
         let status = std::process::Command::new("launchctl")
           .args([
             "kickstart",
@@ -362,8 +356,7 @@ fn attempt_service_restart() -> anyhow::Result<()> {
   }
 
   if cfg!(target_os = "linux") {
-    let unit = dirs::home_dir().map(|h| h.join(".config/systemd/user/orbitdock-server.service"));
-    if let Some(ref p) = unit {
+    if let Some(ref p) = service_unit_path() {
       if p.exists() {
         println!("  Restarting systemd service...");
         let status = std::process::Command::new("systemctl")
