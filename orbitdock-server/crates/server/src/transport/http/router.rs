@@ -285,6 +285,12 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       post(super::test_workspace_provider),
     )
     .route("/api/server/role", put(super::set_server_role))
+    .route("/api/server/update-status", get(super::get_update_status))
+    .route("/api/server/check-update", post(super::check_update))
+    .route(
+      "/api/server/update-channel",
+      get(super::get_update_channel).put(super::set_update_channel),
+    )
     .route(
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),

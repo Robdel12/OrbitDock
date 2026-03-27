@@ -257,6 +257,14 @@ pub enum ServerMessage {
     client_primary_claims: Vec<ClientPrimaryClaim>,
   },
 
+  /// Notifies connected clients that a newer server version is available.
+  UpdateAvailable {
+    current_version: String,
+    latest_version: String,
+    release_url: String,
+    channel: String,
+  },
+
   // Approval decision result
   ApprovalDecisionResult {
     session_id: String,

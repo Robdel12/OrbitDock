@@ -37,6 +37,7 @@ pub(crate) fn server_meta(
     capabilities: capabilities(),
     is_primary: state.is_primary(),
     client_primary_claims: state.active_client_primary_claims(),
+    update_status: state.update_status(),
   }
 }
 

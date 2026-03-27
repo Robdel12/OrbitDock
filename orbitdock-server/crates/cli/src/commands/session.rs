@@ -1943,6 +1943,7 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
     ServerMessage::MissionDelta { .. } => "mission_delta",
     ServerMessage::MissionHeartbeat { .. } => "mission_heartbeat",
     ServerMessage::SteerOutcome { .. } => "steer_outcome",
+    ServerMessage::UpdateAvailable { .. } => "update_available",
   }
 }
 

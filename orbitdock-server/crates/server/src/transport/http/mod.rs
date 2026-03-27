@@ -19,6 +19,7 @@ mod shell;
 mod sync;
 #[cfg(test)]
 mod test_support;
+mod update;
 mod worktrees;
 
 use axum::{
@@ -101,4 +102,5 @@ pub use sessions::{
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;
+pub use update::{check_update, get_update_channel, get_update_status, set_update_channel};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

@@ -118,6 +118,9 @@ pub async fn get_server_meta(
   headers: HeaderMap,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Json<orbitdock_protocol::ServerMeta> {
+  // Activity-based update check: if enough time has passed, spawn a background check
+  crate::runtime::background::update_checker::maybe_trigger_check(&state);
+
   Json(server_meta(
     &state,
     compatibility_status_from_headers(&headers),

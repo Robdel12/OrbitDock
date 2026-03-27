@@ -45,6 +45,15 @@ pub struct PendingClaudeSession {
   pub cached_at: Instant,
 }
 
+/// Cached result of an update check with timestamp.
+pub struct CachedUpdateStatus {
+  pub update_available: bool,
+  pub latest_version: Option<String>,
+  pub release_url: Option<String>,
+  pub channel: String,
+  pub checked_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Shared application state backed by lock-free concurrent maps.
 /// All methods take `&self` — no external Mutex needed.
 pub struct SessionRegistry {
@@ -86,6 +95,11 @@ pub struct SessionRegistry {
   /// Channel for manual mission trigger requests (HTTP → orchestrator).
   mission_trigger_tx: mpsc::Sender<String>,
   mission_trigger_rx: std::sync::Mutex<Option<mpsc::Receiver<String>>>,
+
+  /// Cached result of the most recent update check.
+  update_status: std::sync::RwLock<Option<CachedUpdateStatus>>,
+  /// Guard to prevent concurrent update checks.
+  update_check_in_flight: std::sync::atomic::AtomicBool,
 }
 
 impl SessionRegistry {
@@ -147,6 +161,8 @@ impl SessionRegistry {
       workspace_provider_kind: std::sync::RwLock::new(workspace_provider_kind),
       mission_trigger_tx,
       mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
+      update_status: std::sync::RwLock::new(None),
+      update_check_in_flight: std::sync::atomic::AtomicBool::new(false),
     }
   }
 
@@ -170,6 +186,64 @@ impl SessionRegistry {
       .workspace_provider_kind
       .write()
       .expect("workspace provider lock poisoned") = provider_kind;
+  }
+
+  /// Read the cached update check result.
+  pub fn update_status(&self) -> Option<orbitdock_protocol::UpdateStatus> {
+    let guard = self.update_status.read().expect("update status lock");
+    guard
+      .as_ref()
+      .map(|cached| orbitdock_protocol::UpdateStatus {
+        update_available: cached.update_available,
+        latest_version: cached.latest_version.clone(),
+        release_url: cached.release_url.clone(),
+        channel: cached.channel.clone(),
+        checked_at: Some(cached.checked_at.to_rfc3339()),
+      })
+  }
+
+  /// Store a new update check result.
+  pub fn set_update_status(&self, status: CachedUpdateStatus) {
+    *self.update_status.write().expect("update status lock") = Some(status);
+  }
+
+  /// Returns true if enough time has passed to warrant a new update check.
+  pub fn should_recheck_update(&self) -> bool {
+    let guard = self.update_status.read().expect("update status lock");
+    match guard.as_ref() {
+      None => true,
+      Some(cached) => {
+        let elapsed = chrono::Utc::now() - cached.checked_at;
+        elapsed > chrono::Duration::hours(6)
+      }
+    }
+  }
+
+  /// Returns true if a manual re-check should be allowed (5-min debounce).
+  pub fn should_recheck_update_manual(&self) -> bool {
+    let guard = self.update_status.read().expect("update status lock");
+    match guard.as_ref() {
+      None => true,
+      Some(cached) => {
+        let elapsed = chrono::Utc::now() - cached.checked_at;
+        elapsed > chrono::Duration::minutes(5)
+      }
+    }
+  }
+
+  /// Attempt to claim the update-check-in-flight guard. Returns true if
+  /// this caller won the race and should perform the check.
+  pub fn claim_update_check(&self) -> bool {
+    !self
+      .update_check_in_flight
+      .swap(true, std::sync::atomic::Ordering::SeqCst)
+  }
+
+  /// Release the update-check-in-flight guard after a check completes.
+  pub fn release_update_check(&self) {
+    self
+      .update_check_in_flight
+      .store(false, std::sync::atomic::Ordering::SeqCst);
   }
 
   pub fn ws_connect(&self) -> u64 {

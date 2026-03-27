@@ -1765,6 +1765,21 @@ pub struct ServerMeta {
   pub is_primary: bool,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub client_primary_claims: Vec<ClientPrimaryClaim>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub update_status: Option<UpdateStatus>,
+}
+
+/// Cached result of the latest update check, included in ServerMeta.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateStatus {
+  pub update_available: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub latest_version: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub release_url: Option<String>,
+  pub channel: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub checked_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

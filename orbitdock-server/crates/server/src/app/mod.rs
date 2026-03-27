@@ -730,6 +730,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   let git_state = state.clone();
   tokio::spawn(crate::runtime::background::git_refresh::start_git_refresh_loop(git_state));
 
+  // Delayed update check — runs ~30s after startup, then activity-based
+  crate::runtime::background::update_checker::spawn_startup_check(state.clone());
+
   // Mission Control orchestrator — user-started via POST /api/missions/:id/start-orchestrator
   info!(
     component = "mission_control",
