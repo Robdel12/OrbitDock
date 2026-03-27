@@ -227,7 +227,7 @@ Autonomous issue-driven agent orchestration. Poll issue trackers, create per-iss
 - **Global settings pane** — Mission Control pane in the Settings window for tracker API keys (Linear status + source indicator) and default provider strategy/primary/secondary
 - **Issue badges** — Mission-spawned sessions show issue identifier badges in the activity stream
 - **REST API** — `GET/POST /api/missions`, `GET/PUT/DELETE /api/missions/:id`, `GET /api/missions/:id/issues`, `POST /api/missions/:id/issues/:issue_id/retry`, `POST /api/missions/:id/issues/:issue_id/blocked`, `POST /api/missions/:id/scaffold`, `POST /api/missions/:id/migrate-workflow`, `GET /api/missions/:id/default-template`, `POST /api/missions/:id/start-orchestrator`, `POST /api/missions/:id/dispatch`, `PUT /api/missions/:id/settings`, `GET /api/server/tracker-keys`, `GET/PUT /api/server/mission-defaults`, `GET/POST/DELETE /api/server/linear-key`
-- **CLI** — `orbitdock mission enable/list/status/pause/resume/disable/dispatch`
+- **CLI** — `orbitdock mission enable/list/status/pause/resume/disable/dispatch`, plus `orbitdock mission provider get/set/config/test` for mission-owned remote workspace provider management
 - **Cross-platform** — Works on both macOS and iOS
 
 ## Platforms

@@ -139,9 +139,22 @@ orbitdock approval list
 orbitdock model list
 orbitdock usage show
 orbitdock worktree list
+
+# Mission provider management
+orbitdock mission provider get
+orbitdock mission provider set local
+orbitdock mission provider set daytona
+orbitdock mission provider config get daytona-api-url
+orbitdock mission provider config set daytona-api-url https://daytona.example.com
+orbitdock mission provider config set daytona-api-key <TOKEN>
+orbitdock mission provider config set public-server-url https://orbitdock.example.com
+orbitdock mission provider test
 ```
 
 Output is human-readable in a TTY and JSON when piped or when you pass `--json`.
+
+Mission provider config commands report the effective value source.
+If an `ORBITDOCK_DAYTONA_*` or `ORBITDOCK_PUBLIC_SERVER_URL` env var is set, the command output shows `source=env` to make it clear that persisted settings are currently overridden.
 
 ## Managed Mode
 
@@ -164,6 +177,19 @@ Managed mode is not part of the normal local app install flow. For local develop
 ## Mission Control
 
 Mission Control is configured with repo-local `MISSION.md`.
+
+The mission-owned provider CLI is the right place to manage remote workspace provider defaults and preflight checks.
+For example, a Daytona setup flow can stay entirely in the CLI:
+
+```bash
+orbitdock mission provider set daytona
+orbitdock mission provider config set daytona-api-url https://daytona.example.com
+orbitdock mission provider config set daytona-api-key <TOKEN>
+orbitdock mission provider config set public-server-url https://orbitdock.example.com
+orbitdock mission provider test
+```
+
+`orbitdock mission provider test` is a preflight check. For Daytona it verifies that the configured control plane is reachable, but it does not create a sandbox or run a full end-to-end mission.
 
 Use these docs when you need more detail:
 

@@ -162,6 +162,7 @@ orbitdock [--data-dir PATH] <command>
 | `server ...` | Read or update server-side settings |
 | `codex ...` | Start login, cancel login, or log out |
 | `worktree ...` | List and manage worktrees |
+| `mission ...` | Enable and manage Mission Control, including mission-owned workspace provider config and provider preflight checks |
 | `mcp ...` | Inspect MCP tools and resources |
 | `fs ...` | Browse files through the server |
 | `shell ...` | Execute a shell command through a session |
@@ -173,6 +174,19 @@ Client config resolution:
 
 - Server URL: `--server` → `ORBITDOCK_URL` → `~/.orbitdock/cli.toml` → `http://127.0.0.1:4000`
 - Token: `--token` → `ORBITDOCK_TOKEN` → `~/.orbitdock/cli.toml`
+
+Mission provider examples:
+
+```bash
+orbitdock mission provider get
+orbitdock mission provider set daytona
+orbitdock mission provider config set daytona-api-url https://daytona.example.com
+orbitdock mission provider config set daytona-api-key <TOKEN>
+orbitdock mission provider config set public-server-url https://orbitdock.example.com
+orbitdock mission provider test
+```
+
+Provider config reads show the effective source. If a value is currently coming from `ORBITDOCK_DAYTONA_*` or `ORBITDOCK_PUBLIC_SERVER_URL`, the CLI reports `source=env` so you can tell that persisted settings are overridden.
 
 ### Backward Compatibility
 
