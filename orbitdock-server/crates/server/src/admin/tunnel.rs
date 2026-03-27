@@ -8,8 +8,6 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use crate::infrastructure::paths;
-
 pub fn start_cloudflare_tunnel(port: u16, name: Option<&str>) -> anyhow::Result<()> {
   let cloudflared = find_cloudflared()?;
 
@@ -100,10 +98,7 @@ pub fn ensure_cloudflared() -> anyhow::Result<String> {
       } else {
         anyhow::bail!(
           "cloudflared not found.\n\n\
-           Install it:\n\
-           curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-           -o ~/.orbitdock/bin/cloudflared && chmod +x ~/.orbitdock/bin/cloudflared\n\n\
-           Or download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+           Install it: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
         )
       }
     }
@@ -148,7 +143,6 @@ pub fn start_tunnel_and_extract_url(port: u16) -> anyhow::Result<(Child, String)
 }
 
 fn find_cloudflared() -> anyhow::Result<String> {
-  // 1. Check PATH
   if let Ok(output) = Command::new("which").arg("cloudflared").output() {
     if output.status.success() {
       let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -158,20 +152,12 @@ fn find_cloudflared() -> anyhow::Result<String> {
     }
   }
 
-  // 2. Check ~/.orbitdock/bin/cloudflared
-  let local_path = paths::cloudflared_binary_path();
-  if local_path.exists() {
-    return Ok(local_path.to_string_lossy().to_string());
-  }
-
   anyhow::bail!(
-        "cloudflared not found. Install it:\n\
-         \n\
-         macOS:   brew install cloudflared\n\
-         Linux:   curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o ~/.orbitdock/bin/cloudflared && chmod +x ~/.orbitdock/bin/cloudflared\n\
-         \n\
-         Or download from: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-    )
+    "cloudflared not found. Install it:\n\
+     \n\
+     macOS:   brew install cloudflared\n\
+     Linux:   https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/\n"
+  )
 }
 
 fn start_quick_tunnel(cloudflared: &str, port: u16) -> anyhow::Result<Child> {
