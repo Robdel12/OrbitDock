@@ -142,16 +142,64 @@ struct EditExpandedView: View {
       // Diff content with CodeViewport + DiffChangeStrip
       HStack(alignment: .top, spacing: 0) {
         CodeViewport(lineCount: entries.count, accentColor: .toolWrite) {
-          ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-            if entry.kind == .separator {
-              hunkSeparator(gutter: gutter)
-            } else {
-              diffLineRow(
-                entry: entry,
-                wordDiff: wordDiffSegments(entries: entries, at: index),
-                lang: lang,
-                gutter: gutter
-              )
+          HStack(alignment: .top, spacing: 0) {
+            // ── Pinned gutter (line number + edge bar) ──
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(Array(entries.enumerated()), id: \.element.id) { _, entry in
+                if entry.kind == .separator {
+                  HStack(spacing: 0) {
+                    Color.clear
+                      .frame(width: gutter + Spacing.xs)
+                    Rectangle()
+                      .fill(Color.textQuaternary.opacity(0.08))
+                      .frame(width: 3)
+                  }
+                  .frame(height: Spacing.lg)
+                  .background(Color.textQuaternary.opacity(0.02))
+                } else {
+                  HStack(spacing: 0) {
+                    let lineNum = entry.kind == .deletion ? entry.oldLine : entry.newLine
+                    Text(lineNum.map { "\($0)" } ?? "")
+                      .font(.system(size: TypeScale.code, design: .monospaced))
+                      .foregroundStyle(lineColor(entry.kind).opacity(0.4))
+                      .frame(width: gutter, alignment: .trailing)
+                      .padding(.trailing, Spacing.xs)
+
+                    Rectangle()
+                      .fill(entry.kind == .context || entry.kind == .separator
+                        ? Color.textQuaternary.opacity(0.08)
+                        : edgeColor(entry.kind))
+                      .frame(width: 3)
+                  }
+                  .padding(.vertical, 1)
+                  .background(lineBg(entry.kind))
+                }
+              }
+            }
+
+            // ── Scrollable code ──
+            ScrollView(.horizontal, showsIndicators: false) {
+              VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                  if entry.kind == .separator {
+                    HStack(spacing: 0) {
+                      Spacer()
+                      Text("\u{22EF}")
+                        .font(.system(size: TypeScale.caption, design: .monospaced))
+                        .foregroundStyle(Color.textQuaternary.opacity(0.3))
+                      Spacer()
+                    }
+                    .frame(height: Spacing.lg)
+                    .background(Color.textQuaternary.opacity(0.02))
+                  } else {
+                    diffCodeLine(
+                      entry: entry,
+                      wordDiff: wordDiffSegments(entries: entries, at: index),
+                      lang: lang
+                    )
+                  }
+                }
+              }
             }
           }
         }
@@ -165,80 +213,30 @@ struct EditExpandedView: View {
     }
   }
 
-  // MARK: - Diff Line Row
+  // MARK: - Diff Code Line (content only, for scrollable column)
 
-  /// Single line number gutter — shows old line for deletions, new line for additions,
-  /// new line for context. No +/- prefix (edge bar already communicates change type).
-  private func diffLineRow(
+  private func diffCodeLine(
     entry: DiffEntry,
     wordDiff: [WordLevelDiff.Segment]?,
-    lang: String?,
-    gutter: CGFloat
+    lang: String?
   ) -> some View {
-    HStack(spacing: 0) {
-      // ── Line number ──
-      let lineNum = entry.kind == .deletion ? entry.oldLine : entry.newLine
-      Text(lineNum.map { "\($0)" } ?? "")
-        .font(.system(size: TypeScale.code, design: .monospaced))
-        .foregroundStyle(lineColor(entry.kind).opacity(0.4))
-        .frame(width: gutter, alignment: .trailing)
-        .padding(.trailing, Spacing.xs)
-
-      // ── Edge bar (doubles as gutter divider — colored for changes, neutral for context) ──
-      Rectangle()
-        .fill(entry.kind == .context || entry.kind == .separator
-          ? Color.textQuaternary.opacity(0.08)
-          : edgeColor(entry.kind))
-        .frame(width: 3)
-
-      // ── Content (horizontal scroll for long lines) ──
-      ScrollView(.horizontal, showsIndicators: false) {
-        if let segments = wordDiff {
-          wordLevelContent(segments: segments, kind: entry.kind)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.leading, Spacing.sm_)
-            .padding(.trailing, Spacing.sm)
-        } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
-          let highlighted = SyntaxHighlighter.highlightLine(entry.content, language: lang)
-          Text(highlighted)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.leading, Spacing.sm_)
-            .padding(.trailing, Spacing.sm)
-        } else {
-          Text(entry.content.isEmpty ? " " : entry.content)
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(lineColor(entry.kind))
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.leading, Spacing.sm_)
-            .padding(.trailing, Spacing.sm)
-        }
+    Group {
+      if let segments = wordDiff {
+        wordLevelContent(segments: segments, kind: entry.kind)
+      } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
+        Text(SyntaxHighlighter.highlightLine(entry.content, language: lang))
+      } else {
+        Text(entry.content.isEmpty ? " " : entry.content)
+          .font(.system(size: TypeScale.code, design: .monospaced))
+          .foregroundStyle(lineColor(entry.kind))
       }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .fixedSize(horizontal: true, vertical: false)
+    .padding(.leading, Spacing.sm_)
+    .padding(.trailing, Spacing.sm)
     .padding(.vertical, 1)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .background(lineBg(entry.kind))
-  }
-
-  // MARK: - Hunk Separator
-
-  private func hunkSeparator(gutter: CGFloat) -> some View {
-    HStack(spacing: 0) {
-      Color.clear
-        .frame(width: gutter + Spacing.xs)
-
-      // Neutral divider bar (matches edge bar position)
-      Rectangle()
-        .fill(Color.textQuaternary.opacity(0.08))
-        .frame(width: 3)
-
-      Spacer()
-      Text("\u{22EF}")
-        .font(.system(size: TypeScale.caption, design: .monospaced))
-        .foregroundStyle(Color.textQuaternary.opacity(0.3))
-      Spacer()
-    }
-    .frame(height: Spacing.lg)
-    .background(Color.textQuaternary.opacity(0.02))
   }
 
   // MARK: - Word-Level Diff

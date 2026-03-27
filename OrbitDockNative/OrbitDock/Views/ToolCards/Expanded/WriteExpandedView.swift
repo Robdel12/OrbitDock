@@ -42,44 +42,50 @@ struct WriteExpandedView: View {
         let gutterChars = max(3, "\(lineCount)".count)
 
         CodeViewport(lineCount: lineCount, accentColor: .feedbackPositive) {
-          ForEach(Array(contentLines.enumerated()), id: \.offset) { index, line in
-            HStack(alignment: .top, spacing: 0) {
-              // ── Line number ──
-              Text("\(index + 1)")
-                .font(.system(size: TypeScale.code, design: .monospaced))
-                .foregroundStyle(Color.feedbackPositive.opacity(0.4))
-                .frame(width: CGFloat(gutterChars) * 8 + Spacing.sm, alignment: .trailing)
-                .padding(.trailing, Spacing.sm_)
+          let gutterWidth = CGFloat(gutterChars) * 8 + Spacing.sm
 
-              // ── Gutter divider ──
-              Rectangle()
-                .fill(Color.textQuaternary.opacity(0.08))
-                .frame(width: 1)
-
-              // ── Content (horizontal scroll for long lines) ──
-              ScrollView(.horizontal, showsIndicators: false) {
-                if let lang, !lang.isEmpty, !line.isEmpty {
-                  let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
-                  Text(highlighted)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.leading, Spacing.sm_)
-                    .padding(.trailing, Spacing.sm)
-                } else {
-                  Text(line.isEmpty ? " " : line)
+          HStack(alignment: .top, spacing: 0) {
+            // ── Pinned gutter ──
+            VStack(alignment: .leading, spacing: 0) {
+              ForEach(Array(contentLines.enumerated()), id: \.offset) { index, _ in
+                HStack(spacing: 0) {
+                  Text("\(index + 1)")
                     .font(.system(size: TypeScale.code, design: .monospaced))
-                    .foregroundStyle(Color.textSecondary)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.leading, Spacing.sm_)
-                    .padding(.trailing, Spacing.sm)
+                    .foregroundStyle(Color.feedbackPositive.opacity(0.4))
+                    .frame(width: gutterWidth, alignment: .trailing)
+                    .padding(.trailing, Spacing.sm_)
+
+                  Rectangle()
+                    .fill(Color.textQuaternary.opacity(0.08))
+                    .frame(width: 1)
+                }
+                .padding(.vertical, 1)
+                .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
+              }
+            }
+
+            // ── Scrollable code ──
+            ScrollView(.horizontal, showsIndicators: false) {
+              VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(contentLines.enumerated()), id: \.offset) { index, line in
+                  Group {
+                    if let lang, !lang.isEmpty, !line.isEmpty {
+                      Text(SyntaxHighlighter.highlightLine(line, language: lang))
+                    } else {
+                      Text(line.isEmpty ? " " : line)
+                        .font(.system(size: TypeScale.code, design: .monospaced))
+                        .foregroundStyle(Color.textSecondary)
+                    }
+                  }
+                  .fixedSize(horizontal: true, vertical: false)
+                  .padding(.leading, Spacing.sm_)
+                  .padding(.trailing, Spacing.sm)
+                  .padding(.vertical, 1)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
                 }
               }
             }
-            .padding(.vertical, 1)
-            .background(
-              (index / 5) % 2 == 1
-                ? Color.codeStripe
-                : Color.clear
-            )
           }
         }
       }
