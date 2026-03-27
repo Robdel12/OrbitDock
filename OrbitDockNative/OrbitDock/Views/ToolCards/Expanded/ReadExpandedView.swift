@@ -51,32 +51,22 @@ struct ReadExpandedView: View {
         let lang = content.language
 
         CodeViewport(lineCount: lines.count, accentColor: .toolRead) {
-          let gutterWidth = CGFloat(gutterChars) * 7 + Spacing.sm_
-
-          HStack(alignment: .top, spacing: 0) {
-            // ── Pinned gutter ──
+          ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-              ForEach(Array(lines.enumerated()), id: \.offset) { index, _ in
-                HStack(spacing: 0) {
-                  Text("\(startLine + index)")
+              ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                let lineNum = startLine + index
+
+                HStack(alignment: .top, spacing: 0) {
+                  Text("\(lineNum)")
                     .font(.system(size: TypeScale.code, design: .monospaced))
                     .foregroundStyle(Color.toolRead.opacity(0.4))
-                    .frame(width: gutterWidth, alignment: .trailing)
+                    .frame(width: CGFloat(gutterChars) * 7 + Spacing.sm_, alignment: .trailing)
                     .padding(.trailing, Spacing.xs)
 
                   Rectangle()
                     .fill(Color.textQuaternary.opacity(0.08))
                     .frame(width: 3)
-                }
-                .padding(.vertical, 1)
-                .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
-              }
-            }
 
-            // ── Scrollable code ──
-            ScrollView(.horizontal, showsIndicators: false) {
-              VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                   Group {
                     if let lang, !lang.isEmpty, !line.isEmpty {
                       Text(SyntaxHighlighter.highlightLine(line, language: lang))
@@ -89,10 +79,9 @@ struct ReadExpandedView: View {
                   .fixedSize(horizontal: true, vertical: false)
                   .padding(.leading, Spacing.sm_)
                   .padding(.trailing, Spacing.sm)
-                  .padding(.vertical, 1)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
                 }
+                .padding(.vertical, 1)
+                .background((index / 5) % 2 == 1 ? Color.codeStripe : Color.clear)
               }
             }
           }
