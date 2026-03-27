@@ -60,10 +60,13 @@ struct GrepExpandedView: View {
   private func flatResults(lines: [String], pattern: String) -> some View {
     VStack(alignment: .leading, spacing: 0) {
       ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-        highlightedLine(line, pattern: pattern)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xxs)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView(.horizontal, showsIndicators: false) {
+          highlightedLine(line, pattern: pattern)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xxs)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
     .padding(.vertical, Spacing.xs)
@@ -210,7 +213,11 @@ private struct FileMatchGroup: View {
                   .padding(.trailing, Spacing.xs)
               }
 
-              highlightedContent(match.content)
+              ScrollView(.horizontal, showsIndicators: false) {
+                highlightedContent(match.content)
+                  .fixedSize(horizontal: true, vertical: false)
+                  .padding(.trailing, Spacing.sm)
+              }
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)

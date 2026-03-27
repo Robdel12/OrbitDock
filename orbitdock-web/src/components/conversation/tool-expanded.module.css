@@ -27,8 +27,7 @@
   font-size: var(--type-code);
   color: var(--color-text-primary);
   overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
 }
 
 .loading {

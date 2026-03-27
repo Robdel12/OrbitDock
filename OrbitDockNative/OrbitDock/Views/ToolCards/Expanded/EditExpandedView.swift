@@ -191,19 +191,27 @@ struct EditExpandedView: View {
           : edgeColor(entry.kind))
         .frame(width: 3)
 
-      // ── Content ──
-      if let segments = wordDiff {
-        wordLevelContent(segments: segments, kind: entry.kind)
-          .padding(.leading, Spacing.sm_)
-      } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
-        let highlighted = SyntaxHighlighter.highlightLine(entry.content, language: lang)
-        Text(highlighted)
-          .padding(.leading, Spacing.sm_)
-      } else {
-        Text(entry.content.isEmpty ? " " : entry.content)
-          .font(.system(size: TypeScale.code, design: .monospaced))
-          .foregroundStyle(lineColor(entry.kind))
-          .padding(.leading, Spacing.sm_)
+      // ── Content (horizontal scroll for long lines) ──
+      ScrollView(.horizontal, showsIndicators: false) {
+        if let segments = wordDiff {
+          wordLevelContent(segments: segments, kind: entry.kind)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.leading, Spacing.sm_)
+            .padding(.trailing, Spacing.sm)
+        } else if let lang, !lang.isEmpty, !entry.content.isEmpty {
+          let highlighted = SyntaxHighlighter.highlightLine(entry.content, language: lang)
+          Text(highlighted)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.leading, Spacing.sm_)
+            .padding(.trailing, Spacing.sm)
+        } else {
+          Text(entry.content.isEmpty ? " " : entry.content)
+            .font(.system(size: TypeScale.code, design: .monospaced))
+            .foregroundStyle(lineColor(entry.kind))
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.leading, Spacing.sm_)
+            .padding(.trailing, Spacing.sm)
+        }
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)

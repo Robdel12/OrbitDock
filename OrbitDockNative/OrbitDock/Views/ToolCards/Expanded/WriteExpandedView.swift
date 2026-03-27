@@ -56,16 +56,22 @@ struct WriteExpandedView: View {
                 .fill(Color.textQuaternary.opacity(0.08))
                 .frame(width: 1)
 
-              // ── Content ──
-              if let lang, !lang.isEmpty, !line.isEmpty {
-                let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
-                Text(highlighted)
-                  .padding(.leading, Spacing.sm_)
-              } else {
-                Text(line.isEmpty ? " " : line)
-                  .font(.system(size: TypeScale.code, design: .monospaced))
-                  .foregroundStyle(Color.textSecondary)
-                  .padding(.leading, Spacing.sm_)
+              // ── Content (horizontal scroll for long lines) ──
+              ScrollView(.horizontal, showsIndicators: false) {
+                if let lang, !lang.isEmpty, !line.isEmpty {
+                  let highlighted = SyntaxHighlighter.highlightLine(line, language: lang)
+                  Text(highlighted)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.leading, Spacing.sm_)
+                    .padding(.trailing, Spacing.sm)
+                } else {
+                  Text(line.isEmpty ? " " : line)
+                    .font(.system(size: TypeScale.code, design: .monospaced))
+                    .foregroundStyle(Color.textSecondary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.leading, Spacing.sm_)
+                    .padding(.trailing, Spacing.sm)
+                }
               }
             }
             .padding(.vertical, 1)

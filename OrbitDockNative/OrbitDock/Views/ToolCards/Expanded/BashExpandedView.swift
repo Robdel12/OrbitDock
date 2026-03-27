@@ -40,8 +40,11 @@ struct BashExpandedView: View {
             Text("$")
               .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
               .foregroundStyle(Color.toolBash)
-            let highlighted = SyntaxHighlighter.highlightLine(command, language: "bash")
-            Text(highlighted)
+            ScrollView(.horizontal, showsIndicators: false) {
+              let highlighted = SyntaxHighlighter.highlightLine(command, language: "bash")
+              Text(highlighted)
+                .fixedSize(horizontal: true, vertical: false)
+            }
           }
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.sm)
@@ -81,18 +84,24 @@ struct BashExpandedView: View {
 
     if useViewport {
       ScrollView(.vertical, showsIndicators: false) {
-        Text(parsed)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView(.horizontal, showsIndicators: false) {
+          Text(parsed)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        }
       }
       .frame(maxHeight: maxOutputHeight)
       .mask(edgeFadeMask)
     } else {
-      Text(parsed)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
+      ScrollView(.horizontal, showsIndicators: false) {
+        Text(parsed)
+          .fixedSize(horizontal: true, vertical: false)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+      }
     }
   }
 
