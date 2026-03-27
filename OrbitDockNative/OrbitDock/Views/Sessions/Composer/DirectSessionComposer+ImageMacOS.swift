@@ -28,35 +28,28 @@
     func pickImages() {
       let panel = NSOpenPanel()
       panel.allowedContentTypes = [.image]
+      panel.canChooseFiles = true
       panel.allowsMultipleSelection = true
       panel.canChooseDirectories = false
       panel.message = "Select images to attach"
 
+      guard panel.runModal() == .OK else { return }
+
       let encodeAsDataURI = shouldEncodeLocalFileImagesAsDataURI
-      let applySelection: (NSApplication.ModalResponse) -> Void = { response in
-        guard response == .OK else { return }
-
-        var appendedAnyImage = false
-        for url in panel.urls {
-          guard let thumbnail = createThumbnail(from: url) else { continue }
-          let didAppend = appendLocalFileImage(
-            url: url,
-            thumbnail: thumbnail,
-            encodeAsDataURI: encodeAsDataURI
-          )
-          appendedAnyImage = appendedAnyImage || didAppend
-        }
-
-        if appendedAnyImage {
-          Platform.services.playHaptic(.action)
-          requestComposerFocus()
-        }
+      var appendedAnyImage = false
+      for url in panel.urls {
+        guard let thumbnail = createThumbnail(from: url) else { continue }
+        let didAppend = appendLocalFileImage(
+          url: url,
+          thumbnail: thumbnail,
+          encodeAsDataURI: encodeAsDataURI
+        )
+        appendedAnyImage = appendedAnyImage || didAppend
       }
 
-      if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-        panel.beginSheetModal(for: window, completionHandler: applySelection)
-      } else {
-        applySelection(panel.runModal())
+      if appendedAnyImage {
+        Platform.services.playHaptic(.action)
+        requestComposerFocus()
       }
     }
 
@@ -91,25 +84,24 @@
 
       for provider in providers {
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-          provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-            guard let urlData = data as? Data,
-                  let url = URL(dataRepresentation: urlData, relativeTo: nil),
+          provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            guard let url = droppedFileURL(from: item),
                   let thumbnail = createThumbnail(from: url)
             else { return }
 
-            DispatchQueue.main.async {
+            Task { @MainActor in
               _ = appendLocalFileImage(url: url, thumbnail: thumbnail, encodeAsDataURI: encodeAsDataURI)
             }
           }
           handled = true
         } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-          provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
-            guard let imageData = data as? Data,
+          provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { item, _ in
+            guard let imageData = droppedImageData(from: item),
                   let thumbnail = createThumbnail(from: imageData),
                   let pngData = normalizedPNGImageData(from: imageData)
             else { return }
 
-            DispatchQueue.main.async {
+            Task { @MainActor in
               appendImageAttachment(thumbnail: thumbnail, imageData: pngData, mimeType: "image/png")
             }
           }
@@ -118,6 +110,37 @@
       }
 
       return handled
+    }
+
+    private func droppedFileURL(from item: NSSecureCoding?) -> URL? {
+      if let url = item as? URL {
+        return url.isFileURL ? url : nil
+      }
+      if let url = item as? NSURL {
+        let resolved = url as URL
+        return resolved.isFileURL ? resolved : nil
+      }
+      if let data = item as? Data {
+        guard let resolved = URL(dataRepresentation: data, relativeTo: nil) else { return nil }
+        return resolved.isFileURL ? resolved : nil
+      }
+      if let value = item as? String, let url = URL(string: value) {
+        return url.isFileURL ? url : nil
+      }
+      return nil
+    }
+
+    private func droppedImageData(from item: NSSecureCoding?) -> Data? {
+      if let data = item as? Data {
+        return data
+      }
+      if let url = droppedFileURL(from: item) {
+        return try? Data(contentsOf: url)
+      }
+      if let image = item as? NSImage {
+        return normalizedPNGImageData(from: image)
+      }
+      return nil
     }
 
     private func createThumbnail(from fileURL: URL) -> NSImage? {
@@ -151,6 +174,19 @@
             let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
       else { return nil }
 
+      return normalizedPNGImageData(from: cgImage)
+    }
+
+    private func normalizedPNGImageData(from image: NSImage) -> Data? {
+      guard let tiffData = image.tiffRepresentation,
+            let source = CGImageSourceCreateWithData(tiffData as CFData, nil),
+            let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+      else { return nil }
+
+      return normalizedPNGImageData(from: cgImage)
+    }
+
+    private func normalizedPNGImageData(from cgImage: CGImage) -> Data? {
       let outputData = NSMutableData()
       guard let destination = CGImageDestinationCreateWithData(
         outputData,
