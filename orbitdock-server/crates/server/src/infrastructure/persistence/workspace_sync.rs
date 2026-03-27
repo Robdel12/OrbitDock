@@ -494,6 +494,7 @@ mod tests {
           issue_id: "issue-1".into(),
           orchestration_state: "provisioning".into(),
           session_id: None,
+          workspace_id: Some("workspace-1".into()),
           attempt: Some(1),
           last_error: Some(None),
           retry_due_at: None,

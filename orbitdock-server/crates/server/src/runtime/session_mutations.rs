@@ -479,6 +479,7 @@ pub(crate) async fn sync_mission_issue_on_resume(
       issue_id: issue_id.clone(),
       orchestration_state: "running".to_string(),
       session_id: Some(session_id.to_string()),
+      workspace_id: None,
       attempt: None,
       last_error: Some(None), // clear error
       retry_due_at: None,

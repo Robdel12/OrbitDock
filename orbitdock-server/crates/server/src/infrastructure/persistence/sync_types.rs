@@ -298,6 +298,7 @@ pub enum SyncCommand {
     issue_id: String,
     orchestration_state: String,
     session_id: Option<String>,
+    workspace_id: Option<String>,
     attempt: Option<u32>,
     last_error: Option<Option<String>>,
     retry_due_at: Option<Option<String>>,

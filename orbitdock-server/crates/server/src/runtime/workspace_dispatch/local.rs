@@ -8,9 +8,7 @@ use async_trait::async_trait;
 use orbitdock_protocol::Provider;
 use tracing::warn;
 
-use crate::connectors::claude_session::ClaudeAction;
-use crate::connectors::codex_session::CodexAction;
-use crate::domain::mission_control::skills::{read_skill_content_for_claude, resolve_skill_inputs};
+use crate::runtime::session_prompt::send_initial_prompt;
 use crate::runtime::session_creation::{
   launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
@@ -211,41 +209,21 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
       .await
       .map_err(|e| WorkspaceError::Failed(format!("Failed to launch session: {e}")))?;
 
-    match provider {
-      Provider::Codex => {
-        let mission_skills = resolve_skill_inputs(&resolved.skills);
-        if let Some(tx) = req.registry.get_codex_action_tx(&session_id) {
-          let _ = tx
-            .send(CodexAction::SendMessage {
-              content: req.prompt.clone(),
-              model: resolved.model,
-              effort: resolved.effort,
-              skills: mission_skills,
-              images: vec![],
-              mentions: vec![],
-            })
-            .await;
-        }
-      }
-      Provider::Claude => {
-        let claude_prompt = match read_skill_content_for_claude(&resolved.skills) {
-          Some(skill_content) => format!("{skill_content}\n\n{}", req.prompt),
-          None => req.prompt.clone(),
-        };
-        if let Some(tx) = req.registry.get_claude_action_tx(&session_id) {
-          let _ = tx
-            .send(ClaudeAction::SendMessage {
-              content: claude_prompt,
-              model: resolved.model,
-              effort: resolved.effort,
-              images: vec![],
-            })
-            .await;
-        }
-      }
-    }
+    send_initial_prompt(
+      &req.registry,
+      &session_id,
+      provider,
+      &req.prompt,
+      resolved.model,
+      resolved.effort,
+      &resolved.skills,
+    )
+    .await;
 
-    Ok(DispatchResult { session_id })
+    Ok(DispatchResult::Running {
+      session_id,
+      workspace_id: None,
+    })
   }
 }
 

@@ -13,6 +13,7 @@ mod session;
 mod shell;
 mod usage;
 mod worktree;
+pub use session::run_managed_session_start;
 
 use crate::cli::{binary_to_client_command, BinaryCommand, Command};
 use crate::client::config::ClientConfig;

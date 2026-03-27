@@ -32,6 +32,11 @@ pub async fn resolve_git_branch(path: &str) -> Option<String> {
   run_git(&["rev-parse", "--abbrev-ref", "HEAD"], path).await
 }
 
+/// Resolve the clone URL for `origin`, if configured.
+pub async fn resolve_origin_url(path: &str) -> Option<String> {
+  run_git(&["config", "--get", "remote.origin.url"], path).await
+}
+
 /// Resolve full git context for a path, or `None` if not inside a git repo.
 pub async fn resolve_git_info(path: &str) -> Option<GitInfo> {
   let (toplevel, common_dir, branch, sha) = tokio::join!(

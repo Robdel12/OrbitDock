@@ -388,6 +388,7 @@ pub fn load_manually_queued_issues(
 pub struct MissionIssueStateUpdate<'a> {
   pub orchestration_state: &'a str,
   pub session_id: Option<&'a str>,
+  pub workspace_id: Option<&'a str>,
   pub attempt: Option<u32>,
   pub last_error: Option<Option<&'a str>>,
   pub started_at: Option<Option<&'a str>>,
@@ -405,6 +406,7 @@ pub fn update_mission_issue_state_sync(
   let MissionIssueStateUpdate {
     orchestration_state,
     session_id,
+    workspace_id,
     attempt,
     last_error,
     started_at,
@@ -426,6 +428,9 @@ pub fn update_mission_issue_state_sync(
 
   if let Some(sid) = session_id {
     push_field!("session_id", sid.to_string());
+  }
+  if let Some(wid) = workspace_id {
+    push_field!("workspace_id", wid.to_string());
   }
   if let Some(a) = attempt {
     push_field!("attempt", *a);
@@ -952,6 +957,7 @@ mod tests {
       &MissionIssueStateUpdate {
         orchestration_state: "running",
         session_id: Some("session-abc"),
+        workspace_id: None,
         attempt: Some(1),
         last_error: None,
         started_at: Some(Some("2026-03-01T01:00:00.000Z")),
@@ -994,6 +1000,7 @@ mod tests {
       &MissionIssueStateUpdate {
         orchestration_state: "failed",
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(Some("something went wrong")),
         started_at: None,
@@ -1035,6 +1042,7 @@ mod tests {
       &MissionIssueStateUpdate {
         orchestration_state: "retry_queued",
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(None), // clear last_error
         started_at: None,
@@ -1073,6 +1081,7 @@ mod tests {
       &MissionIssueStateUpdate {
         orchestration_state: "completed",
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: None,
         started_at: None,

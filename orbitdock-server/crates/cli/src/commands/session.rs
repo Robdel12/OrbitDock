@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use base64::Engine;
 use orbitdock_protocol::{
   conversation_contracts::extract_row_content_str_summary, ClientMessage, ConversationSnapshotPage,
   DashboardSnapshot, Provider, ServerMessage, SessionDetailSnapshot, SessionListItem, SessionState,
@@ -27,6 +28,7 @@ struct SessionsResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CreateSessionRequest {
+  session_id: Option<String>,
   provider: Provider,
   cwd: String,
   model: Option<String>,
@@ -49,6 +51,14 @@ struct CreateSessionRequest {
   codex_config_profile: Option<String>,
   codex_model_provider: Option<String>,
   codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
+  mission_id: Option<String>,
+  issue_id: Option<String>,
+  issue_identifier: Option<String>,
+  workspace_id: Option<String>,
+  initial_prompt: Option<String>,
+  skills: Vec<String>,
+  tracker_kind: Option<String>,
+  tracker_api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -890,6 +900,15 @@ async fn create(args: CreateSessionArgs<'_>) -> i32 {
     codex_config_profile: None,
     codex_model_provider: None,
     codex_config_source: None,
+    session_id: None,
+    mission_id: None,
+    issue_id: None,
+    issue_identifier: None,
+    workspace_id: None,
+    initial_prompt: None,
+    skills: vec![],
+    tracker_kind: None,
+    tracker_api_key: None,
   };
 
   match rest
@@ -924,6 +943,39 @@ async fn create(args: CreateSessionArgs<'_>) -> i32 {
       output.print_error(&err);
       code
     }
+  }
+}
+
+pub fn run_managed_session_start(
+  server_url: Option<&str>,
+  request_base64: &str,
+) -> anyhow::Result<()> {
+  let request_bytes = base64::engine::general_purpose::STANDARD
+    .decode(request_base64)
+    .map_err(|error| anyhow::anyhow!("decode managed session request: {error}"))?;
+  let request: CreateSessionRequest = serde_json::from_slice(&request_bytes)
+    .map_err(|error| anyhow::anyhow!("parse managed session request: {error}"))?;
+
+  let config = ClientConfig::from_sources(server_url, None, true, None);
+  let rest = RestClient::new(&config);
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .map_err(|error| anyhow::anyhow!("build Tokio runtime: {error}"))?;
+
+  let result = runtime.block_on(async move {
+    rest
+      .post_json::<_, CreateSessionResponse>("/api/sessions", &request)
+      .await
+      .into_result()
+  });
+
+  match result {
+    Ok(_) => Ok(()),
+    Err((code, error)) => Err(anyhow::anyhow!(
+      "managed session start failed (exit {code}): {}",
+      error.message
+    )),
   }
 }
 

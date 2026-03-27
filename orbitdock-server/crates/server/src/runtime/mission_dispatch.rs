@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use crate::domain::mission_control::config::AgentConfig;
+use crate::domain::mission_control::config::{AgentConfig, WorkspaceConfig};
 use crate::domain::mission_control::prompt::{render_prompt, IssueContext};
 use crate::domain::mission_control::tracker::{Tracker, TrackerIssue};
 use crate::infrastructure::persistence::mission_control::{
@@ -14,7 +14,7 @@ use crate::infrastructure::persistence::mission_control::{
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::workspace_dispatch::{
-  build_workspace_provider, DispatchRequest, WorkspaceIssueRef,
+  build_workspace_provider, DispatchRequest, DispatchResult, WorkspaceIssueRef,
 };
 
 /// Mission-level configuration shared across all issue dispatches.
@@ -23,6 +23,7 @@ pub struct DispatchContext {
   pub prompt_template: String,
   pub base_branch: String,
   pub agent_config: AgentConfig,
+  pub workspace_config: WorkspaceConfig,
   pub worktree_root_dir: Option<String>,
   pub state_on_dispatch: String,
   pub tracker: Arc<dyn Tracker>,
@@ -62,6 +63,7 @@ pub async fn dispatch_issue(
       &MissionIssueStateUpdate {
         orchestration_state: "claimed",
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(None),
         started_at: Some(Some(&now)),
@@ -118,13 +120,18 @@ pub async fn dispatch_issue(
     ),
     provider_str: provider_str.to_string(),
     agent_config: ctx.agent_config.clone(),
+    workspace_config: ctx.workspace_config.clone(),
     prompt,
     registry: registry.clone(),
   };
 
   // Resolve the provider at dispatch time so runtime config changes take
   // effect on the next launched issue rather than after an outer loop ends.
-  let workspace_provider = build_workspace_provider(registry.workspace_provider_kind())?;
+  let provider_kind = ctx
+    .workspace_config
+    .provider_kind()?
+    .unwrap_or_else(|| registry.workspace_provider_kind());
+  let workspace_provider = build_workspace_provider(provider_kind)?;
 
   let result = match workspace_provider.dispatch(&dispatch_request).await {
     Ok(r) => r,
@@ -151,6 +158,7 @@ pub async fn dispatch_issue(
           &MissionIssueStateUpdate {
             orchestration_state: "failed",
             session_id: None,
+            workspace_id: None,
             attempt: Some(attempt),
             last_error: Some(Some(&err_msg)),
             started_at: None,
@@ -165,37 +173,80 @@ pub async fn dispatch_issue(
   };
 
   // Update mission issue with session link (synchronous)
-  let db_path = registry.db_path().clone();
-  let mid = mission_id.to_string();
-  let iid = issue.id.clone();
-  let sid = result.session_id.clone();
-  let _ = tokio::task::spawn_blocking(move || {
-    let conn = rusqlite::Connection::open(&db_path).ok()?;
-    update_mission_issue_state_sync(
-      &conn,
-      &mid,
-      &iid,
-      &MissionIssueStateUpdate {
-        orchestration_state: "running",
-        session_id: Some(&sid),
-        attempt: Some(attempt),
-        last_error: Some(None),
-        started_at: None,
-        completed_at: None,
-      },
-    )
-    .ok()
-  })
-  .await;
+  match result {
+    DispatchResult::Running {
+      session_id,
+      workspace_id,
+    } => {
+      let db_path = registry.db_path().clone();
+      let mid = mission_id.to_string();
+      let iid = issue.id.clone();
+      let sid = session_id.clone();
+      let wid = workspace_id.clone();
+      let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+          &conn,
+          &mid,
+          &iid,
+          &MissionIssueStateUpdate {
+            orchestration_state: "running",
+            session_id: Some(&sid),
+            workspace_id: wid.as_deref(),
+            attempt: Some(attempt),
+            last_error: Some(None),
+            started_at: None,
+            completed_at: None,
+          },
+        )
+        .ok()
+      })
+      .await;
 
-  info!(
-      component = "mission_control",
-      event = "dispatch.complete",
-      mission_id = %mission_id,
-      issue_id = %issue.id,
-      session_id = %result.session_id,
-      "Issue dispatched to session"
-  );
+      info!(
+          component = "mission_control",
+          event = "dispatch.complete",
+          mission_id = %mission_id,
+          issue_id = %issue.id,
+          session_id = %session_id,
+          "Issue dispatched to session"
+      );
+    }
+    DispatchResult::Provisioning { workspace_id } => {
+      let db_path = registry.db_path().clone();
+      let mid = mission_id.to_string();
+      let iid = issue.id.clone();
+      let wid = workspace_id.clone();
+      let _ = tokio::task::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).ok()?;
+        update_mission_issue_state_sync(
+          &conn,
+          &mid,
+          &iid,
+          &MissionIssueStateUpdate {
+            orchestration_state: "provisioning",
+            session_id: None,
+            workspace_id: Some(&wid),
+            attempt: Some(attempt),
+            last_error: Some(None),
+            started_at: None,
+            completed_at: None,
+          },
+        )
+        .ok()
+      })
+      .await;
+
+      info!(
+          component = "mission_control",
+          event = "dispatch.provisioning",
+          mission_id = %mission_id,
+          issue_id = %issue.id,
+          workspace_id = %workspace_id,
+          "Issue handed off to remote workspace provisioning"
+      );
+    }
+  }
 
   Ok(())
 }

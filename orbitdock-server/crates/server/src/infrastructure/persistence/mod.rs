@@ -22,6 +22,7 @@ mod sync_writer;
 mod transcripts;
 mod usage;
 mod workspace_sync;
+mod workspaces;
 mod worktrees;
 mod writer;
 
@@ -75,6 +76,10 @@ use usage::{
 };
 pub(crate) use workspace_sync::{
   apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
+};
+pub(crate) use workspaces::{
+  insert_workspace_record, load_workspace_record, update_workspace_record, WorkspaceRecord,
+  WorkspaceRecordInsert, WorkspaceRecordUpdate,
 };
 #[allow(unused_imports)]
 pub(crate) use worktrees::WorktreeRow;
@@ -2024,6 +2029,7 @@ pub(super) fn execute_command(
       issue_id,
       orchestration_state,
       session_id,
+      workspace_id,
       attempt,
       last_error,
       retry_due_at,
@@ -2040,6 +2046,11 @@ pub(super) fn execute_command(
       if let Some(ref val) = session_id {
         idx += 1;
         sets.push(format!("session_id = ?{idx}"));
+        param_values.push(val.clone().into());
+      }
+      if let Some(ref val) = workspace_id {
+        idx += 1;
+        sets.push(format!("workspace_id = ?{idx}"));
         param_values.push(val.clone().into());
       }
       if let Some(val) = attempt {

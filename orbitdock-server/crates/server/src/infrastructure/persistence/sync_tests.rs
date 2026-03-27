@@ -413,6 +413,7 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
       issue_id: "23".into(),
       orchestration_state: "running".into(),
       session_id: Some("session-1".into()),
+      workspace_id: Some("workspace-1".into()),
       attempt: Some(2),
       last_error: Some(Some("transient".into())),
       retry_due_at: Some(Some("2026-03-24T12:10:00Z".into())),

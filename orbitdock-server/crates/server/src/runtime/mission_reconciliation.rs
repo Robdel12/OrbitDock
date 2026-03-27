@@ -8,9 +8,11 @@ use tracing::{info, warn};
 use crate::domain::mission_control::config::MissionConfig;
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{MissionIssueRow, MissionRow};
+use crate::infrastructure::persistence::{load_workspace_record, update_workspace_record, WorkspaceRecordUpdate};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_mutations::{end_session, send_continuation_message};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::workspace_dispatch::daytona::destroy_daytona_workspace;
 use crate::support::session_time::parse_unix_z;
 
 /// Terminal tracker states — if an issue moves to one of these, stop working.
@@ -25,7 +27,7 @@ pub(crate) fn is_terminal_tracker_state(state: &str) -> bool {
 
 /// Check if an orchestration state represents an in-progress issue.
 pub(crate) fn is_active_orchestration_state(state: &str) -> bool {
-  state == "running" || state == "claimed"
+  state == "running" || state == "claimed" || state == "provisioning"
 }
 
 /// Determine whether a session has stalled based on the last progress timestamp
@@ -104,6 +106,7 @@ pub async fn reconcile_mission(
                 issue_id: issue_row.issue_id.clone(),
                 orchestration_state: "completed".to_string(),
                 session_id: None,
+                workspace_id: issue_row.workspace_id.clone(),
                 attempt: None,
                 last_error: None,
                 retry_due_at: None,
@@ -111,6 +114,8 @@ pub async fn reconcile_mission(
                 completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
               })
               .await;
+
+            maybe_destroy_remote_workspace(registry, issue_row).await;
 
             handled_issue_ids.insert(issue_row.issue_id.clone());
           }
@@ -147,6 +152,7 @@ pub async fn reconcile_mission(
       std::collections::HashMap::new()
     }
   };
+  let stall_timeout_secs = config.orchestration.stall_timeout;
 
   for issue_row in &running_issues {
     if let Some(tracker_state) = tracker_states.get(&issue_row.issue_id) {
@@ -171,6 +177,7 @@ pub async fn reconcile_mission(
             issue_id: issue_row.issue_id.clone(),
             orchestration_state: "completed".to_string(),
             session_id: None,
+            workspace_id: issue_row.workspace_id.clone(),
             attempt: None,
             last_error: None,
             retry_due_at: None,
@@ -179,6 +186,8 @@ pub async fn reconcile_mission(
           })
           .await;
 
+        maybe_destroy_remote_workspace(registry, issue_row).await;
+
         handled_issue_ids.insert(issue_row.issue_id.clone());
       }
     }
@@ -186,6 +195,42 @@ pub async fn reconcile_mission(
 
   // ── Pass 2: Check if agent session has ended ───────────────────────
   for issue_row in &running_issues {
+    if let Some(reason) = remote_workspace_stall_reason(registry, issue_row, stall_timeout_secs).await {
+      warn!(
+          component = "mission_control",
+          event = "reconciliation.workspace_stall_detected",
+          mission_id = %mission.id,
+          issue_id = %issue_row.issue_id,
+          workspace_id = %issue_row.workspace_id.as_deref().unwrap_or(""),
+          reason = %reason,
+          "Remote workspace heartbeat stalled, marking issue failed"
+      );
+
+      if let Some(ref session_id) = issue_row.session_id {
+        end_session(registry, session_id).await;
+      }
+
+      let _ = registry
+        .persist()
+        .send(PersistCommand::MissionIssueUpdateState {
+          mission_id: mission.id.clone(),
+          issue_id: issue_row.issue_id.clone(),
+          orchestration_state: "failed".to_string(),
+          session_id: issue_row.session_id.clone(),
+          workspace_id: issue_row.workspace_id.clone(),
+          attempt: None,
+          last_error: Some(Some(reason.clone())),
+          retry_due_at: None,
+          started_at: None,
+          completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
+        })
+        .await;
+
+      maybe_destroy_remote_workspace(registry, issue_row).await;
+      handled_issue_ids.insert(issue_row.issue_id.clone());
+      continue;
+    }
+
     if handled_issue_ids.contains(&issue_row.issue_id) {
       continue;
     }
@@ -220,6 +265,7 @@ pub async fn reconcile_mission(
           issue_id: issue_row.issue_id.clone(),
           orchestration_state: "completed".to_string(),
           session_id: None,
+          workspace_id: issue_row.workspace_id.clone(),
           attempt: None,
           last_error: None,
           retry_due_at: None,
@@ -227,6 +273,8 @@ pub async fn reconcile_mission(
           completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
         })
         .await;
+
+      maybe_destroy_remote_workspace(registry, issue_row).await;
 
       // Best-effort: move issue to configured completion state in tracker
       if let Err(err) = tracker
@@ -327,7 +375,6 @@ pub async fn reconcile_mission(
   }
 
   // ── Pass 3: Check for stalled sessions ─────────────────────────────
-  let stall_timeout_secs = config.orchestration.stall_timeout;
   if stall_timeout_secs == 0 {
     return;
   }
@@ -388,6 +435,7 @@ pub async fn reconcile_mission(
           issue_id: issue_row.issue_id.clone(),
           orchestration_state: "failed".to_string(),
           session_id: Some(session_id.clone()),
+          workspace_id: issue_row.workspace_id.clone(),
           attempt: None,
           last_error: Some(Some(format!(
             "Session stalled after {}s of inactivity",
@@ -398,6 +446,8 @@ pub async fn reconcile_mission(
           completed_at: Some(Some(chrono::Utc::now().to_rfc3339())),
         })
         .await;
+
+      maybe_destroy_remote_workspace(registry, issue_row).await;
 
       // Best-effort: post failure comment
       if let Err(err) = tracker
@@ -420,6 +470,99 @@ pub async fn reconcile_mission(
       }
     }
   }
+}
+
+async fn maybe_destroy_remote_workspace(
+  registry: &Arc<SessionRegistry>,
+  issue_row: &MissionIssueRow,
+) {
+  let Some(workspace_id) = issue_row.workspace_id.as_deref() else {
+    return;
+  };
+
+  if let Err(error) = destroy_daytona_workspace(registry.clone(), workspace_id).await {
+    warn!(
+      component = "mission_control",
+      event = "reconciliation.workspace_destroy_failed",
+      issue_id = %issue_row.issue_id,
+      workspace_id = %workspace_id,
+      error = %error,
+      "Failed to destroy remote workspace"
+    );
+  }
+}
+
+async fn remote_workspace_stall_reason(
+  registry: &Arc<SessionRegistry>,
+  issue_row: &MissionIssueRow,
+  stall_timeout_secs: u64,
+) -> Option<String> {
+  let workspace_id = issue_row.workspace_id.as_ref()?.clone();
+  let db_path = registry.db_path().clone();
+  let workspace = tokio::task::spawn_blocking(move || {
+    let conn = rusqlite::Connection::open(&db_path).ok()?;
+    load_workspace_record(&conn, &workspace_id).ok().flatten()
+  })
+  .await
+  .ok()
+  .flatten()?;
+
+  let now_unix_secs = chrono::Utc::now().timestamp().max(0) as u64;
+  let reference = workspace
+    .last_heartbeat_at
+    .as_deref()
+    .or(Some(workspace.created_at.as_str()));
+
+  let elapsed_secs = elapsed_timestamp_secs(reference, now_unix_secs)?;
+  if stall_timeout_secs == 0 || elapsed_secs <= stall_timeout_secs as i64 {
+    return None;
+  }
+
+  let _ = tokio::task::spawn_blocking({
+    let db_path = registry.db_path().clone();
+    let workspace_id = workspace.id.clone();
+    move || {
+      let conn = rusqlite::Connection::open(db_path).ok()?;
+      update_workspace_record(
+        &conn,
+        &WorkspaceRecordUpdate {
+          id: &workspace_id,
+          external_id: None,
+          status: "failed",
+          connection_info: None,
+          ready: false,
+          destroyed: false,
+        },
+      )
+      .ok()?;
+      Some(())
+    }
+  })
+  .await;
+
+  Some(format!(
+    "Remote workspace heartbeat stalled after {}s of inactivity",
+    elapsed_secs
+  ))
+}
+
+fn elapsed_timestamp_secs(value: Option<&str>, now_unix_secs: u64) -> Option<i64> {
+  let raw = value?;
+  if let Some(unix_z) = parse_unix_z(Some(raw)) {
+    return Some(now_unix_secs.saturating_sub(unix_z) as i64);
+  }
+
+  if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(raw) {
+    let ts = parsed.timestamp().max(0) as u64;
+    return Some(now_unix_secs.saturating_sub(ts) as i64);
+  }
+
+  if let Ok(parsed) = chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S") {
+    let ts = parsed.and_utc().timestamp().max(0) as u64;
+    return Some(now_unix_secs.saturating_sub(ts) as i64);
+  }
+
+  None
 }
 
 #[cfg(test)]
@@ -464,6 +607,7 @@ mod tests {
   fn active_states_recognized() {
     assert!(is_active_orchestration_state("running"));
     assert!(is_active_orchestration_state("claimed"));
+    assert!(is_active_orchestration_state("provisioning"));
   }
 
   #[test]
@@ -518,6 +662,19 @@ mod tests {
     let now = chrono::Utc::now().timestamp() as u64;
     let result = stall_elapsed_secs(Some("not-a-timestamp"), now, 300);
     assert!(result.is_none());
+  }
+
+  #[test]
+  fn elapsed_timestamp_secs_supports_sqlite_datetime() {
+    let now = chrono::NaiveDate::from_ymd_opt(2026, 3, 27)
+      .unwrap()
+      .and_hms_opt(12, 0, 0)
+      .unwrap()
+      .and_utc()
+      .timestamp() as u64;
+
+    let result = elapsed_timestamp_secs(Some("2026-03-27 11:55:00"), now);
+    assert_eq!(result, Some(300));
   }
 
   // ── TERMINAL_STATES constant ──────────────────────────────────────

@@ -21,6 +21,7 @@ pub(crate) mod session_fork_runtime;
 pub(crate) mod session_fork_targets;
 pub(crate) mod session_lifecycle_policy;
 pub(crate) mod session_mutations;
+pub(crate) mod session_prompt;
 pub(crate) mod session_queries;
 pub(crate) mod session_registry;
 pub(crate) mod session_resume;

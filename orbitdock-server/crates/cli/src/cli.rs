@@ -133,6 +133,16 @@ pub enum BinaryCommand {
     auth_token: Option<String>,
   },
 
+  /// Internal: create a managed mission session against a local OrbitDock server.
+  #[command(hide = true)]
+  ManagedSessionStart {
+    #[arg(long, env = "ORBITDOCK_URL")]
+    server_url: Option<String>,
+
+    #[arg(long, env = "ORBITDOCK_MANAGED_SESSION_REQUEST_B64")]
+    request_base64: String,
+  },
+
   /// Internal: MCP stdio server providing mission tools to agents
   #[command(name = "mcp-mission-tools", hide = true)]
   McpMissionTools,

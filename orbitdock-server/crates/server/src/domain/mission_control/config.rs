@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use orbitdock_protocol::WorkspaceProviderKind;
 use serde::{Deserialize, Serialize};
 
 use super::template::default_mission_template;
@@ -50,6 +51,8 @@ pub struct MissionConfig {
   pub tracker: String,
   #[serde(default)]
   pub provider: ProviderConfig,
+  #[serde(default, skip_serializing_if = "WorkspaceConfig::is_empty")]
+  pub workspace: WorkspaceConfig,
   #[serde(default)]
   pub agent: AgentConfig,
   #[serde(default)]
@@ -63,6 +66,7 @@ impl Default for MissionConfig {
     Self {
       tracker: default_tracker(),
       provider: ProviderConfig::default(),
+      workspace: WorkspaceConfig::default(),
       agent: AgentConfig::default(),
       trigger: TriggerConfig::default(),
       orchestration: OrchestrationConfig::default(),
@@ -94,6 +98,60 @@ impl Default for ProviderConfig {
       max_concurrent: default_max_concurrent(),
       max_concurrent_primary: None,
     }
+  }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkspaceConfig {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub provider: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub image: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub retention: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub retention_ttl: Option<u64>,
+  #[serde(default, skip_serializing_if = "WorkspaceResources::is_empty")]
+  pub resources: WorkspaceResources,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub setup_commands: Vec<String>,
+}
+
+impl WorkspaceConfig {
+  pub fn is_empty(&self) -> bool {
+    self.provider.is_none()
+      && self.image.is_none()
+      && self.retention.is_none()
+      && self.retention_ttl.is_none()
+      && self.resources.is_empty()
+      && self.setup_commands.is_empty()
+  }
+
+  pub fn provider_kind(&self) -> Result<Option<WorkspaceProviderKind>> {
+    match self.provider.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+      Some(value) => Ok(Some(
+        value
+          .parse()
+          .map_err(|error: String| anyhow::anyhow!(error))?,
+      )),
+      None => Ok(None),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WorkspaceResources {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cpu: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub memory: Option<String>,
+}
+
+impl WorkspaceResources {
+  pub fn is_empty(&self) -> bool {
+    self.cpu.is_none() && self.memory.is_none()
   }
 }
 
@@ -446,6 +504,7 @@ pub fn try_parse_symphony_workflow(content: &str) -> Option<MissionConfig> {
       max_concurrent_primary: None,
     },
     agent: AgentConfig::default(),
+    workspace: WorkspaceConfig::default(),
     trigger: TriggerConfig {
       kind: "polling".to_string(),
       interval,
@@ -515,6 +574,7 @@ pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
       || config.provider.secondary.is_some()
       || config.provider.max_concurrent != defaults.provider.max_concurrent
       || config.provider.max_concurrent_primary.is_some()
+      || !config.workspace.is_empty()
       || config.trigger.kind != defaults.trigger.kind
       || config.trigger.interval != defaults.trigger.interval
       || !config.trigger.filters.labels.is_empty()
@@ -536,6 +596,7 @@ pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
     // recognized MissionConfig top-level keys (even with default values).
     let has_recognized_keys = yaml_block.contains("tracker:")
       || yaml_block.contains("provider:")
+      || yaml_block.contains("workspace:")
       || yaml_block.contains("agent:")
       || yaml_block.contains("trigger:")
       || yaml_block.contains("orchestration:");
@@ -882,6 +943,17 @@ provider:
   secondary: codex
   max_concurrent: 5
   max_concurrent_primary: 3
+workspace:
+  provider: daytona
+  image: team/custom:v2
+  retention: keep_duration
+  retention_ttl: 3600
+  resources:
+    cpu: 4
+    memory: 8Gi
+  setup_commands:
+    - npm install
+    - cargo build
 trigger:
   kind: polling
   interval: 30
@@ -904,6 +976,16 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     assert_eq!(def.config.provider.secondary.as_deref(), Some("codex"));
     assert_eq!(def.config.provider.max_concurrent, 5);
     assert_eq!(def.config.provider.max_concurrent_primary, Some(3));
+    assert_eq!(def.config.workspace.provider.as_deref(), Some("daytona"));
+    assert_eq!(def.config.workspace.image.as_deref(), Some("team/custom:v2"));
+    assert_eq!(def.config.workspace.retention.as_deref(), Some("keep_duration"));
+    assert_eq!(def.config.workspace.retention_ttl, Some(3600));
+    assert_eq!(def.config.workspace.resources.cpu, Some(4));
+    assert_eq!(def.config.workspace.resources.memory.as_deref(), Some("8Gi"));
+    assert_eq!(
+      def.config.workspace.setup_commands,
+      vec!["npm install", "cargo build"]
+    );
     assert_eq!(def.config.trigger.kind, "polling");
     assert_eq!(def.config.trigger.interval, 30);
     assert_eq!(
@@ -983,6 +1065,7 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
         strategy: "priority".to_string(),
         ..Default::default()
       },
+      workspace: WorkspaceConfig::default(),
       ..Default::default()
     };
     let result = serialize_mission_file_preserving(&config, "", Some(existing)).unwrap();
@@ -1071,6 +1154,7 @@ Some prompt body
         max_concurrent_primary: Some(3),
       },
       agent: AgentConfig::default(),
+      workspace: WorkspaceConfig::default(),
       trigger: TriggerConfig {
         kind: "polling".to_string(),
         interval: 30,
@@ -1339,6 +1423,20 @@ Hello
     let def = parse_mission_file(content).unwrap();
     let claude = def.config.agent.claude.as_ref().unwrap();
     assert_eq!(claude.model.as_deref(), Some("test-model"));
+  }
+
+  #[test]
+  fn workspace_provider_kind_parses_when_present() {
+    let content = "---\nworkspace:\n  provider: daytona\n---\nHello";
+    let def = parse_mission_file(content).unwrap();
+    assert_eq!(
+      def
+        .config
+        .workspace
+        .provider_kind()
+        .expect("parse provider kind"),
+      Some(WorkspaceProviderKind::Daytona)
+    );
   }
 
   // ── apply_update: tracker ─────────────────────────────────────────

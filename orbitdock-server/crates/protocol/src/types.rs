@@ -27,12 +27,14 @@ impl std::str::FromStr for Provider {
 pub enum WorkspaceProviderKind {
   #[default]
   Local,
+  Daytona,
 }
 
 impl WorkspaceProviderKind {
   pub fn as_str(self) -> &'static str {
     match self {
       Self::Local => "local",
+      Self::Daytona => "daytona",
     }
   }
 }
@@ -43,6 +45,7 @@ impl std::str::FromStr for WorkspaceProviderKind {
   fn from_str(s: &str) -> Result<Self, Self::Err> {
     match s.trim().to_ascii_lowercase().as_str() {
       "local" => Ok(Self::Local),
+      "daytona" => Ok(Self::Daytona),
       other => Err(format!("unsupported workspace provider '{other}'")),
     }
   }
@@ -2412,8 +2415,18 @@ mod tests {
   }
 
   #[test]
+  fn workspace_provider_kind_parses_daytona() {
+    assert_eq!(
+      "daytona"
+        .parse::<WorkspaceProviderKind>()
+        .expect("parse daytona provider"),
+      WorkspaceProviderKind::Daytona
+    );
+  }
+
+  #[test]
   fn workspace_provider_kind_rejects_unknown_values() {
-    let error = "daytona"
+    let error = "unknown-provider"
       .parse::<WorkspaceProviderKind>()
       .expect_err("unknown provider should fail");
 

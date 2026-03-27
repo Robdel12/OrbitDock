@@ -5,7 +5,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use orbitdock_protocol::{
   MissionCleanupPrompt, MissionIssueItem, MissionSummary, MissionsSnapshot, OrchestrationState,
@@ -462,6 +462,7 @@ pub async fn retry_mission_issue(
       &MissionIssueStateUpdate {
         orchestration_state: "queued",
         session_id: None,
+        workspace_id: None,
         attempt: Some(0),
         last_error: Some(None),
         started_at: Some(None),
@@ -587,6 +588,7 @@ pub async fn transition_mission_issue(
       OrchestrationState::Queued => MissionIssueStateUpdate {
         orchestration_state: &target_str,
         session_id: None,
+        workspace_id: None,
         attempt: Some(0),
         last_error: Some(None),
         started_at: Some(None),
@@ -595,6 +597,7 @@ pub async fn transition_mission_issue(
       OrchestrationState::Completed => MissionIssueStateUpdate {
         orchestration_state: &target_str,
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(None),
         started_at: None,
@@ -603,6 +606,7 @@ pub async fn transition_mission_issue(
       OrchestrationState::Failed => MissionIssueStateUpdate {
         orchestration_state: &target_str,
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(Some(reason.as_deref().unwrap_or("Manually stopped"))),
         started_at: None,
@@ -611,6 +615,7 @@ pub async fn transition_mission_issue(
       OrchestrationState::Provisioning => MissionIssueStateUpdate {
         orchestration_state: &target_str,
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(None),
         started_at: None,
@@ -619,6 +624,7 @@ pub async fn transition_mission_issue(
       OrchestrationState::Blocked => MissionIssueStateUpdate {
         orchestration_state: &target_str,
         session_id: None,
+        workspace_id: None,
         attempt: None,
         last_error: Some(Some(reason.as_deref().unwrap_or("Manually blocked"))),
         started_at: None,
@@ -1410,6 +1416,7 @@ pub async fn dispatch_mission_issue(
     prompt_template: workflow.prompt_template.clone(),
     base_branch: workflow.config.orchestration.base_branch.clone(),
     agent_config: workflow.config.agent.clone(),
+    workspace_config: workflow.config.workspace.clone(),
     worktree_root_dir: workflow.config.orchestration.worktree_root_dir.clone(),
     state_on_dispatch: workflow.config.orchestration.state_on_dispatch.clone(),
     tracker,
@@ -1776,6 +1783,7 @@ pub async fn report_issue_blocked(
       issue_id: iid.clone(),
       orchestration_state: "blocked".to_string(),
       session_id: None,
+      workspace_id: None,
       attempt: None,
       last_error: Some(Some(reason.clone())),
       retry_due_at: None,
@@ -1829,6 +1837,25 @@ pub async fn report_issue_completed(
     .ok()
     .flatten()
   };
+  let workspace_id: Option<String> = {
+    let db_path = registry.db_path().clone();
+    let mid2 = mid.clone();
+    let iid2 = iid.clone();
+    tokio::task::spawn_blocking(move || {
+      let conn = rusqlite::Connection::open(&db_path).ok()?;
+      conn
+        .query_row(
+          "SELECT workspace_id FROM mission_issues WHERE mission_id = ?1 AND issue_id = ?2",
+          params![mid2, iid2],
+          |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
+    })
+    .await
+    .ok()
+    .flatten()
+  };
 
   let _ = registry
     .persist()
@@ -1837,6 +1864,7 @@ pub async fn report_issue_completed(
       issue_id: iid.clone(),
       orchestration_state: "completed".to_string(),
       session_id: None,
+      workspace_id: None,
       attempt: None,
       last_error: Some(None),
       retry_due_at: Some(None),
@@ -1856,6 +1884,26 @@ pub async fn report_issue_completed(
         session_id = %sid,
         "Ended agent session after issue completed"
     );
+  }
+
+  if let Some(ref workspace_id) = workspace_id {
+    if let Err(error) =
+      crate::runtime::workspace_dispatch::daytona::destroy_daytona_workspace(
+        registry.clone(),
+        workspace_id,
+      )
+      .await
+    {
+      warn!(
+        component = "mission_control",
+        event = "issue.complete.workspace_destroy_failed",
+        mission_id = %mid,
+        issue_id = %iid,
+        workspace_id = %workspace_id,
+        error = %error,
+        "Failed to destroy remote workspace after completion"
+      );
+    }
   }
 
   crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&registry, &mid).await;

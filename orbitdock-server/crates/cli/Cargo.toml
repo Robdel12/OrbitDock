@@ -20,6 +20,7 @@ serde_json = { workspace = true }
 reqwest = { workspace = true }
 dirs = { workspace = true }
 anyhow = { workspace = true }
+base64 = { workspace = true }
 tokio-tungstenite = { version = "0.26", features = ["connect", "handshake"] }
 comfy-table = "7"
 console = "0.15"

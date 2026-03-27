@@ -197,6 +197,8 @@ pub async fn end_session(
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionRequest {
+  #[serde(default)]
+  pub session_id: Option<String>,
   pub provider: Provider,
   pub cwd: String,
   #[serde(default)]
@@ -239,6 +241,22 @@ pub struct CreateSessionRequest {
   pub codex_model_provider: Option<String>,
   #[serde(default)]
   pub codex_config_source: Option<CodexConfigSource>,
+  #[serde(default)]
+  pub mission_id: Option<String>,
+  #[serde(default)]
+  pub issue_id: Option<String>,
+  #[serde(default)]
+  pub issue_identifier: Option<String>,
+  #[serde(default)]
+  pub workspace_id: Option<String>,
+  #[serde(default)]
+  pub initial_prompt: Option<String>,
+  #[serde(default)]
+  pub skills: Vec<String>,
+  #[serde(default)]
+  pub tracker_kind: Option<String>,
+  #[serde(default)]
+  pub tracker_api_key: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -299,7 +317,10 @@ pub async fn create_session(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  let session_id = orbitdock_protocol::new_session_id();
+  let session_id = body
+    .session_id
+    .clone()
+    .unwrap_or_else(orbitdock_protocol::new_session_id);
   let developer_instructions = resolve_developer_instructions(
     body.developer_instructions.clone(),
     body.system_prompt.clone(),
@@ -312,6 +333,46 @@ pub async fn create_session(
   };
   let normalized_codex_selection =
     create_codex_selection(&body, developer_instructions.clone(), codex_config_source);
+  let claude_extra_env = body
+    .tracker_api_key
+    .as_ref()
+    .zip(body.tracker_kind.as_deref())
+    .map(|(api_key, tracker_kind)| {
+      crate::runtime::workspace_dispatch::local::build_mission_tool_env(
+        tracker_kind,
+        api_key,
+        body.issue_id.as_deref().unwrap_or_default(),
+        body.issue_identifier.as_deref().unwrap_or_default(),
+        body.mission_id.as_deref().unwrap_or_default(),
+      )
+    })
+    .unwrap_or_default();
+  let dynamic_tools = if body.tracker_api_key.is_some() {
+    crate::domain::mission_control::tools::mission_tool_definitions()
+      .into_iter()
+      .map(|tool| codex_protocol::dynamic_tools::DynamicToolSpec {
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.input_schema,
+        defer_loading: false,
+      })
+      .collect()
+  } else {
+    Vec::new()
+  };
+  if !claude_extra_env.is_empty() {
+    let orbitdock_bin = std::env::current_exe()
+      .map(|path| path.to_string_lossy().to_string())
+      .unwrap_or_else(|_| "orbitdock".to_string());
+    let mcp_config =
+      crate::runtime::workspace_dispatch::local::build_mcp_config(&orbitdock_bin);
+    let mcp_path = format!("{}/.mcp.json", body.cwd.trim_end_matches('/'));
+    let _ = tokio::fs::write(
+      &mcp_path,
+      serde_json::to_string_pretty(&mcp_config).unwrap_or_default(),
+    )
+    .await;
+  }
   let resolved_codex = if let Some(selection) = normalized_codex_selection.clone() {
     Some(
       resolve_codex_settings(&body.cwd, selection)
@@ -415,12 +476,12 @@ pub async fn create_session(
             .as_ref()
             .and_then(|selection| selection.overrides.developer_instructions.clone())
         }),
-      mission_id: None,
-      issue_identifier: None,
+      mission_id: body.mission_id.clone(),
+      issue_identifier: body.issue_identifier.clone(),
       worktree_id: None,
-      dynamic_tools: Vec::new(),
+      dynamic_tools,
       allow_bypass_permissions: body.allow_bypass_permissions,
-      claude_extra_env: Vec::new(),
+      claude_extra_env,
       codex_config_mode: resolved_codex
         .as_ref()
         .map(|resolved| resolved.effective_settings.config_mode),
@@ -450,6 +511,43 @@ pub async fn create_session(
         error = %error_message,
         "HTTP: Failed to start direct session connector"
     );
+  }
+
+  if let Some(initial_prompt) = &body.initial_prompt {
+    crate::runtime::session_prompt::send_initial_prompt(
+      &state,
+      &session_id,
+      body.provider,
+      initial_prompt,
+      resolved_codex
+        .as_ref()
+        .and_then(|resolved| resolved.effective_settings.model.clone())
+        .or(body.model.clone()),
+      resolved_codex
+        .as_ref()
+        .and_then(|resolved| resolved.effective_settings.effort.clone())
+        .or(body.effort.clone()),
+      &body.skills,
+    )
+    .await;
+  }
+
+  if let (Some(mission_id), Some(issue_id)) = (&body.mission_id, &body.issue_id) {
+    let _ = state
+      .persist()
+      .send(PersistCommand::MissionIssueUpdateState {
+        mission_id: mission_id.clone(),
+        issue_id: issue_id.clone(),
+        orchestration_state: "running".to_string(),
+        session_id: Some(session_id.clone()),
+        workspace_id: body.workspace_id.clone(),
+        attempt: None,
+        last_error: Some(None),
+        retry_due_at: None,
+        started_at: None,
+        completed_at: None,
+      })
+      .await;
   }
 
   state.publish_dashboard_snapshot();

@@ -5,6 +5,7 @@
 //! workspace creation, session setup, agent launch, and initial prompt
 //! delivery.
 
+pub(crate) mod daytona;
 pub(crate) mod local;
 
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use orbitdock_protocol::WorkspaceProviderKind;
 
-use crate::domain::mission_control::config::AgentConfig;
+use crate::domain::mission_control::config::{AgentConfig, WorkspaceConfig};
 
 use super::session_registry::SessionRegistry;
 
@@ -50,6 +51,8 @@ pub(crate) struct DispatchRequest {
   pub provider_str: String,
   /// Agent configuration from `MISSION.md`.
   pub agent_config: AgentConfig,
+  /// Workspace-specific overrides from `MISSION.md`.
+  pub workspace_config: WorkspaceConfig,
   /// Rendered prompt to send as the first message.
   pub prompt: String,
   /// Session registry for persistence and connector access.
@@ -63,9 +66,16 @@ pub(crate) struct WorkspaceIssueRef {
 }
 
 /// Result of a successful workspace dispatch.
-pub(crate) struct DispatchResult {
-  /// The session ID of the running agent.
-  pub session_id: String,
+pub(crate) enum DispatchResult {
+  /// The workspace provider fully launched the agent session.
+  Running {
+    session_id: String,
+    workspace_id: Option<String>,
+  },
+  /// The provider provisioned a remote workspace and handed off launch.
+  Provisioning {
+    workspace_id: String,
+  },
 }
 
 #[derive(Debug)]
@@ -89,5 +99,6 @@ pub(crate) fn build_workspace_provider(
 ) -> anyhow::Result<Arc<dyn WorkspaceProvider>> {
   match provider_kind {
     WorkspaceProviderKind::Local => Ok(Arc::new(local::LocalWorkspaceProvider::new())),
+    WorkspaceProviderKind::Daytona => Ok(Arc::new(daytona::DaytonaWorkspaceProvider::new()?)),
   }
 }
