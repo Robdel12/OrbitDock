@@ -13,17 +13,17 @@ import os
 enum MarkdownSystemParser {
   // MARK: - Cache
 
-  private struct CacheKey: Hashable, Sendable {
+  private nonisolated struct CacheKey: Hashable, Sendable {
     let markdown: String
     let style: ContentStyle
   }
 
-  private struct CacheEntry: Sendable {
+  private nonisolated struct CacheEntry: Sendable {
     let blocks: [MarkdownBlock]
     var accessTick: UInt64
   }
 
-  private struct CacheState: Sendable {
+  private nonisolated struct CacheState: Sendable {
     var entries: [CacheKey: CacheEntry] = [:]
     var tick: UInt64 = 0
   }
@@ -31,11 +31,11 @@ enum MarkdownSystemParser {
   private static let cache = OSAllocatedUnfairLock(initialState: CacheState())
 
   #if os(iOS)
-    private static let maxCacheSize = 160
+    nonisolated private static let maxCacheSize = 160
   #else
-    private static let maxCacheSize = 500
+    nonisolated private static let maxCacheSize = 500
   #endif
-  private static let evictionBatchSize = 64
+  nonisolated private static let evictionBatchSize = 64
 
   /// Two-space gap between list marker and content (inlined from deleted MarkdownTypography).
   private static let listMarkerGap = "  "
@@ -517,7 +517,7 @@ enum MarkdownSystemParser {
 
   // MARK: - Cache Machinery
 
-  private static func evictIfNeeded(state: inout CacheState) {
+  nonisolated private static func evictIfNeeded(state: inout CacheState) {
     guard state.entries.count >= maxCacheSize else { return }
     let toEvict = min(evictionBatchSize, state.entries.count)
     guard toEvict > 0 else { return }

@@ -40,7 +40,7 @@ enum ListMarker: Equatable {
   }
 }
 
-enum ContentStyle: Hashable {
+nonisolated enum ContentStyle: Hashable {
   case standard
   case thinking
 }

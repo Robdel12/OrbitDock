@@ -95,7 +95,7 @@ enum ConversationProjectGroupBuilder {
     return ordered + unordered
   }
 
-  private static func alphabeticalSort(
+  nonisolated private static func alphabeticalSort(
     lhs: ConversationProjectGroup,
     rhs: ConversationProjectGroup
   ) -> Bool {
