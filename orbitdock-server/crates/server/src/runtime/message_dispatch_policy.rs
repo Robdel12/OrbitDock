@@ -2,7 +2,7 @@ use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::{ImageInput, Provider};
+use orbitdock_protocol::{CodexConfigMode, ImageInput, Provider};
 
 use crate::domain::sessions::session_naming::name_from_first_prompt;
 use crate::support::normalization::{normalize_model_override, normalize_non_empty};
@@ -24,12 +24,19 @@ pub(crate) enum PromptRowKind {
 
 pub(crate) fn plan_send_message(
   provider: Provider,
+  codex_config_mode: Option<CodexConfigMode>,
   content: &str,
   model: Option<String>,
   effort: Option<String>,
 ) -> SendMessagePlan {
   let first_prompt = name_from_first_prompt(content);
-  let action_model = normalize_model_override(model);
+  let normalized_model = normalize_model_override(model);
+  let action_model =
+    if provider == Provider::Codex && codex_config_mode != Some(CodexConfigMode::Custom) {
+      None
+    } else {
+      normalized_model
+    };
   let normalized_effort = normalize_non_empty(effort);
   let (session_effort_update, connector_effort) = if provider == Provider::Claude {
     (None, None)

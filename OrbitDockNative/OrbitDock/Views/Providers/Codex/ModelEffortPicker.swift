@@ -14,6 +14,10 @@ struct ModelEffortPopover: View {
   @Binding var selectedModel: String
   @Binding var selectedEffort: EffortLevel
   let models: [ServerCodexModelOption]
+  let currentModel: String?
+  let allowsModelSelection: Bool
+  let noticeMessage: String?
+  let noticeIsLoading: Bool
 
   @Environment(\.dismiss) private var dismiss
   @State private var showModelPicker = false
@@ -26,11 +30,30 @@ struct ModelEffortPopover: View {
   }
 
   private var selectedModelOption: ServerCodexModelOption? {
-    availableModels.first { $0.model == selectedModel }
+    availableModels.first { $0.model == activeModelSelection }
+  }
+
+  private var activeModelSelection: String {
+    let trimmedSelectedModel = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedSelectedModel.isEmpty {
+      return trimmedSelectedModel
+    }
+    return currentModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  private var fallbackModelLabel: String {
+    let trimmedCurrentModel = currentModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    if let selectedModelOption {
+      return selectedModelOption.displayName
+    }
+    if !trimmedCurrentModel.isEmpty {
+      return trimmedCurrentModel
+    }
+    return "No model selected"
   }
 
   private var selectedProviderTitle: String {
-    guard let selectedModelOption else { return "Unknown" }
+    guard let selectedModelOption else { return allowsModelSelection ? "Unknown" : "Session" }
     return providerKey(for: selectedModelOption).title
   }
 
@@ -146,58 +169,48 @@ struct ModelEffortPopover: View {
           .background(Color.backgroundTertiary, in: Capsule())
       }
 
-      Button {
-        withAnimation(Motion.standard) {
-          showModelPicker.toggle()
-          if !showModelPicker { searchQuery = "" }
+      Group {
+        if allowsModelSelection {
+          Button {
+            withAnimation(Motion.standard) {
+              showModelPicker.toggle()
+              if !showModelPicker { searchQuery = "" }
+            }
+          } label: {
+            modelSummaryCard(showsChevron: true)
+          }
+          .buttonStyle(.plain)
+        } else {
+          modelSummaryCard(showsChevron: false)
         }
-      } label: {
-        HStack(alignment: .center, spacing: Spacing.sm) {
-          VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: Spacing.sm) {
-              Text(selectedModelOption?.displayName ?? "No model selected")
-                .font(.system(size: TypeScale.body, weight: .semibold))
-                .foregroundStyle(Color.textSecondary)
-                .lineLimit(1)
+      }
 
-              if selectedModelOption?.isDefault == true {
-                Text("DEFAULT")
-                  .font(.system(size: 7, weight: .bold, design: .rounded))
-                  .foregroundStyle(Color.providerCodex)
-                  .padding(.horizontal, Spacing.xs)
-                  .padding(.vertical, 1)
-                  .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
-              }
-            }
+      if !allowsModelSelection {
+        Text("This session’s model comes from its active Codex profile or inherited config.")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
 
-            if !showModelPicker, let description = selectedModelOption?.description, !description.isEmpty {
-              Text(description)
-                .font(.system(size: TypeScale.caption))
-                .foregroundStyle(Color.textTertiary)
-                .lineLimit(1)
-            }
+      if let noticeMessage, !noticeMessage.isEmpty {
+        HStack(spacing: Spacing.sm) {
+          if noticeIsLoading {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+              .foregroundStyle(Color.feedbackCaution)
           }
 
-          Spacer(minLength: 0)
-
-          Image(systemName: showModelPicker ? "chevron.up" : "chevron.down")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
+          Text(noticeMessage)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(Color.backgroundPrimary.opacity(0.28))
-        )
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .strokeBorder(Color.surfaceBorder.opacity(0.45), lineWidth: 1)
-        )
       }
-      .buttonStyle(.plain)
 
-      if showModelPicker {
+      if allowsModelSelection, showModelPicker {
         if showSearch {
           searchBar
         }
@@ -209,6 +222,60 @@ struct ModelEffortPopover: View {
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.md)
     .layoutPriority(showModelPicker ? 1 : 0)
+  }
+
+  private func modelSummaryCard(showsChevron: Bool) -> some View {
+    HStack(alignment: .center, spacing: Spacing.sm) {
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: Spacing.sm) {
+          Text(fallbackModelLabel)
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+
+          if selectedModelOption?.isDefault == true {
+            Text("DEFAULT")
+              .font(.system(size: 7, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.providerCodex)
+              .padding(.horizontal, Spacing.xs)
+              .padding(.vertical, 1)
+              .background(Color.providerCodex.opacity(OpacityTier.light), in: Capsule())
+          }
+        }
+
+        if !showModelPicker, let description = selectedModelOption?.description, !description.isEmpty {
+          Text(description)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        } else if !showModelPicker, let currentModel,
+                  !currentModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        {
+          Text(currentModel)
+            .font(.system(size: TypeScale.caption, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        }
+      }
+
+      Spacer(minLength: 0)
+
+      if showsChevron {
+        Image(systemName: showModelPicker ? "chevron.up" : "chevron.down")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textQuaternary)
+      }
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundPrimary.opacity(0.28))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.surfaceBorder.opacity(0.45), lineWidth: 1)
+    )
   }
 
   private var searchBar: some View {
@@ -376,8 +443,8 @@ struct ModelEffortPopover: View {
   }
 
   private func compareModels(_ lhs: ServerCodexModelOption, _ rhs: ServerCodexModelOption) -> Bool {
-    if lhs.model == selectedModel { return true }
-    if rhs.model == selectedModel { return false }
+    if lhs.model == activeModelSelection { return true }
+    if rhs.model == activeModelSelection { return false }
     if lhs.isDefault != rhs.isDefault { return lhs.isDefault && !rhs.isDefault }
     return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
   }
@@ -640,6 +707,10 @@ private extension ProviderKey {
         isDefault: false,
         supportedReasoningEfforts: ["low", "medium", "high"]
       ),
-    ]
+    ],
+    currentModel: "openai/gpt-5.3-codex",
+    allowsModelSelection: true,
+    noticeMessage: nil,
+    noticeIsLoading: false
   )
 }

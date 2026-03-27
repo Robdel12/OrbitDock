@@ -25,6 +25,9 @@ struct NewSessionConfigurationCard: View {
   let codexCatalog: SessionsClient.CodexConfigCatalogResponse?
   let codexCatalogLoading: Bool
   let codexCatalogError: String?
+  let codexScopedModelProvider: String?
+  let codexScopedModelsLoading: Bool
+  let codexScopedModelError: String?
   let onInspectCodexConfig: (() -> Void)?
   let onManageCodexConfig: (() -> Void)?
 
@@ -88,6 +91,31 @@ struct NewSessionConfigurationCard: View {
 
   private var usesCustomCodexConfig: Bool {
     codexConfigMode == .custom
+  }
+
+  private var codexScopedModelNotice: String? {
+    guard usesCustomCodexConfig,
+          let provider = codexScopedModelProvider?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !provider.isEmpty
+    else {
+      return nil
+    }
+
+    if codexScopedModelsLoading {
+      return "Loading provider-scoped models for \(provider)…"
+    }
+
+    if let codexScopedModelError, !codexScopedModelError.isEmpty {
+      return
+        "Couldn’t load models for \(provider). OrbitDock is hiding the generic Codex list here so you only pick provider-compatible models. You can still type a model ID manually."
+    }
+
+    if codexModels.isEmpty {
+      return
+        "No suggested models were returned for \(provider). OrbitDock is hiding the generic Codex list here so you don’t pick an incompatible model."
+    }
+
+    return nil
   }
 
   private var codexResolvedProfileLabel: String {
@@ -392,9 +420,11 @@ struct NewSessionConfigurationCard: View {
     .onChange(of: codexConfigMode) { _, newValue in
       switch newValue {
         case .inherit:
+          codexModel = ""
           codexConfigProfile = ""
           codexModelProvider = ""
         case .profile:
+          codexModel = ""
           codexModelProvider = ""
           if codexConfigProfile.isEmpty {
             codexConfigProfile = profileOptions.first?.name ?? ""
@@ -755,8 +785,14 @@ struct NewSessionConfigurationCard: View {
               }
             }
           } description: {
-            Text(currentCodexModelOption?
-              .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              Text(currentCodexModelOption?
+                .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
+
+              if let codexScopedModelNotice {
+                codexScopedModelNoticeView(codexScopedModelNotice)
+              }
+            }
           }
         }
 
@@ -799,8 +835,14 @@ struct NewSessionConfigurationCard: View {
               }
             }
           } description: {
-            Text(currentCodexModelOption?
-              .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              Text(currentCodexModelOption?
+                .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
+
+              if let codexScopedModelNotice {
+                codexScopedModelNoticeView(codexScopedModelNotice)
+              }
+            }
           }
         }
       }
@@ -842,6 +884,24 @@ struct NewSessionConfigurationCard: View {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
     )
+  }
+
+  private func codexScopedModelNoticeView(_ message: String) -> some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      if codexScopedModelsLoading {
+        ProgressView()
+          .controlSize(.small)
+      } else {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.feedbackCaution)
+      }
+
+      Text(message)
+        .font(.system(size: TypeScale.micro))
+        .foregroundStyle(Color.textTertiary)
+        .fixedSize(horizontal: false, vertical: true)
+    }
   }
 
   private var customProviderRow: some View {

@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::{Provider, SessionLifecycleState, SessionStatus};
+use orbitdock_protocol::{CodexConfigMode, Provider, SessionLifecycleState, SessionStatus};
 
 use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
@@ -836,6 +836,91 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
 }
 
 #[test]
+fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
+  let (conn, _db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, model, codex_config_mode, codex_config_profile, codex_model_provider
+         ) VALUES (
+            'legacy-codex-profile', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/profile', 'qwen/qwen3-coder-next', NULL, 'qwen', 'openrouter'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, model, codex_config_mode, codex_config_profile, codex_model_provider
+         ) VALUES (
+            'legacy-codex-custom', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/custom', 'qwen/qwen3-coder-next', NULL, NULL, 'openrouter'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+
+  let profile_row = runtime
+    .block_on(super::session_reads::load_session_by_id(
+      "legacy-codex-profile",
+    ))
+    .unwrap()
+    .expect("legacy profile row should load");
+  assert_eq!(
+    profile_row.codex_config_mode,
+    Some(CodexConfigMode::Profile)
+  );
+  assert_eq!(profile_row.codex_config_profile.as_deref(), Some("qwen"));
+  assert_eq!(
+    profile_row.codex_model_provider.as_deref(),
+    Some("openrouter")
+  );
+
+  let custom_row = runtime
+    .block_on(super::session_reads::load_session_by_id(
+      "legacy-codex-custom",
+    ))
+    .unwrap()
+    .expect("legacy custom row should load");
+  assert_eq!(custom_row.codex_config_mode, Some(CodexConfigMode::Custom));
+  assert_eq!(
+    custom_row.codex_model_provider.as_deref(),
+    Some("openrouter")
+  );
+
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup())
+    .unwrap();
+  let startup_profile = restored
+    .iter()
+    .find(|session| session.id == "legacy-codex-profile")
+    .expect("legacy profile row should restore");
+  assert_eq!(
+    startup_profile.codex_config_mode,
+    Some(CodexConfigMode::Profile)
+  );
+
+  let startup_custom = restored
+    .iter()
+    .find(|session| session.id == "legacy-codex-custom")
+    .expect("legacy custom row should restore");
+  assert_eq!(
+    startup_custom.codex_config_mode,
+    Some(CodexConfigMode::Custom)
+  );
+}
+
+#[test]
 fn load_direct_claude_owner_by_sdk_session_id_returns_direct_owner() {
   let (_conn, db_path, _dir, _guard) = setup_test_db();
 
@@ -895,6 +980,77 @@ fn load_direct_claude_owner_by_sdk_session_id_returns_direct_owner() {
 }
 
 #[test]
+fn session_create_persists_codex_config_columns_without_placeholder_drift() {
+  let (_conn, db_path, _dir, _guard) = setup_test_db();
+  let batch = vec![PersistCommand::SessionCreate(Box::new(
+    SessionCreateParams {
+      id: "codex-profile-session".to_string(),
+      provider: Provider::Codex,
+      control_mode: orbitdock_protocol::SessionControlMode::Direct,
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: Some("main".to_string()),
+      model: Some("qwen/qwen3-coder-next".to_string()),
+      approval_policy: Some("on-request".to_string()),
+      sandbox_mode: Some("workspace-write".to_string()),
+      permission_mode: None,
+      collaboration_mode: Some("default".to_string()),
+      multi_agent: Some(true),
+      personality: Some("mentor".to_string()),
+      service_tier: Some("priority".to_string()),
+      developer_instructions: Some("Stay focused".to_string()),
+      codex_config_mode: Some(orbitdock_protocol::CodexConfigMode::Profile),
+      codex_config_profile: Some("qwen".to_string()),
+      codex_model_provider: Some("openrouter".to_string()),
+      codex_config_source: Some(orbitdock_protocol::CodexConfigSource::User),
+      codex_config_overrides_json: Some("{\"effort\":\"high\"}".to_string()),
+      forked_from_session_id: None,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+      worktree_id: None,
+    },
+  ))];
+  super::writer::flush_batch_for_test(&db_path, batch).unwrap();
+
+  struct PersistedCodexSessionRow {
+    codex_config_mode: Option<String>,
+    codex_config_profile: Option<String>,
+    codex_model_provider: Option<String>,
+    codex_config_overrides_json: Option<String>,
+    started_at: Option<String>,
+  }
+
+  let conn = Connection::open(&db_path).unwrap();
+  let row = conn
+    .query_row(
+      "SELECT codex_config_mode, codex_config_profile, codex_model_provider, codex_config_overrides_json, started_at
+       FROM sessions
+       WHERE id = 'codex-profile-session'",
+      [],
+      |row| {
+        Ok(PersistedCodexSessionRow {
+          codex_config_mode: row.get(0)?,
+          codex_config_profile: row.get(1)?,
+          codex_model_provider: row.get(2)?,
+          codex_config_overrides_json: row.get(3)?,
+          started_at: row.get(4)?,
+        })
+      },
+    )
+    .unwrap();
+
+  assert_eq!(row.codex_config_mode.as_deref(), Some("profile"));
+  assert_eq!(row.codex_config_profile.as_deref(), Some("qwen"));
+  assert_eq!(row.codex_model_provider.as_deref(), Some("openrouter"));
+  assert_eq!(
+    row.codex_config_overrides_json.as_deref(),
+    Some("{\"effort\":\"high\"}")
+  );
+  assert!(row.started_at.is_some());
+}
+
+#[test]
 fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
 
@@ -930,9 +1086,14 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
     .enable_all()
     .build()
     .unwrap();
-  let _ = runtime
+  let restored = runtime
     .block_on(super::session_reads::load_sessions_for_startup())
     .unwrap();
+
+  assert!(
+    restored.into_iter().all(|session| session.id != sdk_id),
+    "startup restore should not surface passive Claude shadows owned by a direct session"
+  );
 
   let conn = Connection::open(&db_path).unwrap();
   let shadow: (String, String, String) = conn
@@ -946,6 +1107,199 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
   assert_eq!(shadow.0, "ended");
   assert_eq!(shadow.1, "ended");
   assert_eq!(shadow.2, "startup_direct_shadow");
+}
+
+#[test]
+fn claude_session_upsert_skips_new_shadow_when_direct_owner_exists() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  let direct_id = "od-direct-shadow-owner";
+  let sdk_id = "claude-sdk-shadow";
+
+  conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'ended', 'ended', 'ended', 'direct',
+            '/tmp/test', 'direct', ?2, '2026-03-26T10:00:00Z', '2026-03-26T10:10:00Z'
+         )",
+        [direct_id, sdk_id],
+    )
+    .unwrap();
+  drop(conn);
+
+  super::writer::flush_batch_for_test(
+    &db_path,
+    vec![PersistCommand::ClaudeSessionUpsert {
+      id: sdk_id.to_string(),
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: Some("main".to_string()),
+      model: Some("claude-opus-4-6".to_string()),
+      context_label: None,
+      transcript_path: Some("/tmp/test/transcript.jsonl".to_string()),
+      source: Some("hook".to_string()),
+      agent_type: None,
+      permission_mode: Some("acceptEdits".to_string()),
+      terminal_session_id: None,
+      terminal_app: None,
+      forked_from_session_id: None,
+      repository_root: Some("/tmp/test".to_string()),
+      is_worktree: false,
+      git_sha: Some("abc123".to_string()),
+    }],
+  )
+  .unwrap();
+
+  let conn = Connection::open(&db_path).unwrap();
+  let shadow_count: i64 = conn
+    .query_row(
+      "SELECT COUNT(*) FROM sessions WHERE id = ?1",
+      [sdk_id],
+      |row| row.get(0),
+    )
+    .unwrap();
+
+  assert_eq!(shadow_count, 0);
+}
+
+#[test]
+fn claude_session_upsert_ends_existing_shadow_when_direct_owner_exists() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  let direct_id = "od-direct-shadow-owner";
+  let sdk_id = "claude-sdk-shadow";
+
+  conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'ended', 'ended', 'ended', 'direct',
+            '/tmp/test', 'direct', ?2, '2026-03-26T10:00:00Z', '2026-03-26T10:10:00Z'
+         )",
+        [direct_id, sdk_id],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'active', 'working', 'open', 'passive',
+            '/tmp/test', 'passive', '2026-03-26T10:05:00Z', '2026-03-26T10:05:00Z'
+         )",
+      [sdk_id],
+    )
+    .unwrap();
+  drop(conn);
+
+  super::writer::flush_batch_for_test(
+    &db_path,
+    vec![PersistCommand::ClaudeSessionUpsert {
+      id: sdk_id.to_string(),
+      project_path: "/tmp/test".to_string(),
+      project_name: Some("Test Project".to_string()),
+      branch: Some("main".to_string()),
+      model: Some("claude-opus-4-6".to_string()),
+      context_label: None,
+      transcript_path: Some("/tmp/test/transcript.jsonl".to_string()),
+      source: Some("hook".to_string()),
+      agent_type: None,
+      permission_mode: Some("acceptEdits".to_string()),
+      terminal_session_id: None,
+      terminal_app: None,
+      forked_from_session_id: None,
+      repository_root: Some("/tmp/test".to_string()),
+      is_worktree: false,
+      git_sha: Some("abc123".to_string()),
+    }],
+  )
+  .unwrap();
+
+  let conn = Connection::open(&db_path).unwrap();
+  let shadow: (String, String, String) = conn
+    .query_row(
+      "SELECT status, work_status, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
+      [sdk_id],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .unwrap();
+
+  assert_eq!(shadow.0, "ended");
+  assert_eq!(shadow.1, "ended");
+  assert_eq!(shadow.2, "direct_owner_exists");
+}
+
+#[test]
+fn claude_session_update_preserves_ended_shadow_when_direct_owner_exists() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  let direct_id = "od-direct-shadow-owner";
+  let sdk_id = "claude-sdk-shadow";
+
+  conn.execute(
+        "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'ended', 'ended', 'ended', 'direct',
+            '/tmp/test', 'direct', ?2, '2026-03-26T10:00:00Z', '2026-03-26T10:10:00Z'
+         )",
+        [direct_id, sdk_id],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, started_at, ended_at, end_reason, last_activity_at
+         ) VALUES (
+            ?1, 'claude', 'ended', 'ended', 'ended', 'passive',
+            '/tmp/test', 'passive', '2026-03-26T10:05:00Z', '2026-03-26T10:06:00Z', 'startup_direct_shadow', '2026-03-26T10:06:00Z'
+         )",
+      [sdk_id],
+    )
+    .unwrap();
+  drop(conn);
+
+  super::writer::flush_batch_for_test(
+    &db_path,
+    vec![PersistCommand::ClaudeSessionUpdate {
+      id: sdk_id.to_string(),
+      work_status: Some("working".to_string()),
+      attention_reason: Some(Some("awaitingReply".to_string())),
+      last_tool: Some(Some("Bash".to_string())),
+      last_tool_at: Some(Some("2026-03-26T10:07:00Z".to_string())),
+      pending_tool_name: Some(Some("Bash".to_string())),
+      pending_tool_input: Some(Some("{\"command\":\"pwd\"}".to_string())),
+      pending_question: Some(Some("continue?".to_string())),
+      source: None,
+      agent_type: None,
+      permission_mode: None,
+      active_subagent_id: Some(Some("subagent-1".to_string())),
+      active_subagent_type: Some(Some("worker".to_string())),
+      first_prompt: Some("hello".to_string()),
+      compact_count_increment: true,
+    }],
+  )
+  .unwrap();
+
+  let conn = Connection::open(&db_path).unwrap();
+  let shadow: (String, String, String, String) = conn
+    .query_row(
+      "SELECT status, work_status, lifecycle_state, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
+      [sdk_id],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .unwrap();
+
+  assert_eq!(shadow.0, "ended");
+  assert_eq!(shadow.1, "ended");
+  assert_eq!(shadow.2, "ended");
+  assert_eq!(shadow.3, "startup_direct_shadow");
 }
 
 // ── Mission-scoped tracker credentials ─────────────────────────────

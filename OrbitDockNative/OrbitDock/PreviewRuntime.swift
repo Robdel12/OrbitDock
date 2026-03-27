@@ -101,7 +101,6 @@ struct PreviewRuntime {
     self.appStore.router = router
   }
 
-  @ViewBuilder
   func inject(_ content: some View) -> some View {
     content
       .environment(sessionStore)

@@ -108,7 +108,14 @@ pub(crate) async fn dispatch_send_message(
   }
 
   let requested_effort = normalize_non_empty(effort.clone());
-  let plan = plan_send_message(provider, &content, model, effort);
+  let requested_model = model.clone();
+  let plan = plan_send_message(
+    provider,
+    snapshot.codex_config_mode,
+    &content,
+    model,
+    effort,
+  );
 
   let ts_millis = SystemTime::now()
     .duration_since(UNIX_EPOCH)
@@ -123,6 +130,21 @@ pub(crate) async fn dispatch_send_message(
   let connector_effort = plan.connector_effort.clone();
   let first_prompt = plan.first_prompt.clone();
   let session_effort_update = plan.session_effort_update.clone();
+
+  if provider == Provider::Codex
+    && requested_model.as_deref() != action_model.as_deref()
+    && requested_model.is_some()
+  {
+    info!(
+      component = "session",
+      event = "session.message.codex_model_override_ignored",
+      session_id = %session_id,
+      requested_model = ?requested_model,
+      effective_model = ?snapshot.model,
+      codex_config_mode = ?snapshot.codex_config_mode,
+      "Ignored per-turn Codex model override for a non-custom session"
+    );
+  }
 
   if let Some(tx) = codex_tx {
     if tx
@@ -662,7 +684,8 @@ mod tests {
   use tokio::sync::mpsc;
 
   use orbitdock_protocol::{
-    CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus, StateChanges, WorkStatus,
+    CodexConfigMode, CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus,
+    StateChanges, WorkStatus,
   };
 
   use crate::domain::sessions::session::SessionHandle;
@@ -717,5 +740,33 @@ mod tests {
     assert_eq!(snapshot.message_count, 0);
     assert_eq!(snapshot.first_prompt.as_deref(), None);
     assert!(state.get_codex_action_tx(session_id).is_none());
+  }
+
+  #[test]
+  fn plan_send_message_ignores_codex_model_override_for_profile_sessions() {
+    let plan = crate::runtime::message_dispatch_policy::plan_send_message(
+      Provider::Codex,
+      Some(CodexConfigMode::Profile),
+      "hello world",
+      Some("gpt-5.4".to_string()),
+      Some("high".to_string()),
+    );
+
+    assert_eq!(plan.action_model, None);
+    assert_eq!(plan.connector_effort.as_deref(), Some("high"));
+    assert_eq!(plan.session_effort_update.as_deref(), Some("high"));
+  }
+
+  #[test]
+  fn plan_send_message_keeps_codex_model_override_for_custom_sessions() {
+    let plan = crate::runtime::message_dispatch_policy::plan_send_message(
+      Provider::Codex,
+      Some(CodexConfigMode::Custom),
+      "hello world",
+      Some("qwen/qwen3-coder-next".to_string()),
+      Some("high".to_string()),
+    );
+
+    assert_eq!(plan.action_model.as_deref(), Some("qwen/qwen3-coder-next"));
   }
 }

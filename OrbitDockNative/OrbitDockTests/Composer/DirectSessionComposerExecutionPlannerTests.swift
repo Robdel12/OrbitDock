@@ -42,6 +42,26 @@ struct DirectSessionComposerExecutionPlannerTests {
     #expect(request.localImages.isEmpty)
   }
 
+  @Test func sendPreparationKeepsCodexModelNilWhenNoOverrideWasChosen() {
+    let action = DirectSessionComposerExecutionPlanner.prepare(
+      sendPlan: .send(content: "Keep session model", model: nil, effort: "high"),
+      message: "Keep session model",
+      attachments: DirectSessionComposerAttachmentState(),
+      shellContext: nil,
+      selectedSkillPaths: [],
+      availableSkills: []
+    )
+
+    guard case let .send(request) = action else {
+      Issue.record("Expected send action, got \(action)")
+      return
+    }
+
+    #expect(request.content == "Keep session model")
+    #expect(request.model == nil)
+    #expect(request.effort == "high")
+  }
+
   @Test func steerPreparationPreservesMentionsAndImagesWithoutShellContext() {
     let image = AttachedImage(
       id: "img-1",

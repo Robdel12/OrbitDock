@@ -15,6 +15,7 @@ use orbitdock_protocol::{
   CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges,
   TokenUsageSnapshotKind, WorkStatus,
 };
+use rusqlite::{params, Connection, OptionalExtension};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
@@ -100,6 +101,36 @@ struct WorkStateUpdate {
 }
 
 impl WatcherRuntime {
+  async fn should_preserve_user_closed_session(&self, session_id: &str) -> bool {
+    let db_path = self.app_state.db_path().clone();
+    let session_id = session_id.to_string();
+
+    tokio::task::spawn_blocking(move || -> Result<bool, rusqlite::Error> {
+      if !db_path.exists() {
+        return Ok(false);
+      }
+
+      let conn = Connection::open(db_path)?;
+      let row = conn
+        .query_row(
+          "SELECT status, end_reason FROM sessions WHERE id = ?1",
+          params![session_id],
+          |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .optional()?;
+
+      Ok(matches!(
+        row,
+        Some((status, Some(end_reason)))
+          if status.eq_ignore_ascii_case("ended") && end_reason == "user_requested"
+      ))
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or(false)
+  }
+
   pub(crate) async fn sweep_files(&mut self) -> anyhow::Result<()> {
     for path in self.tailer.active_candidates(STARTUP_SEED_RECENT_SECS) {
       self.process_file(path).await?;
@@ -565,6 +596,7 @@ impl WatcherRuntime {
       .file_name()
       .map(|s| s.to_string_lossy().to_string());
     let project_name = project_name.or(fallback_name);
+    let preserve_user_closed_state = self.should_preserve_user_closed_session(&session_id).await;
 
     let exists = self.app_state.get_session(&session_id).is_some();
 
@@ -576,6 +608,10 @@ impl WatcherRuntime {
       handle.set_model(model_provider.clone());
       handle.set_started_at(Some(started_at.clone()));
       handle.set_last_activity_at(Some(current_time_unix_z()));
+      if preserve_user_closed_state {
+        handle.set_status(SessionStatus::Ended);
+        handle.set_work_status(WorkStatus::Ended);
+      }
 
       let summary = handle.summary();
       self.app_state.add_session(handle);
@@ -603,17 +639,19 @@ impl WatcherRuntime {
           model: model_provider.clone(),
         })
         .await;
-      actor
-        .send(SessionCommand::SetStatus {
-          status: SessionStatus::Active,
-        })
-        .await;
-      if snap.work_status == WorkStatus::Ended {
+      if !preserve_user_closed_state {
         actor
-          .send(SessionCommand::SetWorkStatus {
-            status: WorkStatus::Waiting,
+          .send(SessionCommand::SetStatus {
+            status: SessionStatus::Active,
           })
           .await;
+        if snap.work_status == WorkStatus::Ended {
+          actor
+            .send(SessionCommand::SetWorkStatus {
+              status: WorkStatus::Waiting,
+            })
+            .await;
+        }
       }
       actor
         .send(SessionCommand::SetLastActivityAt {
@@ -1222,17 +1260,61 @@ impl WatcherRuntime {
       last_tool_at,
       status,
     } = update;
-    if let Some(actor) = self.app_state.get_session(session_id) {
-      actor
-        .send(SessionCommand::SetPendingAttention {
-          pending_tool_name: pending_tool_name.clone().flatten(),
-          pending_tool_input: pending_tool_input.clone().flatten(),
-          pending_question: pending_question.clone().flatten(),
-        })
-        .await;
+    let preserve_user_closed_state = self.should_preserve_user_closed_session(session_id).await;
+
+    if !preserve_user_closed_state {
+      if let Some(actor) = self.app_state.get_session(session_id) {
+        actor
+          .send(SessionCommand::SetPendingAttention {
+            pending_tool_name: pending_tool_name.clone().flatten(),
+            pending_tool_input: pending_tool_input.clone().flatten(),
+            pending_question: pending_question.clone().flatten(),
+          })
+          .await;
+      }
     }
 
-    let status = status.or(Some(SessionStatus::Active));
+    let status = if preserve_user_closed_state {
+      None
+    } else {
+      status.or(Some(SessionStatus::Active))
+    };
+    let work_status = if preserve_user_closed_state {
+      None
+    } else {
+      Some(work_status)
+    };
+    let pending_tool_name = if preserve_user_closed_state {
+      None
+    } else {
+      pending_tool_name
+    };
+    let pending_tool_input = if preserve_user_closed_state {
+      None
+    } else {
+      pending_tool_input
+    };
+    let pending_question = if preserve_user_closed_state {
+      None
+    } else {
+      pending_question
+    };
+    let attention_reason = if preserve_user_closed_state {
+      None
+    } else {
+      attention_reason
+    };
+    let last_tool = if preserve_user_closed_state {
+      None
+    } else {
+      last_tool
+    };
+    let last_tool_at = if preserve_user_closed_state {
+      None
+    } else {
+      last_tool_at
+    };
+
     let attention_pending_tool_name = pending_tool_name.clone().flatten();
     let attention_pending_tool_input = pending_tool_input.clone().flatten();
     let attention_pending_question = pending_question.clone().flatten();
@@ -1245,7 +1327,7 @@ impl WatcherRuntime {
         project_path: None,
         model: None,
         status,
-        work_status: Some(work_status),
+        work_status,
         attention_reason: attention_reason.map(Some),
         pending_tool_name,
         pending_tool_input,
@@ -1257,27 +1339,37 @@ impl WatcherRuntime {
       })
       .await;
 
-    if let Some(actor) = self.app_state.get_session(session_id) {
-      actor
-        .send(SessionCommand::SetPendingAttention {
-          pending_tool_name: attention_pending_tool_name,
-          pending_tool_input: attention_pending_tool_input,
-          pending_question: attention_pending_question,
-        })
+    if preserve_user_closed_state {
+      if let Some(actor) = self.app_state.get_session(session_id) {
+        actor
+          .send(SessionCommand::SetLastActivityAt {
+            ts: Some(current_time_unix_z()),
+          })
+          .await;
+      }
+    } else {
+      if let Some(actor) = self.app_state.get_session(session_id) {
+        actor
+          .send(SessionCommand::SetPendingAttention {
+            pending_tool_name: attention_pending_tool_name,
+            pending_tool_input: attention_pending_tool_input,
+            pending_question: attention_pending_question,
+          })
+          .await;
+      }
+
+      self
+        .broadcast_session_delta(
+          session_id,
+          StateChanges {
+            status: Some(SessionStatus::Active),
+            work_status,
+            last_activity_at: Some(current_time_unix_z()),
+            ..Default::default()
+          },
+        )
         .await;
     }
-
-    self
-      .broadcast_session_delta(
-        session_id,
-        StateChanges {
-          status: Some(SessionStatus::Active),
-          work_status: Some(work_status),
-          last_activity_at: Some(current_time_unix_z()),
-          ..Default::default()
-        },
-      )
-      .await;
 
     let _ = has_attention_payload;
 
@@ -2328,6 +2420,45 @@ mod rollout_watcher_tests {
             .expect("append rollout line");
   }
 
+  fn find_migrations_dir() -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for ancestor in manifest_dir.ancestors() {
+      let candidate = ancestor.join("migrations");
+      if candidate.is_dir() {
+        return candidate;
+      }
+    }
+    panic!(
+      "Could not locate migrations directory from {:?}",
+      manifest_dir
+    );
+  }
+
+  fn run_all_migrations(db_path: &Path) {
+    let conn = Connection::open(db_path).expect("open db");
+    conn
+      .execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+      )
+      .expect("set pragmas");
+
+    let migrations_dir = find_migrations_dir();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&migrations_dir)
+      .expect("read migrations")
+      .filter_map(|entry| entry.ok().map(|e| e.path()))
+      .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sql"))
+      .collect();
+    files.sort();
+
+    for file in files {
+      let sql = std::fs::read_to_string(&file).expect("read migration");
+      conn.execute_batch(&sql).unwrap_or_else(|err| {
+        panic!("migration failed for {}: {}", file.display(), err);
+      });
+    }
+  }
+
   #[tokio::test]
   async fn sweep_files_only_revisits_active_paths() {
     ensure_server_test_data_dir();
@@ -2513,6 +2644,242 @@ mod rollout_watcher_tests {
         .len()
     );
     assert_eq!(persisted_session_id.as_deref(), Some(session_id.as_str()));
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+  }
+
+  #[tokio::test]
+  async fn rollout_activity_preserves_user_closed_passive_session_in_memory_and_db() {
+    ensure_server_test_data_dir();
+    let session_id = format!("passive-reactivate-db-{}", std::process::id());
+    let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-db-{}", session_id));
+    std::fs::create_dir_all(tmp_dir.join(".orbitdock")).expect("create .orbitdock dir");
+    let db_path = tmp_dir.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    let rollout_path = tmp_dir.join("rollout.jsonl");
+    std::fs::write(
+      &rollout_path,
+      format!(
+        "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+        session_id
+      ),
+    )
+    .expect("write initial rollout");
+    let initial_size = std::fs::metadata(&rollout_path)
+      .expect("stat rollout")
+      .len();
+
+    crate::infrastructure::persistence::flush_batch_for_test(
+      &db_path,
+      vec![
+        PersistCommand::RolloutSessionUpsert {
+          id: session_id.clone(),
+          thread_id: session_id.clone(),
+          project_path: "/tmp/repo".to_string(),
+          project_name: Some("repo".to_string()),
+          branch: Some("main".to_string()),
+          model: Some("gpt-5".to_string()),
+          context_label: Some("codex_cli_rs".to_string()),
+          transcript_path: rollout_path.to_string_lossy().to_string(),
+          started_at: "2026-02-10T00:00:00Z".to_string(),
+        },
+        PersistCommand::SessionEnd {
+          id: session_id.clone(),
+          reason: "user_requested".to_string(),
+        },
+      ],
+    )
+    .expect("seed ended passive session");
+
+    let (persist_tx, mut persist_rx) = mpsc::channel(128);
+    let app_state = Arc::new(SessionRegistry::new_with_primary_and_db_path(
+      persist_tx.clone(),
+      db_path.clone(),
+      true,
+      orbitdock_protocol::WorkspaceProviderKind::default(),
+    ));
+    let mut handle =
+      SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+    handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+    handle.set_status(SessionStatus::Ended);
+    handle.set_work_status(WorkStatus::Ended);
+    app_state.add_session(handle);
+
+    let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+    let mut runtime = make_test_runtime(app_state.clone(), persist_tx, watcher_tx);
+    runtime.tailer = JsonlTailer::new(HashMap::from([(
+      rollout_path.to_string_lossy().to_string(),
+      PersistedFileState {
+        offset: initial_size,
+        session_id: Some(session_id.clone()),
+        project_path: Some("/tmp/repo".to_string()),
+        model_provider: Some("codex".to_string()),
+        ignore_existing: Some(false),
+      },
+    )]));
+    runtime.processor = RolloutFileProcessor::new(HashMap::from([(
+      rollout_path.to_string_lossy().to_string(),
+      PersistedFileState {
+        offset: initial_size,
+        session_id: Some(session_id.clone()),
+        project_path: Some("/tmp/repo".to_string()),
+        model_provider: Some("codex".to_string()),
+        ignore_existing: Some(false),
+      },
+    )]));
+    runtime.processor.parse_states.insert(
+      rollout_path.to_string_lossy().to_string(),
+      default_parse_state(Some(session_id.clone())),
+    );
+
+    append_user_message(&rollout_path);
+    runtime
+      .process_file(rollout_path.clone())
+      .await
+      .expect("process rollout");
+
+    let mut persist_batch = Vec::new();
+    while let Ok(cmd) = persist_rx.try_recv() {
+      persist_batch.push(cmd);
+    }
+    crate::infrastructure::persistence::flush_batch_for_test(&db_path, persist_batch)
+      .expect("flush watcher updates");
+
+    let snapshot = app_state
+      .get_session(&session_id)
+      .expect("session exists")
+      .snapshot();
+    assert_eq!(snapshot.status, SessionStatus::Ended);
+    assert_eq!(snapshot.work_status, WorkStatus::Ended);
+
+    let conn = Connection::open(&db_path).expect("open db");
+    let (status, work_status, ended_at, end_reason): (
+      String,
+      String,
+      Option<String>,
+      Option<String>,
+    ) = conn
+      .query_row(
+        "SELECT status, work_status, ended_at, end_reason FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+      )
+      .expect("query session");
+    assert_eq!(status, "ended");
+    assert_eq!(work_status, "ended");
+    assert!(ended_at.is_some(), "ended_at should stay populated");
+    assert_eq!(end_reason.as_deref(), Some("user_requested"));
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+  }
+
+  #[tokio::test]
+  async fn startup_seed_preserves_user_closed_passive_session_when_runtime_is_empty() {
+    ensure_server_test_data_dir();
+    let session_id = format!("passive-startup-preserve-{}", std::process::id());
+    let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-startup-{}", session_id));
+    std::fs::create_dir_all(tmp_dir.join(".orbitdock")).expect("create .orbitdock dir");
+    let db_path = tmp_dir.join(".orbitdock/orbitdock.db");
+    run_all_migrations(&db_path);
+
+    let rollout_path = tmp_dir.join("rollout.jsonl");
+    std::fs::write(
+      &rollout_path,
+      format!(
+        "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+        session_id
+      ),
+    )
+    .expect("write initial rollout");
+    let initial_size = std::fs::metadata(&rollout_path)
+      .expect("stat rollout")
+      .len();
+
+    crate::infrastructure::persistence::flush_batch_for_test(
+      &db_path,
+      vec![
+        PersistCommand::RolloutSessionUpsert {
+          id: session_id.clone(),
+          thread_id: session_id.clone(),
+          project_path: "/tmp/repo".to_string(),
+          project_name: Some("repo".to_string()),
+          branch: Some("main".to_string()),
+          model: Some("gpt-5".to_string()),
+          context_label: Some("codex_cli_rs".to_string()),
+          transcript_path: rollout_path.to_string_lossy().to_string(),
+          started_at: "2026-02-10T00:00:00Z".to_string(),
+        },
+        PersistCommand::SessionEnd {
+          id: session_id.clone(),
+          reason: "user_requested".to_string(),
+        },
+      ],
+    )
+    .expect("seed ended passive session");
+
+    let (persist_tx, mut persist_rx) = mpsc::channel(128);
+    let app_state = Arc::new(SessionRegistry::new_with_primary_and_db_path(
+      persist_tx.clone(),
+      db_path.clone(),
+      true,
+      orbitdock_protocol::WorkspaceProviderKind::default(),
+    ));
+    let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+    let mut runtime = make_test_runtime(app_state.clone(), persist_tx, watcher_tx);
+    runtime.tailer = JsonlTailer::new(HashMap::from([(
+      rollout_path.to_string_lossy().to_string(),
+      PersistedFileState {
+        offset: initial_size,
+        session_id: Some(session_id.clone()),
+        project_path: Some("/tmp/repo".to_string()),
+        model_provider: Some("codex".to_string()),
+        ignore_existing: Some(false),
+      },
+    )]));
+    runtime.processor = RolloutFileProcessor::new(HashMap::from([(
+      rollout_path.to_string_lossy().to_string(),
+      PersistedFileState {
+        offset: initial_size,
+        session_id: Some(session_id.clone()),
+        project_path: Some("/tmp/repo".to_string()),
+        model_provider: Some("codex".to_string()),
+        ignore_existing: Some(false),
+      },
+    )]));
+    runtime
+      .tailer
+      .mark_active(rollout_path.to_string_lossy().as_ref());
+    runtime
+      .tailer
+      .ensure_file(rollout_path.to_string_lossy().as_ref(), initial_size, None);
+
+    runtime.sweep_files().await.expect("run startup sweep");
+
+    let mut persist_batch = Vec::new();
+    while let Ok(cmd) = persist_rx.try_recv() {
+      persist_batch.push(cmd);
+    }
+    crate::infrastructure::persistence::flush_batch_for_test(&db_path, persist_batch)
+      .expect("flush watcher updates");
+
+    assert!(
+      app_state.get_session(&session_id).is_none(),
+      "startup sweep should not rematerialize a user-closed passive session"
+    );
+
+    let conn = Connection::open(&db_path).expect("open db");
+    let (status, work_status, end_reason): (String, String, Option<String>) = conn
+      .query_row(
+        "SELECT status, work_status, end_reason FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+      )
+      .expect("query session");
+    assert_eq!(status, "ended");
+    assert_eq!(work_status, "ended");
+    assert_eq!(end_reason.as_deref(), Some("user_requested"));
 
     let _ = std::fs::remove_dir_all(&tmp_dir);
   }

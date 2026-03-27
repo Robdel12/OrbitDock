@@ -262,7 +262,7 @@ pub(crate) async fn update_session_config(
       Some(resolved.effective_settings.effort.clone()),
       Some(Some(config_mode)),
       Some(config_profile),
-      Some(model_provider),
+      Some(resolved.effective_settings.model_provider.clone()),
       Some(source),
       Some(overrides),
     )

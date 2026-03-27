@@ -1,15 +1,20 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
-use codex_core::{AuthManager, ThreadManager};
+use codex_core::{AuthManager, ModelProviderInfo, ThreadManager};
 use codex_protocol::config_types::{
   CollaborationMode, CollaborationModeMask, ModeKind, Personality, ReasoningSummary, ServiceTier,
   Settings,
 };
-use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::{
+  default_input_modalities, ConfigShellToolType, ModelInfo, ModelInstructionsVariables,
+  ModelMessages, ModelVisibility, ModelsResponse, ReasoningEffort, TruncationPolicyConfig,
+  WebSearchToolType,
+};
 use codex_protocol::protocol::{Op, SessionSource};
 use tracing::{info, warn};
 
@@ -24,6 +29,26 @@ const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
 const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
+const ORBITDOCK_OPENROUTER_SITE_URL: &str = "https://orbitdock.dev";
+const ORBITDOCK_OPENROUTER_TITLE: &str = "OrbitDock";
+const ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS: &str = "You are a coding assistant running in OrbitDock. Help the user with software tasks in the terminal. Do not claim to be a specific branded assistant, company, foundation model, or hosted service unless the active session configuration explicitly says so. If the user asks which model or provider is active, answer using the current session configuration when known.";
+const ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
+const ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE: &str =
+  "You optimize for team morale and being a supportive teammate as much as code quality.";
+const ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE: &str =
+  "You are a deeply pragmatic, effective software engineer.";
+
+struct ProviderRouteDebugInfo {
+  provider_id: String,
+  provider_name: Option<String>,
+  base_url: Option<String>,
+  wire_api: String,
+  query_param_keys: Vec<String>,
+  http_header_names: Vec<String>,
+  env_http_header_names: Vec<String>,
+  has_orbitdock_openrouter_referer: bool,
+  has_orbitdock_openrouter_title: bool,
+}
 
 impl CodexConnector {
   pub async fn new(
@@ -156,6 +181,7 @@ impl CodexConnector {
       CollaborationModesConfig::default(),
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
+    log_provider_route("start", cwd, &config);
 
     let configured_model = config.model.clone();
     let new_thread = thread_manager
@@ -280,6 +306,7 @@ impl CodexConnector {
       CollaborationModesConfig::default(),
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
+    log_provider_route("resume", cwd, &config);
 
     let configured_model = config.model.clone();
     let new_thread = thread_manager
@@ -390,9 +417,13 @@ impl CodexConnector {
       ..Default::default()
     };
 
-    Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))
+    let mut config =
+      Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
+        .await
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    apply_orbitdock_provider_defaults(&mut config);
+    apply_orbitdock_external_model_defaults(&mut config);
+    Ok(config)
   }
 
   pub(crate) async fn finalize_reasoning_summary(
@@ -479,7 +510,7 @@ pub async fn discover_models_for_context(
     model_provider: model_provider.map(str::to_string),
     ..Default::default()
   };
-  let base_config =
+  let mut base_config =
     Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), harness_overrides)
       .await
       .or_else(|err| {
@@ -492,6 +523,8 @@ pub async fn discover_models_for_context(
       .map_err(|e| {
         ConnectorError::ProviderError(format!("Failed to load config for model discovery: {}", e))
       })?;
+  apply_orbitdock_provider_defaults(&mut base_config);
+  log_provider_route("discover_models", cwd.unwrap_or(""), &base_config);
   let thread_manager = Arc::new(ThreadManager::new(
     &base_config,
     auth_manager,
@@ -534,6 +567,179 @@ pub async fn discover_models_for_context(
   }
 
   Ok(models)
+}
+
+pub(crate) fn apply_orbitdock_provider_defaults(config: &mut Config) {
+  let provider_id = config.model_provider_id.clone();
+  let Some(provider) = config.model_providers.get_mut(&provider_id) else {
+    return;
+  };
+
+  if !is_openrouter_provider(&provider_id, provider) {
+    return;
+  }
+
+  let headers = provider.http_headers.get_or_insert_with(HashMap::new);
+  headers
+    .entry("HTTP-Referer".to_string())
+    .or_insert_with(|| ORBITDOCK_OPENROUTER_SITE_URL.to_string());
+
+  if !headers.contains_key("X-OpenRouter-Title") && !headers.contains_key("X-Title") {
+    headers.insert(
+      "X-OpenRouter-Title".to_string(),
+      ORBITDOCK_OPENROUTER_TITLE.to_string(),
+    );
+  }
+}
+
+pub(crate) fn apply_orbitdock_external_model_defaults(config: &mut Config) {
+  let Some(model_slug) = config.model.clone() else {
+    return;
+  };
+
+  if config.model_provider_id.eq_ignore_ascii_case("openai") || config.model_provider.is_openai() {
+    return;
+  }
+
+  let catalog = config
+    .model_catalog
+    .get_or_insert_with(|| ModelsResponse { models: Vec::new() });
+  if catalog
+    .models
+    .iter()
+    .any(|candidate| model_slug.starts_with(&candidate.slug))
+  {
+    return;
+  }
+
+  catalog.models.push(synthetic_external_model_info(
+    &model_slug,
+    &config.model_provider_id,
+  ));
+}
+
+fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelInfo {
+  ModelInfo {
+    slug: model_slug.to_string(),
+    display_name: model_slug.to_string(),
+    description: Some(format!(
+      "OrbitDock synthetic metadata for external provider `{provider_id}`."
+    )),
+    default_reasoning_level: None,
+    supported_reasoning_levels: Vec::new(),
+    shell_type: ConfigShellToolType::ShellCommand,
+    visibility: ModelVisibility::None,
+    supported_in_api: true,
+    priority: 99,
+    availability_nux: None,
+    upgrade: None,
+    base_instructions: ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS.to_string(),
+    model_messages: Some(ModelMessages {
+      instructions_template: Some(format!(
+        "{}\n\n{}",
+        ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS,
+        ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER
+      )),
+      instructions_variables: Some(ModelInstructionsVariables {
+        personality_default: Some(String::new()),
+        personality_friendly: Some(ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE.to_string()),
+        personality_pragmatic: Some(ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE.to_string()),
+      }),
+    }),
+    supports_reasoning_summaries: false,
+    default_reasoning_summary: ReasoningSummary::Auto,
+    support_verbosity: false,
+    default_verbosity: None,
+    apply_patch_tool_type: None,
+    web_search_tool_type: WebSearchToolType::Text,
+    truncation_policy: TruncationPolicyConfig::bytes(10_000),
+    supports_parallel_tool_calls: false,
+    supports_image_detail_original: false,
+    context_window: Some(272_000),
+    auto_compact_token_limit: None,
+    effective_context_window_percent: 95,
+    experimental_supported_tools: Vec::new(),
+    input_modalities: default_input_modalities(),
+    used_fallback_model_metadata: false,
+    supports_search_tool: false,
+  }
+}
+
+fn log_provider_route(phase: &str, cwd: &str, config: &Config) {
+  let info = provider_route_debug_info(config);
+  info!(
+    event = "codex.connector.route_resolved",
+    phase,
+    cwd,
+    model = ?config.model,
+    model_provider_id = %info.provider_id,
+    provider_name = ?info.provider_name,
+    provider_base_url = ?info.base_url,
+    wire_api = %info.wire_api,
+    query_param_keys = ?info.query_param_keys,
+    http_header_names = ?info.http_header_names,
+    env_http_header_names = ?info.env_http_header_names,
+    has_orbitdock_openrouter_referer = info.has_orbitdock_openrouter_referer,
+    has_orbitdock_openrouter_title = info.has_orbitdock_openrouter_title,
+  );
+}
+
+fn provider_route_debug_info(config: &Config) -> ProviderRouteDebugInfo {
+  let provider_id = config.model_provider_id.clone();
+  let provider = config.model_providers.get(&provider_id);
+
+  let mut query_param_keys = provider
+    .and_then(|value| value.query_params.as_ref())
+    .map(|value| value.keys().cloned().collect::<Vec<_>>())
+    .unwrap_or_default();
+  query_param_keys.sort();
+
+  let mut http_header_names = provider
+    .and_then(|value| value.http_headers.as_ref())
+    .map(|value| value.keys().cloned().collect::<Vec<_>>())
+    .unwrap_or_default();
+  http_header_names.sort();
+
+  let mut env_http_header_names = provider
+    .and_then(|value| value.env_http_headers.as_ref())
+    .map(|value| value.keys().cloned().collect::<Vec<_>>())
+    .unwrap_or_default();
+  env_http_header_names.sort();
+
+  let has_orbitdock_openrouter_referer = provider
+    .and_then(|value| value.http_headers.as_ref())
+    .and_then(|value| value.get("HTTP-Referer"))
+    .map(|value| value == ORBITDOCK_OPENROUTER_SITE_URL)
+    .unwrap_or(false);
+
+  let has_orbitdock_openrouter_title = provider
+    .and_then(|value| value.http_headers.as_ref())
+    .and_then(|value| value.get("X-OpenRouter-Title"))
+    .map(|value| value == ORBITDOCK_OPENROUTER_TITLE)
+    .unwrap_or(false);
+
+  ProviderRouteDebugInfo {
+    provider_id,
+    provider_name: provider.map(|value| value.name.clone()),
+    base_url: provider.and_then(|value| value.base_url.clone()),
+    wire_api: provider
+      .map(|value| format!("{:?}", value.wire_api))
+      .unwrap_or_else(|| "unknown".to_string()),
+    query_param_keys,
+    http_header_names,
+    env_http_header_names,
+    has_orbitdock_openrouter_referer,
+    has_orbitdock_openrouter_title,
+  }
+}
+
+pub(crate) fn is_openrouter_provider(provider_id: &str, provider: &ModelProviderInfo) -> bool {
+  provider_id.eq_ignore_ascii_case("openrouter")
+    || provider.name.eq_ignore_ascii_case("openrouter")
+    || provider
+      .base_url
+      .as_ref()
+      .is_some_and(|value| value.to_ascii_lowercase().contains("openrouter.ai"))
 }
 
 pub(crate) fn parse_bool_env(name: &str) -> Option<bool> {

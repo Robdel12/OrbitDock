@@ -30,6 +30,8 @@ struct NewSessionSheet: View {
   @State private var codexConfigCatalogLoading = false
   @State private var codexConfigCatalogRequestID = 0
   @State private var codexScopedModels: [ServerCodexModelOption]?
+  @State private var codexScopedModelsLoading = false
+  @State private var codexScopedModelsError: String?
   @State private var codexScopedModelsRequestID = 0
 
   @MainActor
@@ -85,7 +87,10 @@ struct NewSessionSheet: View {
   }
 
   private var codexModels: [ServerCodexModelOption] {
-    codexScopedModels ?? endpointAppState.codexModels
+    if scopedCodexModelProvider != nil {
+      return codexScopedModels ?? []
+    }
+    return endpointAppState.codexModels
   }
 
   private var resolvedClaudeModel: String? {
@@ -478,6 +483,9 @@ struct NewSessionSheet: View {
       codexCatalog: codexConfigCatalog,
       codexCatalogLoading: codexConfigCatalogLoading,
       codexCatalogError: codexConfigCatalogError,
+      codexScopedModelProvider: scopedCodexModelProvider,
+      codexScopedModelsLoading: codexScopedModelsLoading,
+      codexScopedModelError: codexScopedModelsError,
       onInspectCodexConfig: inspectCodexConfig,
       onManageCodexConfig: openCodexConfigManager
     )
@@ -609,23 +617,39 @@ struct NewSessionSheet: View {
   private func refreshScopedCodexModelsIfNeeded(force _: Bool = false) {
     guard model.provider == .codex else {
       codexScopedModels = nil
+      codexScopedModelsLoading = false
+      codexScopedModelsError = nil
       return
     }
 
     guard model.codexConfigMode == .custom else {
       codexScopedModels = nil
+      codexScopedModelsLoading = false
+      codexScopedModelsError = nil
       return
     }
 
     let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !cwd.isEmpty else {
       codexScopedModels = nil
+      codexScopedModelsLoading = false
+      codexScopedModelsError = nil
       return
     }
 
     let modelProvider = scopedCodexModelProvider
+    guard modelProvider != nil else {
+      codexScopedModels = nil
+      codexScopedModelsLoading = false
+      codexScopedModelsError = nil
+      return
+    }
+
     codexScopedModelsRequestID += 1
     let requestID = codexScopedModelsRequestID
+    codexScopedModelsLoading = true
+    codexScopedModelsError = nil
+    codexScopedModels = nil
 
     Task {
       do {
@@ -641,11 +665,15 @@ struct NewSessionSheet: View {
                 scopedCodexModelProvider == modelProvider
           else { return }
           codexScopedModels = models
+          codexScopedModelsLoading = false
+          codexScopedModelsError = nil
         }
       } catch {
         await MainActor.run {
           guard requestID == codexScopedModelsRequestID else { return }
           codexScopedModels = nil
+          codexScopedModelsLoading = false
+          codexScopedModelsError = error.localizedDescription
         }
       }
     }

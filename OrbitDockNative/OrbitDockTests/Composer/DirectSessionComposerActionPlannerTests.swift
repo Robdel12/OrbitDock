@@ -2,7 +2,7 @@
 import Testing
 
 struct DirectSessionComposerActionPlannerTests {
-  @Test func canSendRequiresModelForDirectCodexPrompts() {
+  @Test func directCodexPromptsDoNotRequireLocalModelOverride() {
     let context = DirectSessionComposerSendContext(
       inputMode: .prompt,
       rawMessage: "Ship it",
@@ -11,16 +11,60 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: true,
       providerMode: .directCodex,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: nil,
       effort: "default"
     )
 
-    #expect(!DirectSessionComposerActionPlanner.canSend(context))
+    #expect(DirectSessionComposerActionPlanner.canSend(context))
     #expect(
       DirectSessionComposerActionPlanner.planSend(context)
-        == .missingModel("No model available yet. Wait for model list to load.")
+        == .send(content: "Ship it", model: nil, effort: "default")
+    )
+  }
+
+  @Test func directCodexPromptsDoNotTurnInheritedModelIntoOverride() {
+    let context = DirectSessionComposerSendContext(
+      inputMode: .prompt,
+      rawMessage: "Hi there",
+      hasAttachments: false,
+      hasMentions: false,
+      isSending: false,
+      isConnected: true,
+      providerMode: .directCodex,
+      selectedCodexModel: nil,
+      selectedClaudeModel: "",
+      inheritedModel: "qwen/qwen3-coder-next",
+      effort: "high"
+    )
+
+    #expect(DirectSessionComposerActionPlanner.canSend(context))
+    #expect(
+      DirectSessionComposerActionPlanner.planSend(context)
+        == .send(content: "Hi there", model: nil, effort: "high")
+    )
+  }
+
+  @Test func directCodexPromptsKeepExplicitCustomOverride() {
+    let context = DirectSessionComposerSendContext(
+      inputMode: .prompt,
+      rawMessage: "Hi there",
+      hasAttachments: false,
+      hasMentions: false,
+      isSending: false,
+      isConnected: true,
+      providerMode: .directCodex,
+      selectedCodexModel: "qwen/qwen3-coder-next",
+      selectedClaudeModel: "",
+      inheritedModel: "qwen/qwen3-coder-next",
+      effort: "high"
+    )
+
+    #expect(DirectSessionComposerActionPlanner.canSend(context))
+    #expect(
+      DirectSessionComposerActionPlanner.planSend(context)
+        == .send(content: "Hi there", model: "qwen/qwen3-coder-next", effort: "high")
     )
   }
 
@@ -33,7 +77,7 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: false,
       providerMode: .inherited,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: "claude-opus",
       effort: "default"
@@ -51,7 +95,7 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: true,
       providerMode: .inherited,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: "claude-opus",
       effort: "default"
@@ -71,7 +115,7 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: true,
       providerMode: .inherited,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: "claude-opus",
       effort: "default"
@@ -92,7 +136,7 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: true,
       providerMode: .inherited,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: "claude-opus",
       effort: "default"
@@ -111,7 +155,7 @@ struct DirectSessionComposerActionPlannerTests {
       isSending: false,
       isConnected: true,
       providerMode: .inherited,
-      selectedCodexModel: "",
+      selectedCodexModel: nil,
       selectedClaudeModel: "",
       inheritedModel: "claude-opus",
       effort: "high"

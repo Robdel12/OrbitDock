@@ -170,6 +170,70 @@ struct NewSessionRequestPlannerTests {
     }
   }
 
+  @Test func codexProfileLaunchPlanOmitsModelOverrides() {
+    let plan = NewSessionRequestPlanner.planLaunch(
+      selectedPath: "/tmp/repo",
+      useWorktree: false,
+      worktreeBranch: "",
+      worktreeBaseBranch: "",
+      providerConfiguration: NewSessionProviderConfiguration(
+        provider: .codex,
+        claudeModel: nil,
+        claudePermissionMode: .default,
+        claudeAllowBypassPermissions: false,
+        allowedToolsText: "",
+        disallowedToolsText: "",
+        claudeEffort: nil,
+        codexModel: "gpt-5.4",
+        codexConfigMode: .profile,
+        codexConfigProfile: " qwen ",
+        codexModelProvider: " openrouter ",
+        codexAutonomy: .autonomous,
+        codexCollaborationMode: "plan",
+        codexMultiAgentEnabled: true,
+        codexPersonality: "friendly",
+        codexServiceTier: "priority",
+        codexInstructions: "Stay focused"
+      ),
+      bootstrapPrompt: nil
+    )
+
+    guard let plan else {
+      Issue.record("Expected a launch plan")
+      return
+    }
+
+    if case let .codex(
+      configMode,
+      configProfile,
+      modelProvider,
+      model,
+      approvalPolicy,
+      approvalPolicyDetails,
+      sandboxMode,
+      collaborationMode,
+      multiAgent,
+      personality,
+      serviceTier,
+      developerInstructions
+    ) = plan.requestTemplate {
+      #expect(configMode == .profile)
+      #expect(configProfile == "qwen")
+      #expect(modelProvider == nil)
+      #expect(model == nil)
+      #expect(approvalPolicy == nil)
+      #expect(approvalPolicyDetails == nil)
+      #expect(sandboxMode == nil)
+      #expect(collaborationMode == nil)
+      #expect(multiAgent == nil)
+      #expect(personality == nil)
+      #expect(serviceTier == nil)
+      #expect(developerInstructions == nil)
+    } else {
+      Issue.record("Expected a Codex request template")
+    }
+  }
+
   @Test func blankWorktreeBranchFallsBackToDirectLaunch() {
     let plan = NewSessionRequestPlanner.planLaunch(
       selectedPath: "/tmp/repo",

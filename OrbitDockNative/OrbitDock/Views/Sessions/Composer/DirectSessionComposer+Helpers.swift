@@ -154,7 +154,7 @@ extension DirectSessionComposer {
       isSending: isSending,
       isConnected: isConnected,
       providerMode: providerMode,
-      selectedCodexModel: selectedModel,
+      selectedCodexModel: codexSelectedModelOverride,
       selectedClaudeModel: effectiveClaudeModel,
       inheritedModel: obs.model,
       effort: selectedEffort.serialized ?? ""
@@ -334,6 +334,66 @@ extension DirectSessionComposer {
     guard let value else { return nil }
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+
+  func refreshScopedCodexModelsIfNeeded() {
+    guard obs.isDirectCodex else {
+      scopedCodexModels = nil
+      scopedCodexModelsLoading = false
+      scopedCodexModelsError = nil
+      return
+    }
+
+    guard let projectPath else {
+      scopedCodexModels = nil
+      scopedCodexModelsLoading = false
+      scopedCodexModelsError = nil
+      return
+    }
+
+    let provider = currentCodexModelProvider?.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let provider, !provider.isEmpty else {
+      scopedCodexModels = nil
+      scopedCodexModelsLoading = false
+      scopedCodexModelsError = nil
+      return
+    }
+
+    scopedCodexModelsRequestID &+= 1
+    let requestID = scopedCodexModelsRequestID
+    let scopedPath = projectPath
+    let scopedProvider = provider
+    scopedCodexModelsLoading = true
+    scopedCodexModelsError = nil
+    scopedCodexModels = nil
+
+    Task {
+      do {
+        let models = try await viewModel.fetchCodexModels(
+          cwd: scopedPath,
+          modelProvider: scopedProvider
+        )
+        guard !Task.isCancelled else { return }
+        await MainActor.run {
+          guard requestID == scopedCodexModelsRequestID,
+                obs.isDirectCodex,
+                projectPath == scopedPath,
+                currentCodexModelProvider == scopedProvider
+          else { return }
+          scopedCodexModels = models
+          scopedCodexModelsLoading = false
+          scopedCodexModelsError = nil
+        }
+      } catch {
+        guard !Task.isCancelled else { return }
+        await MainActor.run {
+          guard requestID == scopedCodexModelsRequestID else { return }
+          scopedCodexModels = nil
+          scopedCodexModelsLoading = false
+          scopedCodexModelsError = error.localizedDescription
+        }
+      }
+    }
   }
 
   func inspectCodexConfig() {

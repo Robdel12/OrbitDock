@@ -93,10 +93,12 @@ impl CodexConfigSelection {
       CodexConfigMode::Inherit => {
         self.config_profile = None;
         self.model_provider = None;
+        self.overrides.model = None;
         self.overrides.model_provider = None;
       }
       CodexConfigMode::Profile => {
         self.model_provider = None;
+        self.overrides.model = None;
         self.overrides.model_provider = None;
       }
       CodexConfigMode::Custom => {
@@ -1266,6 +1268,7 @@ mod tests {
       config_profile: Some("qwen".to_string()),
       model_provider: Some("openrouter".to_string()),
       overrides: CodexSessionOverrides {
+        model: Some("gpt-5.4".to_string()),
         model_provider: Some("openrouter".to_string()),
         ..CodexSessionOverrides::default()
       },
@@ -1274,6 +1277,7 @@ mod tests {
 
     assert_eq!(normalized.config_profile, None);
     assert_eq!(normalized.model_provider, None);
+    assert_eq!(normalized.overrides.model, None);
     assert_eq!(normalized.overrides.model_provider, None);
   }
 
@@ -1290,5 +1294,26 @@ mod tests {
 
     assert_eq!(normalized.config_profile, None);
     assert_eq!(normalized.model_provider.as_deref(), Some("openrouter"));
+  }
+
+  #[test]
+  fn normalized_selection_clears_stale_model_for_profile_mode() {
+    let normalized = CodexConfigSelection {
+      config_source: CodexConfigSource::User,
+      config_mode: CodexConfigMode::Profile,
+      config_profile: Some("qwen".to_string()),
+      model_provider: Some("openrouter".to_string()),
+      overrides: CodexSessionOverrides {
+        model: Some("gpt-5.4".to_string()),
+        model_provider: Some("openrouter".to_string()),
+        ..CodexSessionOverrides::default()
+      },
+    }
+    .normalized();
+
+    assert_eq!(normalized.config_profile.as_deref(), Some("qwen"));
+    assert_eq!(normalized.model_provider, None);
+    assert_eq!(normalized.overrides.model, None);
+    assert_eq!(normalized.overrides.model_provider, None);
   }
 }

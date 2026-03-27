@@ -47,7 +47,7 @@ XCODEBUILD_ARGS=(
   -configuration Release
   -destination 'generic/platform=macOS'
   -archivePath "$ARCHIVE_PATH"
-  CODE_SIGN_STYLE=Automatic
+  CODE_SIGN_STYLE=Manual
   CODE_SIGN_IDENTITY="Developer ID Application"
   DEVELOPMENT_TEAM="$MACOS_DEVELOPMENT_TEAM"
   SPARKLE_FEED_URL="$SPARKLE_FEED_URL"

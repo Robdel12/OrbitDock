@@ -1,4 +1,5 @@
 use super::config::{
+  apply_orbitdock_external_model_defaults, apply_orbitdock_provider_defaults,
   collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
   model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
   parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
@@ -11,17 +12,20 @@ use super::timeline::{
 };
 use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_subagent};
 use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
+use codex_core::config::Config as CoreConfig;
+use codex_core::{ModelProviderInfo, WireApi};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
   AgentStatus, CodexErrorInfo, HookEventName, HookExecutionMode, HookHandlerType, HookOutputEntry,
   HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope, RawResponseItemEvent,
-  RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent,
+  RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent, WarningEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -143,6 +147,195 @@ fn parse_service_tier_override_supports_set_and_clear() {
   );
   assert_eq!(parse_service_tier_override(Some("none")), Some(None));
   assert_eq!(parse_service_tier_override(Some("bogus")), None);
+}
+
+#[test]
+fn orbitdock_provider_defaults_add_openrouter_attribution_headers() {
+  let mut config = config_with_provider(
+    "openrouter",
+    ModelProviderInfo {
+      name: "OpenRouter".to_string(),
+      base_url: Some("https://openrouter.ai/api/v1".to_string()),
+      env_key: Some("OPENROUTER_API_KEY".to_string()),
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: None,
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+
+  apply_orbitdock_provider_defaults(&mut config);
+
+  let provider = config
+    .model_providers
+    .get("openrouter")
+    .expect("provider should exist");
+  let headers = provider
+    .http_headers
+    .as_ref()
+    .expect("headers should be set");
+  assert_eq!(
+    headers.get("HTTP-Referer").map(String::as_str),
+    Some("https://orbitdock.dev")
+  );
+  assert_eq!(
+    headers.get("X-OpenRouter-Title").map(String::as_str),
+    Some("OrbitDock")
+  );
+}
+
+#[test]
+fn orbitdock_provider_defaults_preserve_existing_openrouter_headers() {
+  let mut config = config_with_provider(
+    "openrouter",
+    ModelProviderInfo {
+      name: "OpenRouter".to_string(),
+      base_url: Some("https://openrouter.ai/api/v1".to_string()),
+      env_key: Some("OPENROUTER_API_KEY".to_string()),
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: Some(HashMap::from([
+        (
+          "HTTP-Referer".to_string(),
+          "https://custom.example".to_string(),
+        ),
+        ("X-Title".to_string(), "Custom Title".to_string()),
+      ])),
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+
+  apply_orbitdock_provider_defaults(&mut config);
+
+  let provider = config
+    .model_providers
+    .get("openrouter")
+    .expect("provider should exist");
+  let headers = provider
+    .http_headers
+    .as_ref()
+    .expect("headers should be set");
+  assert_eq!(
+    headers.get("HTTP-Referer").map(String::as_str),
+    Some("https://custom.example")
+  );
+  assert_eq!(
+    headers.get("X-Title").map(String::as_str),
+    Some("Custom Title")
+  );
+  assert!(!headers.contains_key("X-OpenRouter-Title"));
+}
+
+#[test]
+fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
+  let mut config = config_with_provider(
+    "openrouter",
+    ModelProviderInfo {
+      name: "OpenRouter".to_string(),
+      base_url: Some("https://openrouter.ai/api/v1".to_string()),
+      env_key: Some("OPENROUTER_API_KEY".to_string()),
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: None,
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+  config.model = Some("qwen/qwen3-coder-next".to_string());
+  config.model_catalog = None;
+
+  apply_orbitdock_external_model_defaults(&mut config);
+
+  let catalog = config.model_catalog.expect("catalog should be seeded");
+  let model = catalog
+    .models
+    .iter()
+    .find(|candidate| candidate.slug == "qwen/qwen3-coder-next")
+    .expect("synthetic model should exist");
+  assert_eq!(model.display_name, "qwen/qwen3-coder-next");
+  assert!(!model.used_fallback_model_metadata);
+  assert!(model.model_messages.is_some());
+  assert!(model
+    .base_instructions
+    .contains("Do not claim to be a specific branded assistant"));
+}
+
+#[test]
+fn external_model_defaults_leave_openai_models_untouched() {
+  let mut config = config_with_provider(
+    "openai",
+    ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
+  );
+  config.model = Some("gpt-5.4".to_string());
+  config.model_catalog = None;
+
+  apply_orbitdock_external_model_defaults(&mut config);
+
+  assert!(config.model_catalog.is_none());
+}
+
+fn config_with_provider(provider_id: &str, provider: ModelProviderInfo) -> CoreConfig {
+  let mut config =
+    CoreConfig::load_default_with_cli_overrides(Vec::new()).expect("default config should load");
+  config.model_provider_id = provider_id.to_string();
+  config.model_provider = provider.clone();
+  config
+    .model_providers
+    .insert(provider_id.to_string(), provider);
+  config
+}
+
+#[test]
+fn runtime_warning_suppresses_fallback_metadata_notice() {
+  let msg_counter = AtomicU64::new(0);
+  let events = super::event_mapping::runtime_signals::handle_warning(
+    "event-1",
+    WarningEvent {
+      message:
+        "Model metadata for `qwen/qwen3-coder-next` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."
+          .to_string(),
+    },
+    &msg_counter,
+  );
+
+  assert!(events.is_empty());
+}
+
+#[test]
+fn runtime_warning_preserves_other_warnings() {
+  let msg_counter = AtomicU64::new(0);
+  let events = super::event_mapping::runtime_signals::handle_warning(
+    "event-1",
+    WarningEvent {
+      message: "Something else happened".to_string(),
+    },
+    &msg_counter,
+  );
+
+  assert_eq!(events.len(), 1);
 }
 
 #[test]

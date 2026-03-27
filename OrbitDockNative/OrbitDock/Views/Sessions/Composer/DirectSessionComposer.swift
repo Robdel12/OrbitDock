@@ -33,6 +33,10 @@ struct DirectSessionComposer: View {
   @State var codexInspectorError: String?
   @State var codexInspectorLoading = false
   @State var showCodexInspector = false
+  @State var scopedCodexModels: [ServerCodexModelOption]?
+  @State var scopedCodexModelsLoading = false
+  @State var scopedCodexModelsError: String?
+  @State var scopedCodexModelsRequestID = 0
 
   /// Attachments
   @State var attachmentState = DirectSessionComposerAttachmentState()
@@ -273,11 +277,13 @@ struct DirectSessionComposer: View {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
     .task(id: sessionId) {
+      selectedModel = ""
+      selectedClaudeModel = ""
+      selectedEffort = .default
+
       if obs.isDirectCodex {
         viewModel.refreshCodexModels()
-        if selectedModel.isEmpty {
-          selectedModel = defaultCodexModelSelection
-        }
+        refreshScopedCodexModelsIfNeeded()
         // Restore persisted effort level from server state
         if let saved = obs.effort, let level = EffortLevel(rawValue: saved) {
           selectedEffort = level
@@ -302,6 +308,9 @@ struct DirectSessionComposer: View {
     .task(id: projectPath) {
       guard let path = projectPath else { return }
       await fileIndex.loadIfNeeded(path)
+    }
+    .task(id: codexModelScopeSignature) {
+      refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: message) { _, newValue in
       ComposerDraftStore.save(newValue, for: draftStorageKey)
@@ -331,8 +340,18 @@ struct DirectSessionComposer: View {
     }
     .onChange(of: codexModelOptionsSignature) { _, _ in
       guard obs.isDirectCodex else { return }
-      if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
-        selectedModel = defaultCodexModelSelection
+      guard codexAllowsModelSelection else {
+        selectedModel = ""
+        return
+      }
+      if !selectedModel.isEmpty, !codexModelOptions.contains(where: { $0.model == selectedModel }) {
+        selectedModel = ""
+      }
+    }
+    .onChange(of: currentCodexConfigMode) { _, newValue in
+      guard obs.isDirectCodex else { return }
+      if newValue != .custom {
+        selectedModel = ""
       }
     }
     .onChange(of: claudeModelOptionsSignature) { _, _ in
@@ -487,7 +506,7 @@ struct DirectSessionComposer: View {
       isDirectClaude: obs.isDirectClaude,
       isSessionWorking: isSessionWorking,
       hasTokenUsage: obs.hasTokenUsage,
-      selectedCodexModel: selectedModel,
+      selectedCodexModel: effectiveCodexModel,
       effectiveClaudeModel: effectiveClaudeModel,
       branch: obs.branch,
       projectPath: obs.projectPath
@@ -555,6 +574,11 @@ struct DirectSessionComposer: View {
 
     if let notice = connectionNoticeMessage {
       connectionNoticeRow(notice)
+        .padding(.top, Spacing.xxs)
+    }
+
+    if let notice = codexScopedModelNoticeMessage {
+      codexScopedModelNoticeRow(notice, isLoading: scopedCodexModelsLoading)
         .padding(.top, Spacing.xxs)
     }
   }

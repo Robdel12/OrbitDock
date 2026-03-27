@@ -17,7 +17,7 @@ struct DirectSessionComposerPreparedSteerRequest: Equatable {
 
 struct DirectSessionComposerPreparedSendRequest: Equatable {
   let content: String
-  let model: String
+  let model: String?
   let effort: String
   let skills: [ServerSkillInput]
   let mentions: [ServerMentionInput]

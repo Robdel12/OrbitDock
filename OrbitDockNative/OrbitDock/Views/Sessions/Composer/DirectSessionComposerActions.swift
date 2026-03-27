@@ -28,7 +28,7 @@ nonisolated struct DirectSessionComposerSendContext: Sendable {
   let isSending: Bool
   let isConnected: Bool
   let providerMode: ComposerProviderMode
-  let selectedCodexModel: String
+  let selectedCodexModel: String?
   let selectedClaudeModel: String
   let inheritedModel: String?
   let effort: String
@@ -48,7 +48,7 @@ nonisolated enum DirectSessionComposerSendPlan: Equatable, Sendable {
   case missingModel(String)
   case executeShell(command: String, exitsShellMode: Bool)
   case steer(content: String)
-  case send(content: String, model: String, effort: String)
+  case send(content: String, model: String?, effort: String)
 }
 
 nonisolated enum DirectSessionComposerActionPlanner {
@@ -68,7 +68,7 @@ nonisolated enum DirectSessionComposerActionPlanner {
         }
         switch context.providerMode {
           case .directCodex:
-            return !context.selectedCodexModel.isEmpty
+            return true
           case .directClaude:
             return !context.selectedClaudeModel.isEmpty
           case .inherited:
@@ -102,13 +102,10 @@ nonisolated enum DirectSessionComposerActionPlanner {
       return .steer(content: context.trimmedMessage)
     }
 
-    let model: String
+    let model: String?
     switch context.providerMode {
       case .directCodex:
-        guard !context.selectedCodexModel.isEmpty else {
-          return .missingModel("No model available yet. Wait for model list to load.")
-        }
-        model = context.selectedCodexModel
+        model = normalizedModelOverride(context.selectedCodexModel)
       case .directClaude:
         guard !context.selectedClaudeModel.isEmpty else {
           return .missingModel("No Claude model available yet. Wait for model list to load.")
@@ -122,5 +119,12 @@ nonisolated enum DirectSessionComposerActionPlanner {
     }
 
     return .send(content: context.trimmedMessage, model: model, effort: context.effort)
+  }
+
+  private static func normalizedModelOverride(_ model: String?) -> String? {
+    guard let trimmed = model?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+      return nil
+    }
+    return trimmed
   }
 }

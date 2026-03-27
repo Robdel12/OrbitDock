@@ -32,7 +32,7 @@ use orbitdock_protocol::{
   CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
   ServerMessage,
 };
-use tracing::error;
+use tracing::{error, info};
 
 fn resolve_developer_instructions(
   developer_instructions: Option<String>,
@@ -247,6 +247,54 @@ pub struct CreateSessionResponse {
   pub session: SessionSummary,
 }
 
+fn create_codex_selection(
+  body: &CreateSessionRequest,
+  developer_instructions: Option<String>,
+  codex_config_source: Option<CodexConfigSource>,
+) -> Option<CodexConfigSelection> {
+  if body.provider != Provider::Codex {
+    return None;
+  }
+
+  Some(CodexSessionOverrides {
+    model: body.model.clone(),
+    model_provider: body.codex_model_provider.clone(),
+    approval_policy: body.approval_policy.clone().or_else(|| {
+      body
+        .approval_policy_details
+        .as_ref()
+        .map(|details| details.legacy_summary())
+    }),
+    approval_policy_details: body.approval_policy_details.clone(),
+    sandbox_mode: body.sandbox_mode.clone(),
+    collaboration_mode: body.collaboration_mode.clone(),
+    multi_agent: body.multi_agent,
+    personality: body.personality.clone(),
+    service_tier: body.service_tier.clone(),
+    developer_instructions,
+    effort: body.effort.clone(),
+  })
+  .zip(codex_config_source)
+  .map(|(overrides, source)| {
+    CodexConfigSelection {
+      config_source: source,
+      config_mode: body.codex_config_mode.unwrap_or({
+        if body.codex_config_profile.is_some() {
+          CodexConfigMode::Profile
+        } else if body.codex_model_provider.is_some() {
+          CodexConfigMode::Custom
+        } else {
+          CodexConfigMode::Inherit
+        }
+      }),
+      config_profile: body.codex_config_profile.clone(),
+      model_provider: body.codex_model_provider.clone(),
+      overrides,
+    }
+    .normalized()
+  })
+}
+
 pub async fn create_session(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<CreateSessionRequest>,
@@ -262,55 +310,30 @@ pub async fn create_session(
   } else {
     None
   };
-  let codex_overrides = if body.provider == Provider::Codex {
-    Some(CodexSessionOverrides {
-      model: body.model.clone(),
-      model_provider: body.codex_model_provider.clone(),
-      approval_policy: body.approval_policy.clone().or_else(|| {
-        body
-          .approval_policy_details
-          .as_ref()
-          .map(|details| details.legacy_summary())
-      }),
-      approval_policy_details: body.approval_policy_details.clone(),
-      sandbox_mode: body.sandbox_mode.clone(),
-      collaboration_mode: body.collaboration_mode.clone(),
-      multi_agent: body.multi_agent,
-      personality: body.personality.clone(),
-      service_tier: body.service_tier.clone(),
-      developer_instructions: developer_instructions.clone(),
-      effort: body.effort.clone(),
-    })
-  } else {
-    None
-  };
-  let resolved_codex = if let (Provider::Codex, Some(source), Some(overrides)) =
-    (body.provider, codex_config_source, codex_overrides.clone())
-  {
-    let selection = CodexConfigSelection {
-      config_source: source,
-      config_mode: body.codex_config_mode.unwrap_or({
-        if body.codex_config_profile.is_some() {
-          CodexConfigMode::Profile
-        } else if body.codex_model_provider.is_some() {
-          CodexConfigMode::Custom
-        } else {
-          CodexConfigMode::Inherit
-        }
-      }),
-      config_profile: body.codex_config_profile.clone(),
-      model_provider: body.codex_model_provider.clone(),
-      overrides,
-    }
-    .normalized();
+  let normalized_codex_selection =
+    create_codex_selection(&body, developer_instructions.clone(), codex_config_source);
+  let resolved_codex = if let Some(selection) = normalized_codex_selection.clone() {
     Some(
-      resolve_codex_settings(&body.cwd, selection.clone())
+      resolve_codex_settings(&body.cwd, selection)
         .await
         .map_err(|error| unprocessable("invalid_codex_config", error))?,
     )
   } else {
     None
   };
+  if let Some(ref resolved) = resolved_codex {
+    info!(
+      component = "session",
+      event = "session.create.codex_config_resolved",
+      session_id = %session_id,
+      requested_model = ?body.model,
+      resolved_model = ?resolved.effective_settings.model,
+      codex_config_mode = ?resolved.effective_settings.config_mode,
+      codex_config_profile = ?resolved.effective_settings.config_profile,
+      codex_model_provider = ?resolved.effective_settings.model_provider,
+      "Resolved Codex session config before create"
+    );
+  }
   let prepared = prepare_persist_direct_session(
     &state,
     session_id.clone(),
@@ -320,48 +343,78 @@ pub async fn create_session(
       model: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.model.clone())
-        .or(body.model.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.model.clone())
+        }),
       approval_policy: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.approval_policy.clone())
-        .or_else(|| body.approval_policy.clone())
         .or_else(|| {
-          body
-            .approval_policy_details
+          normalized_codex_selection
             .as_ref()
-            .map(|details| details.legacy_summary())
+            .and_then(|selection| selection.overrides.approval_policy.clone())
         }),
       sandbox_mode: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.sandbox_mode.clone())
-        .or(body.sandbox_mode.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.sandbox_mode.clone())
+        }),
       permission_mode: body.permission_mode.clone(),
       allowed_tools: body.allowed_tools.clone(),
       disallowed_tools: body.disallowed_tools.clone(),
       effort: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.effort.clone())
-        .or(body.effort.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.effort.clone())
+        }),
       collaboration_mode: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.collaboration_mode.clone())
-        .or(body.collaboration_mode.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.collaboration_mode.clone())
+        }),
       multi_agent: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.multi_agent)
-        .or(body.multi_agent),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.multi_agent)
+        }),
       personality: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.personality.clone())
-        .or(body.personality.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.personality.clone())
+        }),
       service_tier: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.service_tier.clone())
-        .or(body.service_tier.clone()),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.service_tier.clone())
+        }),
       developer_instructions: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.developer_instructions.clone())
-        .or(developer_instructions),
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.developer_instructions.clone())
+        }),
       mission_id: None,
       issue_identifier: None,
       worktree_id: None,
@@ -377,14 +430,13 @@ pub async fn create_session(
           _ => None,
         }
       }),
-      codex_model_provider: resolved_codex.as_ref().and_then(|resolved| {
-        match resolved.effective_settings.config_mode {
-          CodexConfigMode::Custom => resolved.effective_settings.model_provider.clone(),
-          _ => None,
-        }
-      }),
+      codex_model_provider: resolved_codex
+        .as_ref()
+        .and_then(|resolved| resolved.effective_settings.model_provider.clone()),
       codex_config_source,
-      codex_config_overrides: codex_overrides,
+      codex_config_overrides: normalized_codex_selection
+        .as_ref()
+        .map(|selection| selection.overrides.clone()),
     },
   )
   .await;
@@ -932,4 +984,86 @@ pub async fn fork_session_to_existing_worktree(
     }),
   )
   .await
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn codex_request(
+    codex_config_mode: Option<CodexConfigMode>,
+    codex_config_profile: Option<&str>,
+    model_provider: Option<&str>,
+    model: Option<&str>,
+  ) -> CreateSessionRequest {
+    CreateSessionRequest {
+      provider: Provider::Codex,
+      cwd: "/tmp/project".to_string(),
+      model: model.map(str::to_string),
+      approval_policy: None,
+      approval_policy_details: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      allowed_tools: Vec::new(),
+      disallowed_tools: Vec::new(),
+      effort: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      system_prompt: None,
+      append_system_prompt: None,
+      allow_bypass_permissions: false,
+      codex_config_mode,
+      codex_config_profile: codex_config_profile.map(str::to_string),
+      codex_model_provider: model_provider.map(str::to_string),
+      codex_config_source: Some(CodexConfigSource::User),
+    }
+  }
+
+  #[test]
+  fn create_codex_selection_clears_stale_model_for_profile_mode() {
+    let selection = create_codex_selection(
+      &codex_request(
+        Some(CodexConfigMode::Profile),
+        Some("qwen"),
+        Some("openrouter"),
+        Some("gpt-5.4"),
+      ),
+      None,
+      Some(CodexConfigSource::User),
+    )
+    .expect("selection should exist");
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Profile);
+    assert_eq!(selection.config_profile.as_deref(), Some("qwen"));
+    assert_eq!(selection.overrides.model, None);
+    assert_eq!(selection.overrides.model_provider, None);
+  }
+
+  #[test]
+  fn create_codex_selection_preserves_explicit_model_for_custom_mode() {
+    let selection = create_codex_selection(
+      &codex_request(
+        Some(CodexConfigMode::Custom),
+        None,
+        Some("openrouter"),
+        Some("qwen/qwen3-coder-next"),
+      ),
+      None,
+      Some(CodexConfigSource::User),
+    )
+    .expect("selection should exist");
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Custom);
+    assert_eq!(
+      selection.overrides.model.as_deref(),
+      Some("qwen/qwen3-coder-next")
+    );
+    assert_eq!(
+      selection.overrides.model_provider.as_deref(),
+      Some("openrouter")
+    );
+  }
 }

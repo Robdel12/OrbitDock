@@ -145,6 +145,52 @@ struct ClaudeResumeParams {
   allow_bypass_permissions: bool,
 }
 
+fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection {
+  let inferred_config_mode = request.codex_config_mode.unwrap_or({
+    if request
+      .codex_config_profile
+      .as_deref()
+      .is_some_and(|value| !value.trim().is_empty())
+    {
+      CodexConfigMode::Profile
+    } else if request
+      .codex_model_provider
+      .as_deref()
+      .is_some_and(|value| !value.trim().is_empty())
+    {
+      CodexConfigMode::Custom
+    } else {
+      CodexConfigMode::Inherit
+    }
+  });
+
+  CodexConfigSelection {
+    config_source: request
+      .codex_config_source
+      .unwrap_or(CodexConfigSource::User),
+    config_mode: inferred_config_mode,
+    config_profile: request.codex_config_profile.clone(),
+    model_provider: request.codex_model_provider.clone(),
+    overrides: request
+      .codex_config_overrides
+      .clone()
+      .unwrap_or(CodexSessionOverrides {
+        model: request.model.clone(),
+        model_provider: request.codex_model_provider.clone(),
+        approval_policy: request.approval_policy.clone(),
+        approval_policy_details: None,
+        sandbox_mode: request.sandbox_mode.clone(),
+        collaboration_mode: request.collaboration_mode.clone(),
+        multi_agent: request.multi_agent,
+        personality: request.personality.clone(),
+        service_tier: request.service_tier.clone(),
+        developer_instructions: request.developer_instructions.clone(),
+        effort: None,
+      }),
+  }
+  .normalized()
+}
+
 async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeParams) {
   let ClaudeResumeParams {
     session_id,
@@ -270,25 +316,14 @@ async fn spawn_claude_resume(state: &Arc<SessionRegistry>, params: ClaudeResumeP
 }
 
 async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRequest) {
+  let normalized_selection = codex_resume_selection(&request);
   let CodexResumeRequest {
     session_id,
     project_path,
-    model,
     codex_thread_id,
-    approval_policy,
-    sandbox_mode,
-    collaboration_mode,
-    multi_agent,
-    personality,
-    service_tier,
-    developer_instructions,
-    codex_config_mode,
-    codex_config_profile,
-    codex_model_provider,
-    codex_config_source,
-    codex_config_overrides,
     mut handle,
     message_count,
+    ..
   } = request;
   let session_id = session_id.to_string();
   let persist_tx = state.persist().clone();
@@ -296,60 +331,58 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
 
   tokio::spawn(async move {
     let connector_timeout = Duration::from_secs(15);
-    let task_session_id = session_id.clone();
-    let mut connector_task = tokio::spawn(async move {
-      let fallback_overrides = CodexSessionOverrides {
-        model: model.clone(),
-        model_provider: codex_model_provider.clone(),
-        approval_policy: approval_policy.clone(),
-        approval_policy_details: None,
-        sandbox_mode: sandbox_mode.clone(),
-        collaboration_mode: collaboration_mode.clone(),
-        multi_agent,
-        personality: personality.clone(),
-        service_tier: service_tier.clone(),
-        developer_instructions: developer_instructions.clone(),
-        effort: None,
-      };
-      let resolved = resolve_codex_settings(
-        &project_path,
-        CodexConfigSelection {
-          config_source: codex_config_source.unwrap_or(CodexConfigSource::User),
-          config_mode: codex_config_mode.unwrap_or(CodexConfigMode::Inherit),
-          config_profile: codex_config_profile.clone(),
-          model_provider: codex_model_provider.clone(),
-          overrides: codex_config_overrides.unwrap_or(fallback_overrides),
-        },
-      )
+    let resolved = resolve_codex_settings(&project_path, normalized_selection.clone())
       .await
       .ok();
-      let effective = resolved
-        .as_ref()
-        .map(|resolved| &resolved.effective_settings);
+    let effective = resolved
+      .as_ref()
+      .map(|resolved| &resolved.effective_settings);
+    let effective_model = effective
+      .and_then(|value| value.model.clone())
+      .or_else(|| normalized_selection.overrides.model.clone());
+    let effective_approval = effective
+      .and_then(|value| value.approval_policy.clone())
+      .or_else(|| normalized_selection.overrides.approval_policy.clone());
+    let effective_sandbox = effective
+      .and_then(|value| value.sandbox_mode.clone())
+      .or_else(|| normalized_selection.overrides.sandbox_mode.clone());
+    let effective_collaboration_mode = effective
+      .and_then(|value| value.collaboration_mode.clone())
+      .or_else(|| normalized_selection.overrides.collaboration_mode.clone());
+    let effective_multi_agent = effective
+      .and_then(|value| value.multi_agent)
+      .or(normalized_selection.overrides.multi_agent);
+    let effective_personality = effective
+      .and_then(|value| value.personality.clone())
+      .or_else(|| normalized_selection.overrides.personality.clone());
+    let effective_service_tier = effective
+      .and_then(|value| value.service_tier.clone())
+      .or_else(|| normalized_selection.overrides.service_tier.clone());
+    let effective_developer_instructions = effective
+      .and_then(|value| value.developer_instructions.clone())
+      .or_else(|| {
+        normalized_selection
+          .overrides
+          .developer_instructions
+          .clone()
+      });
+    let effective_model_provider = effective
+      .and_then(|value| value.model_provider.clone())
+      .or_else(|| normalized_selection.model_provider.clone())
+      .or_else(|| normalized_selection.overrides.model_provider.clone());
+    let effective_config_profile = effective
+      .and_then(|value| value.config_profile.clone())
+      .or_else(|| normalized_selection.config_profile.clone());
+    let resumed_session_model = effective_model.clone();
+    let task_session_id = session_id.clone();
+    let mut connector_task = tokio::spawn(async move {
       let control_plane = orbitdock_connector_codex::CodexControlPlane {
-        collaboration_mode: effective
-          .and_then(|value| value.collaboration_mode.clone())
-          .or(collaboration_mode),
-        multi_agent: effective
-          .and_then(|value| value.multi_agent)
-          .or(multi_agent),
-        personality: effective
-          .and_then(|value| value.personality.clone())
-          .or(personality),
-        service_tier: effective
-          .and_then(|value| value.service_tier.clone())
-          .or(service_tier),
-        developer_instructions: effective
-          .and_then(|value| value.developer_instructions.clone())
-          .or(developer_instructions),
+        collaboration_mode: effective_collaboration_mode.clone(),
+        multi_agent: effective_multi_agent,
+        personality: effective_personality.clone(),
+        service_tier: effective_service_tier.clone(),
+        developer_instructions: effective_developer_instructions.clone(),
       };
-      let effective_model = effective.and_then(|value| value.model.clone()).or(model);
-      let effective_approval = effective
-        .and_then(|value| value.approval_policy.clone())
-        .or(approval_policy);
-      let effective_sandbox = effective
-        .and_then(|value| value.sandbox_mode.clone())
-        .or(sandbox_mode);
       let build_session_config = |cp: orbitdock_connector_codex::CodexControlPlane| {
         orbitdock_connector_codex::session::CodexSessionConfig {
           cwd: &project_path,
@@ -357,8 +390,8 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
           approval_policy: effective_approval.as_deref(),
           sandbox_mode: effective_sandbox.as_deref(),
           config_overrides: orbitdock_connector_codex::CodexConfigOverrides {
-            model_provider: effective.and_then(|value| value.model_provider.clone()),
-            config_profile: effective.and_then(|value| value.config_profile.clone()),
+            model_provider: effective_model_provider.clone(),
+            config_profile: effective_config_profile.clone(),
           },
           control_plane: cp,
           dynamic_tools_json: Vec::new(),
@@ -396,6 +429,7 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
 
     match codex_start {
       Ok(codex_session) => {
+        handle.set_model(resumed_session_model);
         let thread_id = codex_session.thread_id().to_string();
         claim_codex_thread_for_direct_session(
           &state,
@@ -460,4 +494,115 @@ struct CodexResumeRequest {
   codex_config_overrides: Option<CodexSessionOverrides>,
   handle: crate::domain::sessions::session::SessionHandle,
   message_count: usize,
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn codex_resume_request(
+    model: Option<&str>,
+    codex_config_mode: Option<CodexConfigMode>,
+    codex_config_profile: Option<&str>,
+    codex_model_provider: Option<&str>,
+  ) -> CodexResumeRequest {
+    CodexResumeRequest {
+      session_id: "session-1".to_string(),
+      project_path: "/tmp/project".to_string(),
+      model: model.map(str::to_string),
+      codex_thread_id: None,
+      approval_policy: None,
+      sandbox_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode,
+      codex_config_profile: codex_config_profile.map(str::to_string),
+      codex_model_provider: codex_model_provider.map(str::to_string),
+      codex_config_source: Some(CodexConfigSource::User),
+      codex_config_overrides: None,
+      handle: crate::domain::sessions::session::SessionHandle::new(
+        "session-1".to_string(),
+        Provider::Codex,
+        "/tmp/project".to_string(),
+      ),
+      message_count: 0,
+    }
+  }
+
+  #[test]
+  fn codex_resume_selection_clears_stale_model_for_profile_mode() {
+    let request = codex_resume_request(
+      Some("gpt-5.4"),
+      Some(CodexConfigMode::Profile),
+      Some("qwen"),
+      Some("openrouter"),
+    );
+    let selection = codex_resume_selection(&request);
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Profile);
+    assert_eq!(selection.config_profile.as_deref(), Some("qwen"));
+    assert_eq!(selection.overrides.model, None);
+    assert_eq!(selection.overrides.model_provider, None);
+  }
+
+  #[test]
+  fn codex_resume_selection_preserves_explicit_model_for_custom_mode() {
+    let request = codex_resume_request(
+      Some("qwen/qwen3-coder-next"),
+      Some(CodexConfigMode::Custom),
+      None,
+      Some("openrouter"),
+    );
+    let selection = codex_resume_selection(&request);
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Custom);
+    assert_eq!(
+      selection.overrides.model.as_deref(),
+      Some("qwen/qwen3-coder-next")
+    );
+    assert_eq!(
+      selection.overrides.model_provider.as_deref(),
+      Some("openrouter")
+    );
+  }
+
+  #[test]
+  fn codex_resume_selection_infers_profile_mode_for_legacy_rows() {
+    let request = codex_resume_request(
+      Some("qwen/qwen3-coder-next"),
+      None,
+      Some("qwen"),
+      Some("openrouter"),
+    );
+    let selection = codex_resume_selection(&request);
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Profile);
+    assert_eq!(selection.config_profile.as_deref(), Some("qwen"));
+    assert_eq!(selection.overrides.model, None);
+    assert_eq!(selection.overrides.model_provider, None);
+  }
+
+  #[test]
+  fn codex_resume_selection_infers_custom_mode_for_legacy_provider_rows() {
+    let request = codex_resume_request(
+      Some("qwen/qwen3-coder-next"),
+      None,
+      None,
+      Some("openrouter"),
+    );
+    let selection = codex_resume_selection(&request);
+
+    assert_eq!(selection.config_mode, CodexConfigMode::Custom);
+    assert_eq!(
+      selection.overrides.model.as_deref(),
+      Some("qwen/qwen3-coder-next")
+    );
+    assert_eq!(
+      selection.overrides.model_provider.as_deref(),
+      Some("openrouter")
+    );
+  }
 }

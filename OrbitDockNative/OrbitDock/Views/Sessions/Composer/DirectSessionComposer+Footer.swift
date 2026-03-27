@@ -166,12 +166,12 @@ extension DirectSessionComposer {
 
   @ViewBuilder
   var footerModelLabel: some View {
-    if obs.isDirectCodex, !selectedModel.isEmpty {
+    if obs.isDirectCodex, !effectiveCodexModel.isEmpty {
       Text(footerModelSummary)
         .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
-        .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
+        .help("Model: \(effectiveCodexModel)\nEffort: \(selectedEffort.displayName)")
     } else if obs.isDirectClaude, !effectiveClaudeModel.isEmpty {
       Text(footerModelSummary)
         .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
@@ -183,7 +183,7 @@ extension DirectSessionComposer {
 
   private var footerModelSummary: String {
     let modelName = if obs.isDirectCodex {
-      DirectSessionComposerProviderPlanner.compactModelName(selectedModel)
+      DirectSessionComposerProviderPlanner.compactModelName(effectiveCodexModel)
     } else {
       DirectSessionComposerProviderPlanner.compactModelName(effectiveClaudeModel)
     }

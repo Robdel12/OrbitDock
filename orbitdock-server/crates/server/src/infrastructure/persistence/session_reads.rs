@@ -24,6 +24,28 @@ type StoredCodexConfigRow = (
   Option<String>,
 );
 
+fn infer_codex_config_mode(
+  raw_mode: Option<&str>,
+  config_profile: Option<&str>,
+  model_provider: Option<&str>,
+) -> Option<CodexConfigMode> {
+  match raw_mode {
+    Some("inherit") => Some(CodexConfigMode::Inherit),
+    Some("profile") => Some(CodexConfigMode::Profile),
+    Some("custom") => Some(CodexConfigMode::Custom),
+    Some(_) => None,
+    None => {
+      if config_profile.is_some_and(|value| !value.trim().is_empty()) {
+        Some(CodexConfigMode::Profile)
+      } else if model_provider.is_some_and(|value| !value.trim().is_empty()) {
+        Some(CodexConfigMode::Custom)
+      } else {
+        None
+      }
+    }
+  }
+}
+
 /// Intermediate row from the active-sessions SQL query.
 struct ActiveSessionRow {
   id: String,
@@ -386,7 +408,24 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                         COALESCE(uss.snapshot_kind, 'unknown')
                  FROM sessions s
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id
-                 WHERE s.status = 'active'
+                 WHERE (s.status = 'active'
+                    AND NOT (
+                      s.provider = 'claude'
+                      AND COALESCE(s.control_mode, CASE
+                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+                            ELSE 'passive'
+                          END) != 'direct'
+                      AND EXISTS (
+                          SELECT 1
+                          FROM sessions direct
+                          WHERE direct.provider = 'claude'
+                            AND direct.claude_sdk_session_id = s.id
+                            AND COALESCE(direct.control_mode, CASE
+                                  WHEN direct.provider = 'claude' AND direct.claude_integration_mode = 'direct' THEN 'direct'
+                                  ELSE 'passive'
+                                END) = 'direct'
+                      )
+                    ))
                     OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
                  ORDER BY
                    COALESCE(
@@ -617,12 +656,11 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
                     )
                     .unwrap_or((None, None, None, None, None, None, None, None, None, None));
-                let codex_config_mode = match codex_config_mode_raw.as_deref() {
-                    Some("inherit") => Some(CodexConfigMode::Inherit),
-                    Some("profile") => Some(CodexConfigMode::Profile),
-                    Some("custom") => Some(CodexConfigMode::Custom),
-                    _ => None,
-                };
+                let codex_config_mode = infer_codex_config_mode(
+                    codex_config_mode_raw.as_deref(),
+                    codex_config_profile.as_deref(),
+                    codex_model_provider.as_deref(),
+                );
                 let codex_config_source = match codex_config_source_raw.as_deref() {
                     Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
                     Some("user") => Some(CodexConfigSource::User),
@@ -1011,12 +1049,11 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?)),
                 )
                 .unwrap_or((None, None, None, None, None, None, None, None, None, None));
-            let codex_config_mode = match codex_config_mode_raw.as_deref() {
-                Some("inherit") => Some(CodexConfigMode::Inherit),
-                Some("profile") => Some(CodexConfigMode::Profile),
-                Some("custom") => Some(CodexConfigMode::Custom),
-                _ => None,
-            };
+            let codex_config_mode = infer_codex_config_mode(
+                codex_config_mode_raw.as_deref(),
+                codex_config_profile.as_deref(),
+                codex_model_provider.as_deref(),
+            );
             let codex_config_source = match codex_config_source_raw.as_deref() {
                 Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
                 Some("user") => Some(CodexConfigSource::User),

@@ -8,6 +8,21 @@
 import Foundation
 
 enum DirectSessionComposerProviderPlanner {
+  static func activeCodexModelOptions(
+    scopedOptions: [ServerCodexModelOption]?,
+    fallbackOptions: [ServerCodexModelOption],
+    isScopedProviderActive: Bool
+  ) -> [ServerCodexModelOption] {
+    let normalizedScoped = (scopedOptions ?? []).filter { !$0.model.isEmpty }
+    if !normalizedScoped.isEmpty {
+      return normalizedScoped
+    }
+    if isScopedProviderActive {
+      return []
+    }
+    return fallbackOptions
+  }
+
   static func defaultCodexModelSelection(
     currentModel: String?,
     options: [ServerCodexModelOption]
@@ -47,7 +62,7 @@ enum DirectSessionComposerProviderPlanner {
 
   static func hasOverrides(
     providerMode: ComposerProviderMode,
-    selectedCodexModel: String,
+    selectedCodexModel: String?,
     selectedClaudeModel: String,
     currentModel: String?,
     selectedEffort: EffortLevel,
@@ -56,8 +71,10 @@ enum DirectSessionComposerProviderPlanner {
   ) -> Bool {
     switch providerMode {
       case .directCodex:
+        let normalizedOverride = selectedCodexModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalizedCurrentModel = currentModel?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return selectedEffort != .default
-          || selectedCodexModel != defaultCodexModelSelection(currentModel: currentModel, options: codexOptions)
+          || (!normalizedOverride.isEmpty && normalizedOverride != normalizedCurrentModel)
       case .directClaude:
         guard !selectedClaudeModel.isEmpty else { return false }
         return selectedClaudeModel

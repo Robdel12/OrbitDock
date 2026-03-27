@@ -179,6 +179,31 @@ extension DirectSessionComposer {
     .padding(.bottom, Spacing.xs)
   }
 
+  func codexScopedModelNoticeRow(_ message: String, isLoading: Bool) -> some View {
+    let tint = isLoading ? Color.feedbackCaution : Color.providerCodex
+
+    return HStack(spacing: Spacing.sm_) {
+      if isLoading {
+        ProgressView()
+          .controlSize(.small)
+          .tint(tint)
+      } else {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(tint)
+      }
+
+      Text(message)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(3)
+
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, Spacing.md_)
+    .padding(.bottom, Spacing.xs)
+  }
+
   func statusBarCwdLabel(_ cwd: String) -> some View {
     let display = (cwd as NSString).lastPathComponent
     return HStack(spacing: Spacing.xxs) {

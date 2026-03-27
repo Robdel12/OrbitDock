@@ -85,6 +85,79 @@ pub(crate) use worktrees::{
 pub(crate) use writer::flush_batch_for_test;
 pub(crate) use writer::{create_persistence_channel, PersistenceWriter};
 
+fn session_was_user_closed(conn: &Connection, session_id: &str) -> Result<bool, rusqlite::Error> {
+  let row = conn
+    .query_row(
+      "SELECT status, end_reason FROM sessions WHERE id = ?1",
+      params![session_id],
+      |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+    )
+    .optional()?;
+
+  Ok(matches!(
+    row,
+    Some((status, Some(end_reason)))
+      if status.eq_ignore_ascii_case("ended") && end_reason == "user_requested"
+  ))
+}
+
+fn claude_shadow_is_owned_by_direct_session(
+  conn: &Connection,
+  session_id: &str,
+) -> Result<bool, rusqlite::Error> {
+  let exists: i64 = conn.query_row(
+    "SELECT EXISTS(
+            SELECT 1
+            FROM sessions direct
+            WHERE direct.provider = 'claude'
+              AND direct.claude_sdk_session_id = ?1
+              AND COALESCE(direct.control_mode, CASE
+                    WHEN direct.provider = 'claude'
+                         AND direct.claude_integration_mode = 'direct'
+                        THEN 'direct'
+                    ELSE 'passive'
+                  END) = 'direct'
+        )",
+    params![session_id],
+    |row| row.get(0),
+  )?;
+
+  Ok(exists == 1)
+}
+
+fn preserve_direct_owned_claude_shadow(
+  conn: &Connection,
+  session_id: &str,
+  reason: &str,
+) -> Result<bool, rusqlite::Error> {
+  if !claude_shadow_is_owned_by_direct_session(conn, session_id)? {
+    return Ok(false);
+  }
+
+  let now = chrono_now();
+  conn.execute(
+    "UPDATE sessions
+             SET status = 'ended',
+                 work_status = 'ended',
+                 lifecycle_state = 'ended',
+                 ended_at = COALESCE(ended_at, ?1),
+                 end_reason = COALESCE(end_reason, ?2),
+                 attention_reason = 'none',
+                 pending_tool_name = NULL,
+                 pending_tool_input = NULL,
+                 pending_question = NULL,
+                 pending_approval_id = NULL,
+                 active_subagent_id = NULL,
+                 active_subagent_type = NULL
+             WHERE id = ?3
+               AND provider = 'claude'
+               AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')",
+    params![now, reason, session_id],
+  )?;
+
+  Ok(true)
+}
+
 fn persist_subagent_upsert(
   conn: &Connection,
   session_id: &str,
@@ -261,18 +334,90 @@ pub(super) fn execute_command(
       });
 
       conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, lifecycle_state, control_mode, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, started_at, last_activity_at, last_progress_at, forked_from_session_id, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, is_worktree)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', 'open', ?8, ?9, ?13, ?10, ?11, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?7, ?7, ?7, ?12, ?24, ?25, ?26, ?27, ?28, ?29)
+        "INSERT INTO sessions (
+                    id,
+                    project_path,
+                    project_name,
+                    branch,
+                    model,
+                    provider,
+                    status,
+                    work_status,
+                    lifecycle_state,
+                    control_mode,
+                    codex_integration_mode,
+                    claude_integration_mode,
+                    approval_policy,
+                    sandbox_mode,
+                    permission_mode,
+                    collaboration_mode,
+                    multi_agent,
+                    personality,
+                    service_tier,
+                    developer_instructions,
+                    codex_config_mode,
+                    codex_config_profile,
+                    codex_model_provider,
+                    codex_config_source,
+                    codex_config_overrides_json,
+                    started_at,
+                    last_activity_at,
+                    last_progress_at,
+                    forked_from_session_id,
+                    mission_id,
+                    issue_identifier,
+                    allow_bypass_permissions,
+                    worktree_id,
+                    is_worktree
+                 )
+                 VALUES (
+                    ?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', 'open',
+                    ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+                    ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
+                    ?28, ?29, ?30, ?31
+                 )
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                    control_mode = COALESCE(sessions.control_mode, excluded.control_mode),
                    lifecycle_state = COALESCE(sessions.lifecycle_state, excluded.lifecycle_state),
-                   last_activity_at = ?7,
-                   last_progress_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, control_mode, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_mode, codex_config_profile, codex_model_provider, codex_config_source, codex_config_overrides_json, mission_id, issue_identifier, allow_bypass_permissions, worktree_id, worktree_id.is_some()],
-            )?;
+                   last_activity_at = ?24,
+                   last_progress_at = ?25",
+        params![
+          id,
+          project_path,
+          project_name,
+          branch,
+          model,
+          provider_str,
+          control_mode,
+          codex_integration_mode,
+          claude_integration_mode,
+          approval_policy,
+          sandbox_mode,
+          permission_mode,
+          collaboration_mode,
+          multi_agent,
+          personality,
+          service_tier,
+          developer_instructions,
+          codex_config_mode,
+          codex_config_profile,
+          codex_model_provider,
+          codex_config_source,
+          codex_config_overrides_json,
+          now.clone(),
+          now.clone(),
+          now,
+          forked_from_session_id,
+          mission_id,
+          issue_identifier,
+          allow_bypass_permissions,
+          worktree_id,
+          worktree_id.is_some(),
+        ],
+      )?;
     }
 
     PersistCommand::SessionUpdate {
@@ -901,6 +1046,10 @@ pub(super) fn execute_command(
       is_worktree,
       git_sha,
     } => {
+      if preserve_direct_owned_claude_shadow(conn, &id, "direct_owner_exists")? {
+        return Ok(());
+      }
+
       let now = chrono_now();
       conn.execute(
                 "INSERT INTO sessions (
@@ -975,6 +1124,10 @@ pub(super) fn execute_command(
       first_prompt,
       compact_count_increment,
     } => {
+      if preserve_direct_owned_claude_shadow(conn, &id, "direct_owner_exists")? {
+        return Ok(());
+      }
+
       let mut updates: Vec<String> = Vec::new();
       let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
       let has_attention_reason = attention_reason.is_some();
@@ -1236,6 +1389,7 @@ pub(super) fn execute_command(
         return Ok(());
       }
 
+      let preserve_user_closed_state = session_was_user_closed(conn, &id)?;
       let now = chrono_now();
       conn.execute(
                 "INSERT INTO sessions (
@@ -1251,13 +1405,27 @@ pub(super) fn execute_command(
                     context_label = COALESCE(excluded.context_label, sessions.context_label),
                     transcript_path = excluded.transcript_path,
                     provider = 'codex',
-                    status = 'active',
+                    status = CASE
+                        WHEN ?11 THEN sessions.status
+                        ELSE 'active'
+                    END,
                     work_status = CASE
+                        WHEN ?11 THEN sessions.work_status
                         WHEN sessions.work_status IN ('permission', 'question', 'working') THEN sessions.work_status
                         ELSE 'waiting'
                     END,
-                    ended_at = NULL,
-                    end_reason = NULL,
+                    ended_at = CASE
+                        WHEN ?11 THEN sessions.ended_at
+                        ELSE NULL
+                    END,
+                    end_reason = CASE
+                        WHEN ?11 THEN sessions.end_reason
+                        ELSE NULL
+                    END,
+                    lifecycle_state = CASE
+                        WHEN ?11 THEN COALESCE(sessions.lifecycle_state, 'ended')
+                        ELSE 'open'
+                    END,
                     control_mode = CASE
                         WHEN sessions.control_mode = 'direct' THEN sessions.control_mode
                         ELSE 'passive'
@@ -1276,6 +1444,7 @@ pub(super) fn execute_command(
                     thread_id,
                     started_at,
                     now,
+                    preserve_user_closed_state,
                 ],
             )?;
     }
@@ -1299,6 +1468,7 @@ pub(super) fn execute_command(
         return Ok(());
       }
 
+      let preserve_user_closed_state = session_was_user_closed(conn, &id)?;
       let lifecycle_state_is_ended = matches!(status, Some(SessionStatus::Ended))
         || matches!(work_status, Some(WorkStatus::Ended));
       let status_str = status.map(|s| match s {
@@ -1332,48 +1502,52 @@ pub(super) fn execute_command(
         updates.push("model = ?".to_string());
         params_vec.push(Box::new(m));
       }
-      if let Some(s) = status_str {
-        updates.push("status = ?".to_string());
-        params_vec.push(Box::new(s.to_string()));
-        if s == "ended" {
-          updates.push("ended_at = COALESCE(ended_at, ?)".to_string());
-          params_vec.push(Box::new(chrono_now()));
-        } else {
-          updates.push("ended_at = NULL".to_string());
-          updates.push("end_reason = NULL".to_string());
+      if !preserve_user_closed_state {
+        if let Some(s) = status_str {
+          updates.push("status = ?".to_string());
+          params_vec.push(Box::new(s.to_string()));
+          if s == "ended" {
+            updates.push("ended_at = COALESCE(ended_at, ?)".to_string());
+            params_vec.push(Box::new(chrono_now()));
+          } else {
+            updates.push("ended_at = NULL".to_string());
+            updates.push("end_reason = NULL".to_string());
+          }
         }
-      }
-      if let Some(ws) = work_status_str {
-        updates.push("work_status = ?".to_string());
-        params_vec.push(Box::new(ws.to_string()));
-      }
-      if let Some(reason) = attention_reason {
-        updates.push("attention_reason = ?".to_string());
-        params_vec.push(Box::new(reason));
-      }
-      if let Some(tool_name) = pending_tool_name {
-        updates.push("pending_tool_name = ?".to_string());
-        params_vec.push(Box::new(tool_name));
-      }
-      if let Some(tool_input) = pending_tool_input {
-        updates.push("pending_tool_input = ?".to_string());
-        params_vec.push(Box::new(tool_input));
-      }
-      if let Some(question) = pending_question {
-        updates.push("pending_question = ?".to_string());
-        params_vec.push(Box::new(question));
+        if let Some(ws) = work_status_str {
+          updates.push("work_status = ?".to_string());
+          params_vec.push(Box::new(ws.to_string()));
+        }
+        if let Some(reason) = attention_reason {
+          updates.push("attention_reason = ?".to_string());
+          params_vec.push(Box::new(reason));
+        }
+        if let Some(tool_name) = pending_tool_name {
+          updates.push("pending_tool_name = ?".to_string());
+          params_vec.push(Box::new(tool_name));
+        }
+        if let Some(tool_input) = pending_tool_input {
+          updates.push("pending_tool_input = ?".to_string());
+          params_vec.push(Box::new(tool_input));
+        }
+        if let Some(question) = pending_question {
+          updates.push("pending_question = ?".to_string());
+          params_vec.push(Box::new(question));
+        }
       }
       if let Some(tokens) = total_tokens {
         updates.push("total_tokens = ?".to_string());
         params_vec.push(Box::new(tokens));
       }
-      if let Some(tool) = last_tool {
-        updates.push("last_tool = ?".to_string());
-        params_vec.push(Box::new(tool));
-      }
-      if let Some(tool_at) = last_tool_at {
-        updates.push("last_tool_at = ?".to_string());
-        params_vec.push(Box::new(tool_at));
+      if !preserve_user_closed_state {
+        if let Some(tool) = last_tool {
+          updates.push("last_tool = ?".to_string());
+          params_vec.push(Box::new(tool));
+        }
+        if let Some(tool_at) = last_tool_at {
+          updates.push("last_tool_at = ?".to_string());
+          params_vec.push(Box::new(tool_at));
+        }
       }
       if let Some(name) = custom_name {
         updates.push("custom_name = ?".to_string());
@@ -1384,7 +1558,9 @@ pub(super) fn execute_command(
         updates.push("last_activity_at = ?".to_string());
         params_vec.push(Box::new(chrono_now()));
 
-        if lifecycle_state_is_ended {
+        if preserve_user_closed_state {
+          updates.push("lifecycle_state = COALESCE(lifecycle_state, 'ended')".to_string());
+        } else if lifecycle_state_is_ended {
           updates.push("lifecycle_state = 'ended'".to_string());
         } else {
           updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')".to_string());

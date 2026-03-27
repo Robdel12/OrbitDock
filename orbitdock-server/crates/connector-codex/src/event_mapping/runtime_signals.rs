@@ -24,6 +24,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use tracing::warn;
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
   let row = with_display(row);
@@ -154,6 +155,14 @@ pub(crate) fn handle_warning(
   event: WarningEvent,
   msg_counter: &AtomicU64,
 ) -> Vec<ConnectorEvent> {
+  if is_suppressed_runtime_warning(&event.message) {
+    warn!(
+      event_id,
+      message = %event.message,
+      "suppressing Codex runtime warning from timeline"
+    );
+    return vec![];
+  }
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
     id: format!("warning-{}-{}", event_id, seq),
@@ -166,6 +175,10 @@ pub(crate) fn handle_warning(
     delivery_status: None,
   }));
   vec![ConnectorEvent::ConversationRowCreated(entry)]
+}
+
+pub(crate) fn is_suppressed_runtime_warning(message: &str) -> bool {
+  message.starts_with("Model metadata for `") && message.contains("Defaulting to fallback metadata")
 }
 
 pub(crate) async fn handle_model_reroute(

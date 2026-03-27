@@ -2,6 +2,58 @@
 import Testing
 
 struct DirectSessionComposerProviderPlannerTests {
+  @Test func activeCodexModelOptionsPreferScopedProviderList() {
+    let fallback = [
+      ServerCodexModelOption(
+        id: "openai-gpt-5.4",
+        model: "gpt-5.4",
+        displayName: "GPT-5.4",
+        description: "OpenAI default",
+        isDefault: true,
+        supportedReasoningEfforts: ["low", "medium", "high"]
+      ),
+    ]
+    let scoped = [
+      ServerCodexModelOption(
+        id: "qwen",
+        model: "qwen/qwen3-coder-next",
+        displayName: "Qwen 3 Coder Next",
+        description: "Scoped OpenRouter model",
+        isDefault: true,
+        supportedReasoningEfforts: ["low", "medium", "high"]
+      ),
+    ]
+
+    let options = DirectSessionComposerProviderPlanner.activeCodexModelOptions(
+      scopedOptions: scoped,
+      fallbackOptions: fallback,
+      isScopedProviderActive: true
+    )
+
+    #expect(options.map(\.model) == ["qwen/qwen3-coder-next"])
+  }
+
+  @Test func activeCodexModelOptionsDoNotFallbackWhenScopedProviderIsActive() {
+    let fallback = [
+      ServerCodexModelOption(
+        id: "openai-gpt-5.4",
+        model: "gpt-5.4",
+        displayName: "GPT-5.4",
+        description: "OpenAI default",
+        isDefault: true,
+        supportedReasoningEfforts: ["low", "medium", "high"]
+      ),
+    ]
+
+    let options = DirectSessionComposerProviderPlanner.activeCodexModelOptions(
+      scopedOptions: nil,
+      fallbackOptions: fallback,
+      isScopedProviderActive: true
+    )
+
+    #expect(options.isEmpty)
+  }
+
   @Test func codexDefaultModelPrefersCurrentWhenAvailable() {
     let options = [
       ServerCodexModelOption(
@@ -86,7 +138,7 @@ struct DirectSessionComposerProviderPlannerTests {
         providerMode: .directCodex,
         selectedCodexModel: "openai/o4-mini",
         selectedClaudeModel: "",
-        currentModel: nil,
+        currentModel: "openai/o4-mini",
         selectedEffort: .default,
         codexOptions: codexOptions,
         claudeOptions: claudeOptions
@@ -96,7 +148,7 @@ struct DirectSessionComposerProviderPlannerTests {
     #expect(
       DirectSessionComposerProviderPlanner.hasOverrides(
         providerMode: .directCodex,
-        selectedCodexModel: "openai/o4-mini",
+        selectedCodexModel: nil,
         selectedClaudeModel: "",
         currentModel: nil,
         selectedEffort: .high,

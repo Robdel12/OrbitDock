@@ -91,6 +91,16 @@ final class DirectSessionComposerViewModel {
     currentSessionStore.refreshCodexModels()
   }
 
+  func fetchCodexModels(
+    cwd: String? = nil,
+    modelProvider: String? = nil
+  ) async throws -> [ServerCodexModelOption] {
+    try await currentSessionStore.clients.usage.listCodexModels(
+      cwd: cwd,
+      modelProvider: modelProvider
+    )
+  }
+
   func loadPermissionRules() async throws {
     _ = try await currentSessionStore.loadPermissionRules(sessionId: resolvedSessionId)
   }

@@ -144,7 +144,7 @@ extension DirectSessionComposer {
   var hasOverrides: Bool {
     DirectSessionComposerProviderPlanner.hasOverrides(
       providerMode: providerMode,
-      selectedCodexModel: selectedModel,
+      selectedCodexModel: codexSelectedModelOverride,
       selectedClaudeModel: selectedClaudeModel,
       currentModel: obs.model,
       selectedEffort: selectedEffort,
@@ -175,12 +175,20 @@ extension DirectSessionComposer {
   }
 
   var codexModelOptions: [ServerCodexModelOption] {
-    viewModel.codexModels
+    DirectSessionComposerProviderPlanner.activeCodexModelOptions(
+      scopedOptions: scopedCodexModels,
+      fallbackOptions: viewModel.codexModels,
+      isScopedProviderActive: isScopedCodexProviderActive
+    )
+  }
+
+  var isScopedCodexProviderActive: Bool {
+    obs.isDirectCodex && currentCodexModelProvider != nil
   }
 
   var currentCodexModelOption: ServerCodexModelOption? {
     codexModelOptions
-      .first(where: { $0.model == (composerState.selectedModel.isEmpty ? obs.model : composerState.selectedModel) })
+      .first(where: { $0.model == effectiveCodexModel })
       ?? codexModelOptions.first(where: { $0.model == obs.model })
       ?? codexModelOptions.first(where: \.isDefault)
       ?? codexModelOptions.first
@@ -208,6 +216,10 @@ extension DirectSessionComposer {
 
   var currentCodexConfigMode: ServerCodexConfigMode {
     obs.codexConfigMode ?? .inherit
+  }
+
+  var codexAllowsModelSelection: Bool {
+    obs.isDirectCodex && currentCodexConfigMode == .custom
   }
 
   var currentCodexConfigProfile: String? {
@@ -279,6 +291,42 @@ extension DirectSessionComposer {
 
   var codexModelOptionsSignature: String {
     codexModelOptions.map(\.model).joined(separator: "|")
+  }
+
+  var codexModelScopeSignature: String {
+    let path = projectPath ?? ""
+    let provider = currentCodexModelProvider ?? ""
+    let mode = obs.isDirectCodex ? "codex" : "other"
+    return [mode, path, provider].joined(separator: "|")
+  }
+
+  var codexSelectedModelOverride: String? {
+    guard codexAllowsModelSelection else { return nil }
+    let trimmed = selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  var effectiveCodexModel: String {
+    if let selected = codexSelectedModelOverride {
+      return selected
+    }
+    return obs.model?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  var codexScopedModelNoticeMessage: String? {
+    guard isScopedCodexProviderActive, let provider = currentCodexModelProvider else { return nil }
+    if scopedCodexModelsLoading {
+      return "Loading models for \(provider)…"
+    }
+    if let error = scopedCodexModelsError, !error.isEmpty {
+      return
+        "Couldn’t load models for \(provider). OrbitDock is hiding the generic Codex list here so you only see provider-compatible models. Current error: \(error)"
+    }
+    if !scopedCodexModelsLoading, codexModelOptions.isEmpty {
+      return
+        "No models were discovered for \(provider). OrbitDock is hiding the generic Codex list here so you don’t pick an incompatible model."
+    }
+    return nil
   }
 
   var claudeModelOptions: [ServerClaudeModelOption] {

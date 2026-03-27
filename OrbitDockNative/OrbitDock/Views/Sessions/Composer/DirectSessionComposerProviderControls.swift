@@ -16,7 +16,11 @@ extension DirectSessionComposer {
           ModelEffortPopover(
             selectedModel: $composerState.selectedModel,
             selectedEffort: $composerState.selectedEffort,
-            models: codexModelOptions
+            models: codexModelOptions,
+            currentModel: effectiveCodexModel,
+            allowsModelSelection: codexAllowsModelSelection,
+            noticeMessage: codexScopedModelNoticeMessage,
+            noticeIsLoading: scopedCodexModelsLoading
           )
           .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -28,7 +32,11 @@ extension DirectSessionComposer {
         ModelEffortPopover(
           selectedModel: $composerState.selectedModel,
           selectedEffort: $composerState.selectedEffort,
-          models: codexModelOptions
+          models: codexModelOptions,
+          currentModel: effectiveCodexModel,
+          allowsModelSelection: codexAllowsModelSelection,
+          noticeMessage: codexScopedModelNoticeMessage,
+          noticeIsLoading: scopedCodexModelsLoading
         )
       #endif
     }
