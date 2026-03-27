@@ -1095,6 +1095,7 @@ mod tests {
     model: Option<&str>,
   ) -> CreateSessionRequest {
     CreateSessionRequest {
+      session_id: None,
       provider: Provider::Codex,
       cwd: "/tmp/project".to_string(),
       model: model.map(str::to_string),
@@ -1117,6 +1118,14 @@ mod tests {
       codex_config_profile: codex_config_profile.map(str::to_string),
       codex_model_provider: model_provider.map(str::to_string),
       codex_config_source: Some(CodexConfigSource::User),
+      mission_id: None,
+      issue_id: None,
+      issue_identifier: None,
+      workspace_id: None,
+      initial_prompt: None,
+      skills: Vec::new(),
+      tracker_kind: None,
+      tracker_api_key: None,
     }
   }
 
