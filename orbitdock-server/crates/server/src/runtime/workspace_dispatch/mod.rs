@@ -73,9 +73,7 @@ pub(crate) enum DispatchResult {
     workspace_id: Option<String>,
   },
   /// The provider provisioned a remote workspace and handed off launch.
-  Provisioning {
-    workspace_id: String,
-  },
+  Provisioning { workspace_id: String },
 }
 
 #[derive(Debug)]

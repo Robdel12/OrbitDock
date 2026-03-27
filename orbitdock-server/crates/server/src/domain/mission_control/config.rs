@@ -129,7 +129,12 @@ impl WorkspaceConfig {
   }
 
   pub fn provider_kind(&self) -> Result<Option<WorkspaceProviderKind>> {
-    match self.provider.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+    match self
+      .provider
+      .as_deref()
+      .map(str::trim)
+      .filter(|value| !value.is_empty())
+    {
       Some(value) => Ok(Some(
         value
           .parse()
@@ -977,11 +982,20 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     assert_eq!(def.config.provider.max_concurrent, 5);
     assert_eq!(def.config.provider.max_concurrent_primary, Some(3));
     assert_eq!(def.config.workspace.provider.as_deref(), Some("daytona"));
-    assert_eq!(def.config.workspace.image.as_deref(), Some("team/custom:v2"));
-    assert_eq!(def.config.workspace.retention.as_deref(), Some("keep_duration"));
+    assert_eq!(
+      def.config.workspace.image.as_deref(),
+      Some("team/custom:v2")
+    );
+    assert_eq!(
+      def.config.workspace.retention.as_deref(),
+      Some("keep_duration")
+    );
     assert_eq!(def.config.workspace.retention_ttl, Some(3600));
     assert_eq!(def.config.workspace.resources.cpu, Some(4));
-    assert_eq!(def.config.workspace.resources.memory.as_deref(), Some("8Gi"));
+    assert_eq!(
+      def.config.workspace.resources.memory.as_deref(),
+      Some("8Gi")
+    );
     assert_eq!(
       def.config.workspace.setup_commands,
       vec!["npm install", "cargo build"]

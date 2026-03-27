@@ -17,7 +17,9 @@ use crate::infrastructure::persistence::{
 };
 use crate::runtime::session_registry::SessionRegistry;
 
-use super::{local::mission_branch_name, DispatchRequest, DispatchResult, WorkspaceError, WorkspaceProvider};
+use super::{
+  local::mission_branch_name, DispatchRequest, DispatchResult, WorkspaceError, WorkspaceProvider,
+};
 
 pub(crate) struct DaytonaWorkspaceProvider {
   client: DaytonaClient,
@@ -37,7 +39,10 @@ impl DaytonaWorkspaceProvider {
     request: DaytonaExecRequest,
     context: &str,
   ) -> Result<()> {
-    let result = self.client.exec_in_workspace(workspace_external_id, &request).await?;
+    let result = self
+      .client
+      .exec_in_workspace(workspace_external_id, &request)
+      .await?;
     if result.exit_code == 0 {
       return Ok(());
     }
@@ -72,7 +77,9 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
       req.issue.id.clone(),
     )
     .await
-    .map_err(|error| WorkspaceError::Failed(format!("Resolve mission issue row failed: {error}")))?;
+    .map_err(|error| {
+      WorkspaceError::Failed(format!("Resolve mission issue row failed: {error}"))
+    })?;
 
     let workspace_id = orbitdock_protocol::new_id();
     let session_id = orbitdock_protocol::new_session_id();
@@ -125,10 +132,16 @@ impl WorkspaceProvider for DaytonaWorkspaceProvider {
       &session_id,
       &sync_token.token,
     )
-    .map_err(|error| WorkspaceError::Failed(format!("Build Daytona launch plan failed: {error}")))?;
+    .map_err(|error| {
+      WorkspaceError::Failed(format!("Build Daytona launch plan failed: {error}"))
+    })?;
 
     if let Err(error) = self
-      .exec_required_success(&workspace.id, launch_plan.start_server_request(), "start remote OrbitDock")
+      .exec_required_success(
+        &workspace.id,
+        launch_plan.start_server_request(),
+        "start remote OrbitDock",
+      )
       .await
     {
       let _ = self.client.delete_workspace(&workspace.id).await;
@@ -237,9 +250,8 @@ impl DaytonaLaunchPlan {
       "tracker_kind": req.tracker_kind,
       "tracker_api_key": req.tracker_api_key,
     });
-    let managed_request_base64 = base64::engine::general_purpose::STANDARD.encode(
-      serde_json::to_vec(&request).context("serialize managed session request")?,
-    );
+    let managed_request_base64 = base64::engine::general_purpose::STANDARD
+      .encode(serde_json::to_vec(&request).context("serialize managed session request")?);
 
     Ok(Self {
       managed_request_base64,
@@ -388,7 +400,10 @@ async fn update_workspace(
   .context("join workspace update")?
 }
 
-async fn load_workspace(registry: Arc<SessionRegistry>, workspace_id: String) -> Result<Option<WorkspaceRecord>> {
+async fn load_workspace(
+  registry: Arc<SessionRegistry>,
+  workspace_id: String,
+) -> Result<Option<WorkspaceRecord>> {
   tokio::task::spawn_blocking(move || -> Result<Option<WorkspaceRecord>> {
     let conn = rusqlite::Connection::open(registry.db_path())?;
     load_workspace_record(&conn, &workspace_id)
@@ -511,14 +526,8 @@ mod tests {
       prompt: "Fix it".into(),
       registry: crate::support::test_support::new_test_session_registry(true),
     };
-    let plan = DaytonaLaunchPlan::build(
-      &config,
-      &request,
-      "workspace-1",
-      "session-1",
-      "token-1",
-    )
-    .expect("build launch plan");
+    let plan = DaytonaLaunchPlan::build(&config, &request, "workspace-1", "session-1", "token-1")
+      .expect("build launch plan");
 
     assert!(plan.sync_url.contains("dock.example.com"));
     assert!(plan.managed_request_base64.len() > 10);

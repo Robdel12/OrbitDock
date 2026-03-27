@@ -1887,12 +1887,11 @@ pub async fn report_issue_completed(
   }
 
   if let Some(ref workspace_id) = workspace_id {
-    if let Err(error) =
-      crate::runtime::workspace_dispatch::daytona::destroy_daytona_workspace(
-        registry.clone(),
-        workspace_id,
-      )
-      .await
+    if let Err(error) = crate::runtime::workspace_dispatch::daytona::destroy_daytona_workspace(
+      registry.clone(),
+      workspace_id,
+    )
+    .await
     {
       warn!(
         component = "mission_control",

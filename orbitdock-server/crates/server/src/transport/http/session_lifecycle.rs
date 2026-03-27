@@ -364,8 +364,7 @@ pub async fn create_session(
     let orbitdock_bin = std::env::current_exe()
       .map(|path| path.to_string_lossy().to_string())
       .unwrap_or_else(|_| "orbitdock".to_string());
-    let mcp_config =
-      crate::runtime::workspace_dispatch::local::build_mcp_config(&orbitdock_bin);
+    let mcp_config = crate::runtime::workspace_dispatch::local::build_mcp_config(&orbitdock_bin);
     let mcp_path = format!("{}/.mcp.json", body.cwd.trim_end_matches('/'));
     let _ = tokio::fs::write(
       &mcp_path,

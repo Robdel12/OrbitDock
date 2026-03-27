@@ -8,8 +8,10 @@ use tracing::{info, warn};
 use crate::domain::mission_control::config::MissionConfig;
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{MissionIssueRow, MissionRow};
-use crate::infrastructure::persistence::{load_workspace_record, update_workspace_record, WorkspaceRecordUpdate};
 use crate::infrastructure::persistence::PersistCommand;
+use crate::infrastructure::persistence::{
+  load_workspace_record, update_workspace_record, WorkspaceRecordUpdate,
+};
 use crate::runtime::session_mutations::{end_session, send_continuation_message};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::workspace_dispatch::daytona::destroy_daytona_workspace;
@@ -195,7 +197,9 @@ pub async fn reconcile_mission(
 
   // ── Pass 2: Check if agent session has ended ───────────────────────
   for issue_row in &running_issues {
-    if let Some(reason) = remote_workspace_stall_reason(registry, issue_row, stall_timeout_secs).await {
+    if let Some(reason) =
+      remote_workspace_stall_reason(registry, issue_row, stall_timeout_secs).await
+    {
       warn!(
           component = "mission_control",
           event = "reconciliation.workspace_stall_detected",

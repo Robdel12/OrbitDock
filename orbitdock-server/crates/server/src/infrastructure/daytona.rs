@@ -8,6 +8,14 @@ use crate::infrastructure::persistence::load_config_value;
 
 const DEFAULT_DAYTONA_IMAGE: &str = "ghcr.io/daytonaio/workspace:latest";
 
+#[derive(Debug, Clone, Default)]
+struct DaytonaConfigSourceValues {
+  api_url: Option<String>,
+  api_key: Option<String>,
+  public_url: Option<String>,
+  image: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DaytonaConfig {
   pub api_url: String,
@@ -19,44 +27,46 @@ pub(crate) struct DaytonaConfig {
 impl DaytonaConfig {
   pub(crate) fn load() -> Result<Self> {
     Self::from_sources(
-      std::env::var("ORBITDOCK_DAYTONA_API_URL").ok(),
-      std::env::var("ORBITDOCK_DAYTONA_API_KEY").ok(),
-      std::env::var("ORBITDOCK_PUBLIC_SERVER_URL").ok(),
-      std::env::var("ORBITDOCK_DAYTONA_IMAGE").ok(),
-      load_config_value("daytona_api_url"),
-      load_config_value("daytona_api_key"),
-      load_config_value("public_server_url"),
-      load_config_value("daytona_image"),
+      DaytonaConfigSourceValues {
+        api_url: std::env::var("ORBITDOCK_DAYTONA_API_URL").ok(),
+        api_key: std::env::var("ORBITDOCK_DAYTONA_API_KEY").ok(),
+        public_url: std::env::var("ORBITDOCK_PUBLIC_SERVER_URL").ok(),
+        image: std::env::var("ORBITDOCK_DAYTONA_IMAGE").ok(),
+      },
+      DaytonaConfigSourceValues {
+        api_url: load_config_value("daytona_api_url"),
+        api_key: load_config_value("daytona_api_key"),
+        public_url: load_config_value("public_server_url"),
+        image: load_config_value("daytona_image"),
+      },
     )
   }
 
   fn from_sources(
-    env_api_url: Option<String>,
-    env_api_key: Option<String>,
-    env_public_url: Option<String>,
-    env_image: Option<String>,
-    persisted_api_url: Option<String>,
-    persisted_api_key: Option<String>,
-    persisted_public_url: Option<String>,
-    persisted_image: Option<String>,
+    env: DaytonaConfigSourceValues,
+    persisted: DaytonaConfigSourceValues,
   ) -> Result<Self> {
-    let api_url = env_api_url
-      .or(persisted_api_url)
+    let api_url = env
+      .api_url
+      .or(persisted.api_url)
       .map(|value| value.trim().trim_end_matches('/').to_string())
       .filter(|value| !value.is_empty())
       .ok_or_else(|| anyhow::anyhow!("Daytona provider requires daytona_api_url config"))?;
-    let api_key = env_api_key
-      .or(persisted_api_key)
+    let api_key = env
+      .api_key
+      .or(persisted.api_key)
       .map(|value| value.trim().to_string())
       .filter(|value| !value.is_empty())
       .ok_or_else(|| anyhow::anyhow!("Daytona provider requires daytona_api_key config"))?;
-    let server_public_url = env_public_url
-      .or(persisted_public_url)
+    let server_public_url = env
+      .public_url
+      .or(persisted.public_url)
       .map(|value| normalize_client_server_url(&value))
       .filter(|value| !value.is_empty())
       .ok_or_else(|| anyhow::anyhow!("Daytona provider requires public_server_url config"))?;
-    let image = env_image
-      .or(persisted_image)
+    let image = env
+      .image
+      .or(persisted.image)
       .map(|value| value.trim().to_string())
       .filter(|value| !value.is_empty())
       .unwrap_or_else(|| DEFAULT_DAYTONA_IMAGE.to_string());
@@ -154,7 +164,10 @@ impl DaytonaClient {
   ) -> Result<DaytonaExecResult> {
     let response = self
       .http
-      .post(format!("{}/workspaces/{workspace_id}/exec", self.config.api_url))
+      .post(format!(
+        "{}/workspaces/{workspace_id}/exec",
+        self.config.api_url
+      ))
       .bearer_auth(&self.config.api_key)
       .json(&DaytonaExecBody {
         command: request.command.clone(),
@@ -239,19 +252,23 @@ struct DaytonaExecResponse {
 
 #[cfg(test)]
 mod tests {
-  use super::DaytonaConfig;
+  use super::{DaytonaConfig, DaytonaConfigSourceValues};
 
   #[test]
   fn daytona_config_prefers_env_over_persisted_values() {
     let config = DaytonaConfig::from_sources(
-      Some("https://env.daytona.example".into()),
-      Some("env-key".into()),
-      Some("https://dock.example.com".into()),
-      Some("custom-image".into()),
-      Some("https://persisted.daytona.example".into()),
-      Some("persisted-key".into()),
-      Some("https://persisted-dock.example.com".into()),
-      Some("persisted-image".into()),
+      DaytonaConfigSourceValues {
+        api_url: Some("https://env.daytona.example".into()),
+        api_key: Some("env-key".into()),
+        public_url: Some("https://dock.example.com".into()),
+        image: Some("custom-image".into()),
+      },
+      DaytonaConfigSourceValues {
+        api_url: Some("https://persisted.daytona.example".into()),
+        api_key: Some("persisted-key".into()),
+        public_url: Some("https://persisted-dock.example.com".into()),
+        image: Some("persisted-image".into()),
+      },
     )
     .expect("resolve config");
 
@@ -263,8 +280,11 @@ mod tests {
 
   #[test]
   fn daytona_config_requires_minimum_runtime_values() {
-    let error = DaytonaConfig::from_sources(None, None, None, None, None, None, None, None)
-      .expect_err("missing config should fail");
+    let error = DaytonaConfig::from_sources(
+      DaytonaConfigSourceValues::default(),
+      DaytonaConfigSourceValues::default(),
+    )
+    .expect_err("missing config should fail");
 
     assert!(error.to_string().contains("daytona_api_url"));
   }

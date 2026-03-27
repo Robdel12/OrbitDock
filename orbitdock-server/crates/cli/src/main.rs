@@ -62,7 +62,10 @@ fn main() -> anyhow::Result<()> {
       server_url,
       request_base64,
     }) => {
-      return orbitdock_cli::commands::run_managed_session_start(server_url.as_deref(), request_base64);
+      return orbitdock_cli::commands::run_managed_session_start(
+        server_url.as_deref(),
+        request_base64,
+      );
     }
     Some(Command::McpMissionTools) => {
       return orbitdock_cli::commands::mcp_mission_tools::run();

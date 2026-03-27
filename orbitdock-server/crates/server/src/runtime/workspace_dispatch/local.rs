@@ -8,10 +8,10 @@ use async_trait::async_trait;
 use orbitdock_protocol::Provider;
 use tracing::warn;
 
-use crate::runtime::session_prompt::send_initial_prompt;
 use crate::runtime::session_creation::{
   launch_prepared_direct_session, prepare_persist_direct_session, DirectSessionRequest,
 };
+use crate::runtime::session_prompt::send_initial_prompt;
 
 use super::{DispatchRequest, DispatchResult, WorkspaceError, WorkspaceProvider};
 
