@@ -95,6 +95,16 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 The installer sets up the binary, shell `PATH`, data directory, and database. It then asks whether
 you want to install Claude hooks and whether you want OrbitDock running as a background service.
 
+To update an existing install:
+
+```bash
+orbitdock upgrade
+```
+
+This checks GitHub Releases for the latest version, downloads the platform binary, verifies
+the SHA256 checksum, and swaps it in place. Your previous binary is kept as `orbitdock.bak`
+for rollback. Use `orbitdock upgrade --check` to see what's available without installing.
+
 ### 2. Start or verify the server
 
 ```bash
