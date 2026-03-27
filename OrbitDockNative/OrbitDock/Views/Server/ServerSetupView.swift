@@ -391,6 +391,14 @@ struct ServerSetupView: View {
     let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
     let isLocal = ServerSetupViewPlanner.isLoopbackHost(trimmedHost)
 
+    #if os(iOS)
+      if isLocal {
+        connectionError = ServerSetupConnectError.loopbackNotReachableFromIOS.message
+        isConnecting = false
+        return
+      }
+    #endif
+
     let result: Result<[ServerEndpoint], ServerSetupConnectError> = if isLocal {
       ServerSetupViewPlanner.buildLocalEndpoint(
         authToken: authToken,
