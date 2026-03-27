@@ -218,6 +218,7 @@ private struct FileMatchGroup: View {
                   .fixedSize(horizontal: true, vertical: false)
                   .padding(.trailing, Spacing.sm)
               }
+              .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.xxs)

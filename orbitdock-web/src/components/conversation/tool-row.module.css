@@ -100,6 +100,7 @@
   border-radius: var(--radius-sm);
   white-space: pre;
   overflow-x: auto;
+  overflow-y: hidden;
   max-height: 80px;
 }
 
