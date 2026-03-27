@@ -118,7 +118,6 @@ struct PreviewRuntime {
       id: UUID(uuidString: "11111111-2222-3333-4444-555555555555")!,
       name: "Preview Server",
       wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
-      isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )

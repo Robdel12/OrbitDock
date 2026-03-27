@@ -39,17 +39,17 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
   var subtitle: String {
     switch self {
       case .workspace:
-        "Updates, editor, and local dictation"
+        "Dictation and workspace preferences"
       case .integrations:
-        "Claude hooks and Codex account"
+        "Codex account and provider access"
       case .missionControl:
         "API keys, provider defaults"
       case .servers:
-        "Endpoints, runtime, and connection"
+        "Endpoints and connection state"
       case .notifications:
         "Alerts, sounds, and previews"
       case .diagnostics:
-        "Logs, database, and support paths"
+        "Server-owned diagnostics guidance"
     }
   }
 
@@ -77,23 +77,12 @@ struct SettingsView: View {
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
-
-  #if os(macOS)
-    let appUpdater: AppUpdater?
-  #endif
   private let showsCloseButton: Bool
   @State private var selectedPane: SettingsPane = .workspace
 
-  #if os(macOS)
-    init(appUpdater: AppUpdater? = nil, showsCloseButton: Bool = false) {
-      self.appUpdater = appUpdater
-      self.showsCloseButton = showsCloseButton
-    }
-  #else
-    init(showsCloseButton: Bool = false) {
-      self.showsCloseButton = showsCloseButton
-    }
-  #endif
+  init(showsCloseButton: Bool = false) {
+    self.showsCloseButton = showsCloseButton
+  }
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
     let endpointCount = runtimeRegistry.runtimes.count
@@ -281,11 +270,7 @@ struct SettingsView: View {
       Group {
         switch selectedPane {
           case .workspace:
-            #if os(macOS)
-              GeneralSettingsView(appUpdater: appUpdater ?? nil)
-            #else
-              GeneralSettingsView()
-            #endif
+            GeneralSettingsView()
           case .integrations:
             SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
           case .missionControl:
@@ -333,11 +318,7 @@ struct SettingsView: View {
       Group {
         switch selectedPane {
           case .workspace:
-            #if os(macOS)
-              GeneralSettingsView(appUpdater: appUpdater ?? nil)
-            #else
-              GeneralSettingsView()
-            #endif
+            GeneralSettingsView()
           case .integrations:
             SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
           case .missionControl:
@@ -360,7 +341,7 @@ struct SettingsView: View {
 #if os(macOS)
   #Preview {
     let preview = PreviewRuntime(scenario: .settings)
-    preview.inject(SettingsView(appUpdater: AppUpdater()))
+    preview.inject(SettingsView())
       .preferredColorScheme(.dark)
   }
 #else

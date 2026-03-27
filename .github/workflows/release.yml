@@ -1,160 +1,521 @@
-name: Create Release
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
-      bump:
-        description: 'Version bump type'
-        required: true
+      channel:
+        description: Release channel to publish
         type: choice
+        required: true
+        default: stable
+        options:
+          - stable
+          - beta
+          - nightly
+      version_mode:
+        description: Use automatic semantic bumping or provide an explicit version
+        type: choice
+        required: true
+        default: auto
+        options:
+          - auto
+          - explicit
+      version:
+        description: "Required when version_mode=explicit (example: 0.4.0-beta.2)"
+        required: false
+      bump:
+        description: "SemVer bump used when version_mode=auto (stable/beta channels)"
+        type: choice
+        required: true
+        default: patch
         options:
           - patch
           - minor
           - major
+      build_server_assets:
+        description: Build and attach server binaries
+        type: boolean
+        required: true
+        default: true
+      publish_release:
+        description: Publish the GitHub release (set false to leave it in draft)
+        type: boolean
+        required: true
+        default: true
+
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+        default: stable
+      version_mode:
+        required: true
+        type: string
+        default: auto
+      version:
+        required: false
+        type: string
+      bump:
+        required: true
+        type: string
+        default: patch
+      build_server_assets:
+        required: true
+        type: boolean
+        default: true
+      publish_release:
+        required: true
+        type: boolean
+        default: true
+    secrets:
+      OPENAI_API_KEY:
+        required: false
 
 env:
   APP_NAME: OrbitDock
 
-permissions:
-  contents: write
-
 jobs:
-  release:
+  metadata:
+    name: Compute Release Metadata
+    runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-    runs-on: macos-15
-    timeout-minutes: 8
-
+      version: ${{ steps.compute.outputs.version }}
+      tag: ${{ steps.compute.outputs.tag }}
+      build_number: ${{ steps.compute.outputs.build_number }}
+      short_sha: ${{ steps.compute.outputs.short_sha }}
+      build_date: ${{ steps.compute.outputs.build_date }}
+      channel: ${{ steps.compute.outputs.channel }}
+      release_title: ${{ steps.compute.outputs.release_title }}
+      prerelease: ${{ steps.compute.outputs.prerelease }}
+      publish_release: ${{ steps.compute.outputs.publish_release }}
+      build_server_assets: ${{ steps.compute.outputs.build_server_assets }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '16.3'
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Calculate version
-        id: version
+      - name: Compute versions and tags
+        id: compute
+        env:
+          CHANNEL: ${{ inputs.channel || 'stable' }}
+          VERSION_MODE: ${{ inputs.version_mode || 'auto' }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          BUMP: ${{ inputs.bump || 'patch' }}
+          BUILD_SERVER_ASSETS: ${{ inputs.build_server_assets }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          LATEST_VERSION=${LATEST_TAG#v}
+          set -euo pipefail
 
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+          channel="${CHANNEL:-stable}"
+          version_mode="${VERSION_MODE:-auto}"
+          bump="${BUMP:-patch}"
+          requested_version="${REQUESTED_VERSION:-}"
 
-          case "${{ inputs.bump }}" in
-            major)
-              MAJOR=$((MAJOR + 1))
-              MINOR=0
-              PATCH=0
+          latest_stable=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)
+          if [[ -z "$latest_stable" ]]; then
+            latest_stable="v0.0.0"
+          fi
+          base_version="${latest_stable#v}"
+
+          strip_v() {
+            local raw="$1"
+            if [[ "$raw" == v* ]]; then
+              echo "${raw#v}"
+            else
+              echo "$raw"
+            fi
+          }
+
+          bump_version() {
+            local version="$1"
+            local bump_type="$2"
+            IFS='.' read -r major minor patch <<< "$version"
+            case "$bump_type" in
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              patch)
+                patch=$((patch + 1))
+                ;;
+              *)
+                echo "error: unknown bump type '$bump_type'" >&2
+                exit 1
+                ;;
+            esac
+            echo "${major}.${minor}.${patch}"
+          }
+
+          prerelease="false"
+          tag=""
+          version=""
+          release_title=""
+
+          if [[ "$version_mode" == "explicit" ]]; then
+            if [[ -z "$requested_version" ]]; then
+              echo "error: version_mode=explicit requires the 'version' input" >&2
+              exit 1
+            fi
+            version="$(strip_v "$requested_version")"
+            case "$channel" in
+              stable)
+                tag="v${version}"
+                prerelease="false"
+                release_title="${APP_NAME} v${version}"
+                ;;
+              beta)
+                tag="v${version}"
+                prerelease="true"
+                release_title="${APP_NAME} ${version}"
+                ;;
+              nightly)
+                tag="nightly"
+                prerelease="true"
+                release_title="${APP_NAME} Nightly (${version})"
+                ;;
+              *)
+                echo "error: unsupported channel '$channel'" >&2
+                exit 1
+                ;;
+            esac
+          else
+            case "$channel" in
+              stable)
+                version="$(bump_version "$base_version" "$bump")"
+                tag="v${version}"
+                prerelease="false"
+                release_title="${APP_NAME} v${version}"
+                ;;
+              beta)
+                beta_base="$(bump_version "$base_version" "$bump")"
+                max_beta=0
+                while IFS= read -r beta_tag; do
+                  suffix="${beta_tag##*-beta.}"
+                  if [[ "$suffix" =~ ^[0-9]+$ ]] && (( suffix > max_beta )); then
+                    max_beta=$suffix
+                  fi
+                done < <(git tag --list "v${beta_base}-beta.*")
+                next_beta=$((max_beta + 1))
+                version="${beta_base}-beta.${next_beta}"
+                tag="v${version}"
+                prerelease="true"
+                release_title="${APP_NAME} ${version}"
+                ;;
+              nightly)
+                date_stamp="$(date -u +%Y%m%d)"
+                build_date="$(date -u +%Y-%m-%d)"
+                version="${base_version}-nightly.${date_stamp}"
+                tag="nightly"
+                prerelease="true"
+                release_title="${APP_NAME} Nightly (${version})"
+                echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo "error: unsupported channel '$channel'" >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          if [[ "$channel" != "nightly" ]]; then
+            build_date="$(date -u +%Y-%m-%d)"
+            echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
+          fi
+
+          short_sha="$(git rev-parse --short=12 HEAD)"
+          date_stamp="$(date -u +%Y%m%d)"
+          time_stamp="$(date -u +%H%M)"
+
+          if [[ "$channel" == "nightly" ]]; then
+            build_number="${date_stamp}01"
+          else
+            build_number="${date_stamp}${time_stamp}"
+          fi
+
+          publish_release_value="${PUBLISH_RELEASE:-true}"
+          build_server_value="${BUILD_SERVER_ASSETS:-true}"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "build_number=$build_number" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "release_title=$release_title" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "publish_release=$publish_release_value" >> "$GITHUB_OUTPUT"
+          echo "build_server_assets=$build_server_value" >> "$GITHUB_OUTPUT"
+
+  release_notes:
+    name: Generate Release Notes
+    needs: metadata
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      CHANNEL: ${{ needs.metadata.outputs.channel }}
+      SHORT_SHA: ${{ needs.metadata.outputs.short_sha }}
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      TAG_NAME: ${{ needs.metadata.outputs.tag }}
+      BUILD_SERVER_ASSETS: ${{ needs.metadata.outputs.build_server_assets }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare changelog context
+        id: changelog
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          case "$CHANNEL" in
+            nightly)
+              base_ref="refs/tags/nightly"
+              if ! git rev-parse --verify "$base_ref" >/dev/null 2>&1; then
+                base_ref="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+              fi
+              previous_label="$base_ref"
               ;;
-            minor)
-              MINOR=$((MINOR + 1))
-              PATCH=0
-              ;;
-            patch)
-              PATCH=$((PATCH + 1))
+            *)
+              previous_label="$(git tag --list 'v*' --sort=-version:refname | head -n 1)"
+              if [[ -z "$previous_label" ]]; then
+                previous_label="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+              fi
+              base_ref="$previous_label"
               ;;
           esac
 
-          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "Bumping $LATEST_VERSION → $NEW_VERSION (${{ inputs.bump }})"
+          echo "PREVIOUS_REF=$previous_label" >> "$GITHUB_ENV"
+          echo "BASE_REF=$base_ref" >> "$GITHUB_ENV"
 
-      - name: Bump version and tag
-        env:
-          GIT_USER_EMAIL: ${{ secrets.GIT_USER_EMAIL }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          git config user.name "Robert DeLuca"
-          git config user.email "$GIT_USER_EMAIL"
+          git diff --summary "$base_ref"...HEAD > dist/release-diff-summary.txt
+          git diff --stat "$base_ref"...HEAD > dist/release-diff-stat.txt
+          git diff --name-only "$base_ref"...HEAD > dist/release-changed-files.txt
+          git log --no-merges --date=short --format='- %h %s (%ad)' "$base_ref"...HEAD > dist/release-commit-log.txt
 
-          cd OrbitDock
-          agvtool new-marketing-version "$VERSION"
-          agvtool new-version -all 1
-          cd ..
+          cat <<EOF > dist/release-notes-prompt.md
+          Write GitHub release notes for the OrbitDock release in changelog style.
 
-          git add -A
-          git commit -m "🔖 Bump version to $VERSION"
-          git tag -a "v$VERSION" -m "Release v$VERSION"
-          git push origin main --follow-tags
+          Requirements:
+          - Be factual and use only the provided git history and diff context.
+          - Do not invent behavior changes.
+          - Prefer a polished, concise markdown format.
+          - Include these sections when they are supported by the diff:
+            - Highlights
+            - Detailed Changes
+            - Notes
+          - Mention the release channel and whether server binaries are attached.
+          - If the diff is mostly maintenance, say so plainly.
+          - In Detailed Changes, group related work with bold lead-ins when helpful.
 
-      - name: Build orbitdock (darwin universal)
-        run: |
-          cd orbitdock-server
-          ./build-universal.sh
+          Git diff summary:
+          $(cat dist/release-diff-summary.txt)
 
-      - name: Package orbitdock (darwin universal)
-        run: |
-          mkdir -p dist
-          cp orbitdock-server/target/universal/orbitdock dist/orbitdock
-          chmod +x dist/orbitdock
-          cd dist
-          zip -q orbitdock-darwin-universal.zip orbitdock
-          shasum -a 256 orbitdock-darwin-universal.zip > orbitdock-darwin-universal.zip.sha256
+          Git diff --stat:
+          $(cat dist/release-diff-stat.txt)
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          Changed files:
+          $(cat dist/release-changed-files.txt)
+
+          Commit log:
+          $(cat dist/release-commit-log.txt)
+
+          Server binaries attached: ${BUILD_SERVER_ASSETS}
+          EOF
+
+      - name: Generate release notes
+        uses: openai/codex-action@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
-          draft: true
-          files: |
-            dist/orbitdock-darwin-universal.zip
-            dist/orbitdock-darwin-universal.zip.sha256
-          body: |
-            ## ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: dist/release-notes-prompt.md
+          output-file: dist/${{ env.APP_NAME }}-${{ env.VERSION }}.md
+          model: gpt-5.4-mini
+          effort: high
+          sandbox: read-only
 
-            **Server binaries** are attached (darwin-universal, linux-x86_64).
+      - name: Upload release notes artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: |
+            dist/${{ env.APP_NAME }}-${{ env.VERSION }}.md
+            dist/release-diff-summary.txt
+            dist/release-diff-stat.txt
+            dist/release-changed-files.txt
+            dist/release-commit-log.txt
 
-            **macOS app** — build, sign, and upload the DMG manually.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  release-linux-server:
-    needs: release
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+  server:
+    name: Build Server (${{ matrix.target }})
+    needs: metadata
+    if: ${{ needs.metadata.outputs.build_server_assets == 'true' || needs.metadata.outputs.build_server_assets == true }}
+    strategy:
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-15
+            package_target: rust-release-darwin
+          - target: linux-x86_64
+            runner: ubuntu-latest
+            package_target: rust-release-linux-x86_64
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+            package_target: rust-release-linux-aarch64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
     steps:
-      - name: Checkout tagged release
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.release.outputs.version }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install native Linux build dependencies
+      - name: Install native dependencies
+        if: ${{ startsWith(matrix.target, 'linux') }}
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libcap-dev
 
-      - name: Build orbitdock (linux x86_64)
-        run: |
-          cd orbitdock-server
-          cargo build -p orbitdock --release
-
-      - name: Package and upload
-        run: |
-          mkdir -p dist
-          cp orbitdock-server/target/release/orbitdock dist/orbitdock
-          chmod +x dist/orbitdock
-          cd dist
-          zip -q orbitdock-linux-x86_64.zip orbitdock
-          sha256sum orbitdock-linux-x86_64.zip > orbitdock-linux-x86_64.zip.sha256
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          tag_name: v${{ needs.release.outputs.version }}
-          files: |
-            dist/orbitdock-linux-x86_64.zip
-            dist/orbitdock-linux-x86_64.zip.sha256
+          node-version: 22
+          cache: npm
+          cache-dependency-path: orbitdock-web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: orbitdock-web
+        run: npm ci
+
+      - name: Package server
+        run: make ${{ matrix.package_target }}
+
+      - name: Upload server artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.target }}
+          path: |
+            dist/orbitdock-${{ matrix.target }}.zip
+            dist/orbitdock-${{ matrix.target }}.zip.sha256
+
+  publish:
+    name: Publish Release
+    needs:
+      - metadata
+      - release_notes
+      - server
+    if: ${{ always() && needs.metadata.result == 'success' && (needs.server.result == 'success' || needs.server.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      TAG_NAME: ${{ needs.metadata.outputs.tag }}
+      RELEASE_TITLE: ${{ needs.metadata.outputs.release_title }}
+      PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+      PUBLISH_RELEASE: ${{ needs.metadata.outputs.publish_release }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          prerelease_flag=""
+          if [[ "$PRERELEASE" == "true" ]]; then
+            prerelease_flag="--prerelease"
+          fi
+
+          notes_file="dist/${APP_NAME}-${VERSION}.md"
+          if [[ ! -f "$notes_file" ]]; then
+            notes_file="/tmp/notes.md"
+            printf "# %s %s\n\nAuto-generated release.\n" "$APP_NAME" "$VERSION" > "$notes_file"
+          fi
+
+          draft_flag=""
+          if [[ "$PUBLISH_RELEASE" != "true" && "$TAG_NAME" != "nightly" ]]; then
+            draft_flag="--draft"
+          fi
+
+          if [[ "$TAG_NAME" == "nightly" ]]; then
+            if gh release view nightly >/dev/null 2>&1; then
+              gh api \
+                --method PATCH \
+                "/repos/${{ github.repository }}/git/refs/tags/nightly" \
+                -f sha="${{ github.sha }}" \
+                -F force=true >/dev/null 2>&1 || \
+              gh api \
+                --method POST \
+                "/repos/${{ github.repository }}/git/refs" \
+                -f ref="refs/tags/nightly" \
+                -f sha="${{ github.sha }}" >/dev/null
+
+              gh release edit nightly \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                --prerelease
+            else
+              gh release create nightly \
+                --target "${{ github.sha }}" \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                --prerelease
+            fi
+          else
+            if ! gh release view "$TAG_NAME" >/dev/null 2>&1; then
+              gh release create "$TAG_NAME" \
+                --target "${{ github.sha }}" \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                $prerelease_flag \
+                $draft_flag
+            else
+              gh release edit "$TAG_NAME" \
+                --title "$RELEASE_TITLE" \
+                --notes-file "$notes_file" \
+                $prerelease_flag
+            fi
+          fi
+
+          release_id="$(gh api "/repos/${{ github.repository }}/releases/tags/$TAG_NAME" --jq '.id')"
+          draft_value="false"
+          if [[ "$PUBLISH_RELEASE" != "true" && "$PUBLISH_RELEASE" != "True" ]]; then
+            draft_value="true"
+          fi
+          prerelease_value="false"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            prerelease_value="true"
+          fi
+
+          gh api \
+            --method PATCH \
+            "/repos/${{ github.repository }}/releases/$release_id" \
+            -F draft="$draft_value" \
+            -F prerelease="$prerelease_value" >/dev/null
+
+          upload_asset() {
+            local file="$1"
+            [[ -f "$file" ]] || return 0
+            gh release upload "$TAG_NAME" "$file" --clobber
+          }
+
+          if [[ "$PUBLISH_RELEASE" == "true" || "$PUBLISH_RELEASE" == "True" ]]; then
+            shopt -s nullglob
+            for pkg in dist/orbitdock-*.zip; do
+              upload_asset "$pkg"
+              upload_asset "$pkg.sha256"
+            done
+            shopt -u nullglob || true
+          fi

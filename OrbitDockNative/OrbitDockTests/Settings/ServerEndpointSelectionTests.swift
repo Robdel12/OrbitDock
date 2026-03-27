@@ -7,7 +7,6 @@ struct ServerEndpointSelectionTests {
     let endpoint = try ServerEndpoint(
       name: "Remote",
       wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
-      isLocalManaged: false,
       isDefault: true
     )
     let continuationEndpointID = UUID()
@@ -25,13 +24,11 @@ struct ServerEndpointSelectionTests {
     let first = try ServerEndpoint(
       name: "First",
       wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
-      isLocalManaged: false,
       isDefault: false
     )
     let preferred = try ServerEndpoint(
       name: "Preferred",
       wsURL: #require(URL(string: "ws://10.0.0.6:4000/ws")),
-      isLocalManaged: false,
       isDefault: true
     )
     let fallbackDefaultID = UUID()
@@ -49,14 +46,12 @@ struct ServerEndpointSelectionTests {
     let disabledDefault = try ServerEndpoint(
       name: "Disabled Default",
       wsURL: #require(URL(string: "ws://10.0.0.5:4000/ws")),
-      isLocalManaged: false,
       isEnabled: false,
       isDefault: true
     )
     let enabled = try ServerEndpoint(
       name: "Enabled",
       wsURL: #require(URL(string: "ws://10.0.0.6:4000/ws")),
-      isLocalManaged: false,
       isEnabled: true,
       isDefault: false
     )

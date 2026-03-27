@@ -6,7 +6,6 @@ struct MissionPromptSection: View {
   let missionFileName: String
   let isCompact: Bool
   @Binding var showFullTemplate: Bool
-  @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
   var body: some View {
     let previewLines = promptTemplate.split(separator: "\n", omittingEmptySubsequences: false).prefix(6)
@@ -96,7 +95,7 @@ struct MissionPromptSection: View {
               HStack(spacing: Spacing.sm_) {
                 Image(systemName: "pencil.and.outline")
                   .font(.system(size: 11, weight: .semibold))
-                Text("Edit in \(editorName)")
+                Text("Open File")
                   .font(.system(size: TypeScale.caption, weight: .medium))
               }
               .foregroundStyle(Color.accent)
@@ -158,33 +157,13 @@ struct MissionPromptSection: View {
       )
   }
 
-  private var editorName: String {
-    switch preferredEditor {
-      case "code": "VS Code"
-      case "cursor": "Cursor"
-      case "zed": "Zed"
-      case "subl": "Sublime"
-      case "emacs": "Emacs"
-      case "vim": "Vim"
-      case "nvim": "Neovim"
-      default: "Editor"
-    }
-  }
-
   private func openMissionFileInEditor() {
     let missionPath = repoRoot.hasSuffix("/")
       ? repoRoot + "MISSION.md"
       : repoRoot + "/MISSION.md"
 
     #if os(macOS)
-      if !preferredEditor.isEmpty {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [preferredEditor, missionPath]
-        try? process.run()
-      } else {
-        NSWorkspace.shared.open(URL(fileURLWithPath: missionPath))
-      }
+      NSWorkspace.shared.open(URL(fileURLWithPath: missionPath))
     #else
       // iOS: can't open local files in external editors, but the preview still works
     #endif

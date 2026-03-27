@@ -50,20 +50,18 @@ For LAN testing, use `make rust-run-lan`.
 When the server binds to `0.0.0.0:4000`, treat that as a listen address only.
 Local clients, hooks, and CLI commands should still connect to `http://127.0.0.1:4000` on the same machine, or to the machine's actual LAN/Tailscale address from another device.
 
-## App Install Flow
+## Native App Connection Flow
 
-When the native app installs or configures a local server, the flow is:
+The native app is a client. It does not install or configure the local server for you.
 
-1. Find the `orbitdock` binary
-2. Copy it to `~/.orbitdock/bin/` when needed
-3. Run `orbitdock ensure-path`
-4. Run `orbitdock init`
-5. Run `orbitdock install-hooks`
-6. Run `orbitdock install-service --enable`
-7. Wait for the health check
-8. Read the local auth token and connect
+The flow is:
 
-`ServerManager` shells out to the server CLI for service management. The app does not build launchd plists itself.
+1. Install and start the server with the CLI
+2. Run `orbitdock auth local-token` when you need a local auth token
+3. Open the app
+4. Add the endpoint and connect
+
+Service install, hook management, PATH setup, and launch-agent behavior belong to the server and CLI, not the native client.
 
 ## Important File Locations
 

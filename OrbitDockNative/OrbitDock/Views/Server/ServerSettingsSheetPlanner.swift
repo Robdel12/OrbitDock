@@ -5,7 +5,6 @@ struct ServerEndpointEditorDraft: Equatable {
   var hostInput: String
   var isEnabled: Bool
   var isDefault: Bool
-  var isLocalManaged: Bool
   var authToken: String
 }
 
@@ -33,9 +32,6 @@ enum ServerSettingsSheetPlanner {
       if lhs.isEnabled != rhs.isEnabled {
         return lhs.isEnabled && !rhs.isEnabled
       }
-      if lhs.isLocalManaged != rhs.isLocalManaged {
-        return lhs.isLocalManaged && !rhs.isLocalManaged
-      }
       let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
       if nameOrder != .orderedSame {
         return nameOrder == .orderedAscending
@@ -52,7 +48,6 @@ enum ServerSettingsSheetPlanner {
       hostInput: "",
       isEnabled: true,
       isDefault: existingEndpoints.first(where: \.isDefault) == nil,
-      isLocalManaged: false,
       authToken: ""
     )
   }
@@ -66,7 +61,6 @@ enum ServerSettingsSheetPlanner {
       hostInput: hostInput,
       isEnabled: endpoint.isEnabled,
       isDefault: endpoint.isDefault,
-      isLocalManaged: endpoint.isLocalManaged,
       authToken: endpoint.authToken ?? ""
     )
   }
@@ -84,18 +78,8 @@ enum ServerSettingsSheetPlanner {
     }
 
     let endpointID = editingEndpointID ?? UUID()
-    let existingEndpoint = currentEndpoints.first(where: { $0.id == endpointID })
-    let isLocalManaged = existingEndpoint?.isLocalManaged ?? draft.isLocalManaged
-
-    let resolvedURL: URL
-    if isLocalManaged {
-      resolvedURL = existingEndpoint?.wsURL
-        ?? ServerEndpoint.localDefault(defaultPort: defaultPort).wsURL
-    } else {
-      guard let built = buildURL(draft.hostInput) else {
-        return .failure(.invalidHost)
-      }
-      resolvedURL = built
+    guard let resolvedURL = buildURL(draft.hostInput) else {
+      return .failure(.invalidHost)
     }
 
     let trimmedToken = draft.authToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,7 +87,6 @@ enum ServerSettingsSheetPlanner {
       id: endpointID,
       name: trimmedName,
       wsURL: resolvedURL,
-      isLocalManaged: isLocalManaged,
       isEnabled: draft.isEnabled,
       isDefault: draft.isEnabled && draft.isDefault,
       authToken: trimmedToken.isEmpty ? nil : trimmedToken

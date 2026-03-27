@@ -41,7 +41,12 @@ struct AppRuntimeModeTests {
     let endpointSettings = ServerEndpointSettingsClient(
       endpoints: { [] },
       defaultEndpoint: {
-        ServerEndpoint.localDefault()
+        ServerEndpoint(
+          name: "Default Server",
+          wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+          isEnabled: true,
+          isDefault: true
+        )
       },
       hasRemoteEndpoint: { true },
       saveEndpoints: { _ in },

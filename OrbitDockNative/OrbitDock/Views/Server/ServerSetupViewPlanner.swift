@@ -13,7 +13,7 @@ enum ServerSetupConnectError: Error, Equatable {
       case .invalidHost:
         "Enter a valid host (e.g. 10.0.0.5:4000 or https://host.example)."
       case .missingToken:
-        "Auth token is required. Run `orbitdock auth local-token` to get yours."
+        "Auth token is required."
       case .loopbackNotReachableFromIOS:
         "Use your Mac's LAN IP address on iPhone and iPad. 127.0.0.1 and localhost point to the device itself."
     }
@@ -64,7 +64,6 @@ enum ServerSetupViewPlanner {
       id: endpointId,
       name: endpointName(for: trimmedHost),
       wsURL: url,
-      isLocalManaged: false,
       isEnabled: true,
       isDefault: true,
       authToken: trimmedToken
@@ -85,36 +84,6 @@ enum ServerSetupViewPlanner {
     return .success(updated)
   }
 
-  static func buildLocalEndpoint(
-    authToken: String,
-    existingEndpoints: [ServerEndpoint],
-    defaultPort: Int
-  ) -> Result<[ServerEndpoint], ServerSetupConnectError> {
-    let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedToken.isEmpty else {
-      return .failure(.missingToken)
-    }
-
-    let localId = ServerEndpoint.localManagedEndpointID
-    var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
-    local.authToken = trimmedToken
-    local.isEnabled = true
-    local.isDefault = true
-
-    var updated = existingEndpoints
-    if let index = updated.firstIndex(where: { $0.id == localId }) {
-      updated[index] = local
-    } else {
-      updated.append(local)
-    }
-
-    for index in updated.indices {
-      updated[index].isDefault = updated[index].id == localId
-    }
-
-    return .success(updated)
-  }
-
   static func canConnect(host: String, authToken: String) -> Bool {
     let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
     let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,7 +93,7 @@ enum ServerSetupViewPlanner {
   private static func endpointName(for host: String) -> String {
     let lowered = host.lowercased()
     if isLoopbackHost(lowered) {
-      return "Local Server"
+      return "Loopback Server"
     }
     return "Remote Server"
   }

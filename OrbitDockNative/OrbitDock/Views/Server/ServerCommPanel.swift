@@ -20,8 +20,7 @@ struct ServerCommPanel: View {
   @State private var editingEndpointId: UUID?
   @State private var isAddingEndpoint = false
   @State private var draft = ServerEndpointEditorDraft(
-    name: "", hostInput: "", isEnabled: true, isDefault: false,
-    isLocalManaged: false, authToken: ""
+    name: "", hostInput: "", isEnabled: true, isDefault: false, authToken: ""
   )
   @State private var editorError: String?
   @State private var endpointPendingDelete: ServerEndpoint?
@@ -331,12 +330,11 @@ struct ServerCommPanel: View {
           text: $draft.hostInput,
           monospaced: true
         )
-        .disabled(draft.isLocalManaged)
         fieldDivider
 
         terminalSecureField(
           icon: "key.fill",
-          placeholder: draft.isLocalManaged ? "orbitdock auth local-token" : "Paste auth token",
+          placeholder: "Paste auth token",
           text: $draft.authToken
         )
         fieldDivider

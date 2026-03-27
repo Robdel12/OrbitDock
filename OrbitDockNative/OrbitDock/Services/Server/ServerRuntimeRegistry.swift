@@ -581,24 +581,10 @@ final class ServerRuntimeRegistry {
       configureFromSettings(startEnabled: false)
     }
 
-    #if os(iOS)
-      if activeEndpointId == nil {
-        activeEndpointId = runtimesByEndpointId.keys.first
-      }
-      recomputePrimaryEndpoint()
-    #else
-      if runtimesByEndpointId.isEmpty {
-        let endpoint = ServerEndpoint.localDefault(defaultPort: endpointSettings.defaultPort)
-        let runtime = runtimeFactory(endpoint)
-        runtimesByEndpointId[endpoint.id] = runtime
-        bindRuntimeState(runtime)
-      }
-
-      if activeEndpointId == nil {
-        activeEndpointId = runtimesByEndpointId.keys.first
-      }
-      recomputePrimaryEndpoint()
-    #endif
+    if activeEndpointId == nil {
+      activeEndpointId = runtimesByEndpointId.keys.first
+    }
+    recomputePrimaryEndpoint()
   }
 
   private func resolvedActiveRuntime() -> ServerRuntime? {

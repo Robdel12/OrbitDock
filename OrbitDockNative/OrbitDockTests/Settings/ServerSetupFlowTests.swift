@@ -31,16 +31,18 @@ struct ServerSetupPlannerTests {
     #endif
   }
 
-  @Test func buildLocalEndpointCreatesLocalManaged() throws {
-    let result = ServerSetupViewPlanner.buildLocalEndpoint(
+  @Test func buildEndpointNamesLoopbackServersClearly() throws {
+    let result = ServerSetupViewPlanner.buildEndpoint(
+      host: "127.0.0.1",
       authToken: "tok_test",
       existingEndpoints: [],
-      defaultPort: 4_000
+      defaultPort: 4_000,
+      buildURL: { URL(string: "ws://\($0):4000/ws") }
     )
 
     let endpoints = try result.get()
     #expect(endpoints.count == 1)
-    #expect(endpoints[0].isLocalManaged)
+    #expect(endpoints[0].name == "Loopback Server")
     #expect(endpoints[0].isDefault)
   }
 

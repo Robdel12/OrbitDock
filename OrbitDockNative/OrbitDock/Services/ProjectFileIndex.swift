@@ -1,11 +1,3 @@
-//
-//  ProjectFileIndex.swift
-//  OrbitDock
-//
-//  Async file discovery service for @mention autocomplete.
-//  Uses `git ls-files` to enumerate project files with caching.
-//
-
 import Foundation
 
 @MainActor
@@ -34,8 +26,9 @@ final class ProjectFileIndex {
     loading.insert(projectPath)
     defer { loading.remove(projectPath) }
 
-    let results = await Self.runGitLsFiles(in: projectPath)
-    cache[projectPath] = results
+    // Keep file mentions and picker surfaces working with a sandbox-safe
+    // filesystem scan until the server-backed index replaces this client cache.
+    cache[projectPath] = await Self.scanWithFileManager(in: projectPath)
   }
 
   func search(_ query: String, in projectPath: String) -> [ProjectFile] {
@@ -57,55 +50,6 @@ final class ProjectFileIndex {
     }
 
     return nameMatches + pathMatches
-  }
-
-  private nonisolated static func runGitLsFiles(in directory: String) async -> [ProjectFile] {
-    #if os(macOS)
-      let gitFiles: [ProjectFile] = await withCheckedContinuation { continuation in
-        DispatchQueue.global(qos: .userInitiated).async {
-          let task = Process()
-          task.currentDirectoryURL = URL(fileURLWithPath: directory)
-          task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-          task.arguments = ["ls-files", "--cached", "--others", "--exclude-standard"]
-          task.environment = ProcessInfo.processInfo.environment
-
-          let pipe = Pipe()
-          task.standardOutput = pipe
-          task.standardError = FileHandle.nullDevice
-
-          do {
-            try task.run()
-            task.waitUntilExit()
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard task.terminationStatus == 0,
-                  let output = String(data: data, encoding: .utf8)
-            else {
-              continuation.resume(returning: [])
-              return
-            }
-
-            let files = output
-              .components(separatedBy: .newlines)
-              .filter { !$0.isEmpty }
-              .map { path in
-                let name = URL(fileURLWithPath: path).lastPathComponent
-                return ProjectFile(id: path, name: name, relativePath: path)
-              }
-
-            continuation.resume(returning: files)
-          } catch {
-            continuation.resume(returning: [])
-          }
-        }
-      }
-
-      if !gitFiles.isEmpty {
-        return gitFiles
-      }
-    #endif
-
-    return await Self.scanWithFileManager(in: directory)
   }
 
   private nonisolated static func scanWithFileManager(in directory: String) async -> [ProjectFile] {

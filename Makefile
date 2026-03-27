@@ -228,3 +228,24 @@ help:
 	@echo "make claude-sdk-version  Show installed Claude Agent SDK + Claude Code version"
 	@echo "make claude-sdk-update CLAUDE_SDK_VERSION=0.2.62  Update local docs SDK install and metadata"
 	@echo "make claude-sdk-audit-checklist  Print required source audit checklist"
+	@echo "make release CHANNEL=stable BUMP=patch [VERSION_MODE=auto|explicit VERSION=...]  Trigger the server release workflow via gh"
+
+.PHONY: release
+release:
+	@set -euo pipefail; \
+	channel="$${CHANNEL:-stable}"; \
+	version_mode="$${VERSION_MODE:-auto}"; \
+	bump="$${BUMP:-patch}"; \
+	version="$${VERSION:-}"; \
+	build_server="$${BUILD_SERVER_ASSETS:-true}"; \
+	publish_release="$${PUBLISH_RELEASE:-true}"; \
+	args=(--field channel="$$channel" \
+	      --field version_mode="$$version_mode" \
+	      --field bump="$$bump" \
+	      --field build_server_assets="$$build_server" \
+	      --field publish_release="$$publish_release"); \
+	if [[ -n "$$version" ]]; then \
+	  args+=(--field version="$$version"); \
+	fi; \
+	echo "Triggering Release workflow: channel=$$channel version_mode=$$version_mode bump=$$bump"; \
+	gh workflow run release.yml "$${args[@]}"

@@ -55,21 +55,7 @@ struct HeaderDebugContextMenu: View {
     Text("Provider: \(provider.rawValue)")
 
     Divider()
-
-    Button("Open Server Log") {
-      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
-    }
-
-    if provider == .codex {
-      Button("Open Codex Log") {
-        _ = Platform.services
-          .openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
-      }
-    }
-
-    Button("Open Database") {
-      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/orbitdock.db").expandingTildeInPath))
-    }
+    Text("Server diagnostics are available through the server and CLI.")
   }
 
   private func copyToClipboard(_ text: String) {

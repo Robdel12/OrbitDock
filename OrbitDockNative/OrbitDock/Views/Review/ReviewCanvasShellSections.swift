@@ -144,7 +144,7 @@ extension ReviewCanvas {
     }
     .onKeyPress(keys: [.return]) { _ in
       guard !commentInteraction.hasComposer, let file = currentFile(model) else { return .ignored }
-      openFileInEditor(file)
+      openFile(file)
       return .handled
     }
     .onKeyPress { keyPress in

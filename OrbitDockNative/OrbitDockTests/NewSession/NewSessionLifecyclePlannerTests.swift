@@ -166,7 +166,6 @@ struct NewSessionLifecyclePlannerTests {
       id: id,
       name: isDefault ? "Default" : "Remote",
       wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
-      isLocalManaged: true,
       isEnabled: true,
       isDefault: isDefault
     )

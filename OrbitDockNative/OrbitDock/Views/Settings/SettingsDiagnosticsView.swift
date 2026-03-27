@@ -4,62 +4,22 @@ struct DiagnosticsSettingsView: View {
   var body: some View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
-        SettingsSection(title: "LOGS", icon: "doc.text") {
+        SettingsSection(title: "DIAGNOSTICS", icon: "stethoscope") {
           VStack(alignment: .leading, spacing: Spacing.md) {
-            diagnosticsPathRow(
-              label: "Codex Log",
-              path: "~/.orbitdock/logs/codex.log"
-            ) {
-              reveal(PlatformPaths.orbitDockLogsDirectory)
-            }
+            Text("Server logs, database files, and hook state are owned by the server and CLI.")
+              .font(.system(size: TypeScale.body))
+              .foregroundStyle(Color.textSecondary)
 
-            diagnosticsPathRow(
-              label: "Server Log",
-              path: "~/.orbitdock/logs/server.log"
-            ) {
-              reveal(PlatformPaths.orbitDockLogsDirectory)
-            }
-
-            diagnosticsPathRow(
-              label: "CLI Log",
-              path: "~/.orbitdock/cli.log"
-            ) {
-              reveal(PlatformPaths.orbitDockBaseDirectory)
-            }
-          }
-        }
-
-        SettingsSection(title: "DATABASE", icon: "cylinder") {
-          diagnosticsPathRow(
-            label: "OrbitDock Database",
-            path: "~/.orbitdock/orbitdock.db"
-          ) {
-            reveal(PlatformPaths.orbitDockBaseDirectory)
+            Text(
+              "Use the server's diagnostics and admin flows to inspect runtime state. The native client no longer treats those filesystem paths as app-owned resources."
+            )
+            .font(.system(size: TypeScale.meta))
+            .foregroundStyle(Color.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
           }
         }
       }
       .padding(Spacing.xl)
     }
-  }
-
-  private func diagnosticsPathRow(label: String, path: String, action: @escaping () -> Void) -> some View {
-    HStack {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text(label)
-          .font(.system(size: TypeScale.body))
-        Text(path)
-          .font(.system(size: TypeScale.meta).monospaced())
-          .foregroundStyle(Color.textTertiary)
-      }
-
-      Spacer()
-
-      Button("Open in Finder", action: action)
-        .buttonStyle(.bordered)
-    }
-  }
-
-  private func reveal(_ url: URL) {
-    _ = Platform.services.revealInFileBrowser(url.path)
   }
 }

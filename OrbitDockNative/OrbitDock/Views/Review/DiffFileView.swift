@@ -13,8 +13,6 @@ struct DiffFileView: View {
   let projectPath: String
   @Binding var focusedHunkIndex: Int
 
-  @AppStorage("preferredEditor") private var preferredEditor: String = ""
-
   // Track which context collapse bars are expanded
   @State private var expandedContextBars: Set<Int> = []
   @State private var isHeaderHovered = false
@@ -144,9 +142,9 @@ struct DiffFileView: View {
           .padding(.trailing, Spacing.sm)
         }
 
-        // Open in editor button
+        // Open file button
         Button {
-          openFileInEditor(line: fileDiff.hunks.first?.newStart)
+          openFile()
         } label: {
           HStack(spacing: Spacing.xs) {
             Image(systemName: "arrow.up.forward.square")
@@ -163,7 +161,7 @@ struct DiffFileView: View {
           )
         }
         .buttonStyle(.plain)
-        .help("Open in editor (\u{2318}O)")
+        .help("Open file (\u{2318}O)")
       }
       .padding(.horizontal, Spacing.lg_)
       .padding(.vertical, Spacing.md_)
@@ -224,70 +222,13 @@ struct DiffFileView: View {
     return max(0, currentStart - prevEnd)
   }
 
-  // MARK: - Open in Editor
+  // MARK: - Open File
 
-  func openFileInEditor(line: Int?) {
+  func openFile() {
     let fullPath = projectPath.hasSuffix("/")
       ? projectPath + fileDiff.newPath
       : projectPath + "/" + fileDiff.newPath
 
-    guard !preferredEditor.isEmpty else {
-      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
-      return
-    }
-
-    #if !os(macOS)
-      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
-      return
-    #else
-      let lineArg = line ?? 1
-
-      let appNames: [String: String] = [
-        "code": "Visual Studio Code",
-        "cursor": "Cursor",
-        "zed": "Zed",
-        "subl": "Sublime Text",
-      ]
-
-      switch preferredEditor {
-        case "code", "cursor":
-        if let appName = appNames[preferredEditor] {
-          let process = Process()
-          process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-          process.arguments = ["-a", appName, "--args", "--goto", "\(fullPath):\(lineArg)"]
-          try? process.run()
-        }
-
-        case "zed":
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "Zed", "--args", "\(fullPath):\(lineArg)"]
-        try? process.run()
-
-        case "subl":
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", "Sublime Text", "--args", "\(fullPath):\(lineArg)"]
-        try? process.run()
-
-        case "emacs":
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["emacsclient", "+\(lineArg)", fullPath]
-        try? process.run()
-
-        case "vim", "nvim":
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [preferredEditor, "+\(lineArg)", fullPath]
-        try? process.run()
-
-        default:
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [preferredEditor, fullPath]
-        try? process.run()
-      }
-    #endif
+    _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
   }
 }

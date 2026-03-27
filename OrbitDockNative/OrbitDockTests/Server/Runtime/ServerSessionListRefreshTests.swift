@@ -50,7 +50,6 @@ struct ServerSessionListRefreshTests {
       id: #require(UUID(uuidString: id)),
       name: name,
       wsURL: #require(URL(string: "ws://127.0.0.1:\(port)/ws")),
-      isLocalManaged: true,
       isEnabled: isEnabled,
       isDefault: isDefault
     )

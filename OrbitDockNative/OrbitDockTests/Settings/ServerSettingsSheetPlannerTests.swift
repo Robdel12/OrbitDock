@@ -4,13 +4,12 @@ import Testing
 
 @MainActor
 struct ServerSettingsSheetPlannerTests {
-  @Test func orderedEndpointsPrefersDefaultEnabledAndLocalManaged() throws {
+  @Test func orderedEndpointsPrefersDefaultEnabledThenAlphabetical() throws {
     let endpoints = try [
       ServerEndpoint(
         id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
         name: "Zulu",
         wsURL: #require(URL(string: "ws://zulu/ws")),
-        isLocalManaged: false,
         isEnabled: true,
         isDefault: false
       ),
@@ -18,7 +17,6 @@ struct ServerSettingsSheetPlannerTests {
         id: #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")),
         name: "Alpha",
         wsURL: #require(URL(string: "ws://alpha/ws")),
-        isLocalManaged: true,
         isEnabled: true,
         isDefault: true
       ),
@@ -26,7 +24,6 @@ struct ServerSettingsSheetPlannerTests {
         id: #require(UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")),
         name: "Beta",
         wsURL: #require(URL(string: "ws://beta/ws")),
-        isLocalManaged: false,
         isEnabled: false,
         isDefault: false
       ),
@@ -44,7 +41,6 @@ struct ServerSettingsSheetPlannerTests {
         ServerEndpoint(
           name: "Existing",
           wsURL: #require(URL(string: "ws://existing/ws")),
-          isLocalManaged: false,
           isEnabled: true,
           isDefault: true
         ),
@@ -60,7 +56,6 @@ struct ServerSettingsSheetPlannerTests {
       id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
       name: "Remote",
       wsURL: #require(URL(string: "wss://remote.example/ws")),
-      isLocalManaged: false,
       isEnabled: false,
       isDefault: true,
       authToken: "secret"
@@ -87,7 +82,6 @@ struct ServerSettingsSheetPlannerTests {
         hostInput: "server.example",
         isEnabled: true,
         isDefault: false,
-        isLocalManaged: false,
         authToken: ""
       ),
       defaultPort: 4_000,
@@ -102,7 +96,6 @@ struct ServerSettingsSheetPlannerTests {
         hostInput: "bad host",
         isEnabled: true,
         isDefault: false,
-        isLocalManaged: false,
         authToken: ""
       ),
       defaultPort: 4_000,
@@ -118,7 +111,6 @@ struct ServerSettingsSheetPlannerTests {
       id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
       name: "Existing",
       wsURL: #require(URL(string: "ws://existing/ws")),
-      isLocalManaged: false,
       isEnabled: true,
       isDefault: true
     )
@@ -131,7 +123,6 @@ struct ServerSettingsSheetPlannerTests {
         hostInput: "remote.example",
         isEnabled: true,
         isDefault: true,
-        isLocalManaged: false,
         authToken: " token "
       ),
       defaultPort: 4_000,
@@ -146,26 +137,26 @@ struct ServerSettingsSheetPlannerTests {
     #expect(updated.filter(\.isDefault).map(\.name) == ["Remote"])
   }
 
-  @Test func savePreservesLocalManagedURLForExistingLocalEndpoint() throws {
-    let local = ServerEndpoint.localDefault()
-
+  @Test func saveRequiresAResolvableHostForEveryEndpoint() throws {
     let result = ServerSettingsSheetPlanner.save(
-      currentEndpoints: [local],
-      editingEndpointID: local.id,
+      currentEndpoints: [],
+      editingEndpointID: nil,
       draft: ServerEndpointEditorDraft(
-        name: "Local Server",
-        hostInput: "ignored",
+        name: "Loopback",
+        hostInput: "127.0.0.1",
         isEnabled: true,
         isDefault: true,
-        isLocalManaged: true,
         authToken: ""
       ),
       defaultPort: 4_000,
-      buildURL: { _ in nil }
+      buildURL: { input in
+        URL(string: "ws://\(input):4000/ws")
+      }
     )
 
     let updated = try result.get()
-    #expect(updated.first?.wsURL == local.wsURL)
+    #expect(updated.count == 1)
+    #expect(updated.first?.name == "Loopback")
   }
 
   @Test func defaultAndEnabledMutationsPreserveSinglePrimarySemantics() throws {
@@ -173,7 +164,6 @@ struct ServerSettingsSheetPlannerTests {
       id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
       name: "A",
       wsURL: #require(URL(string: "ws://a/ws")),
-      isLocalManaged: false,
       isEnabled: true,
       isDefault: true
     )
@@ -181,7 +171,6 @@ struct ServerSettingsSheetPlannerTests {
       id: #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB")),
       name: "B",
       wsURL: #require(URL(string: "ws://b/ws")),
-      isLocalManaged: false,
       isEnabled: false,
       isDefault: false
     )
@@ -202,25 +191,29 @@ struct ServerSettingsSheetPlannerTests {
   }
 
   @Test func removeDeletesAnyEndpoint() throws {
-    let local = ServerEndpoint.localDefault()
-    let remote = try ServerEndpoint(
-      name: "Remote",
-      wsURL: #require(URL(string: "ws://remote/ws")),
-      isLocalManaged: false,
+    let first = try ServerEndpoint(
+      name: "First",
+      wsURL: #require(URL(string: "ws://first/ws")),
+      isEnabled: true,
+      isDefault: true
+    )
+    let second = try ServerEndpoint(
+      name: "Second",
+      wsURL: #require(URL(string: "ws://second/ws")),
       isEnabled: true,
       isDefault: false
     )
 
-    let afterLocalRemoval = ServerSettingsSheetPlanner.removedEndpoints(
-      currentEndpoints: [local, remote],
-      removing: local
+    let afterFirstRemoval = ServerSettingsSheetPlanner.removedEndpoints(
+      currentEndpoints: [first, second],
+      removing: first
     )
-    let afterRemoteRemoval = ServerSettingsSheetPlanner.removedEndpoints(
-      currentEndpoints: [local, remote],
-      removing: remote
+    let afterSecondRemoval = ServerSettingsSheetPlanner.removedEndpoints(
+      currentEndpoints: [first, second],
+      removing: second
     )
 
-    #expect(afterLocalRemoval.map(\.name) == ["Remote"])
-    #expect(afterRemoteRemoval.map(\.name) == ["Local Server"])
+    #expect(afterFirstRemoval.map(\.name) == ["Second"])
+    #expect(afterSecondRemoval.map(\.name) == ["First"])
   }
 }

@@ -14,12 +14,6 @@ struct ServerEndpointStore {
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
-  #if os(macOS)
-    private static let includesLocalManagedEndpoint = true
-  #else
-    private static let includesLocalManagedEndpoint = false
-  #endif
-
   init(
     defaults: UserDefaults = .standard,
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
@@ -51,7 +45,12 @@ struct ServerEndpointStore {
     let current = endpoints()
     return current.first(where: { $0.isDefault && $0.isEnabled })
       ?? current.first(where: \.isEnabled)
-      ?? ServerEndpoint.localDefault(defaultPort: defaultPort)
+      ?? ServerEndpoint(
+        name: "Default Server",
+        wsURL: URL(string: "ws://127.0.0.1:\(defaultPort)/ws")!,
+        isEnabled: true,
+        isDefault: true
+      )
   }
 
   func effectiveURL() -> URL {
@@ -117,25 +116,18 @@ struct ServerEndpointStore {
       return
     }
 
-    var updated = endpoints().filter(\.isLocalManaged)
-    for idx in updated.indices {
-      updated[idx].isDefault = false
-    }
-    updated.append(
+    save([
       ServerEndpoint(
         name: "Remote Server",
         wsURL: remoteURL,
-        isLocalManaged: false,
         isEnabled: true,
         isDefault: true
-      )
-    )
-    save(updated)
+      ),
+    ])
   }
 
   func clearRemoteEndpoints() {
-    let kept = endpoints().filter(\.isLocalManaged)
-    save(kept)
+    save([])
   }
 
   private func persistedEndpoints() -> [ServerEndpoint]? {
@@ -170,10 +162,6 @@ struct ServerEndpointStore {
 
   private func normalizedEndpoints(_ rawEndpoints: [ServerEndpoint]) -> [ServerEndpoint] {
     var endpoints = rawEndpoints
-    if !Self.includesLocalManagedEndpoint {
-      endpoints.removeAll(where: \.isLocalManaged)
-    }
-
     var seen = Set<UUID>()
     endpoints = endpoints.filter { seen.insert($0.id).inserted }
 

@@ -13,11 +13,15 @@ struct ServerEndpointStoreTests {
     #expect(context.store.hasRemoteEndpoint() == false)
   }
 
-  @Test func localDefaultEndpointIdIsStable() {
-    let first = ServerEndpoint.localDefault(defaultPort: 4_000)
-    let second = ServerEndpoint.localDefault(defaultPort: 4_000)
+  @Test func defaultEndpointFallsBackToLoopbackAddress() {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    #expect(first.id == second.id)
+    let fallback = context.store.defaultEndpoint()
+
+    #expect(fallback.name == "Default Server")
+    #expect(fallback.wsURL == URL(string: "ws://127.0.0.1:4000/ws"))
+    #expect(fallback.isDefault)
   }
 
   @Test func replaceRemoteEndpointSetsRemoteAsDefault() {
@@ -55,13 +59,11 @@ struct ServerEndpointStoreTests {
 
     let remoteA = try ServerEndpoint(
       name: "Remote A",
-      wsURL: #require(URL(string: "ws://10.0.0.1:4000/ws")),
-      isLocalManaged: false
+      wsURL: #require(URL(string: "ws://10.0.0.1:4000/ws"))
     )
     var remoteB = try ServerEndpoint(
       name: "Remote B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4000/ws")),
-      isLocalManaged: false
+      wsURL: #require(URL(string: "ws://10.0.0.2:4000/ws"))
     )
 
     context.store.upsert(remoteA)

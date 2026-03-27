@@ -25,7 +25,6 @@ struct ServerSettingsSheet: View {
     hostInput: "",
     isEnabled: true,
     isDefault: false,
-    isLocalManaged: false,
     authToken: ""
   )
   @State private var editorError: String?
@@ -204,15 +203,6 @@ struct ServerSettingsSheet: View {
               .foregroundStyle(Color.textTertiary)
           }
 
-          if endpoint.isLocalManaged {
-            Text("Local")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, Spacing.sm_)
-              .padding(.vertical, Spacing.xxs)
-              .background(Color.textTertiary.opacity(OpacityTier.subtle), in: Capsule())
-          }
-
           if let claimsText = claimingDevicesDescription(for: endpoint) {
             Text(claimsText)
               .font(.system(size: TypeScale.caption, weight: .medium))
@@ -230,7 +220,7 @@ struct ServerSettingsSheet: View {
               Text("Authentication failed")
                 .font(.system(size: TypeScale.body, weight: .semibold))
                 .foregroundStyle(Color.statusPermission)
-              Text("Update the auth token or run `orbitdock auth local-token`")
+              Text("Update the auth token for this server.")
                 .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textSecondary)
             }
@@ -264,10 +254,8 @@ struct ServerSettingsSheet: View {
             }
           }
 
-          if !endpoint.isLocalManaged {
-            actionPill("Remove", icon: "trash", color: Color.statusPermission) {
-              endpointPendingDelete = endpoint
-            }
+          actionPill("Remove", icon: "trash", color: Color.statusPermission) {
+            endpointPendingDelete = endpoint
           }
         }
       }
@@ -353,16 +341,6 @@ struct ServerSettingsSheet: View {
             accentDivider
 
             terminalField(icon: "globe", "Host", $draft.hostInput, monospaced: true)
-              .disabled(draft.isLocalManaged)
-
-            if draft.isLocalManaged {
-              Text("Host is managed automatically for local endpoints.")
-                .font(.system(size: TypeScale.caption))
-                .foregroundStyle(Color.textTertiary)
-                .padding(.horizontal, Spacing.lg)
-                .padding(.bottom, Spacing.md)
-                .padding(.top, -Spacing.xs)
-            }
 
             accentDivider
 
@@ -475,13 +453,10 @@ struct ServerSettingsSheet: View {
         .foregroundStyle(Color.textTertiary)
         .frame(width: 20, alignment: .center)
 
-      SecureField(
-        draft.isLocalManaged ? "orbitdock auth local-token" : placeholder,
-        text: text
-      )
-      .textFieldStyle(.plain)
-      .font(.system(size: TypeScale.body, design: .monospaced))
-      .foregroundStyle(Color.textPrimary)
+      SecureField(placeholder, text: text)
+        .textFieldStyle(.plain)
+        .font(.system(size: TypeScale.body, design: .monospaced))
+        .foregroundStyle(Color.textPrimary)
       #if os(iOS)
         .textInputAutocapitalization(.never)
       #endif

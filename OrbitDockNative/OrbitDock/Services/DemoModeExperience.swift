@@ -39,7 +39,6 @@ struct DemoModeExperience {
       id: UUID(uuidString: "99999999-2222-3333-4444-555555555555")!,
       name: "Mission Control",
       wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
-      isLocalManaged: false,
       isEnabled: false,
       isDefault: false
     )

@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		800E82332F492F37007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82322F492F37007CADF5 /* Markdown */; };
 		800E84212F492FC4007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82342F492F38007CADF5 /* Markdown */; };
-		8F4F5A9C2FE7A3A100A1B2C3 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -95,7 +94,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8F4F5A9C2FE7A3A100A1B2C3 /* Sparkle in Frameworks */,
 				800E82332F492F37007CADF5 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -198,7 +196,6 @@
 			name = OrbitDock;
 			packageProductDependencies = (
 				800E82322F492F37007CADF5 /* Markdown */,
-				8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */,
 			);
 			productName = OrbitDock;
 			productReference = 80BCD0C02F2C834F00D91F91 /* OrbitDock.app */;
@@ -265,7 +262,6 @@
 			packageReferences = (
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
 				800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */,
-				8F4F5A9A2FE7A39C00A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80BCD0C12F2C834F00D91F91 /* Products */;
@@ -370,7 +366,6 @@
 				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "OrbitDock needs to control iTerm2 to focus your terminal sessions.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OrbitDock connects to servers on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -413,7 +408,6 @@
 				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "OrbitDock needs to control iTerm2 to focus your terminal sessions.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "OrbitDock connects to servers on your local network.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "OrbitDock uses your microphone for local dictation.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -630,7 +624,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = J658W2V76T;
-				ENABLE_APP_SANDBOX = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -647,8 +641,6 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock.dev";
 				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
-				SPARKLE_FEED_URL = "https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml";
-				SPARKLE_PUBLIC_ED_KEY = "hbdHMGfM2nFDanlGSz0AFcgTR0HVPoMCSnyNSfQ8x6A=";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -670,7 +662,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = J658W2V76T;
-				ENABLE_APP_SANDBOX = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
@@ -688,8 +680,6 @@
 				PRODUCT_NAME = OrbitDock;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
-				SPARKLE_FEED_URL = "https://github.com/Robdel12/OrbitDock/releases/latest/download/appcast.xml";
-				SPARKLE_PUBLIC_ED_KEY = "hbdHMGfM2nFDanlGSz0AFcgTR0HVPoMCSnyNSfQ8x6A=";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -809,14 +799,6 @@
 				minimumVersion = 0.7.3;
 			};
 		};
-		8F4F5A9A2FE7A39C00A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.0;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -829,11 +811,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */;
 			productName = Markdown;
-		};
-		8F4F5A9B2FE7A3A100A1B2C3 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 8F4F5A9A2FE7A39C00A1B2C3 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
