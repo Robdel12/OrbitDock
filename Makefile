@@ -34,6 +34,8 @@ RUST_WORKSPACE_DIR ?= orbitdock-server
 RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
 RUST_LEGACY_TARGET_DIR ?= $(abspath $(RUST_WORKSPACE_DIR)/target)
 RUST_BIN_PACKAGE ?= orbitdock
+ORBITDOCK_INSTALL_ROOT ?= $(HOME)/.orbitdock
+ORBITDOCK_INSTALLED_BIN ?= $(ORBITDOCK_INSTALL_ROOT)/bin/orbitdock
 RUST_PATH_PREFIX ?= $(HOME)/.cargo/bin:/opt/homebrew/bin:/usr/local/bin
 RUST_PATH ?= $(RUST_PATH_PREFIX):$(PATH)
 RUST_HOST_TARGET ?= $(shell PATH="$(RUST_PATH_PREFIX):$$PATH" rustc -vV 2>/dev/null | sed -n 's/^host: //p')
@@ -186,6 +188,9 @@ help:
 	@echo "make rust-build Build Rust orbitdock binary"
 	@echo "make rust-build-release Build Rust orbitdock binary in release mode for the host platform"
 	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock binary"
+	@echo "make rust-install-local Build debug orbitdock and atomically install to ~/.orbitdock/bin"
+	@echo "make rust-install-local-release Build release orbitdock and atomically install to ~/.orbitdock/bin"
+	@echo "make rust-promote-local Build, install, and run orbitdock doctor against the installed binary"
 	@echo "make rust-check Run fast cargo check for the shipped Rust package graph"
 	@echo "make rust-check-workspace Run cargo check for the full Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
