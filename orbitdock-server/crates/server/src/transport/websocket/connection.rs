@@ -182,6 +182,7 @@ async fn handle_socket(
           ws_tx.send(Message::Text(json.into())).await
         }
         OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
+        OutboundMessage::Binary(data) => ws_tx.send(Message::Binary(data.into())).await,
       };
 
       if result.is_err() {
@@ -211,6 +212,11 @@ async fn handle_socket(
       Ok(Message::Ping(data)) => {
         // Respond to ping with pong
         let _ = outbound_tx.send(OutboundMessage::Pong(data)).await;
+        continue;
+      }
+      Ok(Message::Binary(_)) => {
+        // Binary frames are reserved for future client → server terminal input.
+        // Currently terminal input uses JSON ClientMessage::TerminalInput.
         continue;
       }
       Ok(Message::Close(_)) => {

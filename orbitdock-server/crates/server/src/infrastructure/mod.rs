@@ -13,4 +13,5 @@ pub(crate) mod paths;
 pub(crate) mod persistence;
 pub(crate) mod protocol_compat;
 pub(crate) mod shell;
+pub(crate) mod terminal;
 pub(crate) mod usage_probe;

@@ -41,6 +41,7 @@ dirs = { workspace = true }
 base64 = { workspace = true }
 ring = { workspace = true }
 libc = { workspace = true }
+nix = { version = "0.29", features = ["term", "process", "signal", "ioctl", "fs"] }
 qrcode = { workspace = true }
 console = "0.15"
 clap_complete = "4"

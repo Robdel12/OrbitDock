@@ -5342,6 +5342,7 @@ dependencies = [
  "libc",
  "liquid",
  "mime_guess",
+ "nix 0.29.0",
  "notify 7.0.0",
  "orbitdock-connector-claude",
  "orbitdock-connector-codex",

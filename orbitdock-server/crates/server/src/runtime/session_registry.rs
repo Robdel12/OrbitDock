@@ -22,6 +22,7 @@ use crate::connectors::codex_session::CodexAction;
 use crate::domain::sessions::session::{accepts_user_input_from_parts, SessionHandle};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::infrastructure::shell::ShellService;
+use crate::infrastructure::terminal::TerminalService;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
@@ -84,6 +85,9 @@ pub struct SessionRegistry {
 
   /// Provider-agnostic shell runtime service for user-initiated commands.
   shell_service: Arc<ShellService>,
+
+  /// Interactive PTY terminal sessions.
+  terminal_service: Arc<TerminalService>,
 
   /// Primary claim and WebSocket connection state.
   connections: ConnectionState,
@@ -155,6 +159,7 @@ impl SessionRegistry {
       naming_guard: Arc::new(NamingGuard::new()),
       pending_claude_sessions: DashMap::new(),
       shell_service: Arc::new(ShellService::new()),
+      terminal_service: Arc::new(TerminalService::new()),
       connections: ConnectionState::new(is_primary),
       dashboard_revision: AtomicU64::new(0),
       mission_revision: AtomicU64::new(0),
@@ -327,6 +332,10 @@ impl SessionRegistry {
 
   pub fn shell_service(&self) -> Arc<ShellService> {
     self.shell_service.clone()
+  }
+
+  pub fn terminal_service(&self) -> Arc<TerminalService> {
+    self.terminal_service.clone()
   }
 
   /// Store a Codex action sender

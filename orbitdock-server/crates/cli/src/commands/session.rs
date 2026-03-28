@@ -1944,6 +1944,8 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
     ServerMessage::MissionHeartbeat { .. } => "mission_heartbeat",
     ServerMessage::SteerOutcome { .. } => "steer_outcome",
     ServerMessage::UpdateAvailable { .. } => "update_available",
+    ServerMessage::TerminalCreated { .. } => "terminal_created",
+    ServerMessage::TerminalExited { .. } => "terminal_exited",
   }
 }
 

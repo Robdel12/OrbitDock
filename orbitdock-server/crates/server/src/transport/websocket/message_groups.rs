@@ -11,6 +11,7 @@ pub(crate) enum MessageGroup {
   Config,
   ClaudeHooks,
   Shell,
+  Terminal,
   RestOnly,
 }
 
@@ -54,6 +55,11 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     | ClientMessage::GetSubagentTools { .. } => MessageGroup::ClaudeHooks,
 
     ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => MessageGroup::Shell,
+
+    ClientMessage::CreateTerminal { .. }
+    | ClientMessage::TerminalInput { .. }
+    | ClientMessage::TerminalResize { .. }
+    | ClientMessage::DestroyTerminal { .. } => MessageGroup::Terminal,
 
     _ => unreachable!("rest-only messages should be handled before classification"),
   }

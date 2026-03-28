@@ -25,5 +25,6 @@ pub(crate) async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -
     OutboundMessage::Json(message) => *message,
     OutboundMessage::Raw(_) => panic!("expected JSON message, got raw payload"),
     OutboundMessage::Pong(_) => panic!("expected JSON message, got pong"),
+    OutboundMessage::Binary(_) => panic!("expected JSON message, got binary frame"),
   }
 }

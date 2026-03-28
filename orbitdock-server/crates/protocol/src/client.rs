@@ -466,6 +466,31 @@ pub enum ClientMessage {
     request_id: String,
   },
 
+  // Interactive terminal sessions (PTY-backed)
+  CreateTerminal {
+    terminal_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shell: Option<String>,
+    cols: u16,
+    rows: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+  },
+  TerminalInput {
+    terminal_id: String,
+    /// Base64-encoded bytes to write to the PTY.
+    data: String,
+  },
+  TerminalResize {
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+  },
+  DestroyTerminal {
+    terminal_id: String,
+  },
+
   // Remote filesystem browsing (for iOS project picker)
   BrowseDirectory {
     #[serde(default)]

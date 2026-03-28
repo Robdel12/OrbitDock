@@ -205,6 +205,18 @@ pub enum ServerMessage {
     tools: Vec<SubagentTool>,
   },
 
+  // Interactive terminal sessions
+  TerminalCreated {
+    terminal_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
+  },
+  TerminalExited {
+    terminal_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+  },
+
   // Shell execution results
   ShellStarted {
     session_id: String,

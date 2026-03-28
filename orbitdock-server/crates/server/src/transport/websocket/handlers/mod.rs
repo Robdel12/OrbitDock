@@ -7,3 +7,4 @@ pub(crate) mod session_crud;
 pub(crate) mod session_management;
 pub(crate) mod shell;
 pub(crate) mod subscribe;
+pub(crate) mod terminal;

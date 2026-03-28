@@ -15,6 +15,8 @@ pub(crate) enum OutboundMessage {
   Json(Box<ServerMessage>),
   Raw(String),
   Pong(Bytes),
+  /// Raw binary frame for high-throughput data (terminal PTY output).
+  Binary(Vec<u8>),
 }
 
 fn normalize_transport_message(msg: &mut ServerMessage) {
