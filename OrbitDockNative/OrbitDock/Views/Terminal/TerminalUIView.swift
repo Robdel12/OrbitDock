@@ -50,6 +50,11 @@ final class TerminalUIView: UIView, UIKeyInput {
   private var selectionEnd: (col: Int, row: Int)?
   private var isSelecting = false
 
+  /// Cached haptic generators to avoid per-use allocation.
+  private let selectionFeedback = UIImpactFeedbackGenerator(style: .medium)
+  private let lightFeedback = UIImpactFeedbackGenerator(style: .light)
+  private let notificationFeedback = UINotificationFeedbackGenerator()
+
   private lazy var _accessoryBar: TerminalAccessoryBar = {
     let bar = TerminalAccessoryBar(terminalView: self)
     return bar
@@ -62,15 +67,12 @@ final class TerminalUIView: UIView, UIKeyInput {
     let monoFont = font ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
     let ctFont = monoFont as CTFont
 
+    let metrics = Self.fontMetrics(for: ctFont)
     self.currentFontSize = size
     self.terminalFont = ctFont
-    self.fontAscent = CTFontGetAscent(ctFont)
-    self.cellHeight = ceil(CTFontGetAscent(ctFont) + CTFontGetDescent(ctFont) + CTFontGetLeading(ctFont))
-
-    var glyph = CTFontGetGlyphWithName(ctFont, "W" as CFString)
-    var advance = CGSize.zero
-    CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
-    self.cellWidth = ceil(advance.width)
+    self.fontAscent = metrics.ascent
+    self.cellHeight = metrics.cellHeight
+    self.cellWidth = metrics.cellWidth
 
     super.init(frame: .zero)
     backgroundColor = UIColor(red: 0.04, green: 0.04, blue: 0.052, alpha: 1.0)
@@ -103,43 +105,19 @@ final class TerminalUIView: UIView, UIKeyInput {
   var hasText: Bool { true }
 
   func insertText(_ text: String) {
-    guard let controller = sessionController else { return }
+    guard sessionController != nil else { return }
     if selectionStart != nil { clearSelection() }
 
     for char in text {
-      let str = String(char)
       let ghosttyKey = mapCharacterToGhosttyKey(char)
       let mods = consumePendingModifiers()
-
-      controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
-      if let encoded = controller.keyEncoder.encode(
-        key: ghosttyKey,
-        action: GHOSTTY_KEY_ACTION_PRESS,
-        mods: mods,
-        text: str
-      ) {
-        controller.sendKeyInput(encoded)
-      }
+      encodeAndSend(key: ghosttyKey, mods: mods, text: String(char))
     }
-    cursorVisible = true
-    setNeedsDisplay()
   }
 
   func deleteBackward() {
-    guard let controller = sessionController else { return }
-    let mods = consumePendingModifiers()
-
-    controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
-    if let encoded = controller.keyEncoder.encode(
-      key: GHOSTTY_KEY_BACKSPACE,
-      action: GHOSTTY_KEY_ACTION_PRESS,
-      mods: mods,
-      text: nil
-    ) {
-      controller.sendKeyInput(encoded)
-    }
-    cursorVisible = true
-    setNeedsDisplay()
+    guard sessionController != nil else { return }
+    encodeAndSend(key: GHOSTTY_KEY_BACKSPACE, mods: consumePendingModifiers(), text: nil)
   }
 
   // UITextInputTraits — dark keyboard, no autocorrect
@@ -158,9 +136,12 @@ final class TerminalUIView: UIView, UIKeyInput {
 
   /// Send a special key event (Esc, Tab, arrows, etc.) from the accessory bar.
   func sendSpecialKey(_ key: GhosttyKey, text: String? = nil) {
-    guard let controller = sessionController else { return }
-    let mods = consumePendingModifiers()
+    encodeAndSend(key: key, mods: consumePendingModifiers(), text: text)
+  }
 
+  /// Encode a key event via ghostty and send it to the server.
+  private func encodeAndSend(key: GhosttyKey, mods: GhosttyMods, text: String?) {
+    guard let controller = sessionController else { return }
     controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
     if let encoded = controller.keyEncoder.encode(
       key: key,
@@ -184,7 +165,7 @@ final class TerminalUIView: UIView, UIKeyInput {
 
   // On iOS, hardware keyboard input arrives via UIKeyCommand / pressesBegan.
   override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
-    guard let controller = sessionController else {
+    guard sessionController != nil else {
       super.pressesBegan(presses, with: event)
       return
     }
@@ -194,18 +175,8 @@ final class TerminalUIView: UIView, UIKeyInput {
       let ghosttyKey = mapUIKeyCode(key.keyCode)
       let mods = mapUIKeyModifiers(key.modifierFlags)
       let text = key.characters.isEmpty ? nil : key.characters
-
-      controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
-      if let encoded = controller.keyEncoder.encode(
-        key: ghosttyKey,
-        action: GHOSTTY_KEY_ACTION_PRESS,
-        mods: mods,
-        text: text
-      ) {
-        controller.sendKeyInput(encoded)
-      }
+      encodeAndSend(key: ghosttyKey, mods: mods, text: text)
     }
-    cursorVisible = true
   }
 
   // MARK: - Layout → Grid Resize
@@ -298,29 +269,36 @@ final class TerminalUIView: UIView, UIKeyInput {
   @objc private func handleDoubleTapReset(_ gesture: UITapGestureRecognizer) {
     guard currentFontSize != Self.defaultFontSize else { return }
     updateFont(size: Self.defaultFontSize)
-    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    lightFeedback.impactOccurred()
   }
 
   /// Rebuild font metrics and trigger a full grid recalculation + redraw.
   private func updateFont(size: CGFloat) {
     let monoFont = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
     let ctFont = monoFont as CTFont
+    let metrics = Self.fontMetrics(for: ctFont)
 
     currentFontSize = size
     terminalFont = ctFont
-    fontAscent = CTFontGetAscent(ctFont)
-    cellHeight = ceil(CTFontGetAscent(ctFont) + CTFontGetDescent(ctFont) + CTFontGetLeading(ctFont))
-
-    var glyph = CTFontGetGlyphWithName(ctFont, "W" as CFString)
-    var advance = CGSize.zero
-    CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
-    cellWidth = ceil(advance.width)
+    fontAscent = metrics.ascent
+    cellHeight = metrics.cellHeight
+    cellWidth = metrics.cellWidth
 
     // Force grid recalculation at the new cell dimensions
     gridCols = 0
     gridRows = 0
     setNeedsLayout()
     layoutIfNeeded()
+  }
+
+  /// Calculate font metrics from a CTFont — shared between init and updateFont.
+  private static func fontMetrics(for ctFont: CTFont) -> (ascent: CGFloat, cellHeight: CGFloat, cellWidth: CGFloat) {
+    let ascent = CTFontGetAscent(ctFont)
+    let height = ceil(ascent + CTFontGetDescent(ctFont) + CTFontGetLeading(ctFont))
+    var glyph = CTFontGetGlyphWithName(ctFont, "W" as CFString)
+    var advance = CGSize.zero
+    CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
+    return (ascent, height, ceil(advance.width))
   }
 
   // MARK: - Text Selection
@@ -340,7 +318,7 @@ final class TerminalUIView: UIView, UIKeyInput {
       isSelecting = true
       selectionStart = cell
       selectionEnd = cell
-      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+      selectionFeedback.impactOccurred()
       setNeedsDisplay()
 
     case .changed:
@@ -368,61 +346,40 @@ final class TerminalUIView: UIView, UIKeyInput {
     return (col: min(col, Int(gridCols) - 1), row: min(row, Int(gridRows) - 1))
   }
 
-  /// Whether a cell at (col, row) falls within the current selection.
-  private func isCellSelected(col: Int, row: Int) -> Bool {
-    guard let start = selectionStart, let end = selectionEnd else { return false }
-
-    // Normalize so s is before e in reading order
-    let s: (col: Int, row: Int)
-    let e: (col: Int, row: Int)
+  /// Normalize selection so start is before end in reading order.
+  private func normalizedSelection() -> (start: (col: Int, row: Int), end: (col: Int, row: Int))? {
+    guard let start = selectionStart, let end = selectionEnd else { return nil }
     if start.row < end.row || (start.row == end.row && start.col <= end.col) {
-      s = start; e = end
-    } else {
-      s = end; e = start
+      return (start, end)
     }
+    return (end, start)
+  }
 
+  /// Whether a cell at (col, row) falls within a pre-normalized selection range.
+  private static func cellInSelection(col: Int, row: Int, s: (col: Int, row: Int), e: (col: Int, row: Int)) -> Bool {
     if row < s.row || row > e.row { return false }
     if row == s.row && row == e.row { return col >= s.col && col <= e.col }
     if row == s.row { return col >= s.col }
     if row == e.row { return col <= e.col }
-    return true // middle rows are fully selected
+    return true
   }
 
   /// Extract selected text from the ghostty render state.
   private func selectedText() -> String? {
-    guard let start = selectionStart, let end = selectionEnd,
+    guard let sel = normalizedSelection(),
           let controller = sessionController else { return nil }
-
-    let s: (col: Int, row: Int)
-    let e: (col: Int, row: Int)
-    if start.row < end.row || (start.row == end.row && start.col <= end.col) {
-      s = start; e = end
-    } else {
-      s = end; e = start
-    }
 
     let ghostty = controller.ghostty
     ghostty.updateRenderState()
 
     var lines: [String] = []
     ghostty.forEachRow { rowIndex, _, cellIterator in
-      guard rowIndex >= s.row && rowIndex <= e.row else { return }
+      guard rowIndex >= sel.start.row && rowIndex <= sel.end.row else { return }
 
       var rowText = ""
       var colIndex = 0
       while cellIterator.next() {
-        let inRange: Bool
-        if rowIndex == s.row && rowIndex == e.row {
-          inRange = colIndex >= s.col && colIndex <= e.col
-        } else if rowIndex == s.row {
-          inRange = colIndex >= s.col
-        } else if rowIndex == e.row {
-          inRange = colIndex <= e.col
-        } else {
-          inRange = true
-        }
-
-        if inRange {
+        if Self.cellInSelection(col: colIndex, row: rowIndex, s: sel.start, e: sel.end) {
           let grapheme = cellIterator.grapheme()
           rowText += grapheme.isEmpty ? " " : grapheme
         }
@@ -431,8 +388,8 @@ final class TerminalUIView: UIView, UIKeyInput {
       lines.append(rowText)
     }
 
-    // Trim trailing spaces on each line, join with newlines
-    let result = lines.map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+    let result = lines
+      .map { String($0.reversed().drop(while: { $0 == " " }).reversed()) }
       .joined(separator: "\n")
       .trimmingCharacters(in: .whitespacesAndNewlines)
     return result.isEmpty ? nil : result
@@ -458,7 +415,7 @@ final class TerminalUIView: UIView, UIKeyInput {
   override func copy(_ sender: Any?) {
     guard let text = selectedText() else { return }
     UIPasteboard.general.string = text
-    UINotificationFeedbackGenerator().notificationOccurred(.success)
+    notificationFeedback.notificationOccurred(.success)
     clearSelection()
   }
 
@@ -508,6 +465,8 @@ final class TerminalUIView: UIView, UIKeyInput {
 
     let originX = contentInsets.left
     let originY = contentInsets.top
+    let sel = normalizedSelection()
+    let selHighlight = CGColor(red: 0.33, green: 0.68, blue: 0.90, alpha: 0.30)
 
     // UIKit uses top-left origin like our flipped NSView.
     ghostty.forEachRow { rowIndex, _, cellIterator in
@@ -525,10 +484,8 @@ final class TerminalUIView: UIView, UIKeyInput {
           ctx.fill(cellRect)
         }
 
-        // Selection highlight
-        if isCellSelected(col: colIndex, row: rowIndex) {
-          // Accent blue at 30% — visible over both default and colored backgrounds
-          ctx.setFillColor(CGColor(red: 0.33, green: 0.68, blue: 0.90, alpha: 0.30))
+        if let sel, Self.cellInSelection(col: colIndex, row: rowIndex, s: sel.start, e: sel.end) {
+          ctx.setFillColor(selHighlight)
           ctx.fill(cellRect)
         }
 

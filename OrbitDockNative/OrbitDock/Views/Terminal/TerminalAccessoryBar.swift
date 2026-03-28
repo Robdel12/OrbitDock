@@ -85,8 +85,8 @@ final class TerminalAccessoryBar: UIView {
     let escButton = makeKey("Esc") { [weak self] in self?.sendKey(GHOSTTY_KEY_ESCAPE) }
     let tabButton = makeKey("Tab") { [weak self] in self?.sendKey(GHOSTTY_KEY_TAB, text: "\t") }
 
-    ctrlButton = makeToggleKey("Ctrl") { [weak self] in self?.toggleCtrl() }
-    altButton = makeToggleKey("Alt") { [weak self] in self?.toggleAlt() }
+    ctrlButton = makeKey("Ctrl") { [weak self] in self?.toggleCtrl() }
+    altButton = makeKey("Alt") { [weak self] in self?.toggleAlt() }
 
     let pipeButton = makeKey("|") { [weak self] in self?.sendCharacter("|") }
     let tildeButton = makeKey("~") { [weak self] in self?.sendCharacter("~") }
@@ -127,11 +127,6 @@ final class TerminalAccessoryBar: UIView {
     button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
     button.translatesAutoresizingMaskIntoConstraints = false
     button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-    return button
-  }
-
-  private func makeToggleKey(_ title: String, action: @escaping () -> Void) -> AccessoryKeyButton {
-    let button = makeKey(title, action: action)
     return button
   }
 

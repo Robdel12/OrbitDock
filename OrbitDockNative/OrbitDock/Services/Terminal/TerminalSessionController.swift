@@ -69,6 +69,7 @@ final class TerminalSessionController: Identifiable {
 
   /// Mark the session as connected/disconnected.
   func setConnected(_ connected: Bool) {
+    guard isConnected != connected else { return }
     isConnected = connected
   }
 }
