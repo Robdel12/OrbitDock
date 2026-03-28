@@ -96,5 +96,6 @@ extension ServerToClientMessage {
     case summary
     case tickStartedAt = "tick_started_at"
     case nextTickAt = "next_tick_at"
+    case terminalId = "terminal_id"
   }
 }

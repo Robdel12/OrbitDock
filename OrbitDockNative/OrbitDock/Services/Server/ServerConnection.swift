@@ -118,6 +118,11 @@ enum ServerEvent: Sendable {
   case filesPersisted(sessionId: String, files: [String])
   case serverInfo(isPrimary: Bool, claims: [ServerClientPrimaryClaim])
 
+  // Terminal sessions
+  case terminalCreated(terminalId: String, sessionId: String?)
+  case terminalOutput(terminalId: String, data: Data)
+  case terminalExited(terminalId: String, exitCode: Int32?)
+
   /// Error
   case error(code: String, message: String, sessionId: String?)
 
@@ -514,7 +519,10 @@ final class ServerConnection {
         switch message {
           case let .string(text): handleFrame(text, expectedGeneration: generation)
           case let .data(data):
-            if let text = String(data: data, encoding: .utf8) {
+            // Check for terminal binary frame (type byte 0x01 or 0x02).
+            if data.count >= 2, (data[0] == 0x01 || data[0] == 0x02) {
+              handleTerminalBinaryFrame(data)
+            } else if let text = String(data: data, encoding: .utf8) {
               handleFrame(text, expectedGeneration: generation)
             }
           @unknown default: break
@@ -804,6 +812,10 @@ final class ServerConnection {
         emit(.missionDelta(missionId: missionId, issues: issues, summary: summary))
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         emit(.missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt))
+      case let .terminalCreated(terminalId, sessionId):
+        emit(.terminalCreated(terminalId: terminalId, sessionId: sessionId))
+      case let .terminalExited(terminalId, exitCode):
+        emit(.terminalExited(terminalId: terminalId, exitCode: exitCode))
       case .steerOutcome:
         break // Outcome is informational; steerable state flows via session_delta
       case .directoryListing, .recentProjectsList, .openAiKeyStatus,
@@ -873,6 +885,98 @@ final class ServerConnection {
         break
       default: break
     }
+  }
+
+  // MARK: - Terminal Binary Frames
+
+  /// Parse a binary frame from the server containing terminal PTY output or exit notification.
+  /// Format: [type:1][id_len:1][id:N][payload:...]
+  private func handleTerminalBinaryFrame(_ data: Data) {
+    guard data.count >= 2 else { return }
+    let frameType = data[0]
+    let idLen = Int(data[1])
+    guard data.count >= 2 + idLen else { return }
+
+    let idData = data[2 ..< 2 + idLen]
+    let terminalId = String(data: idData, encoding: .utf8) ?? ""
+
+    switch frameType {
+    case 0x01: // Terminal output
+      let payload = data[(2 + idLen)...]
+      emit(.terminalOutput(terminalId: terminalId, data: Data(payload)))
+
+    case 0x02: // Terminal exited
+      let payloadStart = 2 + idLen
+      let exitCode: Int32?
+      if data.count >= payloadStart + 4 {
+        exitCode = data[payloadStart ..< payloadStart + 4].withUnsafeBytes { $0.load(as: Int32.self) }
+      } else {
+        exitCode = nil
+      }
+      emit(.terminalExited(terminalId: terminalId, exitCode: exitCode))
+
+    default:
+      break
+    }
+  }
+
+  // MARK: - Terminal Send Methods
+
+  func sendCreateTerminal(
+    terminalId: String,
+    cwd: String,
+    shell: String? = nil,
+    cols: UInt16,
+    rows: UInt16,
+    sessionId: String? = nil
+  ) {
+    let payload = TerminalCreatePayload(
+      type: "create_terminal",
+      terminalId: terminalId,
+      cwd: cwd,
+      shell: shell,
+      cols: cols,
+      rows: rows,
+      sessionId: sessionId
+    )
+    sendJSON(payload)
+  }
+
+  func sendTerminalInput(terminalId: String, data: Data) {
+    let payload = TerminalInputPayload(
+      type: "terminal_input",
+      terminalId: terminalId,
+      data: data.base64EncodedString()
+    )
+    sendJSON(payload)
+  }
+
+  func sendTerminalResize(terminalId: String, cols: UInt16, rows: UInt16) {
+    let payload = TerminalResizePayload(
+      type: "terminal_resize",
+      terminalId: terminalId,
+      cols: cols,
+      rows: rows
+    )
+    sendJSON(payload)
+  }
+
+  func sendDestroyTerminal(terminalId: String) {
+    let payload = TerminalDestroyPayload(
+      type: "destroy_terminal",
+      terminalId: terminalId
+    )
+    sendJSON(payload)
+  }
+
+  /// Send an arbitrary Encodable payload as JSON text frame.
+  private func sendJSON<T: Encodable>(_ payload: T) {
+    guard let webSocket else { return }
+    let encoder = JSONEncoder()
+    encoder.keyEncodingStrategy = .convertToSnakeCase
+    guard let data = try? encoder.encode(payload),
+          let text = String(data: data, encoding: .utf8) else { return }
+    webSocket.send(.string(text)) { _ in }
   }
 
   private func send(_ message: ClientToServerMessage) {

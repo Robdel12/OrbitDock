@@ -117,6 +117,11 @@ enum ServerToClientMessage: Codable {
   case worktreeStatusChanged(worktreeId: String, status: ServerWorktreeStatus, repoRoot: String)
   case worktreeError(requestId: String, code: String, message: String)
 
+  // MARK: Terminal sessions
+
+  case terminalCreated(terminalId: String, sessionId: String?)
+  case terminalExited(terminalId: String, exitCode: Int32?)
+
   // MARK: Errors
 
   case error(code: String, message: String, sessionId: String?)

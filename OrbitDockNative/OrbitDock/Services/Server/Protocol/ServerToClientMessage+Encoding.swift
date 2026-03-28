@@ -336,6 +336,16 @@ extension ServerToClientMessage {
         try container.encode(messageId, forKey: .messageId)
         try container.encode(outcome, forKey: .outcome)
 
+      case let .terminalCreated(terminalId, sessionId):
+        try container.encode("terminal_created", forKey: .type)
+        try container.encode(terminalId, forKey: .terminalId)
+        try container.encodeIfPresent(sessionId, forKey: .sessionId)
+
+      case let .terminalExited(terminalId, exitCode):
+        try container.encode("terminal_exited", forKey: .type)
+        try container.encode(terminalId, forKey: .terminalId)
+        try container.encodeIfPresent(exitCode, forKey: .exitCode)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)

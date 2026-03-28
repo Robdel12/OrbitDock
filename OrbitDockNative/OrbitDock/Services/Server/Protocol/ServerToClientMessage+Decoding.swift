@@ -384,6 +384,16 @@ extension ServerToClientMessage {
         let outcome = try container.decode(String.self, forKey: .outcome)
         self = .steerOutcome(sessionId: sessionId, messageId: messageId, outcome: outcome)
 
+      case "terminal_created":
+        let terminalId = try container.decode(String.self, forKey: .terminalId)
+        let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self = .terminalCreated(terminalId: terminalId, sessionId: sessionId)
+
+      case "terminal_exited":
+        let terminalId = try container.decode(String.self, forKey: .terminalId)
+        let exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+        self = .terminalExited(terminalId: terminalId, exitCode: exitCode)
+
       default:
         netLog(.error, cat: .ws, "Unknown server message type: \(type)")
         self = .unknown(type: type)
