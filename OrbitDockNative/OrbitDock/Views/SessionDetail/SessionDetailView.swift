@@ -85,13 +85,8 @@ struct SessionDetailView: View {
         workerCompanionPanel
       }
 
-      // Terminal bottom panel
-      if viewModel.showTerminalPanel,
-         let terminalId = viewModel.activeTerminalId,
-         let session = terminalRegistry.session(for: terminalId) {
-        Divider().foregroundStyle(Color.panelBorder)
-        terminalPanel(session: session)
-      }
+      // Terminal strip — lives between conversation and composer on both platforms
+      terminalStripSection
 
       SessionDetailFooter(mode: footerMode) {
         DirectSessionComposer(
@@ -102,13 +97,7 @@ struct SessionDetailView: View {
           followMode: viewModel.followMode,
           unreadCount: viewModel.unreadCount,
           onJumpToLatest: viewModel.jumpConversationToLatest,
-          onTogglePinned: viewModel.toggleConversationFollowMode,
-          onOpenTerminal: { terminalId in
-            withAnimation(Motion.gentle) {
-              viewModel.activeTerminalId = terminalId
-              viewModel.showTerminalPanel = true
-            }
-          }
+          onTogglePinned: viewModel.toggleConversationFollowMode
         )
       } takeOverBar: {
         TakeOverInputBar(
@@ -134,6 +123,14 @@ struct SessionDetailView: View {
         fallbackStore: sessionStore,
         modelPricingService: modelPricingService
       )
+      // Restore terminal if one already exists in the registry for this session
+      if viewModel.activeTerminalId == nil {
+        let prefix = "term-\(sessionId)-"
+        if let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix(prefix) }) {
+          viewModel.activeTerminalId = existingId
+          viewModel.showTerminalPanel = true
+        }
+      }
       if showWorkerPanel {
         viewModel.loadSelectedWorkerTools()
       }
@@ -321,48 +318,133 @@ struct SessionDetailView: View {
     .background(Color.blue.opacity(0.08))
   }
 
-  // MARK: - Terminal Panel
+  // MARK: - Terminal Strip
 
-  func terminalPanel(session: TerminalSessionController) -> some View {
-    VStack(spacing: 0) {
-      // Drag handle + title bar
-      HStack(spacing: Spacing.sm) {
-        Button {
-          withAnimation(Motion.gentle) {
-            viewModel.showTerminalPanel = false
-          }
-        } label: {
-          Image(systemName: "chevron.down")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-            .frame(width: 22, height: 22)
-            .background(Color.surfaceHover.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.sm))
+  @ViewBuilder
+  var terminalStripSection: some View {
+    if viewModel.showTerminalPanel,
+       let terminalId = viewModel.activeTerminalId,
+       let session = terminalRegistry.session(for: terminalId) {
+      VStack(spacing: 0) {
+        // Active terminal — show live strip (always visible when terminal exists)
+        TerminalLiveStrip(session: session) {
+          handleTerminalStripTap(session: session)
         }
-        .buttonStyle(.plain)
-        .help("Close terminal")
+        .transition(.move(edge: .bottom).combined(with: .opacity))
 
-        Image(systemName: "terminal")
-          .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(Color.terminal)
-
-        Text(session.title)
-          .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textSecondary)
-          .lineLimit(1)
-
-        Spacer()
+        // macOS: inline panel expands below the strip
+        #if os(macOS)
+        if viewModel.showInlineTerminal {
+          terminalPanel(session: session)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+        #endif
       }
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm_)
-      .background(Color.backgroundCode.opacity(0.8))
-
-      // Terminal renderer
-      TerminalView(session: session)
-        .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
+      #if os(iOS)
+      .fullScreenCover(isPresented: $viewModel.showTerminalInteractiveSheet) {
+        TerminalInteractiveSheet(session: session)
+      }
+      #endif
+    } else if screenPresentation.isActive || screenPresentation.isDirect {
+      // No terminal — show launch button
+      terminalLaunchStrip
     }
-    .background(Color.backgroundCode)
-    .transition(.move(edge: .bottom).combined(with: .opacity))
   }
+
+  private var terminalLaunchStrip: some View {
+    Button {
+      launchTerminal()
+    } label: {
+      HStack(spacing: Spacing.sm_) {
+        Image(systemName: "terminal")
+          .font(.system(size: TypeScale.meta, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+
+        Text("Terminal")
+          .font(.system(size: TypeScale.meta, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.sm_)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .help("Launch terminal")
+  }
+
+  private func handleTerminalStripTap(session: TerminalSessionController) {
+    #if os(iOS)
+    viewModel.showTerminalInteractiveSheet = true
+    #else
+    withAnimation(Motion.gentle) {
+      viewModel.showInlineTerminal.toggle()
+    }
+    #endif
+  }
+
+  func launchTerminal() {
+    let terminalId = "term-\(sessionId)-\(UUID().uuidString.prefix(8).lowercased())"
+    let controller = TerminalSessionController(terminalId: terminalId)
+
+    let endpointId = self.endpointId
+    controller.sendToServer = { [weak runtimeRegistry] data in
+      guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
+      runtime.connection.sendTerminalInput(terminalId: terminalId, data: data)
+    }
+    controller.sendResize = { [weak runtimeRegistry] cols, rows in
+      guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
+      runtime.connection.sendTerminalResize(terminalId: terminalId, cols: cols, rows: rows)
+    }
+
+    terminalRegistry.register(controller)
+
+    // Show strip immediately
+    withAnimation(Motion.gentle) {
+      viewModel.activeTerminalId = terminalId
+      viewModel.showTerminalPanel = true
+    }
+    Platform.services.playHaptic(.selection)
+
+    // Wire server connection and create PTY
+    let cwd = screenPresentation.projectPath
+    if let runtime = runtimeRegistry.runtimesByEndpointId[endpointId] {
+      let token = runtime.connection.addListener { [weak controller] event in
+        switch event {
+        case let .terminalOutput(tid, data) where tid == terminalId:
+          controller?.feedOutput(data)
+          controller?.setConnected(true)
+        case let .terminalExited(tid, _) where tid == terminalId:
+          controller?.setConnected(false)
+        default:
+          break
+        }
+      }
+      let connection = runtime.connection
+      controller.removeListener = { [weak connection] in
+        connection?.removeListener(token)
+      }
+
+      connection.sendCreateTerminal(
+        terminalId: terminalId,
+        cwd: cwd.isEmpty ? "~" : cwd,
+        cols: 80,
+        rows: 24,
+        sessionId: sessionId
+      )
+    }
+  }
+
+  // MARK: - Terminal Panel (macOS inline)
+
+  #if os(macOS)
+  func terminalPanel(session: TerminalSessionController) -> some View {
+    TerminalView(session: session)
+      .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
+      .background(Color.backgroundCode)
+  }
+  #endif
 
   // MARK: - Helpers
 

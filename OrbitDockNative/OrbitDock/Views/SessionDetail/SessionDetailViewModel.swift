@@ -33,6 +33,9 @@ final class SessionDetailViewModel {
   /// Terminal panel state
   var showTerminalPanel = false
   var activeTerminalId: String?
+  var showTerminalInteractiveSheet = false
+  /// macOS: whether the inline terminal panel is expanded below the strip
+  var showInlineTerminal = false
 
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
   @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0

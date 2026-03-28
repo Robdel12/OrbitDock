@@ -121,7 +121,6 @@ extension DirectSessionComposer {
     }
 
     commandDeckControlButton
-    terminalControlButton
 
     if shouldShowDictation {
       dictationControlButton
@@ -353,16 +352,6 @@ extension DirectSessionComposer {
     .help("Command deck (/)")
   }
 
-  var terminalControlButton: some View {
-    Button {
-      launchTerminal()
-    } label: {
-      ghostActionLabel(icon: "terminal", tint: .terminal)
-    }
-    .buttonStyle(.plain)
-    .help("Open terminal")
-  }
-
   @ViewBuilder
   var imageAttachmentDockControl: some View {
     #if os(macOS)
@@ -411,64 +400,6 @@ extension DirectSessionComposer {
       .buttonStyle(.plain)
       .help("Attach images or paste from the clipboard")
     #endif
-  }
-
-  // MARK: - Terminal Launch
-
-  func launchTerminal() {
-    // Reuse existing terminal if one is already registered for this session
-    let terminalPrefix = "term-\(sessionId)-"
-    if let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix(terminalPrefix) }) {
-      onOpenTerminal?(existingId)
-      Platform.services.playHaptic(.selection)
-      return
-    }
-
-    let terminalId = "term-\(sessionId)-\(UUID().uuidString.prefix(8).lowercased())"
-    let controller = TerminalSessionController(terminalId: terminalId)
-
-    // Wire output: controller sends encoded key input → server PTY
-    let endpointId = viewModel.endpointId
-    controller.sendToServer = { [weak runtimeRegistry] data in
-      guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
-      runtime.connection.sendTerminalInput(terminalId: terminalId, data: data)
-    }
-    controller.sendResize = { [weak runtimeRegistry] cols, rows in
-      guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
-      runtime.connection.sendTerminalResize(terminalId: terminalId, cols: cols, rows: rows)
-    }
-
-    terminalRegistry.register(controller)
-
-    // Wire up server connection: event listener + create PTY
-    let cwd = obs.projectPath.isEmpty ? "~" : obs.projectPath
-    if let runtime = runtimeRegistry.runtimesByEndpointId[endpointId] {
-      let token = runtime.connection.addListener { [weak controller] event in
-        switch event {
-        case let .terminalOutput(tid, data) where tid == terminalId:
-          controller?.feedOutput(data)
-        case let .terminalExited(tid, _) where tid == terminalId:
-          controller?.setConnected(false)
-        default:
-          break
-        }
-      }
-      let connection = runtime.connection
-      controller.removeListener = { [weak connection] in
-        connection?.removeListener(token)
-      }
-
-      connection.sendCreateTerminal(
-        terminalId: terminalId,
-        cwd: cwd,
-        cols: 80,
-        rows: 24,
-        sessionId: sessionId
-      )
-    }
-
-    onOpenTerminal?(terminalId)
-    Platform.services.playHaptic(.selection)
   }
 
   func ghostActionLabel(

@@ -8,15 +8,27 @@ import GhosttyVT
 /// iOS counterpart to TerminalNSView. Draws the terminal cell grid
 /// in `draw(_:)` using Core Text for text and Core Graphics for
 /// cell backgrounds and cursor.
-final class TerminalUIView: UIView {
+///
+/// Conforms to `UIKeyInput` so the iOS software keyboard appears when
+/// this view becomes first responder. Hardware keyboard events still
+/// arrive through `pressesBegan`.
+final class TerminalUIView: UIView, UIKeyInput {
   // MARK: - Configuration
 
   weak var sessionController: TerminalSessionController?
 
-  private let terminalFont: CTFont
-  let cellWidth: CGFloat
-  let cellHeight: CGFloat
-  private let fontAscent: CGFloat
+  private static let defaultFontSize: CGFloat = 12
+  private static let minFontSize: CGFloat = 7
+  private static let maxFontSize: CGFloat = 24
+
+  private(set) var currentFontSize: CGFloat = TerminalUIView.defaultFontSize
+  private(set) var terminalFont: CTFont
+  private(set) var cellWidth: CGFloat
+  private(set) var cellHeight: CGFloat
+  private(set) var fontAscent: CGFloat
+
+  /// Content insets — breathing room between the terminal grid and view edges.
+  let contentInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
 
   private(set) var gridCols: UInt16 = 80
   private(set) var gridRows: UInt16 = 24
@@ -26,21 +38,38 @@ final class TerminalUIView: UIView {
   private var cursorBlinkTimer: Timer?
   private var cursorVisible = true
 
+  /// Modifier state toggled by the accessory bar (Ctrl, Alt).
+  /// Applied to the next key event, then auto-cleared.
+  var pendingModifiers: GhosttyMods = 0
+
+  /// Pinch-to-zoom baseline font size at gesture start.
+  private var pinchBaseFontSize: CGFloat = 0
+
+  /// Text selection state — (col, row) cell coordinates.
+  private var selectionStart: (col: Int, row: Int)?
+  private var selectionEnd: (col: Int, row: Int)?
+  private var isSelecting = false
+
+  private lazy var _accessoryBar: TerminalAccessoryBar = {
+    let bar = TerminalAccessoryBar(terminalView: self)
+    return bar
+  }()
+
   // MARK: - Init
 
   init(font: UIFont? = nil) {
-    let monoFont = font ?? UIFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    self.terminalFont = monoFont as CTFont
+    let size = font.map { CTFontGetSize($0 as CTFont) } ?? Self.defaultFontSize
+    let monoFont = font ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    let ctFont = monoFont as CTFont
 
-    let ascent = CTFontGetAscent(terminalFont)
-    let descent = CTFontGetDescent(terminalFont)
-    let leading = CTFontGetLeading(terminalFont)
-    self.fontAscent = ascent
-    self.cellHeight = ceil(ascent + descent + leading)
+    self.currentFontSize = size
+    self.terminalFont = ctFont
+    self.fontAscent = CTFontGetAscent(ctFont)
+    self.cellHeight = ceil(CTFontGetAscent(ctFont) + CTFontGetDescent(ctFont) + CTFontGetLeading(ctFont))
 
-    var glyph = CTFontGetGlyphWithName(terminalFont, "W" as CFString)
+    var glyph = CTFontGetGlyphWithName(ctFont, "W" as CFString)
     var advance = CGSize.zero
-    CTFontGetAdvancesForGlyphs(terminalFont, .horizontal, &glyph, &advance, 1)
+    CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
     self.cellWidth = ceil(advance.width)
 
     super.init(frame: .zero)
@@ -48,6 +77,9 @@ final class TerminalUIView: UIView {
     isOpaque = true
     clearsContextBeforeDrawing = false
 
+    setupScrollGesture()
+    setupZoomGestures()
+    setupSelectionGesture()
     startCursorBlink()
   }
 
@@ -60,9 +92,95 @@ final class TerminalUIView: UIView {
     cursorBlinkTimer?.invalidate()
   }
 
-  // MARK: - First Responder (keyboard input)
+  // MARK: - First Responder & Keyboard
 
   override var canBecomeFirstResponder: Bool { true }
+
+  override var inputAccessoryView: UIView? { _accessoryBar }
+
+  // UIKeyInput — software keyboard support
+
+  var hasText: Bool { true }
+
+  func insertText(_ text: String) {
+    guard let controller = sessionController else { return }
+    if selectionStart != nil { clearSelection() }
+
+    for char in text {
+      let str = String(char)
+      let ghosttyKey = mapCharacterToGhosttyKey(char)
+      let mods = consumePendingModifiers()
+
+      controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
+      if let encoded = controller.keyEncoder.encode(
+        key: ghosttyKey,
+        action: GHOSTTY_KEY_ACTION_PRESS,
+        mods: mods,
+        text: str
+      ) {
+        controller.sendKeyInput(encoded)
+      }
+    }
+    cursorVisible = true
+    setNeedsDisplay()
+  }
+
+  func deleteBackward() {
+    guard let controller = sessionController else { return }
+    let mods = consumePendingModifiers()
+
+    controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
+    if let encoded = controller.keyEncoder.encode(
+      key: GHOSTTY_KEY_BACKSPACE,
+      action: GHOSTTY_KEY_ACTION_PRESS,
+      mods: mods,
+      text: nil
+    ) {
+      controller.sendKeyInput(encoded)
+    }
+    cursorVisible = true
+    setNeedsDisplay()
+  }
+
+  // UITextInputTraits — dark keyboard, no autocorrect
+
+  override var textInputContextIdentifier: String? { "terminal" }
+
+  var keyboardAppearance: UIKeyboardAppearance = .dark
+  var autocorrectionType: UITextAutocorrectionType = .no
+  var autocapitalizationType: UITextAutocapitalizationType = .none
+  var spellCheckingType: UITextSpellCheckingType = .no
+  var smartQuotesType: UITextSmartQuotesType = .no
+  var smartDashesType: UITextSmartDashesType = .no
+  var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
+
+  // MARK: - Special Key Input (from accessory bar)
+
+  /// Send a special key event (Esc, Tab, arrows, etc.) from the accessory bar.
+  func sendSpecialKey(_ key: GhosttyKey, text: String? = nil) {
+    guard let controller = sessionController else { return }
+    let mods = consumePendingModifiers()
+
+    controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
+    if let encoded = controller.keyEncoder.encode(
+      key: key,
+      action: GHOSTTY_KEY_ACTION_PRESS,
+      mods: mods,
+      text: text
+    ) {
+      controller.sendKeyInput(encoded)
+    }
+    cursorVisible = true
+    setNeedsDisplay()
+  }
+
+  /// Consume pending modifiers and reset them.
+  private func consumePendingModifiers() -> GhosttyMods {
+    let mods = pendingModifiers
+    pendingModifiers = 0
+    _accessoryBar.clearModifiers()
+    return mods
+  }
 
   // On iOS, hardware keyboard input arrives via UIKeyCommand / pressesBegan.
   override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -95,14 +213,267 @@ final class TerminalUIView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    let newCols = max(1, UInt16(bounds.width / cellWidth))
-    let newRows = max(1, UInt16(bounds.height / cellHeight))
+    let usableWidth = bounds.width - contentInsets.left - contentInsets.right
+    let usableHeight = bounds.height - contentInsets.top - contentInsets.bottom
+    let newCols = max(1, UInt16(usableWidth / cellWidth))
+    let newRows = max(1, UInt16(usableHeight / cellHeight))
 
     if newCols != gridCols || newRows != gridRows {
       gridCols = newCols
       gridRows = newRows
       onResize?(newCols, newRows)
+      // Redraw immediately — the grid changed (e.g. keyboard appeared/dismissed)
+      // and the terminal needs to repaint at the new dimensions.
+      setNeedsDisplay()
     }
+  }
+
+  // MARK: - Scroll (pan gesture → scrollback)
+
+  /// Accumulated fractional scroll distance (converted to row deltas).
+  private var scrollAccumulator: CGFloat = 0
+
+  private func setupScrollGesture() {
+    let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanScroll(_:)))
+    pan.minimumNumberOfTouches = 1
+    pan.maximumNumberOfTouches = 2
+    // Allow the pan to coexist with the keyboard (UIKeyInput) — text input
+    // uses taps, the pan fires on drag.
+    addGestureRecognizer(pan)
+  }
+
+  @objc private func handlePanScroll(_ gesture: UIPanGestureRecognizer) {
+    guard let controller = sessionController else { return }
+
+    switch gesture.state {
+    case .changed:
+      let translation = gesture.translation(in: self)
+      // Invert: dragging up (negative translation) scrolls back (negative delta = up)
+      scrollAccumulator += -translation.y
+      let rowDelta = Int(scrollAccumulator / cellHeight)
+      if rowDelta != 0 {
+        controller.ghostty.scrollViewport(delta: rowDelta)
+        scrollAccumulator -= CGFloat(rowDelta) * cellHeight
+        setNeedsDisplay()
+      }
+      gesture.setTranslation(.zero, in: self)
+
+    case .ended, .cancelled:
+      scrollAccumulator = 0
+
+    default:
+      break
+    }
+  }
+
+  // MARK: - Pinch-to-Zoom & Double-Tap Reset
+
+  private func setupZoomGestures() {
+    let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinchZoom(_:)))
+    addGestureRecognizer(pinch)
+
+    let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTapReset(_:)))
+    doubleTap.numberOfTapsRequired = 2
+    addGestureRecognizer(doubleTap)
+  }
+
+  @objc private func handlePinchZoom(_ gesture: UIPinchGestureRecognizer) {
+    switch gesture.state {
+    case .began:
+      pinchBaseFontSize = currentFontSize
+
+    case .changed:
+      let newSize = min(Self.maxFontSize, max(Self.minFontSize, pinchBaseFontSize * gesture.scale))
+      // Only rebuild if the rounded size actually changed (avoid thrashing)
+      let rounded = (newSize * 2).rounded() / 2  // snap to 0.5pt increments
+      if rounded != currentFontSize {
+        updateFont(size: rounded)
+      }
+
+    default:
+      break
+    }
+  }
+
+  @objc private func handleDoubleTapReset(_ gesture: UITapGestureRecognizer) {
+    guard currentFontSize != Self.defaultFontSize else { return }
+    updateFont(size: Self.defaultFontSize)
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+  }
+
+  /// Rebuild font metrics and trigger a full grid recalculation + redraw.
+  private func updateFont(size: CGFloat) {
+    let monoFont = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    let ctFont = monoFont as CTFont
+
+    currentFontSize = size
+    terminalFont = ctFont
+    fontAscent = CTFontGetAscent(ctFont)
+    cellHeight = ceil(CTFontGetAscent(ctFont) + CTFontGetDescent(ctFont) + CTFontGetLeading(ctFont))
+
+    var glyph = CTFontGetGlyphWithName(ctFont, "W" as CFString)
+    var advance = CGSize.zero
+    CTFontGetAdvancesForGlyphs(ctFont, .horizontal, &glyph, &advance, 1)
+    cellWidth = ceil(advance.width)
+
+    // Force grid recalculation at the new cell dimensions
+    gridCols = 0
+    gridRows = 0
+    setNeedsLayout()
+    layoutIfNeeded()
+  }
+
+  // MARK: - Text Selection
+
+  private func setupSelectionGesture() {
+    let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressSelection(_:)))
+    longPress.minimumPressDuration = 0.3
+    addGestureRecognizer(longPress)
+  }
+
+  @objc private func handleLongPressSelection(_ gesture: UILongPressGestureRecognizer) {
+    let point = gesture.location(in: self)
+    let cell = cellAt(point: point)
+
+    switch gesture.state {
+    case .began:
+      isSelecting = true
+      selectionStart = cell
+      selectionEnd = cell
+      UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+      setNeedsDisplay()
+
+    case .changed:
+      selectionEnd = cell
+      setNeedsDisplay()
+
+    case .ended:
+      selectionEnd = cell
+      isSelecting = false
+      setNeedsDisplay()
+      showCopyMenu(at: point)
+
+    case .cancelled, .failed:
+      clearSelection()
+
+    default:
+      break
+    }
+  }
+
+  /// Convert a point in view coordinates to a (col, row) cell coordinate.
+  private func cellAt(point: CGPoint) -> (col: Int, row: Int) {
+    let col = max(0, Int((point.x - contentInsets.left) / cellWidth))
+    let row = max(0, Int((point.y - contentInsets.top) / cellHeight))
+    return (col: min(col, Int(gridCols) - 1), row: min(row, Int(gridRows) - 1))
+  }
+
+  /// Whether a cell at (col, row) falls within the current selection.
+  private func isCellSelected(col: Int, row: Int) -> Bool {
+    guard let start = selectionStart, let end = selectionEnd else { return false }
+
+    // Normalize so s is before e in reading order
+    let s: (col: Int, row: Int)
+    let e: (col: Int, row: Int)
+    if start.row < end.row || (start.row == end.row && start.col <= end.col) {
+      s = start; e = end
+    } else {
+      s = end; e = start
+    }
+
+    if row < s.row || row > e.row { return false }
+    if row == s.row && row == e.row { return col >= s.col && col <= e.col }
+    if row == s.row { return col >= s.col }
+    if row == e.row { return col <= e.col }
+    return true // middle rows are fully selected
+  }
+
+  /// Extract selected text from the ghostty render state.
+  private func selectedText() -> String? {
+    guard let start = selectionStart, let end = selectionEnd,
+          let controller = sessionController else { return nil }
+
+    let s: (col: Int, row: Int)
+    let e: (col: Int, row: Int)
+    if start.row < end.row || (start.row == end.row && start.col <= end.col) {
+      s = start; e = end
+    } else {
+      s = end; e = start
+    }
+
+    let ghostty = controller.ghostty
+    ghostty.updateRenderState()
+
+    var lines: [String] = []
+    ghostty.forEachRow { rowIndex, _, cellIterator in
+      guard rowIndex >= s.row && rowIndex <= e.row else { return }
+
+      var rowText = ""
+      var colIndex = 0
+      while cellIterator.next() {
+        let inRange: Bool
+        if rowIndex == s.row && rowIndex == e.row {
+          inRange = colIndex >= s.col && colIndex <= e.col
+        } else if rowIndex == s.row {
+          inRange = colIndex >= s.col
+        } else if rowIndex == e.row {
+          inRange = colIndex <= e.col
+        } else {
+          inRange = true
+        }
+
+        if inRange {
+          let grapheme = cellIterator.grapheme()
+          rowText += grapheme.isEmpty ? " " : grapheme
+        }
+        colIndex += 1
+      }
+      lines.append(rowText)
+    }
+
+    // Trim trailing spaces on each line, join with newlines
+    let result = lines.map { $0.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) }
+      .joined(separator: "\n")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    return result.isEmpty ? nil : result
+  }
+
+  private func showCopyMenu(at point: CGPoint) {
+    guard selectionStart != nil else { return }
+    becomeFirstResponder()
+    let menu = UIMenuController.shared
+    menu.showMenu(from: self, rect: CGRect(origin: point, size: CGSize(width: 1, height: 1)))
+  }
+
+  override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+    if action == #selector(copy(_:)) {
+      return selectionStart != nil
+    }
+    if action == #selector(paste(_:)) {
+      return UIPasteboard.general.hasStrings
+    }
+    return super.canPerformAction(action, withSender: sender)
+  }
+
+  override func copy(_ sender: Any?) {
+    guard let text = selectedText() else { return }
+    UIPasteboard.general.string = text
+    UINotificationFeedbackGenerator().notificationOccurred(.success)
+    clearSelection()
+  }
+
+  override func paste(_ sender: Any?) {
+    guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+    clearSelection()
+    insertText(text)
+  }
+
+  func clearSelection() {
+    selectionStart = nil
+    selectionEnd = nil
+    isSelecting = false
+    setNeedsDisplay()
+    UIMenuController.shared.hideMenu()
   }
 
   // MARK: - Cursor Blink
@@ -135,19 +506,29 @@ final class TerminalUIView: UIView {
     ctx.setFillColor(bgColor)
     ctx.fill(bounds)
 
+    let originX = contentInsets.left
+    let originY = contentInsets.top
+
     // UIKit uses top-left origin like our flipped NSView.
     ghostty.forEachRow { rowIndex, _, cellIterator in
-      let rowY = CGFloat(rowIndex) * cellHeight
-      let rowRect = CGRect(x: 0, y: rowY, width: bounds.width, height: cellHeight)
+      let rowY = originY + CGFloat(rowIndex) * cellHeight
+      let rowRect = CGRect(x: originX, y: rowY, width: bounds.width - originX, height: cellHeight)
       guard rowRect.intersects(rect) else { return }
 
       var colIndex = 0
       while cellIterator.next() {
-        let cellX = CGFloat(colIndex) * cellWidth
+        let cellX = originX + CGFloat(colIndex) * cellWidth
         let cellRect = CGRect(x: cellX, y: rowY, width: cellWidth, height: cellHeight)
 
         if let bg = cellIterator.backgroundColor() {
           ctx.setFillColor(cgColor(from: bg))
+          ctx.fill(cellRect)
+        }
+
+        // Selection highlight
+        if isCellSelected(col: colIndex, row: rowIndex) {
+          // Accent blue at 30% — visible over both default and colored backgrounds
+          ctx.setFillColor(CGColor(red: 0.33, green: 0.68, blue: 0.90, alpha: 0.30))
           ctx.fill(cellRect)
         }
 
@@ -164,8 +545,8 @@ final class TerminalUIView: UIView {
 
     let cursor = ghostty.cursorState()
     if cursor.visible {
-      let cursorX = CGFloat(cursor.col) * cellWidth
-      let cursorY = CGFloat(cursor.row) * cellHeight
+      let cursorX = originX + CGFloat(cursor.col) * cellWidth
+      let cursorY = originY + CGFloat(cursor.row) * cellHeight
       let cursorRect = CGRect(x: cursorX, y: cursorY, width: cellWidth, height: cellHeight)
       drawCursor(ctx: ctx, rect: cursorRect, style: cursor.style, blink: cursor.blinking)
     }
@@ -234,6 +615,90 @@ final class TerminalUIView: UIView {
   }
 }
 
+// MARK: - Character → GhosttyKey Mapping
+
+/// Map a printable character to the corresponding GhosttyKey.
+/// The encoder uses the text parameter for actual byte generation,
+/// so the key mapping mostly needs to identify the base key.
+private func mapCharacterToGhosttyKey(_ char: Character) -> GhosttyKey {
+  let lower = char.lowercased()
+  switch lower {
+  case "a": return GHOSTTY_KEY_A
+  case "b": return GHOSTTY_KEY_B
+  case "c": return GHOSTTY_KEY_C
+  case "d": return GHOSTTY_KEY_D
+  case "e": return GHOSTTY_KEY_E
+  case "f": return GHOSTTY_KEY_F
+  case "g": return GHOSTTY_KEY_G
+  case "h": return GHOSTTY_KEY_H
+  case "i": return GHOSTTY_KEY_I
+  case "j": return GHOSTTY_KEY_J
+  case "k": return GHOSTTY_KEY_K
+  case "l": return GHOSTTY_KEY_L
+  case "m": return GHOSTTY_KEY_M
+  case "n": return GHOSTTY_KEY_N
+  case "o": return GHOSTTY_KEY_O
+  case "p": return GHOSTTY_KEY_P
+  case "q": return GHOSTTY_KEY_Q
+  case "r": return GHOSTTY_KEY_R
+  case "s": return GHOSTTY_KEY_S
+  case "t": return GHOSTTY_KEY_T
+  case "u": return GHOSTTY_KEY_U
+  case "v": return GHOSTTY_KEY_V
+  case "w": return GHOSTTY_KEY_W
+  case "x": return GHOSTTY_KEY_X
+  case "y": return GHOSTTY_KEY_Y
+  case "z": return GHOSTTY_KEY_Z
+  case "0": return GHOSTTY_KEY_DIGIT_0
+  case "1": return GHOSTTY_KEY_DIGIT_1
+  case "2": return GHOSTTY_KEY_DIGIT_2
+  case "3": return GHOSTTY_KEY_DIGIT_3
+  case "4": return GHOSTTY_KEY_DIGIT_4
+  case "5": return GHOSTTY_KEY_DIGIT_5
+  case "6": return GHOSTTY_KEY_DIGIT_6
+  case "7": return GHOSTTY_KEY_DIGIT_7
+  case "8": return GHOSTTY_KEY_DIGIT_8
+  case "9": return GHOSTTY_KEY_DIGIT_9
+  case " ": return GHOSTTY_KEY_SPACE
+  case "\n", "\r": return GHOSTTY_KEY_ENTER
+  case "\t": return GHOSTTY_KEY_TAB
+  case "-": return GHOSTTY_KEY_MINUS
+  case "=": return GHOSTTY_KEY_EQUAL
+  case "[": return GHOSTTY_KEY_BRACKET_LEFT
+  case "]": return GHOSTTY_KEY_BRACKET_RIGHT
+  case "\\": return GHOSTTY_KEY_BACKSLASH
+  case ";": return GHOSTTY_KEY_SEMICOLON
+  case "'": return GHOSTTY_KEY_QUOTE
+  case "`": return GHOSTTY_KEY_BACKQUOTE
+  case ",": return GHOSTTY_KEY_COMMA
+  case ".": return GHOSTTY_KEY_PERIOD
+  case "/": return GHOSTTY_KEY_SLASH
+  // Shifted variants map to their base key
+  case "!": return GHOSTTY_KEY_DIGIT_1
+  case "@": return GHOSTTY_KEY_DIGIT_2
+  case "#": return GHOSTTY_KEY_DIGIT_3
+  case "$": return GHOSTTY_KEY_DIGIT_4
+  case "%": return GHOSTTY_KEY_DIGIT_5
+  case "^": return GHOSTTY_KEY_DIGIT_6
+  case "&": return GHOSTTY_KEY_DIGIT_7
+  case "*": return GHOSTTY_KEY_DIGIT_8
+  case "(": return GHOSTTY_KEY_DIGIT_9
+  case ")": return GHOSTTY_KEY_DIGIT_0
+  case "_": return GHOSTTY_KEY_MINUS
+  case "+": return GHOSTTY_KEY_EQUAL
+  case "{": return GHOSTTY_KEY_BRACKET_LEFT
+  case "}": return GHOSTTY_KEY_BRACKET_RIGHT
+  case "|": return GHOSTTY_KEY_BACKSLASH
+  case ":": return GHOSTTY_KEY_SEMICOLON
+  case "\"": return GHOSTTY_KEY_QUOTE
+  case "~": return GHOSTTY_KEY_BACKQUOTE
+  case "<": return GHOSTTY_KEY_COMMA
+  case ">": return GHOSTTY_KEY_PERIOD
+  case "?": return GHOSTTY_KEY_SLASH
+  default: return GHOSTTY_KEY_UNIDENTIFIED
+  }
+}
+
 private func cgColor(from c: GhosttyColorRgb) -> CGColor {
   CGColor(
     red: CGFloat(c.r) / 255.0,
@@ -243,7 +708,7 @@ private func cgColor(from c: GhosttyColorRgb) -> CGColor {
   )
 }
 
-// MARK: - iOS Key Mapping
+// MARK: - iOS Key Mapping (hardware keyboard)
 
 private func mapUIKeyCode(_ code: UIKeyboardHIDUsage) -> GhosttyKey {
   switch code {

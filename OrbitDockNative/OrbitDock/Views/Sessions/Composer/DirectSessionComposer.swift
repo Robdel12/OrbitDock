@@ -21,10 +21,8 @@ struct DirectSessionComposer: View {
   let unreadCount: Int
   let onJumpToLatest: () -> Void
   let onTogglePinned: () -> Void
-  var onOpenTerminal: ((String) -> Void)?
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(AppRouter.self) var router
-  @Environment(TerminalSessionRegistry.self) var terminalRegistry
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
   @AppStorage("localDictationEnabled") var localDictationEnabled = true
   @State var viewModel: DirectSessionComposerViewModel
@@ -60,8 +58,7 @@ struct DirectSessionComposer: View {
     followMode: ConversationFollowMode,
     unreadCount: Int,
     onJumpToLatest: @escaping () -> Void,
-    onTogglePinned: @escaping () -> Void,
-    onOpenTerminal: ((String) -> Void)? = nil
+    onTogglePinned: @escaping () -> Void
   ) {
     self.sessionId = sessionId
     self.sessionStore = sessionStore
@@ -71,7 +68,6 @@ struct DirectSessionComposer: View {
     self.unreadCount = unreadCount
     self.onJumpToLatest = onJumpToLatest
     self.onTogglePinned = onTogglePinned
-    self.onOpenTerminal = onOpenTerminal
 
     let initialViewModel = DirectSessionComposerViewModel()
     initialViewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
