@@ -1,0 +1,81 @@
+import SwiftUI
+
+/// SwiftUI wrapper around the platform-native terminal renderer.
+///
+/// Bridges `TerminalNSView` (macOS) or `TerminalUIView` (iOS) into SwiftUI
+/// and wires up the session controller for I/O and resize events.
+#if os(macOS)
+struct TerminalView: NSViewRepresentable {
+  let session: TerminalSessionController
+
+  func makeNSView(context: Context) -> TerminalNSView {
+    let view = TerminalNSView()
+    view.sessionController = session
+    view.onResize = { [weak session] cols, rows in
+      guard let session else { return }
+      session.handleResize(
+        cols: cols,
+        rows: rows,
+        cellWidth: UInt32(view.cellWidth),
+        cellHeight: UInt32(view.cellHeight)
+      )
+    }
+    context.coordinator.terminalView = view
+    return view
+  }
+
+  func updateNSView(_ nsView: TerminalNSView, context: Context) {
+    nsView.sessionController = session
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(session: session)
+  }
+
+  final class Coordinator {
+    let session: TerminalSessionController
+    weak var terminalView: TerminalNSView?
+
+    init(session: TerminalSessionController) {
+      self.session = session
+    }
+  }
+}
+#else
+struct TerminalView: UIViewRepresentable {
+  let session: TerminalSessionController
+
+  func makeUIView(context: Context) -> TerminalUIView {
+    let view = TerminalUIView()
+    view.sessionController = session
+    view.onResize = { [weak session] cols, rows in
+      guard let session else { return }
+      session.handleResize(
+        cols: cols,
+        rows: rows,
+        cellWidth: UInt32(view.cellWidth),
+        cellHeight: UInt32(view.cellHeight)
+      )
+    }
+    context.coordinator.terminalView = view
+    return view
+  }
+
+  func updateUIView(_ uiView: TerminalUIView, context: Context) {
+    uiView.sessionController = session
+  }
+
+  func makeCoordinator() -> Coordinator {
+    Coordinator(session: session)
+  }
+
+  final class Coordinator {
+    let session: TerminalSessionController
+    weak var terminalView: TerminalUIView?
+
+    init(session: TerminalSessionController) {
+      self.session = session
+    }
+  }
+}
+#endif
