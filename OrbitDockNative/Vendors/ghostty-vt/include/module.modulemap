@@ -1,0 +1,5 @@
+module GhosttyVT [system] {
+    header "ghostty/vt.h"
+    link "ghostty-vt"
+    export *
+}
