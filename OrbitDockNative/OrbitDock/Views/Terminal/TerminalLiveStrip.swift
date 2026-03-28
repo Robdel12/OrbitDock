@@ -16,16 +16,31 @@ struct TerminalLiveStrip: View {
     !session.isConnected && session.title == "Terminal"
   }
 
+  /// Shorten the terminal title for display — show last path component
+  /// with a tilde for home, e.g. "~/Developer/OrbitDock" → "~/OrbitDock"
+  private var displayTitle: String {
+    let title = session.title
+    // If the shell gives us a path-like title, abbreviate it
+    if title.contains("/") {
+      let path = title.replacingOccurrences(of: "^~", with: NSHomeDirectory(), options: .regularExpression)
+      let home = NSHomeDirectory()
+      let shortened = path.hasPrefix(home)
+        ? "~/" + (path.dropFirst(home.count + 1).split(separator: "/").last.map(String.init) ?? "")
+        : String(title.split(separator: "/").last ?? Substring(title))
+      return shortened.isEmpty ? title : shortened
+    }
+    return title
+  }
+
   var body: some View {
     Button(action: onTap) {
-      HStack(spacing: Spacing.sm_) {
-        // Terminal icon
-        Image(systemName: "terminal.fill")
-          .font(.system(size: TypeScale.meta, weight: .semibold))
+      HStack(spacing: Spacing.xs) {
+        // Shell prompt indicator
+        Text("❯")
+          .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
           .foregroundStyle(Color.terminal)
 
         if isConnecting {
-          // Connecting state — show while waiting for first server output
           Text("Connecting")
             .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
@@ -34,8 +49,8 @@ struct TerminalLiveStrip: View {
             .controlSize(.mini)
             .tint(Color.textQuaternary)
         } else {
-          // Live state — show terminal title
-          Text(session.title)
+          // Live state — show terminal title (shell cwd)
+          Text(displayTitle)
             .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
             .lineLimit(1)
