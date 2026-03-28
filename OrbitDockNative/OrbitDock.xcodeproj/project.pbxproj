@@ -383,7 +383,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
 				MARKETING_VERSION = 0.7.0;
-				OTHER_LDFLAGS = (
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",
@@ -435,7 +435,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
 				MARKETING_VERSION = 0.7.0;
-				OTHER_LDFLAGS = (
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",
