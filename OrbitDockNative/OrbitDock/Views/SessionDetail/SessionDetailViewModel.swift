@@ -30,6 +30,10 @@ final class SessionDetailViewModel {
   var isCleaningUpWorktree = false
   var worktreeCleanupError: String?
 
+  /// Terminal panel state
+  var showTerminalPanel = false
+  var activeTerminalId: String?
+
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
   @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
   @ObservationIgnored private var conversationScrollCommandNonce = 0

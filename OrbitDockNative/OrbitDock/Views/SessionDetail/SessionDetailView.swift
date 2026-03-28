@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
+  @Environment(TerminalSessionRegistry.self) var terminalRegistry
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
   @Environment(\.modelPricingService) var modelPricingService
   @Environment(AppRouter.self) var router
@@ -84,6 +85,14 @@ struct SessionDetailView: View {
         workerCompanionPanel
       }
 
+      // Terminal bottom panel
+      if viewModel.showTerminalPanel,
+         let terminalId = viewModel.activeTerminalId,
+         let session = terminalRegistry.session(for: terminalId) {
+        Divider().foregroundStyle(Color.panelBorder)
+        terminalPanel(session: session)
+      }
+
       SessionDetailFooter(mode: footerMode) {
         DirectSessionComposer(
           sessionId: sessionId,
@@ -93,7 +102,13 @@ struct SessionDetailView: View {
           followMode: viewModel.followMode,
           unreadCount: viewModel.unreadCount,
           onJumpToLatest: viewModel.jumpConversationToLatest,
-          onTogglePinned: viewModel.toggleConversationFollowMode
+          onTogglePinned: viewModel.toggleConversationFollowMode,
+          onOpenTerminal: { terminalId in
+            withAnimation(Motion.gentle) {
+              viewModel.activeTerminalId = terminalId
+              viewModel.showTerminalPanel = true
+            }
+          }
         )
       } takeOverBar: {
         TakeOverInputBar(
@@ -304,6 +319,49 @@ struct SessionDetailView: View {
     .padding(.horizontal, Spacing.md)
     .padding(.vertical, Spacing.sm)
     .background(Color.blue.opacity(0.08))
+  }
+
+  // MARK: - Terminal Panel
+
+  func terminalPanel(session: TerminalSessionController) -> some View {
+    VStack(spacing: 0) {
+      // Drag handle + title bar
+      HStack(spacing: Spacing.sm) {
+        Button {
+          withAnimation(Motion.gentle) {
+            viewModel.showTerminalPanel = false
+          }
+        } label: {
+          Image(systemName: "chevron.down")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .frame(width: 22, height: 22)
+            .background(Color.surfaceHover.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .buttonStyle(.plain)
+        .help("Close terminal")
+
+        Image(systemName: "terminal")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.terminal)
+
+        Text(session.title)
+          .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
+          .lineLimit(1)
+
+        Spacer()
+      }
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm_)
+      .background(Color.backgroundCode.opacity(0.8))
+
+      // Terminal renderer
+      TerminalView(session: session)
+        .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
+    }
+    .background(Color.backgroundCode)
+    .transition(.move(edge: .bottom).combined(with: .opacity))
   }
 
   // MARK: - Helpers

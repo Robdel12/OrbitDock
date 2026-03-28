@@ -17,6 +17,9 @@ final class TerminalSessionController: Identifiable {
   /// Closure to send encoded input bytes to the server.
   var sendToServer: ((Data) -> Void)?
 
+  /// Called after PTY data has been fed into the terminal (for triggering view redraws).
+  var onOutputReceived: (() -> Void)?
+
   init(terminalId: String, cols: UInt16 = 80, rows: UInt16 = 24) {
     self.id = terminalId
     self.ghostty = GhosttyTerminalEmulator(cols: cols, rows: rows)
@@ -24,7 +27,6 @@ final class TerminalSessionController: Identifiable {
 
     // Wire up effects.
     ghostty.onWritePty = { [weak self] data in
-      // VT query responses need to go back to the server's PTY.
       self?.sendToServer?(data)
     }
 
@@ -34,8 +36,18 @@ final class TerminalSessionController: Identifiable {
   }
 
   /// Feed raw PTY output bytes from the server into the terminal emulator.
+  /// Dispatches to main queue to ensure ghostty's VT processing runs on
+  /// the main thread's full 8MB stack (Swift async task stacks are ~512KB).
   func feedOutput(_ data: Data) {
-    ghostty.feedOutput(data)
+    if Thread.isMainThread {
+      ghostty.feedOutput(data)
+      onOutputReceived?()
+    } else {
+      DispatchQueue.main.async { [weak self] in
+        self?.ghostty.feedOutput(data)
+        self?.onOutputReceived?()
+      }
+    }
   }
 
   /// Encode and send keyboard input to the server.

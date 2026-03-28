@@ -56,20 +56,21 @@ final class GhosttyKeyEncoderWrapper {
     ghostty_key_event_set_action(event, action)
     ghostty_key_event_set_mods(event, mods)
 
-    if let text, !text.isEmpty {
-      text.withCString { cStr in
-        ghostty_key_event_set_utf8(event, cStr, strlen(cStr))
-      }
-    } else {
-      ghostty_key_event_set_utf8(event, nil, 0)
-    }
-
+    // The text pointer must remain valid through ghostty_key_encoder_encode,
+    // so the encode call must happen inside withCString's scope.
     var buf = [CChar](repeating: 0, count: 128)
     var written: Int = 0
-    let result = ghostty_key_encoder_encode(encoder, event, &buf, buf.count, &written)
 
-    guard result == GHOSTTY_SUCCESS, written > 0 else {
-      return nil
+    if let text, !text.isEmpty {
+      let ok: Bool = text.withCString { cStr in
+        ghostty_key_event_set_utf8(event, cStr, strlen(cStr))
+        return ghostty_key_encoder_encode(encoder, event, &buf, buf.count, &written) == GHOSTTY_SUCCESS
+      }
+      guard ok, written > 0 else { return nil }
+    } else {
+      ghostty_key_event_set_utf8(event, nil, 0)
+      let result = ghostty_key_encoder_encode(encoder, event, &buf, buf.count, &written)
+      guard result == GHOSTTY_SUCCESS, written > 0 else { return nil }
     }
 
     return Data(bytes: buf, count: written)

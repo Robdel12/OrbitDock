@@ -113,7 +113,6 @@ final class TerminalNSView: NSView {
   /// Call this when new PTY data has been fed into the terminal.
   func terminalDidUpdate() {
     needsDisplay = true
-    // Reset cursor blink on activity.
     cursorVisible = true
   }
 
@@ -126,9 +125,7 @@ final class TerminalNSView: NSView {
           let controller = sessionController else { return }
 
     let ghostty = controller.ghostty
-    let dirty = ghostty.updateRenderState()
-
-    guard dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE else { return }
+    ghostty.updateRenderState()
 
     let (defaultFg, defaultBg) = ghostty.defaultColors()
     let bgColor = cgColor(from: defaultBg)
@@ -189,10 +186,10 @@ final class TerminalNSView: NSView {
     var font = terminalFont
 
     // Apply bold/italic if needed.
-    if style.bold != 0 || style.italic != 0 {
+    if style.bold || style.italic {
       var traits: CTFontSymbolicTraits = []
-      if style.bold != 0 { traits.insert(.boldTrait) }
-      if style.italic != 0 { traits.insert(.italicTrait) }
+      if style.bold { traits.insert(.boldTrait) }
+      if style.italic { traits.insert(.italicTrait) }
       if let styledFont = CTFontCreateCopyWithSymbolicTraits(font, 0, nil, traits, traits) {
         font = styledFont
       }
@@ -205,9 +202,9 @@ final class TerminalNSView: NSView {
     let attrStr = NSAttributedString(string: text, attributes: attrs)
     let line = CTLineCreateWithAttributedString(attrStr)
 
-    // Position: baseline = top of cell + ascent (flipped coordinates).
-    let baselineY = rect.origin.y + fontAscent
-    ctx.textPosition = CGPoint(x: rect.origin.x, y: baselineY)
+    // In a flipped NSView, Core Text's text matrix must counter the CTM flip.
+    ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+    ctx.textPosition = CGPoint(x: rect.origin.x, y: rect.origin.y + fontAscent)
     CTLineDraw(line, ctx)
 
     // Underline.
@@ -221,7 +218,7 @@ final class TerminalNSView: NSView {
     }
 
     // Strikethrough.
-    if style.strikethrough != 0 {
+    if style.strikethrough {
       let strikeY = rect.midY
       ctx.setStrokeColor(fgColor)
       ctx.setLineWidth(1)
@@ -276,14 +273,12 @@ final class TerminalNSView: NSView {
   override func keyDown(with event: NSEvent) {
     guard let controller = sessionController else { return }
 
-    // Sync encoder with current terminal modes before encoding.
     controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
 
     if let encoded = controller.keyEncoder.encode(nsEvent: event) {
       controller.sendKeyInput(encoded)
     }
 
-    // Reset cursor blink on keypress.
     cursorVisible = true
   }
 

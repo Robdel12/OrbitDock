@@ -6,7 +6,7 @@ import GhosttyVT
 /// Manages the terminal state machine: feed VT data in, get render state out.
 /// Thread safety: all methods must be called from the same actor/thread.
 final class GhosttyTerminalEmulator {
-  private var terminal: GhosttyTerminal!
+  private(set) var terminal: GhosttyTerminal!
   private var renderState: GhosttyRenderState!
   private var rowIterator: GhosttyRenderStateRowIterator!
   private var rowCells: GhosttyRenderStateRowCells!
@@ -20,6 +20,9 @@ final class GhosttyTerminalEmulator {
 
   private(set) var cols: UInt16
   private(set) var rows: UInt16
+
+  /// Set by the title_changed callback during vt_write; flushed after write completes.
+  var titleDirty = false
 
   init(cols: UInt16 = 80, rows: UInt16 = 24, maxScrollback: Int = 10000) {
     self.cols = cols
@@ -86,20 +89,9 @@ final class GhosttyTerminalEmulator {
       ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr)
     }
 
-    // title_changed — update window/tab title
-    let titleFn: GhosttyTerminalTitleChangedFn = { terminal, userdata in
-      guard let userdata, let terminal else { return }
-      let wrapper = Unmanaged<GhosttyTerminalEmulator>.fromOpaque(userdata).takeUnretainedValue()
-      var titleStr = GhosttyString()
-      let result = ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_TITLE, &titleStr)
-      if result == GHOSTTY_SUCCESS, let ptr = titleStr.ptr, titleStr.len > 0 {
-        let title = String(bytes: UnsafeBufferPointer(start: ptr, count: titleStr.len), encoding: .utf8) ?? ""
-        wrapper.onTitleChanged?(title)
-      }
-    }
-    withUnsafePointer(to: titleFn) { ptr in
-      ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_TITLE_CHANGED, ptr)
-    }
+    // Note: title_changed callback intentionally not registered.
+    // ghostty's windowTitle handler overflows Swift async task stacks (~512KB).
+    // Title is read on-demand via the `title` computed property instead.
   }
 
   // MARK: - Terminal I/O
@@ -109,6 +101,12 @@ final class GhosttyTerminalEmulator {
     data.withUnsafeBytes { buffer in
       guard let ptr = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
       ghostty_terminal_vt_write(terminal, ptr, buffer.count)
+    }
+
+    // Read title after write completes (callback registration disabled due to stack overflow)
+    let currentTitle = title
+    if !currentTitle.isEmpty {
+      onTitleChanged?(currentTitle)
     }
   }
 

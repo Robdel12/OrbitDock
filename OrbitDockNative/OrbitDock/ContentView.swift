@@ -11,6 +11,7 @@ struct ContentView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
   @Environment(NotificationCoordinator.self) private var notificationCoordinator
+  @Environment(TerminalSessionRegistry.self) private var terminalRegistry
 
   private var isAnyRefreshingCachedSessions: Bool {
     false
@@ -106,6 +107,11 @@ struct ContentView: View {
             endpointId: ref.endpointId
           )
           .id(ref.id)
+        case let .terminal(terminalId):
+          if let session = terminalRegistry.session(for: terminalId) {
+            TerminalContainerView(session: session)
+              .id(terminalId)
+          }
         case .dashboard:
           dashboardView
       }

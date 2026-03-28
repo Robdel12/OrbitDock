@@ -4,6 +4,7 @@ enum AppContentDestination: Equatable {
   case setup
   case session(SessionRef)
   case mission(MissionRef)
+  case terminal(terminalId: String)
   case dashboard
 }
 
@@ -46,6 +47,8 @@ enum AppWindowPlanner {
         return .session(ref)
       case let .mission(ref):
         return .mission(ref)
+      case let .terminal(terminalId):
+        return .terminal(terminalId: terminalId)
     }
   }
 

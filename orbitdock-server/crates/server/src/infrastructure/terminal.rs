@@ -112,6 +112,9 @@ impl TerminalService {
 
         let _ = unistd::chdir(cwd_cstr.as_c_str());
 
+        // Set TERM so the shell can find terminfo for proper I/O.
+        std::env::set_var("TERM", "xterm-256color");
+
         // Exec the shell as a login shell (prepend '-' to argv[0]).
         let login_name = format!("-{}", shell_path.rsplit('/').next().unwrap_or("sh"));
         let login_cstr = CString::new(login_name.as_bytes()).unwrap_or_else(|_| {

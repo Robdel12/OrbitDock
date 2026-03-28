@@ -630,6 +630,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/include/**";
 				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -637,8 +638,16 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.7.0;
+				OTHER_LDFLAGS = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock-iOS.dev";
 				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
@@ -646,6 +655,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/include";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -669,6 +679,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = YES;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/include/**";
 				INFOPLIST_FILE = OrbitDock/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -676,8 +687,16 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/macos-arm64";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				MARKETING_VERSION = 0.7.0;
+				OTHER_LDFLAGS = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubbornmule-software.OrbitDock-iOS";
 				PRODUCT_NAME = OrbitDock;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -686,6 +705,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/include";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};

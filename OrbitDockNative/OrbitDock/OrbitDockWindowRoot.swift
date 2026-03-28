@@ -131,6 +131,12 @@ struct OrbitDockWindowRoot: View {
               .unsubscribeFromSession(oldRef.sessionId)
           }
 
+        case .terminal:
+          if case let .session(oldRef) = oldRoute {
+            detailSessionStore(for: oldRef.endpointId)
+              .unsubscribeFromSession(oldRef.sessionId)
+          }
+
         case .dashboard:
           // Unsubscribe after the view is removed so clearing the store
           // doesn't trigger competing animations in the outgoing ConversationView.

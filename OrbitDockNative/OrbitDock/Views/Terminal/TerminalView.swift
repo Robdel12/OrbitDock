@@ -21,6 +21,17 @@ struct TerminalView: NSViewRepresentable {
       )
     }
     context.coordinator.terminalView = view
+
+    // Wire up: when PTY data arrives → trigger NSView redraw
+    session.onOutputReceived = { [weak view] in
+      view?.terminalDidUpdate()
+    }
+
+    // Make the terminal view first responder so it receives keyboard input
+    DispatchQueue.main.async {
+      view.window?.makeFirstResponder(view)
+    }
+
     return view
   }
 

@@ -41,6 +41,12 @@ zig build -Demit-lib-vt -Doptimize=ReleaseFast
 mkdir -p "$SCRIPT_DIR/lib/macos-arm64"
 cp zig-out/lib/libghostty-vt.a "$SCRIPT_DIR/lib/macos-arm64/"
 
+# Copy C++ dependency static libs from zig cache.
+echo "==> Copying C++ dependency libs (highway, simdutf, utfcpp)..."
+find .zig-cache -name "libhighway.a" -exec cp {} "$SCRIPT_DIR/lib/macos-arm64/" \;
+find .zig-cache -name "libsimdutf.a" -exec cp {} "$SCRIPT_DIR/lib/macos-arm64/" \;
+find .zig-cache -name "libutfcpp.a" -exec cp {} "$SCRIPT_DIR/lib/macos-arm64/" \;
+
 # Copy headers
 rm -rf "$SCRIPT_DIR/include/ghostty"
 cp -r zig-out/include/ghostty "$SCRIPT_DIR/include/"
