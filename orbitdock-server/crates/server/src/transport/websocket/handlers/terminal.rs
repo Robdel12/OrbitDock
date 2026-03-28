@@ -39,13 +39,8 @@ pub(crate) async fn handle(
       );
 
       let terminal_service = state.terminal_service();
-      let mut output_rx = match terminal_service.create(
-        terminal_id.clone(),
-        cwd,
-        shell,
-        cols,
-        rows,
-      ) {
+      let mut output_rx = match terminal_service.create(terminal_id.clone(), cwd, shell, cols, rows)
+      {
         Ok(rx) => rx,
         Err(e) => {
           let message = match e {
@@ -117,10 +112,12 @@ pub(crate) async fn handle(
 
               // Also send a typed JSON message for clients that prefer it.
               let _ = forwarder_tx
-                .send(OutboundMessage::Json(Box::new(ServerMessage::TerminalExited {
-                  terminal_id: tid.clone(),
-                  exit_code: None,
-                })))
+                .send(OutboundMessage::Json(Box::new(
+                  ServerMessage::TerminalExited {
+                    terminal_id: tid.clone(),
+                    exit_code: None,
+                  },
+                )))
                 .await;
               break;
             }
@@ -150,7 +147,10 @@ pub(crate) async fn handle(
       };
 
       let terminal_service = state.terminal_service();
-      if let Err(_) = terminal_service.write_input(&terminal_id, &decoded) {
+      if terminal_service
+        .write_input(&terminal_id, &decoded)
+        .is_err()
+      {
         send_json(
           client_tx,
           ServerMessage::Error {
@@ -169,7 +169,7 @@ pub(crate) async fn handle(
       rows,
     } => {
       let terminal_service = state.terminal_service();
-      if let Err(_) = terminal_service.resize(&terminal_id, cols, rows) {
+      if terminal_service.resize(&terminal_id, cols, rows).is_err() {
         send_json(
           client_tx,
           ServerMessage::Error {
@@ -192,7 +192,7 @@ pub(crate) async fn handle(
       );
 
       let terminal_service = state.terminal_service();
-      if let Err(_) = terminal_service.destroy(&terminal_id) {
+      if terminal_service.destroy(&terminal_id).is_err() {
         send_json(
           client_tx,
           ServerMessage::Error {

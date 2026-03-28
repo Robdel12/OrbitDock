@@ -38,7 +38,6 @@ struct TerminalSession {
   child_pid: Pid,
   master_fd: Arc<OwnedFd>,
   cancel_tx: watch::Sender<bool>,
-  output_tx: broadcast::Sender<Vec<u8>>,
   cols: u16,
   rows: u16,
 }
@@ -82,12 +81,9 @@ impl TerminalService {
     set_winsize(slave.as_raw_fd(), cols, rows);
 
     let shell_path = shell.unwrap_or_else(default_shell);
-    let shell_cstr = CString::new(shell_path.as_bytes()).unwrap_or_else(|_| {
-      CString::new("/bin/sh").unwrap()
-    });
-    let cwd_cstr = CString::new(cwd.as_bytes()).unwrap_or_else(|_| {
-      CString::new("/tmp").unwrap()
-    });
+    let shell_cstr =
+      CString::new(shell_path.as_bytes()).unwrap_or_else(|_| CString::new("/bin/sh").unwrap());
+    let cwd_cstr = CString::new(cwd.as_bytes()).unwrap_or_else(|_| CString::new("/tmp").unwrap());
 
     // Safety: fork + exec in the child. The child replaces itself immediately.
     let child_pid = match unsafe { unistd::fork() } {
@@ -117,9 +113,8 @@ impl TerminalService {
 
         // Exec the shell as a login shell (prepend '-' to argv[0]).
         let login_name = format!("-{}", shell_path.rsplit('/').next().unwrap_or("sh"));
-        let login_cstr = CString::new(login_name.as_bytes()).unwrap_or_else(|_| {
-          CString::new("-sh").unwrap()
-        });
+        let login_cstr =
+          CString::new(login_name.as_bytes()).unwrap_or_else(|_| CString::new("-sh").unwrap());
         let args = [login_cstr.as_c_str()];
         let _ = unistd::execv(shell_cstr.as_c_str(), &args);
 
@@ -149,7 +144,6 @@ impl TerminalService {
       child_pid,
       master_fd: master_fd.clone(),
       cancel_tx,
-      output_tx: output_tx.clone(),
       cols,
       rows,
     };
@@ -159,14 +153,7 @@ impl TerminalService {
     // Spawn async reader task for PTY output.
     let sessions = self.sessions.clone();
     tokio::spawn(async move {
-      pty_reader_loop(
-        terminal_id,
-        master_fd,
-        output_tx,
-        cancel_rx,
-        sessions,
-      )
-      .await;
+      pty_reader_loop(terminal_id, master_fd, output_tx, cancel_rx, sessions).await;
     });
 
     info!(
@@ -183,7 +170,10 @@ impl TerminalService {
 
   /// Write input bytes to a terminal's PTY master.
   pub fn write_input(&self, terminal_id: &str, data: &[u8]) -> Result<(), TerminalNotFound> {
-    let session = self.sessions.get(terminal_id).ok_or(TerminalNotFound::NotFound)?;
+    let session = self
+      .sessions
+      .get(terminal_id)
+      .ok_or(TerminalNotFound::NotFound)?;
     // Write is synchronous on the master fd — this is fine for human-typing-speed input.
     let _ = unistd::write(&*session.master_fd, data);
     Ok(())
@@ -191,7 +181,10 @@ impl TerminalService {
 
   /// Resize a terminal's PTY.
   pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<(), TerminalNotFound> {
-    let mut session = self.sessions.get_mut(terminal_id).ok_or(TerminalNotFound::NotFound)?;
+    let mut session = self
+      .sessions
+      .get_mut(terminal_id)
+      .ok_or(TerminalNotFound::NotFound)?;
     set_winsize(session.master_fd.as_raw_fd(), cols, rows);
     // Signal the child's process group so applications pick up the new size.
     let _ = signal::kill(session.child_pid, Signal::SIGWINCH);
@@ -208,15 +201,12 @@ impl TerminalService {
     Ok(())
   }
 
-  /// Subscribe to terminal output (returns a new broadcast receiver).
-  pub fn subscribe(&self, terminal_id: &str) -> Result<broadcast::Receiver<Vec<u8>>, TerminalNotFound> {
-    let session = self.sessions.get(terminal_id).ok_or(TerminalNotFound::NotFound)?;
-    Ok(session.output_tx.subscribe())
-  }
-
   /// Destroy a terminal session, killing the child process.
   pub fn destroy(&self, terminal_id: &str) -> Result<(), TerminalNotFound> {
-    let (_, session) = self.sessions.remove(terminal_id).ok_or(TerminalNotFound::NotFound)?;
+    let (_, session) = self
+      .sessions
+      .remove(terminal_id)
+      .ok_or(TerminalNotFound::NotFound)?;
     let _ = session.cancel_tx.send(true);
     let _ = signal::kill(session.child_pid, Signal::SIGHUP);
     info!(
@@ -227,11 +217,6 @@ impl TerminalService {
       "Terminal session destroyed"
     );
     Ok(())
-  }
-
-  /// Returns true if the terminal ID exists.
-  pub fn exists(&self, terminal_id: &str) -> bool {
-    self.sessions.contains_key(terminal_id)
   }
 }
 
@@ -340,7 +325,10 @@ async fn pty_reader_loop(
   // Clean up: reap child, remove from sessions map.
   if let Some((_, session)) = sessions.remove(&terminal_id) {
     // Best-effort waitpid to avoid zombie processes.
-    let exit_status = match nix::sys::wait::waitpid(session.child_pid, Some(nix::sys::wait::WaitPidFlag::WNOHANG)) {
+    let exit_status = match nix::sys::wait::waitpid(
+      session.child_pid,
+      Some(nix::sys::wait::WaitPidFlag::WNOHANG),
+    ) {
       Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => Some(code),
       Ok(nix::sys::wait::WaitStatus::Signaled(_, sig, _)) => Some(128 + sig as i32),
       _ => None,
@@ -448,13 +436,7 @@ mod tests {
   async fn resize_does_not_crash() {
     let service = TerminalService::new();
     let _rx = service
-      .create(
-        "test-resize".to_string(),
-        "/tmp".to_string(),
-        None,
-        80,
-        24,
-      )
+      .create("test-resize".to_string(), "/tmp".to_string(), None, 80, 24)
       .expect("create");
 
     service.resize("test-resize", 120, 40).expect("resize");
