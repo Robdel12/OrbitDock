@@ -85,7 +85,7 @@ final class GhosttyTerminalEmulator {
       let bytes = Data(bytes: data, count: len)
       wrapper.onWritePty?(bytes)
     }
-    withUnsafePointer(to: writePtyFn) { ptr in
+    _ = withUnsafePointer(to: writePtyFn) { ptr in
       ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_WRITE_PTY, ptr)
     }
 
