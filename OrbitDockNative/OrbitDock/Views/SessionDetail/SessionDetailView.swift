@@ -400,10 +400,15 @@ struct SessionDetailView: View {
 
     terminalRegistry.register(controller)
 
-    // Show strip immediately
+    // Show strip and open terminal immediately
     withAnimation(Motion.gentle) {
       viewModel.activeTerminalId = terminalId
       viewModel.showTerminalPanel = true
+      #if os(iOS)
+      viewModel.showTerminalInteractiveSheet = true
+      #else
+      viewModel.showInlineTerminal = true
+      #endif
     }
     Platform.services.playHaptic(.selection)
 
@@ -417,6 +422,7 @@ struct SessionDetailView: View {
           controller?.setConnected(true)
         case let .terminalExited(tid, _) where tid == terminalId:
           controller?.setConnected(false)
+          controller?.removeListener?()
         default:
           break
         }

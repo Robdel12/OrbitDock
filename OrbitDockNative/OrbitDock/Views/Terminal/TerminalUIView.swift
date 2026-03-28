@@ -206,10 +206,9 @@ final class TerminalUIView: UIView, UIKeyInput {
 
   private func setupScrollGesture() {
     let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanScroll(_:)))
-    pan.minimumNumberOfTouches = 1
+    // Two-finger only — one-finger drag is reserved for text selection (long press).
+    pan.minimumNumberOfTouches = 2
     pan.maximumNumberOfTouches = 2
-    // Allow the pan to coexist with the keyboard (UIKeyInput) — text input
-    // uses taps, the pan fires on drag.
     addGestureRecognizer(pan)
   }
 
