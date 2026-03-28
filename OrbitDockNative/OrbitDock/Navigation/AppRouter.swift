@@ -31,6 +31,7 @@ enum AppRoute: Equatable {
   case dashboard(DashboardTab)
   case session(SessionRef)
   case mission(MissionRef)
+  case terminal(terminalId: String)
 }
 
 /// The destinations that can be pushed onto the navigation stack.
@@ -38,6 +39,7 @@ enum AppRoute: Equatable {
 enum AppNavDestination: Hashable, Sendable {
   case session(SessionRef)
   case mission(MissionRef)
+  case terminal(terminalId: String)
 }
 
 struct SessionContinuation: Hashable, Sendable {
@@ -102,6 +104,7 @@ final class AppRouter {
     switch navigationStack.last {
       case let .session(ref): .session(ref)
       case let .mission(ref): .mission(ref)
+      case let .terminal(terminalId): .terminal(terminalId: terminalId)
       case nil: .dashboard(dashboardTab)
     }
   }
@@ -204,6 +207,16 @@ final class AppRouter {
     showQuickSwitcher = false
   }
 
+  func navigateToTerminal(terminalId: String, source: NavigationSource = .unspecified) {
+    logNavigation(
+      action: "navigateToTerminal",
+      source: source,
+      outcome: "applied",
+      details: "terminalId=\(terminalId) from=\(routeSummary)"
+    )
+    navigationStack = [.terminal(terminalId: terminalId)]
+  }
+
   func openNewSessionSheet() {
     newSessionContinuation = nil
     showNewSessionSheet = true
@@ -250,6 +263,8 @@ final class AppRouter {
         "session(\(ref.scopedID))"
       case let .mission(ref):
         "mission(\(ref.missionId))"
+      case let .terminal(terminalId):
+        "terminal(\(terminalId))"
     }
   }
 

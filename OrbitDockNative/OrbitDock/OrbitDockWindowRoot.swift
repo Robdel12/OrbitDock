@@ -5,6 +5,7 @@ struct OrbitDockWindowRoot: View {
   let appRuntime: OrbitDockAppRuntime
   @State private var appStore: AppStore
   @State private var router = AppRouter()
+  @State private var terminalRegistry = TerminalSessionRegistry()
   @State private var externalNavWindowID = UUID()
 
   private var shouldShowSetup: Bool {
@@ -41,6 +42,11 @@ struct OrbitDockWindowRoot: View {
                   endpointId: ref.endpointId
                 )
                 .id(ref.id)
+              case let .terminal(terminalId):
+                if let session = terminalRegistry.session(for: terminalId) {
+                  TerminalContainerView(session: session)
+                    .id(terminalId)
+                }
             }
           }
         }
@@ -55,6 +61,7 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime.notificationCoordinator)
     .environment(appRuntime)
     .environment(router)
+    .environment(terminalRegistry)
     .environment(appStore)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
