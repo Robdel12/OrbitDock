@@ -40,16 +40,11 @@ struct TerminalView: NSViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(session: session)
+    Coordinator()
   }
 
   final class Coordinator {
-    let session: TerminalSessionController
     weak var terminalView: TerminalNSView?
-
-    init(session: TerminalSessionController) {
-      self.session = session
-    }
   }
 }
 #else
@@ -68,6 +63,11 @@ struct TerminalView: UIViewRepresentable {
         cellHeight: UInt32(view.cellHeight)
       )
     }
+
+    session.onOutputReceived = { [weak view] in
+      view?.terminalDidUpdate()
+    }
+
     context.coordinator.terminalView = view
     return view
   }
@@ -77,16 +77,11 @@ struct TerminalView: UIViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(session: session)
+    Coordinator()
   }
 
   final class Coordinator {
-    let session: TerminalSessionController
     weak var terminalView: TerminalUIView?
-
-    init(session: TerminalSessionController) {
-      self.session = session
-    }
   }
 }
 #endif

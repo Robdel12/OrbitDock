@@ -7,15 +7,6 @@ final class TerminalSessionRegistry {
   private(set) var sessions: [String: TerminalSessionController] = [:]
   var activeTerminalId: String?
 
-  var activeSession: TerminalSessionController? {
-    guard let id = activeTerminalId else { return nil }
-    return sessions[id]
-  }
-
-  var sortedSessions: [TerminalSessionController] {
-    sessions.values.sorted { $0.id < $1.id }
-  }
-
   func register(_ session: TerminalSessionController) {
     sessions[session.id] = session
     if activeTerminalId == nil {

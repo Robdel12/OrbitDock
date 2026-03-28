@@ -435,9 +435,10 @@ extension DirectSessionComposer {
 
     terminalRegistry.register(controller)
 
-    // Listen for terminal output events from the server
+    // Wire up server connection: event listener + create PTY
+    let cwd = obs.projectPath.isEmpty ? "~" : obs.projectPath
     if let runtime = runtimeRegistry.runtimesByEndpointId[endpointId] {
-      runtime.connection.addListener { [weak controller] event in
+      let token = runtime.connection.addListener { [weak controller] event in
         switch event {
         case let .terminalOutput(tid, data) where tid == terminalId:
           controller?.feedOutput(data)
@@ -447,12 +448,12 @@ extension DirectSessionComposer {
           break
         }
       }
-    }
+      let connection = runtime.connection
+      controller.removeListener = { [weak connection] in
+        connection?.removeListener(token)
+      }
 
-    // Ask the server to create the PTY session
-    let cwd = obs.projectPath ?? "~"
-    if let runtime = runtimeRegistry.runtimesByEndpointId[endpointId] {
-      runtime.connection.sendCreateTerminal(
+      connection.sendCreateTerminal(
         terminalId: terminalId,
         cwd: cwd,
         cols: 80,

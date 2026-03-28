@@ -103,10 +103,13 @@ final class GhosttyTerminalEmulator {
       ghostty_terminal_vt_write(terminal, ptr, buffer.count)
     }
 
-    // Read title after write completes (callback registration disabled due to stack overflow)
-    let currentTitle = title
-    if !currentTitle.isEmpty {
-      onTitleChanged?(currentTitle)
+    // Read title only when the VT parser flagged a title change
+    if titleDirty {
+      titleDirty = false
+      let currentTitle = title
+      if !currentTitle.isEmpty {
+        onTitleChanged?(currentTitle)
+      }
     }
   }
 
@@ -261,6 +264,10 @@ struct RowCellIterator {
       cells, GHOSTTY_RENDER_STATE_ROW_CELLS_DATA_GRAPHEMES_BUF, &buf
     )
 
+    // Fast path: single codepoint (covers ~99% of terminal cells)
+    if len == 1, let scalar = Unicode.Scalar(buf[0]) {
+      return String(scalar)
+    }
     return buf.compactMap { Unicode.Scalar($0) }.map { String($0) }.joined()
   }
 

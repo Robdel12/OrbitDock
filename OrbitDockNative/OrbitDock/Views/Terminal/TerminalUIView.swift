@@ -97,8 +97,7 @@ final class TerminalUIView: UIView {
           let controller = sessionController else { return }
 
     let ghostty = controller.ghostty
-    let dirty = ghostty.updateRenderState()
-    guard dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE else { return }
+    ghostty.updateRenderState()
 
     let (defaultFg, defaultBg) = ghostty.defaultColors()
     let bgColor = cgColor(from: defaultBg)
@@ -148,10 +147,10 @@ final class TerminalUIView: UIView {
     let fgColor = cgColor(from: color)
     var font = terminalFont
 
-    if style.bold != 0 || style.italic != 0 {
+    if style.bold || style.italic {
       var traits: CTFontSymbolicTraits = []
-      if style.bold != 0 { traits.insert(.boldTrait) }
-      if style.italic != 0 { traits.insert(.italicTrait) }
+      if style.bold { traits.insert(.boldTrait) }
+      if style.italic { traits.insert(.italicTrait) }
       if let styledFont = CTFontCreateCopyWithSymbolicTraits(font, 0, nil, traits, traits) {
         font = styledFont
       }

@@ -20,6 +20,9 @@ final class TerminalSessionController: Identifiable {
   /// Called after PTY data has been fed into the terminal (for triggering view redraws).
   var onOutputReceived: (() -> Void)?
 
+  /// Removes the server event listener on teardown.
+  var removeListener: (() -> Void)?
+
   init(terminalId: String, cols: UInt16 = 80, rows: UInt16 = 24) {
     self.id = terminalId
     self.ghostty = GhosttyTerminalEmulator(cols: cols, rows: rows)
