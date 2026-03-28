@@ -23,6 +23,9 @@ final class TerminalSessionController: Identifiable {
   /// Removes the server event listener on teardown.
   var removeListener: (() -> Void)?
 
+  /// Called to notify the server of a resize.
+  var sendResize: ((UInt16, UInt16) -> Void)?
+
   init(terminalId: String, cols: UInt16 = 80, rows: UInt16 = 24) {
     self.id = terminalId
     self.ghostty = GhosttyTerminalEmulator(cols: cols, rows: rows)
@@ -61,6 +64,7 @@ final class TerminalSessionController: Identifiable {
   /// Handle a resize: update the local terminal and notify the server.
   func handleResize(cols: UInt16, rows: UInt16, cellWidth: UInt32, cellHeight: UInt32) {
     ghostty.resize(cols: cols, rows: rows, cellWidth: cellWidth, cellHeight: cellHeight)
+    sendResize?(cols, rows)
   }
 
   /// Mark the session as connected/disconnected.

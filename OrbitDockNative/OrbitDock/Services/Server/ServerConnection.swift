@@ -909,7 +909,7 @@ final class ServerConnection {
       let payloadStart = 2 + idLen
       let exitCode: Int32?
       if data.count >= payloadStart + 4 {
-        exitCode = data[payloadStart ..< payloadStart + 4].withUnsafeBytes { $0.load(as: Int32.self) }
+        exitCode = data[payloadStart ..< payloadStart + 4].withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
       } else {
         exitCode = nil
       }

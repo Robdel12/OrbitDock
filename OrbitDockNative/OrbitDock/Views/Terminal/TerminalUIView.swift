@@ -60,6 +60,36 @@ final class TerminalUIView: UIView {
     cursorBlinkTimer?.invalidate()
   }
 
+  // MARK: - First Responder (keyboard input)
+
+  override var canBecomeFirstResponder: Bool { true }
+
+  // On iOS, hardware keyboard input arrives via UIKeyCommand / pressesBegan.
+  override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+    guard let controller = sessionController else {
+      super.pressesBegan(presses, with: event)
+      return
+    }
+
+    for press in presses {
+      guard let key = press.key else { continue }
+      let ghosttyKey = mapUIKeyCode(key.keyCode)
+      let mods = mapUIKeyModifiers(key.modifierFlags)
+      let text = key.characters.isEmpty ? nil : key.characters
+
+      controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
+      if let encoded = controller.keyEncoder.encode(
+        key: ghosttyKey,
+        action: GHOSTTY_KEY_ACTION_PRESS,
+        mods: mods,
+        text: text
+      ) {
+        controller.sendKeyInput(encoded)
+      }
+    }
+    cursorVisible = true
+  }
+
   // MARK: - Layout → Grid Resize
 
   override func layoutSubviews() {
@@ -211,5 +241,96 @@ private func cgColor(from c: GhosttyColorRgb) -> CGColor {
     blue: CGFloat(c.b) / 255.0,
     alpha: 1.0
   )
+}
+
+// MARK: - iOS Key Mapping
+
+private func mapUIKeyCode(_ code: UIKeyboardHIDUsage) -> GhosttyKey {
+  switch code {
+  case .keyboardA: return GHOSTTY_KEY_A
+  case .keyboardB: return GHOSTTY_KEY_B
+  case .keyboardC: return GHOSTTY_KEY_C
+  case .keyboardD: return GHOSTTY_KEY_D
+  case .keyboardE: return GHOSTTY_KEY_E
+  case .keyboardF: return GHOSTTY_KEY_F
+  case .keyboardG: return GHOSTTY_KEY_G
+  case .keyboardH: return GHOSTTY_KEY_H
+  case .keyboardI: return GHOSTTY_KEY_I
+  case .keyboardJ: return GHOSTTY_KEY_J
+  case .keyboardK: return GHOSTTY_KEY_K
+  case .keyboardL: return GHOSTTY_KEY_L
+  case .keyboardM: return GHOSTTY_KEY_M
+  case .keyboardN: return GHOSTTY_KEY_N
+  case .keyboardO: return GHOSTTY_KEY_O
+  case .keyboardP: return GHOSTTY_KEY_P
+  case .keyboardQ: return GHOSTTY_KEY_Q
+  case .keyboardR: return GHOSTTY_KEY_R
+  case .keyboardS: return GHOSTTY_KEY_S
+  case .keyboardT: return GHOSTTY_KEY_T
+  case .keyboardU: return GHOSTTY_KEY_U
+  case .keyboardV: return GHOSTTY_KEY_V
+  case .keyboardW: return GHOSTTY_KEY_W
+  case .keyboardX: return GHOSTTY_KEY_X
+  case .keyboardY: return GHOSTTY_KEY_Y
+  case .keyboardZ: return GHOSTTY_KEY_Z
+  case .keyboard1: return GHOSTTY_KEY_DIGIT_1
+  case .keyboard2: return GHOSTTY_KEY_DIGIT_2
+  case .keyboard3: return GHOSTTY_KEY_DIGIT_3
+  case .keyboard4: return GHOSTTY_KEY_DIGIT_4
+  case .keyboard5: return GHOSTTY_KEY_DIGIT_5
+  case .keyboard6: return GHOSTTY_KEY_DIGIT_6
+  case .keyboard7: return GHOSTTY_KEY_DIGIT_7
+  case .keyboard8: return GHOSTTY_KEY_DIGIT_8
+  case .keyboard9: return GHOSTTY_KEY_DIGIT_9
+  case .keyboard0: return GHOSTTY_KEY_DIGIT_0
+  case .keyboardReturnOrEnter: return GHOSTTY_KEY_ENTER
+  case .keyboardEscape: return GHOSTTY_KEY_ESCAPE
+  case .keyboardDeleteOrBackspace: return GHOSTTY_KEY_BACKSPACE
+  case .keyboardTab: return GHOSTTY_KEY_TAB
+  case .keyboardSpacebar: return GHOSTTY_KEY_SPACE
+  case .keyboardHyphen: return GHOSTTY_KEY_MINUS
+  case .keyboardEqualSign: return GHOSTTY_KEY_EQUAL
+  case .keyboardOpenBracket: return GHOSTTY_KEY_BRACKET_LEFT
+  case .keyboardCloseBracket: return GHOSTTY_KEY_BRACKET_RIGHT
+  case .keyboardBackslash: return GHOSTTY_KEY_BACKSLASH
+  case .keyboardSemicolon: return GHOSTTY_KEY_SEMICOLON
+  case .keyboardQuote: return GHOSTTY_KEY_QUOTE
+  case .keyboardGraveAccentAndTilde: return GHOSTTY_KEY_BACKQUOTE
+  case .keyboardComma: return GHOSTTY_KEY_COMMA
+  case .keyboardPeriod: return GHOSTTY_KEY_PERIOD
+  case .keyboardSlash: return GHOSTTY_KEY_SLASH
+  case .keyboardUpArrow: return GHOSTTY_KEY_ARROW_UP
+  case .keyboardDownArrow: return GHOSTTY_KEY_ARROW_DOWN
+  case .keyboardLeftArrow: return GHOSTTY_KEY_ARROW_LEFT
+  case .keyboardRightArrow: return GHOSTTY_KEY_ARROW_RIGHT
+  case .keyboardDeleteForward: return GHOSTTY_KEY_DELETE
+  case .keyboardHome: return GHOSTTY_KEY_HOME
+  case .keyboardEnd: return GHOSTTY_KEY_END
+  case .keyboardPageUp: return GHOSTTY_KEY_PAGE_UP
+  case .keyboardPageDown: return GHOSTTY_KEY_PAGE_DOWN
+  case .keyboardF1: return GHOSTTY_KEY_F1
+  case .keyboardF2: return GHOSTTY_KEY_F2
+  case .keyboardF3: return GHOSTTY_KEY_F3
+  case .keyboardF4: return GHOSTTY_KEY_F4
+  case .keyboardF5: return GHOSTTY_KEY_F5
+  case .keyboardF6: return GHOSTTY_KEY_F6
+  case .keyboardF7: return GHOSTTY_KEY_F7
+  case .keyboardF8: return GHOSTTY_KEY_F8
+  case .keyboardF9: return GHOSTTY_KEY_F9
+  case .keyboardF10: return GHOSTTY_KEY_F10
+  case .keyboardF11: return GHOSTTY_KEY_F11
+  case .keyboardF12: return GHOSTTY_KEY_F12
+  default: return GHOSTTY_KEY_UNIDENTIFIED
+  }
+}
+
+private func mapUIKeyModifiers(_ flags: UIKeyModifierFlags) -> GhosttyMods {
+  var mods: GhosttyMods = 0
+  if flags.contains(.shift) { mods |= UInt16(GHOSTTY_MODS_SHIFT) }
+  if flags.contains(.control) { mods |= UInt16(GHOSTTY_MODS_CTRL) }
+  if flags.contains(.alternate) { mods |= UInt16(GHOSTTY_MODS_ALT) }
+  if flags.contains(.command) { mods |= UInt16(GHOSTTY_MODS_SUPER) }
+  if flags.contains(.alphaShift) { mods |= UInt16(GHOSTTY_MODS_CAPS_LOCK) }
+  return mods
 }
 #endif

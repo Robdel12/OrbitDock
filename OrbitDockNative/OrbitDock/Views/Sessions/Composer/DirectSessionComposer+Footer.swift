@@ -417,13 +417,14 @@ extension DirectSessionComposer {
 
   func launchTerminal() {
     // Reuse existing terminal if one is already registered for this session
-    if let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix("term-") }) {
+    let terminalPrefix = "term-\(sessionId)-"
+    if let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix(terminalPrefix) }) {
       onOpenTerminal?(existingId)
       Platform.services.playHaptic(.selection)
       return
     }
 
-    let terminalId = "term-\(UUID().uuidString.prefix(8).lowercased())"
+    let terminalId = "term-\(sessionId)-\(UUID().uuidString.prefix(8).lowercased())"
     let controller = TerminalSessionController(terminalId: terminalId)
 
     // Wire output: controller sends encoded key input → server PTY
@@ -431,6 +432,10 @@ extension DirectSessionComposer {
     controller.sendToServer = { [weak runtimeRegistry] data in
       guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
       runtime.connection.sendTerminalInput(terminalId: terminalId, data: data)
+    }
+    controller.sendResize = { [weak runtimeRegistry] cols, rows in
+      guard let runtime = runtimeRegistry?.runtimesByEndpointId[endpointId] else { return }
+      runtime.connection.sendTerminalResize(terminalId: terminalId, cols: cols, rows: rows)
     }
 
     terminalRegistry.register(controller)
