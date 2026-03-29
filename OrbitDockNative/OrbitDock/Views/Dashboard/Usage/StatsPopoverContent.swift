@@ -18,6 +18,16 @@ struct StatsPopoverContent: View {
   let todayStats: StatusBarStats
   let allStats: StatusBarStats
 
+  private var displayedTodayStats: StatusBarStats {
+    guard let summary = registry.summary else { return todayStats }
+    return StatusBarStats.from(summary.today)
+  }
+
+  private var displayedAllStats: StatusBarStats {
+    guard let summary = registry.summary else { return allStats }
+    return StatusBarStats.from(summary.allTime)
+  }
+
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
     registry.allProviders.map { provider in
       (provider: provider, windows: registry.windows(for: provider), isLoading: registry.isLoading(for: provider))
@@ -33,11 +43,11 @@ struct StatsPopoverContent: View {
       VStack(alignment: .leading, spacing: Spacing.lg) {
         if layoutMode.isPhoneCompact {
           usageSection
-          statsSection(title: "Today", stats: todayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: allStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedTodayStats, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedAllStats, accentColor: .textSecondary)
         } else {
-          statsSection(title: "Today", stats: todayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: allStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedTodayStats, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedAllStats, accentColor: .textSecondary)
           usageSection
         }
       }

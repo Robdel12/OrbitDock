@@ -299,7 +299,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
           COALESCE(s.provider, 'claude'),
           COALESCE(ut.snapshot_kind, 'unknown'),
           s.model,
-          s.started_at,
+          ut.created_at,
           ut.input_tokens,
           ut.output_tokens,
           ut.cached_tokens,
@@ -335,7 +335,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
     provider,
     snapshot_kind,
     model,
-    started_at,
+    created_at,
     input_tokens,
     output_tokens,
     cached_tokens,
@@ -363,7 +363,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
     normalized_rows.push(UsageLedgerRow {
       session_id: session_id.clone(),
       model,
-      observed_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
+      observed_at_unix: parse_timestamp_to_unix(created_at.as_deref()),
       input_tokens: normalized.billable_input_tokens,
       output_tokens: normalized.billable_output_tokens,
       cached_tokens: normalized.cache_read_tokens,
@@ -500,6 +500,8 @@ mod tests {
       .execute_batch(
         "CREATE TABLE sessions (
          id TEXT PRIMARY KEY,
+         provider TEXT,
+         model TEXT,
          started_at TEXT
        );
        CREATE TABLE usage_ledger_entries (
@@ -518,6 +520,7 @@ mod tests {
          session_id TEXT NOT NULL,
          turn_id TEXT NOT NULL,
          turn_seq INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
          snapshot_kind TEXT,
          input_tokens INTEGER NOT NULL DEFAULT 0,
          output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -529,10 +532,36 @@ mod tests {
 
     conn
       .execute(
-        "INSERT INTO sessions (id, started_at) VALUES (?1, ?2)",
-        rusqlite::params!["session-1", "2026-03-28T23:55:00Z"],
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["session-1", "codex", "gpt-5.4", "2026-03-28T23:55:00Z"],
       )
       .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_turns (
+         session_id,
+         turn_id,
+         turn_seq,
+         created_at,
+         snapshot_kind,
+         input_tokens,
+         output_tokens,
+         cached_tokens,
+         context_window
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+          "session-1",
+          "turn-2",
+          2_i64,
+          "2026-03-29T00:10:00Z",
+          "delta",
+          200_i64,
+          80_i64,
+          0_i64,
+          0_i64,
+        ],
+      )
+      .expect("insert legacy turn");
     conn
       .execute(
         "INSERT INTO usage_ledger_entries (
@@ -551,7 +580,7 @@ mod tests {
           "turn-1",
           "gpt-5.4",
           "2026-03-28T23:55:00Z",
-          "2026-03-29T00:05:00Z",
+          "2026-03-28T23:58:00Z",
           120_i64,
           30_i64,
           0_i64,
@@ -571,9 +600,15 @@ mod tests {
     .expect("load usage summary");
 
     assert_eq!(summary.today.session_count, 1);
-    assert_eq!(summary.today.input_tokens, 120);
-    assert_eq!(summary.today.output_tokens, 30);
-    assert_eq!(summary.today.total_tokens, 150);
+    assert_eq!(summary.today.input_tokens, 200);
+    assert_eq!(summary.today.output_tokens, 80);
+    assert_eq!(summary.today.total_tokens, 280);
+    assert_eq!(
+      summary.today.total_cost_usd,
+      estimate_cost_usd("codex", Some("gpt-5.4"), 200, 80, 0, 0)
+    );
+    assert_eq!(summary.all_time.input_tokens, 320);
+    assert_eq!(summary.all_time.output_tokens, 110);
 
     drop(conn);
     let _ = std::fs::remove_file(db_path);
