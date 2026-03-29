@@ -302,14 +302,6 @@ struct CodexApprovalPill: View {
 }
 
 extension AutonomyLevel {
-  var controlDeckAutoReviewLabel: String {
-    autoReviewStatusLabel
-  }
-
-  var controlDeckAutoReviewSummary: String {
-    description
-  }
-
   static func fromAutoReviewValue(_ value: String?) -> AutonomyLevel? {
     switch value {
       case "locked": .locked
