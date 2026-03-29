@@ -11,6 +11,57 @@ private extension View {
   }
 }
 
+enum CodexApprovalsReviewer: String, CaseIterable, Identifiable {
+  case user
+  case guardianSubagent = "guardian_subagent"
+
+  var id: String { rawValue }
+
+  var displayName: String {
+    switch self {
+      case .user: "You Review"
+      case .guardianSubagent: "Guardian Review"
+    }
+  }
+
+  var compactStatusName: String {
+    switch self {
+      case .user: "You"
+      case .guardianSubagent: "Guardian"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .user: "person.crop.circle"
+      case .guardianSubagent: "shield.lefthalf.filled"
+    }
+  }
+
+  var color: Color {
+    switch self {
+      case .user: .textSecondary
+      case .guardianSubagent: .autonomyGuarded
+    }
+  }
+
+  var description: String {
+    switch self {
+      case .user:
+        "Approval requests come straight to you when Codex needs a review decision."
+      case .guardianSubagent:
+        "Codex routes approval requests through the Guardian reviewer subagent first, so it can gather context and apply a risk-based decision before involving you."
+    }
+  }
+
+  static func from(rawValue: String?) -> CodexApprovalsReviewer {
+    guard let rawValue, let reviewer = CodexApprovalsReviewer(rawValue: rawValue) else {
+      return .user
+    }
+    return reviewer
+  }
+}
+
 enum CodexApprovalMode: String, CaseIterable, Identifiable {
   case untrusted
   case onFailure = "on-failure"
@@ -158,9 +209,11 @@ struct CodexApprovalPill: View {
   }
 
   let currentMode: CodexApprovalMode
+  var currentReviewer: CodexApprovalsReviewer = .user
   var supportedModes: [CodexApprovalMode] = CodexApprovalMode.allCases
   var size: PillSize = .regular
   var onUpdate: ((CodexApprovalMode) -> Void)?
+  var onReviewerUpdate: ((CodexApprovalsReviewer) -> Void)?
   @State private var showPopover = false
 
   private var title: String {
@@ -201,7 +254,7 @@ struct CodexApprovalPill: View {
               .font(.system(size: TypeScale.subhead, weight: .semibold))
               .foregroundStyle(Color.textPrimary)
 
-            Text("Choose when Codex should pause for approval.")
+            Text("Choose when Codex should pause and who reviews approval requests first.")
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textSecondary)
               .fixedSize(horizontal: false, vertical: true)
@@ -220,6 +273,24 @@ struct CodexApprovalPill: View {
                 isSelected: mode == currentMode
               ) {
                 onUpdate?(mode)
+                showPopover = false
+              }
+            }
+          }
+
+          settingsSection(
+            title: "Who Reviews Approval Requests",
+            detail: "Codex calls this approvals reviewer."
+          ) {
+            ForEach(CodexApprovalsReviewer.allCases) { reviewer in
+              selectionRow(
+                title: reviewer.displayName,
+                detail: reviewer.description,
+                icon: reviewer.icon,
+                tint: reviewer.color,
+                isSelected: reviewer == currentReviewer
+              ) {
+                onReviewerUpdate?(reviewer)
                 showPopover = false
               }
             }

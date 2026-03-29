@@ -49,6 +49,7 @@ struct ControlDeckConfig: Sendable {
   let approvalPolicy: String?
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let approvalsReviewer: ServerCodexApprovalsReviewer?
   let permissionMode: String?
   let collaborationMode: String?
 }

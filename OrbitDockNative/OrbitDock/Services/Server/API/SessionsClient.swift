@@ -450,6 +450,8 @@ struct SessionsClient: Sendable {
     var personality: String?
     var serviceTier: String?
     var developerInstructions: String?
+    var model: String?
+    var effort: String?
   }
 
   struct UpdateCodexSessionOverridesRequest: Encodable {
@@ -551,10 +553,10 @@ struct SessionsClient: Sendable {
     try await http.post("/api/codex/config/inspect", body: request)
   }
 
-  func fetchCodexConfigCatalog(cwd: String) async throws -> CodexConfigCatalogResponse {
+  func fetchCodexConfigCatalog(cwd: String?) async throws -> CodexConfigCatalogResponse {
     try await http.get(
       "/api/codex/config/catalog",
-      query: [URLQueryItem(name: "cwd", value: cwd)]
+      query: cwd.map { [URLQueryItem(name: "cwd", value: $0)] } ?? []
     )
   }
 

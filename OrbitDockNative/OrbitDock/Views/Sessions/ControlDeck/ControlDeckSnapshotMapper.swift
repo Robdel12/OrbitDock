@@ -95,6 +95,7 @@ nonisolated enum ControlDeckSnapshotMapper {
       approvalPolicy: config.approvalPolicy,
       approvalPolicyDetails: config.approvalPolicyDetails,
       sandboxMode: config.sandboxMode,
+      approvalsReviewer: config.approvalsReviewer,
       permissionMode: config.permissionMode,
       collaborationMode: config.collaborationMode
     )

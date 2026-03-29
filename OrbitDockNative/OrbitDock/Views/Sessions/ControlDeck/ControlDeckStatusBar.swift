@@ -3,6 +3,7 @@ import SwiftUI
 struct ControlDeckStatusBar: View {
   let modules: [ControlDeckStatusModuleItem]
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
+  var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
 
   // Action buttons
   var supportsImages: Bool = false
@@ -339,10 +340,14 @@ struct ControlDeckStatusBar: View {
         return AnyView(
           CodexApprovalPill(
             currentMode: CodexApprovalMode.from(rawValue: module.selectedValue),
+            currentReviewer: CodexApprovalsReviewer.from(rawValue: module.reviewerValue),
             supportedModes: CodexApprovalMode.supportedCases(from: pickerOptions(for: module)),
             size: .statusBar,
             onUpdate: { mode in
               onModuleAction?(module.id, mode.rawValue)
+            },
+            onReviewerUpdate: { reviewer in
+              onApprovalReviewerAction?(ServerCodexApprovalsReviewer(rawValue: reviewer.rawValue) ?? .user)
             }
           )
         )

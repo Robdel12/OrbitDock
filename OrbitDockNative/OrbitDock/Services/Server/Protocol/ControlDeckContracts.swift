@@ -48,6 +48,7 @@ struct ServerControlDeckConfigState: Codable, Sendable {
   let approvalPolicy: String?
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let approvalsReviewer: ServerCodexApprovalsReviewer?
   let permissionMode: String?
   let collaborationMode: String?
   let developerInstructions: String?
@@ -61,6 +62,7 @@ struct ServerControlDeckConfigState: Codable, Sendable {
     case approvalPolicy = "approval_policy"
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case approvalsReviewer = "approvals_reviewer"
     case permissionMode = "permission_mode"
     case collaborationMode = "collaboration_mode"
     case developerInstructions = "developer_instructions"
@@ -181,6 +183,7 @@ struct ServerControlDeckConfigUpdateRequest: Codable, Sendable {
   var approvalPolicy: String?
   var approvalPolicyDetails: ServerCodexApprovalPolicy?
   var sandboxMode: String?
+  var approvalsReviewer: ServerCodexApprovalsReviewer?
   var permissionMode: String?
   var collaborationMode: String?
 
@@ -190,6 +193,7 @@ struct ServerControlDeckConfigUpdateRequest: Codable, Sendable {
     case approvalPolicy = "approval_policy"
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case approvalsReviewer = "approvals_reviewer"
     case permissionMode = "permission_mode"
     case collaborationMode = "collaboration_mode"
   }

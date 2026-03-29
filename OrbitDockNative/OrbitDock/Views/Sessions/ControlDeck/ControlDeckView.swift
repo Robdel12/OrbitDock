@@ -46,6 +46,7 @@ struct ControlDeckView: View {
   var currentTool: String?
   var onToggleTerminal: (() -> Void)?
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
+  var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
   var isDictating: Bool = false
   var isSessionWorking: Bool = false
   var onDictation: (() -> Void)?
@@ -92,6 +93,7 @@ struct ControlDeckView: View {
         ControlDeckStatusBar(
           modules: presentation.statusModules,
           onModuleAction: onModuleAction,
+          onApprovalReviewerAction: onApprovalReviewerAction,
           supportsImages: !isApprovalMode && (presentation.supportsImages),
           canPasteImage: !isApprovalMode && canPasteImage(),
           canSubmit: !isApprovalMode && canSubmit,

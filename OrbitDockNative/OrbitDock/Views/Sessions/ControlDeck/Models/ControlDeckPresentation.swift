@@ -31,6 +31,7 @@ struct ControlDeckStatusModuleItem: Identifiable, Equatable, Sendable {
   let icon: String
   let tintName: String
   let selectedValue: String?
+  let reviewerValue: String?
   let interaction: Interaction
 
   enum Interaction: Equatable, Sendable {

@@ -306,6 +306,18 @@ final class ControlDeckViewModel {
     }
   }
 
+  func updateApprovalsReviewer(_ reviewer: ServerCodexApprovalsReviewer) async {
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    do {
+      var request = ServerControlDeckConfigUpdateRequest()
+      request.approvalsReviewer = reviewer
+      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
+      applySnapshotPayload(updated)
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
   func updateCollaborationMode(_ mode: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {

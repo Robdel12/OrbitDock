@@ -96,6 +96,7 @@ struct ControlDeckScreen: View {
           currentTool: currentTool,
           onToggleTerminal: onToggleTerminal,
           onModuleAction: handleModuleAction,
+          onApprovalReviewerAction: handleApprovalReviewerAction,
           isDictating: isDictationActive,
           isSessionWorking: isSessionWorking,
           onDictation: dictationAction,
@@ -301,6 +302,12 @@ struct ControlDeckScreen: View {
         default:
           break
       }
+    }
+  }
+
+  private func handleApprovalReviewerAction(_ reviewer: ServerCodexApprovalsReviewer) {
+    Task {
+      await viewModel.updateApprovalsReviewer(reviewer)
     }
   }
 

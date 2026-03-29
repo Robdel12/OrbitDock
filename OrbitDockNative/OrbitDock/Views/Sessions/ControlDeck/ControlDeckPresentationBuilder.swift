@@ -139,6 +139,7 @@ enum ControlDeckPresentationBuilder {
           icon: "wifi",
           tintName: "feedbackPositive",
           selectedValue: nil,
+          reviewerValue: nil,
           interaction: .readOnly
         )
       case .autonomy:
@@ -152,6 +153,7 @@ enum ControlDeckPresentationBuilder {
           icon: "shield",
           tintName: "accent",
           selectedValue: state.config.permissionMode,
+          reviewerValue: nil,
           interaction: .picker(options: pickerOptions(from: capabilities.permissionModeOptions))
         )
       case .approvalMode:
@@ -165,6 +167,7 @@ enum ControlDeckPresentationBuilder {
           icon: "checkmark.shield.fill",
           tintName: "accent",
           selectedValue: state.config.approvalPolicy,
+          reviewerValue: state.config.approvalsReviewer?.rawValue,
           interaction: .picker(options: pickerOptions(from: capabilities.approvalModeOptions))
         )
       case .collaborationMode:
@@ -178,6 +181,7 @@ enum ControlDeckPresentationBuilder {
           icon: "person.2",
           tintName: "accent",
           selectedValue: state.config.collaborationMode,
+          reviewerValue: nil,
           interaction: .picker(options: pickerOptions(from: capabilities.collaborationModeOptions))
         )
       case .autoReview:
@@ -192,6 +196,7 @@ enum ControlDeckPresentationBuilder {
           icon: "eye",
           tintName: autoReviewTintName(optionValue: currentAutoReview?.value),
           selectedValue: currentAutoReview?.value,
+          reviewerValue: nil,
           interaction: .picker(options: autoReviewPickerOptions(from: capabilities.autoReviewOptions))
         )
       case .tokens:
@@ -201,6 +206,7 @@ enum ControlDeckPresentationBuilder {
           icon: "memorychip",
           tintName: tokenTintName(tokenStatus.tone),
           selectedValue: nil,
+          reviewerValue: nil,
           interaction: .readOnly
         )
       case .model:
@@ -211,6 +217,7 @@ enum ControlDeckPresentationBuilder {
           icon: "cpu",
           tintName: "textTertiary",
           selectedValue: state.config.model,
+          reviewerValue: nil,
           interaction: canPick ? .picker(options: availableModels.map { .init(value: $0, label: $0) }) : .readOnly
         )
       case .effort:
@@ -220,6 +227,7 @@ enum ControlDeckPresentationBuilder {
           icon: "gauge.medium",
           tintName: "textTertiary",
           selectedValue: state.config.effort,
+          reviewerValue: nil,
           interaction: .picker(options: effortOptions.map { .init(value: $0, label: $0.capitalized) })
         )
       case .branch:
@@ -234,6 +242,7 @@ enum ControlDeckPresentationBuilder {
           icon: "arrow.triangle.branch",
           tintName: "gitBranch",
           selectedValue: nil,
+          reviewerValue: nil,
           interaction: .readOnly
         )
       case .cwd:
@@ -243,6 +252,7 @@ enum ControlDeckPresentationBuilder {
           icon: "folder",
           tintName: "textTertiary",
           selectedValue: nil,
+          reviewerValue: nil,
           interaction: .readOnly
         )
       case .attachments:
@@ -252,6 +262,7 @@ enum ControlDeckPresentationBuilder {
           icon: "paperclip",
           tintName: "textTertiary",
           selectedValue: nil,
+          reviewerValue: nil,
           interaction: .readOnly
         )
     }
