@@ -1,5 +1,16 @@
 import SwiftUI
 
+private extension View {
+  @ViewBuilder
+  func controlDeckPillShadow(if condition: Bool) -> some View {
+    if condition {
+      self.themeShadow(Shadow.sm)
+    } else {
+      self
+    }
+  }
+}
+
 enum CodexApprovalMode: String, CaseIterable, Identifiable {
   case untrusted
   case onFailure = "on-failure"
@@ -178,7 +189,7 @@ struct CodexApprovalPill: View {
         Capsule()
           .strokeBorder(currentMode.color.opacity(OpacityTier.medium), lineWidth: 0.75)
       )
-      .if(size == .regular) { $0.themeShadow(Shadow.sm) }
+      .controlDeckPillShadow(if: size == .regular)
     }
     .buttonStyle(.plain)
     .fixedSize()
@@ -291,6 +302,14 @@ struct CodexApprovalPill: View {
 }
 
 extension AutonomyLevel {
+  var controlDeckAutoReviewLabel: String {
+    autoReviewStatusLabel
+  }
+
+  var controlDeckAutoReviewSummary: String {
+    description
+  }
+
   static func fromAutoReviewValue(_ value: String?) -> AutonomyLevel? {
     switch value {
       case "locked": .locked
@@ -355,7 +374,7 @@ struct CodexAutoReviewPill: View {
         Capsule()
           .strokeBorder(currentLevel.color.opacity(OpacityTier.medium), lineWidth: 0.75)
       )
-      .if(size == .regular) { $0.themeShadow(Shadow.sm) }
+      .controlDeckPillShadow(if: size == .regular)
     }
     .buttonStyle(.plain)
     .fixedSize()
@@ -474,7 +493,7 @@ struct EffortPill: View {
         Capsule()
           .strokeBorder((currentLevel == .default ? Color.accent : currentLevel.color).opacity(OpacityTier.medium), lineWidth: 0.75)
       )
-      .if(size == .regular) { $0.themeShadow(Shadow.sm) }
+      .controlDeckPillShadow(if: size == .regular)
     }
     .buttonStyle(.plain)
     .fixedSize()
