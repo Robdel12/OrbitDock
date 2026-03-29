@@ -1212,7 +1212,7 @@ mod tests {
       cwd: "/tmp/codex-repo".to_string(),
       transcript_path: Some("/tmp/codex-repo/transcript.jsonl".to_string()),
       model: Some("gpt-5-codex".to_string()),
-      turn_id: "turn-1".to_string(),
+      turn_id: Some("turn-1".to_string()),
       prompt: "Ship it".to_string(),
     })
     .expect("serialize codex spool payload");
