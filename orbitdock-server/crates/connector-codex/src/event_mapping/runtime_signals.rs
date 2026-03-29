@@ -1,7 +1,7 @@
 use crate::runtime::{apply_delta_thinking, row_entry};
 use crate::timeline::{
-  hook_completed_text, hook_output_text, hook_started_text, realtime_text_from_handoff_request,
-  stream_error_should_surface_to_timeline,
+  hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
+  realtime_text_from_handoff_request, stream_error_should_surface_to_timeline,
 };
 use crate::workers::iso_now;
 use codex_protocol::plan_tool::UpdatePlanArgs;
@@ -178,7 +178,10 @@ pub(crate) fn handle_warning(
 }
 
 pub(crate) fn is_suppressed_runtime_warning(message: &str) -> bool {
-  message.starts_with("Model metadata for `") && message.contains("Defaulting to fallback metadata")
+  (message.starts_with("Model metadata for `")
+    && message.contains("Defaulting to fallback metadata"))
+    || (message.starts_with("Under-development features enabled:")
+      && message.contains("codex_hooks"))
 }
 
 pub(crate) async fn handle_model_reroute(
@@ -313,6 +316,10 @@ pub(crate) fn handle_background_event(
 }
 
 pub(crate) fn handle_hook_started(event: HookStartedEvent) -> Vec<ConnectorEvent> {
+  if !hook_run_is_error(event.run.status) {
+    return vec![];
+  }
+
   let entry = row_entry(ConversationRow::Hook(HookRow {
     id: format!("hook-{}", event.run.id),
     title: hook_started_text(&event.run),
@@ -335,6 +342,10 @@ pub(crate) fn handle_hook_started(event: HookStartedEvent) -> Vec<ConnectorEvent
 }
 
 pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorEvent> {
+  if !hook_run_is_error(event.run.status) {
+    return vec![];
+  }
+
   let entry = row_entry(ConversationRow::Hook(HookRow {
     id: format!("hook-{}", event.run.id),
     title: hook_completed_text(&event.run),
@@ -362,10 +373,7 @@ pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorE
     },
     render_hints: Default::default(),
   }));
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: format!("hook-{}", event.run.id),
-    entry,
-  }]
+  vec![ConnectorEvent::ConversationRowCreated(entry)]
 }
 
 pub(crate) fn handle_thread_name_updated(event: ThreadNameUpdatedEvent) -> Vec<ConnectorEvent> {
