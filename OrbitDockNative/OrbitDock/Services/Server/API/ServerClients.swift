@@ -8,6 +8,7 @@ final class ServerClients: Sendable {
   let requestBuilder: HTTPRequestBuilder
   let http: ServerHTTPClient
   let controlPlane: ControlPlaneClient
+  let updates: ServerUpdateClient
   let config: ConfigClient
   let filesystem: FilesystemClient
   let skills: SkillsClient
@@ -16,6 +17,7 @@ final class ServerClients: Sendable {
   let dashboard: DashboardClient
   let sessions: SessionsClient
   let conversation: ConversationClient
+  let controlDeck: ControlDeckClient
   let approvals: ApprovalsClient
   let worktrees: WorktreesClient
   let missions: MissionsClient
@@ -47,6 +49,11 @@ final class ServerClients: Sendable {
     self.requestBuilder = requestBuilder
     self.http = ServerHTTPClient(requestBuilder: requestBuilder, responseLoader: responseLoader)
     self.controlPlane = ControlPlaneClient(http: http)
+    self.updates = ServerUpdateClient(
+      http: http,
+      baseURL: baseURL,
+      authToken: requestBuilder.authToken
+    )
     self.config = ConfigClient(http: http)
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
@@ -55,6 +62,7 @@ final class ServerClients: Sendable {
     self.dashboard = DashboardClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
+    self.controlDeck = ControlDeckClient(http: http, requestBuilder: requestBuilder)
     self.approvals = ApprovalsClient(http: http, requestBuilder: requestBuilder)
     self.worktrees = WorktreesClient(http: http, requestBuilder: requestBuilder)
     self.missions = MissionsClient(http: http, requestBuilder: requestBuilder)

@@ -5,10 +5,14 @@ import Foundation
 final class UsageServiceRegistry {
   private let runtimeRegistry: ServerRuntimeRegistry
 
+  private(set) var summary: ServerUsageSummarySnapshotPayload?
+  private(set) var summaryTodayStartUnix: UInt64?
   private(set) var claudeWindows: [RateLimitWindow] = []
   private(set) var codexWindows: [RateLimitWindow] = []
+  private(set) var summaryLoading = false
   private(set) var claudeLoading = false
   private(set) var codexLoading = false
+  private(set) var summaryError: (any LocalizedError)?
   private(set) var claudeError: (any LocalizedError)?
   private(set) var codexError: (any LocalizedError)?
 
@@ -49,13 +53,25 @@ final class UsageServiceRegistry {
     nil
   }
 
-  func refreshAll() async {
+  func refreshAll(todayStart: Date? = nil) async {
     guard let runtime = runtimeRegistry.primaryRuntime
       ?? runtimeRegistry.activeRuntime
       ?? runtimeRegistry.runtimes.first,
       runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id).queryReady
     else { return }
     let clients = runtime.clients
+
+    let todayStartUnix = todayStart.map { UInt64(max($0.timeIntervalSince1970, 0)) }
+
+    summaryLoading = true
+    do {
+      summary = try await clients.usage.fetchUsageSummary(todayStartUnix: todayStartUnix)
+      summaryTodayStartUnix = todayStartUnix
+      summaryError = nil
+    } catch {
+      summaryError = UsageFetchError(message: error.localizedDescription)
+    }
+    summaryLoading = false
 
     // Fetch Claude usage
     claudeLoading = true

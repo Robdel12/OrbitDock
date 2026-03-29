@@ -99,3 +99,60 @@ struct SettingsSection<Content: View>: View {
     }
   }
 }
+
+struct SettingsNavigationCard: View {
+  let title: String
+  let subtitle: String
+  let icon: String
+  let detail: String?
+  let detailColor: Color
+
+  var body: some View {
+    HStack(spacing: Spacing.md) {
+      ZStack {
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(Color.surfaceSelected)
+        Image(systemName: icon)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.accent)
+      }
+      .frame(width: 38, height: 38)
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text(title)
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+        Text(subtitle)
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .lineLimit(2)
+      }
+
+      Spacer(minLength: Spacing.md)
+
+      VStack(alignment: .trailing, spacing: Spacing.xxs) {
+        if let detail, !detail.isEmpty {
+          Text(detail)
+            .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+            .foregroundStyle(detailColor)
+            .lineLimit(1)
+        }
+
+        Image(systemName: "chevron.right")
+          .font(.system(size: TypeScale.micro, weight: .bold))
+          .foregroundStyle(Color.textQuaternary)
+      }
+    }
+    .padding(Spacing.lg)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.panelBorder, lineWidth: 1)
+    )
+    .contentShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+  }
+}

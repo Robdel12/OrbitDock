@@ -72,8 +72,10 @@ pub(crate) use transcripts::{
   load_token_usage_from_transcript_path, TranscriptCapabilities,
 };
 use usage::{
-  persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot, TurnSnapshotRow,
+  persist_usage_event, upsert_usage_ledger_entry, upsert_usage_session_state,
+  upsert_usage_turn_snapshot, TurnSnapshotRow,
 };
+pub(crate) use usage::{estimate_cost_usd, normalize_usage_for_ledger, snapshot_kind_from_str};
 pub(crate) use workspace_sync::{
   apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
 };
@@ -556,7 +558,6 @@ pub(super) fn execute_command(
       let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
       let now = chrono_now();
 
-      // Extract content for last_message updates
       let content_text = extract_row_content(&entry.row);
       let is_user = entry.row.is_user_input();
 
@@ -564,22 +565,21 @@ pub(super) fn execute_command(
       // ON CONFLICT(id) DO NOTHING deduplicates by PK only — FK violations
       // on session_id still bubble up (unlike INSERT OR IGNORE which swallows all).
       conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+        "INSERT INTO messages (id, session_id, type, timestamp, sequence, row_data, turn_status)
+                 VALUES (?1, ?2, ?3, ?4, COALESCE(?5,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7, ?8)
+                   ?6, ?7)
                  ON CONFLICT(id) DO NOTHING",
-                params![
-                    row_id,
-                    session_id,
-                    row_type,
-                    content_text.as_deref().unwrap_or(""),
-                    now.clone(),
-                    assigned_sequence.map(|sequence| sequence as i64),
-                    row_data,
-                    turn_status_str(entry.turn_status),
-                ],
-            )?;
+        params![
+          row_id,
+          session_id,
+          row_type,
+          now.clone(),
+          assigned_sequence.map(|sequence| sequence as i64),
+          row_data,
+          turn_status_str(entry.turn_status),
+        ],
+      )?;
 
       // Read back DB-assigned sequence and send to caller if requested.
       if let Some(tx) = sequence_tx {
@@ -657,26 +657,24 @@ pub(super) fn execute_command(
 
       // DB computes sequence on insert; ON CONFLICT preserves original ordering.
       conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+        "INSERT INTO messages (id, session_id, type, timestamp, sequence, row_data, turn_status)
+                 VALUES (?1, ?2, ?3, ?4, COALESCE(?5,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7, ?8)
+                   ?6, ?7)
                  ON CONFLICT(id) DO UPDATE SET
                    type = excluded.type,
-                   content = excluded.content,
                    row_data = excluded.row_data,
                    turn_status = excluded.turn_status",
-                params![
-                    row_id,
-                    session_id,
-                    row_type,
-                    content_text.as_deref().unwrap_or(""),
-                    now.clone(),
-                    assigned_sequence.map(|sequence| sequence as i64),
-                    row_data,
-                    turn_status_str(entry.turn_status),
-                ],
-            )?;
+        params![
+          row_id,
+          session_id,
+          row_type,
+          now.clone(),
+          assigned_sequence.map(|sequence| sequence as i64),
+          row_data,
+          turn_status_str(entry.turn_status),
+        ],
+      )?;
 
       // Read back DB-assigned sequence and send to caller if requested.
       if let Some(tx) = sequence_tx {
@@ -818,6 +816,19 @@ pub(super) fn execute_command(
           snapshot_kind,
         },
       )?;
+      upsert_usage_ledger_entry(
+        conn,
+        &TurnSnapshotRow {
+          session_id: &session_id,
+          turn_id: &turn_id,
+          turn_seq,
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          context_window,
+          snapshot_kind,
+        },
+      )?;
     }
 
     PersistCommand::SetThreadId {
@@ -907,6 +918,7 @@ pub(super) fn execute_command(
       session_id,
       approval_policy,
       sandbox_mode,
+      approvals_reviewer: _,
       permission_mode,
       collaboration_mode,
       multi_agent,
@@ -2229,6 +2241,7 @@ fn row_type_str(row: &ConversationRow) -> &'static str {
     ConversationRow::Context(_) => "context",
     ConversationRow::Notice(_) => "notice",
     ConversationRow::ShellCommand(_) => "shell_command",
+    ConversationRow::CommandExecution(_) => "command_execution",
     ConversationRow::Task(_) => "task",
     ConversationRow::Tool(_) => "tool",
     ConversationRow::ActivityGroup(_) => "activity_group",
@@ -2264,6 +2277,12 @@ fn extract_row_content(row: &ConversationRow) -> Option<String> {
         .clone()
         .or_else(|| s.command.clone())
         .unwrap_or_else(|| s.title.clone()),
+    ),
+    ConversationRow::CommandExecution(c) => Some(
+      c.aggregated_output
+        .clone()
+        .or_else(|| c.live_output_preview.clone())
+        .unwrap_or_else(|| c.command.clone()),
     ),
     ConversationRow::Task(t) => Some(t.summary.clone().unwrap_or_else(|| t.title.clone())),
     ConversationRow::Tool(t) => Some(t.title.clone()),

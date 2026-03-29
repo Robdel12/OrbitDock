@@ -72,6 +72,13 @@ on:
       OPENAI_API_KEY:
         required: false
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.channel || 'stable' }}
+  cancel-in-progress: false
+
 env:
   APP_NAME: OrbitDock
 
@@ -414,12 +421,15 @@ jobs:
       - server
     if: ${{ always() && needs.metadata.result == 'success' && (needs.server.result == 'success' || needs.server.result == 'skipped') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       TAG_NAME: ${{ needs.metadata.outputs.tag }}
       RELEASE_TITLE: ${{ needs.metadata.outputs.release_title }}
       PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
       PUBLISH_RELEASE: ${{ needs.metadata.outputs.publish_release }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4

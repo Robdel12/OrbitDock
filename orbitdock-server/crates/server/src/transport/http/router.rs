@@ -287,6 +287,7 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
     .route("/api/server/role", put(super::set_server_role))
     .route("/api/server/update-status", get(super::get_update_status))
     .route("/api/server/check-update", post(super::check_update))
+    .route("/api/server/start-upgrade", post(super::start_upgrade))
     .route(
       "/api/server/update-channel",
       get(super::get_update_channel).put(super::set_update_channel),
@@ -295,6 +296,11 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),
     )
+    .route(
+      "/api/control-deck/preferences",
+      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
+    )
+    .route("/api/usage/summary", get(super::fetch_usage_summary))
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))
     .route("/api/models/codex", get(super::list_codex_models))

@@ -13,7 +13,7 @@ XCODE_IOS_DESTINATION ?= generic/platform=iOS
 XCODE_IOS_TEST_DESTINATION ?= platform=iOS Simulator,name=iPhone 16,OS=18.5
 XCODE_IOS_DEVICE_NAME ?=
 XCODE_IOS_DEVICE_ID ?=
-XCODE_IOS_DEVICE_BUNDLE_ID ?= com.stubborn-mule-software.OrbitDock-iOS
+XCODE_IOS_DEVICE_BUNDLE_ID ?= com.stubbornmule-software.OrbitDock-iOS.dev
 XCODE_IOS_DEVICE_BUILD_FLAGS ?= -allowProvisioningUpdates
 XCODEBUILD_LOG_DIR ?= .logs
 XCODE_DERIVED_DATA_DIR ?= .build/DerivedData

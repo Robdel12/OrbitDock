@@ -339,11 +339,15 @@ struct ServerSetupView: View {
         .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("Install OrbitDock on your Mac or Linux machine, then connect using its IP address.")
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
+      Text(
+        "Install OrbitDock on your Mac or Linux machine, then connect using its IP address. Review the script before running — it's open source."
+      )
+      .font(.system(size: TypeScale.caption))
+      .foregroundStyle(Color.textSecondary)
 
-      codePill("curl -fsSL https://orbitdock.dev/install.sh | sh")
+      codePill(
+        "curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash"
+      )
     }
     .padding(Spacing.md)
     .frame(maxWidth: .infinity, alignment: .leading)

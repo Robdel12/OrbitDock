@@ -16,6 +16,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   nightly:
     uses: ./.github/workflows/release.yml
@@ -25,4 +28,4 @@ jobs:
       version_mode: auto
       bump: patch
       build_server_assets: ${{ github.event_name != 'workflow_dispatch' || inputs.build_server_assets }}
-      publish_release: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_release }}
+      publish_release: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}

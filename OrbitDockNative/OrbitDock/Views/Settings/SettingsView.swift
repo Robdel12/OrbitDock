@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-private enum SettingsPane: String, CaseIterable, Identifiable {
+private enum SettingsPane: String, CaseIterable, Hashable, Identifiable {
   case workspace
   case integrations
   case missionControl
@@ -85,32 +85,11 @@ struct SettingsView: View {
   }
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
-    let endpointCount = runtimeRegistry.runtimes.count
-    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id)
-      if case .connected = status {
-        return true
-      }
-      return false
-    }.count
-
-    return SettingsEndpointHealthSummary.make(
-      endpointCount: endpointCount,
-      enabledEndpointCount: enabledEndpointCount,
-      connectedEndpointCount: connectedEndpointCount
-    )
+    SettingsEndpointHealthSummary.current(for: runtimeRegistry)
   }
 
   private var endpointHealthColor: Color {
-    switch endpointHealthSummary.tone {
-      case .positive:
-        Color.feedbackPositive
-      case .mixed:
-        Color.statusQuestion
-      case .warning:
-        Color.statusPermission
-    }
+    endpointHealthSummary.color
   }
 
   private var usesCompactLayout: Bool {
@@ -213,77 +192,48 @@ struct SettingsView: View {
   }
 
   private var compactLayout: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.md_) {
-        Text("Preferences")
-          .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.textPrimary)
-        Spacer()
-        #if os(iOS)
-          if showsCloseButton {
-            Button("Done") {
-              dismiss()
-            }
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.accent)
-          }
-        #endif
-      }
-      .padding(.horizontal, Spacing.section)
-      .padding(.top, Spacing.lg)
-      .padding(.bottom, Spacing.md)
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.xl) {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("OrbitDock")
+              .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
+              .foregroundStyle(Color.accent)
 
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: Spacing.sm) {
-          ForEach(SettingsPane.allCases) { pane in
-            Button {
-              selectedPane = pane
-            } label: {
-              HStack(spacing: Spacing.sm_) {
-                Image(systemName: pane.icon)
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                Text(pane.title)
-                  .font(.system(size: TypeScale.meta, weight: .semibold))
+            Text("Settings")
+              .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
+              .foregroundStyle(Color.textPrimary)
+
+            Text("Configure OrbitDock for this device and the servers you keep in flight.")
+              .font(.system(size: TypeScale.body))
+              .foregroundStyle(Color.textSecondary)
+          }
+
+          compactHealthSummaryCard
+
+          VStack(alignment: .leading, spacing: Spacing.sm) {
+            ForEach(SettingsPane.allCases) { pane in
+              NavigationLink(value: pane) {
+                SettingsNavigationCard(
+                  title: pane.title,
+                  subtitle: pane.subtitle,
+                  icon: pane.icon,
+                  detail: paneDetailText(for: pane),
+                  detailColor: paneDetailColor(for: pane)
+                )
               }
-              .foregroundStyle(selectedPane == pane ? Color.accent : Color.textSecondary)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-              .background(
-                Capsule(style: .continuous)
-                  .fill(selectedPane == pane ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
-              )
-              .overlay(
-                Capsule(style: .continuous)
-                  .strokeBorder(selectedPane == pane ? Color.surfaceBorder : Color.clear, lineWidth: 1)
-              )
+              .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
           }
         }
         .padding(.horizontal, Spacing.section)
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.xxl)
       }
-      .padding(.bottom, Spacing.md)
-
-      Divider()
-        .foregroundStyle(Color.panelBorder)
-
-      Group {
-        switch selectedPane {
-          case .workspace:
-            GeneralSettingsView()
-          case .integrations:
-            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
-          case .missionControl:
-            MissionControlDefaultsView()
-          case .servers:
-            DebugSettingsView()
-          case .notifications:
-            NotificationSettingsView()
-          case .diagnostics:
-            DiagnosticsSettingsView()
-        }
+      .modifier(CompactNavigationChrome(showsCloseButton: showsCloseButton, dismiss: dismiss))
+      .navigationDestination(for: SettingsPane.self) { pane in
+        compactDetailPane(for: pane)
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
   }
 
@@ -315,24 +265,136 @@ struct SettingsView: View {
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      Group {
-        switch selectedPane {
-          case .workspace:
-            GeneralSettingsView()
-          case .integrations:
-            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
-          case .missionControl:
-            MissionControlDefaultsView()
-          case .servers:
-            DebugSettingsView()
-          case .notifications:
-            NotificationSettingsView()
-          case .diagnostics:
-            DiagnosticsSettingsView()
-        }
-      }
+      paneContent(for: selectedPane)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+  }
+
+  @ViewBuilder
+  private func paneContent(for pane: SettingsPane) -> some View {
+    switch pane {
+      case .workspace:
+        GeneralSettingsView()
+      case .integrations:
+        SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
+      case .missionControl:
+        MissionControlDefaultsView()
+      case .servers:
+        DebugSettingsView()
+      case .notifications:
+        NotificationSettingsView()
+      case .diagnostics:
+        DiagnosticsSettingsView()
+    }
+  }
+
+  private var compactHealthSummaryCard: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
+        Circle()
+          .fill(endpointHealthColor)
+          .frame(width: 8, height: 8)
+
+        Text("Server Health")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+
+        Spacer()
+
+        Text(endpointHealthSummary.shortText)
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+          .foregroundStyle(endpointHealthColor)
+      }
+
+      Text("Jump into Servers when you need to reconnect endpoints, change channels, or run an upgrade.")
+        .font(.system(size: TypeScale.meta))
+        .foregroundStyle(Color.textTertiary)
+    }
+    .padding(Spacing.lg)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.panelBorder, lineWidth: 1)
+    )
+  }
+
+  private func paneDetailText(for pane: SettingsPane) -> String? {
+    switch pane {
+      case .servers:
+        endpointHealthSummary.shortText
+      default:
+        nil
+    }
+  }
+
+  private func paneDetailColor(for pane: SettingsPane) -> Color {
+    switch pane {
+      case .servers:
+        endpointHealthColor
+      default:
+        Color.textTertiary
+    }
+  }
+
+  private func compactDetailPane(for pane: SettingsPane) -> some View {
+    VStack(spacing: 0) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
+        Text(pane.subtitle)
+          .font(.system(size: TypeScale.body))
+          .foregroundStyle(Color.textSecondary)
+
+        if let detail = paneDetailText(for: pane) {
+          HStack(spacing: Spacing.sm_) {
+            Circle()
+              .fill(paneDetailColor(for: pane))
+              .frame(width: 7, height: 7)
+
+            Text(detail)
+              .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+              .foregroundStyle(paneDetailColor(for: pane))
+          }
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, Spacing.section)
+      .padding(.top, Spacing.md)
+      .padding(.bottom, Spacing.lg)
+      .background(Color.backgroundSecondary.opacity(0.88))
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
+      paneContent(for: pane)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    .navigationTitle(pane.title)
+    .modifier(CompactNavigationChrome(showsCloseButton: showsCloseButton, dismiss: dismiss))
+  }
+}
+
+private struct CompactNavigationChrome: ViewModifier {
+  let showsCloseButton: Bool
+  let dismiss: DismissAction
+
+  func body(content: Content) -> some View {
+    #if os(iOS)
+      content
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          if showsCloseButton {
+            ToolbarItem(placement: .topBarTrailing) {
+              Button("Done") {
+                dismiss()
+              }
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(Color.accent)
+            }
+          }
+        }
+    #else
+      content
+    #endif
   }
 }
 

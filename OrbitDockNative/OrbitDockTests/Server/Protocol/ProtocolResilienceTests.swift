@@ -92,6 +92,35 @@ struct ProtocolResilienceTests {
     #expect(row.content == "Hello")
   }
 
+  @Test func commandExecutionRowDecodesWhenLegacyPayloadOmitsCommandActions() throws {
+    let json = Data("""
+    {
+      "session_id": "s-1",
+      "sequence": 11,
+      "row": {
+        "row_type": "command_execution",
+        "id": "cmd-1",
+        "status": "completed",
+        "command": "cat README.md",
+        "cwd": "/tmp/project",
+        "aggregated_output": "hello",
+        "exit_code": 0
+      }
+    }
+    """.utf8)
+
+    let entry = try JSONDecoder().decode(ServerConversationRowEntry.self, from: json)
+
+    guard case let .commandExecution(row) = entry.row else {
+      Issue.record("Expected .commandExecution row")
+      return
+    }
+
+    #expect(row.commandActions.isEmpty)
+    #expect(row.aggregatedOutput == "hello")
+    #expect(row.exitCode == 0)
+  }
+
   // MARK: - Part 2: Typed Row Payloads
 
   @Test func workerRowDecodesTypedSnapshot() throws {

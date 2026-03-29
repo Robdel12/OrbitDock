@@ -50,6 +50,22 @@ impl UpdateChannel {
   }
 }
 
+pub fn current_platform_release_asset_name() -> anyhow::Result<&'static str> {
+  if cfg!(target_os = "macos") {
+    Ok("orbitdock-darwin-arm64.zip")
+  } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
+    Ok("orbitdock-linux-x86_64.zip")
+  } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
+    Ok("orbitdock-linux-aarch64.zip")
+  } else {
+    anyhow::bail!(
+      "Unsupported platform: {} / {}",
+      std::env::consts::OS,
+      std::env::consts::ARCH
+    );
+  }
+}
+
 /// A single release from the GitHub Releases API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseInfo {
@@ -65,6 +81,10 @@ impl ReleaseInfo {
   pub fn version(&self) -> Option<semver::Version> {
     let raw = self.tag_name.strip_prefix('v').unwrap_or(&self.tag_name);
     semver::Version::parse(raw).ok()
+  }
+
+  pub fn asset_named(&self, asset_name: &str) -> Option<&ReleaseAsset> {
+    self.assets.iter().find(|asset| asset.name == asset_name)
   }
 }
 

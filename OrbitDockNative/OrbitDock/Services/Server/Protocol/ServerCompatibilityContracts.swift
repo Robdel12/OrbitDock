@@ -49,6 +49,44 @@ extension ServerCompatibilityError {
   }
 }
 
+enum ServerContractGuard {
+  static func compatibilityMessage(for error: Error, surface: String) -> String? {
+    switch error {
+      case let compatibility as ServerCompatibilityError:
+        return userFacingMessage(for: compatibility, surface: surface)
+      case let requestError as ServerRequestError:
+        switch requestError {
+          case let .incompatibleServer(compatibility):
+            return userFacingMessage(for: compatibility, surface: surface)
+          default:
+            return nil
+        }
+      case is DecodingError:
+        return
+          "OrbitDock couldn't read the server's \(surface) response. This usually means the server needs to be upgraded to match this app."
+      default:
+        return nil
+    }
+  }
+
+  private static func userFacingMessage(
+    for error: ServerCompatibilityError,
+    surface: String
+  ) -> String {
+    switch error {
+      case .incompatibleServer:
+        return error.errorDescription
+          ?? "This OrbitDock server is not compatible with the current app."
+      case .missingCompatibilityMetadata:
+        return
+          "OrbitDock couldn't verify server compatibility for \(surface). This usually means the server is too old for this app."
+      case .missingHelloHandshake:
+        return
+          "OrbitDock couldn't complete the server compatibility handshake. Make sure the server is upgraded to match this app."
+    }
+  }
+}
+
 struct ServerCompatibilityStatus: Codable, Equatable, Sendable {
   let compatible: Bool
   let serverCompatibility: String
@@ -124,6 +162,7 @@ struct ServerMetaResponse: Codable, Sendable {
   let capabilities: [String]
   let isPrimary: Bool
   let clientPrimaryClaims: [ServerClientPrimaryClaim]
+  let updateStatus: ServerUpdateStatus?
 
   enum CodingKeys: String, CodingKey {
     case serverVersion = "server_version"
@@ -131,6 +170,34 @@ struct ServerMetaResponse: Codable, Sendable {
     case capabilities
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
+    case updateStatus = "update_status"
+  }
+
+  init(
+    serverVersion: String,
+    compatibility: ServerCompatibilityStatus,
+    capabilities: [String],
+    isPrimary: Bool,
+    clientPrimaryClaims: [ServerClientPrimaryClaim],
+    updateStatus: ServerUpdateStatus? = nil
+  ) {
+    self.serverVersion = serverVersion
+    self.compatibility = compatibility
+    self.capabilities = capabilities
+    self.isPrimary = isPrimary
+    self.clientPrimaryClaims = clientPrimaryClaims
+    self.updateStatus = updateStatus
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    serverVersion = try container.decode(String.self, forKey: .serverVersion)
+    compatibility = try container.decode(ServerCompatibilityStatus.self, forKey: .compatibility)
+    capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? false
+    clientPrimaryClaims =
+      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
+    updateStatus = try container.decodeIfPresent(ServerUpdateStatus.self, forKey: .updateStatus)
   }
 
   func validateCompatibility() throws {
@@ -150,6 +217,46 @@ struct ServerDashboardSnapshotPayload: Codable, Sendable {
   let sessions: [ServerSessionListItem]
   let conversations: [ServerDashboardConversationItem]
   let counts: ServerDashboardCounts
+}
+
+struct ServerUsageSummaryModelCostPayload: Codable, Sendable {
+  let model: String
+  let costUSD: Double
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case costUSD = "cost_usd"
+  }
+}
+
+struct ServerUsageSummaryBucketPayload: Codable, Sendable {
+  let sessionCount: UInt64
+  let totalTokens: UInt64
+  let inputTokens: UInt64
+  let outputTokens: UInt64
+  let cachedTokens: UInt64
+  let totalCostUSD: Double
+  let costByModel: [ServerUsageSummaryModelCostPayload]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionCount = "session_count"
+    case totalTokens = "total_tokens"
+    case inputTokens = "input_tokens"
+    case outputTokens = "output_tokens"
+    case cachedTokens = "cached_tokens"
+    case totalCostUSD = "total_cost_usd"
+    case costByModel = "cost_by_model"
+  }
+}
+
+struct ServerUsageSummarySnapshotPayload: Codable, Sendable {
+  let today: ServerUsageSummaryBucketPayload
+  let allTime: ServerUsageSummaryBucketPayload
+
+  enum CodingKeys: String, CodingKey {
+    case today
+    case allTime = "all_time"
+  }
 }
 
 struct ServerMissionSnapshotPayload: Codable, Sendable {

@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 enum SettingsEndpointHealthTone: Equatable, Sendable {
   case positive
@@ -13,6 +13,17 @@ struct SettingsEndpointHealthSummary: Equatable, Sendable {
   let tone: SettingsEndpointHealthTone
   let shortText: String
   let detailedText: String
+
+  var color: Color {
+    switch tone {
+      case .positive:
+        Color.feedbackPositive
+      case .mixed:
+        Color.statusQuestion
+      case .warning:
+        Color.statusPermission
+    }
+  }
 
   static func make(
     endpointCount: Int,
@@ -62,6 +73,26 @@ struct SettingsEndpointHealthSummary: Equatable, Sendable {
       tone: .warning,
       shortText: shortText,
       detailedText: "0 of \(enabledEndpointCount) enabled connected"
+    )
+  }
+}
+
+extension SettingsEndpointHealthSummary {
+  static func current(for runtimeRegistry: ServerRuntimeRegistry) -> SettingsEndpointHealthSummary {
+    let endpointCount = runtimeRegistry.runtimes.count
+    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
+      let status = runtimeRegistry.displayConnectionStatus(for: runtime.id)
+      if case .connected = status {
+        return true
+      }
+      return false
+    }.count
+
+    return make(
+      endpointCount: endpointCount,
+      enabledEndpointCount: enabledEndpointCount,
+      connectedEndpointCount: connectedEndpointCount
     )
   }
 }

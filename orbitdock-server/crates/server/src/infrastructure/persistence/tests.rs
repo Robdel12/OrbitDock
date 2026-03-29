@@ -1110,6 +1110,54 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
 }
 
 #[test]
+fn startup_restore_does_not_revive_passive_codex_sessions() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, started_at, last_activity_at
+         ) VALUES (
+            ?1, 'codex', 'active', 'reply', 'open', 'passive',
+            '/tmp/test', 'passive', '2026-03-26T10:05:00Z', '2026-03-26T10:05:00Z'
+         )",
+      ["codex-thread-passive"],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
+    .unwrap();
+
+  assert!(
+    restored
+      .into_iter()
+      .all(|session| session.id != "codex-thread-passive"),
+    "startup restore should not surface stale passive Codex sessions as live"
+  );
+
+  let conn = Connection::open(&db_path).unwrap();
+  let passive: (String, String, String, String) = conn
+    .query_row(
+      "SELECT status, work_status, lifecycle_state, COALESCE(end_reason, '') FROM sessions WHERE id = ?1",
+      ["codex-thread-passive"],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .unwrap();
+
+  assert_eq!(passive.0, "ended");
+  assert_eq!(passive.1, "ended");
+  assert_eq!(passive.2, "ended");
+  assert_eq!(passive.3, "startup_stale_passive");
+}
+
+#[test]
 fn claude_session_upsert_skips_new_shadow_when_direct_owner_exists() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
 

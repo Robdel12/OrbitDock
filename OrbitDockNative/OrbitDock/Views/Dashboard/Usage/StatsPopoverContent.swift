@@ -46,7 +46,7 @@ struct StatsPopoverContent: View {
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
     .task {
       await runtimeRegistry.waitForAnyQueryReadyRuntime()
-      await registry.refreshAll()
+      await registry.refreshAll(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }
 
@@ -239,6 +239,19 @@ struct StatusBarStats {
   let cost: Double
   let tokens: Int
   let costByModel: [(model: String, cost: Double, color: Color)]
+
+  static func from(_ bucket: ServerUsageSummaryBucketPayload) -> StatusBarStats {
+    let sortedCosts = bucket.costByModel.map {
+      (model: $0.model, cost: $0.costUSD, color: colorForModel($0.model))
+    }
+
+    return StatusBarStats(
+      sessionCount: Int(bucket.sessionCount),
+      cost: bucket.totalCostUSD,
+      tokens: Int(bucket.totalTokens),
+      costByModel: sortedCosts
+    )
+  }
 
   static func from(
     sessions: [RootSessionNode],

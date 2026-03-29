@@ -328,6 +328,85 @@ struct ServerSessionContractsTests {
     #expect(shellRow.command == "git status")
   }
 
+  @Test func conversationBootstrapDecodesCommandExecutionRows() throws {
+    let data = Data(
+      """
+      {
+        "session": {
+          "id": "session-command-execution",
+          "provider": "codex",
+          "project_path": "/tmp/orbitdock",
+          "project_name": "OrbitDock",
+          "status": "active",
+          "work_status": "working",
+          "control_mode": "direct",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
+          "token_usage": {
+            "input_tokens": 3,
+            "output_tokens": 5,
+            "cached_tokens": 0,
+            "context_window": 200000
+          },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "is_worktree": false,
+          "unread_count": 0,
+          "turn_count": 1,
+          "turn_diffs": [],
+          "subagents": [],
+          "rows": [
+            {
+              "session_id": "session-command-execution",
+              "sequence": 5,
+              "row": {
+                "row_type": "command_execution",
+                "id": "command-row-1",
+                "status": "completed",
+                "command": "sed -n '1,40p' src/main.rs",
+                "cwd": "/tmp/orbitdock",
+                "process_id": "pty-1",
+                "command_actions": [
+                  {
+                    "type": "read",
+                    "command": "sed -n '1,40p' src/main.rs",
+                    "name": "main.rs",
+                    "path": "src/main.rs"
+                  }
+                ],
+                "aggregated_output": "import Foundation",
+                "exit_code": 0,
+                "duration_ms": 18
+              }
+            }
+          ],
+          "total_row_count": 1,
+          "has_more_before": false,
+          "oldest_sequence": 5,
+          "newest_sequence": 5
+        },
+        "total_row_count": 1,
+        "has_more_before": false,
+        "oldest_sequence": 5,
+        "newest_sequence": 5
+      }
+      """.utf8
+    )
+
+    let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
+
+    guard case let .commandExecution(commandExecution) = bootstrap.rows.first?.row else {
+      Issue.record("Expected command execution row in bootstrap payload")
+      return
+    }
+
+    #expect(commandExecution.status == .completed)
+    #expect(commandExecution.commandActions.count == 1)
+    #expect(commandExecution.commandActions.first?.type == .read)
+    #expect(commandExecution.exitCode == 0)
+  }
+
   @Test func conversationBootstrapDecodesStringApprovalPolicyDetails() throws {
     let data = Data(
       """
