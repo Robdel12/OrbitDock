@@ -1,5 +1,3 @@
-use std::io::Write;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{SecondsFormat, Utc};
@@ -9,7 +7,6 @@ use tokio::sync::mpsc;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_appender::rolling::RollingFileAppender;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
@@ -26,8 +23,6 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("feedback_tags", "warn"),
   ("rmcp::transport::worker", "off"),
 ];
-const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum StderrLogMode {
   #[default]
@@ -63,58 +58,6 @@ pub struct LoggingHandle {
   pub _stderr_guard: Option<WorkerGuard>,
 }
 
-struct HousekeepingWriter {
-  inner: RollingFileAppender,
-  last_housekeeping_day: AtomicU32,
-}
-
-impl HousekeepingWriter {
-  fn new(inner: RollingFileAppender) -> Self {
-    Self {
-      inner,
-      last_housekeeping_day: AtomicU32::new(current_utc_day()),
-    }
-  }
-
-  fn trigger_housekeeping_if_rotated(&self) {
-    let current_day = current_utc_day();
-    if self.mark_rotation_if_needed(current_day) {
-      let _ = std::thread::Builder::new()
-        .name("orbitdock-housekeeping".into())
-        .spawn(crate::infrastructure::housekeeping::run_housekeeping);
-    }
-  }
-
-  fn mark_rotation_if_needed(&self, current_day: u32) -> bool {
-    loop {
-      let last_day = self.last_housekeeping_day.load(Ordering::Acquire);
-      if current_day <= last_day {
-        return false;
-      }
-
-      if self
-        .last_housekeeping_day
-        .compare_exchange(last_day, current_day, Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
-      {
-        return true;
-      }
-    }
-  }
-}
-
-impl Write for HousekeepingWriter {
-  fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-    let result = self.inner.write(buf);
-    self.trigger_housekeeping_if_rotated();
-    result
-  }
-
-  fn flush(&mut self) -> std::io::Result<()> {
-    self.inner.flush()
-  }
-}
-
 pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHandle> {
   let log_dir = crate::infrastructure::paths::log_dir();
   std::fs::create_dir_all(&log_dir)?;
@@ -129,8 +72,7 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
     .unwrap_or_else(|_| EnvFilter::new(apply_quiet_target_directives(DEFAULT_FILTER)));
 
   let file_appender = tracing_appender::rolling::daily(&log_dir, "server.log");
-  let housekeeping_writer = HousekeepingWriter::new(file_appender);
-  let (file_writer, guard) = tracing_appender::non_blocking(housekeeping_writer);
+  let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
   let format = std::env::var("ORBITDOCK_SERVER_LOG_FORMAT").unwrap_or_else(|_| "json".into());
 
   let (stderr_layer, stderr_guard) = match options.stderr_mode {
@@ -207,13 +149,6 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
 fn resolve_filter_directives(raw_filter: Option<String>) -> String {
   let base_filter = raw_filter.unwrap_or_else(|| DEFAULT_FILTER.to_string());
   apply_quiet_target_directives(&base_filter)
-}
-
-fn current_utc_day() -> u32 {
-  SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .map(|duration| (duration.as_secs() / SECONDS_PER_DAY) as u32)
-    .unwrap_or(0)
 }
 
 fn apply_quiet_target_directives(base_filter: &str) -> String {
