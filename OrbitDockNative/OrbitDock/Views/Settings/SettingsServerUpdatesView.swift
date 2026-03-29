@@ -206,7 +206,13 @@ final class ServerUpdatesSettingsModel {
       statesByEndpointId[endpointId] = state
       startUpgradeWatchdog(for: runtime)
     } catch {
-      await apply(error: error, to: runtime, endpointId: endpointId, checking: false)
+      await apply(
+        error: error,
+        to: runtime,
+        endpointId: endpointId,
+        checking: false,
+        preservingUpgradeState: false
+      )
     }
   }
 
@@ -240,12 +246,19 @@ final class ServerUpdatesSettingsModel {
     error: Error,
     to runtime: ServerRuntime,
     endpointId: UUID,
-    checking: Bool
+    checking: Bool,
+    preservingUpgradeState: Bool = true
   ) async {
     var state = state(for: endpointId)
     state.isChecking = false
     state.isChangingChannel = false
     state.isStartingUpgrade = false
+
+    if !preservingUpgradeState {
+      clearUpgradeTracking(for: endpointId)
+      state.upgradePhase = .idle
+      state.pendingUpgradeVersion = nil
+    }
 
     if let requestError = error as? ServerRequestError {
       switch requestError {
@@ -253,7 +266,7 @@ final class ServerUpdatesSettingsModel {
           let health = try? await runtime.clients.updates.fetchHealth()
           state.currentVersion = health?.version
           state.support = .disconnected
-          if state.pendingUpgradeVersion != nil || state.upgradePhase != .idle {
+          if preservingUpgradeState && (state.pendingUpgradeVersion != nil || state.upgradePhase != .idle) {
             state.infoMessage = "OrbitDock is restarting. The app will reconnect automatically when the server is back."
           } else {
             state.infoMessage = health?.version.map {
