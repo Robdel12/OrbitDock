@@ -2,6 +2,51 @@ import Foundation
 
 @MainActor
 extension SessionStore {
+  func fetchControlDeckSnapshot(sessionId: String) async throws -> ServerControlDeckSnapshotPayload {
+    try await clients.controlDeck.fetchSnapshot(sessionId)
+  }
+
+  func fetchControlDeckPreferences() async throws -> ServerControlDeckPreferences {
+    try await clients.controlDeck.fetchPreferences()
+  }
+
+  func updateControlDeckPreferences(
+    _ request: ServerControlDeckPreferences
+  ) async throws -> ServerControlDeckPreferences {
+    try await clients.controlDeck.updatePreferences(request)
+  }
+
+  func submitControlDeckTurn(
+    sessionId: String,
+    request: ServerControlDeckSubmitTurnRequest
+  ) async throws {
+    netLog(
+      .info,
+      cat: .store,
+      "Submit Control Deck turn",
+      sid: sessionId,
+      data: [
+        "textLength": request.text.count,
+        "attachments": request.attachments.count,
+        "skills": request.skills.count,
+      ]
+    )
+    do {
+      let response = try await clients.controlDeck.submitTurn(sessionId, request: request)
+      session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
+      triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: request.text)
+    } catch {
+      netLog(
+        .error,
+        cat: .store,
+        "Submit Control Deck turn failed",
+        sid: sessionId,
+        data: ["error": String(describing: error)]
+      )
+      throw error
+    }
+  }
+
   func sendMessage(
     sessionId: String,
     content: String,
@@ -371,6 +416,24 @@ extension SessionStore {
         )
       }
     }
+  }
+
+  func uploadControlDeckImageAttachment(
+    sessionId: String,
+    data: Data,
+    mimeType: String,
+    displayName: String,
+    pixelWidth: Int?,
+    pixelHeight: Int?
+  ) async throws -> ServerControlDeckImageAttachmentRef {
+    try await clients.controlDeck.uploadImageAttachment(
+      sessionId: sessionId,
+      data: data,
+      mimeType: mimeType,
+      displayName: displayName,
+      pixelWidth: pixelWidth,
+      pixelHeight: pixelHeight
+    )
   }
 
   func uploadImageAttachment(
