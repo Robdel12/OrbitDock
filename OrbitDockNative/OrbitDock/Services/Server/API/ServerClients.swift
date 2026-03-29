@@ -8,6 +8,7 @@ final class ServerClients: Sendable {
   let requestBuilder: HTTPRequestBuilder
   let http: ServerHTTPClient
   let controlPlane: ControlPlaneClient
+  let updates: ServerUpdateClient
   let config: ConfigClient
   let filesystem: FilesystemClient
   let skills: SkillsClient
@@ -47,6 +48,11 @@ final class ServerClients: Sendable {
     self.requestBuilder = requestBuilder
     self.http = ServerHTTPClient(requestBuilder: requestBuilder, responseLoader: responseLoader)
     self.controlPlane = ControlPlaneClient(http: http)
+    self.updates = ServerUpdateClient(
+      http: http,
+      baseURL: baseURL,
+      authToken: requestBuilder.authToken
+    )
     self.config = ConfigClient(http: http)
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
