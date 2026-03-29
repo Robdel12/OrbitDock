@@ -39,10 +39,42 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
 
   ensure_session_control_plane_columns(conn)?;
 
+  let applied = report.applied_migrations();
+
+  // V042 drops dead columns. Some columns (images_json, thinking) were added
+  // ad-hoc on existing installs but never by a migration, so we drop them
+  // conditionally here rather than in the SQL file.
+  let v042_applied = applied.iter().any(|m| m.version() == 42);
+  if v042_applied {
+    for col in &["images_json", "thinking"] {
+      if column_exists(conn, "messages", col)? {
+        conn
+          .execute(&format!("ALTER TABLE messages DROP COLUMN {col}"), [])
+          .with_context(|| format!("drop messages.{col}"))?;
+      }
+    }
+
+    // VACUUM must run outside a transaction to actually reclaim disk space.
+    // Critical for Pi deployments where 2+ GB of dead data is untenable.
+    info!(
+      component = "migrations",
+      event = "migrations.vacuum_start",
+      "Running VACUUM to reclaim disk space after column drops"
+    );
+    conn
+      .execute_batch("VACUUM;")
+      .context("VACUUM after V042 column drops")?;
+    info!(
+      component = "migrations",
+      event = "migrations.vacuum_complete",
+      "VACUUM complete"
+    );
+  }
+
   info!(
     component = "migrations",
     event = "migrations.complete",
-    applied = report.applied_migrations().len(),
+    applied = applied.len(),
     "Migration check complete"
   );
 
