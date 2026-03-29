@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
-import { CommandExecutionExpanded } from './command-execution-expanded.jsx'
 import { Card } from '../ui/card.jsx'
+import { CommandExecutionExpanded } from './command-execution-expanded.jsx'
 import styles from './command-execution-row.module.css'
 
 const semanticTone = (row) => {
@@ -60,18 +60,21 @@ const supportingText = (row) => {
   const actions = row.command_actions || []
 
   if (isSearchRow(row)) {
-    const query = actions
-      .map((action) => normalizeInlineText(action.query, 72))
-      .find(Boolean)
+    const query = actions.map((action) => normalizeInlineText(action.query, 72)).find(Boolean)
     if (query) return query
   }
 
-  const paths = Array.from(new Set(actions
-    .map((action) => {
-      if (action.type === 'read') return normalizeInlineText(action.name || shortenPath(action.path) || action.path, 72)
-      return normalizeInlineText(shortenPath(action.path) || action.path, 72)
-    })
-    .filter(Boolean)))
+  const paths = Array.from(
+    new Set(
+      actions
+        .map((action) => {
+          if (action.type === 'read')
+            return normalizeInlineText(action.name || shortenPath(action.path) || action.path, 72)
+          return normalizeInlineText(shortenPath(action.path) || action.path, 72)
+        })
+        .filter(Boolean),
+    ),
+  )
 
   if (paths.length > 0) {
     return paths.length > 1 ? `${paths[0]} +${paths.length - 1} more` : paths[0]
@@ -114,10 +117,7 @@ const shortenPath = (path) => {
 
 const normalizeInlineText = (value, limit = 54) => {
   if (!value) return null
-  const collapsed = value
-    .split(/\s+/)
-    .filter(Boolean)
-    .join(' ')
+  const collapsed = value.split(/\s+/).filter(Boolean).join(' ')
   if (!collapsed) return null
   if (collapsed.length <= limit) return collapsed
   return `${collapsed.slice(0, limit - 1)}…`
@@ -170,9 +170,7 @@ const CommandExecutionRow = ({ entry }) => {
                 key={`${kind || 'preview'}-${index}`}
                 class={`${styles.previewLine} ${kind === 'status' ? styles.previewLineStatus : ''}`}
               >
-                {kind === 'search_matches' && (
-                  <span class={styles.previewPrefix}>{index === 0 ? '>' : '·'}</span>
-                )}
+                {kind === 'search_matches' && <span class={styles.previewPrefix}>{index === 0 ? '>' : '·'}</span>}
                 {kind !== 'search_matches' && kind !== 'status' && (
                   <span class={styles.previewBullet} aria-hidden="true" />
                 )}
@@ -190,9 +188,7 @@ const CommandExecutionRow = ({ entry }) => {
           </div>
         )}
 
-        {expanded && (
-          <CommandExecutionExpanded sessionId={entry.session_id} rowId={row.id} row={row} />
-        )}
+        {expanded && <CommandExecutionExpanded sessionId={entry.session_id} rowId={row.id} row={row} />}
       </Card>
     </div>
   )
