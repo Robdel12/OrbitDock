@@ -72,8 +72,10 @@ pub(crate) use transcripts::{
   load_token_usage_from_transcript_path, TranscriptCapabilities,
 };
 use usage::{
-  persist_usage_event, upsert_usage_session_state, upsert_usage_turn_snapshot, TurnSnapshotRow,
+  persist_usage_event, upsert_usage_ledger_entry, upsert_usage_session_state,
+  upsert_usage_turn_snapshot, TurnSnapshotRow,
 };
+pub(crate) use usage::{estimate_cost_usd, normalize_usage_for_ledger, snapshot_kind_from_str};
 pub(crate) use workspace_sync::{
   apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
 };
@@ -806,6 +808,19 @@ pub(super) fn execute_command(
       )?;
 
       upsert_usage_turn_snapshot(
+        conn,
+        &TurnSnapshotRow {
+          session_id: &session_id,
+          turn_id: &turn_id,
+          turn_seq,
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          context_window,
+          snapshot_kind,
+        },
+      )?;
+      upsert_usage_ledger_entry(
         conn,
         &TurnSnapshotRow {
           session_id: &session_id,
