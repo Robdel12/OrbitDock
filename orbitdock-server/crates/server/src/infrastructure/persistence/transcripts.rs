@@ -2,6 +2,7 @@ use super::*;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+use codex_protocol::models::FunctionCallOutputPayload;
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::tool_display::{
   classify_tool_name, compute_tool_display, ToolDisplayInput,
@@ -46,6 +47,41 @@ fn role_from_str(role: &str) -> ParsedRole {
 /// Classify a tool name — delegates to the shared classifier in orbitdock_protocol.
 fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
   classify_tool_name(name)
+}
+
+fn normalize_function_arguments(arguments: &str) -> serde_json::Value {
+  serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({ "raw": arguments }))
+}
+
+fn extract_function_call_output_text(output: &Value) -> String {
+  serde_json::from_value::<FunctionCallOutputPayload>(output.clone())
+    .ok()
+    .and_then(|payload| payload.body.to_text())
+    .filter(|text| !text.trim().is_empty())
+    .or_else(|| match output {
+      Value::String(text) => Some(text.clone()),
+      Value::Array(items) => {
+        let text = items
+          .iter()
+          .filter_map(|item| {
+            let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
+            match kind {
+              "text" | "input_text" | "output_text" | "summary_text" => item
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string),
+              _ => None,
+            }
+          })
+          .collect::<Vec<_>>()
+          .join("\n");
+        (!text.is_empty()).then_some(text)
+      }
+      _ => None,
+    })
+    .unwrap_or_else(|| serde_json::to_string(output).unwrap_or_default())
 }
 
 fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
@@ -146,14 +182,82 @@ fn extract_entry_messages(entry: &Value) -> Vec<ParsedItem> {
 
   if entry_type == "response_item" {
     if let Some(payload) = entry.get("payload") {
-      if payload.get("type").and_then(Value::as_str) == Some("message") {
-        let role = payload
-          .get("role")
-          .and_then(Value::as_str)
-          .unwrap_or("assistant");
-        if let Some(content) = payload.get("content") {
-          return extract_content_items(content, role);
+      match payload.get("type").and_then(Value::as_str) {
+        Some("message") => {
+          let role = payload
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or("assistant");
+          if let Some(content) = payload.get("content") {
+            return extract_content_items(content, role);
+          }
         }
+        Some("function_call") => {
+          let tool_name = payload
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+          let tool_input = payload
+            .get("arguments")
+            .and_then(Value::as_str)
+            .map(normalize_function_arguments)
+            .or_else(|| payload.get("arguments").cloned());
+          let tool_use_id = payload
+            .get("call_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+          return vec![ParsedItem::Tool {
+            tool_name,
+            tool_input,
+            tool_use_id,
+          }];
+        }
+        Some("function_call_output") => {
+          let tool_use_id = payload
+            .get("call_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+          let tool_output = payload
+            .get("output")
+            .map(extract_function_call_output_text)
+            .unwrap_or_default();
+          return vec![ParsedItem::ToolResult {
+            tool_use_id,
+            tool_output,
+          }];
+        }
+        Some("tool_search_call") => {
+          let tool_use_id = payload
+            .get("call_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+          let tool_input = payload.get("arguments").cloned();
+          return vec![ParsedItem::Tool {
+            tool_name: "ToolSearch".to_string(),
+            tool_input,
+            tool_use_id,
+          }];
+        }
+        Some("tool_search_output") => {
+          let tool_use_id = payload
+            .get("call_id")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+          let tool_output = payload
+            .get("tools")
+            .map(|tools| {
+              serde_json::to_string_pretty(tools)
+                .or_else(|_| serde_json::to_string(tools))
+                .unwrap_or_default()
+            })
+            .unwrap_or_default();
+          return vec![ParsedItem::ToolResult {
+            tool_use_id,
+            tool_output,
+          }];
+        }
+        _ => {}
       }
     }
     return vec![];
@@ -700,4 +804,157 @@ pub async fn load_latest_codex_turn_context_settings_from_transcript_path(
     load_latest_codex_turn_context_settings_from_transcript(&transcript_path)
   })
   .await?
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::io::Write;
+  use tempfile::NamedTempFile;
+
+  fn write_transcript(lines: &[Value]) -> NamedTempFile {
+    let mut file = NamedTempFile::new().expect("temp transcript");
+    for line in lines {
+      writeln!(
+        file,
+        "{}",
+        serde_json::to_string(line).expect("serialize transcript line")
+      )
+      .expect("write transcript line");
+    }
+    file
+  }
+
+  #[test]
+  fn load_messages_from_transcript_surfaces_codex_function_call_tools() {
+    let transcript = write_transcript(&[
+      serde_json::json!({
+        "type": "response_item",
+        "payload": {
+          "type": "function_call",
+          "name": "Read",
+          "arguments": "{\"file_path\":\"/tmp/example.rs\"}",
+          "call_id": "call-read-1"
+        }
+      }),
+      serde_json::json!({
+        "type": "response_item",
+        "payload": {
+          "type": "function_call_output",
+          "call_id": "call-read-1",
+          "output": "fn main() {}"
+        }
+      }),
+    ]);
+
+    let rows = load_messages_from_transcript(
+      transcript.path().to_str().expect("transcript path"),
+      "session-1",
+    )
+    .expect("load transcript rows");
+
+    assert_eq!(rows.len(), 1);
+    let ConversationRow::Tool(tool) = &rows[0].row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.kind, ToolKind::Read);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.id, "call-read-1");
+    assert_eq!(
+      tool
+        .invocation
+        .get("raw_input")
+        .and_then(|value| value.get("file_path"))
+        .and_then(Value::as_str),
+      Some("/tmp/example.rs")
+    );
+    assert_eq!(
+      tool
+        .result
+        .as_ref()
+        .and_then(|value| value.get("raw_output"))
+        .and_then(Value::as_str),
+      Some("fn main() {}")
+    );
+    assert_eq!(
+      tool
+        .tool_display
+        .as_ref()
+        .map(|display| display.tool_type.as_str()),
+      Some("read")
+    );
+    assert_eq!(
+      tool
+        .tool_display
+        .as_ref()
+        .and_then(|display| display.output_preview.as_deref()),
+      Some("fn main() {}")
+    );
+  }
+
+  #[test]
+  fn load_messages_from_transcript_surfaces_codex_tool_search_rows() {
+    let transcript = write_transcript(&[
+      serde_json::json!({
+        "type": "response_item",
+        "payload": {
+          "type": "tool_search_call",
+          "call_id": "search-1",
+          "execution": "client",
+          "arguments": {
+            "query": "calendar create",
+            "limit": 1
+          }
+        }
+      }),
+      serde_json::json!({
+        "type": "response_item",
+        "payload": {
+          "type": "tool_search_output",
+          "call_id": "search-1",
+          "status": "completed",
+          "execution": "client",
+          "tools": [
+            { "name": "search_query" }
+          ]
+        }
+      }),
+    ]);
+
+    let rows = load_messages_from_transcript(
+      transcript.path().to_str().expect("transcript path"),
+      "session-1",
+    )
+    .expect("load transcript rows");
+
+    assert_eq!(rows.len(), 1);
+    let ConversationRow::Tool(tool) = &rows[0].row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.kind, ToolKind::ToolSearch);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.id, "search-1");
+    assert_eq!(
+      tool
+        .invocation
+        .get("raw_input")
+        .and_then(|value| value.get("query"))
+        .and_then(Value::as_str),
+      Some("calendar create")
+    );
+    assert_eq!(
+      tool
+        .tool_display
+        .as_ref()
+        .map(|display| display.tool_type.as_str()),
+      Some("toolSearch")
+    );
+    assert_eq!(
+      tool
+        .tool_display
+        .as_ref()
+        .and_then(|display| display.subtitle.as_deref()),
+      Some("calendar create")
+    );
+  }
 }

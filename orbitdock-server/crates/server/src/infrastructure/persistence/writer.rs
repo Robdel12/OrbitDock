@@ -3,13 +3,14 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, warn};
 
 use super::sync::SyncPlan;
 use super::{PersistCommand, SyncCommand};
 
 #[derive(Debug)]
 pub(crate) struct FlushBatchResult {
+  #[cfg(test)]
   pub command_count: usize,
   pub sync_commands: Vec<SyncCommand>,
 }
@@ -52,15 +53,6 @@ impl PersistenceWriter {
   }
   /// Run the persistence writer (call from tokio::spawn).
   pub async fn run(mut self) {
-    info!(
-        component = "persistence",
-        event = "persistence.writer.started",
-        db_path = %self.db_path.display(),
-        batch_size = self.batch_size,
-        flush_interval_ms = self.flush_interval.as_millis() as u64,
-        "Persistence writer started"
-    );
-
     let mut interval = tokio::time::interval(self.flush_interval);
 
     loop {
@@ -77,11 +69,6 @@ impl PersistenceWriter {
                   }
                   None => {
                       self.flush().await;
-                      info!(
-                          component = "persistence",
-                          event = "persistence.writer.stopped",
-                          "Persistence writer channel closed"
-                      );
                       return;
                   }
               }
@@ -107,14 +94,6 @@ impl PersistenceWriter {
 
     match result {
       Ok(Ok(result)) => {
-        debug!(
-          component = "persistence",
-          event = "persistence.flush.succeeded",
-          command_count = result.command_count,
-          sync_command_count = result.sync_commands.len(),
-          "Persisted batched commands"
-        );
-
         if let Some(sync_tx) = &self.sync_tx {
           for command in result.sync_commands {
             if sync_tx.send(command).await.is_err() {
@@ -167,7 +146,8 @@ pub(crate) fn flush_batch(
          PRAGMA foreign_keys = ON;",
   )?;
 
-  let count = batch.len();
+  #[cfg(test)]
+  let command_count = batch.len();
   let tx = conn.unchecked_transaction()?;
   let mut sync_commands = Vec::new();
 
@@ -214,7 +194,8 @@ pub(crate) fn flush_batch(
 
   tx.commit()?;
   Ok(FlushBatchResult {
-    command_count: count,
+    #[cfg(test)]
+    command_count,
     sync_commands,
   })
 }

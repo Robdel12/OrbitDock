@@ -95,6 +95,7 @@ fn message_row_type(row: &ConversationRow) -> &'static str {
     ConversationRow::Question(_) => "question",
     ConversationRow::Approval(_) => "approval",
     ConversationRow::Worker(_) => "worker",
+    ConversationRow::CommandExecution(_) => "command_execution",
     ConversationRow::Plan(_) => "plan",
     ConversationRow::Hook(_) => "hook",
     ConversationRow::Handoff(_) => "handoff",

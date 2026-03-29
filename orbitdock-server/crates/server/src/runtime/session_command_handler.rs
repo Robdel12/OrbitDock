@@ -4,6 +4,7 @@
 //! mutations, persistence effects, and broadcasts. Used by both provider
 //! event loops (Claude, Codex) and the passive session actor.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
@@ -673,11 +674,15 @@ pub(crate) async fn dispatch_transition_input(
 
   // Pass 1: Send all persist ops, collecting sequence receivers for row ops.
   let mut sequence_futures: Vec<(String, tokio::sync::oneshot::Receiver<u64>)> = Vec::new();
+  let mut appended_row_ids = HashSet::new();
   let mut deferred_emits: Vec<ServerMessage> = Vec::new();
 
   for effect in effects {
     match effect {
       transition::Effect::Persist(op) => {
+        if let transition::PersistOp::RowAppend { entry, .. } = op.as_ref() {
+          appended_row_ids.insert(entry.id().to_string());
+        }
         let mut cmd = transition::persist_op_to_command(*op);
         // Attach a response channel to row persist ops so we get DB-assigned sequences.
         match &mut cmd {
@@ -730,8 +735,10 @@ pub(crate) async fn dispatch_transition_input(
         }
       }
       for entry in upserted.iter() {
-        if let Some(unread_count) = handle.note_transition_row_append(entry) {
-          unread_count_delta = Some(unread_count);
+        if appended_row_ids.contains(entry.id()) {
+          if let Some(unread_count) = handle.note_transition_row_append(entry) {
+            unread_count_delta = Some(unread_count);
+          }
         }
       }
     }
@@ -829,9 +836,11 @@ pub(crate) fn spawn_interrupt_watchdog(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::infrastructure::persistence::PersistCommand;
   use orbitdock_protocol::conversation_contracts::{
     rows::MessageDeliveryStatus, ConversationRowEntry, MessageRowContent,
   };
+  use tokio::sync::mpsc;
 
   fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
     ConversationRowEntry {
@@ -844,6 +853,25 @@ mod tests {
         content: content.to_string(),
         turn_id: None,
         timestamp: None,
+        is_streaming: false,
+        images: vec![],
+        memory_citation: None,
+        delivery_status: None,
+      }),
+    }
+  }
+
+  fn assistant_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
+    ConversationRowEntry {
+      session_id: session_id.to_string(),
+      sequence: 0,
+      turn_id: None,
+      turn_status: Default::default(),
+      row: ConversationRow::Assistant(MessageRowContent {
+        id: row_id.to_string(),
+        content: content.to_string(),
+        turn_id: None,
+        timestamp: Some("2026-03-20T12:00:00Z".to_string()),
         is_streaming: false,
         images: vec![],
         memory_citation: None,
@@ -920,5 +948,114 @@ mod tests {
     ));
 
     assert!(!should_suppress_connector_user_echo(&handle, &event));
+  }
+
+  #[test]
+  fn does_not_suppress_codex_user_rows_for_passive_sessions() {
+    let handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+
+    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+      "session-1",
+      "user-codex-1",
+      "hello world",
+    ));
+
+    assert!(!should_suppress_connector_user_echo(&handle, &event));
+  }
+
+  #[test]
+  fn does_not_suppress_user_rows_when_local_copy_is_missing() {
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+
+    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+      "session-1",
+      "user-codex-1",
+      "hello world",
+    ));
+
+    assert!(!should_suppress_connector_user_echo(&handle, &event));
+  }
+
+  #[tokio::test]
+  async fn duplicate_row_created_does_not_refresh_activity_or_unread() {
+    let (persist_tx, mut persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    let entry = assistant_entry("session-1", "assistant-1", "already synced");
+    handle.add_row(entry.clone());
+    handle.mark_read();
+    handle.set_last_activity_at(Some("2026-03-20T12:34:56Z".to_string()));
+    handle.refresh_snapshot();
+
+    dispatch_transition_input(
+      "session-1",
+      transition::Input::RowCreated(entry),
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+
+    assert_eq!(handle.unread_count(), 0);
+    assert_eq!(
+      handle.to_snapshot().last_activity_at.as_deref(),
+      Some("2026-03-20T12:34:56Z")
+    );
+    assert!(persist_rx.try_recv().is_err());
+  }
+
+  #[tokio::test]
+  async fn row_updated_does_not_increment_unread_count() {
+    let (persist_tx, mut persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    handle.add_row(assistant_entry("session-1", "assistant-1", "draft"));
+    handle.mark_read();
+    handle.refresh_snapshot();
+
+    let persist_task = tokio::spawn(async move {
+      let Some(PersistCommand::RowUpsert { sequence_tx, .. }) = persist_rx.recv().await else {
+        panic!("expected row upsert persist command");
+      };
+      let Some(sequence_tx) = sequence_tx else {
+        panic!("expected row upsert sequence response channel");
+      };
+      let _ = sequence_tx.send(0);
+    });
+
+    dispatch_transition_input(
+      "session-1",
+      transition::Input::RowUpdated {
+        row_id: "assistant-1".to_string(),
+        entry: assistant_entry("session-1", "assistant-1", "final"),
+      },
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+    persist_task.await.expect("persist task should complete");
+
+    assert_eq!(handle.unread_count(), 0);
+    let Some(updated) = handle.row_by_id("assistant-1") else {
+      panic!("expected updated assistant row");
+    };
+    let ConversationRow::Assistant(message) = &updated.row else {
+      panic!("expected assistant row");
+    };
+    assert_eq!(message.content, "final");
   }
 }
