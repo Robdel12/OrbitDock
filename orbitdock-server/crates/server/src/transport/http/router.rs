@@ -35,10 +35,6 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route("/api/dashboard", get(super::get_dashboard_snapshot))
     .route(
-      "/api/control-deck/preferences",
-      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
-    )
-    .route(
       "/api/sessions/{session_id}/detail",
       get(super::get_session_detail),
     )

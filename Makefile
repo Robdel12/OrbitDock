@@ -47,7 +47,7 @@ SCCACHE_CACHE_SIZE ?= 5G
 RUST_SCCACHE ?= auto
 SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
 RUSTC_BIN := $(shell PATH="$(RUST_PATH_PREFIX):$$PATH" rustup which rustc 2>/dev/null)
-SCCACHE_READY := $(shell if [ -n "$(SCCACHE_BIN)" ] && [ -n "$(RUSTC_BIN)" ] && "$(SCCACHE_BIN)" "$(RUSTC_BIN)" -vV >/dev/null 2>&1; then echo 1; fi)
+SCCACHE_READY := $(shell if [ -n "$(SCCACHE_BIN)" ] && [ -n "$(RUSTC_BIN)" ] && printf '' | "$(SCCACHE_BIN)" "$(RUSTC_BIN)" - --crate-name ___ --print=file-names --crate-type bin --print=sysroot --print=split-debuginfo --print=crate-name --print=cfg -Wwarnings >/dev/null 2>&1; then echo 1; fi)
 
 LINUX_AARCH64_PROFILE_PRESET ?= release-lowmem
 LINUX_AARCH64_DOCKER_JOBS ?= 1

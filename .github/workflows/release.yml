@@ -72,6 +72,13 @@ on:
       OPENAI_API_KEY:
         required: false
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.channel || 'stable' }}
+  cancel-in-progress: false
+
 env:
   APP_NAME: OrbitDock
 
@@ -414,6 +421,8 @@ jobs:
       - server
     if: ${{ always() && needs.metadata.result == 'success' && (needs.server.result == 'success' || needs.server.result == 'skipped') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       TAG_NAME: ${{ needs.metadata.outputs.tag }}
