@@ -4,8 +4,6 @@ import Observation
 @MainActor
 @Observable
 final class ConversationTimelineViewModel {
-  var displayedEntries: [ServerConversationRowEntry] = []
-
   private var currentSessionId: String?
   private var currentViewMode: ChatViewMode = .focused
   private var projection = TimelineDataSource.Projection.make(entries: [], viewMode: .focused)
@@ -15,6 +13,14 @@ final class ConversationTimelineViewModel {
   private var expandedRowIDs: Set<String> = []
   private var fetchedRowContent: [String: ServerRowContent] = [:]
   private var rowContentFetchInFlight: Set<String> = []
+
+  var displayedEntryCount: Int {
+    projection.count
+  }
+
+  func renderedEntries(limit: Int) -> [ServerConversationRowEntry] {
+    Array(projection.suffix(limit))
+  }
 
   func bind(sessionId: String?) {
     guard currentSessionId != sessionId else { return }
@@ -29,18 +35,14 @@ final class ConversationTimelineViewModel {
     let shouldRebuild =
       viewMode != currentViewMode
         || presentation.structureRevision != lastStructureRevision
-        || displayedEntries.isEmpty != presentation.entries.isEmpty
+        || (projection.count == 0) != presentation.entries.isEmpty
 
     currentViewMode = viewMode
 
     if shouldRebuild {
       projection = TimelineDataSource.Projection.make(entries: presentation.entries, viewMode: viewMode)
-      displayedEntries = projection.displayedEntries
     } else if presentation.contentRevision != lastContentRevision {
-      displayedEntries = projection.applyingContentUpdates(
-        changedEntries: presentation.changedEntries,
-        to: displayedEntries
-      )
+      projection.applyContentUpdates(changedEntries: presentation.changedEntries)
     }
 
     lastStructureRevision = presentation.structureRevision
@@ -91,7 +93,6 @@ final class ConversationTimelineViewModel {
 
   func clearSession() {
     projection = TimelineDataSource.Projection.make(entries: [], viewMode: currentViewMode)
-    displayedEntries = []
     expandedRowIDs.removeAll()
     fetchedRowContent.removeAll()
     rowContentFetchInFlight.removeAll()

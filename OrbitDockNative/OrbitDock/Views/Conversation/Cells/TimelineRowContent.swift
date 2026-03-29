@@ -120,6 +120,15 @@ struct TimelineRowContent: View {
       case let .shellCommand(shellCommand):
         SemanticCommandRowView(row: shellCommand)
 
+      case let .commandExecution(commandExecution):
+        CommandExecutionRowView(
+          row: commandExecution,
+          isExpanded: isExpanded,
+          fetchedContent: fetchedContent,
+          isLoadingContent: isLoadingContent,
+          onToggle: { onToggle?(commandExecution.id) }
+        )
+
       case let .task(task):
         SemanticInfoRowView(
           icon: task.status == .failed ? "xmark.circle.fill" : "checkmark.circle.fill",

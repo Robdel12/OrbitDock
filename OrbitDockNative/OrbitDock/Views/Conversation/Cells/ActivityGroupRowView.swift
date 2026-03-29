@@ -25,13 +25,18 @@ struct ActivityGroupRowView: View {
     sizeClass == .compact
   }
 
-  private var latestChild: ServerConversationToolRow? {
+  private var latestChild: ServerConversationActivityGroupChild? {
     group.children.last
   }
 
   private var latestChildTint: Color {
     guard let latestChild else { return .accent }
-    return ToolCardView.resolveColor(latestChild.toolDisplay.glyphColor)
+    switch latestChild {
+      case let .tool(tool):
+        return ToolCardView.resolveColor(tool.toolDisplay.glyphColor)
+      case let .commandExecution(commandExecution):
+        return commandExecutionTint(commandExecution)
+    }
   }
 
   var body: some View {
@@ -43,15 +48,7 @@ struct ActivityGroupRowView: View {
       if isExpanded {
         VStack(spacing: Spacing.xs) {
           ForEach(group.children, id: \.id) { child in
-            ToolCardView(
-              toolRow: child,
-              isExpanded: isItemExpanded?(child.id) ?? false,
-              sessionId: sessionId,
-              clients: clients,
-              fetchedContent: contentForChild?(child.id),
-              isLoadingContent: isChildLoading?(child.id) ?? false,
-              onToggle: { onToggle?(child.id) }
-            )
+            childView(child)
           }
         }
         .padding(.top, Spacing.xs)
@@ -99,7 +96,7 @@ struct ActivityGroupRowView: View {
     HStack(spacing: 3) {
       ForEach(Array(group.children.prefix(8).enumerated()), id: \.offset) { _, child in
         Circle()
-          .fill(ToolCardView.resolveColor(child.toolDisplay.glyphColor))
+          .fill(childTint(child))
           .frame(width: 6, height: 6)
       }
       if group.childCount > 8 {
@@ -122,7 +119,7 @@ struct ActivityGroupRowView: View {
                   .strokeBorder(Color.white.opacity(0.05), lineWidth: 1)
               )
 
-            Image(systemName: latestChild.toolDisplay.glyphSymbol)
+            Image(systemName: childGlyphSymbol(latestChild))
               .font(.system(size: IconScale.sm, weight: .semibold))
               .foregroundStyle(latestChildTint)
           }
@@ -175,7 +172,11 @@ struct ActivityGroupRowView: View {
   }
 
   private var groupCountLabel: String {
-    "\(group.childCount) \(group.title)"
+    let normalizedTitle = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalizedTitle.contains(String(group.childCount)) {
+      return normalizedTitle
+    }
+    return "\(group.childCount) \(group.childCount == 1 ? "action" : "actions")"
   }
 
   private var groupSummaryText: String {
@@ -183,7 +184,7 @@ struct ActivityGroupRowView: View {
     var seen: [String: Int] = [:]
 
     for child in group.children {
-      let type = child.toolDisplay.toolType.capitalized
+      let type = childTypeLabel(child)
       if let idx = seen[type] {
         counts[idx].count += 1
       } else {
@@ -197,19 +198,121 @@ struct ActivityGroupRowView: View {
     }.joined(separator: ", ")
   }
 
-  private func latestChildLabel(_ child: ServerConversationToolRow) -> String {
-    let text = child.toolDisplay.summary.isEmpty ? child.title : child.toolDisplay.summary
-    return text.isEmpty ? child.toolDisplay.toolType.capitalized : text
+  private func latestChildLabel(_ child: ServerConversationActivityGroupChild) -> String {
+    switch child {
+      case let .tool(tool):
+        let text = tool.toolDisplay.summary.isEmpty ? tool.title : tool.toolDisplay.summary
+        return text.isEmpty ? tool.toolDisplay.toolType.capitalized : text
+      case let .commandExecution(commandExecution):
+        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Run command"
+    }
   }
 
-  private func latestChildSupportingText(_ child: ServerConversationToolRow) -> String? {
-    if let subtitle = nonEmpty(child.toolDisplay.subtitle) {
-      return ToolCardStyle.shortenPath(subtitle)
+  private func latestChildSupportingText(_ child: ServerConversationActivityGroupChild) -> String? {
+    switch child {
+      case let .tool(tool):
+        if let subtitle = nonEmpty(tool.toolDisplay.subtitle) {
+          return ToolCardStyle.shortenPath(subtitle)
+        }
+        if let meta = nonEmpty(tool.toolDisplay.rightMeta) {
+          return meta
+        }
+        return tool.toolDisplay.toolType.capitalized
+      case let .commandExecution(commandExecution):
+        if let previewLine = commandExecution.preview?.lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !previewLine.isEmpty
+        {
+          return previewLine
+        }
+        return ToolCardStyle.shortenPath(commandExecution.cwd)
     }
-    if let meta = nonEmpty(child.toolDisplay.rightMeta) {
-      return meta
+  }
+
+  @ViewBuilder
+  private func childView(_ child: ServerConversationActivityGroupChild) -> some View {
+    switch child {
+      case let .tool(tool):
+        ToolCardView(
+          toolRow: tool,
+          isExpanded: isItemExpanded?(tool.id) ?? false,
+          sessionId: sessionId,
+          clients: clients,
+          fetchedContent: contentForChild?(tool.id),
+          isLoadingContent: isChildLoading?(tool.id) ?? false,
+          onToggle: { onToggle?(tool.id) }
+        )
+      case let .commandExecution(commandExecution):
+        CommandExecutionRowView(
+          row: commandExecution,
+          isExpanded: isItemExpanded?(commandExecution.id) ?? false,
+          fetchedContent: contentForChild?(commandExecution.id),
+          isLoadingContent: isChildLoading?(commandExecution.id) ?? false,
+          onToggle: { onToggle?(commandExecution.id) }
+        )
     }
-    return child.toolDisplay.toolType.capitalized
+  }
+
+  private func childTint(_ child: ServerConversationActivityGroupChild) -> Color {
+    switch child {
+      case let .tool(tool):
+        return ToolCardView.resolveColor(tool.toolDisplay.glyphColor)
+      case let .commandExecution(commandExecution):
+        return commandExecutionTint(commandExecution)
+    }
+  }
+
+  private func childGlyphSymbol(_ child: ServerConversationActivityGroupChild) -> String {
+    switch child {
+      case let .tool(tool):
+        return tool.toolDisplay.glyphSymbol
+      case let .commandExecution(commandExecution):
+        return commandExecutionGlyph(commandExecution)
+    }
+  }
+
+  private func childTypeLabel(_ child: ServerConversationActivityGroupChild) -> String {
+    switch child {
+      case let .tool(tool):
+        return tool.toolDisplay.toolType.capitalized
+      case let .commandExecution(commandExecution):
+        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Command"
+    }
+  }
+
+  private func commandExecutionTint(_ row: ServerConversationCommandExecutionRow) -> Color {
+    if row.commandActions.allSatisfy({ $0.type == .read }) {
+      return .toolRead
+    }
+    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
+      return .toolSearch
+    }
+    return .toolBash
+  }
+
+  private func commandExecutionGlyph(_ row: ServerConversationCommandExecutionRow) -> String {
+    if row.commandActions.allSatisfy({ $0.type == .read }) {
+      return "doc.text.fill"
+    }
+    if row.commandActions.allSatisfy({ $0.type == .search }) {
+      return "magnifyingglass"
+    }
+    if row.commandActions.allSatisfy({ $0.type == .listFiles }) {
+      return "folder.fill"
+    }
+    return "terminal"
+  }
+
+  private func commandExecutionActionTitle(_ action: ServerConversationCommandAction) -> String {
+    switch action.type {
+      case .read:
+        return "Read"
+      case .search:
+        return "Search"
+      case .listFiles:
+        return "List files"
+      case .unknown:
+        return "Run command"
+    }
   }
 
   private func nonEmpty(_ text: String?) -> String? {

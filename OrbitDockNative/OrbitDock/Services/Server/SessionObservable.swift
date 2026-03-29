@@ -555,6 +555,7 @@ final class SessionObservable {
       case .shellCommand: "shellCommand"
       case .task: "task"
       case .tool: "tool"
+      case .commandExecution: "commandExecution"
       case .activityGroup: "activityGroup"
       case .question: "question"
       case .approval: "approval"

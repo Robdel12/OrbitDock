@@ -17,6 +17,7 @@ enum ServerConversationRowType: Codable, Equatable {
   case context
   case notice
   case shellCommand
+  case commandExecution
   case task
   case tool
   case activityGroup
@@ -39,6 +40,7 @@ enum ServerConversationRowType: Codable, Equatable {
       case "context": self = .context
       case "notice": self = .notice
       case "shell_command": self = .shellCommand
+      case "command_execution": self = .commandExecution
       case "task": self = .task
       case "tool": self = .tool
       case "activity_group": self = .activityGroup
@@ -65,6 +67,7 @@ enum ServerConversationRowType: Codable, Equatable {
       case .context: try container.encode("context")
       case .notice: try container.encode("notice")
       case .shellCommand: try container.encode("shell_command")
+      case .commandExecution: try container.encode("command_execution")
       case .task: try container.encode("task")
       case .tool: try container.encode("tool")
       case .activityGroup: try container.encode("activity_group")
@@ -121,6 +124,20 @@ enum ServerConversationTaskStatus: String, Codable {
   case running
   case completed
   case failed
+}
+
+enum ServerConversationCommandExecutionStatus: String, Codable {
+  case inProgress = "in_progress"
+  case completed
+  case failed
+  case declined
+}
+
+enum ServerConversationCommandActionType: String, Codable {
+  case read
+  case listFiles = "list_files"
+  case search
+  case unknown
 }
 
 enum ServerConversationToolFamily: String, Codable {
@@ -349,7 +366,7 @@ struct ServerConversationActivityGroupRow: Codable {
   let subtitle: String?
   let summary: String?
   let childCount: Int
-  let children: [ServerConversationToolRow]
+  let children: [ServerConversationActivityGroupChild]
   let turnId: String?
   let groupingKey: String?
   let status: ServerConversationToolStatus
@@ -378,7 +395,7 @@ struct ServerConversationActivityGroupRow: Codable {
     subtitle: String?,
     summary: String?,
     childCount: Int,
-    children: [ServerConversationToolRow],
+    children: [ServerConversationActivityGroupChild],
     turnId: String?,
     groupingKey: String?,
     status: ServerConversationToolStatus,
@@ -407,7 +424,7 @@ struct ServerConversationActivityGroupRow: Codable {
     subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     childCount = try container.decode(Int.self, forKey: .childCount)
-    children = try container.decodeIfPresent([ServerConversationToolRow].self, forKey: .children) ?? []
+    children = try container.decodeIfPresent([ServerConversationActivityGroupChild].self, forKey: .children) ?? []
     turnId = try container.decodeIfPresent(String.self, forKey: .turnId)
     groupingKey = try container.decodeIfPresent(String.self, forKey: .groupingKey)
     status = try container.decode(ServerConversationToolStatus.self, forKey: .status)
@@ -415,6 +432,38 @@ struct ServerConversationActivityGroupRow: Codable {
     renderHints =
       try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
         ?? ServerConversationRenderHints()
+  }
+}
+
+enum ServerConversationActivityGroupChild: Codable, Identifiable {
+  case tool(ServerConversationToolRow)
+  case commandExecution(ServerConversationCommandExecutionRow)
+
+  var id: String {
+    switch self {
+      case let .tool(tool):
+        tool.id
+      case let .commandExecution(commandExecution):
+        commandExecution.id
+    }
+  }
+
+  init(from decoder: Decoder) throws {
+    if let tool = try? ServerConversationToolRow(from: decoder) {
+      self = .tool(tool)
+      return
+    }
+
+    self = try .commandExecution(ServerConversationCommandExecutionRow(from: decoder))
+  }
+
+  func encode(to encoder: Encoder) throws {
+    switch self {
+      case let .tool(tool):
+        try tool.encode(to: encoder)
+      case let .commandExecution(commandExecution):
+        try commandExecution.encode(to: encoder)
+    }
   }
 }
 
@@ -688,6 +737,84 @@ struct ServerConversationShellCommandRow: Codable {
   }
 }
 
+struct ServerConversationCommandAction: Codable, Equatable {
+  let type: ServerConversationCommandActionType
+  let command: String
+  let name: String?
+  let path: String?
+  let query: String?
+}
+
+enum ServerConversationCommandExecutionPreviewKind: String, Codable {
+  case excerpt
+  case searchMatches = "search_matches"
+  case fileList = "file_list"
+  case diff
+  case status
+}
+
+struct ServerConversationCommandExecutionPreview: Codable, Equatable {
+  let kind: ServerConversationCommandExecutionPreviewKind
+  let lines: [String]
+  let overflowCount: UInt32?
+
+  enum CodingKeys: String, CodingKey {
+    case kind
+    case lines
+    case overflowCount = "overflow_count"
+  }
+}
+
+struct ServerConversationCommandExecutionRow: Codable {
+  let id: String
+  let status: ServerConversationCommandExecutionStatus
+  let command: String
+  let cwd: String
+  let processId: String?
+  let commandActions: [ServerConversationCommandAction]
+  let liveOutputPreview: String?
+  let aggregatedOutput: String?
+  let preview: ServerConversationCommandExecutionPreview?
+  let exitCode: Int?
+  let durationMs: UInt64?
+  let renderHints: ServerConversationRenderHints
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case status
+    case command
+    case cwd
+    case processId = "process_id"
+    case commandActions = "command_actions"
+    case liveOutputPreview = "live_output_preview"
+    case aggregatedOutput = "aggregated_output"
+    case preview
+    case exitCode = "exit_code"
+    case durationMs = "duration_ms"
+    case renderHints = "render_hints"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    status = try container.decode(ServerConversationCommandExecutionStatus.self, forKey: .status)
+    command = try container.decode(String.self, forKey: .command)
+    cwd = try container.decode(String.self, forKey: .cwd)
+    processId = try container.decodeIfPresent(String.self, forKey: .processId)
+    commandActions =
+      try container.decodeIfPresent([ServerConversationCommandAction].self, forKey: .commandActions)
+      ?? []
+    liveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
+    aggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
+    preview = try container.decodeIfPresent(ServerConversationCommandExecutionPreview.self, forKey: .preview)
+    exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+    durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
+    renderHints =
+      try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
+      ?? ServerConversationRenderHints()
+  }
+}
+
 struct ServerConversationTaskRow: Codable {
   let id: String
   let kind: ServerConversationTaskKind
@@ -722,6 +849,7 @@ enum ServerConversationRow: Codable {
   case context(ServerConversationContextRow)
   case notice(ServerConversationNoticeRow)
   case shellCommand(ServerConversationShellCommandRow)
+  case commandExecution(ServerConversationCommandExecutionRow)
   case task(ServerConversationTaskRow)
   case tool(ServerConversationToolRow)
   case activityGroup(ServerConversationActivityGroupRow)
@@ -755,6 +883,8 @@ enum ServerConversationRow: Codable {
         self = try .notice(ServerConversationNoticeRow(from: decoder))
       case .shellCommand:
         self = try .shellCommand(ServerConversationShellCommandRow(from: decoder))
+      case .commandExecution:
+        self = try .commandExecution(ServerConversationCommandExecutionRow(from: decoder))
       case .task:
         self = try .task(ServerConversationTaskRow(from: decoder))
       case .tool:
@@ -805,6 +935,8 @@ enum ServerConversationRow: Codable {
       case let .notice(row):
         try row.encode(to: encoder)
       case let .shellCommand(row):
+        try row.encode(to: encoder)
+      case let .commandExecution(row):
         try row.encode(to: encoder)
       case let .task(row):
         try row.encode(to: encoder)
@@ -888,6 +1020,8 @@ struct ServerConversationRowEntry: Codable, Identifiable {
         notice.id
       case let .shellCommand(shellCommand):
         shellCommand.id
+      case let .commandExecution(commandExecution):
+        commandExecution.id
       case let .task(task):
         task.id
       case let .tool(tool):

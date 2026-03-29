@@ -61,7 +61,7 @@ struct ConversationView: View {
               }
             }
 
-            if showsOrbitStatusIndicator && (isSessionActive || displayStatus == .ended) {
+            if showsOrbitStatusIndicator, (isSessionActive || displayStatus == .ended) {
               OrbitStatusIndicator(
                 displayStatus: displayStatus,
                 currentTool: currentTool

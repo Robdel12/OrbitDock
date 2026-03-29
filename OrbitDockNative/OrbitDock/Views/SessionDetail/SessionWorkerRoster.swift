@@ -387,6 +387,10 @@ enum SessionWorkerRosterPlanner {
         title = toolName.nilIfEmpty.map(Self.toolDisplayName) ?? "Tool activity"
         iconName = ToolCardStyle.icon(for: toolName.nilIfEmpty ?? tool.kind.rawValue)
         tint = ToolCardStyle.color(for: toolName.nilIfEmpty ?? tool.kind.rawValue)
+      case let .commandExecution(commandExecution):
+        title = commandExecutionTitle(commandExecution)
+        iconName = "terminal.fill"
+        tint = .feedbackWarning
       case let .activityGroup(group):
         title = group.title
         iconName = "square.stack.3d.up.fill"
@@ -479,6 +483,10 @@ enum SessionWorkerRosterPlanner {
           ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .commandExecution(commandExecution):
+        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
         group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? group.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -660,6 +668,8 @@ enum SessionWorkerRosterPlanner {
           ?? worker.title
       case let .tool(tool):
         toolDisplayName(tool.title)
+      case let .commandExecution(commandExecution):
+        commandExecutionTitle(commandExecution)
       case let .activityGroup(group):
         group.title
       case .assistant:
@@ -724,12 +734,46 @@ enum SessionWorkerRosterPlanner {
     return nil
   }
 
+  private static func linkedWorkerID(for child: ServerConversationActivityGroupChild) -> String? {
+    switch child {
+      case let .tool(tool):
+        linkedWorkerID(for: tool)
+      case .commandExecution:
+        nil
+    }
+  }
+
+  private static func childTitle(for child: ServerConversationActivityGroupChild) -> String {
+    switch child {
+      case let .tool(tool):
+        tool.title
+      case let .commandExecution(commandExecution):
+        commandExecutionTitle(commandExecution)
+    }
+  }
+
+  private static func commandExecutionTitle(
+    _ commandExecution: ServerConversationCommandExecutionRow
+  ) -> String {
+    let trimmed = commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.nilIfEmpty ?? "Command"
+  }
+
   private static func workerEventIcon(for entry: ServerConversationRowEntry) -> String {
     switch entry.row {
       case let .tool(tool):
         ToolCardStyle.icon(for: tool.title)
+      case .commandExecution:
+        "terminal.fill"
       case let .activityGroup(group):
-        group.children.first.map { ToolCardStyle.icon(for: $0.title) } ?? "square.stack.3d.up.fill"
+        group.children.first.map { child in
+          switch child {
+            case let .tool(tool):
+              ToolCardStyle.icon(for: tool.title)
+            case .commandExecution:
+              "terminal.fill"
+          }
+        } ?? "square.stack.3d.up.fill"
       case let .worker(worker):
         visuals(for: worker.worker.agentType ?? "worker").iconName
       case .assistant:
@@ -778,6 +822,17 @@ enum SessionWorkerRosterPlanner {
             ("Captured", .textSecondary)
           case .cancelled:
             ("Cancelled", .feedbackWarning)
+        }
+      case let .commandExecution(commandExecution):
+        switch commandExecution.status {
+          case .failed:
+            ("Error", .feedbackNegative)
+          case .inProgress:
+            ("Live", .statusWorking)
+          case .completed:
+            ("Captured", .textSecondary)
+          case .declined:
+            ("Declined", .feedbackWarning)
         }
       case let .activityGroup(group):
         switch group.status {
@@ -847,6 +902,8 @@ enum SessionWorkerRosterPlanner {
         )
           ?? tool.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .commandExecution(commandExecution):
+        commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
         group.children.lazy.compactMap { assignmentPreview(for: $0) }.first
           ?? group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -864,6 +921,15 @@ enum SessionWorkerRosterPlanner {
       ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
   }
 
+  private static func assignmentPreview(for child: ServerConversationActivityGroupChild) -> String? {
+    switch child {
+      case let .tool(tool):
+        assignmentPreview(for: tool)
+      case let .commandExecution(commandExecution):
+        commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+  }
+
   private static func reportPreview(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .worker(worker):
@@ -874,6 +940,9 @@ enum SessionWorkerRosterPlanner {
         tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+      case let .commandExecution(commandExecution):
+        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
         group.children.lazy.compactMap { reportPreview(for: $0) }.first
       case let .task(task):
@@ -888,6 +957,16 @@ enum SessionWorkerRosterPlanner {
     tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+  }
+
+  private static func reportPreview(for child: ServerConversationActivityGroupChild) -> String? {
+    switch child {
+      case let .tool(tool):
+        reportPreview(for: tool)
+      case let .commandExecution(commandExecution):
+        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
   }
 
   private static func parsedStringValue(from jsonString: String?, keys: [String]) -> String? {
@@ -919,6 +998,8 @@ enum SessionWorkerRosterPlanner {
         parseDate(message.timestamp)
       case let .tool(tool):
         parseDate(tool.startedAt) ?? parseDate(tool.endedAt)
+      case .commandExecution:
+        nil
       case let .worker(worker):
         parseDate(worker.worker.lastActivityAt)
           ?? parseDate(worker.worker.startedAt)
