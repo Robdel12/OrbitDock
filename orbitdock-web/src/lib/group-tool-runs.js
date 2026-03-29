@@ -3,13 +3,13 @@
  * Single activity rows pass through ungrouped.
  * Non-activity rows are never grouped.
  */
-let groupToolRuns = (rows) => {
+const groupToolRuns = (rows) => {
   let result = []
   let buffer = []
 
-  let flushBuffer = () => {
+  const flushBuffer = () => {
     if (buffer.length >= 2) {
-      let first = buffer[0]
+      const first = buffer[0]
       result.push({
         sequence: first.sequence,
         session_id: first.session_id,
@@ -27,7 +27,7 @@ let groupToolRuns = (rows) => {
     buffer.length = 0
   }
 
-  for (let entry of rows) {
+  for (const entry of rows) {
     if (isGroupableActivity(entry)) {
       buffer.push(entry)
     } else {
@@ -44,11 +44,11 @@ let groupToolRuns = (rows) => {
  * Build a human-readable summary of grouped activity names.
  * E.g. "Read file, Search files, Run command + 2 more"
  */
-let buildToolSummary = (buffer) => {
-  let names = []
-  let seen = new Set()
-  for (let entry of buffer) {
-    let name = activitySummary(entry)
+const buildToolSummary = (buffer) => {
+  const names = []
+  const seen = new Set()
+  for (const entry of buffer) {
+    const name = activitySummary(entry)
     if (name && !seen.has(name)) {
       seen.add(name)
       names.push(name)
@@ -57,22 +57,22 @@ let buildToolSummary = (buffer) => {
 
   if (names.length === 0) return `${buffer.length} actions`
 
-  let MAX_SHOWN = 3
+  const MAX_SHOWN = 3
   if (names.length <= MAX_SHOWN) {
     return names.join(', ')
   }
-  let shown = names.slice(0, MAX_SHOWN)
-  let remaining = names.length - MAX_SHOWN
+  const shown = names.slice(0, MAX_SHOWN)
+  const remaining = names.length - MAX_SHOWN
   return `${shown.join(', ')} + ${remaining} more`
 }
 
-let isGroupableActivity = (entry) => {
-  let rowType = entry.row?.row_type
+const isGroupableActivity = (entry) => {
+  const rowType = entry.row?.row_type
   return rowType === 'tool' || rowType === 'command_execution'
 }
 
-let activitySummary = (entry) => {
-  let row = entry.row
+const activitySummary = (entry) => {
+  const row = entry.row
   if (!row) return null
 
   if (row.row_type === 'tool') {
@@ -83,7 +83,7 @@ let activitySummary = (entry) => {
     return null
   }
 
-  let actions = row.command_actions || []
+  const actions = row.command_actions || []
   if (actions.length === 0) return 'Run command'
 
   if (actions.every((action) => action.type === 'read')) {
