@@ -496,8 +496,9 @@ mod tests {
     ));
     let conn = Connection::open(&db_path).expect("open sqlite db");
 
-    conn.execute_batch(
-      "CREATE TABLE sessions (
+    conn
+      .execute_batch(
+        "CREATE TABLE sessions (
          id TEXT PRIMARY KEY,
          started_at TEXT
        );
@@ -523,16 +524,18 @@ mod tests {
          cached_tokens INTEGER NOT NULL DEFAULT 0,
          context_window INTEGER NOT NULL DEFAULT 0
        );",
-    )
-    .expect("create schema");
+      )
+      .expect("create schema");
 
-    conn.execute(
-      "INSERT INTO sessions (id, started_at) VALUES (?1, ?2)",
-      rusqlite::params!["session-1", "2026-03-28T23:55:00Z"],
-    )
-    .expect("insert session");
-    conn.execute(
-      "INSERT INTO usage_ledger_entries (
+    conn
+      .execute(
+        "INSERT INTO sessions (id, started_at) VALUES (?1, ?2)",
+        rusqlite::params!["session-1", "2026-03-28T23:55:00Z"],
+      )
+      .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_ledger_entries (
          session_id,
          turn_id,
          model,
@@ -543,25 +546,29 @@ mod tests {
          cache_read_tokens,
          estimated_cost_usd
        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-      rusqlite::params![
-        "session-1",
-        "turn-1",
-        "gpt-5.4",
-        "2026-03-28T23:55:00Z",
-        "2026-03-29T00:05:00Z",
-        120_i64,
-        30_i64,
-        0_i64,
-        0.5_f64,
-      ],
-    )
-    .expect("insert ledger entry");
+        rusqlite::params![
+          "session-1",
+          "turn-1",
+          "gpt-5.4",
+          "2026-03-28T23:55:00Z",
+          "2026-03-29T00:05:00Z",
+          120_i64,
+          30_i64,
+          0_i64,
+          0.5_f64,
+        ],
+      )
+      .expect("insert ledger entry");
 
-    let summary =
-      load_usage_summary(&db_path, Some(chrono::DateTime::parse_from_rfc3339("2026-03-29T00:00:00Z")
-        .expect("parse boundary")
-        .timestamp() as u64))
-      .expect("load usage summary");
+    let summary = load_usage_summary(
+      &db_path,
+      Some(
+        chrono::DateTime::parse_from_rfc3339("2026-03-29T00:00:00Z")
+          .expect("parse boundary")
+          .timestamp() as u64,
+      ),
+    )
+    .expect("load usage summary");
 
     assert_eq!(summary.today.session_count, 1);
     assert_eq!(summary.today.input_tokens, 120);
