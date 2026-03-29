@@ -727,6 +727,10 @@ pub fn transition(
           entry.sequence = state.rows[existing_pos].sequence;
         }
 
+        if state.rows[existing_pos] == entry {
+          return (state, effects);
+        }
+
         state.rows[existing_pos] = entry.clone();
         state.last_activity_at = Some(now.to_string());
         state.last_progress_at = Some(now.to_string());
@@ -781,6 +785,9 @@ pub fn transition(
       if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
         if entry.sequence == 0 {
           entry.sequence = existing.sequence;
+        }
+        if *existing == entry {
+          return (state, effects);
         }
         *existing = entry.clone();
       } else {

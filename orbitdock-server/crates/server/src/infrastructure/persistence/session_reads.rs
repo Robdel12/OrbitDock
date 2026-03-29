@@ -323,8 +323,11 @@ async fn load_sessions_for_startup_with_db_path(
                    AND COALESCE(control_mode, CASE
                          WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
                          ELSE 'passive'
-                       END) != 'direct'
-                   AND status = 'active'",
+                       END) = 'passive'
+                   AND status = 'active'
+                   AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
+                   AND last_activity_at IS NOT NULL
+                   AND last_activity_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-15 minutes')",
                 params![chrono_now()],
             )?;
 

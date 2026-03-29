@@ -15,12 +15,14 @@ pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowS
 pub use approvals::{ApprovalRow, QuestionRow};
 pub use render_hints::{ConversationDisplayMode, RenderHints};
 pub use rows::{
-  extract_row_content_str, extract_row_content_str_summary, AssistantRow, ContextRow,
-  ContextRowKind, ConversationRow, ConversationRowEntry, ConversationRowPage,
-  ConversationRowSummary, HandoffRow, HookRow, MemoryCitation, MemoryCitationEntry,
-  MessageRowContent, NoticeRow, NoticeRowKind, NoticeRowSeverity, PlanRow, RowEntrySummary,
-  RowPageSummary, ShellCommandRow, ShellCommandRowKind, SystemRow, TaskRow, TaskRowKind,
-  TaskRowStatus, ThinkingRow, ToolRow, ToolRowSummary, TurnStatus, UserRow,
+  compute_command_execution_preview, extract_row_content_str, extract_row_content_str_summary,
+  AssistantRow, CommandExecutionAction, CommandExecutionPreview, CommandExecutionPreviewKind,
+  CommandExecutionRow, CommandExecutionStatus, ContextRow, ContextRowKind, ConversationRow,
+  ConversationRowEntry, ConversationRowPage, ConversationRowSummary, HandoffRow, HookRow,
+  MemoryCitation, MemoryCitationEntry, MessageRowContent, NoticeRow, NoticeRowKind,
+  NoticeRowSeverity, PlanRow, RowEntrySummary, RowPageSummary, ShellCommandRow,
+  ShellCommandRowKind, SystemRow, TaskRow, TaskRowKind, TaskRowStatus, ThinkingRow, ToolRow,
+  ToolRowSummary, TurnStatus, UserRow,
 };
 pub use tool_display::{
   classify_tool_name, compute_diff_display, compute_expanded_output, compute_input_display,
