@@ -44,11 +44,11 @@ const ActivityGroupRow = ({ entry }) => {
 /**
  * Build a compact summary like "Read • Search" from grouped activity entries.
  */
-let buildToolTypeSummary = (children) => {
-  let seen = new Set()
-  let names = []
-  for (let child of children) {
-    let name = childTypeSummary(child)
+const buildToolTypeSummary = (children) => {
+  const seen = new Set()
+  const names = []
+  for (const child of children) {
+    const name = childTypeSummary(child)
     if (name && !seen.has(name)) {
       seen.add(name)
       names.push(name)
@@ -58,8 +58,8 @@ let buildToolTypeSummary = (children) => {
   return names.join(' \u2022 ')
 }
 
-let childTypeSummary = (child) => {
-  let row = child.row
+const childTypeSummary = (child) => {
+  const row = child.row
   if (!row) return null
 
   if (row.row_type === 'tool') {
@@ -70,7 +70,7 @@ let childTypeSummary = (child) => {
     return null
   }
 
-  let actions = row.command_actions || []
+  const actions = row.command_actions || []
   if (actions.length === 0) return 'Run command'
 
   if (actions.every((action) => action.type === 'read')) return 'Read'

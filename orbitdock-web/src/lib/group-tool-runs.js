@@ -4,8 +4,8 @@
  * Non-activity rows are never grouped.
  */
 const groupToolRuns = (rows) => {
-  let result = []
-  let buffer = []
+  const result = []
+  const buffer = []
 
   const flushBuffer = () => {
     if (buffer.length >= 2) {
