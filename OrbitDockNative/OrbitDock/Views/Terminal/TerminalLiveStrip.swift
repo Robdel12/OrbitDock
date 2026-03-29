@@ -7,8 +7,20 @@ import SwiftUI
 /// affordance. On iOS, tapping opens the full-screen interactive terminal.
 /// On macOS, tapping expands the inline terminal panel.
 struct TerminalLiveStrip: View {
+  private enum Metrics {
+    static let horizontalInset: CGFloat = Spacing.md
+    static let iconColumnWidth: CGFloat = 12
+  }
+
+  enum ChromeStyle {
+    case standalone
+    case embedded
+  }
+
   let session: TerminalSessionController
   let onTap: () -> Void
+  var fallbackPath: String?
+  var chromeStyle: ChromeStyle = .standalone
 
   @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -20,58 +32,97 @@ struct TerminalLiveStrip: View {
   /// with a tilde for home, e.g. "~/Developer/OrbitDock" → "~/OrbitDock"
   private var displayTitle: String {
     let title = session.title
+    if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title == "Terminal" {
+      return shortenedPath(fallbackPath) ?? title
+    }
     // If the shell gives us a path-like title, abbreviate it
     if title.contains("/") {
-      let path = title.replacingOccurrences(of: "^~", with: NSHomeDirectory(), options: .regularExpression)
-      let home = NSHomeDirectory()
-      let shortened = path.hasPrefix(home)
-        ? "~/" + (path.dropFirst(home.count + 1).split(separator: "/").last.map(String.init) ?? "")
-        : String(title.split(separator: "/").last ?? Substring(title))
-      return shortened.isEmpty ? title : shortened
+      return shortenedPath(title) ?? title
     }
     return title
   }
 
+  private var isCompact: Bool {
+    sizeClass == .compact
+  }
+
+  private func shortenedPath(_ raw: String?) -> String? {
+    guard let raw else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    let path = trimmed.replacingOccurrences(of: "^~", with: NSHomeDirectory(), options: .regularExpression)
+    let home = NSHomeDirectory()
+    if path.hasPrefix(home) {
+      let suffix = String(path.dropFirst(home.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      if suffix.isEmpty { return "~" }
+      if let last = suffix.split(separator: "/").last {
+        return "~/\(last)"
+      }
+      return "~"
+    }
+
+    if let last = path.split(separator: "/").last, !last.isEmpty {
+      return String(last)
+    }
+    return trimmed
+  }
+
   var body: some View {
     Button(action: onTap) {
-      HStack(spacing: Spacing.xs) {
-        // Shell prompt indicator
-        Text("❯")
-          .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
+        Image(systemName: "chevron.right")
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
           .foregroundStyle(Color.terminal)
+          .frame(width: Metrics.iconColumnWidth, height: 16)
 
         if isConnecting {
-          Text("Connecting")
-            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
+          HStack(spacing: Spacing.xs) {
+            Text("Terminal")
+              .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+              .foregroundStyle(Color.textPrimary)
 
-          ProgressView()
-            .controlSize(.mini)
-            .tint(Color.textQuaternary)
+            Text("·")
+              .font(.system(size: TypeScale.meta, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
+
+            Text("Connecting")
+              .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
+
+            ProgressView()
+              .controlSize(.mini)
+              .tint(Color.textQuaternary)
+          }
         } else {
-          // Live state — show terminal title (shell cwd)
-          Text(displayTitle)
-            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
-            .lineLimit(1)
+          HStack(spacing: Spacing.xs) {
+            Text("Terminal")
+              .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+              .foregroundStyle(Color.textPrimary)
+
+            Text("·")
+              .font(.system(size: TypeScale.meta, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
+
+            Text(displayTitle)
+              .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(1)
+          }
         }
 
         Spacer(minLength: 0)
 
-        // Expand indicator
         Image(systemName: "arrow.up.left.and.arrow.down.right")
-          .font(.system(size: TypeScale.mini, weight: .semibold))
+          .font(.system(size: isCompact ? IconScale.xs : TypeScale.mini, weight: .semibold))
           .foregroundStyle(Color.textQuaternary)
-          .frame(width: 20, height: 20)
-          .background(Color.terminal.opacity(OpacityTier.subtle), in: RoundedRectangle(cornerRadius: Radius.xs, style: .continuous))
+          .frame(width: 18, height: 18)
       }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.vertical, Spacing.sm_)
-      .background(Color.backgroundCode.opacity(0.6))
-      .overlay(alignment: .top) {
-        Color.surfaceBorder.opacity(0.3)
-          .frame(height: 0.5)
-      }
+      .padding(.horizontal, Metrics.horizontalInset)
+      .padding(.vertical, Spacing.xs)
+      .background(
+        chromeStyle == .standalone ? Color.backgroundCode.opacity(0.12) : Color.clear
+      )
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Open terminal")
@@ -85,10 +136,7 @@ struct TerminalLiveStrip: View {
     OrbitStatusIndicator(displayStatus: .reply)
 
     TerminalLiveStrip(
-      session: {
-        let s = TerminalSessionController(terminalId: "preview")
-        return s
-      }(),
+      session: TerminalSessionController(terminalId: "preview"),
       onTap: {}
     )
   }
