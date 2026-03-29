@@ -452,6 +452,58 @@ pub enum ClientMessage {
     last_assistant_message: Option<String>,
   },
 
+  // Codex hook transport (server-owned write path)
+  CodexSessionStart {
+    session_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+  },
+  CodexUserPromptSubmit {
+    session_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    turn_id: String,
+    prompt: String,
+  },
+  CodexStopEvent {
+    session_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    turn_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_hook_active: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_assistant_message: Option<String>,
+  },
+  CodexToolEvent {
+    session_id: String,
+    cwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transcript_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    hook_event_name: String,
+    turn_id: String,
+    tool_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_use_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_input: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_response: Option<Value>,
+  },
+
   // Shell execution (provider-independent, user-initiated)
   ExecuteShell {
     session_id: String,
@@ -603,6 +655,116 @@ mod tests {
             .map(str::to_string)
         });
         assert_eq!(command.as_deref(), Some("echo hello"));
+      }
+      other => panic!("unexpected message variant: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn deserializes_codex_user_prompt_submit() {
+    let json = r#"{
+          "type":"codex_user_prompt_submit",
+          "session_id":"codex-1",
+          "cwd":"/tmp/project",
+          "transcript_path":"/tmp/project/.codex/transcript.jsonl",
+          "model":"gpt-5-codex",
+          "turn_id":"turn-1",
+          "prompt":"Ship it"
+        }"#;
+
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex user prompt submit");
+    match parsed {
+      ClientMessage::CodexUserPromptSubmit {
+        session_id,
+        cwd,
+        transcript_path,
+        model,
+        turn_id,
+        prompt,
+      } => {
+        assert_eq!(session_id, "codex-1");
+        assert_eq!(cwd, "/tmp/project");
+        assert_eq!(
+          transcript_path.as_deref(),
+          Some("/tmp/project/.codex/transcript.jsonl")
+        );
+        assert_eq!(model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(turn_id, "turn-1");
+        assert_eq!(prompt, "Ship it");
+      }
+      other => panic!("unexpected message variant: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn deserializes_codex_stop_event() {
+    let json = r#"{
+          "type":"codex_stop_event",
+          "session_id":"codex-2",
+          "cwd":"/tmp/project",
+          "turn_id":"turn-9",
+          "stop_hook_active":true,
+          "last_assistant_message":"Done."
+        }"#;
+
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex stop event");
+    match parsed {
+      ClientMessage::CodexStopEvent {
+        session_id,
+        cwd,
+        turn_id,
+        stop_hook_active,
+        last_assistant_message,
+        ..
+      } => {
+        assert_eq!(session_id, "codex-2");
+        assert_eq!(cwd, "/tmp/project");
+        assert_eq!(turn_id, "turn-9");
+        assert_eq!(stop_hook_active, Some(true));
+        assert_eq!(last_assistant_message.as_deref(), Some("Done."));
+      }
+      other => panic!("unexpected message variant: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn deserializes_codex_tool_event() {
+    let json = r#"{
+          "type":"codex_tool_event",
+          "session_id":"codex-3",
+          "cwd":"/tmp/project",
+          "hook_event_name":"PreToolUse",
+          "turn_id":"turn-4",
+          "tool_name":"Bash",
+          "tool_use_id":"tool-9",
+          "tool_input":{"command":"cargo test"}
+        }"#;
+
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex tool event");
+    match parsed {
+      ClientMessage::CodexToolEvent {
+        session_id,
+        cwd,
+        hook_event_name,
+        turn_id,
+        tool_name,
+        tool_use_id,
+        tool_input,
+        ..
+      } => {
+        assert_eq!(session_id, "codex-3");
+        assert_eq!(cwd, "/tmp/project");
+        assert_eq!(hook_event_name, "PreToolUse");
+        assert_eq!(turn_id, "turn-4");
+        assert_eq!(tool_name, "Bash");
+        assert_eq!(tool_use_id.as_deref(), Some("tool-9"));
+        let command = tool_input.and_then(|value| {
+          value
+            .get("command")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+        });
+        assert_eq!(command.as_deref(), Some("cargo test"));
       }
       other => panic!("unexpected message variant: {:?}", other),
     }

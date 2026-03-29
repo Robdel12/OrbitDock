@@ -281,80 +281,16 @@ impl From<SyncCommand> for PersistCommand {
       SyncCommand::UpsertSubagents { session_id, infos } => {
         PersistCommand::UpsertSubagents { session_id, infos }
       }
-      SyncCommand::RolloutSessionUpsert {
-        id,
-        thread_id,
-        project_path,
-        project_name,
-        branch,
-        model,
-        context_label,
-        transcript_path,
-        started_at,
-      } => PersistCommand::RolloutSessionUpsert {
-        id,
-        thread_id,
-        project_path,
-        project_name,
-        branch,
-        model,
-        context_label,
-        transcript_path,
-        started_at,
-      },
-      SyncCommand::RolloutSessionUpdate {
-        id,
-        project_path,
-        model,
-        status,
-        work_status,
-        attention_reason,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
-        total_tokens,
-        last_tool,
-        last_tool_at,
-        custom_name,
-      } => PersistCommand::RolloutSessionUpdate {
-        id,
-        project_path,
-        model,
-        status,
-        work_status,
-        attention_reason,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
-        total_tokens,
-        last_tool,
-        last_tool_at,
-        custom_name,
-      },
-      SyncCommand::RolloutPromptIncrement { id, first_prompt } => {
-        PersistCommand::RolloutPromptIncrement { id, first_prompt }
+      SyncCommand::RolloutSessionUpsert { .. }
+      | SyncCommand::RolloutSessionUpdate { .. }
+      | SyncCommand::RolloutPromptIncrement { .. }
+      | SyncCommand::RolloutToolIncrement { .. }
+      | SyncCommand::UpsertRolloutCheckpoint { .. }
+      | SyncCommand::DeleteRolloutCheckpoint { .. } => {
+        unreachable!("legacy rollout sync commands should not be emitted after rollout cleanup")
       }
       SyncCommand::CodexPromptIncrement { id, first_prompt } => {
         PersistCommand::CodexPromptIncrement { id, first_prompt }
-      }
-      SyncCommand::RolloutToolIncrement { id } => PersistCommand::RolloutToolIncrement { id },
-      SyncCommand::UpsertRolloutCheckpoint {
-        path,
-        offset,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing,
-      } => PersistCommand::UpsertRolloutCheckpoint {
-        path,
-        offset,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing,
-      },
-      SyncCommand::DeleteRolloutCheckpoint { path } => {
-        PersistCommand::DeleteRolloutCheckpoint { path }
       }
       SyncCommand::ApprovalRequested(params) => {
         PersistCommand::ApprovalRequested(Box::new((*params).into()))

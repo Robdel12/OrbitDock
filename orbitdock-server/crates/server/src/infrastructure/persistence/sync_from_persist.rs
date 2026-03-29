@@ -45,7 +45,11 @@ impl PersistCommand {
 
 impl From<&PersistCommand> for Option<SyncCommand> {
   fn from(value: &PersistCommand) -> Self {
-    Some(match value {
+    match value {
+      PersistCommand::SetTranscriptPath { .. } | PersistCommand::SessionAttentionUpdate { .. } => {
+        None
+      }
+      _ => Some(match value {
       PersistCommand::SessionCreate(params) => {
         SyncCommand::SessionCreate(Box::new(SyncSessionCreateParams::from(params.as_ref())))
       }
@@ -310,88 +314,11 @@ impl From<&PersistCommand> for Option<SyncCommand> {
         session_id: session_id.clone(),
         infos: infos.clone(),
       },
-      PersistCommand::RolloutSessionUpsert {
-        id,
-        thread_id,
-        project_path,
-        project_name,
-        branch,
-        model,
-        context_label,
-        transcript_path,
-        started_at,
-      } => SyncCommand::RolloutSessionUpsert {
-        id: id.clone(),
-        thread_id: thread_id.clone(),
-        project_path: project_path.clone(),
-        project_name: project_name.clone(),
-        branch: branch.clone(),
-        model: model.clone(),
-        context_label: context_label.clone(),
-        transcript_path: transcript_path.clone(),
-        started_at: started_at.clone(),
-      },
-      PersistCommand::RolloutSessionUpdate {
-        id,
-        project_path,
-        model,
-        status,
-        work_status,
-        attention_reason,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
-        total_tokens,
-        last_tool,
-        last_tool_at,
-        custom_name,
-      } => SyncCommand::RolloutSessionUpdate {
-        id: id.clone(),
-        project_path: project_path.clone(),
-        model: model.clone(),
-        status: *status,
-        work_status: *work_status,
-        attention_reason: attention_reason.clone(),
-        pending_tool_name: pending_tool_name.clone(),
-        pending_tool_input: pending_tool_input.clone(),
-        pending_question: pending_question.clone(),
-        total_tokens: *total_tokens,
-        last_tool: last_tool.clone(),
-        last_tool_at: last_tool_at.clone(),
-        custom_name: custom_name.clone(),
-      },
-      PersistCommand::RolloutPromptIncrement { id, first_prompt } => {
-        SyncCommand::RolloutPromptIncrement {
-          id: id.clone(),
-          first_prompt: first_prompt.clone(),
-        }
-      }
       PersistCommand::CodexPromptIncrement { id, first_prompt } => {
         SyncCommand::CodexPromptIncrement {
           id: id.clone(),
           first_prompt: first_prompt.clone(),
         }
-      }
-      PersistCommand::RolloutToolIncrement { id } => {
-        SyncCommand::RolloutToolIncrement { id: id.clone() }
-      }
-      PersistCommand::UpsertRolloutCheckpoint {
-        path,
-        offset,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing,
-      } => SyncCommand::UpsertRolloutCheckpoint {
-        path: path.clone(),
-        offset: *offset,
-        session_id: session_id.clone(),
-        project_path: project_path.clone(),
-        model_provider: model_provider.clone(),
-        ignore_existing: *ignore_existing,
-      },
-      PersistCommand::DeleteRolloutCheckpoint { path } => {
-        SyncCommand::DeleteRolloutCheckpoint { path: path.clone() }
       }
       PersistCommand::ApprovalRequested(params) => {
         SyncCommand::ApprovalRequested(Box::new(SyncApprovalRequestedParams::from(params.as_ref())))
@@ -553,6 +480,10 @@ impl From<&PersistCommand> for Option<SyncCommand> {
         row_ids: row_ids.clone(),
         status: *status,
       },
-    })
+      PersistCommand::SetTranscriptPath { .. } | PersistCommand::SessionAttentionUpdate { .. } => {
+        unreachable!("these hook-only persistence commands are intentionally excluded from sync replay")
+      }
+      }),
+    }
   }
 }

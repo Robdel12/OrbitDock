@@ -1,4 +1,5 @@
 use rusqlite::{params, Connection, OptionalExtension};
+use std::path::PathBuf;
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -151,6 +152,13 @@ pub struct DirectClaudeOwner {
   pub lifecycle_state: SessionLifecycleState,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectCodexOwner {
+  pub session_id: String,
+  pub status: SessionStatus,
+  pub lifecycle_state: SessionLifecycleState,
+}
+
 fn resolve_custom_name_from_first_prompt(
   _conn: &Connection,
   _session_id: &str,
@@ -207,10 +215,26 @@ fn control_mode_to_integration_mode(
 
 /// Load just the persisted lifecycle state for a session.
 #[cfg(test)]
+#[allow(dead_code)]
 pub async fn load_session_lifecycle_state(
   id: &str,
 ) -> Result<Option<SessionLifecycleState>, anyhow::Error> {
-  let db_path = crate::infrastructure::paths::db_path();
+  load_session_lifecycle_state_with_db_path(crate::infrastructure::paths::db_path(), id).await
+}
+
+#[cfg(test)]
+pub async fn load_session_lifecycle_state_from_db_path(
+  db_path: PathBuf,
+  id: &str,
+) -> Result<Option<SessionLifecycleState>, anyhow::Error> {
+  load_session_lifecycle_state_with_db_path(db_path, id).await
+}
+
+#[cfg(test)]
+async fn load_session_lifecycle_state_with_db_path(
+  db_path: PathBuf,
+  id: &str,
+) -> Result<Option<SessionLifecycleState>, anyhow::Error> {
   let id_owned = id.to_string();
 
   tokio::task::spawn_blocking(move || -> Result<Option<SessionLifecycleState>, anyhow::Error> {
@@ -242,8 +266,19 @@ pub async fn load_session_lifecycle_state(
 /// Load recent sessions from the database for server restart recovery.
 /// Includes ended sessions so UI history remains visible after app restart.
 pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
-  let db_path = crate::infrastructure::paths::db_path();
+  load_sessions_for_startup_with_db_path(crate::infrastructure::paths::db_path()).await
+}
 
+#[cfg(test)]
+pub async fn load_sessions_for_startup_from_db_path(
+  db_path: PathBuf,
+) -> Result<Vec<RestoredSession>, anyhow::Error> {
+  load_sessions_for_startup_with_db_path(db_path).await
+}
+
+async fn load_sessions_for_startup_with_db_path(
+  db_path: PathBuf,
+) -> Result<Vec<RestoredSession>, anyhow::Error> {
   let sessions = tokio::task::spawn_blocking(
         move || -> Result<Vec<RestoredSession>, anyhow::Error> {
             if !db_path.exists() {
@@ -279,17 +314,16 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 "UPDATE sessions
                  SET status = 'ended',
                      work_status = 'ended',
+                     lifecycle_state = 'ended',
                      ended_at = COALESCE(ended_at, ?1),
                      end_reason = COALESCE(end_reason, 'startup_stale_passive')
                  WHERE provider = 'codex'
-                   AND codex_integration_mode = 'passive'
-                   AND status = 'active'
-                   AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
-                   AND CAST(REPLACE(last_activity_at, 'Z', '') AS INTEGER) < ?2",
-                params![
-                    chrono_now(),
-                    chrono::Utc::now().timestamp().saturating_sub(15 * 60),
-                ],
+                   AND COALESCE(control_mode, CASE
+                         WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+                         ELSE 'passive'
+                       END) != 'direct'
+                   AND status = 'active'",
+                params![chrono_now()],
             )?;
 
             conn.execute(
@@ -831,9 +865,22 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
 /// Load a specific session by ID (for resume — includes ended sessions).
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
-  let db_path = crate::infrastructure::paths::db_path();
-  let id_owned = id.to_string();
+  load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id).await
+}
 
+#[cfg(test)]
+pub async fn load_session_by_id_from_db_path(
+  db_path: PathBuf,
+  id: &str,
+) -> Result<Option<RestoredSession>, anyhow::Error> {
+  load_session_by_id_with_db_path(db_path, id).await
+}
+
+async fn load_session_by_id_with_db_path(
+  db_path: PathBuf,
+  id: &str,
+) -> Result<Option<RestoredSession>, anyhow::Error> {
+  let id_owned = id.to_string();
   let result = tokio::task::spawn_blocking(
         move || -> Result<Option<RestoredSession>, anyhow::Error> {
             if !db_path.exists() {
@@ -1174,9 +1221,26 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 pub async fn load_direct_claude_owner_by_sdk_session_id(
   sdk_session_id: &str,
 ) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
-  let db_path = crate::infrastructure::paths::db_path();
-  let sdk_session_id = sdk_session_id.to_string();
+  load_direct_claude_owner_by_sdk_session_id_with_db_path(
+    crate::infrastructure::paths::db_path(),
+    sdk_session_id,
+  )
+  .await
+}
 
+#[cfg(test)]
+pub async fn load_direct_claude_owner_by_sdk_session_id_from_db_path(
+  db_path: PathBuf,
+  sdk_session_id: &str,
+) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
+  load_direct_claude_owner_by_sdk_session_id_with_db_path(db_path, sdk_session_id).await
+}
+
+async fn load_direct_claude_owner_by_sdk_session_id_with_db_path(
+  db_path: PathBuf,
+  sdk_session_id: &str,
+) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
+  let sdk_session_id = sdk_session_id.to_string();
   tokio::task::spawn_blocking(move || -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
         if !db_path.exists() {
             return Ok(None);
@@ -1208,6 +1272,73 @@ pub async fn load_direct_claude_owner_by_sdk_session_id(
                     let status: String = row.get(1)?;
                     let lifecycle_state: String = row.get(2)?;
                     Ok(DirectClaudeOwner {
+                        session_id: row.get(0)?,
+                        status: parse_session_status(&status),
+                        lifecycle_state: parse_lifecycle_state(Some(lifecycle_state)),
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(row)
+    })
+    .await?
+}
+
+pub async fn load_direct_codex_owner_by_thread_id(
+  thread_id: &str,
+) -> Result<Option<DirectCodexOwner>, anyhow::Error> {
+  load_direct_codex_owner_by_thread_id_with_db_path(
+    crate::infrastructure::paths::db_path(),
+    thread_id,
+  )
+  .await
+}
+
+#[cfg(test)]
+pub async fn load_direct_codex_owner_by_thread_id_from_db_path(
+  db_path: PathBuf,
+  thread_id: &str,
+) -> Result<Option<DirectCodexOwner>, anyhow::Error> {
+  load_direct_codex_owner_by_thread_id_with_db_path(db_path, thread_id).await
+}
+
+async fn load_direct_codex_owner_by_thread_id_with_db_path(
+  db_path: PathBuf,
+  thread_id: &str,
+) -> Result<Option<DirectCodexOwner>, anyhow::Error> {
+  let thread_id = thread_id.to_string();
+  tokio::task::spawn_blocking(move || -> Result<Option<DirectCodexOwner>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let row = conn
+            .query_row(
+                "SELECT s.id,
+                        s.status,
+                        COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END)
+                 FROM sessions s
+                 WHERE s.provider = 'codex'
+                   AND s.codex_thread_id = ?1
+                   AND COALESCE(s.control_mode, CASE
+                        WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
+                        ELSE 'passive'
+                   END) = 'direct'
+                 ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
+                          COALESCE(s.last_activity_at, s.started_at, '') DESC
+                 LIMIT 1",
+                params![thread_id],
+                |row| {
+                    let status: String = row.get(1)?;
+                    let lifecycle_state: String = row.get(2)?;
+                    Ok(DirectCodexOwner {
                         session_id: row.get(0)?,
                         status: parse_session_status(&status),
                         lifecycle_state: parse_lifecycle_state(Some(lifecycle_state)),

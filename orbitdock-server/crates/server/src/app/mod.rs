@@ -703,28 +703,12 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     }
   }
 
-  let watcher_state = state.clone();
-  let watcher_persist = persist_tx.clone();
-  tokio::spawn(async move {
-    if let Err(error) =
-      crate::connectors::rollout_watcher::start_rollout_watcher(watcher_state, watcher_persist)
-        .await
-    {
-      warn!(
-          component = "rollout_watcher",
-          event = "rollout_watcher.stopped_with_error",
-          error = %error,
-          "Rollout watcher failed"
-      );
-    }
-  });
-
   let expiry_state = state.clone();
   tokio::spawn(async move {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
     loop {
       interval.tick().await;
-      expiry_state.expire_pending_claude(std::time::Duration::from_secs(60));
+      expiry_state.expire_pending_hook_sessions(std::time::Duration::from_secs(60));
     }
   });
 
@@ -1081,8 +1065,10 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
   let total = files.len();
   let mut drained = 0u64;
   let mut failed = 0u64;
-  let replay_options =
+  let claude_replay_options =
     crate::connectors::claude_hooks::ClaudeHookHandlingOptions::for_spool_replay();
+  let codex_replay_options =
+    crate::connectors::codex_hooks::CodexHookHandlingOptions::for_spool_replay();
 
   for path in &files {
     let content = match std::fs::read_to_string(path) {
@@ -1115,12 +1101,34 @@ async fn drain_spool(state: &Arc<SessionRegistry>) {
       }
     };
 
-    crate::connectors::claude_hooks::handle_hook_message_with_options(
-      message,
-      state,
-      replay_options.clone(),
-    )
-    .await;
+    match crate::connectors::hook_handler::classify_hook_provider(&message) {
+      Some(orbitdock_protocol::Provider::Claude) => {
+        crate::connectors::claude_hooks::handle_hook_message_with_options(
+          message,
+          state,
+          claude_replay_options.clone(),
+        )
+        .await;
+      }
+      Some(orbitdock_protocol::Provider::Codex) => {
+        crate::connectors::codex_hooks::handle_hook_message_with_options(
+          message,
+          state,
+          codex_replay_options.clone(),
+        )
+        .await;
+      }
+      None => {
+        warn!(
+          component = "spool",
+          event = "spool.unsupported_message",
+          path = %path.display(),
+          "Skipping spooled message that is not a supported hook payload"
+        );
+        failed += 1;
+        continue;
+      }
+    }
     let _ = std::fs::remove_file(path);
     drained += 1;
   }
@@ -1155,8 +1163,9 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
 
 #[cfg(test)]
 mod tests {
-  use super::resolve_workspace_provider_kind;
-  use orbitdock_protocol::WorkspaceProviderKind;
+  use super::{drain_spool, resolve_workspace_provider_kind};
+  use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+  use orbitdock_protocol::{ClientMessage, Provider, WorkspaceProviderKind};
 
   #[test]
   fn workspace_provider_override_wins_over_persisted_value() {
@@ -1175,5 +1184,62 @@ mod tests {
       resolve_workspace_provider_kind(None, None).expect("workspace provider should default");
 
     assert_eq!(resolved, WorkspaceProviderKind::Local);
+  }
+
+  #[tokio::test]
+  async fn drain_spool_dispatches_mixed_provider_hook_messages() {
+    ensure_server_test_data_dir();
+    crate::infrastructure::paths::ensure_dirs().expect("create spool dirs");
+    let spool_dir = crate::infrastructure::paths::spool_dir();
+    let _ = std::fs::remove_dir_all(&spool_dir);
+    std::fs::create_dir_all(&spool_dir).expect("recreate spool dir");
+
+    let claude_payload = serde_json::to_string(&ClientMessage::ClaudeSessionStart {
+      session_id: "claude-sdk-1".to_string(),
+      cwd: "/tmp/claude-repo".to_string(),
+      model: Some("claude-opus-4-6".to_string()),
+      source: Some("startup".to_string()),
+      context_label: None,
+      transcript_path: Some("/tmp/claude-repo/transcript.jsonl".to_string()),
+      permission_mode: None,
+      agent_type: None,
+      terminal_session_id: None,
+      terminal_app: None,
+    })
+    .expect("serialize claude spool payload");
+    let codex_payload = serde_json::to_string(&ClientMessage::CodexUserPromptSubmit {
+      session_id: "codex-thread-1".to_string(),
+      cwd: "/tmp/codex-repo".to_string(),
+      transcript_path: Some("/tmp/codex-repo/transcript.jsonl".to_string()),
+      model: Some("gpt-5-codex".to_string()),
+      turn_id: "turn-1".to_string(),
+      prompt: "Ship it".to_string(),
+    })
+    .expect("serialize codex spool payload");
+
+    std::fs::write(spool_dir.join("001-claude.json"), claude_payload)
+      .expect("write claude spool file");
+    std::fs::write(spool_dir.join("002-codex.json"), codex_payload)
+      .expect("write codex spool file");
+
+    let state = new_test_session_registry(true);
+    drain_spool(&state).await;
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+
+    assert_eq!(
+      state.peek_pending_hook_cwd(Provider::Claude, "claude-sdk-1"),
+      Some("/tmp/claude-repo".to_string())
+    );
+
+    let codex_session = state
+      .get_session("codex-thread-1")
+      .expect("codex spool replay should materialize passive session");
+    let snapshot = codex_session.snapshot();
+    assert_eq!(snapshot.provider, Provider::Codex);
+    assert_eq!(
+      snapshot.transcript_path.as_deref(),
+      Some("/tmp/codex-repo/transcript.jsonl")
+    );
   }
 }

@@ -3,9 +3,7 @@
 //! Uses `spawn_blocking` for async-safe SQLite access.
 //! Batches writes for better performance under high event volume.
 
-use std::collections::HashMap;
 use std::collections::HashSet;
-use std::path::Path;
 use std::path::PathBuf;
 
 mod approvals;
@@ -29,7 +27,6 @@ mod writer;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
-use orbitdock_connector_codex::rollout_parser::PersistedFileState;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, TurnStatus};
 use orbitdock_protocol::{
   ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, Provider,
@@ -51,8 +48,8 @@ pub(crate) use mission_control::{
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
-  load_direct_claude_owner_by_sdk_session_id, load_session_by_id, load_session_permission_mode,
-  load_sessions_for_startup, RestoredSession,
+  load_direct_claude_owner_by_sdk_session_id, load_direct_codex_owner_by_thread_id,
+  load_session_by_id, load_session_permission_mode, load_sessions_for_startup, RestoredSession,
 };
 pub(crate) use startup_cleanup::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
@@ -914,6 +911,66 @@ pub(super) fn execute_command(
       )?;
     }
 
+    PersistCommand::SetTranscriptPath {
+      session_id,
+      transcript_path,
+    } => {
+      conn.execute(
+        "UPDATE sessions SET transcript_path = ?, last_activity_at = ? WHERE id = ?",
+        params![transcript_path, chrono_now(), session_id],
+      )?;
+    }
+
+    PersistCommand::SessionAttentionUpdate {
+      session_id,
+      attention_reason,
+      last_tool,
+      last_tool_at,
+      pending_tool_name,
+      pending_tool_input,
+      pending_question,
+    } => {
+      let mut updates: Vec<String> = Vec::new();
+      let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+      if let Some(reason) = attention_reason {
+        updates.push("attention_reason = ?".to_string());
+        params_vec.push(Box::new(reason));
+      }
+      if let Some(tool) = last_tool {
+        updates.push("last_tool = ?".to_string());
+        params_vec.push(Box::new(tool));
+      }
+      if let Some(last_tool_at) = last_tool_at {
+        updates.push("last_tool_at = ?".to_string());
+        params_vec.push(Box::new(last_tool_at));
+      }
+      if let Some(name) = pending_tool_name {
+        updates.push("pending_tool_name = ?".to_string());
+        params_vec.push(Box::new(name));
+      }
+      if let Some(input) = pending_tool_input {
+        updates.push("pending_tool_input = ?".to_string());
+        params_vec.push(Box::new(input));
+      }
+      if let Some(question) = pending_question {
+        updates.push("pending_question = ?".to_string());
+        params_vec.push(Box::new(question));
+      }
+
+      if !updates.is_empty() {
+        updates.push("last_activity_at = ?".to_string());
+        params_vec.push(Box::new(chrono_now()));
+
+        let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
+        params_vec.push(Box::new(session_id));
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> =
+          params_vec.iter().map(|boxed| boxed.as_ref()).collect();
+        conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+      }
+    }
+
     PersistCommand::SetSessionConfig {
       session_id,
       approval_policy,
@@ -1390,234 +1447,6 @@ pub(super) fn execute_command(
       }
     }
 
-    PersistCommand::RolloutSessionUpsert {
-      id,
-      thread_id,
-      project_path,
-      project_name,
-      branch,
-      model,
-      context_label,
-      transcript_path,
-      started_at,
-    } => {
-      if is_direct_thread_owned(conn, &id)? {
-        return Ok(());
-      }
-
-      let preserve_user_closed_state = session_was_user_closed(conn, &id)?;
-      let now = chrono_now();
-      conn.execute(
-                "INSERT INTO sessions (
-                    id, project_path, project_name, branch, model, context_label, transcript_path,
-                    provider, status, work_status, control_mode, codex_integration_mode, codex_thread_id,
-                    started_at, last_activity_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'codex', 'active', 'waiting', 'passive', 'passive', ?8, ?9, ?10)
-                 ON CONFLICT(id) DO UPDATE SET
-                    project_path = excluded.project_path,
-                    project_name = COALESCE(excluded.project_name, sessions.project_name),
-                    branch = COALESCE(excluded.branch, sessions.branch),
-                    model = COALESCE(excluded.model, sessions.model),
-                    context_label = COALESCE(excluded.context_label, sessions.context_label),
-                    transcript_path = excluded.transcript_path,
-                    provider = 'codex',
-                    status = CASE
-                        WHEN ?11 THEN sessions.status
-                        ELSE 'active'
-                    END,
-                    work_status = CASE
-                        WHEN ?11 THEN sessions.work_status
-                        WHEN sessions.work_status IN ('permission', 'question', 'working') THEN sessions.work_status
-                        ELSE 'waiting'
-                    END,
-                    ended_at = CASE
-                        WHEN ?11 THEN sessions.ended_at
-                        ELSE NULL
-                    END,
-                    end_reason = CASE
-                        WHEN ?11 THEN sessions.end_reason
-                        ELSE NULL
-                    END,
-                    lifecycle_state = CASE
-                        WHEN ?11 THEN COALESCE(sessions.lifecycle_state, 'ended')
-                        ELSE 'open'
-                    END,
-                    control_mode = CASE
-                        WHEN sessions.control_mode = 'direct' THEN sessions.control_mode
-                        ELSE 'passive'
-                    END,
-                    codex_integration_mode = 'passive',
-                    codex_thread_id = excluded.codex_thread_id,
-                    last_activity_at = excluded.last_activity_at",
-                params![
-                    id,
-                    project_path,
-                    project_name,
-                    branch,
-                    model,
-                    context_label,
-                    transcript_path,
-                    thread_id,
-                    started_at,
-                    now,
-                    preserve_user_closed_state,
-                ],
-            )?;
-    }
-
-    PersistCommand::RolloutSessionUpdate {
-      id,
-      project_path,
-      model,
-      status,
-      work_status,
-      attention_reason,
-      pending_tool_name,
-      pending_tool_input,
-      pending_question,
-      total_tokens,
-      last_tool,
-      last_tool_at,
-      custom_name,
-    } => {
-      if is_direct_thread_owned(conn, &id)? {
-        return Ok(());
-      }
-
-      let preserve_user_closed_state = session_was_user_closed(conn, &id)?;
-      let lifecycle_state_is_ended = matches!(status, Some(SessionStatus::Ended))
-        || matches!(work_status, Some(WorkStatus::Ended));
-      let status_str = status.map(|s| match s {
-        SessionStatus::Active => "active",
-        SessionStatus::Ended => "ended",
-      });
-
-      let work_status_str = work_status.map(|s| match s {
-        WorkStatus::Working => "working",
-        WorkStatus::Waiting => "waiting",
-        WorkStatus::Permission => "permission",
-        WorkStatus::Question => "question",
-        WorkStatus::Reply => "reply",
-        WorkStatus::Ended => "ended",
-      });
-
-      let mut updates: Vec<String> = Vec::new();
-      let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-      // Rollout sessions are always Codex passive. Keep this authoritative so malformed
-      // legacy rows self-heal even if they were originally inserted with wrong metadata.
-      updates.push("provider = 'codex'".to_string());
-      updates.push("codex_integration_mode = 'passive'".to_string());
-      updates.push("codex_thread_id = COALESCE(codex_thread_id, id)".to_string());
-
-      if let Some(path) = project_path {
-        updates.push("project_path = ?".to_string());
-        params_vec.push(Box::new(path));
-      }
-      if let Some(m) = model {
-        updates.push("model = ?".to_string());
-        params_vec.push(Box::new(m));
-      }
-      if !preserve_user_closed_state {
-        if let Some(s) = status_str {
-          updates.push("status = ?".to_string());
-          params_vec.push(Box::new(s.to_string()));
-          if s == "ended" {
-            updates.push("ended_at = COALESCE(ended_at, ?)".to_string());
-            params_vec.push(Box::new(chrono_now()));
-          } else {
-            updates.push("ended_at = NULL".to_string());
-            updates.push("end_reason = NULL".to_string());
-          }
-        }
-        if let Some(ws) = work_status_str {
-          updates.push("work_status = ?".to_string());
-          params_vec.push(Box::new(ws.to_string()));
-        }
-        if let Some(reason) = attention_reason {
-          updates.push("attention_reason = ?".to_string());
-          params_vec.push(Box::new(reason));
-        }
-        if let Some(tool_name) = pending_tool_name {
-          updates.push("pending_tool_name = ?".to_string());
-          params_vec.push(Box::new(tool_name));
-        }
-        if let Some(tool_input) = pending_tool_input {
-          updates.push("pending_tool_input = ?".to_string());
-          params_vec.push(Box::new(tool_input));
-        }
-        if let Some(question) = pending_question {
-          updates.push("pending_question = ?".to_string());
-          params_vec.push(Box::new(question));
-        }
-      }
-      if let Some(tokens) = total_tokens {
-        updates.push("total_tokens = ?".to_string());
-        params_vec.push(Box::new(tokens));
-      }
-      if !preserve_user_closed_state {
-        if let Some(tool) = last_tool {
-          updates.push("last_tool = ?".to_string());
-          params_vec.push(Box::new(tool));
-        }
-        if let Some(tool_at) = last_tool_at {
-          updates.push("last_tool_at = ?".to_string());
-          params_vec.push(Box::new(tool_at));
-        }
-      }
-      if let Some(name) = custom_name {
-        updates.push("custom_name = ?".to_string());
-        params_vec.push(Box::new(name));
-      }
-
-      if !updates.is_empty() {
-        updates.push("last_activity_at = ?".to_string());
-        params_vec.push(Box::new(chrono_now()));
-
-        if preserve_user_closed_state {
-          updates.push("lifecycle_state = COALESCE(lifecycle_state, 'ended')".to_string());
-        } else if lifecycle_state_is_ended {
-          updates.push("lifecycle_state = 'ended'".to_string());
-        } else {
-          updates.push("lifecycle_state = COALESCE(lifecycle_state, 'open')".to_string());
-        }
-
-        let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
-        params_vec.push(Box::new(id));
-
-        let params_refs: Vec<&dyn rusqlite::ToSql> =
-          params_vec.iter().map(|b| b.as_ref()).collect();
-        conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
-      }
-    }
-
-    PersistCommand::RolloutPromptIncrement { id, first_prompt } => {
-      if is_direct_thread_owned(conn, &id)? {
-        return Ok(());
-      }
-
-      if let Some(ref prompt) = first_prompt {
-        let truncated: String = prompt.chars().take(200).collect();
-        conn.execute(
-          "UPDATE sessions
-                     SET prompt_count = prompt_count + 1,
-                         first_prompt = COALESCE(first_prompt, ?1),
-                         last_message = ?1,
-                         last_activity_at = ?2
-                     WHERE id = ?3",
-          params![truncated, chrono_now(), id],
-        )?;
-      } else {
-        conn.execute(
-          "UPDATE sessions
-                     SET prompt_count = prompt_count + 1,
-                         last_activity_at = ?1
-                     WHERE id = ?2",
-          params![chrono_now(), id],
-        )?;
-      }
-    }
-
     PersistCommand::CodexPromptIncrement { id, first_prompt } => {
       if let Some(ref prompt) = first_prompt {
         let truncated: String = prompt.chars().take(200).collect();
@@ -1639,65 +1468,6 @@ pub(super) fn execute_command(
           params![chrono_now(), id],
         )?;
       }
-    }
-
-    PersistCommand::RolloutToolIncrement { id } => {
-      if is_direct_thread_owned(conn, &id)? {
-        return Ok(());
-      }
-
-      conn.execute(
-        "UPDATE sessions
-                 SET tool_count = tool_count + 1,
-                     last_activity_at = ?1
-                 WHERE id = ?2",
-        params![chrono_now(), id],
-      )?;
-    }
-
-    PersistCommand::UpsertRolloutCheckpoint {
-      path,
-      offset,
-      session_id,
-      project_path,
-      model_provider,
-      ignore_existing,
-    } => {
-      let now = chrono_now();
-      conn.execute(
-        "INSERT INTO rollout_checkpoints (
-                    path,
-                    offset,
-                    session_id,
-                    project_path,
-                    model_provider,
-                    ignore_existing,
-                    updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(path) DO UPDATE SET
-                    offset = excluded.offset,
-                    session_id = excluded.session_id,
-                    project_path = excluded.project_path,
-                    model_provider = excluded.model_provider,
-                    ignore_existing = excluded.ignore_existing,
-                    updated_at = excluded.updated_at",
-        params![
-          path,
-          offset as i64,
-          session_id,
-          project_path,
-          model_provider,
-          ignore_existing as i32,
-          now,
-        ],
-      )?;
-    }
-
-    PersistCommand::DeleteRolloutCheckpoint { path } => {
-      conn.execute(
-        "DELETE FROM rollout_checkpoints WHERE path = ?1",
-        params![path],
-      )?;
     }
 
     PersistCommand::ApprovalRequested(params) => {
@@ -2184,52 +1954,6 @@ pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyho
   .await?
 }
 
-pub fn load_rollout_checkpoints(
-  db_path: &Path,
-) -> anyhow::Result<HashMap<String, PersistedFileState>> {
-  if !db_path.exists() {
-    return Ok(HashMap::new());
-  }
-
-  let conn = Connection::open(db_path)?;
-  conn.execute_batch(
-    "PRAGMA journal_mode = WAL;
-         PRAGMA busy_timeout = 5000;",
-  )?;
-
-  let mut stmt = conn.prepare(
-    "SELECT path, offset, session_id, project_path, model_provider, ignore_existing
-         FROM rollout_checkpoints",
-  )?;
-  let rows = stmt.query_map([], |row| {
-    let path: String = row.get(0)?;
-    let offset: i64 = row.get(1)?;
-    let session_id: Option<String> = row.get(2)?;
-    let project_path: Option<String> = row.get(3)?;
-    let model_provider: Option<String> = row.get(4)?;
-    let ignore_existing: i64 = row.get(5)?;
-
-    Ok((
-      path,
-      PersistedFileState {
-        offset: offset.max(0) as u64,
-        session_id,
-        project_path,
-        model_provider,
-        ignore_existing: Some(ignore_existing != 0),
-      },
-    ))
-  })?;
-
-  let mut checkpoints = HashMap::new();
-  for row in rows {
-    let (path, state) = row?;
-    checkpoints.insert(path, state);
-  }
-
-  Ok(checkpoints)
-}
-
 /// Get current time as ISO 8601 string
 fn row_type_str(row: &ConversationRow) -> &'static str {
   match row {
@@ -2344,91 +2068,6 @@ fn time_to_iso8601(secs: u64) -> String {
     "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
     year, month, day, hours, minutes, seconds
   )
-}
-
-#[cfg(test)]
-mod rollout_checkpoint_tests {
-  use super::{execute_command, load_rollout_checkpoints};
-  use crate::infrastructure::migration_runner::run_migrations;
-  use crate::infrastructure::persistence::PersistCommand;
-  use rusqlite::Connection;
-
-  #[test]
-  fn rollout_checkpoint_upsert_and_load_round_trip() {
-    let db_path = std::env::temp_dir().join(format!(
-      "orbitdock-rollout-checkpoint-test-{}-a.db",
-      std::process::id()
-    ));
-    let _ = std::fs::remove_file(&db_path);
-    let mut conn = Connection::open(&db_path).expect("open db");
-    run_migrations(&mut conn).expect("run migrations");
-
-    execute_command(
-      &conn,
-      PersistCommand::UpsertRolloutCheckpoint {
-        path: "/tmp/rollout-a.jsonl".to_string(),
-        offset: 42,
-        session_id: Some("session-1".to_string()),
-        project_path: Some("/tmp/project".to_string()),
-        model_provider: Some("codex".to_string()),
-        ignore_existing: true,
-      },
-    )
-    .expect("persist checkpoint");
-
-    let checkpoints = load_rollout_checkpoints(&db_path).expect("load checkpoints");
-    let checkpoint = checkpoints
-      .get("/tmp/rollout-a.jsonl")
-      .expect("checkpoint stored");
-    assert_eq!(checkpoint.offset, 42);
-    assert_eq!(checkpoint.session_id.as_deref(), Some("session-1"));
-    assert_eq!(checkpoint.project_path.as_deref(), Some("/tmp/project"));
-    assert_eq!(checkpoint.model_provider.as_deref(), Some("codex"));
-    assert_eq!(checkpoint.ignore_existing, Some(true));
-
-    let _ = std::fs::remove_file(db_path);
-  }
-
-  #[test]
-  fn rollout_checkpoint_delete_removes_row() {
-    let db_path = std::env::temp_dir().join(format!(
-      "orbitdock-rollout-checkpoint-test-{}-b.db",
-      std::process::id()
-    ));
-    let _ = std::fs::remove_file(&db_path);
-    let mut conn = Connection::open(&db_path).expect("open db");
-    run_migrations(&mut conn).expect("run migrations");
-
-    execute_command(
-      &conn,
-      PersistCommand::UpsertRolloutCheckpoint {
-        path: "/tmp/rollout-b.jsonl".to_string(),
-        offset: 7,
-        session_id: None,
-        project_path: None,
-        model_provider: None,
-        ignore_existing: false,
-      },
-    )
-    .expect("persist checkpoint");
-
-    execute_command(
-      &conn,
-      PersistCommand::DeleteRolloutCheckpoint {
-        path: "/tmp/rollout-b.jsonl".to_string(),
-      },
-    )
-    .expect("delete checkpoint");
-
-    let remaining: i64 = conn
-      .query_row("SELECT COUNT(*) FROM rollout_checkpoints", [], |row| {
-        row.get(0)
-      })
-      .expect("count checkpoints");
-    assert_eq!(remaining, 0);
-
-    let _ = std::fs::remove_file(db_path);
-  }
 }
 
 fn is_leap_year(year: i64) -> bool {

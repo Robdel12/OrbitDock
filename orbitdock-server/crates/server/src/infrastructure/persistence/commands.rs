@@ -107,6 +107,23 @@ pub enum PersistCommand {
   /// Set AI-generated summary for a session
   SetSummary { session_id: String, summary: String },
 
+  /// Update transcript path for a session
+  SetTranscriptPath {
+    session_id: String,
+    transcript_path: Option<String>,
+  },
+
+  /// Update pending tool attention state for a session
+  SessionAttentionUpdate {
+    session_id: String,
+    attention_reason: Option<Option<String>>,
+    last_tool: Option<Option<String>>,
+    last_tool_at: Option<Option<String>>,
+    pending_tool_name: Option<Option<String>>,
+    pending_tool_input: Option<Option<String>>,
+    pending_question: Option<Option<String>>,
+  },
+
   /// Persist session autonomy configuration
   SetSessionConfig {
     session_id: String,
@@ -224,63 +241,11 @@ pub enum PersistCommand {
     infos: Vec<SubagentInfo>,
   },
 
-  /// Upsert a passive rollout-backed Codex session
-  RolloutSessionUpsert {
-    id: String,
-    thread_id: String,
-    project_path: String,
-    project_name: Option<String>,
-    branch: Option<String>,
-    model: Option<String>,
-    context_label: Option<String>,
-    transcript_path: String,
-    started_at: String,
-  },
-
-  /// Update rollout-backed session state
-  RolloutSessionUpdate {
-    id: String,
-    project_path: Option<String>,
-    model: Option<String>,
-    status: Option<SessionStatus>,
-    work_status: Option<WorkStatus>,
-    attention_reason: Option<Option<String>>,
-    pending_tool_name: Option<Option<String>>,
-    pending_tool_input: Option<Option<String>>,
-    pending_question: Option<Option<String>>,
-    total_tokens: Option<i64>,
-    last_tool: Option<Option<String>>,
-    last_tool_at: Option<Option<String>>,
-    custom_name: Option<Option<String>>,
-  },
-
-  /// Increment rollout prompt counter and set first prompt if missing
-  RolloutPromptIncrement {
-    id: String,
-    first_prompt: Option<String>,
-  },
-
   /// Increment direct Codex prompt counter and set first prompt if missing
   CodexPromptIncrement {
     id: String,
     first_prompt: Option<String>,
   },
-
-  /// Increment rollout tool counter
-  RolloutToolIncrement { id: String },
-
-  /// Upsert a rollout checkpoint for an active/passive Codex JSONL file cursor
-  UpsertRolloutCheckpoint {
-    path: String,
-    offset: u64,
-    session_id: Option<String>,
-    project_path: Option<String>,
-    model_provider: Option<String>,
-    ignore_existing: bool,
-  },
-
-  /// Delete a rollout checkpoint when a tracked file should be pruned
-  DeleteRolloutCheckpoint { path: String },
 
   /// Persist an approval request event
   ApprovalRequested(Box<ApprovalRequestedParams>),
@@ -446,6 +411,8 @@ impl PersistCommand {
       PersistCommand::CleanupClaudeShadowSession { .. } => "CleanupClaudeShadowSession",
       PersistCommand::SetCustomName { .. } => "SetCustomName",
       PersistCommand::SetSummary { .. } => "SetSummary",
+      PersistCommand::SetTranscriptPath { .. } => "SetTranscriptPath",
+      PersistCommand::SessionAttentionUpdate { .. } => "SessionAttentionUpdate",
       PersistCommand::SetSessionConfig { .. } => "SetSessionConfig",
       PersistCommand::MarkSessionRead { .. } => "MarkSessionRead",
       PersistCommand::ReactivateSession { .. } => "ReactivateSession",
@@ -461,13 +428,7 @@ impl PersistCommand {
       PersistCommand::ClaudeSubagentEnd { .. } => "ClaudeSubagentEnd",
       PersistCommand::UpsertSubagent { .. } => "UpsertSubagent",
       PersistCommand::UpsertSubagents { .. } => "UpsertSubagents",
-      PersistCommand::RolloutSessionUpsert { .. } => "RolloutSessionUpsert",
-      PersistCommand::RolloutSessionUpdate { .. } => "RolloutSessionUpdate",
-      PersistCommand::RolloutPromptIncrement { .. } => "RolloutPromptIncrement",
       PersistCommand::CodexPromptIncrement { .. } => "CodexPromptIncrement",
-      PersistCommand::RolloutToolIncrement { .. } => "RolloutToolIncrement",
-      PersistCommand::UpsertRolloutCheckpoint { .. } => "UpsertRolloutCheckpoint",
-      PersistCommand::DeleteRolloutCheckpoint { .. } => "DeleteRolloutCheckpoint",
       PersistCommand::ApprovalRequested(_) => "ApprovalRequested",
       PersistCommand::ApprovalDecision { .. } => "ApprovalDecision",
       PersistCommand::ReviewCommentCreate { .. } => "ReviewCommentCreate",
