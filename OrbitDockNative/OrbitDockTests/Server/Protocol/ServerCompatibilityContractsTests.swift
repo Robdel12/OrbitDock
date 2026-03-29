@@ -32,6 +32,16 @@ struct ServerCompatibilityContractsTests {
     #expect(meta.updateStatus?.latestVersion == "v0.7.0")
   }
 
+  @Test func checkedAtLabelAcceptsFractionalSecondRFC3339Timestamps() {
+    let referenceDate = Date(timeIntervalSince1970: 1_743_225_600) // 2025-03-29T05:00:00Z
+    let label = relativeServerUpdateCheckedAtLabel(
+      "2025-03-29T04:55:11.300321+00:00",
+      relativeTo: referenceDate
+    )
+
+    #expect(label != "unknown")
+  }
+
   @Test func helloAcceptsCompatibleServerVerdict() throws {
     let hello = ServerHelloMetadata(
       serverVersion: OrbitDockProtocol.releaseVersion,

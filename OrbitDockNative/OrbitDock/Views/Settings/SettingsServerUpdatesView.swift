@@ -1,5 +1,27 @@
 import SwiftUI
 
+func relativeServerUpdateCheckedAtLabel(
+  _ rawValue: String?,
+  relativeTo referenceDate: Date = Date()
+) -> String {
+  guard let rawValue else { return "unknown" }
+
+  let formatter = ISO8601DateFormatter()
+  formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+  let fallbackFormatter = ISO8601DateFormatter()
+  fallbackFormatter.formatOptions = [.withInternetDateTime]
+
+  guard
+    let date = formatter.date(from: rawValue) ?? fallbackFormatter.date(from: rawValue)
+  else {
+    return "unknown"
+  }
+
+  let relativeFormatter = RelativeDateTimeFormatter()
+  relativeFormatter.unitsStyle = .abbreviated
+  return relativeFormatter.localizedString(for: date, relativeTo: referenceDate)
+}
+
 private enum ServerUpdateChannelOption: String, CaseIterable, Identifiable {
   case stable
   case beta
@@ -769,16 +791,7 @@ struct ServerUpdatesSettingsView: View {
   }
 
   private func checkedAtLabel(_ rawValue: String?) -> String {
-    guard
-      let rawValue,
-      let date = ISO8601DateFormatter().date(from: rawValue)
-    else {
-      return "unknown"
-    }
-
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: date, relativeTo: Date())
+    relativeServerUpdateCheckedAtLabel(rawValue)
   }
 
   private func releaseURL(for status: ServerUpdateStatus) -> URL? {

@@ -8,7 +8,6 @@ use axum::{
 use orbitdock_connector_codex::{discover_models, discover_models_for_context};
 use orbitdock_protocol::{
   ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption, CodexUsageSnapshot, UsageErrorInfo,
-  UsageSummaryBucket, UsageSummaryModelCost, UsageSummarySnapshot,
 };
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -58,6 +57,29 @@ pub struct CodexModelsQuery {
 pub struct UsageSummaryQuery {
   #[serde(default)]
   pub today_start_unix: Option<u64>,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct UsageSummarySnapshot {
+  pub today: UsageSummaryBucket,
+  pub all_time: UsageSummaryBucket,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct UsageSummaryBucket {
+  pub session_count: u64,
+  pub total_tokens: u64,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub total_cost_usd: f64,
+  pub cost_by_model: Vec<UsageSummaryModelCost>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UsageSummaryModelCost {
+  pub model: String,
+  pub cost_usd: f64,
 }
 
 pub async fn fetch_codex_usage(
@@ -143,13 +165,15 @@ pub async fn list_claude_models() -> Json<ClaudeModelsResponse> {
 
 #[derive(Debug, Clone)]
 struct SessionSummaryRow {
+  id: String,
   started_at_unix: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 struct UsageLedgerRow {
+  session_id: String,
   model: Option<String>,
-  started_at_unix: Option<u64>,
+  observed_at_unix: Option<u64>,
   input_tokens: u64,
   output_tokens: u64,
   cached_tokens: u64,
@@ -173,8 +197,10 @@ fn load_usage_summary(
   let sessions: Vec<SessionSummaryRow> = conn
     .prepare("SELECT id, started_at FROM sessions")?
     .query_map([], |row| {
+      let session_id: String = row.get(0)?;
       let started_at: Option<String> = row.get(1)?;
       Ok(SessionSummaryRow {
+        id: session_id,
         started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
       })
     })?
@@ -183,28 +209,34 @@ fn load_usage_summary(
   let ledger_rows = load_usage_ledger_rows(&conn)?;
   let mut today = UsageSummaryBucket::default();
   let mut all_time = UsageSummaryBucket::default();
+  let mut today_session_ids = std::collections::HashSet::new();
 
   all_time.session_count = sessions.len() as u64;
-  today.session_count = sessions
-    .iter()
-    .filter(|session| {
-      session
-        .started_at_unix
-        .zip(today_start_unix)
-        .is_some_and(|(started, boundary)| started >= boundary)
-    })
-    .count() as u64;
 
   for aggregate in ledger_rows {
     apply_usage_aggregate(&mut all_time, &aggregate);
     if aggregate
-      .started_at_unix
+      .observed_at_unix
       .zip(today_start_unix)
-      .is_some_and(|(started, boundary)| started >= boundary)
+      .is_some_and(|(observed, boundary)| observed >= boundary)
     {
       apply_usage_aggregate(&mut today, &aggregate);
+      today_session_ids.insert(aggregate.session_id.clone());
     }
   }
+
+  if let Some(boundary) = today_start_unix {
+    for session in &sessions {
+      if session
+        .started_at_unix
+        .is_some_and(|started| started >= boundary)
+      {
+        today_session_ids.insert(session.id.clone());
+      }
+    }
+  }
+
+  today.session_count = today_session_ids.len() as u64;
 
   sort_model_costs(&mut today);
   sort_model_costs(&mut all_time);
@@ -215,14 +247,16 @@ fn load_usage_summary(
 fn load_usage_ledger_rows(conn: &Connection) -> anyhow::Result<Vec<UsageLedgerRow>> {
   let mut rows: Vec<UsageLedgerRow> = conn
     .prepare(
-      "SELECT session_id, model, session_started_at, billable_input_tokens, billable_output_tokens, cache_read_tokens, estimated_cost_usd
+      "SELECT session_id, model, observed_at, billable_input_tokens, billable_output_tokens, cache_read_tokens, estimated_cost_usd
        FROM usage_ledger_entries",
     )?
     .query_map([], |row| {
-      let started_at: Option<String> = row.get(2)?;
+      let session_id: String = row.get(0)?;
+      let observed_at: Option<String> = row.get(2)?;
       Ok(UsageLedgerRow {
+        session_id,
         model: row.get(1)?,
-        started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
+        observed_at_unix: parse_timestamp_to_unix(observed_at.as_deref()),
         input_tokens: row.get::<_, i64>(3)?.max(0) as u64,
         output_tokens: row.get::<_, i64>(4)?.max(0) as u64,
         cached_tokens: row.get::<_, i64>(5)?.max(0) as u64,
@@ -327,8 +361,9 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
     );
 
     normalized_rows.push(UsageLedgerRow {
+      session_id: session_id.clone(),
       model,
-      started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
+      observed_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
       input_tokens: normalized.billable_input_tokens,
       output_tokens: normalized.billable_output_tokens,
       cached_tokens: normalized.cache_read_tokens,
@@ -447,5 +482,93 @@ mod tests {
 
     assert_eq!(bucket.cost_by_model[0].model, "Opus");
     assert_eq!(bucket.cost_by_model[1].model, "Sonnet");
+  }
+
+  #[test]
+  fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
+    let db_path = std::env::temp_dir().join(format!(
+      "orbitdock-usage-summary-{}-{}.db",
+      std::process::id(),
+      std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("unix epoch")
+        .as_nanos()
+    ));
+    let conn = Connection::open(&db_path).expect("open sqlite db");
+
+    conn.execute_batch(
+      "CREATE TABLE sessions (
+         id TEXT PRIMARY KEY,
+         started_at TEXT
+       );
+       CREATE TABLE usage_ledger_entries (
+         session_id TEXT NOT NULL,
+         turn_id TEXT NOT NULL,
+         model TEXT,
+         session_started_at TEXT,
+         observed_at TEXT NOT NULL,
+         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
+         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
+         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+         estimated_cost_usd REAL NOT NULL DEFAULT 0,
+         PRIMARY KEY (session_id, turn_id)
+       );
+       CREATE TABLE usage_turns (
+         session_id TEXT NOT NULL,
+         turn_id TEXT NOT NULL,
+         turn_seq INTEGER NOT NULL DEFAULT 0,
+         snapshot_kind TEXT,
+         input_tokens INTEGER NOT NULL DEFAULT 0,
+         output_tokens INTEGER NOT NULL DEFAULT 0,
+         cached_tokens INTEGER NOT NULL DEFAULT 0,
+         context_window INTEGER NOT NULL DEFAULT 0
+       );",
+    )
+    .expect("create schema");
+
+    conn.execute(
+      "INSERT INTO sessions (id, started_at) VALUES (?1, ?2)",
+      rusqlite::params!["session-1", "2026-03-28T23:55:00Z"],
+    )
+    .expect("insert session");
+    conn.execute(
+      "INSERT INTO usage_ledger_entries (
+         session_id,
+         turn_id,
+         model,
+         session_started_at,
+         observed_at,
+         billable_input_tokens,
+         billable_output_tokens,
+         cache_read_tokens,
+         estimated_cost_usd
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      rusqlite::params![
+        "session-1",
+        "turn-1",
+        "gpt-5.4",
+        "2026-03-28T23:55:00Z",
+        "2026-03-29T00:05:00Z",
+        120_i64,
+        30_i64,
+        0_i64,
+        0.5_f64,
+      ],
+    )
+    .expect("insert ledger entry");
+
+    let summary =
+      load_usage_summary(&db_path, Some(chrono::DateTime::parse_from_rfc3339("2026-03-29T00:00:00Z")
+        .expect("parse boundary")
+        .timestamp() as u64))
+      .expect("load usage summary");
+
+    assert_eq!(summary.today.session_count, 1);
+    assert_eq!(summary.today.input_tokens, 120);
+    assert_eq!(summary.today.output_tokens, 30);
+    assert_eq!(summary.today.total_tokens, 150);
+
+    drop(conn);
+    let _ = std::fs::remove_file(db_path);
   }
 }

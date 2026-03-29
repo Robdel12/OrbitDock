@@ -296,10 +296,6 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),
     )
-    .route(
-      "/api/control-deck/preferences",
-      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
-    )
     .route("/api/usage/summary", get(super::fetch_usage_summary))
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))
