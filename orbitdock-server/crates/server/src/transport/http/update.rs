@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::infrastructure::github_releases::client::GitHubReleasesClient;
-use crate::infrastructure::github_releases::types::current_platform_release_asset_name;
-use crate::infrastructure::github_releases::types::UpdateChannel;
+use crate::infrastructure::github_releases::types::{
+  current_platform_release_asset_name, ReleaseInfo, UpdateChannel,
+};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -117,6 +118,45 @@ pub struct StartUpgradeResponse {
   pub message: String,
 }
 
+fn resolve_requested_channel(
+  requested_channel: Option<&str>,
+  status_channel: Option<&str>,
+) -> Result<UpdateChannel, (StatusCode, String)> {
+  match requested_channel {
+    Some(channel) => channel
+      .parse()
+      .map_err(|error: anyhow::Error| (StatusCode::BAD_REQUEST, error.to_string())),
+    None => UpdateChannel::resolve(status_channel).map_err(|error| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("failed to resolve active update channel: {error}"),
+      )
+    }),
+  }
+}
+
+fn build_upgrade_command(
+  current_exe: &std::path::Path,
+  target_release: &ReleaseInfo,
+  restart_requested: bool,
+) -> std::process::Command {
+  let mut command = std::process::Command::new(current_exe);
+  command
+    .arg("upgrade")
+    .arg("--yes")
+    .arg("--version")
+    .arg(target_release.tag_name.as_str())
+    .stdin(std::process::Stdio::null())
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null());
+
+  if restart_requested {
+    command.arg("--restart");
+  }
+
+  command
+}
+
 /// POST /api/server/start-upgrade — spawns the existing CLI upgrade flow in a
 /// detached child process so the current server can keep serving until the
 /// upgrader swaps the binary and restarts the service.
@@ -124,16 +164,13 @@ pub async fn start_upgrade(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<StartUpgradeRequest>,
 ) -> Result<Json<StartUpgradeResponse>, (StatusCode, String)> {
-  let channel = UpdateChannel::resolve(body.channel.as_deref())
-    .or_else(|_| {
-      UpdateChannel::resolve(
-        state
-          .update_status()
-          .as_ref()
-          .map(|status| status.channel.as_str()),
-      )
-    })
-    .unwrap_or_default();
+  let channel = resolve_requested_channel(
+    body.channel.as_deref(),
+    state
+      .update_status()
+      .as_ref()
+      .map(|status| status.channel.as_str()),
+  )?;
 
   let current_exe = std::env::current_exe().map_err(|error| {
     (
@@ -223,30 +260,21 @@ pub async fn start_upgrade(
     Some(release)
   };
 
-  let mut command = std::process::Command::new(&current_exe);
-  command
-    .arg("upgrade")
-    .arg("--yes")
-    .stdin(std::process::Stdio::null())
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::null());
-
-  if let Some(version) = body.version.as_deref() {
-    command.arg("--version").arg(version);
-  } else {
-    command.arg("--channel").arg(channel.to_string());
-  }
-
-  if body.restart {
-    command.arg("--restart");
-  }
-
-  let child = command.spawn().map_err(|error| {
+  let target_release = selected_release.ok_or_else(|| {
     (
       StatusCode::INTERNAL_SERVER_ERROR,
-      format!("failed to start background upgrade: {error}"),
+      "failed to resolve installable release".to_string(),
     )
   })?;
+
+  let child = build_upgrade_command(&current_exe, &target_release, body.restart)
+    .spawn()
+    .map_err(|error| {
+      (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        format!("failed to start background upgrade: {error}"),
+      )
+    })?;
 
   info!(
     component = "update",
@@ -261,10 +289,7 @@ pub async fn start_upgrade(
     accepted: true,
     restart_requested: body.restart,
     channel: channel.to_string(),
-    target_version: selected_release
-      .as_ref()
-      .map(|release| release.tag_name.clone())
-      .or_else(|| body.version.clone()),
+    target_version: Some(target_release.tag_name.clone()),
     message: if body.restart {
       "Upgrade started. OrbitDock will try to restart the service automatically when the new binary is installed.".to_string()
     } else {
@@ -272,4 +297,64 @@ pub async fn start_upgrade(
         .to_string()
     },
   }))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::infrastructure::github_releases::types::ReleaseAsset;
+
+  fn release(tag_name: &str) -> ReleaseInfo {
+    ReleaseInfo {
+      tag_name: tag_name.to_string(),
+      html_url: "https://example.test/release".to_string(),
+      published_at: None,
+      prerelease: false,
+      assets: vec![ReleaseAsset {
+        name: "orbitdock-darwin-arm64.zip".to_string(),
+        browser_download_url: "https://example.test/orbitdock.zip".to_string(),
+        size: 1,
+      }],
+    }
+  }
+
+  #[test]
+  fn resolve_requested_channel_rejects_invalid_override() {
+    let error = resolve_requested_channel(Some("betaa"), Some("stable"))
+      .expect_err("invalid channel should be rejected");
+
+    assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    assert!(error.1.contains("Unknown update channel"));
+  }
+
+  #[test]
+  fn resolve_requested_channel_falls_back_to_status_channel() {
+    let channel = resolve_requested_channel(None, Some("beta")).expect("status channel resolves");
+    assert_eq!(channel, UpdateChannel::Beta);
+  }
+
+  #[test]
+  fn build_upgrade_command_pins_selected_release_tag() {
+    let command = build_upgrade_command(
+      std::path::Path::new("/tmp/orbitdock"),
+      &release("v1.2.3"),
+      true,
+    );
+
+    let args = command
+      .get_args()
+      .map(|arg| arg.to_string_lossy().into_owned())
+      .collect::<Vec<_>>();
+
+    assert_eq!(
+      args,
+      vec![
+        "upgrade".to_string(),
+        "--yes".to_string(),
+        "--version".to_string(),
+        "v1.2.3".to_string(),
+        "--restart".to_string(),
+      ]
+    );
+  }
 }
