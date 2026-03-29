@@ -594,7 +594,6 @@ fn takeover_permission_persist_op(
       session_id: session_id.to_string(),
       approval_policy: None,
       sandbox_mode: None,
-      approvals_reviewer: None,
       permission_mode: Some(Some(permission_mode)),
       collaboration_mode: None,
       multi_agent: None,

@@ -98,6 +98,7 @@ pub(crate) async fn handle_update_session_config(
       approval_policy,
       approval_policy_details,
       sandbox_mode,
+      approvals_reviewer: None,
       permission_mode,
       collaboration_mode,
       multi_agent,

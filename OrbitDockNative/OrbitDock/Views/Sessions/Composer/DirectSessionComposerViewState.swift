@@ -239,6 +239,7 @@ extension DirectSessionComposer {
       approvalPolicy: nil,
       approvalPolicyDetails: nil,
       sandboxMode: nil,
+      approvalsReviewer: nil,
       collaborationMode: nil,
       multiAgent: nil,
       personality: nil,

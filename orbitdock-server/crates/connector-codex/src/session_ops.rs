@@ -21,8 +21,7 @@ use tracing::{info, warn};
 
 use super::config::{
   collaboration_mode_for_update, parse_approvals_reviewer, parse_personality,
-  parse_service_tier_override,
-  preferred_reasoning_summary, reasoning_summary_for_model,
+  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
 };
 use super::{
   CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
