@@ -259,7 +259,6 @@ pub async fn start_upgrade(
     Some(release)
   };
 
-<<<<<<< HEAD
   let target_release = selected_release.ok_or_else(|| {
     (
       StatusCode::INTERNAL_SERVER_ERROR,
@@ -275,34 +274,6 @@ pub async fn start_upgrade(
         format!("failed to start background upgrade: {error}"),
       )
     })?;
-
-=======
-  let mut command = std::process::Command::new(&current_exe);
-  command
-    .arg("upgrade")
-    .arg("--yes")
-    .stdin(std::process::Stdio::null())
-    .stdout(std::process::Stdio::null())
-    .stderr(std::process::Stdio::null());
-
-  if let Some(version) = body.version.as_deref() {
-    command.arg("--version").arg(version);
-  } else {
-    command.arg("--channel").arg(channel.to_string());
-  }
-
-  if body.restart {
-    command.arg("--restart");
-  }
-
-  let child = command.spawn().map_err(|error| {
-    (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      format!("failed to start background upgrade: {error}"),
-    )
-  })?;
-
->>>>>>> df325a6a (✨ Add server update API and client plumbing)
   info!(
     component = "update",
     event = "api.server.start_upgrade",
@@ -316,14 +287,7 @@ pub async fn start_upgrade(
     accepted: true,
     restart_requested: body.restart,
     channel: channel.to_string(),
-<<<<<<< HEAD
     target_version: Some(target_release.tag_name.clone()),
-=======
-    target_version: selected_release
-      .as_ref()
-      .map(|release| release.tag_name.clone())
-      .or_else(|| body.version.clone()),
->>>>>>> df325a6a (✨ Add server update API and client plumbing)
     message: if body.restart {
       "Upgrade started. OrbitDock will try to restart the service automatically when the new binary is installed.".to_string()
     } else {
@@ -332,7 +296,6 @@ pub async fn start_upgrade(
     },
   }))
 }
-<<<<<<< HEAD
 
 #[cfg(test)]
 mod tests {
@@ -393,5 +356,3 @@ mod tests {
     );
   }
 }
-=======
->>>>>>> df325a6a (✨ Add server update API and client plumbing)
