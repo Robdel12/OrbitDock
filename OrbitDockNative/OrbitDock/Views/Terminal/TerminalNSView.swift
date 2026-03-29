@@ -32,6 +32,8 @@
 
     private var cursorBlinkTimer: Timer?
     private var cursorVisible = true
+    var shouldAutoFocusOnFirstAttachment = false
+    private var hasAutoFocusedOnAttachment = false
 
     // MARK: - Init
 
@@ -79,6 +81,12 @@
       window.makeFirstResponder(self)
     }
 
+    func requestInitialFocusIfNeeded() {
+      guard shouldAutoFocusOnFirstAttachment, !hasAutoFocusedOnAttachment, window != nil else { return }
+      hasAutoFocusedOnAttachment = true
+      requestFocus()
+    }
+
     override func becomeFirstResponder() -> Bool {
       cursorVisible = true
       needsDisplay = true
@@ -88,6 +96,15 @@
     override func resignFirstResponder() -> Bool {
       needsDisplay = true
       return true
+    }
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+
+      guard window != nil else { return }
+      DispatchQueue.main.async { [weak self] in
+        self?.requestInitialFocusIfNeeded()
+      }
     }
 
     // MARK: - Layout → Grid Resize

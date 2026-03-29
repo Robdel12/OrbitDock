@@ -37,6 +37,8 @@
 
     private var cursorBlinkTimer: Timer?
     private var cursorVisible = true
+    var shouldAutoFocusOnFirstAttachment = false
+    private var hasAutoFocusedOnAttachment = false
 
     /// Modifier state toggled by the accessory bar (Ctrl, Alt).
     /// Applied to the next key event, then auto-cleared.
@@ -103,6 +105,16 @@
       return becomeFirstResponder()
     }
 
+    @discardableResult
+    func requestInitialFocusIfNeeded() -> Bool {
+      guard shouldAutoFocusOnFirstAttachment, !hasAutoFocusedOnAttachment else { return false }
+      let didFocus = requestFocus()
+      if didFocus {
+        hasAutoFocusedOnAttachment = true
+      }
+      return didFocus
+    }
+
     override var inputAccessoryView: UIView? {
       _accessoryBar
     }
@@ -112,7 +124,7 @@
 
       guard window != nil else { return }
       DispatchQueue.main.async { [weak self] in
-        self?.requestFocus()
+        _ = self?.requestInitialFocusIfNeeded()
       }
     }
 

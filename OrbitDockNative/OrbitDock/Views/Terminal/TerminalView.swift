@@ -11,6 +11,7 @@ import SwiftUI
     func makeNSView(context: Context) -> TerminalNSView {
       let view = TerminalNSView()
       view.sessionController = session
+      view.shouldAutoFocusOnFirstAttachment = true
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -27,19 +28,11 @@ import SwiftUI
         view?.terminalDidUpdate()
       }
 
-      // Make the terminal view first responder so it receives keyboard input
-      DispatchQueue.main.async {
-        view.requestFocus()
-      }
-
       return view
     }
 
     func updateNSView(_ nsView: TerminalNSView, context: Context) {
       nsView.sessionController = session
-      DispatchQueue.main.async {
-        nsView.requestFocus()
-      }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -57,6 +50,7 @@ import SwiftUI
     func makeUIView(context: Context) -> TerminalUIView {
       let view = TerminalUIView()
       view.sessionController = session
+      view.shouldAutoFocusOnFirstAttachment = true
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -72,17 +66,11 @@ import SwiftUI
       }
 
       context.coordinator.terminalView = view
-      DispatchQueue.main.async {
-        view.requestFocus()
-      }
       return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
       uiView.sessionController = session
-      DispatchQueue.main.async {
-        uiView.requestFocus()
-      }
     }
 
     func makeCoordinator() -> Coordinator {

@@ -68,6 +68,7 @@
     func makeUIView(context: Context) -> TerminalUIView {
       let view = TerminalUIView()
       view.sessionController = session
+      view.shouldAutoFocusOnFirstAttachment = true
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -83,20 +84,11 @@
       }
 
       context.coordinator.terminalView = view
-
-      // Auto-focus after layout
-      DispatchQueue.main.async {
-        view.requestFocus()
-      }
-
       return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
       uiView.sessionController = session
-      DispatchQueue.main.async {
-        uiView.requestFocus()
-      }
     }
 
     func makeCoordinator() -> Coordinator {
