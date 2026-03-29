@@ -1321,7 +1321,7 @@ mod tests {
     orbitdock_server::init_data_dir(Some(&tmp));
 
     let config = ClientConfig::from_sources(None, None, true, None);
-    let command = BinaryCommand::GenerateToken;
+    let command = BinaryCommand::Status;
 
     let result = dispatch_binary(&command, &config).await;
     assert!(result.is_none());

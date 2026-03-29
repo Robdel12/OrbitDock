@@ -112,6 +112,7 @@ pub enum PersistCommand {
     session_id: String,
     approval_policy: Option<Option<String>>,
     sandbox_mode: Option<Option<String>>,
+    approvals_reviewer: Option<Option<orbitdock_protocol::CodexApprovalsReviewer>>,
     permission_mode: Option<Option<String>>,
     collaboration_mode: Option<Option<String>>,
     multi_agent: Option<Option<bool>>,
