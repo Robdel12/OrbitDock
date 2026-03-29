@@ -150,7 +150,9 @@ impl CodexConnector {
       Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
 
     let state = EventLoopState {
-      output_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, OutputBufferState>::new())),
+      output_buffers: Arc::new(tokio::sync::Mutex::new(
+        HashMap::<String, OutputBufferState>::new(),
+      )),
       delta_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
       streaming_message: Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None)),
       raw_tool_calls: Arc::new(tokio::sync::Mutex::new(
