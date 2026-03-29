@@ -1482,6 +1482,7 @@ impl SessionHandle {
   }
 
   /// Set started_at timestamp
+  #[allow(dead_code)] // Reserved for follow-up session timing plumbing.
   pub fn set_started_at(&mut self, started_at: Option<String>) {
     self.timestamps.started_at = started_at;
   }

@@ -223,6 +223,7 @@ pub async fn load_session_lifecycle_state(
 }
 
 #[cfg(test)]
+#[allow(dead_code)] // Shared test helper for db-path scoped lifecycle assertions.
 pub async fn load_session_lifecycle_state_from_db_path(
   db_path: PathBuf,
   id: &str,
@@ -270,6 +271,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 }
 
 #[cfg(test)]
+#[allow(dead_code)] // Shared test helper for db-path scoped startup restoration assertions.
 pub async fn load_sessions_for_startup_from_db_path(
   db_path: PathBuf,
 ) -> Result<Vec<RestoredSession>, anyhow::Error> {
@@ -869,6 +871,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 }
 
 #[cfg(test)]
+#[allow(dead_code)] // Shared test helper for db-path scoped session lookup assertions.
 pub async fn load_session_by_id_from_db_path(
   db_path: PathBuf,
   id: &str,
@@ -1229,6 +1232,7 @@ pub async fn load_direct_claude_owner_by_sdk_session_id(
 }
 
 #[cfg(test)]
+#[allow(dead_code)] // Shared test helper for db-path scoped direct-owner assertions.
 pub async fn load_direct_claude_owner_by_sdk_session_id_from_db_path(
   db_path: PathBuf,
   sdk_session_id: &str,
@@ -1296,6 +1300,7 @@ pub async fn load_direct_codex_owner_by_thread_id(
 }
 
 #[cfg(test)]
+#[allow(dead_code)] // Shared test helper for db-path scoped direct-owner assertions.
 pub async fn load_direct_codex_owner_by_thread_id_from_db_path(
   db_path: PathBuf,
   thread_id: &str,

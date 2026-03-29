@@ -23,6 +23,7 @@ pub(crate) fn upgrade_row(provider: Provider, row: ConversationRow) -> Conversat
   upgraded
 }
 
+#[allow(dead_code)] // Wired when provider event materialization is turned on for semantic rows.
 pub(crate) fn materialize_provider_event(event: ProviderEventEnvelope) -> Vec<ConversationRow> {
   match event.provider {
     Provider::Codex => codex::materialize_provider_event(event),

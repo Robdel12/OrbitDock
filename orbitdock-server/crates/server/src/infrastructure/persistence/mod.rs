@@ -88,22 +88,6 @@ pub(crate) use worktrees::{
 pub(crate) use writer::flush_batch_for_test;
 pub(crate) use writer::{create_persistence_channel, PersistenceWriter};
 
-fn session_was_user_closed(conn: &Connection, session_id: &str) -> Result<bool, rusqlite::Error> {
-  let row = conn
-    .query_row(
-      "SELECT status, end_reason FROM sessions WHERE id = ?1",
-      params![session_id],
-      |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-    )
-    .optional()?;
-
-  Ok(matches!(
-    row,
-    Some((status, Some(end_reason)))
-      if status.eq_ignore_ascii_case("ended") && end_reason == "user_requested"
-  ))
-}
-
 fn claude_shadow_is_owned_by_direct_session(
   conn: &Connection,
   session_id: &str,
@@ -1919,39 +1903,6 @@ pub(super) fn execute_command(
   }
 
   Ok(())
-}
-
-fn is_direct_thread_owned(conn: &Connection, thread_id: &str) -> Result<bool, rusqlite::Error> {
-  let exists: i64 = conn.query_row(
-    "SELECT EXISTS(
-            SELECT 1
-            FROM sessions
-            WHERE codex_integration_mode = 'direct'
-              AND codex_thread_id = ?1
-        )",
-    params![thread_id],
-    |row| row.get(0),
-  )?;
-  Ok(exists == 1)
-}
-
-/// Check if a codex thread_id is already owned by a direct session row.
-pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyhow::Error> {
-  let thread_id = thread_id.to_string();
-  let db_path = crate::infrastructure::paths::db_path();
-
-  tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
-    if !db_path.exists() {
-      return Ok(false);
-    }
-    let conn = Connection::open(&db_path)?;
-    conn.execute_batch(
-      "PRAGMA journal_mode = WAL;
-             PRAGMA busy_timeout = 5000;",
-    )?;
-    Ok(is_direct_thread_owned(&conn, &thread_id)?)
-  })
-  .await?
 }
 
 /// Get current time as ISO 8601 string

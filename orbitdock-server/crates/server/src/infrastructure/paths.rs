@@ -61,14 +61,6 @@ pub fn sync_spool_dir_for_workspace(workspace_id: &str) -> PathBuf {
   sync_spool_dir().join(workspace_id)
 }
 
-/// Legacy JSON checkpoint path for the rollout watcher.
-///
-/// New durable checkpoints live in SQLite; this path is only used for one-time import
-/// of older watcher state during startup.
-pub fn rollout_state_path() -> PathBuf {
-  data_dir().join("codex-rollout-state.json")
-}
-
 pub fn hook_transport_config_path() -> PathBuf {
   data_dir().join("hook-forward.json")
 }

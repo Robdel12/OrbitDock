@@ -228,18 +228,6 @@ pub async fn handle_session_command(
     SessionCommand::SetTranscriptPath { path } => {
       handle.set_transcript_path(path);
     }
-    SessionCommand::SetProjectName { name } => {
-      handle.set_project_name(name);
-    }
-    SessionCommand::SetStatus { status } => {
-      handle.set_status(status);
-    }
-    SessionCommand::SetLastActivityAt { ts } => {
-      handle.set_last_activity_at(ts);
-    }
-    SessionCommand::SetCodexIntegrationMode { mode } => {
-      handle.set_codex_integration_mode(mode);
-    }
     SessionCommand::SetLastTool { tool } => {
       handle.set_last_tool(tool);
     }
