@@ -24,6 +24,44 @@ use std::time::Instant;
 
 const OUTPUT_STREAM_THROTTLE_MS: u128 = 120;
 
+fn combined_exec_stdio(stdout: &str, stderr: &str) -> Option<String> {
+  let stdout = stdout.trim();
+  let stderr = stderr.trim();
+
+  match (stdout.is_empty(), stderr.is_empty()) {
+    (true, true) => None,
+    (false, true) => Some(format!("{}\n", stdout)),
+    (true, false) => Some(format!("{}\n", stderr)),
+    (false, false) => Some(format!("stdout:\n{}\n\nstderr:\n{}\n", stdout, stderr)),
+  }
+}
+
+fn terminal_exec_output(event: &ExecCommandEndEvent, streamed_output: String) -> Option<String> {
+  [
+    (!event.aggregated_output.trim().is_empty()).then(|| event.aggregated_output.clone()),
+    (!event.formatted_output.trim().is_empty()).then(|| event.formatted_output.clone()),
+    combined_exec_stdio(&event.stdout, &event.stderr),
+    (!streamed_output.trim().is_empty()).then_some(streamed_output),
+  ]
+  .into_iter()
+  .flatten()
+  .next()
+}
+
+fn command_execution_status(event: &ExecCommandEndEvent) -> CommandExecutionStatus {
+  match event.status {
+    codex_protocol::protocol::ExecCommandStatus::Declined => CommandExecutionStatus::Declined,
+    codex_protocol::protocol::ExecCommandStatus::Failed => CommandExecutionStatus::Failed,
+    codex_protocol::protocol::ExecCommandStatus::Completed => {
+      if event.exit_code == 0 {
+        CommandExecutionStatus::Completed
+      } else {
+        CommandExecutionStatus::Failed
+      }
+    }
+  }
+}
+
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
   row_entry(ConversationRow::Tool(with_display(row)))
 }
@@ -217,7 +255,7 @@ pub(crate) async fn handle_exec_command_end(
   event: ExecCommandEndEvent,
   output_buffers: &SharedOutputBuffers,
 ) -> Vec<ConnectorEvent> {
-  let output = {
+  let streamed_output = {
     let mut buffers = output_buffers.lock().await;
     buffers
       .remove(&event.call_id)
@@ -225,21 +263,10 @@ pub(crate) async fn handle_exec_command_end(
       .unwrap_or_default()
   };
 
-  let output_str = if output.is_empty() {
-    event.aggregated_output
-  } else {
-    output
-  };
-
-  let is_error = event.exit_code != 0;
   let duration_ms = Some(event.duration.as_millis() as u64);
-  let status = if is_error {
-    CommandExecutionStatus::Failed
-  } else {
-    CommandExecutionStatus::Completed
-  };
+  let status = command_execution_status(&event);
   let command_actions = command_actions_from_parsed(&event.parsed_cmd);
-  let aggregated_output = (!output_str.is_empty()).then_some(output_str);
+  let aggregated_output = terminal_exec_output(&event, streamed_output);
   let preview = command_preview(&command_actions, None, aggregated_output.as_deref());
 
   let entry = command_execution_row_entry(CommandExecutionRow {
@@ -858,5 +885,103 @@ mod tests {
     );
     assert_eq!(row.exit_code, Some(0));
     assert_eq!(row.duration_ms, Some(42));
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_prefers_terminal_payloads_when_stream_buffer_is_missing() {
+    let output_buffers = shared_output_buffers();
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-3".to_string(),
+        process_id: Some("pty-3".to_string()),
+        turn_id: "turn-3".to_string(),
+        command: vec![
+          "python".to_string(),
+          "-c".to_string(),
+          "print('done')".to_string(),
+        ],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "python -c print('done')".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: "done\n".to_string(),
+        stderr: String::new(),
+        aggregated_output: String::new(),
+        exit_code: 0,
+        duration: Duration::from_millis(9),
+        formatted_output: "done\n".to_string(),
+        status: ExecCommandStatus::Completed,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(row.aggregated_output.as_deref(), Some("done\n"));
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
+    );
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_maps_declined_status_without_collapsing_to_completed() {
+    let output_buffers = shared_output_buffers();
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-4".to_string(),
+        process_id: None,
+        turn_id: "turn-4".to_string(),
+        command: vec![
+          "rm".to_string(),
+          "-rf".to_string(),
+          "/tmp/project".to_string(),
+        ],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "rm -rf /tmp/project".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: String::new(),
+        stderr: "permission denied".to_string(),
+        aggregated_output: String::new(),
+        exit_code: 0,
+        duration: Duration::from_millis(12),
+        formatted_output: "permission denied".to_string(),
+        status: ExecCommandStatus::Declined,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Declined
+    );
+    assert_eq!(row.aggregated_output.as_deref(), Some("permission denied"));
   }
 }
