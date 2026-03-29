@@ -124,7 +124,7 @@ struct ServerMetaResponse: Codable, Sendable {
   let capabilities: [String]
   let isPrimary: Bool
   let clientPrimaryClaims: [ServerClientPrimaryClaim]
-  let updateStatus: ServerUpdateStatus? = nil
+  let updateStatus: ServerUpdateStatus?
 
   enum CodingKeys: String, CodingKey {
     case serverVersion = "server_version"
@@ -133,6 +133,34 @@ struct ServerMetaResponse: Codable, Sendable {
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
     case updateStatus = "update_status"
+  }
+
+  init(
+    serverVersion: String,
+    compatibility: ServerCompatibilityStatus,
+    capabilities: [String],
+    isPrimary: Bool,
+    clientPrimaryClaims: [ServerClientPrimaryClaim],
+    updateStatus: ServerUpdateStatus? = nil
+  ) {
+    self.serverVersion = serverVersion
+    self.compatibility = compatibility
+    self.capabilities = capabilities
+    self.isPrimary = isPrimary
+    self.clientPrimaryClaims = clientPrimaryClaims
+    self.updateStatus = updateStatus
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    serverVersion = try container.decode(String.self, forKey: .serverVersion)
+    compatibility = try container.decode(ServerCompatibilityStatus.self, forKey: .compatibility)
+    capabilities = try container.decode([String].self, forKey: .capabilities)
+    isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
+    clientPrimaryClaims =
+      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims)
+      ?? []
+    updateStatus = try container.decodeIfPresent(ServerUpdateStatus.self, forKey: .updateStatus)
   }
 
   func validateCompatibility() throws {

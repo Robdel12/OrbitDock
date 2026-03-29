@@ -22,6 +22,19 @@ func relativeServerUpdateCheckedAtLabel(
   return relativeFormatter.localizedString(for: date, relativeTo: referenceDate)
 }
 
+private func connectionStatusIdentity(_ status: ConnectionStatus) -> String {
+  switch status {
+    case .connected:
+      "connected"
+    case .connecting:
+      "connecting"
+    case .disconnected:
+      "disconnected"
+    case let .failed(reason):
+      "failed:\(reason)"
+  }
+}
+
 private enum ServerUpdateChannelOption: String, CaseIterable, Identifiable {
   case stable
   case beta
@@ -74,6 +87,7 @@ final class ServerUpdatesSettingsModel {
 
   private(set) var statesByEndpointId: [UUID: EndpointState] = [:]
   @ObservationIgnored private var upgradeWatchdogTasks: [UUID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var lastConnectionStatusByEndpointId: [UUID: String] = [:]
 
   func state(for endpointId: UUID) -> EndpointState {
     statesByEndpointId[endpointId] ?? EndpointState(endpointId: endpointId)
@@ -82,6 +96,7 @@ final class ServerUpdatesSettingsModel {
   func reload(for runtimes: [ServerRuntime]) async {
     let liveIds = Set(runtimes.map(\.id))
     statesByEndpointId = statesByEndpointId.filter { liveIds.contains($0.key) }
+    lastConnectionStatusByEndpointId = lastConnectionStatusByEndpointId.filter { liveIds.contains($0.key) }
     for endpointId in Array(upgradeWatchdogTasks.keys) where !liveIds.contains(endpointId) {
       upgradeWatchdogTasks[endpointId]?.cancel()
       upgradeWatchdogTasks[endpointId] = nil
@@ -217,12 +232,26 @@ final class ServerUpdatesSettingsModel {
   }
 
   func handleConnectionChanges(for runtimes: [ServerRuntime]) async {
+    var runtimesToRefresh: [ServerRuntime] = []
+
     for runtime in runtimes {
       let endpointId = runtime.id
-      var state = state(for: endpointId)
-      guard state.pendingUpgradeVersion != nil || state.upgradePhase != .idle else { continue }
+      let currentStatus = runtime.connection.connectionStatus
+      let currentIdentity = connectionStatusIdentity(currentStatus)
+      let previousIdentity = lastConnectionStatusByEndpointId[endpointId]
+      lastConnectionStatusByEndpointId[endpointId] = currentIdentity
 
-      switch runtime.connection.connectionStatus {
+      var state = state(for: endpointId)
+      guard state.pendingUpgradeVersion != nil || state.upgradePhase != .idle else {
+        if currentIdentity == "connected", previousIdentity != nil, previousIdentity != "connected",
+          state.support == .disconnected || state.support == .failed
+        {
+          runtimesToRefresh.append(runtime)
+        }
+        continue
+      }
+
+      switch currentStatus {
         case .connected:
           guard !state.isStartingUpgrade, state.upgradePhase != .verifying else { continue }
           state.upgradePhase = .verifying
@@ -239,6 +268,10 @@ final class ServerUpdatesSettingsModel {
           state.infoMessage = "OrbitDock is restarting. The app will reconnect automatically when the server is back."
           statesByEndpointId[endpointId] = state
       }
+    }
+
+    for runtime in runtimesToRefresh {
+      await refresh(runtime, forceCheck: false)
     }
   }
 
@@ -767,16 +800,7 @@ struct ServerUpdatesSettingsView: View {
   }
 
   private func statusIdentity(_ status: ConnectionStatus) -> String {
-    switch status {
-      case .connected:
-        "connected"
-      case .connecting:
-        "connecting"
-      case .disconnected:
-        "disconnected"
-      case let .failed(reason):
-        "failed:\(reason)"
-    }
+    connectionStatusIdentity(status)
   }
 
   @ViewBuilder
