@@ -15,6 +15,13 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
     }
   }
 
+  var compactStatusName: String {
+    switch self {
+      case .default: "Default"
+      case .plan: "Plan"
+    }
+  }
+
   var icon: String {
     switch self {
       case .default: "chevron.left.forwardslash.chevron.right"
@@ -32,9 +39,9 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
   var description: String {
     switch self {
       case .default:
-        "Standard Codex flow for direct coding, edits, and worker coordination."
+        "Best for normal coding sessions. Codex edits directly and coordinates the work as it goes."
       case .plan:
-        "Planner-first mode that favors structured thinking and explicit coordination."
+        "Best when you want more structure first. Codex leans planner-first before diving into execution."
     }
   }
 
@@ -203,27 +210,67 @@ struct CodexModePill: View {
     case statusBar
 
     var iconFontSize: CGFloat {
-      self == .statusBar ? 9 : TypeScale.body
+      if self == .statusBar {
+        #if os(iOS)
+          IconScale.xs
+        #else
+          IconScale.sm
+        #endif
+      } else {
+        TypeScale.body
+      }
     }
 
     var textFontSize: CGFloat {
-      self == .statusBar ? 10 : TypeScale.body
+      if self == .statusBar {
+        #if os(iOS)
+          TypeScale.mini
+        #else
+          TypeScale.micro
+        #endif
+      } else {
+        TypeScale.body
+      }
     }
 
     var horizontalPadding: CGFloat {
-      self == .statusBar ? 6 : CGFloat(Spacing.md)
+      if self == .statusBar {
+        #if os(iOS)
+          CGFloat(Spacing.sm_)
+        #else
+          CGFloat(Spacing.sm)
+        #endif
+      } else {
+        CGFloat(Spacing.md)
+      }
     }
 
     var verticalPadding: CGFloat {
-      self == .statusBar ? 3 : CGFloat(Spacing.sm)
+      if self == .statusBar {
+        #if os(iOS)
+          CGFloat(Spacing.gap)
+        #else
+          CGFloat(Spacing.xs)
+        #endif
+      } else {
+        CGFloat(Spacing.sm)
+      }
     }
 
     var spacing: CGFloat {
-      self == .statusBar ? 3 : CGFloat(Spacing.xs)
+      self == .statusBar ? CGFloat(Spacing.xs) : CGFloat(Spacing.xs)
     }
 
     var height: CGFloat? {
-      self == .statusBar ? 20 : nil
+      if self == .statusBar {
+        #if os(iOS)
+          24
+        #else
+          20
+        #endif
+      } else {
+        nil
+      }
     }
   }
 
@@ -233,6 +280,13 @@ struct CodexModePill: View {
   var onUpdate: ((CodexCollaborationMode) -> Void)?
   @State private var showPopover = false
 
+  private var title: String {
+    #if os(iOS)
+      if size == .statusBar { return currentMode.compactStatusName }
+    #endif
+    return currentMode.displayName
+  }
+
   var body: some View {
     Button {
       showPopover.toggle()
@@ -240,7 +294,7 @@ struct CodexModePill: View {
       HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
           .font(.system(size: size.iconFontSize, weight: .semibold))
-        Text(currentMode.displayName)
+        Text(title)
           .font(.system(size: size.textFontSize, weight: .semibold))
       }
       .foregroundStyle(currentMode.color)
@@ -248,14 +302,26 @@ struct CodexModePill: View {
       .padding(.vertical, size.verticalPadding)
       .frame(height: size.height)
       .background(currentMode.color.opacity(OpacityTier.light), in: Capsule())
+      .overlay(
+        Capsule()
+          .strokeBorder(currentMode.color.opacity(OpacityTier.medium), lineWidth: 0.75)
+      )
+      .if(size == .regular) { $0.themeShadow(Shadow.sm) }
     }
     .buttonStyle(.plain)
     .fixedSize()
     .platformPopover(isPresented: $showPopover) {
       VStack(alignment: .leading, spacing: Spacing.md) {
-        Text("Collaboration")
-          .font(.system(size: TypeScale.subhead, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Collaboration")
+            .font(.system(size: TypeScale.subhead, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text("Controls how Codex approaches the work, from direct execution to planner-first coordination.")
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
 
         ForEach(supportedModes) { mode in
           Button {
@@ -293,6 +359,11 @@ struct CodexModePill: View {
         }
       }
       .padding(Spacing.lg)
+      #if os(iOS)
+        .frame(maxWidth: .infinity)
+        .navigationTitle("Collaboration")
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
       .ifMacOS { $0.frame(width: 280) }
       .background(Color.backgroundSecondary)
     }

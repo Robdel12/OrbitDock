@@ -107,6 +107,7 @@ extension SessionDetailView {
       isSessionActive: presentation.isSessionActive,
       displayStatus: presentation.displayStatus,
       currentTool: presentation.currentTool,
+      showsOrbitStatusIndicator: !screenPresentation.isDirect,
       chatViewMode: chatViewMode,
       openFileInReview: presentation.canOpenFileInReview ? { filePath in
         withAnimation(Motion.gentle) {

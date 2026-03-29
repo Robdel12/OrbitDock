@@ -415,6 +415,10 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         guard let coordinator, let textView else { return }
         coordinator.recalculateHeight(for: textView)
       }
+      textView.onFirstResponderChange = { [weak coordinator] isFocused in
+        guard let coordinator else { return }
+        coordinator.parent.onFocusEvent(isFocused ? .began : .ended(userInitiated: true))
+      }
 
       scrollView.documentView = textView
       coordinator.textView = textView
@@ -454,6 +458,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         textView.canPasteImage = nil
         textView.onKeyCommand = nil
         textView.onBoundsWidthChange = nil
+        textView.onFirstResponderChange = nil
       }
       coordinator.textView = nil
     }
@@ -624,8 +629,21 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     var canPasteImage: (() -> Bool)?
     var onKeyCommand: ((ComposerTextAreaKeyCommand) -> Bool)?
     var onBoundsWidthChange: (() -> Void)?
+    var onFirstResponderChange: ((Bool) -> Void)?
 
     private var previousBoundsWidth: CGFloat = 0
+
+    override func becomeFirstResponder() -> Bool {
+      let result = super.becomeFirstResponder()
+      if result { onFirstResponderChange?(true) }
+      return result
+    }
+
+    override func resignFirstResponder() -> Bool {
+      let result = super.resignFirstResponder()
+      if result { onFirstResponderChange?(false) }
+      return result
+    }
 
     override func layout() {
       super.layout()

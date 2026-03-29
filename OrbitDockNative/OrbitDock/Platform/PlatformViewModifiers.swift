@@ -74,6 +74,19 @@ extension View {
 // MARK: - Generic Platform Conditionals
 
 extension View {
+  /// Apply a modifier chain conditionally; identity when the condition is false.
+  @ViewBuilder
+  func `if`<Transformed: View>(
+    _ condition: Bool,
+    transform: (Self) -> Transformed
+  ) -> some View {
+    if condition {
+      transform(self)
+    } else {
+      self
+    }
+  }
+
   /// Apply a modifier chain only on macOS; identity on iOS.
   /// The closure must use APIs available on both platforms (most SwiftUI modifiers are).
   @ViewBuilder

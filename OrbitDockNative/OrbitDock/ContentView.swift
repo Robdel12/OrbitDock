@@ -122,7 +122,14 @@ struct ContentView: View {
     DashboardView(
       isInitialLoading: runtimeRegistry.runtimes
         .filter(\.endpoint.isEnabled)
-        .contains { !$0.connection.hasReceivedInitialDashboardSnapshot },
+        .contains { runtime in
+          switch runtime.connection.connectionStatus {
+            case .connecting, .connected:
+              !runtime.connection.hasReceivedInitialDashboardSnapshot
+            case .disconnected, .failed:
+              false
+          }
+        },
       isRefreshingCachedSessions: isAnyRefreshingCachedSessions
     )
   }
