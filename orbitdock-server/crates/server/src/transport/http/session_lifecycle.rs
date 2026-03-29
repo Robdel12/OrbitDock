@@ -599,7 +599,7 @@ pub struct UpdateCodexPreferencesRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CodexConfigCatalogQuery {
-  pub cwd: String,
+  pub cwd: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -676,7 +676,7 @@ pub async fn inspect_codex_config(
 pub async fn get_codex_config_catalog(
   Query(query): Query<CodexConfigCatalogQuery>,
 ) -> Result<Json<CodexConfigCatalogResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  let response = codex_config_catalog(&query.cwd)
+  let response = codex_config_catalog(query.cwd.as_deref())
     .await
     .map_err(|error| unprocessable("invalid_codex_config", error))?;
   Ok(Json(response))

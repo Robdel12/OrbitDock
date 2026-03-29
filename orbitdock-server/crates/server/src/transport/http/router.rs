@@ -35,12 +35,28 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route("/api/dashboard", get(super::get_dashboard_snapshot))
     .route(
+      "/api/control-deck/preferences",
+      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
+    )
+    .route(
       "/api/sessions/{session_id}/detail",
       get(super::get_session_detail),
     )
     .route(
       "/api/sessions/{session_id}/composer",
       get(super::get_session_composer),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck",
+      get(super::get_control_deck_snapshot).patch(super::update_control_deck_config),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/submit",
+      post(super::submit_control_deck_turn),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/attachments/images",
+      post(super::upload_control_deck_image_attachment),
     )
     .route(
       "/api/sessions/{session_id}/conversation",

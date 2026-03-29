@@ -17,12 +17,11 @@ use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissio
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
-use tracing::{info, warn};
+use tracing::warn;
 
 use super::config::{
   collaboration_mode_for_update, parse_approvals_reviewer, parse_personality,
-  parse_service_tier_override,
-  preferred_reasoning_summary, reasoning_summary_for_model,
+  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
 };
 use super::{
   CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
@@ -164,10 +163,6 @@ impl CodexConnector {
       self.thread.submit(override_op).await.map_err(|e| {
         ConnectorError::ProviderError(format!("Failed to override turn context: {}", e))
       })?;
-      info!(
-        "Submitted per-turn overrides: model={:?}, effort={:?}, summary={:?}",
-        model, effort, summary
-      );
     }
 
     let mut items = vec![UserInput::Text {
@@ -217,7 +212,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to send message: {}", e)))?;
 
-    info!("Sent user message");
     Ok(())
   }
 
@@ -261,12 +255,8 @@ impl CodexConnector {
     }
 
     match self.thread.steer_input(items, None).await {
-      Ok(turn_id) => {
-        info!("Steered active turn: {}", turn_id);
-        Ok(SteerOutcome::Accepted)
-      }
+      Ok(_turn_id) => Ok(SteerOutcome::Accepted),
       Err(SteerInputError::NoActiveTurn(items)) => {
-        info!("No active turn for steer, falling back to send_message");
         self
           .thread
           .submit(Op::UserInput {
@@ -300,7 +290,6 @@ impl CodexConnector {
       .submit(op)
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to list skills: {}", e)))?;
-    info!("Requested skills list");
     Ok(())
   }
 
@@ -451,7 +440,6 @@ impl CodexConnector {
       .submit(op)
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to list MCP tools: {}", e)))?;
-    info!("Requested MCP tools list");
     Ok(())
   }
 
@@ -464,7 +452,6 @@ impl CodexConnector {
     self.thread.submit(op).await.map_err(|e| {
       ConnectorError::ProviderError(format!("Failed to refresh MCP servers: {}", e))
     })?;
-    info!("Requested MCP servers refresh");
     Ok(())
   }
 
@@ -475,7 +462,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to interrupt: {}", e)))?;
 
-    info!("Interrupted turn");
     Ok(())
   }
 
@@ -484,7 +470,6 @@ impl CodexConnector {
     request_id: &str,
     decision: CodexExecApproval,
   ) -> Result<(), ConnectorError> {
-    let label = decision.label();
     let review = match decision {
       CodexExecApproval::Approved => ReviewDecision::Approved,
       CodexExecApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
@@ -513,7 +498,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve exec: {}", e)))?;
 
-    info!("Sent exec approval: {} = {}", request_id, label);
     Ok(())
   }
 
@@ -522,7 +506,6 @@ impl CodexConnector {
     request_id: &str,
     decision: CodexPatchApproval,
   ) -> Result<(), ConnectorError> {
-    let label = decision.label();
     let review = match decision {
       CodexPatchApproval::Approved => ReviewDecision::Approved,
       CodexPatchApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
@@ -541,7 +524,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve patch: {}", e)))?;
 
-    info!("Sent patch approval: {} = {}", request_id, label);
     Ok(())
   }
 
@@ -568,7 +550,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to answer question: {}", e)))?;
 
-    info!("Sent question answer: {}", request_id);
     Ok(())
   }
 
@@ -598,7 +579,6 @@ impl CodexConnector {
       ConnectorError::ProviderError(format!("Failed to respond to permission request: {}", e))
     })?;
 
-    info!("Sent permission response: {}", request_id);
     Ok(())
   }
 
@@ -613,7 +593,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to set thread name: {}", e)))?;
 
-    info!("Set thread name: {}", name);
     Ok(())
   }
 
@@ -627,7 +606,7 @@ impl CodexConnector {
       approvals_reviewer,
       permission_mode,
       collaboration_mode,
-      multi_agent,
+      multi_agent: _,
       personality,
       service_tier,
       developer_instructions,
@@ -689,8 +668,6 @@ impl CodexConnector {
       current_effort,
       developer_instructions,
     );
-    let collaboration_mode_log = collaboration_mode.clone();
-
     let op = Op::OverrideTurnContext {
       cwd: None,
       approval_policy: policy,
@@ -711,19 +688,6 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to update config: {}", e)))?;
 
-    info!(
-            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}, collaboration_mode={:?}, multi_agent={:?}, personality={:?}, service_tier={:?}, developer_instructions={:?}, model={:?}, effort={:?}",
-            approval_policy,
-            sandbox_mode,
-            permission_mode,
-            collaboration_mode_log,
-            multi_agent,
-            personality,
-            service_tier,
-            developer_instructions.map(|_| "[set]"),
-            model,
-            effort
-        );
     Ok(())
   }
 
@@ -733,7 +697,6 @@ impl CodexConnector {
       .submit(Op::Compact)
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to compact: {}", e)))?;
-    info!("Sent compact");
     Ok(())
   }
 
@@ -743,7 +706,6 @@ impl CodexConnector {
       .submit(Op::Undo)
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to undo: {}", e)))?;
-    info!("Sent undo");
     Ok(())
   }
 
@@ -753,7 +715,6 @@ impl CodexConnector {
       .submit(Op::ThreadRollback { num_turns })
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to thread rollback: {}", e)))?;
-    info!("Sent thread rollback: {} turns", num_turns);
     Ok(())
   }
 
@@ -778,7 +739,6 @@ impl CodexConnector {
       .submit(Op::Shutdown)
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to shutdown: {}", e)))?;
-    info!("Sent shutdown");
     Ok(())
   }
 }

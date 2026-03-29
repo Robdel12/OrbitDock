@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 // Re-exports
 pub mod client;
+pub mod control_deck;
 pub mod conversation_contracts;
 pub mod diff_merge;
 pub mod domain_events;
@@ -16,6 +17,7 @@ pub mod server;
 pub mod types;
 
 pub use client::ClientMessage;
+pub use control_deck::*;
 pub use server::ServerMessage;
 pub use types::*;
 

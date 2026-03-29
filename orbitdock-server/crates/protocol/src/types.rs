@@ -1816,6 +1816,30 @@ pub struct DashboardSnapshot {
   pub counts: DashboardCounts,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummaryModelCost {
+  pub model: String,
+  pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummaryBucket {
+  pub session_count: u64,
+  pub total_tokens: u64,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub total_cost_usd: f64,
+  #[serde(default)]
+  pub cost_by_model: Vec<UsageSummaryModelCost>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummarySnapshot {
+  pub today: UsageSummaryBucket,
+  pub all_time: UsageSummaryBucket,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionsSnapshot {
   pub revision: u64,

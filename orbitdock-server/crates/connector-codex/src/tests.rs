@@ -4,7 +4,7 @@ use super::config::{
   model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
   parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
 };
-use super::event_mapping::{guardian, messages, streaming};
+use super::event_mapping::{guardian, messages, runtime_signals, streaming};
 use super::runtime::StreamingMessage;
 use super::timeline::{
   hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
@@ -18,9 +18,10 @@ use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{
-  AgentStatus, CodexErrorInfo, HookEventName, HookExecutionMode, HookHandlerType, HookOutputEntry,
-  HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope, RawResponseItemEvent,
-  RealtimeHandoffRequested, RealtimeTranscriptEntry, StreamErrorEvent, WarningEvent,
+  AgentStatus, CodexErrorInfo, HookCompletedEvent, HookEventName, HookExecutionMode,
+  HookHandlerType, HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
+  HookStartedEvent, RawResponseItemEvent, RealtimeHandoffRequested, RealtimeTranscriptEntry,
+  StreamErrorEvent, WarningEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
@@ -339,6 +340,20 @@ fn runtime_warning_preserves_other_warnings() {
 }
 
 #[test]
+fn runtime_warning_suppresses_codex_hooks_notice() {
+  let msg_counter = AtomicU64::new(0);
+  let events = super::event_mapping::runtime_signals::handle_warning(
+    "event-1",
+    WarningEvent {
+      message: "Under-development features enabled: codex_hooks. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set suppress...".to_string(),
+    },
+    &msg_counter,
+  );
+
+  assert!(events.is_empty());
+}
+
+#[test]
 fn realtime_handoff_text_prefers_messages() {
   let handoff = RealtimeHandoffRequested {
     handoff_id: "handoff-1".to_string(),
@@ -569,6 +584,86 @@ fn hook_helpers_render_user_prompt_submit_label() {
     hook_completed_text(&run),
     "prompt submit hook completed via prompt-submit-hook.sh"
   );
+}
+
+#[test]
+fn suppresses_non_error_hook_started_rows() {
+  let events = runtime_signals::handle_hook_started(HookStartedEvent {
+    turn_id: None,
+    run: HookRunSummary {
+      id: "hook-quiet-start".to_string(),
+      event_name: HookEventName::UserPromptSubmit,
+      handler_type: HookHandlerType::Command,
+      execution_mode: HookExecutionMode::Sync,
+      scope: HookScope::Turn,
+      source_path: PathBuf::from("/tmp/hooks.json"),
+      display_order: 0,
+      status: HookRunStatus::Running,
+      status_message: None,
+      started_at: 1,
+      completed_at: None,
+      duration_ms: None,
+      entries: vec![],
+    },
+  });
+
+  assert!(events.is_empty());
+}
+
+#[test]
+fn suppresses_non_error_hook_completed_rows() {
+  let events = runtime_signals::handle_hook_completed(HookCompletedEvent {
+    turn_id: None,
+    run: HookRunSummary {
+      id: "hook-quiet-complete".to_string(),
+      event_name: HookEventName::SessionStart,
+      handler_type: HookHandlerType::Command,
+      execution_mode: HookExecutionMode::Sync,
+      scope: HookScope::Thread,
+      source_path: PathBuf::from("/tmp/hooks.json"),
+      display_order: 0,
+      status: HookRunStatus::Completed,
+      status_message: None,
+      started_at: 1,
+      completed_at: Some(2),
+      duration_ms: Some(1),
+      entries: vec![],
+    },
+  });
+
+  assert!(events.is_empty());
+}
+
+#[test]
+fn surfaces_failed_hook_completed_rows() {
+  let events = runtime_signals::handle_hook_completed(HookCompletedEvent {
+    turn_id: None,
+    run: HookRunSummary {
+      id: "hook-error-complete".to_string(),
+      event_name: HookEventName::SessionStart,
+      handler_type: HookHandlerType::Command,
+      execution_mode: HookExecutionMode::Sync,
+      scope: HookScope::Thread,
+      source_path: PathBuf::from("/tmp/hooks.json"),
+      display_order: 0,
+      status: HookRunStatus::Failed,
+      status_message: Some("Broken config".to_string()),
+      started_at: 1,
+      completed_at: Some(2),
+      duration_ms: Some(1),
+      entries: vec![],
+    },
+  });
+
+  assert_eq!(events.len(), 1);
+  let ConnectorEvent::ConversationRowCreated(entry) = &events[0] else {
+    panic!("expected hook failure row");
+  };
+  let ConversationRow::Hook(hook) = &entry.row else {
+    panic!("expected hook row");
+  };
+  assert_eq!(hook.id, "hook-hook-error-complete");
+  assert!(hook.title.contains("failed via hooks.json"));
 }
 
 #[test]

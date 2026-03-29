@@ -302,19 +302,28 @@ pub async fn resolve_codex_settings(
   })
 }
 
-pub async fn codex_config_catalog(cwd: &str) -> Result<CodexConfigCatalogResponse, String> {
-  let config_response = read_codex_config(cwd).await?;
-  let selection = CodexConfigSelection {
-    config_source: CodexConfigSource::User,
-    config_mode: CodexConfigMode::Inherit,
-    config_profile: None,
-    model_provider: None,
-    overrides: CodexSessionOverrides::default(),
+pub async fn codex_config_catalog(cwd: Option<&str>) -> Result<CodexConfigCatalogResponse, String> {
+  let explicit_cwd = cwd.and_then(normalized_optional_cwd);
+  let resolved_cwd = resolved_codex_context_cwd(explicit_cwd)?;
+  let config_response = read_codex_config(&resolved_cwd).await?;
+
+  let effective_settings = if let Some(explicit_cwd) = explicit_cwd {
+    let selection = CodexConfigSelection {
+      config_source: CodexConfigSource::User,
+      config_mode: CodexConfigMode::Inherit,
+      config_profile: None,
+      model_provider: None,
+      overrides: CodexSessionOverrides::default(),
+    };
+    let effective_config = build_effective_codex_config(explicit_cwd, &selection).await?;
+    Some(effective_settings(&effective_config, &selection))
+  } else {
+    None
   };
-  let effective_config = build_effective_codex_config(cwd, &selection).await?;
+
   Ok(CodexConfigCatalogResponse {
-    cwd: Some(cwd.to_string()),
-    effective_settings: Some(effective_settings(&effective_config, &selection)),
+    cwd: explicit_cwd.map(str::to_string),
+    effective_settings,
     profiles: config_profiles(&config_response.config),
     providers: config_providers(&config_response.config),
     warnings: Vec::new(),
@@ -669,6 +678,32 @@ async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, String> {
     },
   )
   .await
+}
+
+fn normalized_optional_cwd(cwd: &str) -> Option<&str> {
+  let trimmed = cwd.trim();
+  if trimmed.is_empty() {
+    None
+  } else {
+    Some(trimmed)
+  }
+}
+
+fn resolved_codex_context_cwd(cwd: Option<&str>) -> Result<String, String> {
+  if let Some(cwd) = cwd {
+    return Ok(cwd.to_string());
+  }
+
+  if let Some(home) = std::env::var_os("HOME") {
+    let path = PathBuf::from(home);
+    if path.exists() {
+      return Ok(path.display().to_string());
+    }
+  }
+
+  std::env::current_dir()
+    .map(|path| path.display().to_string())
+    .map_err(|error| format!("Couldn't resolve a fallback Codex config directory: {error}"))
 }
 
 async fn call_codex_app_server<TParams, TResponse>(

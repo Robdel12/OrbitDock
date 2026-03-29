@@ -1,3 +1,4 @@
+pub(crate) mod control_deck;
 pub(crate) mod conversation_semantics;
 pub(crate) mod git;
 pub(crate) mod instructions;
