@@ -43,6 +43,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_session_composer),
     )
     .route(
+      "/api/sessions/{session_id}/control-deck",
+      get(super::get_control_deck_snapshot).patch(super::update_control_deck_config),
+    )
+    .route(
       "/api/sessions/{session_id}/conversation",
       get(super::get_conversation_snapshot),
     )
@@ -90,6 +94,10 @@ fn session_write_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/sessions/{session_id}/config",
       patch(super::update_session_config),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/submit",
+      post(super::submit_control_deck_turn),
     )
 }
 
@@ -164,6 +172,10 @@ fn session_attachment_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/sessions/{session_id}/attachments/images/{attachment_id}",
       get(super::get_session_image_attachment),
+    )
+    .route(
+      "/api/sessions/{session_id}/control-deck/attachments/images",
+      post(super::upload_control_deck_image_attachment),
     )
     .route(
       "/api/sessions/{session_id}/shell/exec",
@@ -294,6 +306,10 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),
+    )
+    .route(
+      "/api/control-deck/preferences",
+      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
     )
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))

@@ -4,6 +4,7 @@ mod approvals;
 mod capabilities;
 mod codex_auth;
 mod connector_actions;
+mod control_deck;
 mod errors;
 mod files;
 pub(crate) mod mission_control;
@@ -53,6 +54,11 @@ pub use capabilities::{
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
 pub(crate) use connector_actions::{
   dispatch_error_response, messaging_dispatch_error_response, session_not_found_error,
+};
+pub use control_deck::{
+  get_control_deck_preferences, get_control_deck_snapshot, submit_control_deck_turn,
+  update_control_deck_config, update_control_deck_preferences,
+  upload_control_deck_image_attachment,
 };
 pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{

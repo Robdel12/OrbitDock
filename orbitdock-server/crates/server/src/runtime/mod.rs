@@ -1,6 +1,7 @@
 pub(crate) mod approval_dispatch;
 pub(crate) mod background;
 pub(crate) mod codex_config;
+pub(crate) mod control_deck;
 pub(crate) mod conversation_policy;
 pub(crate) mod message_dispatch;
 pub(crate) mod message_dispatch_policy;
