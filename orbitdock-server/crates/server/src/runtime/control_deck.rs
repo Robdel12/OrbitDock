@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::control_deck::{
+use orbitdock_protocol::{
   ControlDeckConfigUpdate, ControlDeckPreferences, ControlDeckSnapshot,
-  ControlDeckSubmitTurnRequest,
+  ControlDeckSubmitTurnRequest, ImageInput, MentionInput, SkillInput,
 };
-use orbitdock_protocol::{ImageInput, MentionInput, SkillInput};
 
 use crate::domain::control_deck::{
   build_control_deck_snapshot, default_control_deck_preferences,

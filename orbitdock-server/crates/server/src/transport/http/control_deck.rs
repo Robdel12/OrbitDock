@@ -6,7 +6,7 @@ use axum::{
   http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
   Json,
 };
-use orbitdock_protocol::control_deck::{
+use orbitdock_protocol::{
   ControlDeckConfigUpdate, ControlDeckImageAttachmentRef, ControlDeckPreferences,
   ControlDeckSnapshot, ControlDeckSubmitTurnRequest,
 };

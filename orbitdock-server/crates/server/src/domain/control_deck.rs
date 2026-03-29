@@ -1,12 +1,10 @@
-use orbitdock_protocol::control_deck::{
+use orbitdock_protocol::{
   ControlDeckAttachmentRef, ControlDeckCapabilities, ControlDeckConfigState, ControlDeckDensity,
   ControlDeckEmptyVisibility, ControlDeckImageAttachmentRef, ControlDeckMentionRef,
   ControlDeckModule, ControlDeckModulePreference, ControlDeckPickerOption, ControlDeckPreferences,
   ControlDeckSkillRef, ControlDeckSnapshot, ControlDeckState, ControlDeckSubmitTurnRequest,
-  ControlDeckTokenStatus, ControlDeckTokenStatusTone, ControlDeckTurnOverrides,
-};
-use orbitdock_protocol::{
-  ImageInput, MentionInput, Provider, SessionState, SkillInput, TokenUsage, TokenUsageSnapshotKind,
+  ControlDeckTokenStatus, ControlDeckTokenStatusTone, ControlDeckTurnOverrides, ImageInput,
+  MentionInput, Provider, SessionState, SkillInput, TokenUsage, TokenUsageSnapshotKind,
 };
 
 pub(crate) const CONTROL_DECK_PREFERENCES_CONFIG_KEY: &str = "control_deck_preferences_v1";
@@ -362,8 +360,8 @@ fn map_control_deck_skills(skills: Vec<ControlDeckSkillRef>) -> Vec<SkillInput> 
 mod tests {
   use super::*;
   use orbitdock_protocol::{
-    ControlDeckMentionKind, SessionControlMode, SessionLifecycleState, SessionState, SessionStatus,
-    WorkStatus,
+    CodexConfigMode, ControlDeckMentionKind, SessionControlMode, SessionLifecycleState,
+    SessionState, SessionStatus, WorkStatus,
   };
 
   fn sample_session_state() -> SessionState {
