@@ -63,6 +63,14 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
   std::fs::create_dir_all(&log_dir)?;
   let log_path = log_dir.join("server.log");
 
+  if std::env::var("ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START").as_deref() == Ok("1") {
+    let _ = std::fs::OpenOptions::new()
+      .create(true)
+      .write(true)
+      .truncate(true)
+      .open(&log_path)?;
+  }
+
   let resolved_filter = resolve_filter_directives(
     std::env::var("ORBITDOCK_SERVER_LOG_FILTER")
       .ok()
@@ -71,7 +79,7 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
   let filter = EnvFilter::try_new(&resolved_filter)
     .unwrap_or_else(|_| EnvFilter::new(apply_quiet_target_directives(DEFAULT_FILTER)));
 
-  let file_appender = tracing_appender::rolling::daily(&log_dir, "server.log");
+  let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
   let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
   let format = std::env::var("ORBITDOCK_SERVER_LOG_FORMAT").unwrap_or_else(|_| "json".into());
 
@@ -401,20 +409,5 @@ mod tests {
     assert!(resolved.contains("codex_otel.log_only=warn"));
     assert!(resolved.contains("feedback_tags=warn"));
     assert!(resolved.contains("rmcp::transport::worker=off"));
-  }
-
-  #[test]
-  fn housekeeping_writer_marks_rotation_once_per_day() {
-    let tmp = tempfile::tempdir().expect("create temp dir");
-    let appender = tracing_appender::rolling::daily(tmp.path(), "server.log");
-    let writer = HousekeepingWriter {
-      inner: appender,
-      last_housekeeping_day: AtomicU32::new(10),
-    };
-
-    assert!(writer.mark_rotation_if_needed(11));
-    assert!(!writer.mark_rotation_if_needed(11));
-    assert!(!writer.mark_rotation_if_needed(10));
-    assert_eq!(writer.last_housekeeping_day.load(Ordering::Acquire), 11);
   }
 }
