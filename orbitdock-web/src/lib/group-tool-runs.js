@@ -1,15 +1,15 @@
 /**
- * Groups consecutive tool rows (2+) into synthetic activity_group entries.
- * Single tool rows pass through ungrouped.
- * Non-tool rows are never grouped.
+ * Groups consecutive activity rows (2+) into synthetic activity_group entries.
+ * Single activity rows pass through ungrouped.
+ * Non-activity rows are never grouped.
  */
-const groupToolRuns = (rows) => {
-  const result = []
-  const buffer = []
+let groupToolRuns = (rows) => {
+  let result = []
+  let buffer = []
 
-  const flushBuffer = () => {
+  let flushBuffer = () => {
     if (buffer.length >= 2) {
-      const first = buffer[0]
+      let first = buffer[0]
       result.push({
         sequence: first.sequence,
         session_id: first.session_id,
@@ -27,8 +27,8 @@ const groupToolRuns = (rows) => {
     buffer.length = 0
   }
 
-  for (const entry of rows) {
-    if (entry.row?.row_type === 'tool') {
+  for (let entry of rows) {
+    if (isGroupableActivity(entry)) {
       buffer.push(entry)
     } else {
       flushBuffer()
@@ -41,29 +41,62 @@ const groupToolRuns = (rows) => {
 }
 
 /**
- * Build a human-readable summary of tool names in a group.
- * E.g. "Read, Edit, Bash + 2 more" or "Read, Write"
+ * Build a human-readable summary of grouped activity names.
+ * E.g. "Read file, Search files, Run command + 2 more"
  */
-const buildToolSummary = (buffer) => {
-  const names = []
-  const seen = new Set()
-  for (const entry of buffer) {
-    const name = entry.row?.tool_display?.summary
+let buildToolSummary = (buffer) => {
+  let names = []
+  let seen = new Set()
+  for (let entry of buffer) {
+    let name = activitySummary(entry)
     if (name && !seen.has(name)) {
       seen.add(name)
       names.push(name)
     }
   }
 
-  if (names.length === 0) return `${buffer.length} tools`
+  if (names.length === 0) return `${buffer.length} actions`
 
-  const MAX_SHOWN = 3
+  let MAX_SHOWN = 3
   if (names.length <= MAX_SHOWN) {
     return names.join(', ')
   }
-  const shown = names.slice(0, MAX_SHOWN)
-  const remaining = names.length - MAX_SHOWN
+  let shown = names.slice(0, MAX_SHOWN)
+  let remaining = names.length - MAX_SHOWN
   return `${shown.join(', ')} + ${remaining} more`
+}
+
+let isGroupableActivity = (entry) => {
+  let rowType = entry.row?.row_type
+  return rowType === 'tool' || rowType === 'command_execution'
+}
+
+let activitySummary = (entry) => {
+  let row = entry.row
+  if (!row) return null
+
+  if (row.row_type === 'tool') {
+    return row.tool_display?.summary || row.title || null
+  }
+
+  if (row.row_type !== 'command_execution') {
+    return null
+  }
+
+  let actions = row.command_actions || []
+  if (actions.length === 0) return 'Run command'
+
+  if (actions.every((action) => action.type === 'read')) {
+    return actions.length === 1 ? 'Read file' : `Read ${actions.length} files`
+  }
+  if (actions.every((action) => action.type === 'search')) {
+    return actions.length === 1 ? 'Search files' : 'Search across files'
+  }
+  if (actions.every((action) => action.type === 'list_files')) {
+    return 'List files'
+  }
+
+  return 'Run command'
 }
 
 export { buildToolSummary, groupToolRuns }
