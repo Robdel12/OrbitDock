@@ -191,6 +191,8 @@ pub struct ShellCommandRow {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub stderr: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub output_preview: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub exit_code: Option<i32>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub duration_seconds: Option<f64>,
@@ -826,6 +828,7 @@ pub fn extract_row_content_str(row: &ConversationRow) -> String {
     ConversationRow::ShellCommand(s) => s
       .summary
       .clone()
+      .or_else(|| s.output_preview.clone())
       .or_else(|| s.command.clone())
       .unwrap_or_else(|| s.title.clone()),
     ConversationRow::CommandExecution(c) => c
@@ -858,6 +861,7 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
     ConversationRowSummary::ShellCommand(s) => s
       .summary
       .clone()
+      .or_else(|| s.output_preview.clone())
       .or_else(|| s.command.clone())
       .unwrap_or_else(|| s.title.clone()),
     ConversationRowSummary::CommandExecution(c) => c

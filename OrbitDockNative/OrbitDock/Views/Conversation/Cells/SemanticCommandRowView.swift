@@ -79,8 +79,13 @@ struct SemanticCommandRowView: View {
     previewLines(from: row.stderr, limit: isCompactLayout ? 5 : 4)
   }
 
+  private var orderedPreviewLines: [String] {
+    guard row.stdout != nil, row.stderr != nil else { return [] }
+    return previewLines(from: row.outputPreview, limit: isCompactLayout ? 9 : 8)
+  }
+
   private var hasOutput: Bool {
-    !stdoutLines.isEmpty || !stderrLines.isEmpty
+    !orderedPreviewLines.isEmpty || !stdoutLines.isEmpty || !stderrLines.isEmpty
   }
 
   private var summaryText: String? {
@@ -183,25 +188,33 @@ struct SemanticCommandRowView: View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
       panelHeader
 
-      if !stdoutLines.isEmpty {
+      if !orderedPreviewLines.isEmpty {
         VStack(alignment: .leading, spacing: 2) {
-          ForEach(Array(stdoutLines.enumerated()), id: \.offset) { _, line in
-            outputLine(line, tint: shellLabelColor.opacity(0.8))
+          ForEach(Array(orderedPreviewLines.enumerated()), id: \.offset) { _, line in
+            outputLine(line, tint: Color.textTertiary, textColor: Color.textSecondary)
           }
         }
-      }
-
-      if !stderrLines.isEmpty {
+      } else {
         if !stdoutLines.isEmpty {
-          Rectangle()
-            .fill(Color.white.opacity(0.05))
-            .frame(height: 1)
-            .padding(.vertical, Spacing.xs)
+          VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(stdoutLines.enumerated()), id: \.offset) { _, line in
+              outputLine(line, tint: shellLabelColor.opacity(0.8))
+            }
+          }
         }
 
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(Array(stderrLines.enumerated()), id: \.offset) { _, line in
-            outputLine(line, tint: Color.feedbackNegative, textColor: Color.feedbackNegative.opacity(0.92))
+        if !stderrLines.isEmpty {
+          if !stdoutLines.isEmpty {
+            Rectangle()
+              .fill(Color.white.opacity(0.05))
+              .frame(height: 1)
+              .padding(.vertical, Spacing.xs)
+          }
+
+          VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(stderrLines.enumerated()), id: \.offset) { _, line in
+              outputLine(line, tint: Color.feedbackNegative, textColor: Color.feedbackNegative.opacity(0.92))
+            }
           }
         }
       }

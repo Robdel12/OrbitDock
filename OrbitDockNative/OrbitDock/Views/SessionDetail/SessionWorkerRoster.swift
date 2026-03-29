@@ -529,12 +529,21 @@ enum SessionWorkerRosterPlanner {
   private static func shellCommandPreviewBody(
     for shellCommand: ServerConversationShellCommandRow
   ) -> String? {
+    let outputPreview =
+      shellCommand.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    if outputPreview != nil,
+       shellCommand.stdout?.nilIfEmpty != nil,
+       shellCommand.stderr?.nilIfEmpty != nil
+    {
+      return outputPreview
+    }
+
     let stdout = shellCommand.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     let stderr = shellCommand.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     if let stdout, let stderr {
       return "\(stdout)\n\(stderr)".nilIfEmpty
     }
-    return stdout ?? stderr
+    return outputPreview ?? stdout ?? stderr
   }
 
   private static func workerTimelineSummary(

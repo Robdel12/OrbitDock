@@ -331,6 +331,41 @@ struct SessionWorkerRosterPlannerTests {
       .summary == "Worker found the auth entrypoints and is reporting back.")
   }
 
+  @Test func detailPresentationPrefersOrderedShellPreviewForInterleavedOutput() {
+    let worker = makeWorker(
+      id: "worker-shell",
+      label: "Scout",
+      status: .running,
+      taskSummary: "Inspect shell output",
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:00:00Z",
+      agentType: "worker"
+    )
+
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [worker],
+      selectedWorkerID: worker.id,
+      toolsByWorker: [:],
+      messagesByWorker: [
+        worker.id: [
+        makeShellCommandEntry(
+          id: "shell-1",
+          sessionId: worker.id,
+          sequence: 1,
+          title: "Run migration check",
+          command: "orbitdock migrate --check",
+          stdout: "stdout-1\nstdout-2",
+          stderr: "stderr-1",
+          outputPreview: "stdout-1\nstderr-1\nstdout-2"
+        ),
+        ],
+      ],
+      timelineEntries: []
+    )
+
+    #expect(presentation?.threadEntries.first?.body == "stdout-1\nstderr-1\nstdout-2")
+  }
+
   @Test func detailPresentationBuildsRelatedWorkerNavigation() {
     let parent = makeWorker(
       id: "worker-parent",
@@ -535,6 +570,39 @@ struct SessionWorkerRosterPlannerTests {
           endedAt: nil
         ),
         operation: operation,
+        renderHints: .init()
+      ))
+    )
+  }
+
+  private func makeShellCommandEntry(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    title: String,
+    command: String,
+    stdout: String?,
+    stderr: String?,
+    outputPreview: String?
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: sessionId,
+      sequence: sequence,
+      turnId: nil,
+      turnStatus: .active,
+      row: .shellCommand(ServerConversationShellCommandRow(
+        id: id,
+        kind: .userShellCommand,
+        title: title,
+        summary: nil,
+        command: command,
+        args: [],
+        stdout: stdout,
+        stderr: stderr,
+        outputPreview: outputPreview,
+        exitCode: nil,
+        durationSeconds: nil,
+        cwd: nil,
         renderHints: .init()
       ))
     )
