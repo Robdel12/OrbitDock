@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, watch};
-use tracing::{debug, error, info, warn};
+use tracing::{error, warn};
 
 use crate::infrastructure::paths;
 use crate::support::session_time::chrono_now;
@@ -119,17 +119,6 @@ impl SyncWriter {
   }
 
   pub async fn run(mut self) {
-    info!(
-        component = "sync",
-        event = "sync.writer.started",
-        workspace_id = %self.config.workspace_id,
-        server_url = %self.config.server_url,
-        batch_size = self.config.batch_size,
-        flush_interval_ms = self.config.flush_interval.as_millis() as u64,
-        heartbeat_interval_secs = self.config.heartbeat_interval.as_secs(),
-        "Sync writer started"
-    );
-
     let mut flush_interval = tokio::time::interval(self.config.flush_interval);
     let mut heartbeat_interval = tokio::time::interval(self.config.heartbeat_interval);
 
@@ -178,13 +167,7 @@ impl SyncWriter {
     };
 
     match tokio::time::timeout(DEFAULT_SHUTDOWN_TIMEOUT, shutdown_future).await {
-      Ok(()) => {
-        info!(
-          component = "sync",
-          event = "sync.writer.stopped",
-          "Sync writer drained pending commands before shutdown"
-        );
-      }
+      Ok(()) => {}
       Err(_) => {
         warn!(
           component = "sync",
@@ -263,15 +246,7 @@ impl SyncWriter {
     };
 
     match self.post_batch(request).await {
-      Ok(()) => {
-        debug!(
-            component = "sync",
-            event = "sync.flush.succeeded",
-            workspace_id = %self.config.workspace_id,
-            command_count = envelopes.len(),
-            "Sync batch delivered"
-        );
-      }
+      Ok(()) => {}
       Err(error) => {
         warn!(
             component = "sync",
@@ -486,7 +461,7 @@ async fn post_batch(
   let response = response
     .error_for_status()
     .context("sync batch returned error status")?;
-  let status = response.status().as_u16();
+  let _status = response.status().as_u16();
 
   if request.commands.is_empty() {
     return Ok(());
@@ -519,13 +494,6 @@ async fn post_batch(
       );
     }
   }
-
-  debug!(
-    component = "sync",
-    event = "sync.post.completed",
-    status = status,
-    "Sync POST completed"
-  );
 
   Ok(())
 }

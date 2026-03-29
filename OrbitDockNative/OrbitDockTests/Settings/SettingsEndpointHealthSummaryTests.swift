@@ -1,8 +1,35 @@
+import Foundation
 @testable import OrbitDock
 import Testing
 
 @MainActor
 struct SettingsEndpointHealthSummaryTests {
+  @Test func connectedEnabledEndpointCountIgnoresDisabledConnectedEndpoints() {
+    let enabledEndpoint = ServerEndpoint(
+      id: UUID(),
+      name: "Enabled",
+      wsURL: URL(string: "ws://enabled.example")!,
+      isEnabled: true,
+      isDefault: true,
+      authToken: "tok_enabled"
+    )
+    let disabledEndpoint = ServerEndpoint(
+      id: UUID(),
+      name: "Disabled",
+      wsURL: URL(string: "ws://disabled.example")!,
+      isEnabled: false,
+      isDefault: false,
+      authToken: "tok_disabled"
+    )
+    let runtimes = [ServerRuntime(endpoint: enabledEndpoint), ServerRuntime(endpoint: disabledEndpoint)]
+
+    let connectedCount = SettingsEndpointHealthSummary.connectedEnabledEndpointCount(for: runtimes) {
+      $0 == enabledEndpoint.id ? .disconnected : .connected
+    }
+
+    #expect(connectedCount == 0)
+  }
+
   @Test func noEnabledEndpointsUsesWarningCopy() {
     let summary = SettingsEndpointHealthSummary.make(
       endpointCount: 2,

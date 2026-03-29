@@ -3,8 +3,8 @@ use std::sync::Arc;
 mod approvals;
 mod capabilities;
 mod codex_auth;
-mod control_deck;
 mod connector_actions;
+mod control_deck;
 mod errors;
 mod files;
 pub(crate) mod mission_control;
@@ -87,7 +87,7 @@ pub use server_info::{
   set_workspace_provider_config_value, test_workspace_provider,
 };
 pub use server_meta::{
-  fetch_claude_usage, fetch_codex_usage, list_claude_models, list_codex_models,
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_summary, list_claude_models, list_codex_models,
 };
 pub use session_actions::{
   compact_context, get_session_image_attachment, interrupt_session, post_session_message,
@@ -108,5 +108,7 @@ pub use sessions::{
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;
-pub use update::{check_update, get_update_channel, get_update_status, set_update_channel};
+pub use update::{
+  check_update, get_update_channel, get_update_status, set_update_channel, start_upgrade,
+};
 pub use worktrees::{create_worktree, discover_worktrees, list_worktrees, remove_worktree};

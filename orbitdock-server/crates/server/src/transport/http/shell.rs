@@ -16,9 +16,11 @@ use crate::domain::sessions::transition::Input;
 use crate::infrastructure::shell::{ShellCancelStatus, ShellOutcome, ShellResult};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::transport::shell_streaming::{
+  prefer_streamed_shell_output, ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS,
+};
 
 const DEFAULT_SHELL_TIMEOUT_SECS: u64 = 120;
-const SHELL_STREAM_THROTTLE_MS: u128 = 120;
 
 #[derive(Debug, Deserialize)]
 pub struct ExecuteShellRequest {
@@ -76,6 +78,7 @@ struct ShellRowState {
   command: Option<String>,
   stdout: Option<String>,
   stderr: Option<String>,
+  output_preview: Option<String>,
   exit_code: Option<i32>,
   duration_ms: u64,
   cwd: Option<String>,
@@ -105,6 +108,7 @@ fn build_shell_row_entry(
       args: vec![],
       stdout: state.stdout,
       stderr: state.stderr,
+      output_preview: state.output_preview,
       exit_code: state.exit_code,
       duration_seconds: (state.duration_ms > 0).then_some(state.duration_ms as f64 / 1000.0),
       cwd: state.cwd,
@@ -115,25 +119,15 @@ fn build_shell_row_entry(
 
 fn finalize_shell_result(
   result: ShellResult,
-  streamed_output: String,
+  streamed_output: Option<String>,
 ) -> (String, bool, ShellExecutionOutcome, ShellResult) {
   let is_error = match result.outcome {
     ShellOutcome::Completed => result.exit_code != Some(0),
     ShellOutcome::Failed | ShellOutcome::TimedOut => true,
     ShellOutcome::Canceled => false,
   };
-  let combined_output = if result.stderr.is_empty() {
-    result.stdout.clone()
-  } else if result.stdout.is_empty() {
-    result.stderr.clone()
-  } else {
-    format!("{}\n{}", result.stdout, result.stderr)
-  };
-  let final_output = if combined_output.is_empty() {
-    streamed_output
-  } else {
-    combined_output
-  };
+  let final_output =
+    prefer_streamed_shell_output(&result.stdout, &result.stderr, streamed_output.as_deref());
   let outcome = match result.outcome {
     ShellOutcome::Completed => ShellExecutionOutcome::Completed,
     ShellOutcome::Failed => ShellExecutionOutcome::Failed,
@@ -180,6 +174,7 @@ pub async fn execute_shell_endpoint(
       command: Some(command.clone()),
       stdout: None,
       stderr: None,
+      output_preview: None,
       exit_code: None,
       duration_ms: 0,
       cwd: Some(resolved_cwd.clone()),
@@ -218,15 +213,15 @@ pub async fn execute_shell_endpoint(
   tokio::spawn(async move {
     let mut chunk_rx = shell_execution.chunk_rx;
     let completion_rx = shell_execution.completion_rx;
-    let mut streamed_output = String::new();
+    let mut preview_state = ShellStreamPreviewState::default();
     let mut last_stream_emit = std::time::Instant::now();
 
     while let Some(chunk) = chunk_rx.recv().await {
       if !chunk.stdout.is_empty() {
-        streamed_output.push_str(&chunk.stdout);
+        preview_state.append_stdout(&chunk.stdout);
       }
       if !chunk.stderr.is_empty() {
-        streamed_output.push_str(&chunk.stderr);
+        preview_state.append_stderr(&chunk.stderr);
       }
       let now = std::time::Instant::now();
       if now.duration_since(last_stream_emit).as_millis() < SHELL_STREAM_THROTTLE_MS {
@@ -239,8 +234,9 @@ pub async fn execute_shell_endpoint(
           &sid,
           ShellRowState {
             command: Some(command_for_task.clone()),
-            stdout: (!streamed_output.is_empty()).then(|| streamed_output.clone()),
-            stderr: None,
+            stdout: preview_state.stdout_preview(),
+            stderr: preview_state.stderr_preview(),
+            output_preview: preview_state.combined_preview(),
             exit_code: None,
             duration_ms: 0,
             cwd: Some(resolved_cwd_for_task.clone()),
@@ -267,7 +263,8 @@ pub async fn execute_shell_endpoint(
         outcome: ShellOutcome::Failed,
       },
     };
-    let (final_output, _is_error, outcome, result) = finalize_shell_result(result, streamed_output);
+    let (final_output, _is_error, outcome, result) =
+      finalize_shell_result(result, preview_state.combined_preview());
 
     if let Some(actor) = state_ref.get_session(&sid) {
       let stdout = if result.stdout.is_empty() {
@@ -283,6 +280,7 @@ pub async fn execute_shell_endpoint(
           command: Some(command_for_task.clone()),
           stdout,
           stderr,
+          output_preview: (!final_output.is_empty()).then_some(final_output.clone()),
           exit_code: result.exit_code,
           duration_ms: result.duration_ms,
           cwd: Some(resolved_cwd_for_task.clone()),

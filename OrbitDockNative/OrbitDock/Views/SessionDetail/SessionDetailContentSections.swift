@@ -7,6 +7,7 @@ struct SessionDetailConversationSection: View {
   let isSessionActive: Bool
   let displayStatus: SessionDisplayStatus
   let currentTool: String?
+  let showsOrbitStatusIndicator: Bool
   let chatViewMode: ChatViewMode
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
@@ -22,6 +23,7 @@ struct SessionDetailConversationSection: View {
       isSessionActive: isSessionActive,
       displayStatus: displayStatus,
       currentTool: currentTool,
+      showsOrbitStatusIndicator: showsOrbitStatusIndicator,
       chatViewMode: chatViewMode,
       scrollCommand: $scrollCommand,
       onJumpToLatest: onJumpToLatest,

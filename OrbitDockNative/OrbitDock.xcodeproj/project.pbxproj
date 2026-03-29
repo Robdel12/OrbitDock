@@ -136,6 +136,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 800E7CD42F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOS" */;
 			buildPhases = (
+				80E45A1A2F90000100A1B2C3 /* Build Ghostty VT */,
 				800E7CB22F46B778007CADF5 /* Sources */,
 				800E7CB32F46B778007CADF5 /* Frameworks */,
 				800E7CB42F46B778007CADF5 /* Resources */,
@@ -307,6 +308,34 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		80E45A1A2F90000100A1B2C3 /* Build Ghostty VT */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 0;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendors/ghostty-vt/build.sh",
+			);
+			name = "Build Ghostty VT";
+			outputPaths = (
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libghostty-vt.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libhighway.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libsimdutf.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64/libutfcpp.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libghostty-vt.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libhighway.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libsimdutf.a",
+				"$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator/libutfcpp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\"$SRCROOT/Vendors/ghostty-vt/build.sh\" --ios\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		800E7CB22F46B778007CADF5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -381,9 +410,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
 				MARKETING_VERSION = 0.7.0;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",
@@ -433,9 +470,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
 				MARKETING_VERSION = 0.7.0;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",

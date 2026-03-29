@@ -14,7 +14,9 @@ import SwiftUI
 struct DashboardStatusBar: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.modelPricingService) private var modelPricingService
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(UsageServiceRegistry.self) private var usageRegistry
   @Environment(AppRouter.self) private var router
 
   let sessions: [RootSessionNode]
@@ -37,6 +39,7 @@ struct DashboardStatusBar: View {
     let calculator = modelPricingService.calculatorSnapshot
     let calendar = Calendar.current
     let startOfToday = calendar.startOfDay(for: Date())
+
     let todaySessions = dashboardStatsSessions.filter {
       guard let start = $0.startedAt else { return false }
       return start >= startOfToday
@@ -44,6 +47,15 @@ struct DashboardStatusBar: View {
     return (
       today: StatusBarStats.from(sessions: todaySessions, costCalculator: calculator),
       all: StatusBarStats.from(sessions: sessions, costCalculator: calculator)
+    )
+  }
+
+  private var displayedStats: (today: StatusBarStats, allTime: StatusBarStats) {
+    let fallback = precomputedStats
+    return StatusBarStats.resolve(
+      summary: usageRegistry.summary,
+      fallbackToday: fallback.today,
+      fallbackAllTime: fallback.all
     )
   }
 
@@ -140,27 +152,44 @@ struct DashboardStatusBar: View {
   }
 
   var body: some View {
-    let stats = precomputedStats
+    let stats = displayedStats
     VStack(spacing: 0) {
       switch layoutMode {
-        case .phoneCompact: phoneHeader(stats: stats)
-        case .pad, .desktop: desktopHeader(stats: stats)
+        case .phoneCompact:
+          phoneHeader(todayStats: stats.today, allStats: stats.allTime)
+        case .pad, .desktop:
+          desktopHeader(todayStats: stats.today, allStats: stats.allTime)
       }
     }
     .fixedSize(horizontal: false, vertical: true)
     .background(Color.backgroundSecondary)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.panelBorder.opacity(layoutMode.isPhoneCompact ? 0.45 : 0.28))
+        .frame(height: 1)
+    }
     .sheet(isPresented: $showServerSettings) {
       ServerCommPanel()
     }
     .sheet(isPresented: $showAppSettings) {
       SettingsView(showsCloseButton: true)
+        .environment(appRuntime)
+        .environment(appRuntime.notificationCoordinator)
+        .environment(runtimeRegistry)
         .environment(runtimeRegistry.activeSessionStore)
+        #if os(iOS)
+          .presentationDetents([.large])
+          .presentationDragIndicator(.visible)
+        #endif
+    }
+    .task(id: Calendar.current.startOfDay(for: Date())) {
+      await usageRegistry.refreshAll()
     }
   }
 
   // MARK: - Desktop Header
 
-  private func desktopHeader(stats: (today: StatusBarStats, all: StatusBarStats)) -> some View {
+  private func desktopHeader(todayStats: StatusBarStats, allStats: StatusBarStats) -> some View {
     HStack(spacing: Spacing.md) {
       DashboardTabSwitcher()
 
@@ -170,7 +199,7 @@ struct DashboardStatusBar: View {
         connectionStateBadge(text: connectionSummaryText)
       }
 
-      todayStatsCluster(todayStats: stats.today, allStats: stats.all)
+      todayStatsCluster(todayStats: todayStats, allStats: allStats)
 
       actionButtons
     }
@@ -180,19 +209,24 @@ struct DashboardStatusBar: View {
 
   // MARK: - Phone Header
 
-  private func phoneHeader(stats: (today: StatusBarStats, all: StatusBarStats)) -> some View {
+  private func phoneHeader(todayStats: StatusBarStats, allStats: StatusBarStats) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       HStack(spacing: Spacing.sm) {
         DashboardTabSwitcher(compact: true)
           .layoutPriority(1)
 
-        Spacer(minLength: Spacing.sm_)
+        if let connectionSummaryText {
+          phoneTelemetryDivider
+          phoneConnectionBadge(text: connectionSummaryText)
+        }
+
+        Spacer(minLength: Spacing.sm)
 
         phoneActionButtons
       }
 
       HStack(spacing: Spacing.sm_) {
-        phoneStatsButton(todayStats: stats.today, allStats: stats.all)
+        phoneStatsButton(todayStats: todayStats, allStats: allStats)
 
         Spacer(minLength: Spacing.sm_)
 
@@ -206,38 +240,33 @@ struct DashboardStatusBar: View {
       }
     }
     .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm)
+    .padding(.top, Spacing.sm)
+    .padding(.bottom, Spacing.sm)
   }
 
   private func phoneStatsButton(todayStats: StatusBarStats, allStats: StatusBarStats) -> some View {
     Button {
       showStatsPopover.toggle()
     } label: {
-      HStack(spacing: Spacing.sm_) {
+      HStack(spacing: Spacing.gap) {
         Image(systemName: "gauge.with.dots.needle.33percent")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .font(.system(size: TypeScale.mini, weight: .semibold))
           .foregroundStyle(Color.accent)
 
-        VStack(alignment: .leading, spacing: 1) {
-          Text("Usage")
-            .font(.system(size: TypeScale.mini, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
+        Text("Usage")
+          .font(.system(size: TypeScale.mini, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
 
-          Text("\(DashboardFormatters.costCompact(todayStats.cost)) today")
-            .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
-        }
+        Text(DashboardFormatters.costCompact(todayStats.cost))
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
+
+        Text("today")
+          .font(.system(size: TypeScale.mini, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
       }
-      .padding(.horizontal, Spacing.sm)
-      .padding(.vertical, Spacing.xs)
-      .background(
-        Capsule(style: .continuous)
-          .fill(Color.backgroundTertiary.opacity(0.58))
-          .overlay(
-            Capsule(style: .continuous)
-              .stroke(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
-          )
-      )
+      .padding(.vertical, Spacing.xxs)
+      .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .accessibilityLabel("Show usage and stats")
@@ -330,6 +359,7 @@ struct DashboardStatusBar: View {
       settingsButton
       serverButton(showLabel: false)
     }
+    .padding(.vertical, Spacing.xxs)
   }
 
   private func newSessionButton(showLabel: Bool) -> some View {
@@ -347,7 +377,7 @@ struct DashboardStatusBar: View {
             .foregroundStyle(Color.textSecondary)
         }
       }
-      .frame(minWidth: showLabel ? 0 : 28, minHeight: 28, alignment: .center)
+      .frame(minWidth: showLabel ? 0 : 32, minHeight: 32, alignment: .center)
       .padding(.horizontal, showLabel ? Spacing.xs : 0)
       .contentShape(Rectangle())
     }
@@ -373,7 +403,7 @@ struct DashboardStatusBar: View {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(Color.textTertiary)
-        .frame(width: 28, height: 28)
+        .frame(width: 32, height: 32)
     }
     .buttonStyle(.plain)
     .help("Search sessions (⌘K)")
@@ -384,7 +414,7 @@ struct DashboardStatusBar: View {
       Image(systemName: "gearshape")
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(Color.textTertiary)
-        .frame(width: 28, height: 28)
+        .frame(width: 32, height: 32)
     }
     .buttonStyle(.plain)
   }
@@ -444,6 +474,37 @@ struct DashboardStatusBar: View {
     )
   }
 
+  private var phoneTelemetryDivider: some View {
+    Capsule(style: .continuous)
+      .fill(Color.panelBorder.opacity(0.75))
+      .frame(width: 1, height: 14)
+      .padding(.vertical, Spacing.xxs)
+      .accessibilityHidden(true)
+  }
+
+  private func phoneConnectionBadge(text: String) -> some View {
+    HStack(spacing: Spacing.xs) {
+      if unavailableEndpointCount > 0 {
+        Image(systemName: "wifi.slash")
+          .font(.system(size: TypeScale.micro, weight: .bold))
+          .foregroundStyle(Color.statusPermission)
+      } else if connectingEndpointCount > 0 || isInitialLoading || isRefreshingCachedSessions {
+        ProgressView()
+          .controlSize(.mini)
+      } else {
+        Circle()
+          .fill(Color.feedbackPositive)
+          .frame(width: 6, height: 6)
+          .shadow(color: Color.feedbackPositive.opacity(0.45), radius: 3)
+      }
+
+      Text(text)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(unavailableEndpointCount > 0 ? Color.statusPermission : Color.textTertiary)
+        .lineLimit(1)
+    }
+  }
+
   private func headerMetric(
     value: String,
     label: String,
@@ -481,8 +542,15 @@ struct DashboardTabSwitcher: View {
       tabButton(label: "Missions", icon: "antenna.radiowaves.left.and.right", tab: .missions)
       tabButton(label: "Library", icon: "books.vertical", tab: .library)
     }
-    .padding(compact ? Spacing.xxs : Spacing.gap)
-    .background(Color.backgroundTertiary.opacity(0.6), in: Capsule())
+    .padding(compact ? Spacing.gap : Spacing.gap)
+    .background(
+      RoundedRectangle(cornerRadius: compact ? Radius.xl : Radius.xl, style: .continuous)
+        .fill(compact ? Color.backgroundTertiary.opacity(0.96) : Color.backgroundTertiary.opacity(0.6))
+        .overlay(
+          RoundedRectangle(cornerRadius: compact ? Radius.xl : Radius.xl, style: .continuous)
+            .stroke(Color.surfaceBorder.opacity(compact ? OpacityTier.medium : 0), lineWidth: 1)
+        )
+    )
   }
 
   private func tabButton(label: String, icon: String, tab: DashboardTab) -> some View {
@@ -501,15 +569,23 @@ struct DashboardTabSwitcher: View {
           .lineLimit(1)
       }
       .foregroundStyle(isActive ? Color.textPrimary : Color.textTertiary)
+      .frame(maxWidth: compact ? .infinity : nil, minHeight: compact ? 30 : nil)
       .padding(.horizontal, compact ? Spacing.sm : Spacing.md_)
       .padding(.vertical, compact ? Spacing.sm_ : Spacing.sm_)
       .background(
         isActive
-          ? Color.surfaceHover
+          ? Color.surfaceSelected
           : Color.clear,
-        in: Capsule()
+        in: RoundedRectangle(cornerRadius: compact ? Radius.lg : Radius.xl, style: .continuous)
       )
-      .fixedSize(horizontal: true, vertical: false)
+      .overlay(
+        RoundedRectangle(cornerRadius: compact ? Radius.lg : Radius.xl, style: .continuous)
+          .stroke(
+            isActive && compact ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+            lineWidth: 1
+          )
+      )
+      .fixedSize(horizontal: !compact, vertical: false)
     }
     .buttonStyle(.plain)
   }
@@ -524,6 +600,7 @@ struct DashboardTabSwitcher: View {
     shouldBootstrapFromSettings: false
   )
   let router = AppRouter()
+  let appRuntime = OrbitDockAppRuntime()
   VStack(spacing: 0) {
     DashboardStatusBar(
       sessions: [],
@@ -537,6 +614,7 @@ struct DashboardTabSwitcher: View {
       .frame(height: 200)
   }
   .frame(width: 900)
+  .environment(appRuntime)
   .environment(runtimeRegistry)
   .environment(router)
 }

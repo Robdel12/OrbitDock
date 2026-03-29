@@ -99,6 +99,17 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
     }
   }
 
+  var controlDeckAutoReviewLabel: String {
+    switch self {
+      case .locked: "You Review It"
+      case .guarded: "Sandbox Retries First"
+      case .autonomous: "OrbitDock Can Decide"
+      case .open: "OrbitDock Decides Openly"
+      case .fullAuto: "Codex Keeps Going"
+      case .unrestricted: "Nothing Stops It"
+    }
+  }
+
   var autoReviewStatusIcon: String {
     switch self {
       case .locked: "lock.shield.fill"
@@ -134,6 +145,23 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
         "Approval UI becomes read-only context here. Codex runs directly inside the configured sandbox and will not pause for confirmation."
       case .unrestricted:
         "There is no sandbox and no approval pause. OrbitDock can only show policy context after the fact, so treat this as a deliberate high-trust mode."
+    }
+  }
+
+  var controlDeckAutoReviewSummary: String {
+    switch self {
+      case .locked:
+        "Blocked work always comes back to you. OrbitDock does not try to resolve it on your behalf."
+      case .guarded:
+        "OrbitDock lets the sandbox try first. You only see the prompt when the sandbox cannot satisfy the request."
+      case .autonomous:
+        "OrbitDock can approve or deny some blocked work for Codex when it has enough confidence, so you get interrupted less often."
+      case .open:
+        "OrbitDock can still make that decision for Codex, but it is doing it without sandbox restrictions."
+      case .fullAuto:
+        "Codex stays in motion without approval interruptions. You are choosing audit context over live approval."
+      case .unrestricted:
+        "There is no sandbox and no approval stop. Nothing blocks the agent before it acts."
     }
   }
 
@@ -232,7 +260,7 @@ struct AutonomyPill: View {
     var iconFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar: TypeScale.mini
+        case .statusBar: IconScale.sm
       }
     }
 
@@ -246,28 +274,33 @@ struct AutonomyPill: View {
     var horizontalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.md)
-        case .statusBar: Spacing.sm_
+        case .statusBar: CGFloat(Spacing.sm)
       }
     }
 
     var verticalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.sm)
-        case .statusBar: Spacing.gap
+        case .statusBar: CGFloat(Spacing.xs)
       }
     }
 
     var spacing: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.xs)
-        case .statusBar: Spacing.gap
+        case .statusBar: CGFloat(Spacing.xs)
       }
     }
 
     var height: CGFloat? {
       switch self {
         case .regular: nil
-        case .statusBar: 20
+        case .statusBar:
+          #if os(iOS)
+            30
+          #else
+            20
+          #endif
       }
     }
   }
@@ -309,6 +342,11 @@ struct AutonomyPill: View {
           : AnyShapeStyle(currentLevel.color.opacity(OpacityTier.light)),
         in: Capsule()
       )
+      .overlay(
+        Capsule()
+          .strokeBorder(currentLevel.color.opacity(OpacityTier.medium), lineWidth: 0.75)
+      )
+      .themeShadow(Shadow.sm)
     }
     .buttonStyle(.plain)
     .fixedSize()

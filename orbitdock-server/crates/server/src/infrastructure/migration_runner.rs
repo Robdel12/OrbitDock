@@ -32,6 +32,7 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
   )?;
 
   import_legacy_history(conn)?;
+  let had_v042_before = refinery_history_has_version(conn, 42)?;
 
   let report = embedded::migrations::runner()
     .run(conn)
@@ -39,14 +40,58 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
 
   ensure_session_control_plane_columns(conn)?;
 
+  let applied = report.applied_migrations();
+  let has_v042_after = refinery_history_has_version(conn, 42)?;
+
+  // V042 drops dead columns. Some columns (images_json, thinking) were added
+  // ad-hoc on existing installs but never by a migration, so we drop them
+  // conditionally here rather than in the SQL file.
+  let mut dropped_ad_hoc_columns = false;
+  if has_v042_after {
+    for col in &["images_json", "thinking"] {
+      if column_exists(conn, "messages", col)? {
+        conn
+          .execute(&format!("ALTER TABLE messages DROP COLUMN {col}"), [])
+          .with_context(|| format!("drop messages.{col}"))?;
+        dropped_ad_hoc_columns = true;
+      }
+    }
+  }
+
+  if should_run_post_v042_vacuum(had_v042_before, has_v042_after, dropped_ad_hoc_columns) {
+    // VACUUM must run outside a transaction to actually reclaim disk space.
+    // Critical for Pi deployments where 2+ GB of dead data is untenable.
+    info!(
+      component = "migrations",
+      event = "migrations.vacuum_start",
+      "Running VACUUM to reclaim disk space after column drops"
+    );
+    conn
+      .execute_batch("VACUUM;")
+      .context("VACUUM after V042 column drops")?;
+    info!(
+      component = "migrations",
+      event = "migrations.vacuum_complete",
+      "VACUUM complete"
+    );
+  }
+
   info!(
     component = "migrations",
     event = "migrations.complete",
-    applied = report.applied_migrations().len(),
+    applied = applied.len(),
     "Migration check complete"
   );
 
   Ok(())
+}
+
+fn should_run_post_v042_vacuum(
+  had_v042_before: bool,
+  has_v042_after: bool,
+  dropped_ad_hoc_columns: bool,
+) -> bool {
+  (!had_v042_before && has_v042_after) || dropped_ad_hoc_columns
 }
 
 fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()> {
@@ -236,6 +281,24 @@ fn refinery_history_count(conn: &Connection) -> anyhow::Result<i64> {
     .context("count refinery_schema_history rows")?;
 
   Ok(count)
+}
+
+fn refinery_history_has_version(conn: &Connection, version: i64) -> anyhow::Result<bool> {
+  if !table_exists(conn, REFINERY_MIGRATION_TABLE)? {
+    return Ok(false);
+  }
+
+  let exists = conn.query_row(
+    "SELECT EXISTS(
+         SELECT 1
+         FROM refinery_schema_history
+         WHERE version = ?1
+     )",
+    params![version],
+    |row| row.get::<_, i64>(0),
+  )?;
+
+  Ok(exists == 1)
 }
 
 fn table_exists(conn: &Connection, table_name: &str) -> anyhow::Result<bool> {
@@ -493,5 +556,13 @@ mod tests {
       .expect("read progress timestamp");
 
     assert_eq!(last_progress_at.as_deref(), Some("123Z"));
+  }
+
+  #[test]
+  fn post_v042_vacuum_runs_only_when_newly_applied_or_columns_dropped() {
+    assert!(should_run_post_v042_vacuum(false, true, false));
+    assert!(should_run_post_v042_vacuum(true, true, true));
+    assert!(!should_run_post_v042_vacuum(true, true, false));
+    assert!(!should_run_post_v042_vacuum(false, false, false));
   }
 }

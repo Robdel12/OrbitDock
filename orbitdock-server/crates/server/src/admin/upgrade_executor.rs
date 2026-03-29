@@ -6,7 +6,9 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
 use crate::infrastructure::github_releases::client::GitHubReleasesClient;
-use crate::infrastructure::github_releases::types::{ReleaseAsset, UpdateChannel};
+use crate::infrastructure::github_releases::types::{
+  current_platform_release_asset_name, ReleaseAsset, UpdateChannel,
+};
 use crate::infrastructure::paths::upgrade_tmp_dir;
 use crate::VERSION;
 
@@ -72,7 +74,7 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
     return Ok(());
   }
 
-  let asset_name = platform_asset_name()?;
+  let asset_name = current_platform_release_asset_name()?.to_string();
   let checksum_name = format!("{asset_name}.sha256");
 
   let zip_asset = release
@@ -190,23 +192,6 @@ async fn execute_upgrade_async(opts: UpgradeOptions) -> anyhow::Result<()> {
   }
 
   Ok(())
-}
-
-fn platform_asset_name() -> anyhow::Result<String> {
-  let name = if cfg!(target_os = "macos") {
-    "orbitdock-darwin-arm64.zip"
-  } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
-    "orbitdock-linux-x86_64.zip"
-  } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
-    "orbitdock-linux-aarch64.zip"
-  } else {
-    anyhow::bail!(
-      "Unsupported platform: {} / {}",
-      std::env::consts::OS,
-      std::env::consts::ARCH
-    );
-  };
-  Ok(name.to_string())
 }
 
 fn default_install_dir() -> PathBuf {

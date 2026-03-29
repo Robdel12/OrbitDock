@@ -24,7 +24,7 @@ final class GhosttyTerminalEmulator {
   /// Set by the title_changed callback during vt_write; flushed after write completes.
   var titleDirty = false
 
-  init(cols: UInt16 = 80, rows: UInt16 = 24, maxScrollback: Int = 10000) {
+  init(cols: UInt16 = 80, rows: UInt16 = 24, maxScrollback: Int = 10_000) {
     self.cols = cols
     self.rows = rows
 
@@ -79,7 +79,7 @@ final class GhosttyTerminalEmulator {
     ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_USERDATA, userdata)
 
     // write_pty — terminal needs to respond to queries
-    let writePtyFn: GhosttyTerminalWritePtyFn = { terminal, userdata, data, len in
+    let writePtyFn: GhosttyTerminalWritePtyFn = { _, userdata, data, len in
       guard let userdata, let data, len > 0 else { return }
       let wrapper = Unmanaged<GhosttyTerminalEmulator>.fromOpaque(userdata).takeUnretainedValue()
       let bytes = Data(bytes: data, count: len)

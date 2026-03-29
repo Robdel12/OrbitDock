@@ -1,11 +1,10 @@
 use orbitdock_protocol::{
-  ControlDeckAttachmentRef, ControlDeckCapabilities, ControlDeckConfigState,
-  ControlDeckDensity, ControlDeckEmptyVisibility, ControlDeckImageAttachmentRef,
-  ControlDeckMentionRef, ControlDeckModule, ControlDeckModulePreference,
-  ControlDeckPickerOption, ControlDeckPreferences, ControlDeckSkillRef, ControlDeckSnapshot,
-  ControlDeckState, ControlDeckSubmitTurnRequest, ControlDeckTokenStatus,
-  ControlDeckTokenStatusTone, ControlDeckTurnOverrides, ImageInput, MentionInput, Provider,
-  SessionState, SkillInput, TokenUsage, TokenUsageSnapshotKind,
+  ControlDeckAttachmentRef, ControlDeckCapabilities, ControlDeckConfigState, ControlDeckDensity,
+  ControlDeckEmptyVisibility, ControlDeckImageAttachmentRef, ControlDeckMentionRef,
+  ControlDeckModule, ControlDeckModulePreference, ControlDeckPickerOption, ControlDeckPreferences,
+  ControlDeckSkillRef, ControlDeckSnapshot, ControlDeckState, ControlDeckSubmitTurnRequest,
+  ControlDeckTokenStatus, ControlDeckTokenStatusTone, ControlDeckTurnOverrides, ImageInput,
+  MentionInput, Provider, SessionState, SkillInput, TokenUsage, TokenUsageSnapshotKind,
 };
 
 pub(crate) const CONTROL_DECK_PREFERENCES_CONFIG_KEY: &str = "control_deck_preferences_v1";

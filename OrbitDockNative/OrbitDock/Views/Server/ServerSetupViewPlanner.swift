@@ -21,12 +21,26 @@ enum ServerSetupConnectError: Error, Equatable {
 }
 
 enum ServerSetupViewPlanner {
-  static func defaultHost() -> String {
+  static func supportsLoopbackDevelopmentHost() -> Bool {
     #if os(macOS)
-      "127.0.0.1"
+      true
+    #elseif os(iOS)
+      #if targetEnvironment(simulator)
+        true
+      #else
+        false
+      #endif
     #else
-      ""
+      false
     #endif
+  }
+
+  static func defaultHost() -> String {
+    if supportsLoopbackDevelopmentHost() {
+      "127.0.0.1"
+    } else {
+      ""
+    }
   }
 
   static func buildEndpoint(
@@ -41,11 +55,9 @@ enum ServerSetupViewPlanner {
       return .failure(.missingHost)
     }
 
-    #if os(iOS)
-      if isLoopbackHost(trimmedHost) {
-        return .failure(.loopbackNotReachableFromIOS)
-      }
-    #endif
+    if isLoopbackHost(trimmedHost) && !supportsLoopbackDevelopmentHost() {
+      return .failure(.loopbackNotReachableFromIOS)
+    }
 
     guard let url = buildURL(trimmedHost) else {
       return .failure(.invalidHost)

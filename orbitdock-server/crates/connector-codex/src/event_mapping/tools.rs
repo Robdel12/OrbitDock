@@ -1,8 +1,9 @@
-use super::{SharedEnvironmentTracker, SharedPatchContexts, SharedStringBuffers};
+use super::{SharedEnvironmentTracker, SharedOutputBuffers, SharedPatchContexts};
 use crate::runtime::row_entry;
 use crate::timeline::dynamic_tool_output_to_text;
 use crate::workers::iso_now;
 use codex_protocol::dynamic_tools::DynamicToolCallRequest;
+use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::DynamicToolCallResponseEvent;
 use codex_protocol::protocol::{
   ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, FileChange,
@@ -10,15 +11,106 @@ use codex_protocol::protocol::{
   TerminalInteractionEvent, ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
 };
 use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, ConversationRow, ConversationRowEntry, ToolDisplayInput, ToolRow,
+  compute_command_execution_preview, compute_tool_display, CommandExecutionAction,
+  CommandExecutionRow, CommandExecutionStatus, ConversationRow, ConversationRowEntry,
+  ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
+use std::time::Instant;
+
+const OUTPUT_STREAM_THROTTLE_MS: u128 = 120;
+
+fn combined_exec_stdio(stdout: &str, stderr: &str) -> Option<String> {
+  let stdout = stdout.trim();
+  let stderr = stderr.trim();
+
+  match (stdout.is_empty(), stderr.is_empty()) {
+    (true, true) => None,
+    (false, true) => Some(format!("{}\n", stdout)),
+    (true, false) => Some(format!("{}\n", stderr)),
+    (false, false) => Some(format!("stdout:\n{}\n\nstderr:\n{}\n", stdout, stderr)),
+  }
+}
+
+fn terminal_exec_output(event: &ExecCommandEndEvent, streamed_output: String) -> Option<String> {
+  [
+    (!event.aggregated_output.trim().is_empty()).then(|| event.aggregated_output.clone()),
+    (!event.formatted_output.trim().is_empty()).then(|| event.formatted_output.clone()),
+    combined_exec_stdio(&event.stdout, &event.stderr),
+    (!streamed_output.trim().is_empty()).then_some(streamed_output),
+  ]
+  .into_iter()
+  .flatten()
+  .next()
+}
+
+fn command_execution_status(event: &ExecCommandEndEvent) -> CommandExecutionStatus {
+  match event.status {
+    codex_protocol::protocol::ExecCommandStatus::Declined => CommandExecutionStatus::Declined,
+    codex_protocol::protocol::ExecCommandStatus::Failed => CommandExecutionStatus::Failed,
+    codex_protocol::protocol::ExecCommandStatus::Completed => {
+      if event.exit_code == 0 {
+        CommandExecutionStatus::Completed
+      } else {
+        CommandExecutionStatus::Failed
+      }
+    }
+  }
+}
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
   row_entry(ConversationRow::Tool(with_display(row)))
+}
+
+fn command_execution_row_entry(row: CommandExecutionRow) -> ConversationRowEntry {
+  row_entry(ConversationRow::CommandExecution(row))
+}
+
+fn expandable_command_render_hints() -> RenderHints {
+  RenderHints {
+    can_expand: true,
+    default_expanded: false,
+    emphasized: false,
+    monospace_summary: false,
+    accent_tone: None,
+  }
+}
+
+fn command_actions_from_parsed(parsed_cmd: &[ParsedCommand]) -> Vec<CommandExecutionAction> {
+  parsed_cmd
+    .iter()
+    .map(|command| match command {
+      ParsedCommand::Read { cmd, name, path } => CommandExecutionAction::Read {
+        command: cmd.clone(),
+        name: name.clone(),
+        path: path.display().to_string(),
+      },
+      ParsedCommand::ListFiles { cmd, path } => CommandExecutionAction::ListFiles {
+        command: cmd.clone(),
+        path: path.clone(),
+      },
+      ParsedCommand::Search { cmd, query, path } => CommandExecutionAction::Search {
+        command: cmd.clone(),
+        query: query.clone(),
+        path: path.clone(),
+      },
+      ParsedCommand::Unknown { cmd } => CommandExecutionAction::Unknown {
+        command: cmd.clone(),
+      },
+    })
+    .collect()
+}
+
+fn command_preview(
+  actions: &[CommandExecutionAction],
+  live_output_preview: Option<&str>,
+  aggregated_output: Option<&str>,
+) -> Option<orbitdock_protocol::conversation_contracts::CommandExecutionPreview> {
+  compute_command_execution_preview(actions, aggregated_output.or(live_output_preview))
 }
 
 /// Compute and attach tool_display to a ToolRow from its own fields.
@@ -49,14 +141,25 @@ fn with_display(mut row: ToolRow) -> ToolRow {
 
 pub(crate) async fn handle_exec_command_begin(
   event: ExecCommandBeginEvent,
-  output_buffers: &SharedStringBuffers,
+  output_buffers: &SharedOutputBuffers,
   env_tracker: &SharedEnvironmentTracker,
 ) -> Vec<ConnectorEvent> {
   let command_str = event.command.join(" ");
+  let cwd = event.cwd.display().to_string();
+  let command_actions = command_actions_from_parsed(&event.parsed_cmd);
 
   {
     let mut buffers = output_buffers.lock().await;
-    buffers.insert(event.call_id.clone(), String::new());
+    buffers.insert(
+      event.call_id.clone(),
+      super::OutputBufferState {
+        command: command_str.clone(),
+        cwd: cwd.clone(),
+        process_id: event.process_id.clone(),
+        command_actions: command_actions.clone(),
+        ..Default::default()
+      },
+    );
   }
 
   let new_cwd = event.cwd.to_string_lossy().to_string();
@@ -84,74 +187,63 @@ pub(crate) async fn handle_exec_command_begin(
     }
   }
 
-  connector_events.push(ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
+  connector_events.push(ConnectorEvent::ConversationRowCreated(
+    command_execution_row_entry(CommandExecutionRow {
       id: event.call_id.clone(),
-      provider: Provider::Codex,
-      family: ToolFamily::Shell,
-      kind: ToolKind::Bash,
-      status: ToolStatus::Running,
-      title: command_str.clone(),
-      subtitle: Some(new_cwd),
-      summary: None,
+      status: CommandExecutionStatus::InProgress,
+      command: command_str,
+      cwd,
+      process_id: event.process_id,
+      command_actions,
+      live_output_preview: None,
+      aggregated_output: None,
       preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
+      exit_code: None,
       duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "command": command_str,
-          "cwd": event.cwd.display().to_string(),
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  )));
+      render_hints: expandable_command_render_hints(),
+    }),
+  ));
 
   connector_events
 }
 
 pub(crate) async fn handle_exec_command_output_delta(
   event: ExecCommandOutputDeltaEvent,
-  output_buffers: &SharedStringBuffers,
+  output_buffers: &SharedOutputBuffers,
 ) -> Vec<ConnectorEvent> {
   let chunk_str = String::from_utf8_lossy(&event.chunk).to_string();
-  let accumulated = {
+  let next_row = {
     let mut buffers = output_buffers.lock().await;
     if let Some(buffer) = buffers.get_mut(&event.call_id) {
-      buffer.push_str(&chunk_str);
-      buffer.clone()
+      buffer.append(&chunk_str);
+      let now = Instant::now();
+      if now.duration_since(buffer.last_broadcast).as_millis() < OUTPUT_STREAM_THROTTLE_MS {
+        return vec![];
+      }
+      buffer.last_broadcast = now;
+      CommandExecutionRow {
+        id: event.call_id.clone(),
+        status: CommandExecutionStatus::InProgress,
+        command: buffer.command.clone(),
+        cwd: buffer.cwd.clone(),
+        process_id: buffer.process_id.clone(),
+        command_actions: buffer.command_actions.clone(),
+        live_output_preview: buffer.preview(),
+        aggregated_output: None,
+        preview: command_preview(&buffer.command_actions, buffer.preview().as_deref(), None),
+        exit_code: None,
+        duration_ms: None,
+        render_hints: expandable_command_render_hints(),
+      }
     } else {
       return vec![];
     }
   };
 
-  if accumulated.is_empty() {
+  if next_row.live_output_preview.is_none() {
     vec![]
   } else {
-    let entry = tool_row_entry(ToolRow {
-      id: event.call_id.clone(),
-      provider: Provider::Codex,
-      family: ToolFamily::Shell,
-      kind: ToolKind::Bash,
-      status: ToolStatus::Running,
-      title: String::new(),
-      subtitle: None,
-      summary: None,
-      preview: None,
-      started_at: None,
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "command": "",
-          "output": accumulated,
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    });
+    let entry = command_execution_row_entry(next_row);
     vec![ConnectorEvent::ConversationRowUpdated {
       row_id: event.call_id,
       entry,
@@ -161,53 +253,35 @@ pub(crate) async fn handle_exec_command_output_delta(
 
 pub(crate) async fn handle_exec_command_end(
   event: ExecCommandEndEvent,
-  output_buffers: &SharedStringBuffers,
+  output_buffers: &SharedOutputBuffers,
 ) -> Vec<ConnectorEvent> {
-  let output = {
+  let streamed_output = {
     let mut buffers = output_buffers.lock().await;
     buffers
       .remove(&event.call_id)
-      .unwrap_or_else(|| event.aggregated_output.clone())
+      .map(|state| state.full_output)
+      .unwrap_or_default()
   };
 
-  let output_str = if output.is_empty() {
-    event.aggregated_output.clone()
-  } else {
-    output
-  };
-
-  let is_error = event.exit_code != 0;
   let duration_ms = Some(event.duration.as_millis() as u64);
-  let status = if is_error {
-    ToolStatus::Failed
-  } else {
-    ToolStatus::Completed
-  };
+  let status = command_execution_status(&event);
+  let command_actions = command_actions_from_parsed(&event.parsed_cmd);
+  let aggregated_output = terminal_exec_output(&event, streamed_output);
+  let preview = command_preview(&command_actions, None, aggregated_output.as_deref());
 
-  let entry = tool_row_entry(ToolRow {
+  let entry = command_execution_row_entry(CommandExecutionRow {
     id: event.call_id.clone(),
-    provider: Provider::Codex,
-    family: ToolFamily::Shell,
-    kind: ToolKind::Bash,
     status,
-    title: String::new(),
-    subtitle: None,
-    summary: None,
-    preview: None,
-    started_at: None,
-    ended_at: Some(iso_now()),
+    command: event.command.join(" "),
+    cwd: event.cwd.display().to_string(),
+    process_id: event.process_id,
+    command_actions,
+    live_output_preview: None,
+    aggregated_output,
+    preview,
+    exit_code: Some(event.exit_code),
     duration_ms,
-    grouping_key: None,
-    invocation: json!({
-        "command": "",
-        "exit_code": event.exit_code,
-    }),
-    result: Some(json!({
-        "output": output_str,
-        "exit_code": event.exit_code,
-    })),
-    render_hints: Default::default(),
-    tool_display: None,
+    render_hints: expandable_command_render_hints(),
   });
   vec![ConnectorEvent::ConversationRowUpdated {
     row_id: event.call_id,
@@ -626,41 +700,288 @@ pub(crate) fn handle_dynamic_tool_call_response(
 
 pub(crate) async fn handle_terminal_interaction(
   event: TerminalInteractionEvent,
-  output_buffers: &SharedStringBuffers,
+  output_buffers: &SharedOutputBuffers,
 ) -> Vec<ConnectorEvent> {
   let snippet = format!("\n[stdin] {}\n", event.stdin);
-  let next_output = {
+  let next_row = {
     let mut buffers = output_buffers.lock().await;
     let entry = buffers.entry(event.call_id.clone()).or_default();
-    entry.push_str(&snippet);
-    entry.clone()
+    entry.append(&snippet);
+    entry.last_broadcast = Instant::now();
+    CommandExecutionRow {
+      id: event.call_id.clone(),
+      status: CommandExecutionStatus::InProgress,
+      command: entry.command.clone(),
+      cwd: entry.cwd.clone(),
+      process_id: entry.process_id.clone(),
+      command_actions: entry.command_actions.clone(),
+      live_output_preview: entry.preview(),
+      aggregated_output: None,
+      preview: command_preview(&entry.command_actions, entry.preview().as_deref(), None),
+      exit_code: None,
+      duration_ms: None,
+      render_hints: expandable_command_render_hints(),
+    }
   };
 
-  let entry = tool_row_entry(ToolRow {
-    id: event.call_id.clone(),
-    provider: Provider::Codex,
-    family: ToolFamily::Shell,
-    kind: ToolKind::Bash,
-    status: ToolStatus::Running,
-    title: String::new(),
-    subtitle: None,
-    summary: None,
-    preview: None,
-    started_at: None,
-    ended_at: None,
-    duration_ms: None,
-    grouping_key: None,
-    invocation: json!({
-        "command": "",
-        "input": event.stdin,
-        "output": next_output,
-    }),
-    result: None,
-    render_hints: Default::default(),
-    tool_display: None,
-  });
+  let entry = command_execution_row_entry(next_row);
   vec![ConnectorEvent::ConversationRowUpdated {
     row_id: event.call_id,
     entry,
   }]
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{
+    handle_exec_command_begin, handle_exec_command_end, handle_exec_command_output_delta,
+  };
+  use crate::event_mapping::{SharedEnvironmentTracker, SharedOutputBuffers};
+  use crate::runtime::EnvironmentTracker;
+  use codex_protocol::parse_command::ParsedCommand;
+  use codex_protocol::protocol::{
+    ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecCommandSource,
+    ExecCommandStatus, ExecOutputStream,
+  };
+  use orbitdock_connector_core::ConnectorEvent;
+  use orbitdock_protocol::conversation_contracts::ConversationRow;
+  use std::collections::HashMap;
+  use std::path::PathBuf;
+  use std::sync::Arc;
+  use std::time::Duration;
+
+  fn shared_output_buffers() -> SharedOutputBuffers {
+    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
+  }
+
+  fn shared_env_tracker() -> SharedEnvironmentTracker {
+    Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
+      cwd: None,
+      branch: None,
+      sha: None,
+    }))
+  }
+
+  #[tokio::test]
+  async fn exec_command_begin_creates_command_execution_row() {
+    let events = handle_exec_command_begin(
+      ExecCommandBeginEvent {
+        call_id: "cmd-1".to_string(),
+        process_id: Some("pty-1".to_string()),
+        turn_id: "turn-1".to_string(),
+        command: vec!["sed".to_string(), "-n".to_string(), "1,40p".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Read {
+          cmd: "sed -n 1,40p src/main.rs".to_string(),
+          name: "main.rs".to_string(),
+          path: PathBuf::from("src/main.rs"),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+      },
+      &shared_output_buffers(),
+      &shared_env_tracker(),
+    )
+    .await;
+
+    let created = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
+      _ => None,
+    });
+
+    let entry = created.expect("command execution row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(row.command, "sed -n 1,40p");
+    assert_eq!(row.cwd, "/tmp/project");
+    assert_eq!(row.process_id.as_deref(), Some("pty-1"));
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::InProgress
+    );
+    assert_eq!(row.command_actions.len(), 1);
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_updates_command_execution_row_with_output() {
+    let output_buffers = shared_output_buffers();
+    let env_tracker = shared_env_tracker();
+
+    handle_exec_command_begin(
+      ExecCommandBeginEvent {
+        call_id: "cmd-2".to_string(),
+        process_id: Some("pty-2".to_string()),
+        turn_id: "turn-2".to_string(),
+        command: vec!["rg".to_string(), "needle".to_string(), "src".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Search {
+          cmd: "rg needle src".to_string(),
+          query: Some("needle".to_string()),
+          path: Some("src".to_string()),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+      },
+      &output_buffers,
+      &env_tracker,
+    )
+    .await;
+
+    handle_exec_command_output_delta(
+      ExecCommandOutputDeltaEvent {
+        call_id: "cmd-2".to_string(),
+        stream: ExecOutputStream::Stdout,
+        chunk: b"src/lib.rs:needle\n".to_vec(),
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-2".to_string(),
+        process_id: Some("pty-2".to_string()),
+        turn_id: "turn-2".to_string(),
+        command: vec!["rg".to_string(), "needle".to_string(), "src".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Search {
+          cmd: "rg needle src".to_string(),
+          query: Some("needle".to_string()),
+          path: Some("src".to_string()),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: "src/lib.rs:needle\n".to_string(),
+        stderr: String::new(),
+        aggregated_output: String::new(),
+        exit_code: 0,
+        duration: Duration::from_millis(42),
+        formatted_output: "src/lib.rs:needle\n".to_string(),
+        status: ExecCommandStatus::Completed,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
+    );
+    assert_eq!(
+      row.aggregated_output.as_deref(),
+      Some("src/lib.rs:needle\n")
+    );
+    assert_eq!(row.exit_code, Some(0));
+    assert_eq!(row.duration_ms, Some(42));
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_prefers_terminal_payloads_when_stream_buffer_is_missing() {
+    let output_buffers = shared_output_buffers();
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-3".to_string(),
+        process_id: Some("pty-3".to_string()),
+        turn_id: "turn-3".to_string(),
+        command: vec![
+          "python".to_string(),
+          "-c".to_string(),
+          "print('done')".to_string(),
+        ],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "python -c print('done')".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: "done\n".to_string(),
+        stderr: String::new(),
+        aggregated_output: String::new(),
+        exit_code: 0,
+        duration: Duration::from_millis(9),
+        formatted_output: "done\n".to_string(),
+        status: ExecCommandStatus::Completed,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(row.aggregated_output.as_deref(), Some("done\n"));
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
+    );
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_maps_declined_status_without_collapsing_to_completed() {
+    let output_buffers = shared_output_buffers();
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-4".to_string(),
+        process_id: None,
+        turn_id: "turn-4".to_string(),
+        command: vec![
+          "rm".to_string(),
+          "-rf".to_string(),
+          "/tmp/project".to_string(),
+        ],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "rm -rf /tmp/project".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: String::new(),
+        stderr: "permission denied".to_string(),
+        aggregated_output: String::new(),
+        exit_code: 0,
+        duration: Duration::from_millis(12),
+        formatted_output: "permission denied".to_string(),
+        status: ExecCommandStatus::Declined,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    assert_eq!(
+      row.status,
+      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Declined
+    );
+    assert_eq!(row.aggregated_output.as_deref(), Some("permission denied"));
+  }
 }

@@ -616,6 +616,7 @@ struct ServerConversationShellCommandRow: Codable {
   let args: [String]
   let stdout: String?
   let stderr: String?
+  let outputPreview: String?
   let exitCode: Int?
   let durationSeconds: Double?
   let cwd: String?
@@ -630,6 +631,7 @@ struct ServerConversationShellCommandRow: Codable {
     case args
     case stdout
     case stderr
+    case outputPreview = "output_preview"
     case exitCode = "exit_code"
     case durationSeconds = "duration_seconds"
     case cwd
@@ -645,6 +647,7 @@ struct ServerConversationShellCommandRow: Codable {
     args: [String],
     stdout: String?,
     stderr: String?,
+    outputPreview: String? = nil,
     exitCode: Int?,
     durationSeconds: Double?,
     cwd: String?,
@@ -658,6 +661,7 @@ struct ServerConversationShellCommandRow: Codable {
     self.args = args
     self.stdout = stdout
     self.stderr = stderr
+    self.outputPreview = outputPreview
     self.exitCode = exitCode
     self.durationSeconds = durationSeconds
     self.cwd = cwd
@@ -674,6 +678,7 @@ struct ServerConversationShellCommandRow: Codable {
     args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
     stdout = try container.decodeIfPresent(String.self, forKey: .stdout)
     stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
+    outputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
     exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
     durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)

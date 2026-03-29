@@ -443,6 +443,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var approvalsReviewer: ServerCodexApprovalsReviewer?
     var permissionMode: String?
     var collaborationMode: String?
     var multiAgent: Bool?

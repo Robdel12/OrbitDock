@@ -464,8 +464,7 @@ enum SessionWorkerRosterPlanner {
           ?? notice.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? notice.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .shellCommand(shellCommand):
-        shellCommand.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? shellCommand.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        shellCommandPreviewBody(for: shellCommand)
           ?? shellCommand.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? shellCommand.command?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? shellCommand.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -525,6 +524,26 @@ enum SessionWorkerRosterPlanner {
       return String(body.prefix(260)) + "..."
     }
     return body
+  }
+
+  private static func shellCommandPreviewBody(
+    for shellCommand: ServerConversationShellCommandRow
+  ) -> String? {
+    let outputPreview =
+      shellCommand.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    if outputPreview != nil,
+       shellCommand.stdout?.nilIfEmpty != nil,
+       shellCommand.stderr?.nilIfEmpty != nil
+    {
+      return outputPreview
+    }
+
+    let stdout = shellCommand.stdout?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    let stderr = shellCommand.stderr?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    if let stdout, let stderr {
+      return "\(stdout)\n\(stderr)".nilIfEmpty
+    }
+    return outputPreview ?? stdout ?? stderr
   }
 
   private static func workerTimelineSummary(

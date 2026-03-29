@@ -1,5 +1,6 @@
 use super::workers::iso_now;
 use super::CodexConnector;
+use crate::event_mapping::OutputBufferState;
 use codex_core::{CodexThread, ThreadManager};
 use codex_protocol::openai_models::ReasoningEffort;
 use orbitdock_connector_core::{ConnectorError, ConnectorEvent};
@@ -16,7 +17,7 @@ use tracing::{debug, error, info};
 
 /// Groups the shared Arc<Mutex> state threaded through the event loop.
 pub(super) struct EventLoopState {
-  pub(super) output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+  pub(super) output_buffers: Arc<tokio::sync::Mutex<HashMap<String, OutputBufferState>>>,
   pub(super) delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   pub(super) streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
   pub(super) raw_tool_calls: Arc<tokio::sync::Mutex<HashMap<String, RawToolCallContext>>>,
@@ -149,7 +150,9 @@ impl CodexConnector {
       Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
 
     let state = EventLoopState {
-      output_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
+      output_buffers: Arc::new(tokio::sync::Mutex::new(
+        HashMap::<String, OutputBufferState>::new(),
+      )),
       delta_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
       streaming_message: Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None)),
       raw_tool_calls: Arc::new(tokio::sync::Mutex::new(

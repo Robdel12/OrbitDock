@@ -29,6 +29,7 @@ struct NewSessionSheet: View {
   @State private var codexConfigCatalogError: String?
   @State private var codexConfigCatalogLoading = false
   @State private var codexConfigCatalogRequestID = 0
+  @State private var codexCatalogRequiresProjectPath = false
   @State private var codexScopedModels: [ServerCodexModelOption]?
   @State private var codexScopedModelsLoading = false
   @State private var codexScopedModelsError: String?
@@ -480,6 +481,8 @@ struct NewSessionSheet: View {
       codexPersonality: $model.codexPersonality,
       codexServiceTier: $model.codexServiceTier,
       codexInstructions: $model.codexInstructions,
+      hasSelectedPath: !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+      codexCatalogRequiresProjectPath: codexCatalogRequiresProjectPath,
       codexCatalog: codexConfigCatalog,
       codexCatalogLoading: codexConfigCatalogLoading,
       codexCatalogError: codexConfigCatalogError,
@@ -557,25 +560,22 @@ struct NewSessionSheet: View {
       codexConfigCatalog = nil
       codexConfigCatalogError = nil
       codexConfigCatalogLoading = false
+      codexCatalogRequiresProjectPath = false
       return
     }
 
     let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !cwd.isEmpty else {
-      codexConfigCatalog = nil
-      codexConfigCatalogError = nil
-      codexConfigCatalogLoading = false
-      return
-    }
-
     codexConfigCatalogLoading = true
     codexConfigCatalogError = nil
+    codexCatalogRequiresProjectPath = false
     codexConfigCatalogRequestID += 1
     let requestID = codexConfigCatalogRequestID
 
     Task {
       do {
-        let response = try await endpointAppState.clients.sessions.fetchCodexConfigCatalog(cwd: cwd)
+        let response = try await endpointAppState.clients.sessions.fetchCodexConfigCatalog(
+          cwd: cwd.isEmpty ? "" : cwd
+        )
         await MainActor.run {
           guard requestID == codexConfigCatalogRequestID,
                 model.provider == .codex,
@@ -583,6 +583,7 @@ struct NewSessionSheet: View {
           else { return }
           codexConfigCatalog = response
           codexConfigCatalogLoading = false
+          codexCatalogRequiresProjectPath = false
           if model.codexConfigMode == .profile,
              model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           {
@@ -601,11 +602,18 @@ struct NewSessionSheet: View {
                 model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
           else { return }
           codexConfigCatalog = nil
-          codexConfigCatalogError = error.localizedDescription
+          codexCatalogRequiresProjectPath = isLegacyCodexCatalogProjectRequirement(error: error, cwd: cwd)
+          codexConfigCatalogError = codexCatalogRequiresProjectPath ? nil : error.localizedDescription
           codexConfigCatalogLoading = false
         }
       }
     }
+  }
+
+  private func isLegacyCodexCatalogProjectRequirement(error: Error, cwd: String) -> Bool {
+    guard cwd.isEmpty else { return false }
+    guard let requestError = error as? ServerRequestError else { return false }
+    return requestError.statusCode == 400
   }
 
   private var scopedCodexModelProvider: String? {

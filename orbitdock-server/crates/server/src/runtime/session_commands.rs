@@ -1,9 +1,9 @@
 //! Commands sent to a session actor from websocket/rollout_watcher callers.
 
 use orbitdock_protocol::{
-  conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType,
-  CodexApprovalsReviewer, CodexIntegrationMode, ServerMessage, SessionLifecycleState,
-  SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo, WorkStatus,
+  conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType, ServerMessage,
+  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
+  WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -32,7 +32,6 @@ pub struct SessionConfigPersist {
   pub session_id: String,
   pub approval_policy: Option<Option<String>>,
   pub sandbox_mode: Option<Option<String>>,
-  pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
   pub permission_mode: Option<Option<String>>,
   pub collaboration_mode: Option<Option<String>>,
   pub multi_agent: Option<Option<bool>>,
@@ -76,6 +75,7 @@ pub enum SessionCommand {
   },
 
   // -- Simple mutations (fire-and-forget) --
+  #[allow(dead_code)] // Test-only actor mutation helper for lightweight state assertions.
   SetWorkStatus {
     status: WorkStatus,
   },
@@ -84,18 +84,6 @@ pub enum SessionCommand {
   },
   SetTranscriptPath {
     path: Option<String>,
-  },
-  SetProjectName {
-    name: Option<String>,
-  },
-  SetStatus {
-    status: SessionStatus,
-  },
-  SetLastActivityAt {
-    ts: Option<String>,
-  },
-  SetCodexIntegrationMode {
-    mode: Option<CodexIntegrationMode>,
   },
   SetLastTool {
     tool: Option<String>,

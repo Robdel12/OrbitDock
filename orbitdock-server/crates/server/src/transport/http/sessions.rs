@@ -3,8 +3,8 @@ use crate::infrastructure::persistence::load_row_by_id_async;
 use crate::support::session_time::parse_unix_z;
 use orbitdock_protocol::conversation_contracts::{
   compute_diff_display, compute_expanded_output, compute_input_display, detect_language,
-  extract_row_content_str, extract_start_line, ConversationRow, DiffLine, RowEntrySummary,
-  RowPageSummary,
+  extract_row_content_str, extract_start_line, CommandExecutionRow, ConversationRow, DiffLine,
+  RowEntrySummary, RowPageSummary,
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::{
@@ -457,6 +457,23 @@ pub struct RowContentResponse {
   pub start_line: Option<u32>,
 }
 
+fn command_execution_row_content(row_id: String, row: &CommandExecutionRow) -> RowContentResponse {
+  let output_display = row
+    .aggregated_output
+    .clone()
+    .or_else(|| row.live_output_preview.clone())
+    .filter(|value| !value.trim().is_empty());
+
+  RowContentResponse {
+    row_id,
+    input_display: Some(row.command.clone()),
+    output_display,
+    diff_display: None,
+    language: None,
+    start_line: None,
+  }
+}
+
 pub async fn get_row_content(
   Path((session_id, row_id)): Path<(String, String)>,
   State(_state): State<Arc<SessionRegistry>>,
@@ -521,11 +538,12 @@ pub async fn get_row_content(
         start_line,
       }))
     }
+    ConversationRow::CommandExecution(row) => Ok(Json(command_execution_row_content(row_id, row))),
     _ => Err((
       StatusCode::UNPROCESSABLE_ENTITY,
       Json(ApiErrorResponse {
-        code: "not_a_tool_row",
-        error: format!("Row {} is not a tool row", row_id),
+        code: "not_expandable_row",
+        error: format!("Row {} does not expose expandable content", row_id),
       }),
     )),
   }
@@ -537,7 +555,8 @@ mod tests {
   use axum::extract::{Path, Query, State};
   use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
   use orbitdock_protocol::conversation_contracts::{
-    ConversationRow, ConversationRowEntry, ToolRow,
+    CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
+    ConversationRowEntry, ToolRow,
   };
   use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
   use orbitdock_protocol::Provider;
@@ -583,6 +602,38 @@ mod tests {
         })),
         render_hints: RenderHints::default(),
         tool_display: None,
+      }),
+    }
+  }
+
+  fn test_command_execution_row(
+    session_id: &str,
+    id: &str,
+    sequence: u64,
+    output: Option<&str>,
+  ) -> ConversationRowEntry {
+    ConversationRowEntry {
+      session_id: session_id.to_string(),
+      sequence,
+      turn_id: Some("turn-1".to_string()),
+      turn_status: Default::default(),
+      row: ConversationRow::CommandExecution(CommandExecutionRow {
+        id: id.to_string(),
+        status: CommandExecutionStatus::Completed,
+        command: "sed -n '1,40p' docs/design-system.md".to_string(),
+        cwd: "/tmp/orbitdock-command-execution".to_string(),
+        process_id: Some("pty-42".to_string()),
+        command_actions: vec![CommandExecutionAction::Read {
+          command: "sed -n '1,40p' docs/design-system.md".to_string(),
+          name: "design-system.md".to_string(),
+          path: "docs/design-system.md".to_string(),
+        }],
+        live_output_preview: None,
+        aggregated_output: output.map(ToString::to_string),
+        preview: None,
+        exit_code: Some(0),
+        duration_ms: Some(18),
+        render_hints: RenderHints::default(),
       }),
     }
   }
@@ -685,5 +736,27 @@ mod tests {
     assert_eq!(response.0.failed_tool_count, 1);
     assert_eq!(response.0.average_tool_duration_ms, 2000);
     assert_eq!(response.0.tool_count_by_family.get("shell"), Some(&2));
+  }
+
+  #[tokio::test]
+  async fn command_execution_row_content_returns_full_output() {
+    let entry =
+      test_command_execution_row("session-1", "cmd-1", 1, Some("22pt Bold\n18pt Semibold"));
+    let ConversationRow::CommandExecution(row) = &entry.row else {
+      panic!("expected command execution row");
+    };
+
+    let response = command_execution_row_content("cmd-1".to_string(), row);
+
+    assert_eq!(response.row_id, "cmd-1");
+    assert_eq!(
+      response.input_display.as_deref(),
+      Some("sed -n '1,40p' docs/design-system.md")
+    );
+    assert_eq!(
+      response.output_display.as_deref(),
+      Some("22pt Bold\n18pt Semibold")
+    );
+    assert!(response.diff_display.is_none());
   }
 }

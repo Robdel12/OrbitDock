@@ -2,6 +2,7 @@
 	rust-env rust-lock-status rust-unlock rust-size \
 	rust-sccache-stats rust-sccache-zero \
 	rust-ci rust-build rust-build-release rust-build-darwin \
+	rust-install-local rust-install-local-release rust-promote-local \
 	rust-check rust-check-workspace rust-test rust-fmt rust-fmt-check rust-lint \
 	rust-run rust-run-lan rust-run-debug rust-generate-token cli \
 	rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 \
@@ -117,6 +118,27 @@ rust-build-darwin: web-build
 	fi
 	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock"
 	@./scripts/server-source-fingerprint.sh > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock.gitsha"
+
+rust-install-local: rust-build
+	@set -euo pipefail; \
+	mkdir -p "$(ORBITDOCK_INSTALL_ROOT)/bin"; \
+	staged_bin="$$(mktemp "$(ORBITDOCK_INSTALL_ROOT)/bin/.orbitdock.XXXXXX")"; \
+	cp "$(RUST_TARGET_DIR)/debug/orbitdock" "$$staged_bin"; \
+	chmod 755 "$$staged_bin"; \
+	mv -f "$$staged_bin" "$(ORBITDOCK_INSTALLED_BIN)"; \
+	echo "Installed debug binary to $(ORBITDOCK_INSTALLED_BIN)"
+
+rust-install-local-release: rust-build-release
+	@set -euo pipefail; \
+	mkdir -p "$(ORBITDOCK_INSTALL_ROOT)/bin"; \
+	staged_bin="$$(mktemp "$(ORBITDOCK_INSTALL_ROOT)/bin/.orbitdock.XXXXXX")"; \
+	cp "$(RUST_TARGET_DIR)/release/orbitdock" "$$staged_bin"; \
+	chmod 755 "$$staged_bin"; \
+	mv -f "$$staged_bin" "$(ORBITDOCK_INSTALLED_BIN)"; \
+	echo "Installed release binary to $(ORBITDOCK_INSTALLED_BIN)"
+
+rust-promote-local: rust-install-local
+	@"$(ORBITDOCK_INSTALLED_BIN)" doctor
 
 rust-check:
 	$(RUST_CARGO) check -p $(RUST_BIN_PACKAGE)

@@ -58,59 +58,25 @@ pub(crate) async fn handle_update_session_config(
   state: &Arc<SessionRegistry>,
   conn_id: u64,
 ) {
-  let SessionConfigUpdate {
-    approval_policy,
-    approval_policy_details,
-    sandbox_mode,
-    permission_mode,
-    collaboration_mode,
-    multi_agent,
-    personality,
-    service_tier,
-    developer_instructions,
-    model,
-    effort,
-    ..
-  } = update;
   info!(
       component = "session",
       event = "session.config.update_requested",
       connection_id = conn_id,
       session_id = %session_id,
-      approval_policy = ?approval_policy,
-      approval_policy_details = ?approval_policy_details,
-      sandbox_mode = ?sandbox_mode,
-      permission_mode = ?permission_mode,
-      collaboration_mode = ?collaboration_mode,
-      multi_agent = ?multi_agent,
-      personality = ?personality,
-      service_tier = ?service_tier,
-      developer_instructions = ?developer_instructions.as_ref().map(|_| "[set]"),
-      model = ?model,
-      effort = ?effort,
+      approval_policy = ?update.approval_policy,
+      approval_policy_details = ?update.approval_policy_details,
+      sandbox_mode = ?update.sandbox_mode,
+      approvals_reviewer = ?update.approvals_reviewer,
+      permission_mode = ?update.permission_mode,
+      collaboration_mode = ?update.collaboration_mode,
+      multi_agent = ?update.multi_agent,
+      personality = ?update.personality,
+      service_tier = ?update.service_tier,
+      developer_instructions = ?update.developer_instructions.as_ref().map(|_| "[set]"),
+      model = ?update.model,
+      effort = ?update.effort,
       "Session config update requested"
   );
 
-  let _ = update_runtime_session_config(
-    state,
-    &session_id,
-    SessionConfigUpdate {
-      approval_policy,
-      approval_policy_details,
-      sandbox_mode,
-      approvals_reviewer: None,
-      permission_mode,
-      collaboration_mode,
-      multi_agent,
-      personality,
-      service_tier,
-      developer_instructions,
-      model,
-      effort,
-      codex_config_mode: None,
-      codex_config_profile: None,
-      codex_model_provider: None,
-    },
-  )
-  .await;
+  let _ = update_runtime_session_config(state, &session_id, update).await;
 }

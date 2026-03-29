@@ -31,6 +31,16 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
     }
   }
 
+  var compactStatusName: String {
+    switch self {
+      case .plan: "Plan"
+      case .dontAsk: "No Ask"
+      case .default: "Default"
+      case .acceptEdits: "Edits"
+      case .bypassPermissions: "Bypass"
+    }
+  }
+
   var icon: String {
     switch self {
       case .plan: "map.fill"
@@ -87,42 +97,67 @@ struct ClaudePermissionPill: View {
     var iconFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar: 9
+        case .statusBar:
+          #if os(iOS)
+            IconScale.xs
+          #else
+            IconScale.sm
+          #endif
       }
     }
 
     var textFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar: 10
+        case .statusBar:
+          #if os(iOS)
+            TypeScale.mini
+          #else
+            TypeScale.micro
+          #endif
       }
     }
 
     var horizontalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.md)
-        case .statusBar: 6
+        case .statusBar:
+          #if os(iOS)
+            CGFloat(Spacing.sm_)
+          #else
+            CGFloat(Spacing.sm)
+          #endif
       }
     }
 
     var verticalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.sm)
-        case .statusBar: 3
+        case .statusBar:
+          #if os(iOS)
+            CGFloat(Spacing.gap)
+          #else
+            CGFloat(Spacing.xs)
+          #endif
       }
     }
 
     var spacing: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.xs)
-        case .statusBar: 3
+        case .statusBar: CGFloat(Spacing.xs)
       }
     }
 
     var height: CGFloat? {
       switch self {
         case .regular: nil
-        case .statusBar: 20
+        case .statusBar:
+          #if os(iOS)
+            24
+          #else
+            20
+          #endif
       }
     }
   }
@@ -135,6 +170,13 @@ struct ClaudePermissionPill: View {
   var onUpdate: ((ClaudePermissionMode) -> Void)?
   @State private var showPopover = false
 
+  private var title: String {
+    #if os(iOS)
+      if size == .statusBar { return currentMode.compactStatusName }
+    #endif
+    return currentMode.displayName
+  }
+
   var body: some View {
     Button {
       if let onTapOverride {
@@ -146,7 +188,7 @@ struct ClaudePermissionPill: View {
       HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
           .font(.system(size: size.iconFontSize, weight: .semibold))
-        Text(currentMode.displayName)
+        Text(title)
           .font(.system(size: size.textFontSize, weight: .semibold))
       }
       .foregroundStyle(isActive ? Color.backgroundSecondary : currentMode.color)
@@ -159,6 +201,11 @@ struct ClaudePermissionPill: View {
           : AnyShapeStyle(currentMode.color.opacity(OpacityTier.light)),
         in: Capsule()
       )
+      .overlay(
+        Capsule()
+          .strokeBorder(currentMode.color.opacity(OpacityTier.medium), lineWidth: 0.75)
+      )
+      .if(size == .regular) { $0.themeShadow(Shadow.sm) }
     }
     .buttonStyle(.plain)
     .fixedSize()

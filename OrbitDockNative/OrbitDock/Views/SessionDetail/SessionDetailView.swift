@@ -85,7 +85,6 @@ struct SessionDetailView: View {
         workerCompanionPanel
       }
 
-      // Terminal strip — lives between conversation and composer on both platforms
       terminalStripSection
 
       SessionDetailFooter(mode: footerMode) {
@@ -332,7 +331,6 @@ struct SessionDetailView: View {
         }
         .transition(.move(edge: .bottom).combined(with: .opacity))
 
-        // macOS: inline panel expands below the strip
         #if os(macOS)
         if viewModel.showInlineTerminal {
           terminalPanel(session: session)

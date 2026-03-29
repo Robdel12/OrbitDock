@@ -66,6 +66,10 @@ impl ConnectorRegistry {
       .insert(thread_id.to_string(), session_id.to_string());
   }
 
+  pub(crate) fn resolve_codex_thread(&self, thread_id: &str) -> Option<String> {
+    self.codex_threads.get(thread_id).map(|entry| entry.clone())
+  }
+
   pub(crate) fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
     self
       .claude_threads
@@ -81,10 +85,6 @@ impl ConnectorRegistry {
       .retain(|_, mapped_session_id| mapped_session_id != session_id);
   }
 
-  pub(crate) fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
-    self.codex_threads.contains_key(thread_id)
-  }
-
   pub(crate) fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
     self
       .claude_threads
@@ -95,6 +95,14 @@ impl ConnectorRegistry {
   pub(crate) fn registered_claude_session_ids(&self) -> HashSet<String> {
     self
       .claude_threads
+      .iter()
+      .map(|entry| entry.value().clone())
+      .collect()
+  }
+
+  pub(crate) fn registered_codex_session_ids(&self) -> HashSet<String> {
+    self
+      .codex_threads
       .iter()
       .map(|entry| entry.value().clone())
       .collect()

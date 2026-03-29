@@ -7,7 +7,8 @@ mod recent_projects;
 use dashmap::DashMap;
 use orbitdock_protocol::{
   ClientPrimaryClaim, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
-  DashboardSnapshot, MissionsSnapshot, SessionListItem, SessionSummary, WorkspaceProviderKind,
+  DashboardSnapshot, MissionsSnapshot, Provider, SessionListItem, SessionSummary,
+  WorkspaceProviderKind,
 };
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -46,6 +47,40 @@ pub struct PendingClaudeSession {
   pub cached_at: Instant,
 }
 
+/// Cached metadata from a `CodexSessionStart` hook, held in memory until the
+/// first actionable turn hook materializes the passive session.
+pub struct PendingCodexSession {
+  pub cwd: String,
+  pub model: Option<String>,
+  pub transcript_path: Option<String>,
+  pub cached_at: Instant,
+}
+
+/// Provider-neutral pending passive session cache entry.
+///
+/// The registry can keep provider-specific payloads internally while exposing
+/// one shared hook lifecycle surface to the rest of the server.
+pub enum PendingHookSession {
+  Claude(PendingClaudeSession),
+  Codex(PendingCodexSession),
+}
+
+impl PendingHookSession {
+  pub fn into_claude(self) -> Option<PendingClaudeSession> {
+    match self {
+      PendingHookSession::Claude(pending) => Some(pending),
+      PendingHookSession::Codex(_) => None,
+    }
+  }
+
+  pub fn into_codex(self) -> Option<PendingCodexSession> {
+    match self {
+      PendingHookSession::Claude(_) => None,
+      PendingHookSession::Codex(pending) => Some(pending),
+    }
+  }
+}
+
 /// Cached result of an update check with timestamp.
 pub struct CachedUpdateStatus {
   pub update_available: bool,
@@ -82,6 +117,10 @@ pub struct SessionRegistry {
   /// Pending Claude sessions awaiting first actionable hook before materialization.
   /// Keyed by Claude SDK session_id from SessionStart.
   pending_claude_sessions: DashMap<String, PendingClaudeSession>,
+
+  /// Pending Codex passive sessions awaiting first actionable turn hook before
+  /// materialization. Keyed by Codex thread/session id from SessionStart.
+  pending_codex_sessions: DashMap<String, PendingCodexSession>,
 
   /// Provider-agnostic shell runtime service for user-initiated commands.
   shell_service: Arc<ShellService>,
@@ -158,6 +197,7 @@ impl SessionRegistry {
       codex_auth,
       naming_guard: Arc::new(NamingGuard::new()),
       pending_claude_sessions: DashMap::new(),
+      pending_codex_sessions: DashMap::new(),
       shell_service: Arc::new(ShellService::new()),
       terminal_service: Arc::new(TerminalService::new()),
       connections: ConnectionState::new(is_primary),
@@ -600,11 +640,6 @@ impl SessionRegistry {
     self.connectors.register_codex_thread(session_id, thread_id);
   }
 
-  /// Check whether thread ID is managed by a direct server session
-  pub fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
-    self.connectors.is_managed_codex_thread(thread_id)
-  }
-
   /// Register Claude SDK session ID for a direct session.
   /// Rejects OrbitDock IDs (`od-` prefix) as a defense-in-depth guard.
   pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
@@ -629,6 +664,11 @@ impl SessionRegistry {
     self.connectors.resolve_claude_thread(sdk_session_id)
   }
 
+  /// Resolve a Codex thread ID to the owning OrbitDock session ID.
+  pub fn resolve_codex_thread(&self, thread_id: &str) -> Option<String> {
+    self.connectors.resolve_codex_thread(thread_id)
+  }
+
   /// Find an active direct Claude session for a project that hasn't registered its SDK ID yet.
   /// Used by `ClaudeSessionStart` to eagerly claim the SDK ID before the `init` event arrives.
   pub fn find_unregistered_direct_claude_session(&self, project_path: &str) -> Option<String> {
@@ -644,6 +684,28 @@ impl SessionRegistry {
         let snap = entry.value().snapshot();
         snap.provider == Provider::Claude
           && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
+          && snap.status == SessionStatus::Active
+          && snap.project_path == project_path
+          && !registered.contains(&snap.id)
+      })
+      .map(|entry| entry.key().clone())
+  }
+
+  /// Find an active direct Codex session for a project that hasn't registered
+  /// its thread ID yet. Used by Codex SessionStart hooks to claim direct
+  /// ownership before a passive shadow is materialized.
+  pub fn find_unregistered_direct_codex_session(&self, project_path: &str) -> Option<String> {
+    use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus};
+
+    let registered = self.connectors.registered_codex_session_ids();
+
+    self
+      .sessions
+      .iter()
+      .find(|entry| {
+        let snap = entry.value().snapshot();
+        snap.provider == Provider::Codex
+          && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
           && snap.status == SessionStatus::Active
           && snap.project_path == project_path
           && !registered.contains(&snap.id)
@@ -814,40 +876,69 @@ impl SessionRegistry {
     self.list_tx.clone()
   }
 
-  // ── Pending Claude session cache ──────────────────────────────────
+  // ── Pending hook session cache ────────────────────────────────────
 
-  /// Cache a pending Claude session (called by SessionStart instead of creating a DB row).
-  pub fn cache_pending_claude(&self, session_id: String, pending: PendingClaudeSession) {
-    self.pending_claude_sessions.insert(session_id, pending);
+  /// Cache a provider-backed passive session until an actionable hook
+  /// materializes it.
+  pub fn cache_pending_hook_session(&self, session_id: String, pending: PendingHookSession) {
+    match pending {
+      PendingHookSession::Claude(pending) => {
+        self.pending_claude_sessions.insert(session_id, pending);
+      }
+      PendingHookSession::Codex(pending) => {
+        self.pending_codex_sessions.insert(session_id, pending);
+      }
+    }
   }
 
-  /// Take (remove) a pending Claude session for materialization.
-  pub fn take_pending_claude(&self, session_id: &str) -> Option<PendingClaudeSession> {
-    self
-      .pending_claude_sessions
-      .remove(session_id)
-      .map(|(_, v)| v)
+  /// Take (remove) a pending provider hook session for materialization.
+  pub fn take_pending_hook_session(
+    &self,
+    provider: Provider,
+    session_id: &str,
+  ) -> Option<PendingHookSession> {
+    match provider {
+      Provider::Claude => self
+        .pending_claude_sessions
+        .remove(session_id)
+        .map(|(_, pending)| PendingHookSession::Claude(pending)),
+      Provider::Codex => self
+        .pending_codex_sessions
+        .remove(session_id)
+        .map(|(_, pending)| PendingHookSession::Codex(pending)),
+    }
   }
 
-  /// Discard a pending Claude session (e.g. on SessionEnd before materialization).
-  /// Returns true if there was a pending entry to discard.
-  pub fn discard_pending_claude(&self, session_id: &str) -> bool {
-    self.pending_claude_sessions.remove(session_id).is_some()
+  /// Discard a pending hook session before it materializes.
+  pub fn discard_pending_hook_session(&self, provider: Provider, session_id: &str) -> bool {
+    match provider {
+      Provider::Claude => self.pending_claude_sessions.remove(session_id).is_some(),
+      Provider::Codex => self.pending_codex_sessions.remove(session_id).is_some(),
+    }
   }
 
-  /// Peek at a pending Claude session's cwd without removing it.
-  pub fn peek_pending_claude_cwd(&self, session_id: &str) -> Option<String> {
-    self
-      .pending_claude_sessions
-      .get(session_id)
-      .map(|entry| entry.cwd.clone())
+  /// Peek at a pending hook session's cwd without removing it.
+  pub fn peek_pending_hook_cwd(&self, provider: Provider, session_id: &str) -> Option<String> {
+    match provider {
+      Provider::Claude => self
+        .pending_claude_sessions
+        .get(session_id)
+        .map(|entry| entry.cwd.clone()),
+      Provider::Codex => self
+        .pending_codex_sessions
+        .get(session_id)
+        .map(|entry| entry.cwd.clone()),
+    }
   }
 
-  /// Expire pending Claude sessions older than `ttl`.
-  pub fn expire_pending_claude(&self, ttl: Duration) {
+  /// Expire pending hook sessions older than `ttl`.
+  pub fn expire_pending_hook_sessions(&self, ttl: Duration) {
     let cutoff = Instant::now() - ttl;
     self
       .pending_claude_sessions
+      .retain(|_, pending| pending.cached_at > cutoff);
+    self
+      .pending_codex_sessions
       .retain(|_, pending| pending.cached_at > cutoff);
   }
 

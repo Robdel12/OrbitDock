@@ -59,6 +59,7 @@ pub(crate) fn upgrade_row(row: ConversationRow) -> ConversationRow {
   }
 }
 
+#[allow(dead_code)] // Wired when provider event materialization is turned on for semantic rows.
 pub(crate) fn materialize_provider_event(event: ProviderEventEnvelope) -> Vec<ConversationRow> {
   match event.event {
     SharedNormalizedProviderEvent::WorkerLifecycle(worker) => {
@@ -402,6 +403,7 @@ fn stringify_json(value: &Value) -> Option<String> {
   serde_json::to_string(value).ok()
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn map_worker_status(kind: NormalizedWorkerLifecycleKind) -> ToolStatus {
   match kind {
     NormalizedWorkerLifecycleKind::Spawned
@@ -415,6 +417,7 @@ fn map_worker_status(kind: NormalizedWorkerLifecycleKind) -> ToolStatus {
   }
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn map_worker_operation(kind: NormalizedWorkerLifecycleKind) -> WorkerOperationKind {
   match kind {
     NormalizedWorkerLifecycleKind::Spawned => WorkerOperationKind::Spawn,
@@ -427,6 +430,7 @@ fn map_worker_operation(kind: NormalizedWorkerLifecycleKind) -> WorkerOperationK
   }
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn map_approval_kind(kind: NormalizedApprovalKind) -> ApprovalRequestKind {
   match kind {
     NormalizedApprovalKind::Exec => ApprovalRequestKind::Command,
@@ -436,6 +440,7 @@ fn map_approval_kind(kind: NormalizedApprovalKind) -> ApprovalRequestKind {
   }
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn map_approval_family(kind: NormalizedApprovalKind) -> ToolFamily {
   match kind {
     NormalizedApprovalKind::Exec => ToolFamily::Shell,
@@ -456,6 +461,7 @@ fn worker_hints() -> RenderHints {
   }
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn notice_hints() -> RenderHints {
   RenderHints {
     can_expand: true,
@@ -466,6 +472,7 @@ fn notice_hints() -> RenderHints {
   }
 }
 
+#[allow(dead_code)] // Used by provider event materialization.
 fn context_hints() -> RenderHints {
   RenderHints {
     can_expand: true,

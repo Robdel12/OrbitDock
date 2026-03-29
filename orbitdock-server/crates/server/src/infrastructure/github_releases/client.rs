@@ -1,7 +1,9 @@
 use reqwest::{Client, Response};
 use tracing::debug;
 
-use super::types::{ReleaseAsset, ReleaseInfo, UpdateChannel, UpdateCheckResult};
+use super::types::{
+  current_platform_release_asset_name, ReleaseAsset, ReleaseInfo, UpdateChannel, UpdateCheckResult,
+};
 use crate::VERSION;
 
 const REPO_SLUG: &str = "Robdel12/OrbitDock";
@@ -15,7 +17,7 @@ pub struct GitHubReleasesClient {
 }
 
 /// Raw release object from the GitHub API (only the fields we need).
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct GitHubRelease {
   tag_name: String,
   html_url: String,
@@ -24,7 +26,7 @@ struct GitHubRelease {
   assets: Vec<GitHubAsset>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct GitHubAsset {
   name: String,
   browser_download_url: String,
@@ -126,9 +128,18 @@ impl GitHubReleasesClient {
     }
 
     let releases: Vec<GitHubRelease> = resp.json().await?;
-    let matching = releases.into_iter().find(|r| matches_channel(r, channel));
+    let required_asset_name = current_platform_release_asset_name()?;
+    let matching = latest_matching_release(&releases, channel, required_asset_name);
 
-    Ok(matching.map(ReleaseInfo::from))
+    debug!(
+      component = "github_releases",
+      channel = %channel,
+      required_asset_name,
+      release = matching.map(|release| release.tag_name.as_str()).unwrap_or("none"),
+      "Selected latest installable release"
+    );
+
+    Ok(matching.cloned().map(ReleaseInfo::from))
   }
 
   /// Fetch a specific release by tag name (e.g. "v0.6.0").
@@ -205,6 +216,20 @@ impl GitHubReleasesClient {
   }
 }
 
+fn latest_matching_release<'a>(
+  releases: &'a [GitHubRelease],
+  channel: UpdateChannel,
+  required_asset_name: &str,
+) -> Option<&'a GitHubRelease> {
+  releases.iter().find(|release| {
+    matches_channel(release, channel)
+      && release
+        .assets
+        .iter()
+        .any(|asset| asset.name == required_asset_name)
+  })
+}
+
 fn matches_channel(release: &GitHubRelease, channel: UpdateChannel) -> bool {
   match channel {
     UpdateChannel::Stable => !release.prerelease,
@@ -227,12 +252,23 @@ mod tests {
   use super::*;
 
   fn release(tag: &str, prerelease: bool) -> GitHubRelease {
+    release_with_assets(tag, prerelease, &[])
+  }
+
+  fn release_with_assets(tag: &str, prerelease: bool, assets: &[&str]) -> GitHubRelease {
     GitHubRelease {
       tag_name: tag.to_string(),
       html_url: format!("https://github.com/{REPO_SLUG}/releases/tag/{tag}"),
       published_at: None,
       prerelease,
-      assets: vec![],
+      assets: assets
+        .iter()
+        .map(|name| GitHubAsset {
+          name: (*name).to_string(),
+          browser_download_url: format!("https://example.com/{name}"),
+          size: 1,
+        })
+        .collect(),
     }
   }
 
@@ -300,5 +336,35 @@ mod tests {
     let beta = semver::Version::parse("0.7.0-beta.1").unwrap();
 
     assert!(is_update(&current, &beta, UpdateChannel::Beta));
+  }
+
+  #[test]
+  fn latest_matching_release_skips_binary_less_tags() {
+    let releases = vec![
+      release("v0.7.0", false),
+      release_with_assets("v0.6.1", false, &["orbitdock-darwin-arm64.zip"]),
+    ];
+
+    let selected = latest_matching_release(
+      &releases,
+      UpdateChannel::Stable,
+      "orbitdock-darwin-arm64.zip",
+    )
+    .unwrap();
+
+    assert_eq!(selected.tag_name, "v0.6.1");
+  }
+
+  #[test]
+  fn latest_matching_release_returns_none_when_no_installable_asset_exists() {
+    let releases = vec![release("v0.7.0", false), release("v0.6.1", false)];
+
+    let selected = latest_matching_release(
+      &releases,
+      UpdateChannel::Stable,
+      "orbitdock-darwin-arm64.zip",
+    );
+
+    assert!(selected.is_none());
   }
 }

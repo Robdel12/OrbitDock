@@ -18,6 +18,14 @@ struct StatsPopoverContent: View {
   let todayStats: StatusBarStats
   let allStats: StatusBarStats
 
+  private var displayedStats: (today: StatusBarStats, allTime: StatusBarStats) {
+    StatusBarStats.resolve(
+      summary: registry.summary,
+      fallbackToday: todayStats,
+      fallbackAllTime: allStats
+    )
+  }
+
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
     registry.allProviders.map { provider in
       (provider: provider, windows: registry.windows(for: provider), isLoading: registry.isLoading(for: provider))
@@ -33,11 +41,11 @@ struct StatsPopoverContent: View {
       VStack(alignment: .leading, spacing: Spacing.lg) {
         if layoutMode.isPhoneCompact {
           usageSection
-          statsSection(title: "Today", stats: todayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: allStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedStats.today, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedStats.allTime, accentColor: .textSecondary)
         } else {
-          statsSection(title: "Today", stats: todayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: allStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedStats.today, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedStats.allTime, accentColor: .textSecondary)
           usageSection
         }
       }
@@ -46,7 +54,7 @@ struct StatsPopoverContent: View {
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
     .task {
       await runtimeRegistry.waitForAnyQueryReadyRuntime()
-      await registry.refreshAll()
+      await registry.refreshAll(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }
 
@@ -239,6 +247,33 @@ struct StatusBarStats {
   let cost: Double
   let tokens: Int
   let costByModel: [(model: String, cost: Double, color: Color)]
+
+  static func resolve(
+    summary: ServerUsageSummarySnapshotPayload?,
+    fallbackToday: StatusBarStats,
+    fallbackAllTime: StatusBarStats
+  ) -> (today: StatusBarStats, allTime: StatusBarStats) {
+    guard let summary else {
+      return (today: fallbackToday, allTime: fallbackAllTime)
+    }
+    return (
+      today: from(summary.today),
+      allTime: from(summary.allTime)
+    )
+  }
+
+  static func from(_ bucket: ServerUsageSummaryBucketPayload) -> StatusBarStats {
+    let sortedCosts = bucket.costByModel.map {
+      (model: $0.model, cost: $0.costUSD, color: colorForModel($0.model))
+    }
+
+    return StatusBarStats(
+      sessionCount: Int(bucket.sessionCount),
+      cost: bucket.totalCostUSD,
+      tokens: Int(bucket.totalTokens),
+      costByModel: sortedCosts
+    )
+  }
 
   static func from(
     sessions: [RootSessionNode],

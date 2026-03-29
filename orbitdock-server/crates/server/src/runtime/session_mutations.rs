@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage};
+use orbitdock_protocol::{
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage,
+};
 
 use orbitdock_protocol::StateChanges;
 
@@ -317,7 +319,6 @@ pub(crate) async fn update_session_config(
           session_id: session_id.to_string(),
           approval_policy: approval_policy.clone(),
           sandbox_mode: sandbox_mode.clone(),
-          approvals_reviewer: approvals_reviewer.clone(),
           permission_mode: permission_mode.clone(),
           collaboration_mode: collaboration_mode.clone(),
           multi_agent,
@@ -355,7 +356,9 @@ pub(crate) async fn update_session_config(
       .send(CodexAction::UpdateConfig {
         approval_policy: approval_policy.flatten(),
         sandbox_mode: sandbox_mode.flatten(),
-        approvals_reviewer: approvals_reviewer.flatten().map(|value| value.as_str().to_string()),
+        approvals_reviewer: approvals_reviewer
+          .flatten()
+          .map(|value| value.as_str().to_string()),
         permission_mode: permission_mode.flatten(),
         collaboration_mode: collaboration_mode.flatten(),
         multi_agent: multi_agent.flatten(),

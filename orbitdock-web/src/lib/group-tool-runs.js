@@ -1,7 +1,7 @@
 /**
- * Groups consecutive tool rows (2+) into synthetic activity_group entries.
- * Single tool rows pass through ungrouped.
- * Non-tool rows are never grouped.
+ * Groups consecutive activity rows (2+) into synthetic activity_group entries.
+ * Single activity rows pass through ungrouped.
+ * Non-activity rows are never grouped.
  */
 const groupToolRuns = (rows) => {
   const result = []
@@ -28,7 +28,7 @@ const groupToolRuns = (rows) => {
   }
 
   for (const entry of rows) {
-    if (entry.row?.row_type === 'tool') {
+    if (isGroupableActivity(entry)) {
       buffer.push(entry)
     } else {
       flushBuffer()
@@ -41,21 +41,21 @@ const groupToolRuns = (rows) => {
 }
 
 /**
- * Build a human-readable summary of tool names in a group.
- * E.g. "Read, Edit, Bash + 2 more" or "Read, Write"
+ * Build a human-readable summary of grouped activity names.
+ * E.g. "Read file, Search files, Run command + 2 more"
  */
 const buildToolSummary = (buffer) => {
   const names = []
   const seen = new Set()
   for (const entry of buffer) {
-    const name = entry.row?.tool_display?.summary
+    const name = activitySummary(entry)
     if (name && !seen.has(name)) {
       seen.add(name)
       names.push(name)
     }
   }
 
-  if (names.length === 0) return `${buffer.length} tools`
+  if (names.length === 0) return `${buffer.length} actions`
 
   const MAX_SHOWN = 3
   if (names.length <= MAX_SHOWN) {
@@ -64,6 +64,39 @@ const buildToolSummary = (buffer) => {
   const shown = names.slice(0, MAX_SHOWN)
   const remaining = names.length - MAX_SHOWN
   return `${shown.join(', ')} + ${remaining} more`
+}
+
+const isGroupableActivity = (entry) => {
+  const rowType = entry.row?.row_type
+  return rowType === 'tool' || rowType === 'command_execution'
+}
+
+const activitySummary = (entry) => {
+  const row = entry.row
+  if (!row) return null
+
+  if (row.row_type === 'tool') {
+    return row.tool_display?.summary || row.title || null
+  }
+
+  if (row.row_type !== 'command_execution') {
+    return null
+  }
+
+  const actions = row.command_actions || []
+  if (actions.length === 0) return 'Run command'
+
+  if (actions.every((action) => action.type === 'read')) {
+    return actions.length === 1 ? 'Read file' : `Read ${actions.length} files`
+  }
+  if (actions.every((action) => action.type === 'search')) {
+    return actions.length === 1 ? 'Search files' : 'Search across files'
+  }
+  if (actions.every((action) => action.type === 'list_files')) {
+    return 'List files'
+  }
+
+  return 'Run command'
 }
 
 export { buildToolSummary, groupToolRuns }

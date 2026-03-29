@@ -1,6 +1,7 @@
 import { ActivityGroupRow } from './activity-group-row.jsx'
 import { ApprovalRow } from './approval-row.jsx'
 import { AssistantRow } from './assistant-row.jsx'
+import { CommandExecutionRow } from './command-execution-row.jsx'
 import { HandoffRow } from './handoff-row.jsx'
 import { HookRow } from './hook-row.jsx'
 import { PlanRow } from './plan-row.jsx'
@@ -17,6 +18,7 @@ const ROW_COMPONENTS = {
   thinking: ThinkingRow,
   system: SystemRow,
   tool: ToolRow,
+  command_execution: CommandExecutionRow,
   activity_group: ActivityGroupRow,
   question: QuestionRow,
   approval: ApprovalRow,

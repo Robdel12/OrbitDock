@@ -23,7 +23,6 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("feedback_tags", "warn"),
   ("rmcp::transport::worker", "off"),
 ];
-
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum StderrLogMode {
   #[default]

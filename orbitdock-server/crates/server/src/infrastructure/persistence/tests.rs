@@ -483,6 +483,70 @@ fn steer_rows_persist_as_steer_type() {
 }
 
 #[test]
+fn load_messages_restores_legacy_rows_without_row_data() {
+  let (conn, _db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO messages (
+            id, session_id, type, content, timestamp, sequence, row_data, turn_status
+         ) VALUES (
+            'legacy-user', 'test-session', 'user', 'legacy hello', '2026-03-20T12:00:00Z', 0, NULL, 'active'
+         )",
+      [],
+    )
+    .unwrap();
+
+  let rows = load_messages_from_db(&conn, "test-session").unwrap();
+  assert_eq!(rows.len(), 1);
+  match &rows[0].row {
+    ConversationRow::User(message) => assert_eq!(message.content, "legacy hello"),
+    other => panic!("expected legacy user row, got {other:?}"),
+  }
+}
+
+#[test]
+fn load_session_by_id_uses_legacy_message_content_for_last_message() {
+  let (conn, _db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO messages (
+            id, session_id, type, content, timestamp, sequence, row_data, is_in_progress, turn_status
+         ) VALUES (
+            'legacy-assistant', 'test-session', 'assistant', 'legacy summary line', '2026-03-20T12:00:00Z', 0, NULL, 0, 'active'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+
+  let restored = runtime
+    .block_on(super::session_reads::load_session_by_id("test-session"))
+    .unwrap()
+    .expect("session should load");
+
+  assert_eq!(
+    restored.last_message.as_deref(),
+    Some("legacy summary line")
+  );
+
+  let restored_startup = runtime
+    .block_on(super::session_reads::load_sessions_for_startup())
+    .unwrap();
+  let startup = restored_startup
+    .into_iter()
+    .find(|session| session.id == "test-session")
+    .expect("startup restore should include test session");
+  assert_eq!(startup.last_message.as_deref(), Some("legacy summary line"));
+}
+
+#[test]
 fn batch_of_appends_preserves_insertion_order() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
   drop(conn);
@@ -1107,6 +1171,96 @@ fn startup_restore_ends_passive_claude_shadow_owned_by_direct_session() {
   assert_eq!(shadow.0, "ended");
   assert_eq!(shadow.1, "ended");
   assert_eq!(shadow.2, "startup_direct_shadow");
+}
+
+#[test]
+fn startup_restore_only_ends_stale_passive_codex_sessions() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, started_at, last_activity_at
+         ) VALUES (
+            'stale-passive', 'codex', 'active', 'waiting', 'open', 'passive',
+            '/tmp/test', 'passive', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, started_at, last_activity_at
+         ) VALUES (
+            'approval-passive', 'codex', 'active', 'permission', 'open', 'passive',
+            '/tmp/test', 'passive', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at
+         ) VALUES (
+            'direct-session', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-direct-session', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup())
+    .unwrap();
+
+  assert!(
+    restored.iter().all(|session| session.id != "stale-passive"),
+    "stale passive session should be ended during startup restore"
+  );
+  assert!(
+    restored
+      .iter()
+      .any(|session| session.id == "approval-passive"),
+    "passive approval session should survive startup restore"
+  );
+  assert!(
+    restored
+      .iter()
+      .any(|session| session.id == "direct-session"),
+    "direct session should survive startup restore"
+  );
+
+  let conn = Connection::open(&db_path).unwrap();
+  let stale_row: (String, String, String) = conn
+    .query_row(
+      "SELECT status, work_status, COALESCE(end_reason, '') FROM sessions WHERE id = 'stale-passive'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .unwrap();
+  assert_eq!(stale_row.0, "ended");
+  assert_eq!(stale_row.1, "ended");
+  assert_eq!(stale_row.2, "startup_stale_passive");
+
+  let approval_status: (String, String) = conn
+    .query_row(
+      "SELECT status, work_status FROM sessions WHERE id = 'approval-passive'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap();
+  assert_eq!(approval_status.0, "active");
+  assert_eq!(approval_status.1, "permission");
 }
 
 #[test]

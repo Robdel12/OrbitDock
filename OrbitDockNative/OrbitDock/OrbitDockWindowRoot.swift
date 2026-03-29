@@ -24,7 +24,16 @@ struct OrbitDockWindowRoot: View {
       } else {
         NavigationStack(path: Binding(get: { router.navigationStack }, set: { router.navigationStack = $0 })) {
           DashboardView(
-            isInitialLoading: false,
+            isInitialLoading: appRuntime.runtimeRegistry.runtimes
+              .filter(\.endpoint.isEnabled)
+              .contains { runtime in
+                switch runtime.connection.connectionStatus {
+                  case .connecting, .connected:
+                    !runtime.connection.hasReceivedInitialDashboardSnapshot
+                  case .disconnected, .failed:
+                    false
+                }
+              },
             isRefreshingCachedSessions: false
           )
           .navigationDestination(for: AppNavDestination.self) { destination in
