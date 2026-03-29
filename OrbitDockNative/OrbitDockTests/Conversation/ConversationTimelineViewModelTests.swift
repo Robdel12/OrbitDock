@@ -21,16 +21,18 @@ struct ConversationTimelineViewModelTests {
       viewMode: .focused
     )
 
-    #expect(viewModel.displayedEntries.count == 2)
-    #expect(viewModel.displayedEntries.first?.id == "tool-3")
+    let displayedEntries = viewModel.renderedEntries(limit: viewModel.displayedEntryCount)
 
-    guard case let .activityGroup(group)? = viewModel.displayedEntries.last?.row else {
+    #expect(viewModel.displayedEntryCount == 2)
+    #expect(displayedEntries.first?.id == "tool-3")
+
+    guard case let .activityGroup(group)? = displayedEntries.last?.row else {
       Issue.record("Expected focused timeline to build an activity group")
       return
     }
 
     #expect(group.childCount == 2)
-    #expect(group.children.map(\.id) == ["tool-1", "tool-2"])
+    #expect(group.children.map { $0.id } == ["tool-1", "tool-2"])
   }
 
   @Test func expandedRowsSurviveContentOnlyUpdates() {
@@ -60,9 +62,11 @@ struct ConversationTimelineViewModelTests {
       viewMode: .verbose
     )
 
+    let displayedEntries = viewModel.renderedEntries(limit: viewModel.displayedEntryCount)
+
     #expect(viewModel.isExpanded("tool-1"))
 
-    guard case let .tool(tool)? = viewModel.displayedEntries.first?.row else {
+    guard case let .tool(tool)? = displayedEntries.first?.row else {
       Issue.record("Expected updated display row to remain a tool row")
       return
     }
@@ -87,7 +91,8 @@ struct ConversationTimelineViewModelTests {
 
     viewModel.bind(sessionId: "session-2")
 
-    #expect(viewModel.displayedEntries.isEmpty)
+    #expect(viewModel.displayedEntryCount == 0)
+    #expect(viewModel.renderedEntries(limit: viewModel.displayedEntryCount).isEmpty)
     #expect(!viewModel.isExpanded("tool-1"))
   }
 
