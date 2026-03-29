@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::info;
 
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, RenderHints, ShellCommandRow, ShellCommandRowKind,
@@ -9,6 +8,7 @@ use orbitdock_protocol::{new_id, ClientMessage, ServerMessage, ShellExecutionOut
 
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::transport::shell_streaming::{ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS};
 use crate::transport::websocket::{send_json, OutboundMessage};
 
 fn shell_render_hints() -> RenderHints {
@@ -77,7 +77,7 @@ pub(crate) async fn handle(
   msg: ClientMessage,
   client_tx: &mpsc::Sender<OutboundMessage>,
   state: &Arc<SessionRegistry>,
-  conn_id: u64,
+  _conn_id: u64,
 ) {
   match msg {
     ClientMessage::ExecuteShell {
@@ -86,14 +86,6 @@ pub(crate) async fn handle(
       cwd,
       timeout_secs,
     } => {
-      info!(
-          component = "shell",
-          event = "shell.execute.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          "Shell execution requested"
-      );
-
       let resolved_cwd = if let Some(ref explicit) = cwd {
         explicit.clone()
       } else if let Some(actor) = state.get_session(&session_id) {
@@ -181,16 +173,15 @@ pub(crate) async fn handle(
         let mut chunk_rx = shell_execution.chunk_rx;
         let completion_rx = shell_execution.completion_rx;
 
-        let mut streamed_output = String::new();
+        let mut preview_state = ShellStreamPreviewState::default();
         let mut last_stream_emit = std::time::Instant::now();
-        const SHELL_STREAM_THROTTLE_MS: u128 = 120;
 
         while let Some(chunk) = chunk_rx.recv().await {
           if !chunk.stdout.is_empty() {
-            streamed_output.push_str(&chunk.stdout);
+            preview_state.append_stdout(&chunk.stdout);
           }
           if !chunk.stderr.is_empty() {
-            streamed_output.push_str(&chunk.stderr);
+            preview_state.append_stderr(&chunk.stderr);
           }
 
           let now = std::time::Instant::now();
@@ -205,8 +196,8 @@ pub(crate) async fn handle(
               &sid,
               ShellRowState {
                 command: Some(cmd_clone.clone()),
-                stdout: (!streamed_output.is_empty()).then(|| streamed_output.clone()),
-                stderr: None,
+                stdout: preview_state.stdout_preview(),
+                stderr: preview_state.stderr_preview(),
                 exit_code: None,
                 duration_ms: 0,
                 cwd: Some(resolved_cwd.clone()),
@@ -249,7 +240,7 @@ pub(crate) async fn handle(
           format!("{}\n{}", result.stdout, result.stderr)
         };
         let final_output = if combined_output.is_empty() {
-          streamed_output
+          preview_state.combined_preview().unwrap_or_default()
         } else {
           combined_output
         };
@@ -309,15 +300,6 @@ pub(crate) async fn handle(
       session_id,
       request_id,
     } => {
-      info!(
-          component = "shell",
-          event = "shell.cancel.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          request_id = %request_id,
-          "Shell cancel requested"
-      );
-
       if state.get_session(&session_id).is_none() {
         send_json(
           client_tx,
@@ -332,16 +314,7 @@ pub(crate) async fn handle(
       }
 
       match state.shell_service().cancel(&session_id, &request_id) {
-        crate::infrastructure::shell::ShellCancelStatus::Canceled => {
-          info!(
-              component = "shell",
-              event = "shell.cancel.accepted",
-              connection_id = conn_id,
-              session_id = %session_id,
-              request_id = %request_id,
-              "Shell cancel accepted"
-          );
-        }
+        crate::infrastructure::shell::ShellCancelStatus::Canceled => {}
         crate::infrastructure::shell::ShellCancelStatus::NotFound => {
           send_json(
             client_tx,

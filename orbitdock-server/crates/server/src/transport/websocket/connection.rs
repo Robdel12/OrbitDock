@@ -13,7 +13,7 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use orbitdock_protocol::SessionSurface;
 use orbitdock_protocol::{ClientMessage, CompatibilityStatus, ServerMessage};
@@ -186,12 +186,6 @@ async fn handle_socket(
       };
 
       if result.is_err() {
-        debug!(
-          component = "websocket",
-          event = "ws.send.disconnected",
-          connection_id = conn_id,
-          "WebSocket send failed, client disconnected"
-        );
         break;
       }
     }

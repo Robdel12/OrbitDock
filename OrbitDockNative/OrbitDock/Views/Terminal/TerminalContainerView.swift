@@ -21,11 +21,11 @@ struct TerminalContainerView: View {
   private var terminalTitleBar: some View {
     HStack(spacing: 0) {
       #if os(macOS)
-      HStack(spacing: Spacing.xs) {
-        Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
-        Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
-        Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
-      }
+        HStack(spacing: Spacing.xs) {
+          Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
+          Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
+          Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
+        }
       #endif
 
       Spacer()
@@ -38,12 +38,12 @@ struct TerminalContainerView: View {
       Spacer()
 
       #if os(macOS)
-      // Balance spacer for traffic light dots.
-      HStack(spacing: Spacing.xs) {
-        Circle().fill(Color.clear).frame(width: 6, height: 6)
-        Circle().fill(Color.clear).frame(width: 6, height: 6)
-        Circle().fill(Color.clear).frame(width: 6, height: 6)
-      }
+        // Balance spacer for traffic light dots.
+        HStack(spacing: Spacing.xs) {
+          Circle().fill(Color.clear).frame(width: 6, height: 6)
+          Circle().fill(Color.clear).frame(width: 6, height: 6)
+          Circle().fill(Color.clear).frame(width: 6, height: 6)
+        }
       #endif
     }
     .padding(.horizontal, Spacing.sm)

@@ -301,6 +301,18 @@ final class ServerConnection {
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
 
+  func failCompatibility(message: String) {
+    let failureGeneration = invalidateConnectionGeneration()
+    pruneStaleConnectionProbe(for: failureGeneration)
+    teardownConnectionTasks()
+    lastConnectedAt = nil
+    setStatus(.failed(message))
+    netLog(.error, cat: .ws, "Connection marked incompatible", data: [
+      "message": message,
+      "url": serverURL?.absoluteString ?? "nil",
+    ])
+  }
+
   // MARK: - Outbound WS messages
 
   func subscribeDashboard(sinceRevision: UInt64? = nil) {
@@ -520,7 +532,7 @@ final class ServerConnection {
           case let .string(text): handleFrame(text, expectedGeneration: generation)
           case let .data(data):
             // Check for terminal binary frame (type byte 0x01 or 0x02).
-            if data.count >= 2, (data[0] == 0x01 || data[0] == 0x02) {
+            if data.count >= 2, data[0] == 0x01 || data[0] == 0x02 {
               handleTerminalBinaryFrame(data)
             } else if let text = String(data: data, encoding: .utf8) {
               handleFrame(text, expectedGeneration: generation)
@@ -901,22 +913,21 @@ final class ServerConnection {
     let terminalId = String(data: idData, encoding: .utf8) ?? ""
 
     switch frameType {
-    case 0x01: // Terminal output
-      let payload = data[(2 + idLen)...]
-      emit(.terminalOutput(terminalId: terminalId, data: Data(payload)))
+      case 0x01: // Terminal output
+        let payload = data[(2 + idLen)...]
+        emit(.terminalOutput(terminalId: terminalId, data: Data(payload)))
 
-    case 0x02: // Terminal exited
-      let payloadStart = 2 + idLen
-      let exitCode: Int32?
-      if data.count >= payloadStart + 4 {
-        exitCode = data[payloadStart ..< payloadStart + 4].withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
-      } else {
-        exitCode = nil
-      }
-      emit(.terminalExited(terminalId: terminalId, exitCode: exitCode))
+      case 0x02: // Terminal exited
+        let payloadStart = 2 + idLen
+        let exitCode: Int32? = if data.count >= payloadStart + 4 {
+          data[payloadStart ..< payloadStart + 4].withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        } else {
+          nil
+        }
+        emit(.terminalExited(terminalId: terminalId, exitCode: exitCode))
 
-    default:
-      break
+      default:
+        break
     }
   }
 
@@ -970,7 +981,7 @@ final class ServerConnection {
   }
 
   /// Send an arbitrary Encodable payload as JSON text frame.
-  private func sendJSON<T: Encodable>(_ payload: T) {
+  private func sendJSON(_ payload: some Encodable) {
     guard let webSocket else { return }
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase

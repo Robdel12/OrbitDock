@@ -381,9 +381,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
 				MARKETING_VERSION = 0.7.0;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",
@@ -433,9 +441,17 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-arm64";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Vendors/ghostty-vt/lib/ios-simulator";
 				MARKETING_VERSION = 0.7.0;
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"-lghostty-vt",
+					"-lhighway",
+					"-lsimdutf",
+					"-lutfcpp",
+					"-lc++",
+				);
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = (
 					"-lghostty-vt",
 					"-lhighway",
 					"-lsimdutf",
