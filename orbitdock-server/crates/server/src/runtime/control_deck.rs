@@ -13,7 +13,7 @@ use crate::domain::control_deck::{
 use crate::infrastructure::images::store_uploaded_attachment;
 use crate::infrastructure::persistence::{load_config_value, PersistCommand};
 use crate::runtime::message_dispatch::{
-  dispatch_user_prompt, DispatchMessageError, DispatchUserPrompt,
+  dispatch_send_message, DispatchMessageError, DispatchSendMessage,
 };
 use crate::runtime::session_mutations::{
   update_session_config as update_runtime_session_config, SessionConfigUpdate, SessionMutationError,
@@ -185,9 +185,9 @@ async fn dispatch_control_deck_turn(
   request: ControlDeckDispatchRequest,
 ) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
 {
-  dispatch_user_prompt(
+  dispatch_send_message(
     state,
-    DispatchUserPrompt {
+    DispatchSendMessage {
       session_id: request.session_id,
       content: request.content,
       model: request.model,
