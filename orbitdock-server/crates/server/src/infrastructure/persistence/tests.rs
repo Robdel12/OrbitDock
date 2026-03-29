@@ -1228,11 +1228,15 @@ fn startup_restore_only_ends_stale_passive_codex_sessions() {
     "stale passive session should be ended during startup restore"
   );
   assert!(
-    restored.iter().any(|session| session.id == "approval-passive"),
+    restored
+      .iter()
+      .any(|session| session.id == "approval-passive"),
     "passive approval session should survive startup restore"
   );
   assert!(
-    restored.iter().any(|session| session.id == "direct-session"),
+    restored
+      .iter()
+      .any(|session| session.id == "direct-session"),
     "direct session should survive startup restore"
   );
 
