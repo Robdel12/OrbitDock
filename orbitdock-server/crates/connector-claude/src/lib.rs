@@ -5,9 +5,10 @@
 
 pub mod session;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -16,7 +17,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
@@ -585,8 +586,9 @@ struct ClaudeEventLoopState {
   // -- Mutable local state (owned by the event loop task) --
   streaming_content: String,
   streaming_msg_id: Option<String>,
+  streaming_last_broadcast: Option<Instant>,
   in_turn: bool,
-  turn_patch_diffs: Vec<String>,
+  turn_patch_diff: String,
   /// Per-call (input_tokens, cached_tokens) from the latest assistant message.
   last_turn_input: Option<(u64, u64)>,
   cumulative_output: u64,
@@ -615,8 +617,9 @@ impl ClaudeEventLoopState {
       stdin_tx,
       streaming_content: String::new(),
       streaming_msg_id: None,
+      streaming_last_broadcast: None,
       in_turn: false,
-      turn_patch_diffs: Vec::new(),
+      turn_patch_diff: String::new(),
       last_turn_input: None,
       cumulative_output: 0,
       last_context_window: 1_000_000,
@@ -637,6 +640,9 @@ pub struct ClaudeConnector {
   pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
   pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
 }
+
+const CLAUDE_STREAM_THROTTLE_MS: u128 = 50;
+const CLAUDE_STDERR_TAIL_LINES: usize = 5;
 
 impl ClaudeConnector {
   /// Spawn a new `claude` CLI subprocess.
@@ -766,7 +772,7 @@ impl ClaudeConnector {
       tokio::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
-        let mut stderr_lines = Vec::new();
+        let mut stderr_lines = VecDeque::with_capacity(CLAUDE_STDERR_TAIL_LINES);
         while let Ok(Some(line)) = lines.next_line().await {
           warn!(
               component = "claude_connector",
@@ -774,7 +780,10 @@ impl ClaudeConnector {
               line = %line,
               "Claude CLI stderr"
           );
-          stderr_lines.push(line);
+          if stderr_lines.len() == CLAUDE_STDERR_TAIL_LINES {
+            stderr_lines.pop_front();
+          }
+          stderr_lines.push_back(line);
         }
         // stderr closed — process is exiting, capture exit code
         let exit_status = child_for_exit.lock().await.wait().await;
@@ -786,9 +795,16 @@ impl ClaudeConnector {
                   component = "claude_connector",
                   event = "claude.exit",
                   exit_code = ?code,
-                  stderr_tail = %stderr_lines.iter().rev().take(5)
-                      .collect::<Vec<_>>().into_iter().rev()
-                      .cloned().collect::<Vec<_>>().join("\n"),
+                  stderr_tail = %stderr_lines
+                      .iter()
+                      .rev()
+                      .take(CLAUDE_STDERR_TAIL_LINES)
+                      .collect::<Vec<_>>()
+                      .into_iter()
+                      .rev()
+                      .map(|line| line.as_str())
+                      .collect::<Vec<_>>()
+                      .join("\n"),
                   "Claude CLI exited with non-zero status"
               );
             } else {
@@ -840,13 +856,7 @@ impl ClaudeConnector {
 
     // Send initialize control request — kill the child if it fails
     match connector.send_initialize().await {
-      Ok(_init_response) => {
-        debug!(
-          component = "claude_connector",
-          event = "claude.init.response",
-          "Initialize response received"
-        );
-      }
+      Ok(_init_response) => {}
       Err(e) => {
         error!(
             component = "claude_connector",
@@ -1252,13 +1262,6 @@ impl ClaudeConnector {
   async fn write_stdin_message(&self, msg: &StdinMessage) -> Result<(), ConnectorError> {
     let json = serde_json::to_string(msg).map_err(ConnectorError::JsonError)?;
 
-    debug!(
-      component = "claude_connector",
-      event = "claude.stdin.write",
-      payload_len = json.len(),
-      "Writing to CLI stdin"
-    );
-
     self
       .stdin_tx
       .send(json)
@@ -1289,11 +1292,6 @@ impl ClaudeConnector {
         break;
       }
     }
-    debug!(
-      component = "claude_connector",
-      event = "claude.stdin.closed",
-      "Stdin writer task ended"
-    );
   }
 
   /// Read stdout line-by-line, parse JSON, translate to ConnectorEvent.
@@ -1314,17 +1312,6 @@ impl ClaudeConnector {
             continue;
           }
 
-          // Log first few lines and any non-JSON for debugging startup issues
-          if state.line_count <= 3 {
-            info!(
-                component = "claude_connector",
-                event = "claude.stdout.raw",
-                line_num = state.line_count,
-                preview = %if line.len() > 300 { &line[..300] } else { &line },
-                "Raw stdout line"
-            );
-          }
-
           let raw: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
@@ -1343,11 +1330,6 @@ impl ClaudeConnector {
 
           for ev in events {
             if event_tx.send(ev).await.is_err() {
-              info!(
-                component = "claude_connector",
-                event = "claude.event_loop.channel_closed",
-                "Event channel closed, stopping reader"
-              );
               return;
             }
           }
@@ -1397,15 +1379,6 @@ impl ClaudeConnector {
       .and_then(|v| v.as_bool())
       .unwrap_or(false);
 
-    debug!(
-        component = "claude_connector",
-        event = "claude.stdout.dispatch",
-        msg_type = %msg_type,
-        session_id = %session_id,
-        is_replay = is_replay,
-        "Dispatching stdout message"
-    );
-
     // Skip replayed messages from --resume. Only allow `system` through
     // (contains init with session_id, hook_started for thread registration).
     if is_replay && msg_type != "system" {
@@ -1416,7 +1389,7 @@ impl ClaudeConnector {
     let mut turn_start_event = Vec::new();
     if !state.in_turn && matches!(msg_type, "assistant" | "stream_event") {
       state.in_turn = true;
-      state.turn_patch_diffs.clear();
+      state.turn_patch_diff.clear();
       turn_start_event.push(ConnectorEvent::TurnStarted);
     }
 
@@ -1433,7 +1406,7 @@ impl ClaudeConnector {
 
       "result" => {
         state.in_turn = false;
-        state.turn_patch_diffs.clear();
+        state.turn_patch_diff.clear();
         Self::handle_result_message(raw, &session_id, state)
       }
 
@@ -1446,12 +1419,6 @@ impl ClaudeConnector {
         // notify the server so the approval card is cleared.
         if let Some(req_id) = string_field(raw, "request_id", "requestId") {
           state.pending_approvals.lock().await.remove(req_id.as_str());
-          info!(
-              component = "claude_connector",
-              event = "claude.control.cancelled",
-              request_id = %req_id,
-              "CLI cancelled control request"
-          );
           vec![ConnectorEvent::ApprovalCancelled { request_id: req_id }]
         } else {
           vec![]
@@ -1472,12 +1439,6 @@ impl ClaudeConnector {
           .or_else(|| raw.get("permissionMode"))
           .and_then(Value::as_str)
         {
-          info!(
-              component = "claude_connector",
-              event = "claude.permission_mode.changed",
-              mode = %mode,
-              "Permission mode changed via status message"
-          );
           status_events.push(ConnectorEvent::PermissionModeChanged {
             mode: mode.to_string(),
           });
@@ -1536,15 +1497,6 @@ impl ClaudeConnector {
           .get("surpassed_threshold")
           .and_then(|v| v.as_f64());
 
-        info!(
-            component = "claude_connector",
-            event = "claude.rate_limit",
-            status = %status,
-            utilization = ?utilization,
-            rate_limit_type = ?rate_limit_type,
-            "Rate limit event received"
-        );
-
         vec![ConnectorEvent::RateLimitEvent {
           info: orbitdock_protocol::RateLimitInfo {
             status,
@@ -1566,19 +1518,8 @@ impl ClaudeConnector {
           .to_string();
 
         if suggestion.is_empty() {
-          debug!(
-            component = "claude_connector",
-            event = "claude.prompt_suggestion.empty",
-            "Prompt suggestion received with empty content"
-          );
           vec![]
         } else {
-          debug!(
-            component = "claude_connector",
-            event = "claude.prompt_suggestion",
-            suggestion_len = suggestion.len(),
-            "Prompt suggestion received"
-          );
           vec![ConnectorEvent::PromptSuggestion { suggestion }]
         }
       }
@@ -1586,7 +1527,7 @@ impl ClaudeConnector {
       "keep_alive" | "auth_status" => vec![],
 
       _ => {
-        debug!(
+        warn!(
             component = "claude_connector",
             event = "claude.stdout.unknown_type",
             msg_type = %msg_type,
@@ -1597,24 +1538,12 @@ impl ClaudeConnector {
     };
 
     // Prepend TurnStarted so it fires before any message events
-    let final_events = if !turn_start_event.is_empty() {
+    if !turn_start_event.is_empty() {
       turn_start_event.append(&mut events);
       turn_start_event
     } else {
       events
-    };
-
-    if !final_events.is_empty() && msg_type != "stream_event" {
-      debug!(
-          component = "claude_connector",
-          event = "claude.stdout.dispatch_result",
-          msg_type = %msg_type,
-          event_count = final_events.len(),
-          "Produced connector events"
-      );
     }
-
-    final_events
   }
 
   /// Handle `system` messages (init, compact_boundary, status).
@@ -1756,12 +1685,6 @@ impl ClaudeConnector {
         // the original. Without registering it, the hook handler creates a
         // duplicate passive session.
         if let Some(sid) = raw.get("session_id").and_then(|v| v.as_str()) {
-          info!(
-              component = "claude_connector",
-              event = "claude.hook_started",
-              hook_session_id = %sid,
-              "Hook started with session ID"
-          );
           vec![ConnectorEvent::HookSessionId(sid.to_string())]
         } else {
           vec![]
@@ -1783,15 +1706,6 @@ impl ClaudeConnector {
         if let Some(tool_use_id) = raw.get("tool_use_id").and_then(Value::as_str) {
           task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
         }
-
-        info!(
-            component = "claude_connector",
-            event = "claude.task_started",
-            task_id = %task_id,
-            task_type = %task_type,
-            tool_use_id = ?raw.get("tool_use_id").and_then(|v| v.as_str()),
-            "Background task started"
-        );
 
         let raw_input = Some(serde_json::json!({
             "subagent_type": task_type,
@@ -1866,14 +1780,6 @@ impl ClaudeConnector {
         let summary = raw.get("summary").and_then(Value::as_str).unwrap_or("");
         let duration_ms = raw.pointer("/usage/duration_ms").and_then(Value::as_u64);
 
-        info!(
-            component = "claude_connector",
-            event = "claude.task_notification",
-            task_id = %task_id,
-            status = %status_str,
-            "Background task completed"
-        );
-
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
         if let Some(mut tr) = tool_rows.remove(task_id) {
           tr.status = if status_str == "failed" {
@@ -1907,12 +1813,6 @@ impl ClaudeConnector {
           .or_else(|| raw.get("permission_mode"))
           .and_then(Value::as_str)
         {
-          info!(
-              component = "claude_connector",
-              event = "claude.permission_mode.changed",
-              mode = %mode,
-              "Permission mode changed via system status message"
-          );
           events.push(ConnectorEvent::PermissionModeChanged {
             mode: mode.to_string(),
           });
@@ -1926,13 +1826,6 @@ impl ClaudeConnector {
             let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
             let msg_id = format!("compacting-{}", uuid::Uuid::new_v4());
             *compacting_msg_id = Some(msg_id.clone());
-
-            info!(
-                component = "claude_connector",
-                event = "claude.status.compacting",
-                msg_id = %msg_id,
-                "Context compaction in progress — showing indicator"
-            );
 
             let tr = make_tool_row(
               msg_id.clone(),
@@ -1952,42 +1845,7 @@ impl ClaudeConnector {
 
         events
       }
-      "hook_progress" => {
-        let hook_name = raw
-          .get("hook_name")
-          .and_then(|v| v.as_str())
-          .unwrap_or("unknown");
-        let hook_event = raw
-          .get("hook_event")
-          .and_then(|v| v.as_str())
-          .unwrap_or("unknown");
-        debug!(
-            component = "claude_connector",
-            event = "claude.hook_progress",
-            hook_name = %hook_name,
-            hook_event = %hook_event,
-            "Hook progress event"
-        );
-        vec![]
-      }
-      "hook_response" => {
-        let hook_name = raw
-          .get("hook_name")
-          .and_then(|v| v.as_str())
-          .unwrap_or("unknown");
-        let outcome = raw
-          .get("outcome")
-          .and_then(|v| v.as_str())
-          .unwrap_or("unknown");
-        info!(
-            component = "claude_connector",
-            event = "claude.hook_response",
-            hook_name = %hook_name,
-            outcome = %outcome,
-            "Hook response event"
-        );
-        vec![]
-      }
+      "hook_progress" | "hook_response" => vec![],
       "files_persisted" => {
         let files: Vec<String> = raw
           .get("files")
@@ -1999,23 +1857,9 @@ impl ClaudeConnector {
               .collect()
           })
           .unwrap_or_default();
-        debug!(
-          component = "claude_connector",
-          event = "claude.files_persisted",
-          file_count = files.len(),
-          "Files persisted checkpoint"
-        );
         vec![ConnectorEvent::FilesPersisted { files }]
       }
-      _ => {
-        debug!(
-            component = "claude_connector",
-            event = "claude.system.unknown_subtype",
-            subtype = %subtype,
-            "Unknown system message subtype"
-        );
-        vec![]
-      }
+      _ => vec![],
     }
   }
 
@@ -2037,45 +1881,19 @@ impl ClaudeConnector {
       &mut events,
       &mut state.streaming_content,
       &mut state.streaming_msg_id,
+      &mut state.streaming_last_broadcast,
       session_id,
     );
 
     let message = match raw.get("message") {
       Some(m) => m,
-      None => {
-        debug!(
-          component = "claude_connector",
-          event = "claude.assistant.no_message_field",
-          "Assistant message missing 'message' field"
-        );
-        return events;
-      }
+      None => return events,
     };
 
     let content_blocks = match message.get("content").and_then(|v| v.as_array()) {
       Some(arr) => arr,
-      None => {
-        debug!(
-          component = "claude_connector",
-          event = "claude.assistant.no_content_blocks",
-          "Assistant message missing 'content' array"
-        );
-        return events;
-      }
+      None => return events,
     };
-
-    let block_types: Vec<&str> = content_blocks
-      .iter()
-      .map(|b| b.get("type").and_then(|v| v.as_str()).unwrap_or("?"))
-      .collect();
-    debug!(
-        component = "claude_connector",
-        event = "claude.assistant.content_blocks",
-        block_count = content_blocks.len(),
-        block_types = ?block_types,
-        had_streaming = had_streaming,
-        "Processing assistant content blocks"
-    );
 
     for block in content_blocks {
       let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -2128,10 +1946,11 @@ impl ClaudeConnector {
           // Build an aggregated per-turn patch diff stream from direct edit/write tools.
           if let Some(payload) = input_value {
             if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload) {
-              state.turn_patch_diffs.push(diff);
-              events.push(ConnectorEvent::DiffUpdated(
-                state.turn_patch_diffs.join("\n\n"),
-              ));
+              if !state.turn_patch_diff.is_empty() {
+                state.turn_patch_diff.push_str("\n\n");
+              }
+              state.turn_patch_diff.push_str(&diff);
+              events.push(ConnectorEvent::DiffUpdated(state.turn_patch_diff.clone()));
             }
           }
         }
@@ -2242,15 +2061,6 @@ impl ClaudeConnector {
         .map(String::from)
         .unwrap_or_else(|| format!("claude-user-{}", uuid::Uuid::new_v4()));
 
-      info!(
-          component = "claude_connector",
-          event = "claude.user_message.row_created",
-          session_id = %session_id,
-          text_len = user_text.len(),
-          image_count = images.len(),
-          "Creating User conversation row"
-      );
-
       events.push(ConnectorEvent::ConversationRowCreated(make_entry(
         session_id,
         ConversationRow::User(MessageRowContent {
@@ -2274,14 +2084,6 @@ impl ClaudeConnector {
     if !has_tool_results {
       return events;
     }
-
-    info!(
-        component = "claude_connector",
-        event = "claude.user_message.has_tool_results",
-        session_id = %session_id,
-        block_count = content_blocks.len(),
-        "Processing user message with tool_result blocks"
-    );
 
     for block in content_blocks {
       let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -2319,17 +2121,6 @@ impl ClaudeConnector {
 
       if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
         let task_id = task_tool_use_map.remove(tool_use_id);
-
-        info!(
-            component = "claude_connector",
-            event = "claude.tool_result.extracted",
-            session_id = %session_id,
-            tool_use_id = %tool_use_id,
-            task_id = ?task_id,
-            output_chars = content.len(),
-            is_error = is_error,
-            "Extracted tool result → ConversationRowUpdated"
-        );
 
         // Determine the row_id: either the task_id (for background tasks)
         // or the tool_use_id (for regular tools).
@@ -2436,6 +2227,7 @@ impl ClaudeConnector {
   ) -> Vec<ConnectorEvent> {
     let streaming_content = &mut state.streaming_content;
     let streaming_msg_id = &mut state.streaming_msg_id;
+    let streaming_last_broadcast = &mut state.streaming_last_broadcast;
     let mut events = Vec::new();
 
     let event = match raw.get("event") {
@@ -2476,7 +2268,15 @@ impl ClaudeConnector {
               session_id, row,
             )));
             *streaming_msg_id = Some(msg_id);
+            *streaming_last_broadcast = Some(Instant::now());
           } else {
+            let now = Instant::now();
+            if streaming_last_broadcast
+              .is_some_and(|last| now.duration_since(last).as_millis() < CLAUDE_STREAM_THROTTLE_MS)
+            {
+              return events;
+            }
+            *streaming_last_broadcast = Some(now);
             let msg_id = streaming_msg_id.clone().unwrap();
             let row = ConversationRow::Assistant(MessageRowContent {
               id: msg_id.clone(),
@@ -2545,6 +2345,7 @@ impl ClaudeConnector {
       &mut events,
       &mut state.streaming_content,
       &mut state.streaming_msg_id,
+      &mut state.streaming_last_broadcast,
       session_id,
     );
 
@@ -2625,14 +2426,6 @@ impl ClaudeConnector {
       "hook_callback" => {
         // CLI is invoking a registered hook callback.
         // We don't currently register any hooks, so respond with an empty result.
-        let callback_id = string_field(request, "callback_id", "callbackId").unwrap_or_default();
-        info!(
-            component = "claude_connector",
-            event = "claude.control_request.hook_callback",
-            request_id = %request_id,
-            callback_id = %callback_id,
-            "Received hook_callback control request"
-        );
         let response = StdinMessage::ControlResponse {
           response: ControlResponsePayload::Success {
             request_id,
@@ -2650,13 +2443,6 @@ impl ClaudeConnector {
         // CLI is sending a JSON-RPC message for an SDK-hosted MCP server.
         // We don't currently host any MCP servers, so respond with an error.
         let server_name = string_field(request, "server_name", "serverName").unwrap_or_default();
-        info!(
-            component = "claude_connector",
-            event = "claude.control_request.mcp_message",
-            request_id = %request_id,
-            server_name = %server_name,
-            "Received mcp_message control request"
-        );
         let response = StdinMessage::ControlResponse {
           response: ControlResponsePayload::Error {
             request_id,
@@ -2671,14 +2457,7 @@ impl ClaudeConnector {
       "can_use_tool" => {
         // Permission prompt — handled below
       }
-      other => {
-        debug!(
-            component = "claude_connector",
-            event = "claude.control_request.unhandled",
-            subtype = %other,
-            request_id = %request_id,
-            "Unhandled CLI control request subtype"
-        );
+      _other => {
         return vec![];
       }
     }
@@ -2692,7 +2471,7 @@ impl ClaudeConnector {
       value_field(request, "permission_suggestions", "permissionSuggestions")
         .cloned()
         .or_else(|| value_field(raw, "permission_suggestions", "permissionSuggestions").cloned());
-    let has_permission_suggestions = permission_suggestions.is_some();
+    let _has_permission_suggestions = permission_suggestions.is_some();
 
     if request_id.is_empty() {
       warn!(
@@ -2764,17 +2543,6 @@ impl ClaudeConnector {
     } else {
       None
     };
-
-    debug!(
-        component = "claude_connector",
-        event = "claude.approval_requested",
-        request_id = %request_id,
-        tool_name = ?tool_name,
-        tool_use_id = ?tool_use_id,
-        approval_type = ?approval_type,
-        has_permission_suggestions,
-        "CLI requesting tool approval"
-    );
 
     let tool_input_json = input.as_ref().and_then(|i| serde_json::to_string(i).ok());
     let mut events = Vec::new();
@@ -2957,9 +2725,11 @@ fn flush_streaming(
   events: &mut Vec<ConnectorEvent>,
   streaming_content: &mut String,
   streaming_msg_id: &mut Option<String>,
+  streaming_last_broadcast: &mut Option<Instant>,
   session_id: &str,
 ) {
   if let Some(mid) = streaming_msg_id.take() {
+    *streaming_last_broadcast = None;
     if !streaming_content.is_empty() {
       let row = ConversationRow::Assistant(MessageRowContent {
         id: mid.clone(),
