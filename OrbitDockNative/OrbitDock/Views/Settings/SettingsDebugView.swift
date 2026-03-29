@@ -10,32 +10,11 @@ struct DebugSettingsView: View {
   }
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
-    let endpointCount = runtimeRegistry.runtimes.count
-    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id)
-      if case .connected = status {
-        return true
-      }
-      return false
-    }.count
-
-    return SettingsEndpointHealthSummary.make(
-      endpointCount: endpointCount,
-      enabledEndpointCount: enabledEndpointCount,
-      connectedEndpointCount: connectedEndpointCount
-    )
+    SettingsEndpointHealthSummary.current(for: runtimeRegistry)
   }
 
   private var endpointStatusColor: Color {
-    switch endpointHealthSummary.tone {
-      case .positive:
-        Color.feedbackPositive
-      case .mixed:
-        Color.statusQuestion
-      case .warning:
-        Color.statusPermission
-    }
+    endpointHealthSummary.color
   }
 
   var body: some View {
@@ -84,6 +63,8 @@ struct DebugSettingsView: View {
             Spacer()
           }
         }
+
+        ServerUpdatesSettingsView()
 
         SettingsSection(title: "DEMO MODE", icon: "sparkles.rectangle.stack") {
           HStack {
