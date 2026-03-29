@@ -124,6 +124,7 @@ struct ServerMetaResponse: Codable, Sendable {
   let capabilities: [String]
   let isPrimary: Bool
   let clientPrimaryClaims: [ServerClientPrimaryClaim]
+  let updateStatus: ServerUpdateStatus? = nil
 
   enum CodingKeys: String, CodingKey {
     case serverVersion = "server_version"
@@ -131,6 +132,7 @@ struct ServerMetaResponse: Codable, Sendable {
     case capabilities
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
+    case updateStatus = "update_status"
   }
 
   func validateCompatibility() throws {
