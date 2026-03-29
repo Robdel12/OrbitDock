@@ -45,6 +45,14 @@ struct UsageClient: Sendable {
     try await http.get("/api/usage/claude")
   }
 
+  func fetchUsageSummary(todayStartUnix: UInt64?) async throws -> ServerUsageSummarySnapshotPayload {
+    var query: [URLQueryItem] = []
+    if let todayStartUnix {
+      query.append(URLQueryItem(name: "today_start_unix", value: String(todayStartUnix)))
+    }
+    return try await http.get("/api/usage/summary", query: query)
+  }
+
   func listCodexModels(
     cwd: String? = nil,
     modelProvider: String? = nil

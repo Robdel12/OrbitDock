@@ -87,7 +87,7 @@ pub use server_info::{
   set_workspace_provider_config_value, test_workspace_provider,
 };
 pub use server_meta::{
-  fetch_claude_usage, fetch_codex_usage, list_claude_models, list_codex_models,
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_summary, list_claude_models, list_codex_models,
 };
 pub use session_actions::{
   compact_context, get_session_image_attachment, interrupt_session, post_session_message,
