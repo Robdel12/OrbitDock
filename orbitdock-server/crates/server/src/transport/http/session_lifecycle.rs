@@ -28,6 +28,7 @@ use crate::runtime::session_resume::{launch_resumed_session, ResumeSessionError}
 use crate::runtime::session_takeover::{
   takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
+use orbitdock_protocol::CodexApprovalsReviewer;
 use orbitdock_protocol::{
   CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
   ServerMessage,
@@ -103,6 +104,8 @@ pub struct UpdateSessionConfigRequest {
   #[serde(default)]
   pub sandbox_mode: Option<Option<String>>,
   #[serde(default)]
+  pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
+  #[serde(default)]
   pub permission_mode: Option<Option<String>>,
   #[serde(default)]
   pub collaboration_mode: Option<Option<String>>,
@@ -124,6 +127,28 @@ pub struct UpdateSessionConfigRequest {
   pub codex_config_profile: Option<Option<String>>,
   #[serde(default)]
   pub codex_model_provider: Option<Option<String>>,
+}
+
+impl UpdateSessionConfigRequest {
+  fn into_session_config_update(self) -> SessionConfigUpdate {
+    SessionConfigUpdate {
+      approval_policy: self.approval_policy,
+      approval_policy_details: self.approval_policy_details,
+      sandbox_mode: self.sandbox_mode,
+      approvals_reviewer: self.approvals_reviewer,
+      permission_mode: self.permission_mode,
+      collaboration_mode: self.collaboration_mode,
+      multi_agent: self.multi_agent,
+      personality: self.personality,
+      service_tier: self.service_tier,
+      developer_instructions: self.developer_instructions,
+      model: self.model,
+      effort: self.effort,
+      codex_config_mode: self.codex_config_mode,
+      codex_config_profile: self.codex_config_profile,
+      codex_model_provider: self.codex_model_provider,
+    }
+  }
 }
 
 pub async fn rename_session(
@@ -160,29 +185,9 @@ pub async fn update_session_config(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<UpdateSessionConfigRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  update_runtime_session_config(
-    &state,
-    &session_id,
-    SessionConfigUpdate {
-      approval_policy: body.approval_policy,
-      approval_policy_details: body.approval_policy_details,
-      sandbox_mode: body.sandbox_mode,
-      approvals_reviewer: None,
-      permission_mode: body.permission_mode,
-      collaboration_mode: body.collaboration_mode,
-      multi_agent: body.multi_agent,
-      personality: body.personality,
-      service_tier: body.service_tier,
-      developer_instructions: body.developer_instructions,
-      model: body.model,
-      effort: body.effort,
-      codex_config_mode: body.codex_config_mode,
-      codex_config_profile: body.codex_config_profile,
-      codex_model_provider: body.codex_model_provider,
-    },
-  )
-  .await
-  .map_err(map_session_mutation_error)?;
+  update_runtime_session_config(&state, &session_id, body.into_session_config_update())
+    .await
+    .map_err(map_session_mutation_error)?;
 
   Ok(Json(AcceptedResponse { accepted: true }))
 }
@@ -1089,6 +1094,7 @@ pub async fn fork_session_to_existing_worktree(
 #[cfg(test)]
 mod tests {
   use super::*;
+  use orbitdock_protocol::CodexApprovalsReviewer;
 
   fn codex_request(
     codex_config_mode: Option<CodexConfigMode>,
@@ -1173,6 +1179,33 @@ mod tests {
     assert_eq!(
       selection.overrides.model_provider.as_deref(),
       Some("openrouter")
+    );
+  }
+
+  #[test]
+  fn update_session_config_request_preserves_approvals_reviewer() {
+    let update = UpdateSessionConfigRequest {
+      approval_policy: None,
+      approval_policy_details: None,
+      sandbox_mode: None,
+      approvals_reviewer: Some(Some(CodexApprovalsReviewer::GuardianSubagent)),
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      model: None,
+      effort: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+    }
+    .into_session_config_update();
+
+    assert_eq!(
+      update.approvals_reviewer,
+      Some(Some(CodexApprovalsReviewer::GuardianSubagent))
     );
   }
 }

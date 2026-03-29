@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-  CodexApprovalPolicy, ImageInput, MentionInput, PermissionGrantScope, Provider,
-  ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
+  CodexApprovalPolicy, CodexApprovalsReviewer, ImageInput, MentionInput, PermissionGrantScope,
+  Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
 };
 
 /// Messages sent from client to server
@@ -91,6 +91,8 @@ pub enum ClientMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval_policy_details: Option<CodexApprovalPolicy>,
     sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approvals_reviewer: Option<CodexApprovalsReviewer>,
     permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     collaboration_mode: Option<String>,
@@ -533,7 +535,7 @@ fn default_shell_timeout() -> u64 {
 #[cfg(test)]
 mod tests {
   use super::ClientMessage;
-  use crate::types::SessionSurface;
+  use crate::types::{CodexApprovalsReviewer, SessionSurface};
 
   #[test]
   fn deserializes_claude_status_event() {
@@ -1315,6 +1317,7 @@ mod tests {
       approval_policy: Some("on-request".to_string()),
       approval_policy_details: None,
       sandbox_mode: Some("workspace-write".to_string()),
+      approvals_reviewer: Some(CodexApprovalsReviewer::GuardianSubagent),
       permission_mode: Some("default".to_string()),
       collaboration_mode: Some("default".to_string()),
       multi_agent: Some(true),
@@ -1327,7 +1330,16 @@ mod tests {
 
     let json = serde_json::to_string(&message).expect("serialize update_session_config");
     match serde_json::from_str::<ClientMessage>(&json).expect("deserialize update_session_config") {
-      ClientMessage::UpdateSessionConfig { model, effort, .. } => {
+      ClientMessage::UpdateSessionConfig {
+        approvals_reviewer,
+        model,
+        effort,
+        ..
+      } => {
+        assert_eq!(
+          approvals_reviewer,
+          Some(CodexApprovalsReviewer::GuardianSubagent)
+        );
         assert_eq!(model.as_deref(), Some("gpt-5-codex"));
         assert_eq!(effort.as_deref(), Some("high"));
       }
