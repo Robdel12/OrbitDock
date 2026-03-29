@@ -12,6 +12,7 @@ struct ConversationView: View {
   var isSessionActive: Bool = false
   var displayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
+  var showsOrbitStatusIndicator: Bool = true
   var chatViewMode: ChatViewMode = .focused
   @Binding var scrollCommand: ConversationScrollCommand?
 
@@ -60,7 +61,7 @@ struct ConversationView: View {
               }
             }
 
-            if isSessionActive || displayStatus == .ended {
+            if showsOrbitStatusIndicator && (isSessionActive || displayStatus == .ended) {
               OrbitStatusIndicator(
                 displayStatus: displayStatus,
                 currentTool: currentTool

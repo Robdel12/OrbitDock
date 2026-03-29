@@ -574,7 +574,7 @@ struct NewSessionSheet: View {
     Task {
       do {
         let response = try await endpointAppState.clients.sessions.fetchCodexConfigCatalog(
-          cwd: cwd.isEmpty ? nil : cwd
+          cwd: cwd.isEmpty ? "" : cwd
         )
         await MainActor.run {
           guard requestID == codexConfigCatalogRequestID,

@@ -408,8 +408,7 @@ struct SessionDetailView: View {
     VStack(spacing: 0) {
       OrbitStatusIndicator(
         displayStatus: screenPresentation.displayStatus,
-        currentTool: currentTool,
-        chromeStyle: .embedded
+        currentTool: currentTool
       )
 
       if let session = controlDeckTerminalSession {

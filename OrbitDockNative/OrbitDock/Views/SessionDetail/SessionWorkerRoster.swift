@@ -395,10 +395,6 @@ enum SessionWorkerRosterPlanner {
         title = "Shell"
         iconName = "terminal.fill"
         tint = .feedbackWarning
-      case let .commandExecution(commandExecution):
-        title = commandExecutionTitle(commandExecution)
-        iconName = "terminal.fill"
-        tint = commandExecutionTint(commandExecution)
       case .context:
         title = "Context"
         iconName = "info.circle.fill"
@@ -473,10 +469,6 @@ enum SessionWorkerRosterPlanner {
           ?? shellCommand.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? shellCommand.command?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? shellCommand.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      case let .commandExecution(commandExecution):
-        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .task(task):
         task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? task.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -657,8 +649,6 @@ enum SessionWorkerRosterPlanner {
         "Reasoning"
       case .shellCommand:
         "Shell"
-      case let .commandExecution(commandExecution):
-        commandExecutionTitle(commandExecution)
       case .plan:
         "Plan"
       case .hook:
@@ -715,21 +705,12 @@ enum SessionWorkerRosterPlanner {
     return nil
   }
 
-  private static func linkedWorkerID(for child: ServerConversationActivityGroupChild) -> String? {
-    switch child {
-      case let .tool(tool):
-        linkedWorkerID(for: tool)
-      case .commandExecution:
-        nil
-    }
-  }
-
   private static func workerEventIcon(for entry: ServerConversationRowEntry) -> String {
     switch entry.row {
       case let .tool(tool):
         ToolCardStyle.icon(for: tool.title)
       case let .activityGroup(group):
-        group.children.first.map(workerEventIcon(for:)) ?? "square.stack.3d.up.fill"
+        group.children.first.map { ToolCardStyle.icon(for: $0.title) } ?? "square.stack.3d.up.fill"
       case let .worker(worker):
         visuals(for: worker.worker.agentType ?? "worker").iconName
       case .assistant:
@@ -738,8 +719,6 @@ enum SessionWorkerRosterPlanner {
         "brain"
       case .shellCommand:
         "terminal"
-      case let .commandExecution(commandExecution):
-        commandExecutionIcon(commandExecution)
       case .system, .context, .notice, .task, .approval, .question:
         "gearshape.2.fill"
       case .user:
@@ -794,19 +773,8 @@ enum SessionWorkerRosterPlanner {
         }
       case .thinking:
         ("Reasoning", .statusQuestion)
-      case let .commandExecution(commandExecution):
-        commandExecutionStatusPresentation(commandExecution)
       default:
         ("Captured", .textSecondary)
-    }
-  }
-
-  private static func workerEventIcon(for child: ServerConversationActivityGroupChild) -> String {
-    switch child {
-      case let .tool(tool):
-        ToolCardStyle.icon(for: tool.title)
-      case let .commandExecution(commandExecution):
-        commandExecutionIcon(commandExecution)
     }
   }
 
@@ -863,8 +831,6 @@ enum SessionWorkerRosterPlanner {
       case let .activityGroup(group):
         group.children.lazy.compactMap { assignmentPreview(for: $0) }.first
           ?? group.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      case let .commandExecution(commandExecution):
-        commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       default:
         nil
     }
@@ -879,15 +845,6 @@ enum SessionWorkerRosterPlanner {
       ?? tool.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
   }
 
-  private static func assignmentPreview(for child: ServerConversationActivityGroupChild) -> String? {
-    switch child {
-      case let .tool(tool):
-        assignmentPreview(for: tool)
-      case let .commandExecution(commandExecution):
-        commandExecution.command.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-    }
-  }
-
   private static func reportPreview(for entry: ServerConversationRowEntry) -> String? {
     switch entry.row {
       case let .worker(worker):
@@ -900,9 +857,6 @@ enum SessionWorkerRosterPlanner {
           ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .activityGroup(group):
         group.children.lazy.compactMap { reportPreview(for: $0) }.first
-      case let .commandExecution(commandExecution):
-        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       case let .task(task):
         task.resultText?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
           ?? task.summary?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -915,16 +869,6 @@ enum SessionWorkerRosterPlanner {
     tool.toolDisplay.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       ?? tool.toolDisplay.outputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
       ?? tool.toolDisplay.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-  }
-
-  private static func reportPreview(for child: ServerConversationActivityGroupChild) -> String? {
-    switch child {
-      case let .tool(tool):
-        reportPreview(for: tool)
-      case let .commandExecution(commandExecution):
-        commandExecution.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-          ?? commandExecution.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-      }
   }
 
   private static func parsedStringValue(from jsonString: String?, keys: [String]) -> String? {
@@ -960,88 +904,10 @@ enum SessionWorkerRosterPlanner {
         parseDate(worker.worker.lastActivityAt)
           ?? parseDate(worker.worker.startedAt)
           ?? parseDate(worker.worker.endedAt)
-      case .commandExecution:
-        nil
       case .shellCommand:
         nil
       case .activityGroup, .context, .notice, .task, .question, .approval, .plan, .hook, .handoff:
         nil
-    }
-  }
-
-  private static func commandExecutionTitle(
-    _ row: ServerConversationCommandExecutionRow
-  ) -> String {
-    guard let first = row.commandActions.first else { return "Command" }
-
-    switch first.type {
-      case .read:
-        if row.commandActions.allSatisfy({ $0.type == .read }) {
-          if row.commandActions.count == 1 {
-            return "Read"
-          }
-          return "Read \(row.commandActions.count) files"
-        }
-      case .search:
-        if row.commandActions.allSatisfy({ $0.type == .search }) {
-          return "Search"
-        }
-      case .listFiles:
-        if row.commandActions.allSatisfy({ $0.type == .listFiles }) {
-          return "List files"
-        }
-      case .unknown:
-        break
-    }
-
-    return "Command"
-  }
-
-  private static func commandExecutionIcon(
-    _ row: ServerConversationCommandExecutionRow
-  ) -> String {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
-      return "doc.text.magnifyingglass"
-    }
-    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
-      return "magnifyingglass"
-    }
-    return "terminal"
-  }
-
-  private static func commandExecutionTint(
-    _ row: ServerConversationCommandExecutionRow
-  ) -> Color {
-    switch row.status {
-      case .failed:
-        return .feedbackNegative
-      case .declined:
-        return .feedbackWarning
-      case .inProgress:
-        return .statusWorking
-      case .completed:
-        if row.commandActions.allSatisfy({ $0.type == .read }) {
-          return .toolRead
-        }
-        if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
-          return .toolSearch
-        }
-        return .toolBash
-    }
-  }
-
-  private static func commandExecutionStatusPresentation(
-    _ row: ServerConversationCommandExecutionRow
-  ) -> (label: String, color: Color) {
-    switch row.status {
-      case .inProgress:
-        return ("Live", .statusWorking)
-      case .completed:
-        return ("Captured", .textSecondary)
-      case .failed:
-        return ("Error", .feedbackNegative)
-      case .declined:
-        return ("Declined", .feedbackWarning)
     }
   }
 }

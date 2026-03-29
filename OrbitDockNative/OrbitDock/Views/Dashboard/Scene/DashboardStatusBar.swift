@@ -39,16 +39,6 @@ struct DashboardStatusBar: View {
     let calculator = modelPricingService.calculatorSnapshot
     let calendar = Calendar.current
     let startOfToday = calendar.startOfDay(for: Date())
-    let startOfTodayUnix = UInt64(max(startOfToday.timeIntervalSince1970, 0))
-
-    if usageRegistry.summaryTodayStartUnix == startOfTodayUnix,
-       let summary = usageRegistry.summary
-    {
-      return (
-        today: StatusBarStats.from(summary.today),
-        all: StatusBarStats.from(summary.allTime)
-      )
-    }
 
     let todaySessions = dashboardStatsSessions.filter {
       guard let start = $0.startedAt else { return false }
@@ -193,7 +183,7 @@ struct DashboardStatusBar: View {
         #endif
     }
     .task(id: Calendar.current.startOfDay(for: Date())) {
-      await usageRegistry.refreshAll(todayStart: Calendar.current.startOfDay(for: Date()))
+      await usageRegistry.refreshAll()
     }
   }
 
