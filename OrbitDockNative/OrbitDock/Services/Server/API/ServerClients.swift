@@ -17,7 +17,6 @@ final class ServerClients: Sendable {
   let usage: UsageClient
   let dashboard: DashboardClient
   let sessions: SessionsClient
-  let controlDeck: ControlDeckClient
   let conversation: ConversationClient
   let approvals: ApprovalsClient
   let worktrees: WorktreesClient
@@ -63,7 +62,6 @@ final class ServerClients: Sendable {
     self.usage = UsageClient(http: http)
     self.dashboard = DashboardClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)
-    self.controlDeck = ControlDeckClient(http: http, requestBuilder: requestBuilder)
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
     self.approvals = ApprovalsClient(http: http, requestBuilder: requestBuilder)
     self.worktrees = WorktreesClient(http: http, requestBuilder: requestBuilder)
