@@ -283,6 +283,7 @@ async fn complete_codex_takeover(
         approval.as_deref(),
         sandbox.as_deref(),
         orbitdock_connector_codex::CodexControlPlane {
+          approvals_reviewer: None,
           collaboration_mode: control_plane.collaboration_mode.clone(),
           multi_agent: control_plane.multi_agent,
           personality: control_plane.personality.clone(),
@@ -301,6 +302,7 @@ async fn complete_codex_takeover(
             approval.as_deref(),
             sandbox.as_deref(),
             orbitdock_connector_codex::CodexControlPlane {
+              approvals_reviewer: None,
               collaboration_mode: control_plane.collaboration_mode.clone(),
               multi_agent: control_plane.multi_agent,
               personality: control_plane.personality.clone(),
@@ -319,6 +321,7 @@ async fn complete_codex_takeover(
         approval.as_deref(),
         sandbox.as_deref(),
         orbitdock_connector_codex::CodexControlPlane {
+          approvals_reviewer: None,
           collaboration_mode: control_plane.collaboration_mode.clone(),
           multi_agent: control_plane.multi_agent,
           personality: control_plane.personality.clone(),
@@ -591,6 +594,7 @@ fn takeover_permission_persist_op(
       session_id: session_id.to_string(),
       approval_policy: None,
       sandbox_mode: None,
+      approvals_reviewer: None,
       permission_mode: Some(Some(permission_mode)),
       collaboration_mode: None,
       multi_agent: None,

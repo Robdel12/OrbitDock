@@ -180,6 +180,7 @@ fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection 
         approval_policy: request.approval_policy.clone(),
         approval_policy_details: None,
         sandbox_mode: request.sandbox_mode.clone(),
+        approvals_reviewer: None,
         collaboration_mode: request.collaboration_mode.clone(),
         multi_agent: request.multi_agent,
         personality: request.personality.clone(),
@@ -377,6 +378,10 @@ async fn spawn_codex_resume(state: &Arc<SessionRegistry>, request: CodexResumeRe
     let task_session_id = session_id.clone();
     let mut connector_task = tokio::spawn(async move {
       let control_plane = orbitdock_connector_codex::CodexControlPlane {
+        approvals_reviewer: normalized_selection
+          .overrides
+          .approvals_reviewer
+          .map(|value| value.as_str().to_string()),
         collaboration_mode: effective_collaboration_mode.clone(),
         multi_agent: effective_multi_agent,
         personality: effective_personality.clone(),

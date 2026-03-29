@@ -133,6 +133,7 @@ pub enum CodexAction {
   UpdateConfig {
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
+    approvals_reviewer: Option<String>,
     permission_mode: Option<String>,
     collaboration_mode: Option<String>,
     multi_agent: Option<bool>,
@@ -255,6 +256,7 @@ impl std::fmt::Debug for CodexAction {
       Self::UpdateConfig {
         approval_policy,
         sandbox_mode,
+        approvals_reviewer,
         permission_mode,
         collaboration_mode,
         multi_agent,
@@ -267,6 +269,7 @@ impl std::fmt::Debug for CodexAction {
         .debug_struct("UpdateConfig")
         .field("approval_policy", approval_policy)
         .field("sandbox_mode", sandbox_mode)
+        .field("approvals_reviewer", approvals_reviewer)
         .field("permission_mode", permission_mode)
         .field("collaboration_mode", collaboration_mode)
         .field("multi_agent", multi_agent)
@@ -661,6 +664,7 @@ impl CodexSession {
       CodexAction::UpdateConfig {
         approval_policy,
         sandbox_mode,
+        approvals_reviewer,
         permission_mode,
         collaboration_mode,
         multi_agent,
@@ -674,6 +678,7 @@ impl CodexSession {
           .update_config(UpdateConfigOptions {
             approval_policy: approval_policy.as_deref(),
             sandbox_mode: sandbox_mode.as_deref(),
+            approvals_reviewer: approvals_reviewer.as_deref(),
             permission_mode: permission_mode.as_deref(),
             collaboration_mode: collaboration_mode.as_deref(),
             multi_agent,

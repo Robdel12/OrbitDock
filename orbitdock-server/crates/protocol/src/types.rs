@@ -101,6 +101,22 @@ impl CodexApprovalMode {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexApprovalsReviewer {
+  User,
+  GuardianSubagent,
+}
+
+impl CodexApprovalsReviewer {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::User => "user",
+      Self::GuardianSubagent => "guardian_subagent",
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexGranularApprovalPolicy {
   pub sandbox_approval: bool,
@@ -1436,6 +1452,8 @@ pub struct CodexSessionOverrides {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approvals_reviewer: Option<CodexApprovalsReviewer>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub collaboration_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -44,6 +44,7 @@ pub(crate) async fn handle(
           approval_policy: Some(approval_policy),
           approval_policy_details: Some(approval_policy_details),
           sandbox_mode: Some(sandbox_mode),
+          approvals_reviewer: None,
           permission_mode: Some(permission_mode),
           collaboration_mode: Some(collaboration_mode),
           multi_agent: Some(multi_agent),

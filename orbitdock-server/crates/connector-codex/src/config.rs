@@ -7,8 +7,8 @@ use codex_core::models_manager::collaboration_mode_presets::CollaborationModesCo
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, ModelProviderInfo, ThreadManager};
 use codex_protocol::config_types::{
-  CollaborationMode, CollaborationModeMask, ModeKind, Personality, ReasoningSummary, ServiceTier,
-  Settings,
+  ApprovalsReviewer, CollaborationMode, CollaborationModeMask, ModeKind, Personality,
+  ReasoningSummary, ServiceTier, Settings,
 };
 use codex_protocol::openai_models::{
   default_input_modalities, ConfigShellToolType, ModelInfo, ModelInstructionsVariables,
@@ -374,6 +374,13 @@ impl CodexConnector {
       ));
     }
 
+    if let Some(reviewer) = control_plane.approvals_reviewer.as_deref() {
+      cli_overrides.push((
+        "approvals_reviewer".to_string(),
+        toml::Value::String(reviewer.to_string()),
+      ));
+    }
+
     if apply_runtime_defaults {
       let show_raw_reasoning =
         parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING).unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
@@ -453,8 +460,10 @@ impl CodexConnector {
     );
     let service_tier = parse_service_tier_override(control_plane.service_tier.as_deref());
     let personality = parse_personality(control_plane.personality.as_deref());
+    let approvals_reviewer = parse_approvals_reviewer(control_plane.approvals_reviewer.as_deref());
 
     if collaboration_mode.is_none()
+      && approvals_reviewer.is_none()
       && service_tier.is_none()
       && personality.is_none()
       && control_plane.multi_agent.is_none()
@@ -472,7 +481,7 @@ impl CodexConnector {
         model: None,
         effort: None,
         summary: None,
-        approvals_reviewer: None,
+        approvals_reviewer,
         service_tier,
         collaboration_mode,
         personality,
@@ -567,6 +576,14 @@ pub async fn discover_models_for_context(
   }
 
   Ok(models)
+}
+
+pub(crate) fn parse_approvals_reviewer(value: Option<&str>) -> Option<ApprovalsReviewer> {
+  match value.map(str::trim).filter(|value| !value.is_empty()) {
+    Some("user") => Some(ApprovalsReviewer::User),
+    Some("guardian_subagent") => Some(ApprovalsReviewer::GuardianSubagent),
+    _ => None,
+  }
 }
 
 pub(crate) fn apply_orbitdock_provider_defaults(config: &mut Config) {

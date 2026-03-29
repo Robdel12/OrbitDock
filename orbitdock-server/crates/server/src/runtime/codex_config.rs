@@ -928,6 +928,10 @@ async fn build_effective_codex_config(
     config_profile: selection.config_profile.clone(),
   };
   let control_plane = CodexControlPlane {
+    approvals_reviewer: selection
+      .overrides
+      .approvals_reviewer
+      .map(|value| value.as_str().to_string()),
     collaboration_mode: selection.overrides.collaboration_mode.clone(),
     multi_agent: selection.overrides.multi_agent,
     personality: selection.overrides.personality.clone(),
