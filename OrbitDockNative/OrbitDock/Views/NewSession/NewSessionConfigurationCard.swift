@@ -22,6 +22,8 @@ struct NewSessionConfigurationCard: View {
   @Binding var codexPersonality: CodexPersonalityPreset
   @Binding var codexServiceTier: CodexServiceTierPreset
   @Binding var codexInstructions: String
+  let hasSelectedPath: Bool
+  let codexCatalogRequiresProjectPath: Bool
   let codexCatalog: SessionsClient.CodexConfigCatalogResponse?
   let codexCatalogLoading: Bool
   let codexCatalogError: String?
@@ -288,7 +290,7 @@ struct NewSessionConfigurationCard: View {
       case .claude:
         "Pick the model, permission posture, and reasoning effort before launch."
       case .codex:
-        "Resolve the folder config first, then layer per-session overrides only when you need them."
+        "Choose a folder when you want Codex to resolve project defaults, or jump straight to a saved profile or custom launch."
     }
   }
 
@@ -363,6 +365,24 @@ struct NewSessionConfigurationCard: View {
         title: codexConfigModeSummaryTitle,
         detail: codexConfigModeSummaryDetail
       )
+
+      if provider == .codex, !hasSelectedPath, codexConfigMode == .inherit {
+        codexLaunchHintCard(
+          title: "Folder mode needs a project",
+          detail: "Saved profiles and providers are available now, but OrbitDock needs a folder before it can resolve the effective Codex setup for that project.",
+          tint: .statusQuestion,
+          icon: "folder.badge.questionmark"
+        )
+      }
+
+      if provider == .codex, !hasSelectedPath, codexCatalogRequiresProjectPath {
+        codexLaunchHintCard(
+          title: "Older server still needs a folder",
+          detail: "This OrbitDock server is still using the older Codex catalog behavior, so saved profiles will appear after you choose a project. Restart the server to enable global profile browsing.",
+          tint: .feedbackCaution,
+          icon: "arrow.triangle.2.circlepath"
+        )
+      }
 
       if let codexCatalogError, !codexCatalogError.isEmpty {
         Text(codexCatalogError)
@@ -479,7 +499,7 @@ struct NewSessionConfigurationCard: View {
   private var codexConfigModeSummaryTitle: String {
     switch codexConfigMode {
       case .inherit:
-        "Use the folder's effective Codex config"
+        hasSelectedPath ? "Use the folder's effective Codex config" : "Choose a folder for project defaults"
       case .profile:
         selectedProfileSummary.map { "Use profile \($0.name)" } ?? "Choose a saved Codex profile"
       case .custom:
@@ -490,7 +510,9 @@ struct NewSessionConfigurationCard: View {
   private var codexConfigModeSummaryDetail: String {
     switch codexConfigMode {
       case .inherit:
-        "OrbitDock will inherit the effective profile, provider, and model Codex resolves for this folder."
+        hasSelectedPath
+          ? "OrbitDock will inherit the effective profile, provider, and model Codex resolves for this folder."
+          : "Pick a project folder to resolve its Codex defaults. Saved profiles and custom providers can still be selected before that."
       case .profile:
         selectedProfileSummary.map {
           [
@@ -648,9 +670,15 @@ struct NewSessionConfigurationCard: View {
 
   private var profileModePlaceholder: String {
     if profileOptions.isEmpty {
+      if codexCatalogLoading {
+        return "Loading your saved Codex profiles."
+      }
       return "No saved Codex profiles were returned yet."
     }
-    return "Pick one of your saved Codex profiles to use it for this session."
+    if hasSelectedPath {
+      return "Pick one of your saved Codex profiles to use it for this session."
+    }
+    return "Pick one of your saved Codex profiles now, then choose a folder when you're ready to launch."
   }
 
   private func codexModeSummary(title: String, detail: String) -> some View {
@@ -681,6 +709,32 @@ struct NewSessionConfigurationCard: View {
         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
           .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
       )
+  }
+
+  private func codexLaunchHintCard(title: String, detail: String, tint: Color, icon: String) -> some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      Image(systemName: icon)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(tint)
+        .frame(width: 18, height: 18)
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text(title)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+        Text(detail)
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .padding(Spacing.md)
+    .background(tint.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(tint.opacity(OpacityTier.light), lineWidth: 1)
+    )
   }
 
   private var codexResolvedValuesSection: some View {

@@ -56,6 +56,7 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
       session_id: cfg.session_id,
       approval_policy: cfg.approval_policy,
       sandbox_mode: cfg.sandbox_mode,
+      approvals_reviewer: cfg.approvals_reviewer,
       permission_mode: cfg.permission_mode,
       collaboration_mode: cfg.collaboration_mode,
       multi_agent: cfg.multi_agent,

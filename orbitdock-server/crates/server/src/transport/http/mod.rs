@@ -54,6 +54,11 @@ pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_c
 pub(crate) use connector_actions::{
   dispatch_error_response, messaging_dispatch_error_response, session_not_found_error,
 };
+pub use control_deck::{
+  get_control_deck_preferences, get_control_deck_snapshot, submit_control_deck_turn,
+  update_control_deck_config, update_control_deck_preferences,
+  upload_control_deck_image_attachment,
+};
 pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{
   browse_directory, git_init_endpoint, list_recent_projects, list_subagent_messages_endpoint,

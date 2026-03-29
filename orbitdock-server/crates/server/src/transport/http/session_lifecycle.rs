@@ -167,6 +167,7 @@ pub async fn update_session_config(
       approval_policy: body.approval_policy,
       approval_policy_details: body.approval_policy_details,
       sandbox_mode: body.sandbox_mode,
+      approvals_reviewer: None,
       permission_mode: body.permission_mode,
       collaboration_mode: body.collaboration_mode,
       multi_agent: body.multi_agent,
@@ -285,6 +286,7 @@ fn create_codex_selection(
     }),
     approval_policy_details: body.approval_policy_details.clone(),
     sandbox_mode: body.sandbox_mode.clone(),
+    approvals_reviewer: None,
     collaboration_mode: body.collaboration_mode.clone(),
     multi_agent: body.multi_agent,
     personality: body.personality.clone(),
@@ -597,7 +599,7 @@ pub struct UpdateCodexPreferencesRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CodexConfigCatalogQuery {
-  pub cwd: String,
+  pub cwd: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -656,6 +658,7 @@ pub async fn inspect_codex_config(
         }),
         approval_policy_details: body.approval_policy_details,
         sandbox_mode: body.sandbox_mode,
+        approvals_reviewer: None,
         collaboration_mode: body.collaboration_mode,
         multi_agent: body.multi_agent,
         personality: body.personality,
@@ -673,7 +676,7 @@ pub async fn inspect_codex_config(
 pub async fn get_codex_config_catalog(
   Query(query): Query<CodexConfigCatalogQuery>,
 ) -> Result<Json<CodexConfigCatalogResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  let response = codex_config_catalog(&query.cwd)
+  let response = codex_config_catalog(query.cwd.as_deref())
     .await
     .map_err(|error| unprocessable("invalid_codex_config", error))?;
   Ok(Json(response))

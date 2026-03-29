@@ -101,6 +101,22 @@ impl CodexApprovalMode {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexApprovalsReviewer {
+  User,
+  GuardianSubagent,
+}
+
+impl CodexApprovalsReviewer {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::User => "user",
+      Self::GuardianSubagent => "guardian_subagent",
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodexGranularApprovalPolicy {
   pub sandbox_approval: bool,
@@ -1437,6 +1453,8 @@ pub struct CodexSessionOverrides {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub approvals_reviewer: Option<CodexApprovalsReviewer>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub collaboration_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub multi_agent: Option<bool>,
@@ -1796,6 +1814,30 @@ pub struct DashboardSnapshot {
   pub sessions: Vec<SessionListItem>,
   pub conversations: Vec<DashboardConversationItem>,
   pub counts: DashboardCounts,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummaryModelCost {
+  pub model: String,
+  pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummaryBucket {
+  pub session_count: u64,
+  pub total_tokens: u64,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub total_cost_usd: f64,
+  #[serde(default)]
+  pub cost_by_model: Vec<UsageSummaryModelCost>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSummarySnapshot {
+  pub today: UsageSummaryBucket,
+  pub all_time: UsageSummaryBucket,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

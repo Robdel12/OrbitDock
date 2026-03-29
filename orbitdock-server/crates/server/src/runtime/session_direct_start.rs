@@ -84,6 +84,7 @@ pub(crate) async fn start_direct_codex_session(
           config_profile,
         },
         control_plane: CodexControlPlane {
+          approvals_reviewer: None,
           collaboration_mode,
           multi_agent,
           personality,

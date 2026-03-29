@@ -85,6 +85,9 @@ pub(crate) fn remap_rows_for_fork(
         ConversationRow::ShellCommand(row) => {
           row.id = new_id;
         }
+        ConversationRow::CommandExecution(row) => {
+          row.id = new_id;
+        }
         ConversationRow::Task(row) => {
           row.id = new_id;
         }

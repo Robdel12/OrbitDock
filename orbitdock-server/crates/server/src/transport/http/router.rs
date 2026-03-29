@@ -43,6 +43,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_session_composer),
     )
     .route(
+      "/api/sessions/{session_id}/control-deck",
+      get(super::get_control_deck_snapshot).patch(super::update_control_deck_config),
+    )
+    .route(
       "/api/sessions/{session_id}/conversation",
       get(super::get_conversation_snapshot),
     )

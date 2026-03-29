@@ -215,7 +215,7 @@ mod tests {
   use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, ConversationRowSummary, MessageRowContent,
   };
-  use orbitdock_protocol::{Provider, WorkStatus};
+  use orbitdock_protocol::{Provider, StateChanges, WorkStatus};
 
   fn test_handle() -> SessionHandle {
     SessionHandle::new(
@@ -251,8 +251,12 @@ mod tests {
     assert_eq!(snap.work_status, WorkStatus::Waiting);
 
     actor_handle
-      .send(SessionCommand::SetWorkStatus {
-        status: WorkStatus::Working,
+      .send(SessionCommand::ApplyDelta {
+        changes: Box::new(StateChanges {
+          work_status: Some(WorkStatus::Working),
+          ..Default::default()
+        }),
+        persist_op: None,
       })
       .await;
 

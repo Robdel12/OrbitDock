@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MissionControlCommandDeck: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let groups: [ConversationProjectGroup]
   let hasMultipleEndpoints: Bool
@@ -41,12 +42,14 @@ struct MissionControlCommandDeck: View {
   }
 
   private var emptyState: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      Text("All clear")
+    let emptyState = emptyStateCopy
+
+    return VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text(emptyState.title)
         .font(.system(size: TypeScale.large, weight: .bold, design: .rounded))
         .foregroundStyle(Color.textPrimary)
 
-      Text("No active conversations in this view. Start a session or adjust your filters.")
+      Text(emptyState.message)
         .font(.system(size: TypeScale.body))
         .foregroundStyle(Color.textSecondary)
     }
@@ -62,6 +65,74 @@ struct MissionControlCommandDeck: View {
     )
   }
 
+  private var emptyStateCopy: (title: String, message: String) {
+    let statuses = runtimeRegistry.runtimes
+      .filter(\.endpoint.isEnabled)
+      .map { runtimeRegistry.displayConnectionStatus(for: $0.endpoint.id) }
+
+    if let message = statuses.compactMap(\.failureMessage).first(where: \.isCompatibilityGuidance) {
+      return (
+        "Server upgrade required",
+        "\(message) Open Server Settings to reconnect to a newer OrbitDock server."
+      )
+    }
+
+    if statuses.contains(where: \.isConnectingLike) {
+      return (
+        "Connecting to server",
+        "OrbitDock is waiting for a compatible dashboard snapshot before showing sessions."
+      )
+    }
+
+    if statuses.contains(where: \.isUnavailable) {
+      return (
+        "Server unavailable",
+        "OrbitDock couldn't load session data from the configured server. Check Server Settings, then try reconnecting."
+      )
+    }
+
+    return (
+      "All clear",
+      "No active conversations in this view. Start a session or adjust your filters."
+    )
+  }
+
+}
+
+private extension ConnectionStatus {
+  var failureMessage: String? {
+    guard case let .failed(message) = self else { return nil }
+    let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  var isConnectingLike: Bool {
+    switch self {
+      case .connecting:
+        true
+      default:
+        false
+    }
+  }
+
+  var isUnavailable: Bool {
+    switch self {
+      case .disconnected, .failed:
+        true
+      case .connecting, .connected:
+        false
+    }
+  }
+}
+
+private extension String {
+  var isCompatibilityGuidance: Bool {
+    let normalized = lowercased()
+    return normalized.contains("compatible")
+      || normalized.contains("compatibility")
+      || normalized.contains("upgrade")
+      || normalized.contains("too old")
+  }
 }
 
 private struct ConversationProjectSection: View {

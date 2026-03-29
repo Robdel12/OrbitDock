@@ -209,6 +209,9 @@ fn codex_plugin_context(
       config_profile: None,
     },
     CodexControlPlane {
+      approvals_reviewer: overrides
+        .approvals_reviewer
+        .map(|value| value.as_str().to_string()),
       collaboration_mode: session.collaboration_mode.clone(),
       multi_agent: session.multi_agent,
       personality: session.personality.clone(),

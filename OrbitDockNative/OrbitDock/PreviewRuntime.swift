@@ -20,6 +20,7 @@ struct PreviewRuntime {
   let notificationCoordinator: NotificationCoordinator
   let appStore: AppStore
   let externalNavigationCenter: AppExternalNavigationCenter
+  let appRuntime: OrbitDockAppRuntime
 
   init(scenario: Scenario = .dashboard) {
     let endpoint = Self.previewEndpoint()
@@ -99,10 +100,12 @@ struct PreviewRuntime {
     self.externalNavigationCenter = AppExternalNavigationCenter()
     self.appStore = AppStore(runtimeRegistry: runtimeRegistry)
     self.appStore.router = router
+    self.appRuntime = OrbitDockAppRuntime()
   }
 
   func inject(_ content: some View) -> some View {
     content
+      .environment(appRuntime)
       .environment(sessionStore)
       .environment(runtimeRegistry)
       .environment(usageServiceRegistry)
