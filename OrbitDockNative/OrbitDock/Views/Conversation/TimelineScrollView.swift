@@ -221,10 +221,38 @@ struct TimelineScrollView: View {
   }
 
   private func scrollToMessage(_ messageID: String, with proxy: ScrollViewProxy) {
+    let anchorID = viewModel.displayAnchorID(for: messageID) ?? messageID
+    let requiredLimit = viewModel.renderWindowRequiredToReveal(rowId: messageID) ?? renderedEntryLimit
+    let shouldExpandWindow = requiredLimit > renderedEntryLimit
+
+    if shouldExpandWindow {
+      var expansionTransaction = Transaction()
+      expansionTransaction.animation = nil
+      withTransaction(expansionTransaction) {
+        renderedEntryLimit = min(viewModel.displayedEntryCount, requiredLimit)
+      }
+    }
+
+    let performScroll = {
+      var transaction = Transaction()
+      transaction.animation = Motion.standard
+      withTransaction(transaction) {
+        proxy.scrollTo(anchorID, anchor: .center)
+      }
+    }
+
+    if shouldExpandWindow {
+      Task { @MainActor in
+        await Task.yield()
+        performScroll()
+      }
+      return
+    }
+
     var transaction = Transaction()
     transaction.animation = Motion.standard
     withTransaction(transaction) {
-      proxy.scrollTo(messageID, anchor: .center)
+      proxy.scrollTo(anchorID, anchor: .center)
     }
   }
 

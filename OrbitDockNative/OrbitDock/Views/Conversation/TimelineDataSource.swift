@@ -146,6 +146,23 @@ enum TimelineDataSource {
     func suffix(_ maxLength: Int) -> ArraySlice<ServerConversationRowEntry> {
       displayedEntries.suffix(maxLength)
     }
+
+    func displayAnchorID(for rowID: String) -> String? {
+      displayIndex(for: rowID).flatMap { displayedEntries[$0].id }
+    }
+
+    func suffixCountRequiredToRender(rowID: String) -> Int? {
+      guard let displayIndex = displayIndex(for: rowID) else { return nil }
+      return max(displayedEntries.count - displayIndex, 1)
+    }
+
+    private func displayIndex(for rowID: String) -> Int? {
+      if let displayIndex = directDisplayIndexByRowID[rowID] {
+        return displayIndex
+      }
+
+      return groupIndexByChildRowID[rowID]
+    }
   }
 
   private struct ToolBufferItem {
@@ -174,8 +191,7 @@ enum TimelineDataSource {
 
     let title = archivedTools.count == 1 ? "1 previous action" : "\(archivedTools.count) previous actions"
     let summary = archivedTools.map(activityChildTitle(_:)).joined(separator: ", ")
-    let allCompleted = archivedTools.allSatisfy { activityChildStatus($0) == .completed }
-    let status: ServerConversationToolStatus = allCompleted ? .completed : .running
+    let status = groupedActivityStatus(archivedTools)
     let latestFamily = latestTool.flatMap(activityChildFamily(_:))
 
     return ServerConversationRowEntry(
@@ -251,6 +267,30 @@ enum TimelineDataSource {
       case let .commandExecution(commandExecution):
         return commandExecutionFamily(commandExecution)
     }
+  }
+
+  nonisolated private static func groupedActivityStatus(
+    _ children: [ServerConversationActivityGroupChild]
+  ) -> ServerConversationToolStatus {
+    let statuses = children.map(activityChildStatus(_:))
+
+    if statuses.contains(.failed) {
+      return .failed
+    }
+
+    if statuses.contains(.blocked) {
+      return .blocked
+    }
+
+    if statuses.contains(.running) || statuses.contains(.pending) || statuses.contains(.needsInput) {
+      return .running
+    }
+
+    if statuses.contains(.cancelled) {
+      return .cancelled
+    }
+
+    return .completed
   }
 
   nonisolated private static func commandExecutionFamily(_ row: ServerConversationCommandExecutionRow) -> ServerConversationToolFamily {

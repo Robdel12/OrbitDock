@@ -22,6 +22,14 @@ final class ConversationTimelineViewModel {
     Array(projection.suffix(limit))
   }
 
+  func displayAnchorID(for rowId: String) -> String? {
+    projection.displayAnchorID(for: rowId)
+  }
+
+  func renderWindowRequiredToReveal(rowId: String) -> Int? {
+    projection.suffixCountRequiredToRender(rowID: rowId)
+  }
+
   func bind(sessionId: String?) {
     guard currentSessionId != sessionId else { return }
     currentSessionId = sessionId

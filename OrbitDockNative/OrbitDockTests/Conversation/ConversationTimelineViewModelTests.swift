@@ -1,3 +1,4 @@
+import Foundation
 @testable import OrbitDock
 import Testing
 
@@ -96,6 +97,67 @@ struct ConversationTimelineViewModelTests {
     #expect(!viewModel.isExpanded("tool-1"))
   }
 
+  @Test func renderWindowHelpersRevealOlderRowsThroughTheirDisplayAnchor() {
+    let viewModel = ConversationTimelineViewModel()
+    viewModel.bind(sessionId: "session-1")
+
+    viewModel.apply(
+      presentation: ConversationTimelinePresentation(
+        entries: [
+          makeToolEntry(id: "tool-1", sequence: 1, summary: "Read"),
+          makeToolEntry(id: "tool-2", sequence: 2, summary: "Edit"),
+          makeToolEntry(id: "tool-3", sequence: 3, summary: "Write"),
+        ],
+        contentRevision: 1,
+        structureRevision: 1,
+        changedEntries: []
+      ),
+      viewMode: .focused
+    )
+
+    #expect(viewModel.displayAnchorID(for: "tool-1") == "group:tool-1")
+    #expect(viewModel.renderWindowRequiredToReveal(rowId: "tool-1") == 1)
+    #expect(viewModel.displayAnchorID(for: "tool-3") == "tool-3")
+    #expect(viewModel.renderWindowRequiredToReveal(rowId: "tool-3") == 2)
+  }
+
+  @Test func focusedModePreservesFailedCommandExecutionStatusInsideArchivedGroups() throws {
+    let viewModel = ConversationTimelineViewModel()
+    viewModel.bind(sessionId: "session-1")
+
+    viewModel.apply(
+      presentation: ConversationTimelinePresentation(
+        entries: [
+          makeCommandExecutionEntry(
+            id: "command-1",
+            sequence: 1,
+            status: .failed,
+            command: "cat missing.txt",
+            output: "No such file or directory"
+          ),
+          makeToolEntry(id: "tool-2", sequence: 2, summary: "Read"),
+        ],
+        contentRevision: 1,
+        structureRevision: 1,
+        changedEntries: []
+      ),
+      viewMode: .focused
+    )
+
+    let displayedEntries = viewModel.renderedEntries(limit: viewModel.displayedEntryCount)
+    let group = try #require(
+      displayedEntries.last.flatMap { entry in
+        if case let .activityGroup(group) = entry.row {
+          group
+        } else {
+          nil
+        }
+      }
+    )
+
+    #expect(group.status == .failed)
+  }
+
   private func makeToolEntry(
     id: String,
     sequence: UInt64,
@@ -142,5 +204,64 @@ struct ConversationTimelineViewModelTests {
         )
       ))
     )
+  }
+
+  private func makeCommandExecutionEntry(
+    id: String,
+    sequence: UInt64,
+    status: ServerConversationCommandExecutionStatus,
+    command: String,
+    output: String?
+  ) -> ServerConversationRowEntry {
+    let decoder = JSONDecoder()
+    let payload = """
+    {
+      "id": "\(id)",
+      "status": "\(status.rawValue)",
+      "command": "\(command)",
+      "cwd": "/tmp",
+      "process_id": null,
+      "command_actions": [
+        {
+          "type": "unknown",
+          "command": "\(command)",
+          "name": null,
+          "path": null,
+          "query": null
+        }
+      ],
+      "live_output_preview": null,
+      "aggregated_output": \(jsonString(output)),
+      "preview": null,
+      "exit_code": 1,
+      "duration_ms": 42,
+      "render_hints": {
+        "can_expand": false,
+        "default_expanded": false,
+        "emphasized": false,
+        "monospace_summary": false,
+        "accent_tone": null
+      }
+    }
+    """
+
+    let row = try! decoder.decode(
+      ServerConversationCommandExecutionRow.self,
+      from: Data(payload.utf8)
+    )
+
+    return ServerConversationRowEntry(
+      sessionId: "session-1",
+      sequence: sequence,
+      turnId: nil,
+      turnStatus: .active,
+      row: .commandExecution(row)
+    )
+  }
+
+  private func jsonString(_ value: String?) -> String {
+    guard let value else { return "null" }
+    let encoded = try! JSONEncoder().encode(value)
+    return String(decoding: encoded, as: UTF8.self)
   }
 }

@@ -331,6 +331,61 @@ struct SessionWorkerRosterPlannerTests {
       .summary == "Worker found the auth entrypoints and is reporting back.")
   }
 
+  @Test func detailPresentationSurfacesGroupedCommandFailuresInsteadOfFlatteningToLive() {
+    let worker = makeWorker(
+      id: "worker-grouped-failure",
+      label: "Scout",
+      status: .running,
+      taskSummary: "Inspect command failures",
+      resultSummary: nil,
+      lastActivityAt: "2026-03-10T11:00:00Z",
+      agentType: "worker"
+    )
+
+    let groupedFailure = ServerConversationRowEntry(
+      sessionId: worker.id,
+      sequence: 1,
+      turnId: nil,
+      turnStatus: .active,
+      row: .activityGroup(ServerConversationActivityGroupRow(
+        id: "group:command-1",
+        groupKind: .toolBlock,
+        title: "1 previous action",
+        subtitle: nil,
+        summary: "Run command",
+        childCount: 1,
+        children: [
+          .tool(makeToolRow(
+            id: "tool-1",
+            sessionId: worker.id,
+            sequence: 1,
+            status: .completed,
+            title: "task",
+            summary: "Run command",
+            startedAt: "2026-03-10T11:00:00Z",
+            inputDisplay: #"{"subagent_id":"\#(worker.id)"}"#,
+            outputDisplay: "Command failed"
+          )),
+        ],
+        turnId: nil,
+        groupingKey: nil,
+        status: .failed,
+        family: .shell,
+        renderHints: ServerConversationRenderHints()
+      ))
+    )
+
+    let presentation = SessionWorkerRosterPlanner.detailPresentation(
+      subagents: [worker],
+      selectedWorkerID: worker.id,
+      toolsByWorker: [:],
+      messagesByWorker: [:],
+      timelineEntries: [groupedFailure]
+    )
+
+    #expect(presentation?.conversationEvents.first?.statusLabel == "Error")
+  }
+
   @Test func detailPresentationPrefersOrderedShellPreviewForInterleavedOutput() {
     let worker = makeWorker(
       id: "worker-shell",
@@ -496,41 +551,68 @@ struct SessionWorkerRosterPlannerTests {
       sequence: sequence,
       turnId: nil,
       turnStatus: .active,
-      row: .tool(ServerConversationToolRow(
+      row: .tool(makeToolRow(
         id: id,
-        provider: .codex,
-        family: .agent,
-        kind: .taskOutput,
+        sessionId: sessionId,
+        sequence: sequence,
         status: status,
         title: title,
-        subtitle: nil,
         summary: summary,
-        preview: nil,
         startedAt: startedAt,
-        endedAt: nil,
-        durationMs: nil,
-        groupingKey: nil,
-        renderHints: .init(),
-        toolDisplay: ServerToolDisplay(
-          summary: summary,
-          subtitle: nil,
-          rightMeta: nil,
-          subtitleAbsorbsMeta: false,
-          glyphSymbol: "person.2",
-          glyphColor: "indigo",
-          language: nil,
-          diffPreview: nil,
-          outputPreview: outputDisplay,
-          liveOutputPreview: nil,
-          todoItems: [],
-          toolType: title,
-          summaryFont: "system",
-          displayTier: "standard",
-          inputDisplay: inputDisplay,
-          outputDisplay: outputDisplay,
-          diffDisplay: nil
-        )
+        inputDisplay: inputDisplay,
+        outputDisplay: outputDisplay
       ))
+    )
+  }
+
+  private func makeToolRow(
+    id: String,
+    sessionId: String,
+    sequence: UInt64,
+    status: ServerConversationToolStatus,
+    title: String,
+    summary: String,
+    startedAt: String?,
+    inputDisplay: String?,
+    outputDisplay: String?
+  ) -> ServerConversationToolRow {
+    _ = sessionId
+    _ = sequence
+
+    return ServerConversationToolRow(
+      id: id,
+      provider: .codex,
+      family: .agent,
+      kind: .taskOutput,
+      status: status,
+      title: title,
+      subtitle: nil,
+      summary: summary,
+      preview: nil,
+      startedAt: startedAt,
+      endedAt: nil,
+      durationMs: nil,
+      groupingKey: nil,
+      renderHints: .init(),
+      toolDisplay: ServerToolDisplay(
+        summary: summary,
+        subtitle: nil,
+        rightMeta: nil,
+        subtitleAbsorbsMeta: false,
+        glyphSymbol: "person.2",
+        glyphColor: "indigo",
+        language: nil,
+        diffPreview: nil,
+        outputPreview: outputDisplay,
+        liveOutputPreview: nil,
+        todoItems: [],
+        toolType: title,
+        summaryFont: "system",
+        displayTier: "standard",
+        inputDisplay: inputDisplay,
+        outputDisplay: outputDisplay,
+        diffDisplay: nil
+      )
     )
   }
 
