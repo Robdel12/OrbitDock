@@ -11,8 +11,19 @@
 import SwiftUI
 
 struct OrbitStatusIndicator: View {
+  private enum Metrics {
+    static let horizontalInset: CGFloat = Spacing.md
+    static let iconColumnWidth: CGFloat = 12
+  }
+
+  enum ChromeStyle {
+    case standalone
+    case embedded
+  }
+
   let displayStatus: SessionDisplayStatus
   var currentTool: String?
+  var chromeStyle: ChromeStyle = .standalone
 
   @State private var orbitPhrase = Self.orbitPhrases.randomElement() ?? "In orbit"
 
@@ -57,17 +68,19 @@ struct OrbitStatusIndicator: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      Color.surfaceBorder.opacity(0.4)
-        .frame(height: 1)
+      if chromeStyle == .standalone {
+        Color.surfaceBorder.opacity(0.4)
+          .frame(height: 1)
+      }
 
       HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
         OrbitalBeacon(state: orbitalState, color: statusColor)
-          .frame(width: 16, height: 16)
+          .frame(width: Metrics.iconColumnWidth, height: 16)
           .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 1 }
         statusLabel
         Spacer()
       }
-      .padding(.horizontal, Spacing.lg)
+      .padding(.horizontal, Metrics.horizontalInset)
       .padding(.vertical, Spacing.xs)
     }
     .animation(Motion.gentle, value: displayStatus)

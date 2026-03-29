@@ -202,6 +202,262 @@ pub struct ShellCommandRow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum CommandExecutionStatus {
+  InProgress,
+  Completed,
+  Failed,
+  Declined,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CommandExecutionAction {
+  Read {
+    command: String,
+    name: String,
+    path: String,
+  },
+  ListFiles {
+    command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+  },
+  Search {
+    command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+  },
+  Unknown {
+    command: String,
+  },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandExecutionPreviewKind {
+  Excerpt,
+  SearchMatches,
+  FileList,
+  Diff,
+  Status,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandExecutionPreview {
+  pub kind: CommandExecutionPreviewKind,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub lines: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub overflow_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CommandExecutionRow {
+  pub id: String,
+  pub status: CommandExecutionStatus,
+  pub command: String,
+  pub cwd: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub process_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub command_actions: Vec<CommandExecutionAction>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub live_output_preview: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub aggregated_output: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preview: Option<CommandExecutionPreview>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub exit_code: Option<i32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub duration_ms: Option<u64>,
+  #[serde(default)]
+  pub render_hints: RenderHints,
+}
+
+pub fn compute_command_execution_preview(
+  actions: &[CommandExecutionAction],
+  output: Option<&str>,
+) -> Option<CommandExecutionPreview> {
+  let lines = preview_lines(output?);
+  if lines.is_empty() {
+    return None;
+  }
+
+  if actions
+    .iter()
+    .all(|action| matches!(action, CommandExecutionAction::Search { .. }))
+  {
+    return Some(preview_from_lines(
+      CommandExecutionPreviewKind::SearchMatches,
+      &lines,
+      2,
+      PreviewSlice::Head,
+    ));
+  }
+
+  if actions
+    .iter()
+    .all(|action| matches!(action, CommandExecutionAction::Read { .. }))
+  {
+    return Some(preview_from_lines(
+      CommandExecutionPreviewKind::Excerpt,
+      &lines,
+      2,
+      PreviewSlice::Head,
+    ));
+  }
+
+  if actions
+    .iter()
+    .all(|action| matches!(action, CommandExecutionAction::ListFiles { .. }))
+  {
+    return Some(preview_from_lines(
+      CommandExecutionPreviewKind::FileList,
+      &lines,
+      2,
+      PreviewSlice::Head,
+    ));
+  }
+
+  let diff_lines: Vec<String> = lines
+    .iter()
+    .filter(|line| is_diff_preview_line(line))
+    .cloned()
+    .collect();
+  if !diff_lines.is_empty() {
+    return Some(preview_from_lines(
+      CommandExecutionPreviewKind::Diff,
+      &diff_lines,
+      2,
+      PreviewSlice::Tail,
+    ));
+  }
+
+  let file_list_lines: Vec<String> = lines
+    .iter()
+    .filter(|line| is_file_list_preview_line(line))
+    .cloned()
+    .collect();
+  if !file_list_lines.is_empty() {
+    return Some(preview_from_lines(
+      CommandExecutionPreviewKind::FileList,
+      &file_list_lines,
+      2,
+      PreviewSlice::Head,
+    ));
+  }
+
+  if let Some(status_line) = build_status_preview_line(&lines) {
+    return Some(CommandExecutionPreview {
+      kind: CommandExecutionPreviewKind::Status,
+      lines: vec![status_line],
+      overflow_count: None,
+    });
+  }
+
+  Some(preview_from_lines(
+    CommandExecutionPreviewKind::Status,
+    &lines,
+    1,
+    PreviewSlice::Tail,
+  ))
+}
+
+#[derive(Clone, Copy)]
+enum PreviewSlice {
+  Head,
+  Tail,
+}
+
+fn preview_from_lines(
+  kind: CommandExecutionPreviewKind,
+  lines: &[String],
+  max_lines: usize,
+  slice: PreviewSlice,
+) -> CommandExecutionPreview {
+  let selected: Vec<String> = match slice {
+    PreviewSlice::Head => lines.iter().take(max_lines).cloned().collect(),
+    PreviewSlice::Tail => {
+      let start = lines.len().saturating_sub(max_lines);
+      lines.iter().skip(start).cloned().collect()
+    }
+  };
+
+  let overflow_count = lines
+    .len()
+    .checked_sub(selected.len())
+    .and_then(|count| (count > 0).then_some(count as u32));
+
+  CommandExecutionPreview {
+    kind,
+    lines: selected,
+    overflow_count,
+  }
+}
+
+fn preview_lines(output: &str) -> Vec<String> {
+  output
+    .lines()
+    .map(str::trim_end)
+    .filter(|line| !line.trim().is_empty())
+    .map(|line| truncate_preview_line(line, 180))
+    .collect()
+}
+
+fn truncate_preview_line(line: &str, max_chars: usize) -> String {
+  let total_chars = line.chars().count();
+  if total_chars <= max_chars {
+    return line.to_string();
+  }
+
+  let mut truncated = String::with_capacity(max_chars + 1);
+  for (index, ch) in line.chars().enumerate() {
+    if index >= max_chars.saturating_sub(1) {
+      break;
+    }
+    truncated.push(ch);
+  }
+  truncated.push('…');
+  truncated
+}
+
+fn is_diff_preview_line(line: &str) -> bool {
+  (line.starts_with('+') && !line.starts_with("+++"))
+    || (line.starts_with('-') && !line.starts_with("---"))
+}
+
+fn is_file_list_preview_line(line: &str) -> bool {
+  let trimmed = line.trim_start();
+  trimmed.starts_with("?? ")
+    || trimmed.starts_with("M ")
+    || trimmed.starts_with("A ")
+    || trimmed.starts_with("D ")
+    || trimmed.starts_with("R ")
+    || trimmed.starts_with("C ")
+    || trimmed.starts_with("U ")
+}
+
+fn build_status_preview_line(lines: &[String]) -> Option<String> {
+  lines.iter().rev().find_map(|line| {
+    let lower = line.to_lowercase();
+    if lower.contains("built in ")
+      || lower.starts_with("finished `")
+      || lower.contains("compiled successfully")
+      || lower.contains("build completed")
+      || lower.contains("test result:")
+    {
+      Some(line.clone())
+    } else {
+      None
+    }
+  })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TaskRowKind {
   BackgroundCommand,
   Generic,
@@ -273,6 +529,7 @@ impl ConversationRowEntry {
       ConversationRow::Context(row) => &row.id,
       ConversationRow::Notice(row) => &row.id,
       ConversationRow::ShellCommand(row) => &row.id,
+      ConversationRow::CommandExecution(row) => &row.id,
       ConversationRow::Task(row) => &row.id,
       ConversationRow::Plan(row) => &row.id,
       ConversationRow::Hook(row) => &row.id,
@@ -340,6 +597,7 @@ pub enum ConversationRow {
   Context(ContextRow),
   Notice(NoticeRow),
   ShellCommand(ShellCommandRow),
+  CommandExecution(CommandExecutionRow),
   Task(TaskRow),
   Tool(ToolRow),
   ActivityGroup(ActivityGroupRow),
@@ -390,7 +648,13 @@ pub struct ToolRowSummary {
 impl ToolRow {
   pub fn to_summary(&self) -> ToolRowSummary {
     let display = self.tool_display.clone().unwrap_or_else(|| {
-      let result_str = self.result.as_ref().and_then(|v| v.as_str());
+      let result_str = self.result.as_ref().and_then(|value| {
+        value
+          .get("output")
+          .and_then(|output| output.as_str())
+          .or_else(|| value.get("raw_output").and_then(|output| output.as_str()))
+          .or_else(|| value.as_str())
+      });
       compute_tool_display(ToolDisplayInput {
         kind: self.kind,
         family: self.family,
@@ -434,6 +698,7 @@ pub enum ConversationRowSummary {
   Context(ContextRow),
   Notice(NoticeRow),
   ShellCommand(ShellCommandRow),
+  CommandExecution(CommandExecutionRow),
   Task(TaskRow),
   Tool(ToolRowSummary),
   ActivityGroup(ActivityGroupRowSummary),
@@ -470,6 +735,7 @@ impl ConversationRow {
       ConversationRow::Context(r) => ConversationRowSummary::Context(r.clone()),
       ConversationRow::Notice(r) => ConversationRowSummary::Notice(r.clone()),
       ConversationRow::ShellCommand(r) => ConversationRowSummary::ShellCommand(r.clone()),
+      ConversationRow::CommandExecution(r) => ConversationRowSummary::CommandExecution(r.clone()),
       ConversationRow::Task(r) => ConversationRowSummary::Task(r.clone()),
       ConversationRow::Tool(r) => ConversationRowSummary::Tool(r.to_summary()),
       ConversationRow::ActivityGroup(r) => ConversationRowSummary::ActivityGroup(r.to_summary()),
@@ -507,6 +773,7 @@ impl RowEntrySummary {
       ConversationRowSummary::Context(row) => &row.id,
       ConversationRowSummary::Notice(row) => &row.id,
       ConversationRowSummary::ShellCommand(row) => &row.id,
+      ConversationRowSummary::CommandExecution(row) => &row.id,
       ConversationRowSummary::Task(row) => &row.id,
       ConversationRowSummary::Plan(row) => &row.id,
       ConversationRowSummary::Hook(row) => &row.id,
@@ -561,6 +828,11 @@ pub fn extract_row_content_str(row: &ConversationRow) -> String {
       .clone()
       .or_else(|| s.command.clone())
       .unwrap_or_else(|| s.title.clone()),
+    ConversationRow::CommandExecution(c) => c
+      .aggregated_output
+      .clone()
+      .or_else(|| c.live_output_preview.clone())
+      .unwrap_or_else(|| c.command.clone()),
     ConversationRow::Task(t) => t.summary.clone().unwrap_or_else(|| t.title.clone()),
     ConversationRow::Tool(t) => t.title.clone(),
     ConversationRow::Plan(p) => p.title.clone(),
@@ -588,6 +860,11 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
       .clone()
       .or_else(|| s.command.clone())
       .unwrap_or_else(|| s.title.clone()),
+    ConversationRowSummary::CommandExecution(c) => c
+      .aggregated_output
+      .clone()
+      .or_else(|| c.live_output_preview.clone())
+      .unwrap_or_else(|| c.command.clone()),
     ConversationRowSummary::Task(t) => t.summary.clone().unwrap_or_else(|| t.title.clone()),
     ConversationRowSummary::Tool(t) => t.title.clone(),
     ConversationRowSummary::Plan(p) => p.title.clone(),
@@ -602,7 +879,11 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::{ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow, TurnStatus};
+  use super::{
+    compute_command_execution_preview, extract_row_content_str, CommandExecutionAction,
+    CommandExecutionPreviewKind, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
+    ConversationRowEntry, MessageRowContent, ToolRow, TurnStatus,
+  };
   use crate::conversation_contracts::render_hints::RenderHints;
   use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
   use crate::{ImageInput, Provider};
@@ -704,5 +985,92 @@ mod tests {
     assert_eq!(summary.kind, ToolKind::Bash);
     assert_eq!(summary.family, ToolFamily::Shell);
     assert_eq!(summary.tool_display.tool_type, "bash");
+  }
+
+  #[test]
+  fn summary_fallback_uses_structured_result_output() {
+    let row = ToolRow {
+      id: "toolu_read".into(),
+      provider: Provider::Codex,
+      family: ToolFamily::FileRead,
+      kind: ToolKind::Read,
+      status: ToolStatus::Completed,
+      title: "Read".into(),
+      subtitle: None,
+      summary: None,
+      preview: None,
+      started_at: None,
+      ended_at: None,
+      duration_ms: None,
+      grouping_key: None,
+      invocation: serde_json::json!({"file_path": "/tmp/example.rs"}),
+      result: Some(serde_json::json!({"output": "first line\nsecond line"})),
+      render_hints: RenderHints::default(),
+      tool_display: None,
+    };
+
+    let summary = row.to_summary();
+    assert_eq!(summary.tool_display.tool_type, "read");
+    assert_eq!(summary.tool_display.right_meta.as_deref(), Some("2 lines"));
+    assert_eq!(
+      summary.tool_display.output_preview.as_deref(),
+      Some("first line\nsecond line")
+    );
+  }
+
+  #[test]
+  fn command_execution_content_prefers_aggregated_output() {
+    let row = ConversationRow::CommandExecution(CommandExecutionRow {
+      id: "cmd-1".to_string(),
+      status: CommandExecutionStatus::Completed,
+      command: "cat Cargo.toml".to_string(),
+      cwd: "/tmp/project".to_string(),
+      process_id: Some("pty-1".to_string()),
+      command_actions: vec![CommandExecutionAction::Read {
+        command: "cat Cargo.toml".to_string(),
+        name: "Cargo.toml".to_string(),
+        path: "Cargo.toml".to_string(),
+      }],
+      live_output_preview: Some("preview".to_string()),
+      aggregated_output: Some("[package]".to_string()),
+      preview: None,
+      exit_code: Some(0),
+      duration_ms: Some(12),
+      render_hints: RenderHints::default(),
+    });
+
+    assert_eq!(extract_row_content_str(&row), "[package]");
+  }
+
+  #[test]
+  fn command_execution_preview_prefers_build_status_line() {
+    let preview = compute_command_execution_preview(
+      &[CommandExecutionAction::Unknown {
+        command: "npm run build".to_string(),
+      }],
+      Some("dist/assets/index.js 123 kB\nbuilt in 228ms\n"),
+    )
+    .expect("preview");
+
+    assert_eq!(preview.kind, CommandExecutionPreviewKind::Status);
+    assert_eq!(preview.lines, vec!["built in 228ms".to_string()]);
+    assert_eq!(preview.overflow_count, None);
+  }
+
+  #[test]
+  fn command_execution_preview_collapses_file_list() {
+    let preview = compute_command_execution_preview(
+      &[CommandExecutionAction::Unknown {
+        command: "git status --short".to_string(),
+      }],
+      Some(
+        "?? orbitdock-web/src/components/conversation/command-execution-expanded.jsx\n?? orbitdock-web/src/components/conversation/command-execution-row.jsx\n?? orbitdock-web/src/components/conversation/command-execution-row.module.css\n",
+      ),
+    )
+    .expect("preview");
+
+    assert_eq!(preview.kind, CommandExecutionPreviewKind::FileList);
+    assert_eq!(preview.lines.len(), 2);
+    assert_eq!(preview.overflow_count, Some(1));
   }
 }

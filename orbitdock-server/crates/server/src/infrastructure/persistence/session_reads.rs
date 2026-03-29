@@ -279,17 +279,16 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 "UPDATE sessions
                  SET status = 'ended',
                      work_status = 'ended',
+                     lifecycle_state = 'ended',
                      ended_at = COALESCE(ended_at, ?1),
                      end_reason = COALESCE(end_reason, 'startup_stale_passive')
                  WHERE provider = 'codex'
-                   AND codex_integration_mode = 'passive'
-                   AND status = 'active'
-                   AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
-                   AND CAST(REPLACE(last_activity_at, 'Z', '') AS INTEGER) < ?2",
-                params![
-                    chrono_now(),
-                    chrono::Utc::now().timestamp().saturating_sub(15 * 60),
-                ],
+                   AND COALESCE(control_mode, CASE
+                         WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+                         ELSE 'passive'
+                       END) != 'direct'
+                   AND status = 'active'",
+                params![chrono_now()],
             )?;
 
             conn.execute(

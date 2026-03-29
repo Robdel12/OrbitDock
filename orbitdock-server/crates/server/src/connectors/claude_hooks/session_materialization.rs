@@ -90,10 +90,11 @@ pub(crate) async fn materialize_claude_session(
   }
   let actor = state.add_session(handle);
 
-  if git_branch.is_some() || repository_root.is_some() {
+  if !cwd.is_empty() || git_branch.is_some() || repository_root.is_some() {
     actor
       .send(SessionCommand::ApplyDelta {
         changes: Box::new(orbitdock_protocol::StateChanges {
+          current_cwd: Some(Some(cwd.clone())),
           git_branch: git_branch.as_ref().map(|value| Some(value.clone())),
           git_sha: git_sha.as_ref().map(|value| Some(value.clone())),
           repository_root: repository_root.as_ref().map(|value| Some(value.clone())),
@@ -104,6 +105,17 @@ pub(crate) async fn materialize_claude_session(
       })
       .await;
   }
+
+  let _ = persist_tx
+    .send(PersistCommand::EnvironmentUpdate {
+      session_id: session_id.to_string(),
+      cwd: Some(cwd.clone()),
+      git_branch: git_branch.clone(),
+      git_sha: git_sha.clone(),
+      repository_root: repository_root.clone(),
+      is_worktree: Some(is_worktree),
+    })
+    .await;
 
   if actor.summary().await.is_ok() {
     state.publish_dashboard_snapshot();

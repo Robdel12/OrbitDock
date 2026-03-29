@@ -30,6 +30,9 @@ struct TimelineScrollView: View {
   private static let bottomSentinelID = "timeline-bottom"
   private static let bottomAnchorHeight: CGFloat = 20
   private static let bottomThreshold: CGFloat = 36
+  private static let defaultRecentRenderWindow = 60
+
+  @Environment(\.horizontalSizeClass) private var sizeClass
 
   @State private var localFollowState = ConversationFollowState.initial
   @State private var isNearBottom = true
@@ -38,25 +41,60 @@ struct TimelineScrollView: View {
   @State private var hasInitializedScrollPosition = false
   @State private var isUserScrolling = false
   @State private var hasDetachedFromBottomDuringCurrentGesture = false
+  @State private var renderedEntryLimit = Self.defaultRecentRenderWindow
+  @State private var pendingHistoryReveal = false
+
+  private var recentRenderWindow: Int {
+    #if os(iOS)
+      sizeClass == .compact ? 40 : 60
+    #else
+      120
+    #endif
+  }
+
+  private var historyRenderExpansionStep: Int {
+    #if os(iOS)
+      sizeClass == .compact ? 20 : 30
+    #else
+      80
+    #endif
+  }
 
   var body: some View {
-    let displayed = viewModel.displayedEntries
+    let displayedCount = viewModel.displayedEntryCount
+    let rendered = viewModel.renderedEntries(limit: renderedEntryLimit)
+    let hiddenRenderedCount = max(displayedCount - rendered.count, 0)
 
     ScrollViewReader { proxy in
       ScrollView(.vertical) {
-        LazyVStack(spacing: 0) {
+        // Conversation rows mutate height constantly while streaming, expanding,
+        // loading media, and prepending history. In practice the lazy stack was
+        // evicting the visible subtree during those layout shifts, which left
+        // the viewport blank until the user scrolled again. A plain VStack keeps
+        // realized rows alive and trades a bit of memory for much more stable
+        // rendering behavior.
+        VStack(spacing: 0) {
           // Pagination sentinel — triggers history load when scrolled into view.
           // Identity changes when older messages prepend (first entry's sequence
           // changes), so onAppear fires again for the next page.
           Color.clear
             .frame(height: 1)
-            .id("pagination-\(displayed.first?.sequence ?? 0)")
+            .id("pagination-\(rendered.first?.sequence ?? 0)")
             .onAppear {
               guard hasInitializedScrollPosition, !localFollowState.mode.isFollowing else { return }
-              onLoadMore?()
+              if hiddenRenderedCount > 0 {
+                revealOlderRenderedEntries(
+                  totalCount: displayedCount,
+                  anchorID: rendered.first?.id,
+                  with: proxy
+                )
+              } else {
+                pendingHistoryReveal = true
+                onLoadMore?()
+              }
             }
 
-          ForEach(displayed) { entry in
+          ForEach(rendered) { entry in
             TimelineRowHost(
               entry: entry,
               sessionId: sessionId,
@@ -88,9 +126,38 @@ struct TimelineScrollView: View {
       .task {
         guard !hasInitializedScrollPosition else { return }
         hasInitializedScrollPosition = true
+        renderedEntryLimit = recentRenderWindow
         if localFollowState.mode.isFollowing {
+          syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
           setPinnedScrollPosition()
         }
+      }
+      .onChange(of: displayedCount) { oldCount, newCount in
+        let countDelta = newCount - oldCount
+        guard countDelta != 0 else {
+          renderedEntryLimit = min(renderedEntryLimit, newCount)
+          return
+        }
+
+        if pendingHistoryReveal, countDelta > 0, !localFollowState.mode.isFollowing {
+          pendingHistoryReveal = false
+          renderedEntryLimit = min(newCount, renderedEntryLimit + countDelta)
+          return
+        }
+
+        if localFollowState.mode.isFollowing {
+          syncRenderedEntryLimit(totalCount: newCount, mode: localFollowState.mode)
+          return
+        }
+
+        if countDelta > 0 {
+          renderedEntryLimit = min(newCount, renderedEntryLimit + countDelta)
+        } else {
+          renderedEntryLimit = min(renderedEntryLimit, newCount)
+        }
+      }
+      .onChange(of: sizeClass) { _, _ in
+        syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
       }
       .onChange(of: isNearBottom) { _, isVisible in
         if isVisible, !localFollowState.mode.isFollowing {
@@ -130,6 +197,7 @@ struct TimelineScrollView: View {
   private func applyIntent(_ intent: ConversationFollowIntent) {
     let plan = ConversationFollowPlanner.apply(current: localFollowState, intent: intent)
     localFollowState = plan.state
+    syncRenderedEntryLimit(totalCount: viewModel.displayedEntryCount, mode: plan.state.mode)
     onFollowStateChanged(plan.state)
 
     guard let action = plan.scrollAction else { return }
@@ -163,6 +231,7 @@ struct TimelineScrollView: View {
   private func run(command: ConversationScrollCommand, with proxy: ScrollViewProxy) {
     switch command {
       case .latest:
+        syncRenderedEntryLimit(totalCount: viewModel.displayedEntryCount, mode: .following)
         setPinnedScrollPosition()
       case let .message(id, _):
         scrollToMessage(id, with: proxy)
@@ -201,6 +270,42 @@ struct TimelineScrollView: View {
     )
   }
 
+  private func syncRenderedEntryLimit(totalCount: Int, mode: ConversationFollowMode) {
+    guard totalCount > 0 else {
+      renderedEntryLimit = recentRenderWindow
+      return
+    }
+
+    if mode.isFollowing {
+      renderedEntryLimit = min(totalCount, recentRenderWindow)
+      pendingHistoryReveal = false
+    } else {
+      renderedEntryLimit = min(max(renderedEntryLimit, recentRenderWindow), totalCount)
+    }
+  }
+
+  private func revealOlderRenderedEntries(
+    totalCount: Int,
+    anchorID: String?,
+    with proxy: ScrollViewProxy
+  ) {
+    guard totalCount > renderedEntryLimit else { return }
+    let nextLimit = min(totalCount, renderedEntryLimit + historyRenderExpansionStep)
+    guard nextLimit != renderedEntryLimit else { return }
+
+    var transaction = Transaction()
+    transaction.animation = nil
+    withTransaction(transaction) {
+      renderedEntryLimit = nextLimit
+    }
+
+    if let anchorID {
+      withTransaction(transaction) {
+        proxy.scrollTo(anchorID, anchor: .top)
+      }
+    }
+  }
+
 }
 
 private struct TimelineRowHost: View {
@@ -213,6 +318,8 @@ private struct TimelineRowHost: View {
     switch entry.row {
       case let .tool(toolRow):
         toolRow.id
+      case let .commandExecution(commandExecution):
+        commandExecution.id
       case let .activityGroup(group):
         group.id
       default:
@@ -224,6 +331,8 @@ private struct TimelineRowHost: View {
     switch entry.row {
       case let .tool(toolRow):
         toolRow.id
+      case let .commandExecution(commandExecution):
+        commandExecution.id
       case let .activityGroup(group):
         group.id
       default:

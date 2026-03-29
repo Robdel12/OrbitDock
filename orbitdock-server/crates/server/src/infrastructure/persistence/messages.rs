@@ -4,15 +4,18 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::Provider;
 use rusqlite::{params, Connection, OptionalExtension};
 
+/// Column layout for all message SELECT queries:
+///   0: id, 1: type, 2: timestamp, 3: sequence, 4: row_data, 5: turn_status
+const MESSAGE_SELECT: &str =
+  "SELECT id, type, timestamp, sequence, row_data, turn_status FROM messages";
+
 /// Deserialize a ConversationRowEntry from a database row.
-/// Prefers `row_data` JSON column; falls back to legacy flat columns for
-/// messages written before V022 added `row_data`.
 fn row_entry_from_db(
   row: &rusqlite::Row<'_>,
   session_id: &str,
 ) -> Result<Option<ConversationRowEntry>, rusqlite::Error> {
-  let sequence: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
-  let row_data: Option<String> = row.get(5)?;
+  let sequence: i64 = row.get::<_, Option<i64>>(3)?.unwrap_or(0);
+  let row_data: Option<String> = row.get(4)?;
   let msg_type: String = row.get(1)?;
 
   let conversation_row = if let Some(json) = row_data {
@@ -24,15 +27,12 @@ fn row_entry_from_db(
       Err(_) => return Ok(None),
     }
   } else {
-    // Legacy fallback: reconstruct from flat columns (id, type, content, timestamp).
-    match legacy_row_from_db(row) {
-      Some(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
-      None => return Ok(None),
-    }
+    // No row_data — skip. Legacy flat columns have been dropped (V042).
+    return Ok(None);
   };
 
   let turn_status: TurnStatus = row
-    .get::<_, Option<String>>(6)
+    .get::<_, Option<String>>(5)
     .ok()
     .flatten()
     .and_then(|s| serde_json::from_value(serde_json::Value::String(s)).ok())
@@ -45,35 +45,6 @@ fn row_entry_from_db(
     turn_status,
     row: conversation_row,
   }))
-}
-
-/// Build a ConversationRow from the legacy flat columns for pre-V022 messages.
-fn legacy_row_from_db(row: &rusqlite::Row<'_>) -> Option<ConversationRow> {
-  let id: String = row.get(0).ok()?;
-  let msg_type: String = row.get(1).ok()?;
-  let content: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
-  let timestamp: Option<String> = row.get(3).ok()?;
-
-  let msg = orbitdock_protocol::conversation_contracts::MessageRowContent {
-    id,
-    content,
-    turn_id: None,
-    timestamp,
-    is_streaming: false,
-    images: Vec::new(),
-    memory_citation: None,
-    delivery_status: None,
-  };
-
-  match msg_type.as_str() {
-    "user" => Some(ConversationRow::User(msg)),
-    "steer" => Some(ConversationRow::Steer(msg)),
-    "assistant" => Some(ConversationRow::Assistant(msg)),
-    "thinking" => Some(ConversationRow::Thinking(msg)),
-    "system" => Some(ConversationRow::System(msg)),
-    // Tool, approval, question, etc. — render as system messages so they're visible
-    _ => Some(ConversationRow::System(msg)),
-  }
 }
 
 fn normalize_legacy_message_kind(
@@ -107,12 +78,8 @@ pub(super) fn load_messages_from_db(
   conn: &Connection,
   session_id: &str,
 ) -> Result<Vec<ConversationRowEntry>, anyhow::Error> {
-  let mut stmt = conn.prepare(
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
-         FROM messages
-         WHERE session_id = ?
-         ORDER BY sequence",
-  )?;
+  let sql = format!("{MESSAGE_SELECT} WHERE session_id = ? ORDER BY sequence");
+  let mut stmt = conn.prepare(&sql)?;
 
   let rows: Vec<ConversationRowEntry> = stmt
     .query_map(params![session_id], |row| {
@@ -154,20 +121,14 @@ pub(super) fn load_message_page_from_db(
   }
 
   let sql = if before_sequence.is_some() {
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
-         FROM messages
-         WHERE session_id = ?1 AND sequence < ?2
-         ORDER BY sequence DESC
-         LIMIT ?3"
+    format!(
+      "{MESSAGE_SELECT} WHERE session_id = ?1 AND sequence < ?2 ORDER BY sequence DESC LIMIT ?3"
+    )
   } else {
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
-         FROM messages
-         WHERE session_id = ?1
-         ORDER BY sequence DESC
-         LIMIT ?2"
+    format!("{MESSAGE_SELECT} WHERE session_id = ?1 ORDER BY sequence DESC LIMIT ?2")
   };
 
-  let mut stmt = conn.prepare(sql)?;
+  let mut stmt = conn.prepare(&sql)?;
   let limit = i64::try_from(limit).unwrap_or(i64::MAX);
   let mut rows: Vec<ConversationRowEntry> = if let Some(before_seq) = before_sequence {
     let before_seq = i64::try_from(before_seq).unwrap_or(i64::MAX);
@@ -194,15 +155,14 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
   conn: &Connection,
   session_id: &str,
 ) -> Result<Option<String>, rusqlite::Error> {
-  let latest: Option<String> = conn
+  let row_data: Option<String> = conn
     .query_row(
-      "SELECT content
+      "SELECT row_data
              FROM messages
              WHERE session_id = ?1
                AND type IN ('user', 'assistant')
                AND is_in_progress = 0
-               AND content IS NOT NULL
-               AND trim(content) != ''
+               AND row_data IS NOT NULL
              ORDER BY sequence DESC
              LIMIT 1",
       params![session_id],
@@ -210,7 +170,14 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
     )
     .optional()?;
 
-  Ok(latest.map(|content| content.chars().take(200).collect()))
+  let content = row_data.and_then(|json| {
+    serde_json::from_str::<ConversationRow>(&json)
+      .ok()
+      .and_then(|row| super::extract_row_content(&row))
+      .filter(|s| !s.trim().is_empty())
+  });
+
+  Ok(content.map(|c| c.chars().take(200).collect()))
 }
 
 /// Load a single row by its id and session_id from the database.
@@ -219,12 +186,8 @@ pub fn load_row_by_id(
   session_id: &str,
   row_id: &str,
 ) -> Result<Option<ConversationRowEntry>, anyhow::Error> {
-  let mut stmt = conn.prepare(
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
-         FROM messages
-         WHERE session_id = ?1 AND id = ?2
-         LIMIT 1",
-  )?;
+  let sql = format!("{MESSAGE_SELECT} WHERE session_id = ?1 AND id = ?2 LIMIT 1");
+  let mut stmt = conn.prepare(&sql)?;
 
   let entry = stmt
     .query_map(params![session_id, row_id], |row| {

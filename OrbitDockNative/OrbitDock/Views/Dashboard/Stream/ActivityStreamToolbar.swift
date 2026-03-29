@@ -50,20 +50,25 @@ struct ActivityStreamToolbar: View {
         }
       }
       .padding(.horizontal, isPhoneCompact ? Spacing.md : Spacing.section)
-      .padding(.vertical, Spacing.sm)
+      .padding(.vertical, isPhoneCompact ? Spacing.xs : Spacing.sm)
       .background(
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .fill(Color.backgroundSecondary.opacity(0.68))
+        RoundedRectangle(cornerRadius: isPhoneCompact ? Radius.xl : Radius.lg, style: .continuous)
+          .fill(isPhoneCompact ? Color.backgroundTertiary.opacity(0.44) : Color.backgroundSecondary.opacity(0.68))
           .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-              .stroke(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
+            RoundedRectangle(cornerRadius: isPhoneCompact ? Radius.xl : Radius.lg, style: .continuous)
+              .stroke(
+                isPhoneCompact
+                  ? Color.panelBorder.opacity(0.4)
+                  : Color.surfaceBorder.opacity(OpacityTier.subtle),
+                lineWidth: 1
+              )
           )
       )
-      .padding(.horizontal, isPhoneCompact ? Spacing.sm : Spacing.section)
-      .padding(.top, Spacing.sm_)
-      .padding(.bottom, Spacing.sm)
+      .padding(.horizontal, isPhoneCompact ? Spacing.md : Spacing.section)
+      .padding(.top, isPhoneCompact ? Spacing.xs : Spacing.sm_)
+      .padding(.bottom, isPhoneCompact ? Spacing.xs : Spacing.sm)
     }
-    .background(Color.backgroundSecondary.opacity(0.24))
+    .background(isPhoneCompact ? Color.clear : Color.backgroundSecondary.opacity(0.24))
   }
 
   // MARK: - Filter Chips
@@ -142,14 +147,14 @@ struct ActivityStreamToolbar: View {
           .font(.system(size: TypeScale.micro, weight: .semibold))
       }
       .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm_)
+      .padding(.horizontal, isPhoneCompact ? Spacing.sm_ : Spacing.md)
+      .padding(.vertical, isPhoneCompact ? Spacing.xs : Spacing.sm_)
       .background(
         Capsule()
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.14 : 0.22))
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.14 : (isPhoneCompact ? 0.12 : 0.22)))
           .overlay(
             Capsule()
-              .stroke(color.opacity(isActive ? 0.24 : 0.0), lineWidth: 1)
+              .stroke(color.opacity(isActive ? 0.24 : (isPhoneCompact ? 0.08 : 0.0)), lineWidth: 1)
           )
       )
     }

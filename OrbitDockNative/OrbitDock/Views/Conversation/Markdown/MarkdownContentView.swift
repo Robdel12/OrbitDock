@@ -146,6 +146,8 @@ private enum MarkdownRenderSegmentCache {
     let segments: [MarkdownRenderSegment]
   }
 
+  private static let maxEntryCost = 250_000
+
   private final class Box: NSObject {
     let value: Value
 
@@ -156,7 +158,13 @@ private enum MarkdownRenderSegmentCache {
 
   private static let cache: NSCache<NSString, Box> = {
     let cache = NSCache<NSString, Box>()
-    cache.countLimit = 192
+    #if os(iOS)
+      cache.countLimit = 64
+      cache.totalCostLimit = 6_000_000
+    #else
+      cache.countLimit = 192
+      cache.totalCostLimit = 18_000_000
+    #endif
     return cache
   }()
 
@@ -171,7 +179,10 @@ private enum MarkdownRenderSegmentCache {
       blockCount: blocks.count,
       segments: MarkdownRenderSegmentProjector.project(blocks)
     )
-    cache.setObject(Box(value), forKey: key)
+    // Cache cost tracks source markdown size so large transcripts get evicted
+    // before parsed segment storage can grow without bound on mobile.
+    let estimatedCost = min(max(markdown.utf8.count * 3, 1), maxEntryCost)
+    cache.setObject(Box(value), forKey: key, cost: estimatedCost)
     return value
   }
 }

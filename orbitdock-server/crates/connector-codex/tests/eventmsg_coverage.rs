@@ -97,7 +97,7 @@ fn connector_plan_update_emits_tool_row_and_plan_state_update() {
 }
 
 #[test]
-fn connector_hook_events_emit_timeline_hook_rows() {
+fn connector_hook_events_only_surface_error_runs() {
   let source = include_str!("../src/event_mapping/runtime_signals.rs");
 
   let started_start = source
@@ -105,12 +105,12 @@ fn connector_hook_events_emit_timeline_hook_rows() {
     .expect("missing hook-started handler");
   let started_arm = &source[started_start..source.len().min(started_start + 2200)];
   assert!(
-    started_arm.contains("ConversationRow::Hook(HookRow"),
-    "HookStarted handler must emit Hook rows"
+    started_arm.contains("if !hook_run_is_error(event.run.status)"),
+    "HookStarted handler must suppress non-error hook runs"
   );
   assert!(
     started_arm.contains("ConnectorEvent::ConversationRowCreated(entry)"),
-    "HookStarted handler must create ConversationRowCreated events"
+    "HookStarted handler must still create rows for surfaced failures"
   );
 
   let completed_start = source
@@ -119,11 +119,11 @@ fn connector_hook_events_emit_timeline_hook_rows() {
   let completed_arm = &source[completed_start..source.len().min(completed_start + 1800)];
   assert!(
     completed_arm.contains("ConversationRow::Hook(HookRow"),
-    "HookCompleted handler must emit Hook rows"
+    "HookCompleted handler must emit Hook rows for surfaced failures"
   );
   assert!(
-    completed_arm.contains("ConnectorEvent::ConversationRowUpdated"),
-    "HookCompleted handler must emit ConversationRowUpdated events"
+    completed_arm.contains("ConnectorEvent::ConversationRowCreated(entry)"),
+    "HookCompleted handler must create rows for surfaced failures"
   );
 }
 

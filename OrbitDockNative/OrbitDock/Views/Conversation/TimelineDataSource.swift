@@ -11,7 +11,7 @@ import Foundation
 
 enum TimelineDataSource {
   struct Projection {
-    let displayedEntries: [ServerConversationRowEntry]
+    private(set) var displayedEntries: [ServerConversationRowEntry]
 
     private let directDisplayIndexByRowID: [String: Int]
     private let groupIndexByChildRowID: [String: Int]
@@ -81,7 +81,7 @@ enum TimelineDataSource {
 
       for entry in entries {
         switch entry.row {
-          case .tool:
+          case .tool, .commandExecution:
             toolBuffer.append(ToolBufferItem(entry: entry))
 
           case .context, .notice, .shellCommand, .task, .worker, .plan, .hook, .handoff:
@@ -108,11 +108,10 @@ enum TimelineDataSource {
       )
     }
 
-    func applyingContentUpdates(
-      changedEntries: [ServerConversationRowEntry],
-      to displayedEntries: [ServerConversationRowEntry]
-    ) -> [ServerConversationRowEntry] {
-      guard !changedEntries.isEmpty else { return displayedEntries }
+    mutating func applyContentUpdates(
+      changedEntries: [ServerConversationRowEntry]
+    ) {
+      guard !changedEntries.isEmpty else { return }
 
       var updatedEntries = displayedEntries
       let changedEntriesByID = TimelineDataSource.entryDictionary(changedEntries)
@@ -137,7 +136,15 @@ enum TimelineDataSource {
         )
       }
 
-      return updatedEntries
+      displayedEntries = updatedEntries
+    }
+
+    var count: Int {
+      displayedEntries.count
+    }
+
+    func suffix(_ maxLength: Int) -> ArraySlice<ServerConversationRowEntry> {
+      displayedEntries.suffix(maxLength)
     }
   }
 
@@ -160,16 +167,16 @@ enum TimelineDataSource {
   ) -> ServerConversationRowEntry {
     let fallbackEntriesByID = entryDictionary(fallbackEntries)
     let archivedTools = spec.archivedToolIDs.compactMap { rowID in
-      toolRow(for: rowID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
+      activityChild(for: rowID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
     }
 
-    let latestTool = toolRow(for: spec.latestToolID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
+    let latestTool = activityChild(for: spec.latestToolID, primary: rawEntriesByID, fallback: fallbackEntriesByID)
 
-    let title = archivedTools.count == 1 ? "1 previous tool" : "\(archivedTools.count) previous tools"
-    let summary = archivedTools.map(\.title).joined(separator: ", ")
-    let allCompleted = archivedTools.allSatisfy { $0.status == .completed }
+    let title = archivedTools.count == 1 ? "1 previous action" : "\(archivedTools.count) previous actions"
+    let summary = archivedTools.map(activityChildTitle(_:)).joined(separator: ", ")
+    let allCompleted = archivedTools.allSatisfy { activityChildStatus($0) == .completed }
     let status: ServerConversationToolStatus = allCompleted ? .completed : .running
-    let latestFamily = latestTool?.family
+    let latestFamily = latestTool.flatMap(activityChildFamily(_:))
 
     return ServerConversationRowEntry(
       sessionId: spec.sessionId,
@@ -193,14 +200,80 @@ enum TimelineDataSource {
     )
   }
 
-  private static func toolRow(
+  nonisolated private static func activityChild(
     for rowID: String,
     primary: [String: ServerConversationRowEntry],
     fallback: [String: ServerConversationRowEntry]
-  ) -> ServerConversationToolRow? {
+  ) -> ServerConversationActivityGroupChild? {
     let entry = primary[rowID] ?? fallback[rowID]
-    guard let entry, case let .tool(toolRow) = entry.row else { return nil }
-    return toolRow
+    guard let entry else { return nil }
+    switch entry.row {
+      case let .tool(toolRow):
+        return .tool(toolRow)
+      case let .commandExecution(commandExecution):
+        return .commandExecution(commandExecution)
+      default:
+        return nil
+    }
+  }
+
+  nonisolated private static func activityChildTitle(_ child: ServerConversationActivityGroupChild) -> String {
+    switch child {
+      case let .tool(toolRow):
+        return toolRow.title
+      case let .commandExecution(commandExecution):
+        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Run command"
+    }
+  }
+
+  nonisolated private static func activityChildStatus(_ child: ServerConversationActivityGroupChild) -> ServerConversationToolStatus {
+    switch child {
+      case let .tool(toolRow):
+        return toolRow.status
+      case let .commandExecution(commandExecution):
+        switch commandExecution.status {
+          case .inProgress:
+            return .running
+          case .completed:
+            return .completed
+          case .failed:
+            return .failed
+          case .declined:
+            return .blocked
+        }
+    }
+  }
+
+  nonisolated private static func activityChildFamily(_ child: ServerConversationActivityGroupChild) -> ServerConversationToolFamily? {
+    switch child {
+      case let .tool(toolRow):
+        return toolRow.family
+      case let .commandExecution(commandExecution):
+        return commandExecutionFamily(commandExecution)
+    }
+  }
+
+  nonisolated private static func commandExecutionFamily(_ row: ServerConversationCommandExecutionRow) -> ServerConversationToolFamily {
+    if row.commandActions.allSatisfy({ $0.type == .read }) {
+      return .fileRead
+    }
+    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
+      return .search
+    }
+    return .shell
+  }
+
+  nonisolated private static func commandExecutionActionTitle(_ action: ServerConversationCommandAction) -> String {
+    switch action.type {
+      case .read:
+        return "Read"
+      case .search:
+        return "Search"
+      case .listFiles:
+        return "List files"
+      case .unknown:
+        return "Run command"
+    }
   }
 
   private static func displayIndexByRowID(_ entries: [ServerConversationRowEntry]) -> [String: Int] {

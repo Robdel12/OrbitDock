@@ -2,7 +2,6 @@ mod codex;
 mod shared;
 
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
-use orbitdock_protocol::provider_normalization::shared::ProviderEventEnvelope;
 use orbitdock_protocol::Provider;
 use tracing::warn;
 
@@ -21,13 +20,6 @@ pub(crate) fn upgrade_row(provider: Provider, row: ConversationRow) -> Conversat
   log_unhandled_wrapper(provider, &original, &upgraded);
 
   upgraded
-}
-
-pub(crate) fn materialize_provider_event(event: ProviderEventEnvelope) -> Vec<ConversationRow> {
-  match event.provider {
-    Provider::Codex => codex::materialize_provider_event(event),
-    Provider::Claude => vec![],
-  }
 }
 
 fn log_unhandled_wrapper(
@@ -88,6 +80,7 @@ fn message_row_type(row: &ConversationRow) -> &'static str {
     ConversationRow::Context(_) => "context",
     ConversationRow::Notice(_) => "notice",
     ConversationRow::ShellCommand(_) => "shell_command",
+    ConversationRow::CommandExecution(_) => "command_execution",
     ConversationRow::Task(_) => "task",
     ConversationRow::Tool(_) => "tool",
     ConversationRow::ActivityGroup(_) => "activity_group",

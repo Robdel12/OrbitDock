@@ -27,7 +27,7 @@ const ActivityGroupRow = ({ entry }) => {
           <path d="M3.5 2L6.5 5L3.5 8" />
         </svg>
         <span class={styles.title}>{row.title}</span>
-        {row.tool_count != null && <Badge variant="meta">{row.tool_count} tools</Badge>}
+        {row.tool_count != null && <Badge variant="meta">{row.tool_count} actions</Badge>}
       </button>
       {toolTypeSummary && !expanded && <div class={styles.toolSummary}>{toolTypeSummary}</div>}
       {expanded && row.children && (
@@ -42,13 +42,13 @@ const ActivityGroupRow = ({ entry }) => {
 }
 
 /**
- * Build a compact summary like "Read • Edit • Bash" from child tool entries.
+ * Build a compact summary like "Read • Search" from grouped activity entries.
  */
-const buildToolTypeSummary = (children) => {
-  const seen = new Set()
-  const names = []
-  for (const child of children) {
-    const name = child.row?.tool_display?.summary
+let buildToolTypeSummary = (children) => {
+  let seen = new Set()
+  let names = []
+  for (let child of children) {
+    let name = childTypeSummary(child)
     if (name && !seen.has(name)) {
       seen.add(name)
       names.push(name)
@@ -56,6 +56,31 @@ const buildToolTypeSummary = (children) => {
   }
   if (names.length === 0) return null
   return names.join(' \u2022 ')
+}
+
+let childTypeSummary = (child) => {
+  let row = child.row
+  if (!row) return null
+
+  if (row.row_type === 'tool') {
+    return row.tool_display?.summary || row.title || null
+  }
+
+  if (row.row_type !== 'command_execution') {
+    return null
+  }
+
+  let actions = row.command_actions || []
+  if (actions.length === 0) return 'Run command'
+
+  if (actions.every((action) => action.type === 'read')) return 'Read'
+  if (actions.every((action) => action.type === 'search')) return 'Search'
+  if (actions.every((action) => action.type === 'list_files')) return 'List files'
+  if (actions.every((action) => action.type === 'search' || action.type === 'list_files')) {
+    return 'Search'
+  }
+
+  return 'Command'
 }
 
 export { ActivityGroupRow }
