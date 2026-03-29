@@ -72,6 +72,7 @@ use usage::{
   persist_usage_event, upsert_usage_ledger_entry, upsert_usage_session_state,
   upsert_usage_turn_snapshot, TurnSnapshotRow,
 };
+pub(crate) use usage::{estimate_cost_usd, normalize_usage_for_ledger, snapshot_kind_from_str};
 pub(crate) use workspace_sync::{
   apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
 };
