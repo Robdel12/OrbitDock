@@ -65,11 +65,6 @@ jobs:
               pull_number: prNumber,
             });
 
-            if (pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
-              core.setFailed("Codex PR review only supports pull requests from this repository.");
-              return;
-            }
-
             core.setOutput("pr_number", String(pr.number));
             core.setOutput("title", pr.title);
             core.setOutput("body", pr.body || "");
@@ -154,6 +149,7 @@ jobs:
         env:
           CODEX_FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
           PR_NUMBER: ${{ steps.pr_context.outputs.pr_number }}
+          PR_HEAD_SHA: ${{ steps.pr_context.outputs.head_sha }}
         with:
           github-token: ${{ github.token }}
           script: |
@@ -161,6 +157,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: Number(process.env.PR_NUMBER),
+              commit_id: process.env.PR_HEAD_SHA,
               body: process.env.CODEX_FINAL_MESSAGE,
               event: "COMMENT",
             });
