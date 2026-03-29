@@ -135,6 +135,61 @@ struct StatusBarStatsTests {
     #expect(abs(stats.cost - expectedCost) < 0.001)
   }
 
+  @Test func resolvePrefersAuthoritativeSummaryWhenAvailable() {
+    let fallbackToday = StatusBarStats(
+      sessionCount: 9,
+      cost: 42,
+      tokens: 7_500,
+      costByModel: []
+    )
+    let fallbackAllTime = StatusBarStats(
+      sessionCount: 17,
+      cost: 120,
+      tokens: 24_000,
+      costByModel: []
+    )
+    let summary = ServerUsageSummarySnapshotPayload(
+      today: ServerUsageSummaryBucketPayload(
+        sessionCount: 2,
+        totalTokens: 1_234,
+        inputTokens: 800,
+        outputTokens: 434,
+        cachedTokens: 120,
+        totalCostUSD: 8.5,
+        costByModel: [
+          ServerUsageSummaryModelCostPayload(model: "GPT-5", costUSD: 5.0),
+          ServerUsageSummaryModelCostPayload(model: "Opus", costUSD: 3.5),
+        ]
+      ),
+      allTime: ServerUsageSummaryBucketPayload(
+        sessionCount: 4,
+        totalTokens: 8_765,
+        inputTokens: 5_000,
+        outputTokens: 3_765,
+        cachedTokens: 600,
+        totalCostUSD: 27.25,
+        costByModel: [
+          ServerUsageSummaryModelCostPayload(model: "GPT-5", costUSD: 14.0),
+          ServerUsageSummaryModelCostPayload(model: "Opus", costUSD: 13.25),
+        ]
+      )
+    )
+
+    let resolved = StatusBarStats.resolve(
+      summary: summary,
+      fallbackToday: fallbackToday,
+      fallbackAllTime: fallbackAllTime
+    )
+
+    #expect(resolved.today.sessionCount == 2)
+    #expect(resolved.today.tokens == 1_234)
+    #expect(resolved.today.cost == 8.5)
+    #expect(resolved.today.costByModel.map(\.model) == ["GPT-5", "Opus"])
+    #expect(resolved.allTime.sessionCount == 4)
+    #expect(resolved.allTime.tokens == 8_765)
+    #expect(resolved.allTime.cost == 27.25)
+  }
+
   private func makeSession(
     id: String,
     model: String,

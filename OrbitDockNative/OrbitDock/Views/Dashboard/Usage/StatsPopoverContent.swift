@@ -18,14 +18,12 @@ struct StatsPopoverContent: View {
   let todayStats: StatusBarStats
   let allStats: StatusBarStats
 
-  private var displayedTodayStats: StatusBarStats {
-    guard let summary = registry.summary else { return todayStats }
-    return StatusBarStats.from(summary.today)
-  }
-
-  private var displayedAllStats: StatusBarStats {
-    guard let summary = registry.summary else { return allStats }
-    return StatusBarStats.from(summary.allTime)
+  private var displayedStats: (today: StatusBarStats, allTime: StatusBarStats) {
+    StatusBarStats.resolve(
+      summary: registry.summary,
+      fallbackToday: todayStats,
+      fallbackAllTime: allStats
+    )
   }
 
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
@@ -43,11 +41,11 @@ struct StatsPopoverContent: View {
       VStack(alignment: .leading, spacing: Spacing.lg) {
         if layoutMode.isPhoneCompact {
           usageSection
-          statsSection(title: "Today", stats: displayedTodayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: displayedAllStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedStats.today, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedStats.allTime, accentColor: .textSecondary)
         } else {
-          statsSection(title: "Today", stats: displayedTodayStats, accentColor: .accent)
-          statsSection(title: "All Time", stats: displayedAllStats, accentColor: .textSecondary)
+          statsSection(title: "Today", stats: displayedStats.today, accentColor: .accent)
+          statsSection(title: "All Time", stats: displayedStats.allTime, accentColor: .textSecondary)
           usageSection
         }
       }
@@ -249,6 +247,20 @@ struct StatusBarStats {
   let cost: Double
   let tokens: Int
   let costByModel: [(model: String, cost: Double, color: Color)]
+
+  static func resolve(
+    summary: ServerUsageSummarySnapshotPayload?,
+    fallbackToday: StatusBarStats,
+    fallbackAllTime: StatusBarStats
+  ) -> (today: StatusBarStats, allTime: StatusBarStats) {
+    guard let summary else {
+      return (today: fallbackToday, allTime: fallbackAllTime)
+    }
+    return (
+      today: from(summary.today),
+      allTime: from(summary.allTime)
+    )
+  }
 
   static func from(_ bucket: ServerUsageSummaryBucketPayload) -> StatusBarStats {
     let sortedCosts = bucket.costByModel.map {

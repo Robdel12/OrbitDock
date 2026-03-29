@@ -290,6 +290,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
     u64,
     u64,
     u64,
+    bool,
   );
 
   let rows: Vec<LegacyTurnRow> = conn
@@ -303,12 +304,13 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
           ut.input_tokens,
           ut.output_tokens,
           ut.cached_tokens,
-          ut.context_window
+          ut.context_window,
+          ule.turn_id IS NOT NULL
        FROM usage_turns ut
-       JOIN sessions s ON s.id = ut.session_id
+       JOIN sessions s
+         ON s.id = ut.session_id
        LEFT JOIN usage_ledger_entries ule
          ON ule.session_id = ut.session_id AND ule.turn_id = ut.turn_id
-       WHERE ule.turn_id IS NULL
        ORDER BY ut.session_id ASC, ut.turn_seq ASC, ut.rowid ASC",
     )?
     .query_map([], |row| {
@@ -322,6 +324,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
         row.get::<_, i64>(6)?.max(0) as u64,
         row.get::<_, i64>(7)?.max(0) as u64,
         row.get::<_, i64>(8)?.max(0) as u64,
+        row.get(9)?,
       ))
     })?
     .collect::<Result<Vec<_>, _>>()?;
@@ -340,6 +343,7 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
     output_tokens,
     cached_tokens,
     context_window,
+    has_ledger_entry,
   ) in rows
   {
     let current = orbitdock_protocol::TokenUsage {
@@ -360,15 +364,17 @@ fn load_legacy_turn_rows_without_ledger(conn: &Connection) -> anyhow::Result<Vec
       normalized.cache_write_tokens,
     );
 
-    normalized_rows.push(UsageLedgerRow {
-      session_id: session_id.clone(),
-      model,
-      observed_at_unix: parse_timestamp_to_unix(created_at.as_deref()),
-      input_tokens: normalized.billable_input_tokens,
-      output_tokens: normalized.billable_output_tokens,
-      cached_tokens: normalized.cache_read_tokens,
-      cost_usd,
-    });
+    if !has_ledger_entry {
+      normalized_rows.push(UsageLedgerRow {
+        session_id: session_id.clone(),
+        model,
+        observed_at_unix: parse_timestamp_to_unix(created_at.as_deref()),
+        input_tokens: normalized.billable_input_tokens,
+        output_tokens: normalized.billable_output_tokens,
+        cached_tokens: normalized.cache_read_tokens,
+        cost_usd,
+      });
+    }
 
     previous_by_session.insert(session_id, current);
   }
@@ -612,5 +618,137 @@ mod tests {
 
     drop(conn);
     let _ = std::fs::remove_file(db_path);
+  }
+
+  #[test]
+  fn legacy_rows_after_ledger_entries_use_prior_session_usage_for_normalization() {
+    let conn = Connection::open_in_memory().expect("open sqlite db");
+
+    conn
+      .execute_batch(
+        "CREATE TABLE sessions (
+         id TEXT PRIMARY KEY,
+         provider TEXT,
+         model TEXT,
+         started_at TEXT
+       );
+       CREATE TABLE usage_ledger_entries (
+         session_id TEXT NOT NULL,
+         turn_id TEXT NOT NULL,
+         model TEXT,
+         session_started_at TEXT,
+         observed_at TEXT NOT NULL,
+         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
+         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
+         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+         estimated_cost_usd REAL NOT NULL DEFAULT 0,
+         PRIMARY KEY (session_id, turn_id)
+       );
+       CREATE TABLE usage_turns (
+         session_id TEXT NOT NULL,
+         turn_id TEXT NOT NULL,
+         turn_seq INTEGER NOT NULL DEFAULT 0,
+         created_at TEXT NOT NULL,
+         snapshot_kind TEXT,
+         input_tokens INTEGER NOT NULL DEFAULT 0,
+         output_tokens INTEGER NOT NULL DEFAULT 0,
+         cached_tokens INTEGER NOT NULL DEFAULT 0,
+         context_window INTEGER NOT NULL DEFAULT 0
+       );",
+      )
+      .expect("create schema");
+
+    conn
+      .execute(
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params!["session-1", "codex", "gpt-5.4", "2026-03-28T23:55:00Z"],
+      )
+      .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_turns (
+         session_id,
+         turn_id,
+         turn_seq,
+         created_at,
+         snapshot_kind,
+         input_tokens,
+         output_tokens,
+         cached_tokens,
+         context_window
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+          "session-1",
+          "turn-1",
+          1_i64,
+          "2026-03-28T23:58:00Z",
+          "lifetime_totals",
+          120_i64,
+          30_i64,
+          0_i64,
+          0_i64,
+        ],
+      )
+      .expect("insert first turn");
+    conn
+      .execute(
+        "INSERT INTO usage_turns (
+         session_id,
+         turn_id,
+         turn_seq,
+         created_at,
+         snapshot_kind,
+         input_tokens,
+         output_tokens,
+         cached_tokens,
+         context_window
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+          "session-1",
+          "turn-2",
+          2_i64,
+          "2026-03-29T00:10:00Z",
+          "lifetime_totals",
+          200_i64,
+          50_i64,
+          0_i64,
+          0_i64,
+        ],
+      )
+      .expect("insert second turn");
+    conn
+      .execute(
+        "INSERT INTO usage_ledger_entries (
+         session_id,
+         turn_id,
+         model,
+         session_started_at,
+         observed_at,
+         billable_input_tokens,
+         billable_output_tokens,
+         cache_read_tokens,
+         estimated_cost_usd
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+          "session-1",
+          "turn-1",
+          "gpt-5.4",
+          "2026-03-28T23:55:00Z",
+          "2026-03-28T23:58:00Z",
+          120_i64,
+          30_i64,
+          0_i64,
+          0.5_f64,
+        ],
+      )
+      .expect("insert ledger entry");
+
+    let rows = load_legacy_turn_rows_without_ledger(&conn).expect("load legacy rows");
+
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].session_id, "session-1");
+    assert_eq!(rows[0].input_tokens, 80);
+    assert_eq!(rows[0].output_tokens, 20);
+    assert_eq!(rows[0].cached_tokens, 0);
   }
 }
