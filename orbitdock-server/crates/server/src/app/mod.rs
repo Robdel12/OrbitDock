@@ -72,6 +72,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   crate::infrastructure::paths::ensure_dirs()?;
   crate::infrastructure::crypto::ensure_key();
   cleanup_stale_pid_file();
+  crate::infrastructure::housekeeping::run_housekeeping();
 
   let logging = init_logging(&options.logging)?;
   let run_id = logging.run_id.clone();

@@ -1025,4 +1025,3 @@ struct DemoModeExperience {
     return formatter.string(from: date)
   }
 }
-

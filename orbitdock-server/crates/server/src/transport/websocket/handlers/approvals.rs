@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::info;
 
 use crate::runtime::approval_dispatch::{dispatch_approve_tool, ApprovalDispatchResult};
 use crate::runtime::session_registry::SessionRegistry;
@@ -32,7 +31,7 @@ pub(crate) async fn handle(
   msg: ClientMessage,
   client_tx: &mpsc::Sender<OutboundMessage>,
   state: &Arc<SessionRegistry>,
-  conn_id: u64,
+  _conn_id: u64,
 ) {
   match msg {
     ClientMessage::ApproveTool {
@@ -43,16 +42,6 @@ pub(crate) async fn handle(
       interrupt,
       updated_input,
     } => {
-      info!(
-          component = "approval",
-          event = "approval.decision.received",
-          connection_id = conn_id,
-          session_id = %session_id,
-          request_id = %request_id,
-          decision = %decision,
-          "Approval decision received"
-      );
-
       let request_id_for_result = request_id.clone();
       let result = match dispatch_approve_tool(
         state,
@@ -83,19 +72,8 @@ pub(crate) async fn handle(
         }
       };
 
-      let promoted_request_id = result.active_request_id.clone();
       send_approval_decision_result(client_tx, session_id.clone(), request_id_for_result, result)
         .await;
-
-      if let Some(next_pending_request_id) = promoted_request_id {
-        info!(
-            component = "approval",
-            event = "approval.queue.promoted",
-            session_id = %session_id,
-            next_request_id = %next_pending_request_id,
-            "Promoted next queued approval"
-        );
-      }
     }
 
     ClientMessage::ListApprovals { session_id, .. } => {

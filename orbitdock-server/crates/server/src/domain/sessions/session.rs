@@ -22,7 +22,6 @@ pub use super::facets::{
 };
 use serde::Serialize;
 use tokio::sync::broadcast;
-use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
@@ -1481,11 +1480,6 @@ impl SessionHandle {
     }
   }
 
-  /// Set started_at timestamp
-  pub fn set_started_at(&mut self, started_at: Option<String>) {
-    self.timestamps.started_at = started_at;
-  }
-
   /// Set last_activity_at timestamp
   pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
     self.timestamps.last_activity_at = last_activity_at;
@@ -1800,31 +1794,11 @@ impl SessionHandle {
         *existing = next_entry;
       }
       self.approval_version += 1;
-      info!(
-          component = "approval",
-          event = "approval.updated",
-          session_id = %self.identity.id,
-          request_id = %normalized_request_id,
-          approval_version = self.approval_version,
-          approval_type = ?self.pending_approvals[index].approval_type,
-          queue_depth = self.pending_approvals.len(),
-          "Approval request updated in place"
-      );
       return PendingApprovalMutation::Updated;
     }
 
     self.pending_approvals.push_back(next_entry);
     self.approval_version += 1;
-    info!(
-        component = "approval",
-        event = "approval.enqueued",
-        session_id = %self.identity.id,
-        request_id = %normalized_request_id,
-        approval_version = self.approval_version,
-        approval_type = ?self.pending_approvals.back().map(|entry| entry.approval_type).unwrap_or(approval_type),
-        queue_depth = self.pending_approvals.len(),
-        "Approval request enqueued"
-    );
     PendingApprovalMutation::Enqueued
   }
 
@@ -1839,16 +1813,6 @@ impl SessionHandle {
       self.pending_question = entry.request.question.clone();
       self.pending_approval_id = Some(entry.request.id.clone());
       self.work_status = Self::work_status_for_approval_type(entry.approval_type);
-      info!(
-          component = "approval",
-          event = "approval.promoted",
-          session_id = %self.identity.id,
-          request_id = %entry.request.id,
-          approval_version = self.approval_version,
-          approval_type = ?entry.approval_type,
-          queue_depth = self.pending_approvals.len(),
-          "Promoted next approval to active"
-      );
       return;
     }
 
@@ -1869,7 +1833,6 @@ impl SessionHandle {
 
   fn clear_pending_approvals(&mut self) {
     let had_approvals = !self.pending_approvals.is_empty() || self.pending_approval.is_some();
-    let cleared_count = self.pending_approvals.len();
     self.pending_approvals.clear();
     self.pending_approval = None;
     self.pending_tool_name = None;
@@ -1878,14 +1841,6 @@ impl SessionHandle {
     self.pending_approval_id = None;
     if had_approvals {
       self.approval_version += 1;
-      info!(
-          component = "approval",
-          event = "approval.cleared",
-          session_id = %self.identity.id,
-          approval_version = self.approval_version,
-          cleared_count,
-          "Cleared all pending approvals"
-      );
     }
   }
 
@@ -2016,16 +1971,6 @@ impl SessionHandle {
       let _ = self.pending_approvals.pop_front();
     }
     self.approval_version += 1;
-    info!(
-        component = "approval",
-        event = "approval.decided",
-        session_id = %self.identity.id,
-        request_id = %removed.request.id,
-        approval_version = self.approval_version,
-        approval_type = ?removed.approval_type,
-        queue_depth = self.pending_approvals.len(),
-        "Approval decided and removed from queue"
-    );
     self.promote_queue_front();
     if self.pending_approvals.is_empty() {
       self.work_status = fallback_work_status;
