@@ -49,6 +49,44 @@ extension ServerCompatibilityError {
   }
 }
 
+enum ServerContractGuard {
+  static func compatibilityMessage(for error: Error, surface: String) -> String? {
+    switch error {
+      case let compatibility as ServerCompatibilityError:
+        return userFacingMessage(for: compatibility, surface: surface)
+      case let requestError as ServerRequestError:
+        switch requestError {
+          case let .incompatibleServer(compatibility):
+            return userFacingMessage(for: compatibility, surface: surface)
+          default:
+            return nil
+        }
+      case is DecodingError:
+        return
+          "OrbitDock couldn't read the server's \(surface) response. This usually means the server needs to be upgraded to match this app."
+      default:
+        return nil
+    }
+  }
+
+  private static func userFacingMessage(
+    for error: ServerCompatibilityError,
+    surface: String
+  ) -> String {
+    switch error {
+      case .incompatibleServer:
+        return error.errorDescription
+          ?? "This OrbitDock server is not compatible with the current app."
+      case .missingCompatibilityMetadata:
+        return
+          "OrbitDock couldn't verify server compatibility for \(surface). This usually means the server is too old for this app."
+      case .missingHelloHandshake:
+        return
+          "OrbitDock couldn't complete the server compatibility handshake. Make sure the server is upgraded to match this app."
+    }
+  }
+}
+
 struct ServerCompatibilityStatus: Codable, Equatable, Sendable {
   let compatible: Bool
   let serverCompatibility: String
@@ -155,11 +193,10 @@ struct ServerMetaResponse: Codable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     serverVersion = try container.decode(String.self, forKey: .serverVersion)
     compatibility = try container.decode(ServerCompatibilityStatus.self, forKey: .compatibility)
-    capabilities = try container.decode([String].self, forKey: .capabilities)
-    isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
+    capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? false
     clientPrimaryClaims =
-      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims)
-      ?? []
+      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
     updateStatus = try container.decodeIfPresent(ServerUpdateStatus.self, forKey: .updateStatus)
   }
 
