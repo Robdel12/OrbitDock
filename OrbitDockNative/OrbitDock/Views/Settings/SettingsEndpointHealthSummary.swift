@@ -78,16 +78,25 @@ struct SettingsEndpointHealthSummary: Equatable, Sendable {
 }
 
 extension SettingsEndpointHealthSummary {
-  static func current(for runtimeRegistry: ServerRuntimeRegistry) -> SettingsEndpointHealthSummary {
-    let endpointCount = runtimeRegistry.runtimes.count
-    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.displayConnectionStatus(for: runtime.id)
-      if case .connected = status {
+  static func connectedEnabledEndpointCount(
+    for runtimes: [ServerRuntime],
+    statusForEndpointId: (UUID) -> ConnectionStatus
+  ) -> Int {
+    runtimes.filter { runtime in
+      guard runtime.endpoint.isEnabled else { return false }
+      if case .connected = statusForEndpointId(runtime.id) {
         return true
       }
       return false
     }.count
+  }
+
+  static func current(for runtimeRegistry: ServerRuntimeRegistry) -> SettingsEndpointHealthSummary {
+    let endpointCount = runtimeRegistry.runtimes.count
+    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+    let connectedEndpointCount = connectedEnabledEndpointCount(for: runtimeRegistry.runtimes) {
+      runtimeRegistry.displayConnectionStatus(for: $0)
+    }
 
     return make(
       endpointCount: endpointCount,

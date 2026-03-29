@@ -12,9 +12,7 @@ struct ServerSetupPlannerTests {
     #expect(!ServerSetupViewPlanner.isLoopbackHost("orbitdock.example.com"))
   }
 
-  @Test func buildEndpointRejectsLoopbackOnIOS() throws {
-    // buildEndpoint has a #if os(iOS) guard that rejects loopback hosts.
-    // On macOS this test verifies the loopback path succeeds instead.
+  @Test func buildEndpointHandlesLoopbackForCurrentPlatform() throws {
     let result = ServerSetupViewPlanner.buildEndpoint(
       host: "127.0.0.1",
       authToken: "tok_test",
@@ -24,7 +22,13 @@ struct ServerSetupPlannerTests {
     )
 
     #if os(iOS)
-      #expect(result == .failure(.loopbackNotReachableFromIOS))
+      #if targetEnvironment(simulator)
+        let endpoints = try result.get()
+        #expect(endpoints.count == 1)
+        #expect(endpoints[0].name == "Loopback Server")
+      #else
+        #expect(result == .failure(.loopbackNotReachableFromIOS))
+      #endif
     #else
       let endpoints = try result.get()
       #expect(endpoints.count == 1)
