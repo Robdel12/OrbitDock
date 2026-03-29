@@ -16,7 +16,9 @@ use crate::domain::sessions::transition::Input;
 use crate::infrastructure::shell::{ShellCancelStatus, ShellOutcome, ShellResult};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::transport::shell_streaming::{ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS};
+use crate::transport::shell_streaming::{
+  prefer_streamed_shell_output, ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS,
+};
 
 const DEFAULT_SHELL_TIMEOUT_SECS: u64 = 120;
 
@@ -122,18 +124,8 @@ fn finalize_shell_result(
     ShellOutcome::Failed | ShellOutcome::TimedOut => true,
     ShellOutcome::Canceled => false,
   };
-  let combined_output = if result.stderr.is_empty() {
-    result.stdout.clone()
-  } else if result.stdout.is_empty() {
-    result.stderr.clone()
-  } else {
-    format!("{}\n{}", result.stdout, result.stderr)
-  };
-  let final_output = if combined_output.is_empty() {
-    streamed_output.unwrap_or_default()
-  } else {
-    combined_output
-  };
+  let final_output =
+    prefer_streamed_shell_output(&result.stdout, &result.stderr, streamed_output.as_deref());
   let outcome = match result.outcome {
     ShellOutcome::Completed => ShellExecutionOutcome::Completed,
     ShellOutcome::Failed => ShellExecutionOutcome::Failed,

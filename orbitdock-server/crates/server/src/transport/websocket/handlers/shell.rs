@@ -8,7 +8,9 @@ use orbitdock_protocol::{new_id, ClientMessage, ServerMessage, ShellExecutionOut
 
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::transport::shell_streaming::{ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS};
+use crate::transport::shell_streaming::{
+  prefer_streamed_shell_output, ShellStreamPreviewState, SHELL_STREAM_THROTTLE_MS,
+};
 use crate::transport::websocket::{send_json, OutboundMessage};
 
 fn shell_render_hints() -> RenderHints {
@@ -232,18 +234,11 @@ pub(crate) async fn handle(
           crate::infrastructure::shell::ShellOutcome::Canceled => false,
         };
         let _ = is_error; // preserved for future use
-        let combined_output = if result.stderr.is_empty() {
-          result.stdout.clone()
-        } else if result.stdout.is_empty() {
-          result.stderr.clone()
-        } else {
-          format!("{}\n{}", result.stdout, result.stderr)
-        };
-        let final_output = if combined_output.is_empty() {
-          preview_state.combined_preview().unwrap_or_default()
-        } else {
-          combined_output
-        };
+        let final_output = prefer_streamed_shell_output(
+          &result.stdout,
+          &result.stderr,
+          preview_state.combined_preview().as_deref(),
+        );
         let outcome = match result.outcome {
           crate::infrastructure::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
           crate::infrastructure::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
