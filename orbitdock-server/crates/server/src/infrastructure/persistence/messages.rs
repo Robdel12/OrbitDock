@@ -24,7 +24,7 @@ fn row_entry_from_db(
       Err(_) => return Ok(None),
     }
   } else {
-    // Legacy fallback: reconstruct from flat columns (id, type, content, timestamp).
+    // Legacy fallback: reconstruct from flat columns when reading older rows.
     match legacy_row_from_db(row) {
       Some(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
       None => return Ok(None),
@@ -108,7 +108,7 @@ pub(super) fn load_messages_from_db(
   session_id: &str,
 ) -> Result<Vec<ConversationRowEntry>, anyhow::Error> {
   let mut stmt = conn.prepare(
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
+    "SELECT id, type, NULL as content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?
          ORDER BY sequence",
@@ -154,13 +154,13 @@ pub(super) fn load_message_page_from_db(
   }
 
   let sql = if before_sequence.is_some() {
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
+    "SELECT id, type, NULL as content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1 AND sequence < ?2
          ORDER BY sequence DESC
          LIMIT ?3"
   } else {
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
+    "SELECT id, type, NULL as content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1
          ORDER BY sequence DESC
@@ -196,13 +196,13 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
 ) -> Result<Option<String>, rusqlite::Error> {
   let latest: Option<String> = conn
     .query_row(
-      "SELECT content
+      "SELECT json_extract(row_data, '$.content')
              FROM messages
              WHERE session_id = ?1
                AND type IN ('user', 'assistant')
                AND is_in_progress = 0
-               AND content IS NOT NULL
-               AND trim(content) != ''
+               AND row_data IS NOT NULL
+               AND trim(COALESCE(json_extract(row_data, '$.content'), '')) != ''
              ORDER BY sequence DESC
              LIMIT 1",
       params![session_id],
@@ -220,7 +220,7 @@ pub fn load_row_by_id(
   row_id: &str,
 ) -> Result<Option<ConversationRowEntry>, anyhow::Error> {
   let mut stmt = conn.prepare(
-    "SELECT id, type, content, timestamp, sequence, row_data, turn_status
+    "SELECT id, type, NULL as content, timestamp, sequence, row_data, turn_status
          FROM messages
          WHERE session_id = ?1 AND id = ?2
          LIMIT 1",

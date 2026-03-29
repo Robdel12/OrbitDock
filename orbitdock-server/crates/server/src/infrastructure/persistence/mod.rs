@@ -557,7 +557,7 @@ pub(super) fn execute_command(
       let row_data = serde_json::to_string(&entry.row).unwrap_or_else(|_| "{}".to_string());
       let now = chrono_now();
 
-      // Extract content for last_message updates
+      // Extract content for session summary updates.
       let content_text = extract_row_content(&entry.row);
       let is_user = entry.row.is_user_input();
 
@@ -565,22 +565,21 @@ pub(super) fn execute_command(
       // ON CONFLICT(id) DO NOTHING deduplicates by PK only — FK violations
       // on session_id still bubble up (unlike INSERT OR IGNORE which swallows all).
       conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+        "INSERT INTO messages (id, session_id, type, timestamp, sequence, row_data, turn_status)
+                 VALUES (?1, ?2, ?3, ?4, COALESCE(?5,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7, ?8)
+                   ?6, ?7)
                  ON CONFLICT(id) DO NOTHING",
-                params![
-                    row_id,
-                    session_id,
-                    row_type,
-                    content_text.as_deref().unwrap_or(""),
-                    now.clone(),
-                    assigned_sequence.map(|sequence| sequence as i64),
-                    row_data,
-                    turn_status_str(entry.turn_status),
-                ],
-            )?;
+        params![
+          row_id,
+          session_id,
+          row_type,
+          now.clone(),
+          assigned_sequence.map(|sequence| sequence as i64),
+          row_data,
+          turn_status_str(entry.turn_status),
+        ],
+      )?;
 
       // Read back DB-assigned sequence and send to caller if requested.
       if let Some(tx) = sequence_tx {
@@ -658,26 +657,24 @@ pub(super) fn execute_command(
 
       // DB computes sequence on insert; ON CONFLICT preserves original ordering.
       conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, row_data, turn_status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6,
+        "INSERT INTO messages (id, session_id, type, timestamp, sequence, row_data, turn_status)
+                 VALUES (?1, ?2, ?3, ?4, COALESCE(?5,
                    (SELECT MAX(sequence) + 1 FROM messages WHERE session_id = ?2), 0),
-                   ?7, ?8)
+                   ?6, ?7)
                  ON CONFLICT(id) DO UPDATE SET
                    type = excluded.type,
-                   content = excluded.content,
                    row_data = excluded.row_data,
                    turn_status = excluded.turn_status",
-                params![
-                    row_id,
-                    session_id,
-                    row_type,
-                    content_text.as_deref().unwrap_or(""),
-                    now.clone(),
-                    assigned_sequence.map(|sequence| sequence as i64),
-                    row_data,
-                    turn_status_str(entry.turn_status),
-                ],
-            )?;
+        params![
+          row_id,
+          session_id,
+          row_type,
+          now.clone(),
+          assigned_sequence.map(|sequence| sequence as i64),
+          row_data,
+          turn_status_str(entry.turn_status),
+        ],
+      )?;
 
       // Read back DB-assigned sequence and send to caller if requested.
       if let Some(tx) = sequence_tx {
