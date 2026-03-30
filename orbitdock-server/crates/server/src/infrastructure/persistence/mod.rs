@@ -15,8 +15,8 @@ mod review_comments;
 mod session_reads;
 mod startup_cleanup;
 mod subagents;
-mod sync_outbox;
 mod sync;
+mod sync_outbox;
 mod sync_writer;
 mod transcripts;
 mod usage;
@@ -63,9 +63,7 @@ pub(crate) use sync_outbox::{
   acknowledge_sync_outbox, append_sync_outbox_commands, current_sync_acked_through,
   load_pending_sync_envelopes,
 };
-pub(crate) use sync_writer::{
-  create_sync_shutdown_channel, SyncWriter, SyncWriterConfig,
-};
+pub(crate) use sync_writer::{create_sync_shutdown_channel, SyncWriter, SyncWriterConfig};
 #[allow(unused_imports)]
 pub(crate) use transcripts::{
   extract_summary_from_transcript, extract_summary_from_transcript_path,

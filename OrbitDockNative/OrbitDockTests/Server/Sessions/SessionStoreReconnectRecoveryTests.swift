@@ -192,6 +192,7 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   private(set) var subscribeCalls: [SubscribeCall] = []
   private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
   private(set) var appliedDashboardConversations: [[ServerDashboardConversationItem]] = []
+  private(set) var failedCompatibilityMessages: [String] = []
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
     unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
@@ -212,6 +213,10 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   }
 
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {}
+
+  func failCompatibility(message: String) {
+    failedCompatibilityMessages.append(message)
+  }
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {
     appliedSessionLists.append(sessions)

@@ -4,6 +4,4 @@ mod approval;
 mod handler;
 mod session_materialization;
 
-pub use handler::{
-  handle_hook_message,
-};
+pub use handler::handle_hook_message;

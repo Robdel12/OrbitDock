@@ -27,9 +27,7 @@ pub(crate) fn append_sync_outbox_commands(
       ],
     )
     .with_context(|| {
-      format!(
-        "insert sync outbox row for workspace {workspace_id} sequence {sequence}"
-      )
+      format!("insert sync outbox row for workspace {workspace_id} sequence {sequence}")
     })?;
   }
 
@@ -58,24 +56,23 @@ pub(crate) fn load_pending_sync_envelopes(
     .with_context(|| format!("prepare pending sync outbox load for workspace {workspace_id}"))?;
 
   let rows = stmt
-    .query_map(params![workspace_id, acked_through as i64, batch_size as i64], |row| {
-      let sequence = row.get::<_, i64>(0)? as u64;
-      let command_json: String = row.get(1)?;
-      let timestamp: String = row.get(2)?;
-      let command: SyncCommand = serde_json::from_str(&command_json).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-          1,
-          rusqlite::types::Type::Text,
-          Box::new(error),
-        )
-      })?;
-      Ok(SyncEnvelope {
-        sequence,
-        workspace_id: workspace_id.to_string(),
-        timestamp,
-        command,
-      })
-    })
+    .query_map(
+      params![workspace_id, acked_through as i64, batch_size as i64],
+      |row| {
+        let sequence = row.get::<_, i64>(0)? as u64;
+        let command_json: String = row.get(1)?;
+        let timestamp: String = row.get(2)?;
+        let command: SyncCommand = serde_json::from_str(&command_json).map_err(|error| {
+          rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
+        })?;
+        Ok(SyncEnvelope {
+          sequence,
+          workspace_id: workspace_id.to_string(),
+          timestamp,
+          command,
+        })
+      },
+    )
     .with_context(|| format!("query pending sync outbox for workspace {workspace_id}"))?
     .filter_map(|result| result.ok())
     .collect();
@@ -110,16 +107,15 @@ pub(crate) fn acknowledge_sync_outbox(
 
 fn next_sync_outbox_sequence(tx: &Transaction<'_>, workspace_id: &str) -> Result<u64> {
   let acked_through = current_sync_acked_through(tx, workspace_id)?;
-  let max_outbox_sequence = tx
-    .query_row(
+  let max_outbox_sequence =
+    tx.query_row(
       "SELECT COALESCE(MAX(sequence), 0)
          FROM sync_outbox
          WHERE workspace_id = ?1",
       params![workspace_id],
       |row| row.get::<_, i64>(0),
     )
-    .with_context(|| format!("load max outbox sequence for workspace {workspace_id}"))?
-    as u64;
+    .with_context(|| format!("load max outbox sequence for workspace {workspace_id}"))? as u64;
 
   Ok(acked_through.max(max_outbox_sequence) + 1)
 }

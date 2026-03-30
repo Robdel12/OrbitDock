@@ -28,12 +28,15 @@ pub struct PersistenceWriter {
 
 impl PersistenceWriter {
   /// Create a new persistence writer.
-  pub fn new(
-    rx: mpsc::Receiver<PersistCommand>,
-    sync_workspace_id: Option<String>,
-  ) -> Self {
+  pub fn new(rx: mpsc::Receiver<PersistCommand>, sync_workspace_id: Option<String>) -> Self {
     let db_path = crate::infrastructure::paths::db_path();
-    Self::build(rx, sync_workspace_id, db_path, 50, Duration::from_millis(100))
+    Self::build(
+      rx,
+      sync_workspace_id,
+      db_path,
+      50,
+      Duration::from_millis(100),
+    )
   }
 
   fn build(

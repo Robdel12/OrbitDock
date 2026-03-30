@@ -1,5 +1,5 @@
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -185,7 +185,12 @@ impl SyncWriter {
         return;
       }
 
-      if let Err(error) = self.post_batch(SyncBatchRequest { commands: Vec::new() }).await {
+      if let Err(error) = self
+        .post_batch(SyncBatchRequest {
+          commands: Vec::new(),
+        })
+        .await
+      {
         warn!(
           component = "sync",
           event = "sync.heartbeat.failed",
@@ -229,11 +234,11 @@ impl SyncWriter {
 }
 
 async fn persist_sync_ack_state(
-  db_path: &PathBuf,
+  db_path: &Path,
   workspace_id: &str,
   acked_through: u64,
 ) -> anyhow::Result<()> {
-  let db_path = db_path.clone();
+  let db_path = db_path.to_path_buf();
   let workspace_id = workspace_id.to_string();
   tokio::task::spawn_blocking(move || {
     let conn = Connection::open(&db_path)?;
@@ -243,8 +248,7 @@ async fn persist_sync_ack_state(
        PRAGMA synchronous = NORMAL;
        PRAGMA foreign_keys = ON;",
     )?;
-    acknowledge_sync_outbox(&conn, &workspace_id, acked_through)
-      .context("persist sync ack state")
+    acknowledge_sync_outbox(&conn, &workspace_id, acked_through).context("persist sync ack state")
   })
   .await
   .context("join sync ack task")?
@@ -328,34 +332,36 @@ mod tests {
 
   use super::*;
   use crate::infrastructure::migration_runner;
+  use crate::infrastructure::persistence::SyncCommand;
   use crate::infrastructure::persistence::{
     acknowledge_sync_outbox, append_sync_outbox_commands, load_pending_sync_envelopes,
   };
-  use crate::infrastructure::persistence::SyncCommand;
 
   fn setup_db() -> (TempDir, Connection) {
     let tempdir = TempDir::new().expect("tempdir");
     let db_path = tempdir.path().join("test.db");
     let mut conn = Connection::open(&db_path).expect("open db");
     migration_runner::run_migrations(&mut conn).expect("run migrations");
-    conn.execute(
-      "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, enabled, paused)
+    conn
+      .execute(
+        "INSERT INTO missions (id, name, repo_root, tracker_kind, provider, enabled, paused)
              VALUES ('mission-1', 'Mission', '/tmp/repo', 'linear', 'codex', 1, 0)",
-      [],
-    )
-    .expect("insert mission");
+        [],
+      )
+      .expect("insert mission");
     conn.execute(
       "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, orchestration_state, attempt)
              VALUES ('mi-1', 'mission-1', 'issue-1', '#1', 'queued', 0)",
       [],
     )
     .expect("insert mission issue");
-    conn.execute(
-      "INSERT INTO workspaces (id, mission_issue_id, branch, sync_token)
+    conn
+      .execute(
+        "INSERT INTO workspaces (id, mission_issue_id, branch, sync_token)
              VALUES ('workspace-1', 'mi-1', 'mission/issue-1', 'token-1')",
-      [],
-    )
-    .expect("insert workspace");
+        [],
+      )
+      .expect("insert workspace");
     (tempdir, conn)
   }
 
