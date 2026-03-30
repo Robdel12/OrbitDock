@@ -291,14 +291,14 @@ impl CodexAuthService {
   fn auth_mode_from_auth(auth: &CodexAuth) -> CodexAuthMode {
     match auth.auth_mode() {
       AuthMode::ApiKey => CodexAuthMode::ApiKey,
-      AuthMode::Chatgpt => CodexAuthMode::Chatgpt,
+      AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => CodexAuthMode::Chatgpt,
     }
   }
 
   fn account_from_auth(auth: &CodexAuth) -> CodexAccount {
     match auth.auth_mode() {
       AuthMode::ApiKey => CodexAccount::ApiKey,
-      AuthMode::Chatgpt => CodexAccount::Chatgpt {
+      AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => CodexAccount::Chatgpt {
         email: auth.get_account_email(),
         plan_type: auth
           .account_plan_type()

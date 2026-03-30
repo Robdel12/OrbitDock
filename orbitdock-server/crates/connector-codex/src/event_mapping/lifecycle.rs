@@ -89,9 +89,9 @@ pub(crate) async fn handle_session_configured(
     *effort = event.reasoning_effort;
   }
 
-  let git_info = codex_core::git_info::collect_git_info(&event.cwd).await;
+  let git_info = codex_git_utils::collect_git_info(&event.cwd).await;
   let (branch, sha) = match git_info {
-    Some(info) => (info.branch, info.commit_hash),
+    Some(info) => (info.branch, info.commit_hash.map(|s| s.0)),
     None => (None, None),
   };
 

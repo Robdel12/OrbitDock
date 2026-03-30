@@ -163,9 +163,9 @@ pub(crate) async fn handle_exec_command_begin(
   }
 
   let new_cwd = event.cwd.to_string_lossy().to_string();
-  let git_info = codex_core::git_info::collect_git_info(&event.cwd).await;
+  let git_info = codex_git_utils::collect_git_info(&event.cwd).await;
   let (new_branch, new_sha) = match git_info {
-    Some(info) => (info.branch, info.commit_hash),
+    Some(info) => (info.branch, info.commit_hash.map(|s| s.0)),
     None => (None, None),
   };
 

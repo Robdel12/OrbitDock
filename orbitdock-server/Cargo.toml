@@ -17,12 +17,14 @@ authors = ["Robert DeLuca"]
 
 [workspace.dependencies]
 # Codex direct integration (OSS: https://github.com/openai/codex)
-codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
-codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
-codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.116.0" }
+codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-git-utils = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
+codex-exec-server = { git = "https://github.com/openai/codex", tag = "rust-v0.117.0" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
@@ -58,7 +60,7 @@ anyhow = "1"
 futures = "0.3"
 bytes = "1"
 notify = "7"
-arc-swap = "1"
+arc-swap = "1.9"
 dashmap = "6"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 clap = { version = "4", features = ["derive", "env"] }
@@ -79,6 +81,9 @@ orbitdock-connector-core = { path = "crates/connector-core" }
 orbitdock-connector-claude = { path = "crates/connector-claude" }
 orbitdock-connector-codex = { path = "crates/connector-codex" }
 orbitdock-server = { path = "crates/server" }
+
+# Vendor OpenSSL for codex-core transitive dependencies (no libssl-dev needed)
+openssl = { version = "0.10", features = ["vendored"] }
 
 # Patches required by codex-core transitive dependencies
 [patch.crates-io]

@@ -249,6 +249,8 @@ fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
 
 fn hook_event_label(run: &HookRunSummary) -> &'static str {
   match run.event_name {
+    codex_protocol::protocol::HookEventName::PreToolUse => "pre_tool_use",
+    codex_protocol::protocol::HookEventName::PostToolUse => "post_tool_use",
     codex_protocol::protocol::HookEventName::SessionStart => "session start",
     codex_protocol::protocol::HookEventName::UserPromptSubmit => "prompt submit",
     codex_protocol::protocol::HookEventName::Stop => "stop",
