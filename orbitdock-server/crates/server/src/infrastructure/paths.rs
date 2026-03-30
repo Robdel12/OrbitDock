@@ -49,18 +49,6 @@ pub fn log_dir() -> PathBuf {
   data_dir().join("logs")
 }
 
-pub fn spool_dir() -> PathBuf {
-  data_dir().join("spool")
-}
-
-pub fn sync_spool_dir() -> PathBuf {
-  data_dir().join("sync-spool")
-}
-
-pub fn sync_spool_dir_for_workspace(workspace_id: &str) -> PathBuf {
-  sync_spool_dir().join(workspace_id)
-}
-
 pub fn hook_transport_config_path() -> PathBuf {
   data_dir().join("hook-forward.json")
 }
@@ -86,18 +74,12 @@ pub fn ensure_dirs() -> io::Result<()> {
   let base = data_dir();
   std::fs::create_dir_all(&base)?;
   let logs = base.join("logs");
-  let spool = base.join("spool");
-  let sync_spool = base.join("sync-spool");
   let images = base.join("images");
   std::fs::create_dir_all(&logs)?;
-  std::fs::create_dir_all(&spool)?;
-  std::fs::create_dir_all(&sync_spool)?;
   std::fs::create_dir_all(&images)?;
 
   secure_dir_permissions(&base)?;
   secure_dir_permissions(&logs)?;
-  secure_dir_permissions(&spool)?;
-  secure_dir_permissions(&sync_spool)?;
   secure_dir_permissions(&images)?;
 
   Ok(())

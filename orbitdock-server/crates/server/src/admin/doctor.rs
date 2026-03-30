@@ -58,7 +58,6 @@ pub fn print_diagnostics(data_dir: &Path) -> anyhow::Result<()> {
     check_auth_token(),
     check_hook_transport_config(),
     check_hooks_in_settings(),
-    check_spool_queue(),
     check_wal_size(),
     check_port(),
     check_health(),
@@ -352,54 +351,6 @@ fn check_hooks_in_settings() -> Check {
 
   let found = count_registered_hooks(&content, &expected_hooks);
   classify_hook_registration(found, expected_hooks.len())
-}
-
-fn check_spool_queue() -> Check {
-  let spool_dir = paths::spool_dir();
-  if !spool_dir.exists() {
-    return Check {
-      name: "Spool queue",
-      status: Status::Pass,
-      detail: "empty (no spool dir)".to_string(),
-    };
-  }
-
-  match std::fs::read_dir(&spool_dir) {
-    Ok(entries) => {
-      let count = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-          e.path()
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext == "json")
-            .unwrap_or(false)
-        })
-        .count();
-
-      if count == 0 {
-        Check {
-          name: "Spool queue",
-          status: Status::Pass,
-          detail: "empty".to_string(),
-        }
-      } else {
-        Check {
-          name: "Spool queue",
-          status: Status::Warn,
-          detail: format!(
-            "{} queued events (retried by hook-forward and drained on server start)",
-            count
-          ),
-        }
-      }
-    }
-    Err(e) => Check {
-      name: "Spool queue",
-      status: Status::Warn,
-      detail: format!("cannot read: {}", e),
-    },
-  }
 }
 
 fn check_wal_size() -> Check {

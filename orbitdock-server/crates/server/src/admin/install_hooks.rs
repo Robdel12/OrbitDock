@@ -11,8 +11,6 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::{fs::OpenOptions, os::fd::AsRawFd};
 
-use crate::infrastructure::paths;
-
 use super::hook_forward;
 
 /// All Claude Code hook types we register for.
@@ -331,7 +329,6 @@ fn print_install_summary(
   }
   if !installer_mode {
     println!("  Hook forward binary: {}", resolve_hook_binary_path());
-    println!("  Spool directory: {}", paths::spool_dir().display());
   }
   println!();
 }

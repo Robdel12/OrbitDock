@@ -145,15 +145,6 @@ fn render_metrics(state: &SessionRegistry) -> String {
     wal_size as f64,
   );
 
-  // Spool queue depth
-  let spool_depth = spool_queue_depth();
-  gauge(
-    &mut out,
-    "orbitdock_spool_queue_depth",
-    "Hook events queued in spool directory",
-    spool_depth as f64,
-  );
-
   out
 }
 
@@ -161,22 +152,4 @@ fn gauge(out: &mut String, name: &str, help: &str, value: f64) {
   let _ = writeln!(out, "# HELP {} {}", name, help);
   let _ = writeln!(out, "# TYPE {} gauge", name);
   let _ = writeln!(out, "{} {}", name, value);
-}
-
-fn spool_queue_depth() -> u64 {
-  let spool_dir = paths::spool_dir();
-  std::fs::read_dir(spool_dir)
-    .map(|entries| {
-      entries
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-          e.path()
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext == "json")
-            .unwrap_or(false)
-        })
-        .count() as u64
-    })
-    .unwrap_or(0)
 }

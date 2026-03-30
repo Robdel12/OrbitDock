@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use axum::{
   extract::DefaultBodyLimit,
@@ -28,8 +28,8 @@ use crate::domain::sessions::session::{
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
-  create_persistence_channel, create_sync_channel, create_sync_shutdown_channel,
-  load_sessions_for_startup, PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
+  create_persistence_channel, create_sync_shutdown_channel, load_sessions_for_startup,
+  PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
 use crate::runtime::restored_sessions::{
   load_prepared_resume_session, prepare_restored_session_for_direct_resume,
@@ -209,27 +209,30 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     }
   }
 
-  let (sync_tx, sync_shutdown_tx, sync_writer_handle) =
+  let (sync_shutdown_tx, sync_writer_handle) =
     if let Some(sync_options) = options.managed_sync.clone() {
-      let (sync_tx, sync_rx) = create_sync_channel();
       let (shutdown_tx, shutdown_rx) = create_sync_shutdown_channel();
       let sync_writer = SyncWriter::new(
-        sync_rx,
         shutdown_rx,
         SyncWriterConfig::new(
           sync_options.workspace_id,
+          crate::infrastructure::paths::db_path(),
           sync_options.server_url,
           sync_options.auth_token,
         ),
       )?;
       let writer_handle = tokio::spawn(sync_writer.run());
-      (Some(sync_tx), Some(shutdown_tx), Some(writer_handle))
+      (Some(shutdown_tx), Some(writer_handle))
     } else {
-      (None, None, None)
+      (None, None)
     };
 
   let (persist_tx, persist_rx) = create_persistence_channel();
-  let persistence_writer = PersistenceWriter::new(persist_rx, sync_tx);
+  let sync_workspace_id = options
+    .managed_sync
+    .as_ref()
+    .map(|sync_options| sync_options.workspace_id.clone());
+  let persistence_writer = PersistenceWriter::new(persist_rx, sync_workspace_id);
   tokio::spawn(persistence_writer.run());
 
   if persisted_is_primary.is_none() {
@@ -679,8 +682,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     }
   }
 
-  spawn_spool_replay(state.clone());
-
   {
     let summaries = state.get_session_summaries();
     for summary in &summaries {
@@ -1043,129 +1044,10 @@ fn binary_metadata(path: &str) -> (u64, i64) {
   (size, modified)
 }
 
-async fn drain_spool(state: &Arc<SessionRegistry>) {
-  let spool_dir = crate::infrastructure::paths::spool_dir();
-  let entries = match std::fs::read_dir(&spool_dir) {
-    Ok(entries) => entries,
-    Err(_) => return,
-  };
-
-  let mut files: Vec<PathBuf> = entries
-    .filter_map(|entry| entry.ok())
-    .map(|entry| entry.path())
-    .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-    .collect();
-
-  if files.is_empty() {
-    return;
-  }
-
-  files.sort();
-
-  let total = files.len();
-  let mut drained = 0u64;
-  let mut failed = 0u64;
-  let claude_replay_options =
-    crate::connectors::claude_hooks::ClaudeHookHandlingOptions::for_spool_replay();
-  let codex_replay_options =
-    crate::connectors::codex_hooks::CodexHookHandlingOptions::for_spool_replay();
-
-  for path in &files {
-    let content = match std::fs::read_to_string(path) {
-      Ok(content) => content,
-      Err(error) => {
-        warn!(
-            component = "spool",
-            event = "spool.read_error",
-            path = %path.display(),
-            error = %error,
-            "Failed to read spool file, skipping"
-        );
-        failed += 1;
-        continue;
-      }
-    };
-
-    let message: orbitdock_protocol::ClientMessage = match serde_json::from_str(&content) {
-      Ok(message) => message,
-      Err(error) => {
-        warn!(
-            component = "spool",
-            event = "spool.parse_error",
-            path = %path.display(),
-            error = %error,
-            "Failed to parse spool file, skipping"
-        );
-        failed += 1;
-        continue;
-      }
-    };
-
-    match crate::connectors::hook_handler::classify_hook_provider(&message) {
-      Some(orbitdock_protocol::Provider::Claude) => {
-        crate::connectors::claude_hooks::handle_hook_message_with_options(
-          message,
-          state,
-          claude_replay_options.clone(),
-        )
-        .await;
-      }
-      Some(orbitdock_protocol::Provider::Codex) => {
-        crate::connectors::codex_hooks::handle_hook_message_with_options(
-          message,
-          state,
-          codex_replay_options.clone(),
-        )
-        .await;
-      }
-      None => {
-        warn!(
-          component = "spool",
-          event = "spool.unsupported_message",
-          path = %path.display(),
-          "Skipping spooled message that is not a supported hook payload"
-        );
-        failed += 1;
-        continue;
-      }
-    }
-    let _ = std::fs::remove_file(path);
-    drained += 1;
-  }
-
-  info!(
-    component = "spool",
-    event = "spool.drained",
-    total = total,
-    drained = drained,
-    failed = failed,
-    "Spool drain complete"
-  );
-}
-
-fn spawn_spool_replay(state: Arc<SessionRegistry>) {
-  tokio::spawn(async move {
-    let started_at = Instant::now();
-    info!(
-      component = "spool",
-      event = "spool.replay.started",
-      "Replaying spooled hooks in background"
-    );
-    drain_spool(&state).await;
-    info!(
-      component = "spool",
-      event = "spool.replay.completed",
-      elapsed_ms = started_at.elapsed().as_millis() as u64,
-      "Background spool replay completed"
-    );
-  });
-}
-
 #[cfg(test)]
 mod tests {
-  use super::{drain_spool, resolve_workspace_provider_kind};
-  use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
-  use orbitdock_protocol::{ClientMessage, Provider, WorkspaceProviderKind};
+  use super::resolve_workspace_provider_kind;
+  use orbitdock_protocol::WorkspaceProviderKind;
 
   #[test]
   fn workspace_provider_override_wins_over_persisted_value() {
@@ -1184,62 +1066,5 @@ mod tests {
       resolve_workspace_provider_kind(None, None).expect("workspace provider should default");
 
     assert_eq!(resolved, WorkspaceProviderKind::Local);
-  }
-
-  #[tokio::test]
-  async fn drain_spool_dispatches_mixed_provider_hook_messages() {
-    ensure_server_test_data_dir();
-    crate::infrastructure::paths::ensure_dirs().expect("create spool dirs");
-    let spool_dir = crate::infrastructure::paths::spool_dir();
-    let _ = std::fs::remove_dir_all(&spool_dir);
-    std::fs::create_dir_all(&spool_dir).expect("recreate spool dir");
-
-    let claude_payload = serde_json::to_string(&ClientMessage::ClaudeSessionStart {
-      session_id: "claude-sdk-1".to_string(),
-      cwd: "/tmp/claude-repo".to_string(),
-      model: Some("claude-opus-4-6".to_string()),
-      source: Some("startup".to_string()),
-      context_label: None,
-      transcript_path: Some("/tmp/claude-repo/transcript.jsonl".to_string()),
-      permission_mode: None,
-      agent_type: None,
-      terminal_session_id: None,
-      terminal_app: None,
-    })
-    .expect("serialize claude spool payload");
-    let codex_payload = serde_json::to_string(&ClientMessage::CodexUserPromptSubmit {
-      session_id: "codex-thread-1".to_string(),
-      cwd: "/tmp/codex-repo".to_string(),
-      transcript_path: Some("/tmp/codex-repo/transcript.jsonl".to_string()),
-      model: Some("gpt-5-codex".to_string()),
-      turn_id: Some("turn-1".to_string()),
-      prompt: "Ship it".to_string(),
-    })
-    .expect("serialize codex spool payload");
-
-    std::fs::write(spool_dir.join("001-claude.json"), claude_payload)
-      .expect("write claude spool file");
-    std::fs::write(spool_dir.join("002-codex.json"), codex_payload)
-      .expect("write codex spool file");
-
-    let state = new_test_session_registry(true);
-    drain_spool(&state).await;
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
-
-    assert_eq!(
-      state.peek_pending_hook_cwd(Provider::Claude, "claude-sdk-1"),
-      Some("/tmp/claude-repo".to_string())
-    );
-
-    let codex_session = state
-      .get_session("codex-thread-1")
-      .expect("codex spool replay should materialize passive session");
-    let snapshot = codex_session.snapshot();
-    assert_eq!(snapshot.provider, Provider::Codex);
-    assert_eq!(
-      snapshot.transcript_path.as_deref(),
-      Some("/tmp/codex-repo/transcript.jsonl")
-    );
   }
 }

@@ -519,7 +519,7 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 ├── codex-rollout-state.json  # Codex file watcher offsets
 ├── logs/
 │   └── server.log            # Structured JSON logs
-└── spool/                    # Queued hook events (retried by hook-forward; drained on startup)
+└── sync_outbox rows          # Managed workspace sync queue lives in SQLite
 ```
 
 ## Persistence

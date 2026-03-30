@@ -79,8 +79,7 @@ Common paths:
 - encryption key: `<data_dir>/encryption.key`
 - server log: `<data_dir>/logs/server.log`
 - codex log: `<data_dir>/logs/codex.log`
-- hook spool: `<data_dir>/spool/`
-- managed sync spool: `<data_dir>/sync-spool/<workspace_id>/`
+- managed sync outbox: `sync_outbox` rows in `<data_dir>/orbitdock.db`
 - codex rollout watcher state: `<data_dir>/codex-rollout-state.json`
 - launchd plist: `~/Library/LaunchAgents/com.orbitdock.server.plist`
 

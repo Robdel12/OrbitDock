@@ -15,6 +15,7 @@ mod review_comments;
 mod session_reads;
 mod startup_cleanup;
 mod subagents;
+mod sync_outbox;
 mod sync;
 mod sync_writer;
 mod transcripts;
@@ -58,8 +59,12 @@ pub(crate) use subagents::{load_subagent_transcript_path, load_subagents_for_ses
 #[cfg(test)]
 pub(crate) use sync::SyncSessionCreateParams;
 pub(crate) use sync::{SyncBatchRequest, SyncCommand, SyncEnvelope};
+pub(crate) use sync_outbox::{
+  acknowledge_sync_outbox, append_sync_outbox_commands, current_sync_acked_through,
+  load_pending_sync_envelopes,
+};
 pub(crate) use sync_writer::{
-  create_sync_channel, create_sync_shutdown_channel, SyncWriter, SyncWriterConfig,
+  create_sync_shutdown_channel, SyncWriter, SyncWriterConfig,
 };
 #[allow(unused_imports)]
 pub(crate) use transcripts::{

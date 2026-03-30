@@ -328,7 +328,6 @@ Available metrics:
 - `orbitdock_sessions_by_provider{provider="claude|codex"}`
 - `orbitdock_sessions_by_status{status="working|permission|..."}`
 - `orbitdock_db_size_bytes` / `orbitdock_db_wal_size_bytes`
-- `orbitdock_spool_queue_depth`
 
 ### Logging
 
@@ -377,7 +376,7 @@ Run diagnostics:
 orbitdock doctor
 ```
 
-Checks: data directory, database, encryption key, Claude CLI, auth token, hook transport config, hooks in settings.json, spool queue, WAL size, port availability, health endpoint, disk space.
+Checks: data directory, database, encryption key, Claude CLI, auth token, hook transport config, hooks in settings.json, WAL size, port availability, health endpoint, disk space.
 
 ### Common Issues
 
@@ -393,8 +392,7 @@ Auth token mismatch. Issue a new token with `orbitdock generate-token`, then rer
 **"Events not arriving"**
 1. Check hook transport config exists: `ls -la ~/.orbitdock/hook-forward.json`
 2. Check hooks in settings: `cat ~/.claude/settings.json | jq '.hooks'`
-3. Check spool: `ls ~/.orbitdock/spool/` (queued = server temporarily unreachable)
-4. Test manually: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event`
+3. Test manually: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock hook-forward claude_status_event`
 
 **Large WAL file**
 SQLite WAL should checkpoint automatically. If it grows beyond 50MB, restart the server. Check with `orbitdock doctor`.

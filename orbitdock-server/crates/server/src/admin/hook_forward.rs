@@ -1,12 +1,10 @@
 //! `orbitdock hook-forward` — internal Claude hook transport.
 //!
 //! Reads a Claude hook JSON payload from stdin, wraps it into an OrbitDock
-//! client message (`type` field), POSTs it to `/api/hook`, and spools on
-//! transient failures. This replaces shell-script transport.
+//! client message (`type` field), and POSTs it to `/api/hook`.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use clap::ValueEnum;
@@ -126,8 +124,12 @@ pub fn forward_hook_event(
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()?;
+  let client = reqwest::Client::builder()
+    .connect_timeout(std::time::Duration::from_secs(2))
+    .timeout(std::time::Duration::from_secs(5))
+    .build()?;
 
-  runtime.block_on(forward_with_spool(&plan.target, &plan.body))
+  runtime.block_on(post_hook(&client, &plan.target, &plan.body))
 }
 
 pub fn write_transport_config(
@@ -301,131 +303,6 @@ fn inject_session_start_terminal_fields(obj: &mut Map<String, Value>) {
   }
 }
 
-async fn forward_with_spool(target: &HookTarget, current_body: &str) -> anyhow::Result<()> {
-  paths::ensure_dirs().context("ensure hook spool directory")?;
-  let spool_dir = paths::spool_dir();
-
-  if should_spool_locally_without_network(target, &paths::pid_file_path()) {
-    spool_event(&spool_dir, current_body)?;
-    return Ok(());
-  }
-
-  let client = reqwest::Client::builder()
-    .connect_timeout(Duration::from_secs(2))
-    .timeout(Duration::from_secs(5))
-    .build()?;
-
-  let mut queued = load_spool_files(&spool_dir);
-  queued.sort_by(|a, b| a.0.cmp(&b.0));
-
-  for (path, body) in queued {
-    if post_hook(&client, target, &body).await.is_err() {
-      spool_event(&spool_dir, current_body)?;
-      return Ok(());
-    }
-    let _ = std::fs::remove_file(path);
-  }
-
-  if post_hook(&client, target, current_body).await.is_err() {
-    spool_event(&spool_dir, current_body)?;
-  }
-
-  Ok(())
-}
-
-fn should_spool_locally_without_network(target: &HookTarget, pid_path: &Path) -> bool {
-  if !is_local_server_url(&target.server_url) {
-    return false;
-  }
-
-  !pid_file_indicates_live_process(pid_path)
-}
-
-fn pid_file_indicates_live_process(pid_path: &Path) -> bool {
-  let pid_str = match std::fs::read_to_string(pid_path) {
-    Ok(content) => content,
-    Err(_) => return false,
-  };
-
-  let pid = match pid_str.trim().parse::<u32>() {
-    Ok(pid) if pid > 0 => pid,
-    _ => return false,
-  };
-
-  process_alive(pid)
-}
-
-fn is_local_server_url(server_url: &str) -> bool {
-  let parsed = match reqwest::Url::parse(server_url) {
-    Ok(url) => url,
-    Err(_) => return false,
-  };
-
-  match parsed.host_str() {
-    Some("localhost" | "127.0.0.1" | "::1") => true,
-    Some(host) => host == "0.0.0.0",
-    None => false,
-  }
-}
-
-fn process_alive(pid: u32) -> bool {
-  #[cfg(unix)]
-  {
-    unsafe { libc::kill(pid as i32, 0) == 0 }
-  }
-
-  #[cfg(not(unix))]
-  {
-    let _ = pid;
-    true
-  }
-}
-
-fn load_spool_files(spool_dir: &Path) -> Vec<(PathBuf, String)> {
-  let entries = match std::fs::read_dir(spool_dir) {
-    Ok(entries) => entries,
-    Err(_) => return Vec::new(),
-  };
-
-  entries
-    .filter_map(|entry| entry.ok().map(|e| e.path()))
-    .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-    .filter_map(|path| std::fs::read_to_string(&path).ok().map(|body| (path, body)))
-    .collect()
-}
-
-fn spool_event(spool_dir: &Path, body: &str) -> anyhow::Result<()> {
-  std::fs::create_dir_all(spool_dir)?;
-  let ts = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_millis();
-  let pid = std::process::id();
-  let filename = format!("{ts}-{pid}.json");
-
-  let path = spool_dir.join(filename);
-  #[cfg(unix)]
-  {
-    let mut file = std::fs::OpenOptions::new()
-      .write(true)
-      .create_new(true)
-      .mode(0o600)
-      .open(&path)
-      .with_context(|| format!("open {} for write", path.display()))?;
-    file
-      .write_all(body.as_bytes())
-      .with_context(|| format!("write {}", path.display()))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-      .with_context(|| format!("chmod 600 {}", path.display()))?;
-  }
-  #[cfg(not(unix))]
-  {
-    std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
-  }
-
-  Ok(())
-}
-
 async fn post_hook(
   client: &reqwest::Client,
   target: &HookTarget,
@@ -452,8 +329,7 @@ async fn post_hook(
 mod tests {
   use super::{
     build_hook_body, normalize_client_server_url, normalize_server_url, plan_forwarded_hook,
-    pid_file_indicates_live_process, resolve_hook_target_with_persisted,
-    should_spool_locally_without_network, HookForwardType, HookTarget, HookTransportConfig,
+    resolve_hook_target_with_persisted, HookForwardType, HookTransportConfig,
   };
 
   #[test]
@@ -554,33 +430,5 @@ mod tests {
       value.get("type").and_then(|value| value.as_str()),
       Some("claude_tool_event")
     );
-  }
-
-  #[test]
-  fn local_orbitdock_server_without_pid_file_spools_without_network() {
-    let target = HookTarget {
-      server_url: "http://127.0.0.1:4000".to_string(),
-      auth_token: None,
-    };
-    let pid_path = std::path::PathBuf::from("/tmp/definitely-missing-orbitdock.pid");
-
-    assert!(should_spool_locally_without_network(&target, &pid_path));
-  }
-
-  #[test]
-  fn remote_server_urls_never_short_circuit_to_spool() {
-    let target = HookTarget {
-      server_url: "https://orbitdock.example.com".to_string(),
-      auth_token: None,
-    };
-    let pid_path = std::path::PathBuf::from("/tmp/definitely-missing-orbitdock.pid");
-
-    assert!(!should_spool_locally_without_network(&target, &pid_path));
-  }
-
-  #[test]
-  fn pid_file_indicates_live_process_requires_a_real_pid() {
-    let pid_path = std::path::PathBuf::from("/tmp/definitely-missing-orbitdock.pid");
-    assert!(!pid_file_indicates_live_process(&pid_path));
   }
 }
