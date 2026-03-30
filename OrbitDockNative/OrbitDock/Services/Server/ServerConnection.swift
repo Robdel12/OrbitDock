@@ -301,6 +301,18 @@ final class ServerConnection {
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
 
+  func failCompatibility(message: String) {
+    let failureGeneration = invalidateConnectionGeneration()
+    pruneStaleConnectionProbe(for: failureGeneration)
+    teardownConnectionTasks()
+    lastConnectedAt = nil
+    setStatus(.failed(message))
+    netLog(.error, cat: .ws, "Connection marked incompatible", data: [
+      "message": message,
+      "url": serverURL?.absoluteString ?? "nil",
+    ])
+  }
+
   // MARK: - Outbound WS messages
 
   func subscribeDashboard(sinceRevision: UInt64? = nil) {

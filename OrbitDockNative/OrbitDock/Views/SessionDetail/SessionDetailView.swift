@@ -38,29 +38,7 @@ struct SessionDetailView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      #if os(macOS)
-        // Custom header on macOS (no native nav bar)
-        HeaderView(
-          sessionId: sessionId,
-          endpointId: endpointId,
-          presentation: screenPresentation,
-          codexAccountStatus: scopedServerState.codexAccountStatus,
-          onEndSession: screenPresentation.isActive ? { viewModel.endSession() } : nil,
-          layoutConfig: screenPresentation.isDirect ? $viewModel.layoutConfig : nil,
-          chatViewMode: $chatViewMode,
-          workerPanelVisible: $showWorkerPanel,
-          hasWorkerPanelContent: workerRosterPresentation != nil
-        )
-
-        Divider()
-          .foregroundStyle(Color.panelBorder)
-      #else
-        // iOS: status strip only (native nav bar handles title + back)
-        iOSStatusStrip
-
-        Divider()
-          .foregroundStyle(Color.panelBorder)
-      #endif
+      topChrome
 
       // Diff-available banner
       if viewModel.showDiffBanner, viewModel.layoutConfig == .conversationOnly {
@@ -88,16 +66,7 @@ struct SessionDetailView: View {
       terminalStripSection
 
       SessionDetailFooter(mode: footerMode) {
-        DirectSessionComposer(
-          sessionId: sessionId,
-          sessionStore: scopedServerState,
-          selectedSkills: $viewModel.selectedSkills,
-          pendingPanelOpenSignal: viewModel.pendingApprovalPanelOpenSignal,
-          followMode: viewModel.followMode,
-          unreadCount: viewModel.unreadCount,
-          onJumpToLatest: viewModel.jumpConversationToLatest,
-          onTogglePinned: viewModel.toggleConversationFollowMode
-        )
+        directSessionFooter
       } takeOverBar: {
         TakeOverInputBar(
           onTakeOver: {
@@ -319,16 +288,24 @@ struct SessionDetailView: View {
 
   // MARK: - Terminal Strip
 
+  private var controlDeckTerminalSession: TerminalSessionController? {
+    guard viewModel.showTerminalPanel,
+          let terminalId = viewModel.activeTerminalId
+    else { return nil }
+    return terminalRegistry.session(for: terminalId)
+  }
+
   @ViewBuilder
   var terminalStripSection: some View {
-    if viewModel.showTerminalPanel,
+    if screenPresentation.isDirect {
+      EmptyView()
+    } else if viewModel.showTerminalPanel,
        let terminalId = viewModel.activeTerminalId,
        let session = terminalRegistry.session(for: terminalId) {
       VStack(spacing: 0) {
-        // Active terminal — show live strip (always visible when terminal exists)
-        TerminalLiveStrip(session: session) {
+        TerminalLiveStrip(session: session, onTap: {
           handleTerminalStripTap(session: session)
-        }
+        }, fallbackPath: screenPresentation.projectPath)
         .transition(.move(edge: .bottom).combined(with: .opacity))
 
         #if os(macOS)
@@ -343,33 +320,186 @@ struct SessionDetailView: View {
         TerminalInteractiveSheet(session: session)
       }
       #endif
-    } else if screenPresentation.isActive || screenPresentation.isDirect {
+    } else if screenPresentation.isActive {
       // No terminal — show launch button
       terminalLaunchStrip
     }
+  }
+
+  private var directSessionFooter: some View {
+    VStack(spacing: 0) {
+      if screenPresentation.isActive || screenPresentation.displayStatus != .ended {
+        directSessionDockHeader
+      }
+
+      #if os(macOS)
+        if let session = controlDeckTerminalSession, viewModel.showInlineTerminal {
+          dividerLine
+
+          terminalPanel(session: session)
+            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
+      #endif
+
+      dividerLine
+
+      ControlDeckScreen(
+        sessionId: sessionId,
+        sessionStore: scopedServerState,
+        chromeStyle: .embedded,
+        terminalTitle: controlDeckTerminalSession?.title,
+        sessionDisplayStatus: screenPresentation.displayStatus,
+        currentTool: currentTool,
+        onToggleTerminal: {
+          if let session = controlDeckTerminalSession {
+            handleTerminalStripTap(session: session)
+          }
+        }
+      )
+    }
+    .background(Color.backgroundSecondary)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .strokeBorder(Color.panelBorder, lineWidth: 1)
+    )
+    .padding(.horizontal, Spacing.sm)
+    .padding(.bottom, Spacing.xs)
+    #if os(iOS)
+    .fullScreenCover(isPresented: $viewModel.showTerminalInteractiveSheet) {
+      if let session = controlDeckTerminalSession {
+        TerminalInteractiveSheet(session: session)
+      } else {
+        Color.clear
+      }
+    }
+    #endif
+  }
+
+  @ViewBuilder
+  private var topChrome: some View {
+    #if os(macOS)
+      // Custom header on macOS (no native nav bar)
+      HeaderView(
+        sessionId: sessionId,
+        endpointId: endpointId,
+        presentation: screenPresentation,
+        codexAccountStatus: scopedServerState.codexAccountStatus,
+        onEndSession: screenPresentation.isActive ? { viewModel.endSession() } : nil,
+        layoutConfig: screenPresentation.isDirect ? $viewModel.layoutConfig : nil,
+        chatViewMode: $chatViewMode,
+        workerPanelVisible: $showWorkerPanel,
+        hasWorkerPanelContent: workerRosterPresentation != nil
+      )
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+    #else
+      // iOS: status strip only (native nav bar handles title + back)
+      iOSStatusStrip
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+    #endif
+  }
+
+  @ViewBuilder
+  private var directSessionDockHeader: some View {
+    VStack(spacing: 0) {
+      OrbitStatusIndicator(
+        displayStatus: screenPresentation.displayStatus,
+        currentTool: currentTool,
+        chromeStyle: .embedded
+      )
+
+      if let session = controlDeckTerminalSession {
+        dividerLine
+
+        TerminalLiveStrip(session: session, onTap: {
+          handleTerminalStripTap(session: session)
+        }, fallbackPath: screenPresentation.projectPath, chromeStyle: .embedded)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      } else if screenPresentation.isActive {
+        dividerLine
+
+        terminalLaunchStrip
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+    }
+    .padding(.top, Spacing.xs)
+    .padding(.bottom, Spacing.xxs)
+  }
+
+  private var dividerLine: some View {
+    Color.surfaceBorder.opacity(0.28)
+      .frame(height: 1)
+      .padding(.horizontal, Spacing.md)
+  }
+
+  private var terminalLaunchTitle: String {
+    shortenedTerminalPath(screenPresentation.projectPath) ?? "Launch interactive shell"
   }
 
   private var terminalLaunchStrip: some View {
     Button {
       launchTerminal()
     } label: {
-      HStack(spacing: Spacing.sm_) {
-        Image(systemName: "terminal")
-          .font(.system(size: TypeScale.meta, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
+        Image(systemName: "chevron.right")
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.terminal)
+          .frame(width: 12, height: 16)
 
-        Text("Terminal")
-          .font(.system(size: TypeScale.meta, weight: .medium))
-          .foregroundStyle(Color.textQuaternary)
+        HStack(spacing: Spacing.xs) {
+          Text("Terminal")
+            .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Color.textPrimary)
+
+          Text("·")
+            .font(.system(size: TypeScale.meta, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+
+          Text(terminalLaunchTitle)
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
 
         Spacer(minLength: 0)
+
+        Image(systemName: "plus.circle.fill")
+          .font(.system(size: IconScale.xs, weight: .bold))
+          .foregroundStyle(Color.accent)
       }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.vertical, Spacing.sm_)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.xs)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .help("Launch terminal")
+  }
+
+  private func shortenedTerminalPath(_ raw: String?) -> String? {
+    guard let raw else { return nil }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    let path = trimmed.replacingOccurrences(of: "^~", with: NSHomeDirectory(), options: .regularExpression)
+    let home = NSHomeDirectory()
+    if path.hasPrefix(home) {
+      let suffix = String(path.dropFirst(home.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      if suffix.isEmpty { return "~" }
+      if let last = suffix.split(separator: "/").last {
+        return "~/\(last)"
+      }
+      return "~"
+    }
+
+    if let last = path.split(separator: "/").last, !last.isEmpty {
+      return String(last)
+    }
+    return trimmed
   }
 
   private func handleTerminalStripTap(session: TerminalSessionController) {

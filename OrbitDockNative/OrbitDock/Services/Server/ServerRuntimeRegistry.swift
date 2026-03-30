@@ -904,6 +904,13 @@ final class ServerRuntimeRegistry {
       runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
       return .success
     } catch {
+      if let message = ServerContractGuard.compatibilityMessage(
+        for: error,
+        surface: "dashboard bootstrap"
+      ) {
+        runtime.connection.failCompatibility(message: message)
+        return .stop
+      }
       netLog(
         .error,
         cat: .api,
@@ -928,6 +935,13 @@ final class ServerRuntimeRegistry {
       runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
       return .success
     } catch {
+      if let message = ServerContractGuard.compatibilityMessage(
+        for: error,
+        surface: "missions bootstrap"
+      ) {
+        runtime.connection.failCompatibility(message: message)
+        return .stop
+      }
       netLog(
         .error,
         cat: .api,

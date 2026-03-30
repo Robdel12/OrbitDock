@@ -18,6 +18,7 @@ protocol SessionStoreConnection: AnyObject {
   func removeListener(_ token: ServerConnectionListenerToken)
   func subscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64?)
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface)
+  func failCompatibility(message: String)
 }
 
 extension ServerConnection: SessionStoreConnection {}
@@ -382,6 +383,12 @@ final class SessionStore {
       )
       return bootstrap
     } catch {
+      if let message = ServerContractGuard.compatibilityMessage(
+        for: error,
+        surface: "session bootstrap"
+      ) {
+        connection.failCompatibility(message: message)
+      }
       netLog(
         .error,
         cat: .conv,

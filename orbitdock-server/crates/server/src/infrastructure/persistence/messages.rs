@@ -5,17 +5,17 @@ use orbitdock_protocol::Provider;
 use rusqlite::{params, Connection, OptionalExtension};
 
 /// Column layout for all message SELECT queries:
-///   0: id, 1: type, 2: content, 3: timestamp, 4: sequence, 5: row_data, 6: turn_status
+///   0: id, 1: type, 2: timestamp, 3: sequence, 4: row_data, 5: turn_status
 const MESSAGE_SELECT: &str =
-  "SELECT id, type, content, timestamp, sequence, row_data, turn_status FROM messages";
+  "SELECT id, type, timestamp, sequence, row_data, turn_status FROM messages";
 
 /// Deserialize a ConversationRowEntry from a database row.
 fn row_entry_from_db(
   row: &rusqlite::Row<'_>,
   session_id: &str,
 ) -> Result<Option<ConversationRowEntry>, rusqlite::Error> {
-  let sequence: i64 = row.get::<_, Option<i64>>(4)?.unwrap_or(0);
-  let row_data: Option<String> = row.get(5)?;
+  let sequence: i64 = row.get::<_, Option<i64>>(3)?.unwrap_or(0);
+  let row_data: Option<String> = row.get(4)?;
   let msg_type: String = row.get(1)?;
 
   let conversation_row = if let Some(json) = row_data {
@@ -27,15 +27,12 @@ fn row_entry_from_db(
       Err(_) => return Ok(None),
     }
   } else {
-    // Legacy fallback: reconstruct from flat columns when reading older rows.
-    match legacy_row_from_db(row) {
-      Some(cr) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, cr),
-      None => return Ok(None),
-    }
+    // No row_data — skip. Legacy flat columns have been dropped (V042).
+    return Ok(None);
   };
 
   let turn_status: TurnStatus = row
-    .get::<_, Option<String>>(6)
+    .get::<_, Option<String>>(5)
     .ok()
     .flatten()
     .and_then(|s| serde_json::from_value(serde_json::Value::String(s)).ok())
@@ -48,35 +45,6 @@ fn row_entry_from_db(
     turn_status,
     row: conversation_row,
   }))
-}
-
-/// Build a ConversationRow from the legacy flat columns for pre-V022 messages.
-fn legacy_row_from_db(row: &rusqlite::Row<'_>) -> Option<ConversationRow> {
-  let id: String = row.get(0).ok()?;
-  let msg_type: String = row.get(1).ok()?;
-  let content: String = row.get::<_, Option<String>>(2).ok()?.unwrap_or_default();
-  let timestamp: Option<String> = row.get(3).ok()?;
-
-  let msg = orbitdock_protocol::conversation_contracts::MessageRowContent {
-    id,
-    content,
-    turn_id: None,
-    timestamp,
-    is_streaming: false,
-    images: Vec::new(),
-    memory_citation: None,
-    delivery_status: None,
-  };
-
-  match msg_type.as_str() {
-    "user" => Some(ConversationRow::User(msg)),
-    "steer" => Some(ConversationRow::Steer(msg)),
-    "assistant" => Some(ConversationRow::Assistant(msg)),
-    "thinking" => Some(ConversationRow::Thinking(msg)),
-    "system" => Some(ConversationRow::System(msg)),
-    // Tool, approval, question, etc. — render as system messages so they're visible.
-    _ => Some(ConversationRow::System(msg)),
-  }
 }
 
 fn normalize_legacy_message_kind(
@@ -187,31 +155,26 @@ pub(super) fn load_latest_completed_conversation_message_from_db(
   conn: &Connection,
   session_id: &str,
 ) -> Result<Option<String>, rusqlite::Error> {
-  let latest: Option<(Option<String>, Option<String>)> = conn
+  let row_data: Option<String> = conn
     .query_row(
-      "SELECT row_data, content
+      "SELECT row_data
              FROM messages
              WHERE session_id = ?1
                AND type IN ('user', 'assistant')
                AND is_in_progress = 0
-               AND (
-                   (row_data IS NOT NULL AND trim(COALESCE(json_extract(row_data, '$.content'), '')) != '')
-                   OR (row_data IS NULL AND trim(COALESCE(content, '')) != '')
-               )
+               AND row_data IS NOT NULL
              ORDER BY sequence DESC
              LIMIT 1",
       params![session_id],
-      |row| Ok((row.get(0)?, row.get(1)?)),
+      |row| row.get(0),
     )
     .optional()?;
 
-  let content = latest.and_then(|(row_data, legacy_content)| match row_data {
-    Some(json) => serde_json::from_str::<ConversationRow>(&json)
+  let content = row_data.and_then(|json| {
+    serde_json::from_str::<ConversationRow>(&json)
       .ok()
       .and_then(|row| super::extract_row_content(&row))
       .filter(|s| !s.trim().is_empty())
-      .or_else(|| legacy_content.filter(|s| !s.trim().is_empty())),
-    None => legacy_content.filter(|s| !s.trim().is_empty()),
   });
 
   Ok(content.map(|c| c.chars().take(200).collect()))
