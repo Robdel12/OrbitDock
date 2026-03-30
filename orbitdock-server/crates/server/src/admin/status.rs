@@ -167,7 +167,17 @@ pub fn revoke_auth_token(token_id: &str) -> anyhow::Result<()> {
 
 fn process_alive(pid: u32) -> bool {
   // kill -0 checks if process exists without sending a signal
-  unsafe { libc::kill(pid as i32, 0) == 0 }
+  unsafe {
+    let result = libc::kill(pid as i32, 0);
+    if result == 0 {
+      return true;
+    }
+
+    matches!(
+      std::io::Error::last_os_error().raw_os_error(),
+      Some(libc::EPERM)
+    )
+  }
 }
 
 fn check_health() -> bool {

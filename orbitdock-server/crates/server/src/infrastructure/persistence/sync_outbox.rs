@@ -74,8 +74,11 @@ pub(crate) fn load_pending_sync_envelopes(
       },
     )
     .with_context(|| format!("query pending sync outbox for workspace {workspace_id}"))?
-    .filter_map(|result| result.ok())
-    .collect();
+    .enumerate()
+    .map(|(index, result)| {
+      result.with_context(|| format!("decode sync outbox row {index} for workspace {workspace_id}"))
+    })
+    .collect::<Result<Vec<_>>>()?;
 
   Ok(rows)
 }

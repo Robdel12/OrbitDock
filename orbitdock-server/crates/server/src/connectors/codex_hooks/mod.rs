@@ -36,7 +36,6 @@ pub struct CodexHookHandlingOptions {
 }
 
 impl CodexHookHandlingOptions {
-  #[cfg(test)]
   pub fn for_spool_replay() -> Self {
     Self {
       transcript_sync_gate: Some(Arc::new(tokio::sync::Mutex::new(HashSet::new()))),
