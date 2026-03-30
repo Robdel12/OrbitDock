@@ -3,9 +3,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use codex_app_server_protocol::{
-    MarketplaceInterface, PluginAuthPolicy, PluginInstallParams, PluginInstallPolicy,
-    PluginInstallResponse, PluginInterface, PluginListResponse, PluginMarketplaceEntry,
-    PluginSource, PluginSummary, PluginUninstallParams, PluginUninstallResponse,
+    MarketplaceInterface, MarketplaceLoadErrorInfo, PluginAuthPolicy, PluginInstallParams,
+    PluginInstallPolicy, PluginInstallResponse, PluginInterface, PluginListResponse,
+    PluginMarketplaceEntry, PluginSource, PluginSummary, PluginUninstallParams,
+    PluginUninstallResponse,
 };
 use codex_core::auth::{AuthCredentialsStoreMode, AuthManager};
 use codex_core::SteerInputError;
@@ -291,6 +292,11 @@ impl CodexConnector {
                     "Turn mismatch: expected {expected}, got {actual}"
                 )))
             }
+            Err(SteerInputError::ActiveTurnNotSteerable { turn_kind }) => {
+                Err(ConnectorError::ProviderError(format!(
+                    "Active turn is not steerable: {turn_kind:?}"
+                )))
+            }
         }
     }
 
@@ -327,7 +333,7 @@ impl CodexConnector {
         if force_remote_sync {
             let auth = self.plugin_auth().await;
             if let Err(err) = plugins_manager
-                .sync_plugins_from_remote(&config, auth.as_ref())
+                .sync_plugins_from_remote(&config, auth.as_ref(), false)
                 .await
             {
                 remote_sync_error = Some(err.to_string());
@@ -343,32 +349,44 @@ impl CodexConnector {
             .collect::<Result<_, _>>()?;
 
         let marketplaces = tokio::task::spawn_blocking(move || {
-            let marketplaces = plugins_manager.list_marketplaces_for_config(&config, &roots)?;
-            Ok::<Vec<PluginMarketplaceEntry>, codex_core::plugins::MarketplaceError>(
-                marketplaces
-                    .into_iter()
-                    .filter_map(|marketplace| {
-                        let plugins = marketplace
-                            .plugins
-                            .into_iter()
-                            .filter(|plugin| {
-                                session_source.matches_product_restriction(&plugin.policy.products)
-                            })
-                            .map(map_plugin_summary)
-                            .collect::<Vec<_>>();
-
-                        (!plugins.is_empty()).then_some(PluginMarketplaceEntry {
-                            name: marketplace.name,
-                            path: marketplace.path,
-                            interface: marketplace.interface.map(|interface| {
-                                MarketplaceInterface {
-                                    display_name: interface.display_name,
-                                }
-                            }),
-                            plugins,
+            let outcome = plugins_manager.list_marketplaces_for_config(&config, &roots)?;
+            let marketplace_load_errors: Vec<MarketplaceLoadErrorInfo> = outcome
+                .errors
+                .into_iter()
+                .map(|e| MarketplaceLoadErrorInfo {
+                    marketplace_path: e.path,
+                    message: e.message,
+                })
+                .collect();
+            let marketplaces: Vec<PluginMarketplaceEntry> = outcome
+                .marketplaces
+                .into_iter()
+                .filter_map(|marketplace| {
+                    let plugins = marketplace
+                        .plugins
+                        .into_iter()
+                        .filter(|plugin| {
+                            session_source.matches_product_restriction(
+                                plugin.policy.products.as_deref().unwrap_or(&[]),
+                            )
                         })
+                        .map(map_plugin_summary)
+                        .collect::<Vec<_>>();
+
+                    (!plugins.is_empty()).then_some(PluginMarketplaceEntry {
+                        name: marketplace.name,
+                        path: marketplace.path,
+                        interface: marketplace.interface.map(|interface| {
+                            MarketplaceInterface {
+                                display_name: interface.display_name,
+                            }
+                        }),
+                        plugins,
                     })
-                    .collect(),
+                })
+                .collect();
+            Ok::<(Vec<PluginMarketplaceEntry>, Vec<MarketplaceLoadErrorInfo>), codex_core::plugins::MarketplaceError>(
+                (marketplaces, marketplace_load_errors),
             )
         })
         .await
@@ -379,9 +397,13 @@ impl CodexConnector {
             ConnectorError::ProviderError(format!("Failed to list plugin marketplaces: {}", e))
         })?;
 
+        let (marketplaces, marketplace_load_errors) = marketplaces;
+
         Ok(PluginListResponse {
             marketplaces,
+            marketplace_load_errors,
             remote_sync_error,
+            featured_plugin_ids: Vec::new(),
         })
     }
 

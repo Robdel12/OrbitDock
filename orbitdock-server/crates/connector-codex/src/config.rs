@@ -5,6 +5,7 @@ use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, ThreadManager};
+use codex_exec_server::EnvironmentManager;
 use codex_protocol::config_types::{
     CollaborationMode, CollaborationModeMask, ModeKind, Personality, ReasoningSummary, ServiceTier,
     Settings,
@@ -155,6 +156,7 @@ impl CodexConnector {
             auth_manager.clone(),
             SessionSource::Mcp,
             CollaborationModesConfig::default(),
+            Arc::new(EnvironmentManager::new(None)),
         ));
         Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
@@ -283,6 +285,7 @@ impl CodexConnector {
             auth_manager.clone(),
             SessionSource::Mcp,
             CollaborationModesConfig::default(),
+            Arc::new(EnvironmentManager::new(None)),
         ));
         Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
 
@@ -493,6 +496,7 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         auth_manager,
         SessionSource::Mcp,
         CollaborationModesConfig::default(),
+        Arc::new(EnvironmentManager::new(None)),
     ));
 
     let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
