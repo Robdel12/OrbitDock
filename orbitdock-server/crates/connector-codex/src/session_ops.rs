@@ -276,11 +276,9 @@ impl CodexConnector {
       Err(SteerInputError::ExpectedTurnMismatch { expected, actual }) => Err(
         ConnectorError::ProviderError(format!("Turn mismatch: expected {expected}, got {actual}")),
       ),
-      Err(SteerInputError::ActiveTurnNotSteerable { turn_kind }) => {
-        Err(ConnectorError::ProviderError(format!(
-          "Active turn is not steerable: {turn_kind:?}"
-        )))
-      }
+      Err(SteerInputError::ActiveTurnNotSteerable { turn_kind }) => Err(
+        ConnectorError::ProviderError(format!("Active turn is not steerable: {turn_kind:?}")),
+      ),
     }
   }
 
@@ -350,9 +348,8 @@ impl CodexConnector {
             .plugins
             .into_iter()
             .filter(|plugin| {
-              session_source.matches_product_restriction(
-                plugin.policy.products.as_deref().unwrap_or(&[]),
-              )
+              session_source
+                .matches_product_restriction(plugin.policy.products.as_deref().unwrap_or(&[]))
             })
             .map(map_plugin_summary)
             .collect::<Vec<_>>();

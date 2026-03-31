@@ -619,7 +619,9 @@ mod tests {
                 interface: None,
               }],
             }],
+            marketplace_load_errors: Vec::new(),
             remote_sync_error: None,
+            featured_plugin_ids: Vec::new(),
           };
           let _ = reply_tx.send(Ok(response));
         }
