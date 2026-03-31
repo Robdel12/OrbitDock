@@ -204,7 +204,6 @@ final class ServerConnection {
   private var reconnectRetryHint: RetryHint?
   private var protocolHeaderMode: ProtocolHeaderMode = .modern
   private var compatibilityFailureMessage: String?
-  private var pendingHandshakeMessages: [ServerToClientMessage] = []
 
   private static let handshakeTimeout: TimeInterval = 10
   private static let stableConnectionThreshold: TimeInterval = 30
@@ -329,7 +328,6 @@ final class ServerConnection {
     requiresManualReconnect = true
     compatibilityFailureMessage = message
     lastConnectedAt = nil
-    pendingHandshakeMessages.removeAll()
     setStatus(.failed(message))
     netLog(.error, cat: .ws, "Connection marked incompatible", data: [
       "message": message,
@@ -566,7 +564,6 @@ final class ServerConnection {
 
     teardownConnectionTasks()
     lastConnectedAt = nil
-    pendingHandshakeMessages.removeAll()
 
     let wasConnecting: Bool
     if case .connecting = connectionStatus {
@@ -878,20 +875,11 @@ final class ServerConnection {
     do {
       let msg = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
       if case .connecting = connectionStatus {
-        switch validateHandshake(message: msg, messageType: messageType, expectedGeneration: generation) {
-          case .complete:
-            completeConnection(expectedGeneration: generation)
-          case .continueWaiting:
-            pendingHandshakeMessages.append(msg)
-            return
-          case .failed:
-            return
-        }
+        guard validateHandshake(message: msg, messageType: messageType, expectedGeneration: generation)
+        else { return }
+        completeConnection(expectedGeneration: generation)
       }
       routeMessage(msg)
-      if case .hello = msg {
-        flushPendingHandshakeMessages()
-      }
     } catch {
       let preview = String(text.prefix(500))
       netLog(.error, cat: .ws, "Failed to decode frame", sid: sessionId, data: [
@@ -902,37 +890,31 @@ final class ServerConnection {
     }
   }
 
-  private enum HandshakeDisposition {
-    case complete
-    case continueWaiting
-    case failed
-  }
-
   private func validateHandshake(
     message: ServerToClientMessage,
     messageType: String?,
     expectedGeneration generation: UInt64
-  ) -> HandshakeDisposition {
+  ) -> Bool {
     switch message {
       case let .hello(hello):
         do {
           try hello.validateCompatibility()
-          return .complete
+          return true
         } catch {
           failHandshake(error, expectedGeneration: generation)
-          return .failed
+          return false
         }
       case .serverInfo:
         // Legacy servers may still send `server_info` before their realtime
-        // updates begin. We keep waiting for hello so we can still validate
-        // version compatibility before marking the connection healthy.
-        return .continueWaiting
+        // updates begin. Accept it as the handshake frame so older servers
+        // can still connect.
+        return true
       default:
         failHandshake(
           ServerVersionError.missingHelloHandshake(messageType: messageType ?? "unknown"),
           expectedGeneration: generation
         )
-        return .failed
+        return false
     }
   }
 
@@ -945,21 +927,11 @@ final class ServerConnection {
     reconnectRetryHint = nil
     requiresManualReconnect = true
     lastConnectedAt = nil
-    pendingHandshakeMessages.removeAll()
 
     let message = (error as? LocalizedError)?.errorDescription
       ?? String(describing: error)
     netLog(.error, cat: .ws, "Server handshake failed", data: ["error": message])
     setStatus(.failed(message))
-  }
-
-  private func flushPendingHandshakeMessages() {
-    guard !pendingHandshakeMessages.isEmpty else { return }
-    let pendingMessages = pendingHandshakeMessages
-    pendingHandshakeMessages.removeAll()
-    for pendingMessage in pendingMessages {
-      routeMessage(pendingMessage)
-    }
   }
 
   private func routeMessage(_ message: ServerToClientMessage) {
