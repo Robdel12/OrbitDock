@@ -4,8 +4,8 @@ import Testing
 
 @MainActor
 struct SessionStoreReconnectRecoveryTests {
-  fileprivate nonisolated static let fixtureServerVersion = OrbitDockProtocol.releaseVersion
-  fileprivate nonisolated static let fixtureMinimumClientVersion = OrbitDockProtocol.clientVersion
+  fileprivate nonisolated static let fixtureServerVersion = "0.9.0"
+  fileprivate nonisolated static let fixtureMinimumClientVersion = "0.4.0"
 
   @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
     let counter = RequestCounter()
@@ -233,7 +233,7 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   private(set) var subscribeCalls: [SubscribeCall] = []
   private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
   private(set) var appliedDashboardConversations: [[ServerDashboardConversationItem]] = []
-  private(set) var failedCompatibilityMessages: [String] = []
+  private(set) var failedConnectionMessages: [String] = []
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
     unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
@@ -259,8 +259,8 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
     subscribeCalls.removeAll()
   }
 
-  func failCompatibility(message: String) {
-    failedCompatibilityMessages.append(message)
+  func failConnection(message: String) {
+    failedConnectionMessages.append(message)
   }
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {

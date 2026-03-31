@@ -41,7 +41,7 @@ An endpoint is only query-ready when:
 
 This matters because “server reachable” is not enough. A healthy socket without a loaded dashboard snapshot should not be treated as a fully bootstrapped client state.
 
-The handshake itself is part of readiness. The first WebSocket frame must be `hello`, and the client should reject the connection if the server reports the pair as incompatible instead of trying to operate in a degraded mode.
+The handshake itself is part of readiness. The first WebSocket frame must be `hello`. The client should treat connection and bootstrap failures as normal transport errors instead of trying to infer a protocol-version mismatch from them.
 
 ## Dashboard Flow
 

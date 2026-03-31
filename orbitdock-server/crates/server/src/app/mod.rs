@@ -755,9 +755,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     auth_state,
     crate::infrastructure::auth::auth_middleware,
   ));
-  app = app.layer(axum::middleware::from_fn(
-    crate::infrastructure::protocol_compat::version_middleware,
-  ));
 
   let mut app = app.layer(TraceLayer::new_for_http());
   if let Some(cors_layer) = configured_cors_layer()? {

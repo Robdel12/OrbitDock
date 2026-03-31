@@ -243,24 +243,6 @@ struct ServerHTTPClient: Sendable {
   }
 
   private func validate(response: HTTPResponse, method: String, path: String) throws {
-    do {
-      try response.validateServerVersionHeaders()
-    } catch let error as ServerVersionError {
-      netLog(
-        .error,
-        cat: .api,
-        "HTTP version handshake failed \(method) \(path)",
-        data: [
-          "serverVersion": response.headerValue(for: "X-OrbitDock-Server-Version") ?? "-",
-          "minimumClientVersion": response.headerValue(for: "X-OrbitDock-Minimum-Client-Version") ?? "-",
-          "clientVersion": OrbitDockProtocol.clientVersion,
-          "minimumServerVersion": OrbitDockProtocol.minimumServerVersion,
-          "error": error.localizedDescription,
-        ]
-      )
-      throw ServerRequestError.incompatibleServer(error)
-    }
-
     guard (200 ..< 300).contains(response.statusCode) else {
       let apiError = try? Self.decoder.decode(APIErrorResponse.self, from: response.body)
       netLog(

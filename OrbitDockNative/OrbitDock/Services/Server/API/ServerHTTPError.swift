@@ -6,7 +6,6 @@ enum ServerRequestError: LocalizedError {
   case invalidEndpoint
   case invalidResponse
   case transport(HTTPTransportError)
-  case incompatibleServer(ServerVersionError)
   case httpStatus(Int, code: String? = nil, message: String? = nil)
 
   var statusCode: Int? {
@@ -43,8 +42,6 @@ enum ServerRequestError: LocalizedError {
         "Server returned an invalid response."
       case let .transport(error):
         error.errorDescription
-      case let .incompatibleServer(error):
-        error.errorDescription
       case let .httpStatus(status, code, message):
         if let code, let message {
           "Server request failed with status \(status) (\(code)): \(message)"
@@ -57,12 +54,7 @@ enum ServerRequestError: LocalizedError {
   }
 
   var recoverySuggestion: String? {
-    switch self {
-      case let .incompatibleServer(error):
-        error.recoverySuggestion
-      default:
-        nil
-    }
+    nil
   }
 }
 

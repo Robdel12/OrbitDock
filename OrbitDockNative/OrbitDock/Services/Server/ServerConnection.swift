@@ -145,14 +145,9 @@ enum ServerEvent: Sendable {
 
 /// Main-actor facade for one OrbitDock server endpoint.
 /// `EndpointTransport` owns raw HTTP + WebSocket mechanics; this type owns
-/// app-facing state, handshake validation, and typed event fanout.
+/// app-facing state and typed event fanout.
 @MainActor
 final class ServerConnection {
-  private enum ProtocolHeaderMode: Equatable {
-    case modern
-    case legacy
-  }
-
   private struct RetryHint {
     let minimumDelay: TimeInterval
     let waitingMessage: String
@@ -202,8 +197,6 @@ final class ServerConnection {
   private var reconnectTask: Task<Void, Never>?
   private var connectionGeneration: UInt64 = 0
   private var reconnectRetryHint: RetryHint?
-  private var protocolHeaderMode: ProtocolHeaderMode = .modern
-  private var compatibilityFailureMessage: String?
 
   private static let handshakeTimeout: TimeInterval = 10
   private static let stableConnectionThreshold: TimeInterval = 30
@@ -225,44 +218,14 @@ final class ServerConnection {
   /// Execute an HTTP request through the endpoint transport.
   /// HTTP reachability is independent from dashboard bootstrap state.
   func execute(_ request: URLRequest) async throws -> HTTPResponse {
-    if let compatibilityFailureMessage {
-      throw ServerRequestError.httpStatus(
-        426,
-        code: "incompatible_client",
-        message: compatibilityFailureMessage
-      )
-    }
-
     var preparedRequest = request
-    applyProtocolHeaders(to: &preparedRequest, mode: protocolHeaderMode)
-    let response = try await transport.execute(preparedRequest)
-
-    guard shouldFallbackToLegacy(from: response) else {
-      cacheCompatibilityFailureIfNeeded(from: response)
-      return response
-    }
-
-    netLog(
-      .warning,
-      cat: .api,
-      "Falling back to legacy compatibility headers after HTTP 426"
-    )
-    protocolHeaderMode = .legacy
-
-    var legacyRequest = request
-    applyProtocolHeaders(to: &legacyRequest, mode: .legacy)
-    let legacyResponse = try await transport.execute(legacyRequest)
-    cacheCompatibilityFailureIfNeeded(from: legacyResponse)
-    return legacyResponse
+    applyProtocolHeaders(to: &preparedRequest)
+    return try await transport.execute(preparedRequest)
   }
 
   // MARK: - WebSocket connection
 
   func connect(to url: URL) {
-    if serverURL != url {
-      protocolHeaderMode = .modern
-      compatibilityFailureMessage = nil
-    }
     serverURL = url
     switch connectionStatus {
       case .disconnected, .failed:
@@ -309,7 +272,6 @@ final class ServerConnection {
     circuitBreaker.reset()
     reconnectRetryHint = nil
     requiresManualReconnect = false
-    compatibilityFailureMessage = nil
     lastConnectedAt = nil
     latestSessionListItems = []
     latestDashboardConversationItems = []
@@ -320,16 +282,15 @@ final class ServerConnection {
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
 
-  func failCompatibility(message: String) {
+  func failConnection(message: String) {
     let failureGeneration = invalidateConnectionGeneration()
     pruneStaleConnectionProbe(for: failureGeneration)
     teardownConnectionTasks()
     reconnectRetryHint = nil
     requiresManualReconnect = true
-    compatibilityFailureMessage = message
     lastConnectedAt = nil
     setStatus(.failed(message))
-    netLog(.error, cat: .ws, "Connection marked incompatible", data: [
+    netLog(.error, cat: .ws, "Connection marked failed", data: [
       "message": message,
       "url": serverURL?.absoluteString ?? "nil",
     ])
@@ -414,11 +375,6 @@ final class ServerConnection {
       guard !Task.isCancelled else { return }
       await transport.connect(
         to: serverURL,
-        clientVersion: OrbitDockProtocol.clientVersion,
-        clientCompatibility: OrbitDockProtocol.clientCompatibility,
-        minimumServerVersion: protocolHeaderMode == .modern
-          ? OrbitDockProtocol.minimumServerVersion
-          : nil,
         generation: generation,
         onEvent: { [weak self] event in
           guard let self else { return }
@@ -687,23 +643,6 @@ final class ServerConnection {
 
       switch response.statusCode {
         case 200 ..< 300:
-          if let meta = try? JSONDecoder().decode(ServerMetaResponse.self, from: response.body) {
-            do {
-              try meta.validateCompatibility()
-            } catch {
-              if let message = ServerContractGuard.versionMessage(
-                for: error,
-                surface: "WebSocket handshake"
-              ) {
-                return DisconnectDiagnosis(message: message, shouldReconnect: false, retryHint: nil)
-              }
-              return DisconnectDiagnosis(
-                message: (error as? LocalizedError)?.errorDescription ?? String(describing: error),
-                shouldReconnect: false,
-                retryHint: nil
-              )
-            }
-          }
           return DisconnectDiagnosis(
             message:
               "HTTP is reachable, but WebSocket upgrade failed. Check reverse-proxy support for `/ws` upgrades.",
@@ -773,40 +712,15 @@ final class ServerConnection {
     return components.url
   }
 
-  private func applyProtocolHeaders(to request: inout URLRequest, mode: ProtocolHeaderMode) {
-    request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
+  private func applyProtocolHeaders(to request: inout URLRequest) {
     request.setValue(
-      OrbitDockProtocol.clientCompatibility,
+      "0.4.0",
+      forHTTPHeaderField: "X-OrbitDock-Client-Version"
+    )
+    request.setValue(
+      "server_authoritative_session_v1",
       forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
     )
-    switch mode {
-      case .modern:
-        request.setValue(
-          OrbitDockProtocol.minimumServerVersion,
-          forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version"
-        )
-      case .legacy:
-        request.setValue(nil, forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version")
-    }
-  }
-
-  private func shouldFallbackToLegacy(from response: HTTPResponse) -> Bool {
-    guard protocolHeaderMode == .modern else { return false }
-    guard response.statusCode == 426 else { return false }
-    guard let apiError = decodeAPIError(from: response.body) else { return false }
-    return apiError.code == "incompatible_client"
-  }
-
-  private func cacheCompatibilityFailureIfNeeded(from response: HTTPResponse) {
-    guard let message = incompatibleClientMessage(from: response) else { return }
-    compatibilityFailureMessage = message
-  }
-
-  private func incompatibleClientMessage(from response: HTTPResponse) -> String? {
-    guard response.statusCode == 426 else { return nil }
-    guard let apiError = decodeAPIError(from: response.body) else { return nil }
-    guard apiError.code == "incompatible_client" else { return nil }
-    return apiError.error
   }
 
   private func scheduleReconnect(expectedGeneration generation: UInt64) {
@@ -896,14 +810,8 @@ final class ServerConnection {
     expectedGeneration generation: UInt64
   ) -> Bool {
     switch message {
-      case let .hello(hello):
-        do {
-          try hello.validateCompatibility()
-          return true
-        } catch {
-          failHandshake(error, expectedGeneration: generation)
-          return false
-        }
+      case .hello:
+        return true
       case .serverInfo:
         // Legacy servers may still send `server_info` before their realtime
         // updates begin. Accept it as the handshake frame so older servers
@@ -911,7 +819,7 @@ final class ServerConnection {
         return true
       default:
         failHandshake(
-          ServerVersionError.missingHelloHandshake(messageType: messageType ?? "unknown"),
+          ServerRequestError.invalidResponse,
           expectedGeneration: generation
         )
         return false

@@ -18,7 +18,6 @@ use tracing::{debug, error, info, warn};
 use orbitdock_protocol::SessionSurface;
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
-use crate::infrastructure::protocol_compat::version_gate_from_headers;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::snapshot_compaction::{
   sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
@@ -98,19 +97,13 @@ pub async fn ws_handler(
   headers: HeaderMap,
   State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
-  let gate = version_gate_from_headers(&headers);
   info!(
       component = "websocket",
       event = "ws.upgrade.request",
       client_version = ?headers
           .get(orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION)
           .and_then(|value| value.to_str().ok()),
-      minimum_server_version = ?headers
-          .get(orbitdock_protocol::HTTP_HEADER_MINIMUM_SERVER_VERSION)
-          .and_then(|value| value.to_str().ok()),
       has_authorization = headers.contains_key("authorization"),
-      compatible = gate.compatible,
-      reason = ?gate.reason,
       "Received WebSocket upgrade request"
   );
   ws.on_upgrade(move |socket| handle_socket(socket, state))

@@ -166,7 +166,7 @@ struct ServerClientsTests {
     }
   }
 
-  @Test func rejectsIncompatibleHTTPProtocolHeaders() async throws {
+  @Test func ignoresHTTPVersionHeadersForDashboardBootstrap() async throws {
     let clients = try ServerClients(
       serverURL: #require(URL(string: "http://localhost:4000")),
       authToken: nil,
@@ -178,30 +178,15 @@ struct ServerClientsTests {
           headers: [
             "Content-Type": "application/json",
             "X-OrbitDock-Server-Version": "0.6.0",
-            "X-OrbitDock-Minimum-Client-Version": OrbitDockProtocol.clientVersion,
+            "X-OrbitDock-Minimum-Client-Version": "0.4.0",
           ]
         )
       }
     )
 
-    do {
-      _ = try await clients.dashboard.fetchDashboardSnapshot()
-      Issue.record("Expected fetchDashboardSnapshot() to reject old server version headers.")
-    } catch let error as ServerRequestError {
-      guard case let .incompatibleServer(compatibilityError) = error else {
-        Issue.record("Expected an incompatible server error.")
-        return
-      }
-      #expect(
-        compatibilityError
-          == .serverTooOld(
-            serverVersion: "0.6.0",
-            minimumServerVersion: OrbitDockProtocol.minimumServerVersion
-          )
-      )
-    } catch {
-      Issue.record("Expected ServerRequestError, got \(error).")
-    }
+    let snapshot = try await clients.dashboard.fetchDashboardSnapshot()
+
+    #expect(snapshot.sessions.isEmpty)
   }
 
   private nonisolated static func jsonResponse(
@@ -210,8 +195,8 @@ struct ServerClientsTests {
     json: String,
     headers: [String: String] = [
       "Content-Type": "application/json",
-      "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
-      "X-OrbitDock-Minimum-Client-Version": OrbitDockProtocol.clientVersion,
+      "X-OrbitDock-Server-Version": "0.9.0",
+      "X-OrbitDock-Minimum-Client-Version": "0.4.0",
     ]
   ) -> (Data, URLResponse) {
     let response = HTTPURLResponse(

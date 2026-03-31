@@ -18,7 +18,7 @@ protocol SessionStoreConnection: AnyObject {
   func removeListener(_ token: ServerConnectionListenerToken)
   func subscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64?)
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface)
-  func failCompatibility(message: String)
+  func failConnection(message: String)
 }
 
 extension ServerConnection: SessionStoreConnection {}
@@ -437,11 +437,21 @@ final class SessionStore {
       )
       return bootstrap
     } catch {
-      if let message = ServerContractGuard.versionMessage(
-        for: error,
-        surface: "session bootstrap"
-      ) {
-        connection.failCompatibility(message: message)
+      if let requestError = error as? ServerRequestError,
+         case let .httpStatus(status, _, message) = requestError,
+         let message,
+         !message.isEmpty,
+         status < 500
+      {
+        connection.failConnection(message: message)
+        netLog(
+          .warning,
+          cat: .conv,
+          "HTTP bootstrap stopped by terminal request error",
+          sid: sessionId,
+          data: ["error": error.localizedDescription]
+        )
+        return nil
       }
       netLog(
         .error,

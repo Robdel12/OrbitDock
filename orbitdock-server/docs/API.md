@@ -2876,21 +2876,12 @@ The server sends a `hello` immediately after connect:
 }
 ```
 
-The server owns the compatibility verdict. If `hello.compatibility.compatible` is `false`, the client should stop and surface that reason directly to the user.
+The handshake is informational. OrbitDock should surface real transport or decode failures directly instead of trying to negotiate protocol-version compatibility at runtime.
 
 WebSocket handshake request headers should include:
 
 - `Authorization: Bearer <token>` when auth is enabled
-- `X-OrbitDock-Client-Version: <client-version>`
-- `X-OrbitDock-Client-Compatibility: server_authoritative_session_v1`
-
-HTTP responses mirror the same contract with:
-
-- `X-OrbitDock-Server-Version: <server-version>`
-- `X-OrbitDock-Server-Compatibility: server_authoritative_session_v1`
-- `X-OrbitDock-Compatible: true|false`
-- `X-OrbitDock-Compatibility-Reason: upgrade_app|upgrade_server|unsupported_client`
-- `X-OrbitDock-Compatibility-Message: <human-readable guidance>`
+- `X-OrbitDock-Client-Version: <client-version>` on current clients
 
 Common client messages include:
 

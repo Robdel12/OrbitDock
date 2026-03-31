@@ -74,57 +74,35 @@ struct ServerConnectionTransportTests {
     #expect(readiness.missionsReady == false)
   }
 
-  @Test func executeFallsBackToLegacyHeadersAfterIncompatibleClient426() async throws {
-    let incompatible = HTTPResponse(
-      statusCode: 426,
-      headers: ["Content-Type": "application/json"],
-      body: Data(#"{"code":"incompatible_client","error":"Update OrbitDock."}"#.utf8)
-    )
+  @Test func executeOmitsMinimumServerVersionHeader() async throws {
     let success = HTTPResponse(
       statusCode: 200,
       headers: ["Content-Type": "application/json"],
       body: Data(#"{"status":"ok"}"#.utf8)
     )
-    let transport = TransportSpy(responses: [incompatible, success, success])
+    let transport = TransportSpy(responses: [success])
     let connection = ServerConnection(authToken: nil, transport: transport)
     let url = try #require(URL(string: "https://example.com/api/dashboard"))
 
     let first = try await connection.execute(URLRequest(url: url))
 
     #expect(first.statusCode == 200)
-    #expect(await transport.executeRequestCount() == 2)
+    #expect(await transport.executeRequestCount() == 1)
+    #expect(
+      await transport.headerValue(
+        for: "X-OrbitDock-Client-Compatibility",
+        at: 0
+      ) == "server_authoritative_session_v1"
+    )
     #expect(
       await transport.headerValue(
         for: "X-OrbitDock-Minimum-Server-Version",
         at: 0
-      ) == OrbitDockProtocol.minimumServerVersion
-    )
-    #expect(
-      await transport.headerValue(
-        for: "X-OrbitDock-Minimum-Server-Version",
-        at: 1
-      ) == nil
-    )
-    #expect(
-      await transport.headerValue(
-        for: "X-OrbitDock-Client-Compatibility",
-        at: 1
-      ) == OrbitDockProtocol.clientCompatibility
-    )
-
-    let second = try await connection.execute(URLRequest(url: url))
-
-    #expect(second.statusCode == 200)
-    #expect(await transport.executeRequestCount() == 3)
-    #expect(
-      await transport.headerValue(
-        for: "X-OrbitDock-Minimum-Server-Version",
-        at: 2
       ) == nil
     )
   }
 
-  @Test func executeCachesIncompatibleClientAfterLegacyFallbackFailure() async throws {
+  @Test func executeDoesNotCacheIncompatibleClientFailures() async throws {
     let incompatible = HTTPResponse(
       statusCode: 426,
       headers: ["Content-Type": "application/json"],
@@ -137,27 +115,10 @@ struct ServerConnectionTransportTests {
     let first = try await connection.execute(URLRequest(url: url))
 
     #expect(first.statusCode == 426)
-    #expect(await transport.executeRequestCount() == 2)
-    #expect(
-      await transport.headerValue(
-        for: "X-OrbitDock-Minimum-Server-Version",
-        at: 1
-      ) == nil
-    )
+    #expect(await transport.executeRequestCount() == 1)
 
-    do {
-      _ = try await connection.execute(URLRequest(url: url))
-      Issue.record("Expected cached incompatible-client error on subsequent request.")
-    } catch let error as ServerRequestError {
-      guard case let .httpStatus(status, code, message) = error else {
-        Issue.record("Expected HTTP status error, got \(error)")
-        return
-      }
-      #expect(status == 426)
-      #expect(code == "incompatible_client")
-      #expect(message == "Update OrbitDock to a compatible build.")
-    }
-
+    let second = try await connection.execute(URLRequest(url: url))
+    #expect(second.statusCode == 426)
     #expect(await transport.executeRequestCount() == 2)
   }
 
@@ -236,9 +197,6 @@ private actor TransportSpy: ServerConnectionTransport {
 
   func connect(
     to url: URL,
-    clientVersion: String,
-    clientCompatibility: String,
-    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EndpointTransport.EventHandler
   ) async {

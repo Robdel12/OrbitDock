@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use crate::client::config::ClientConfig;
 use crate::error::{ApiError, CliError};
-use orbitdock_protocol::{HTTP_HEADER_CLIENT_VERSION, HTTP_HEADER_MINIMUM_SERVER_VERSION};
+use orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION;
 
 /// HTTP client for the OrbitDock REST API.
 pub struct RestClient {
@@ -125,10 +125,6 @@ fn client_headers() -> HeaderMap {
     HTTP_HEADER_CLIENT_VERSION,
     HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
   );
-  headers.insert(
-    HTTP_HEADER_MINIMUM_SERVER_VERSION,
-    HeaderValue::from_static(env!("CARGO_PKG_VERSION")),
-  );
   headers
 }
 
@@ -156,7 +152,7 @@ impl<T> RestResult<T> {
 #[cfg(test)]
 mod tests {
   use super::client_headers;
-  use orbitdock_protocol::{HTTP_HEADER_CLIENT_VERSION, HTTP_HEADER_MINIMUM_SERVER_VERSION};
+  use orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION;
 
   #[test]
   fn client_headers_advertise_current_version_handshake() {
@@ -165,12 +161,6 @@ mod tests {
     assert_eq!(
       headers
         .get(HTTP_HEADER_CLIENT_VERSION)
-        .and_then(|value| value.to_str().ok()),
-      Some(env!("CARGO_PKG_VERSION"))
-    );
-    assert_eq!(
-      headers
-        .get(HTTP_HEADER_MINIMUM_SERVER_VERSION)
         .and_then(|value| value.to_str().ok()),
       Some(env!("CARGO_PKG_VERSION"))
     );

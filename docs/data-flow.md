@@ -8,15 +8,14 @@ The short version:
 - WebSocket owns realtime updates and replay.
 - The Rust server owns durable business truth.
 - The client renders server state. It does not reconstruct business state from connector internals.
-- WebSocket begins with a lightweight `hello` handshake that advertises `server_version`, `minimum_client_version`, and surface capabilities.
-- The versioning rule is enforced at the protocol boundary in `orbitdock-server/crates/server/src/infrastructure/protocol_compat.rs`.
+- WebSocket begins with a lightweight `hello` handshake that advertises server metadata and surface capabilities.
 
 Today’s important nuance:
 
 - HTTP is the only bootstrap path.
 - WebSocket carries deltas, replay, heartbeats, and explicit resync/refetch hints only.
 - If replay cannot satisfy a revision gap, the client refetches the matching HTTP surface.
-- Version compatibility is a minimum-version handshake. Clients should reject only when the server is below the minimum they support, and servers should reject only when the client is below the minimum they support.
+- Transport failures should surface directly. OrbitDock should not try to infer protocol compatibility from unrelated decode or bootstrap errors.
 
 ## Architecture Diagram
 

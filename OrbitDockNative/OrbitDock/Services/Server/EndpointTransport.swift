@@ -3,9 +3,6 @@ import Foundation
 protocol ServerConnectionTransport: Sendable {
   func connect(
     to url: URL,
-    clientVersion: String,
-    clientCompatibility: String,
-    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EndpointTransport.EventHandler
   ) async
@@ -61,9 +58,6 @@ actor EndpointTransport: ServerConnectionTransport {
 
   func connect(
     to url: URL,
-    clientVersion: String,
-    clientCompatibility: String,
-    minimumServerVersion: String?,
     generation: UInt64,
     onEvent: @escaping EventHandler
   ) async {
@@ -76,9 +70,11 @@ actor EndpointTransport: ServerConnectionTransport {
     if let authToken, !authToken.isEmpty {
       request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
     }
-    request.setValue(clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
-    request.setValue(clientCompatibility, forHTTPHeaderField: "X-OrbitDock-Client-Compatibility")
-    request.setValue(minimumServerVersion, forHTTPHeaderField: "X-OrbitDock-Minimum-Server-Version")
+    request.setValue("0.4.0", forHTTPHeaderField: "X-OrbitDock-Client-Version")
+    request.setValue(
+      "server_authoritative_session_v1",
+      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
+    )
 
     let socket = wsSession.webSocketTask(with: request)
     socket.maximumMessageSize = Self.maxInboundBytes

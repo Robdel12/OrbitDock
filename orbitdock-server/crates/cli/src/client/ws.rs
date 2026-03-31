@@ -6,8 +6,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use orbitdock_protocol::{
-  ClientMessage, ServerHello, ServerMessage, SessionSurface, HTTP_HEADER_CLIENT_VERSION,
-  HTTP_HEADER_MINIMUM_SERVER_VERSION,
+  ClientMessage, ServerMessage, SessionSurface, HTTP_HEADER_CLIENT_VERSION,
 };
 
 use crate::client::config::ClientConfig;
@@ -47,12 +46,6 @@ impl WsClient {
         .parse()
         .context("Invalid client version header")?,
     );
-    request.headers_mut().insert(
-      HTTP_HEADER_MINIMUM_SERVER_VERSION,
-      env!("CARGO_PKG_VERSION")
-        .parse()
-        .context("Invalid minimum server version header")?,
-    );
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(request)
       .await
@@ -66,7 +59,7 @@ impl WsClient {
       .await?
       .ok_or_else(|| anyhow::anyhow!("WebSocket closed before hello"))?;
     match hello {
-      ServerMessage::Hello { hello } => validate_hello(&hello)?,
+      ServerMessage::Hello { .. } => {}
       other => bail!("Expected hello from server, received {other:?}"),
     }
 
@@ -133,46 +126,4 @@ impl WsClient {
       .subscribe_session_surface(session_id, SessionSurface::Detail, None)
       .await
   }
-}
-
-fn validate_hello(hello: &ServerHello) -> Result<()> {
-  let client_version = env!("CARGO_PKG_VERSION");
-  if !version_at_least(&hello.server_version, env!("CARGO_PKG_VERSION")) {
-    bail!(
-      "Update the OrbitDock server to version {} or later (current: {}).",
-      env!("CARGO_PKG_VERSION"),
-      hello.server_version
-    );
-  }
-
-  if !version_at_least(client_version, &hello.minimum_client_version) {
-    bail!(
-      "Update OrbitDock to version {} or later (current: {}).",
-      hello.minimum_client_version,
-      client_version
-    );
-  }
-
-  Ok(())
-}
-
-fn version_at_least(left: &str, right: &str) -> bool {
-  match (parse_version(left), parse_version(right)) {
-    (Some(left), Some(right)) => left >= right,
-    _ => false,
-  }
-}
-
-fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
-  let mut parts = value.trim().split('.');
-  let major = parts.next()?.parse().ok()?;
-  let minor = parts.next().unwrap_or("0").parse().ok()?;
-  let patch = parts
-    .next()
-    .unwrap_or("0")
-    .split('-')
-    .next()?
-    .parse()
-    .ok()?;
-  Some((major, minor, patch))
 }
