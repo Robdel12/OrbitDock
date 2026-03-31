@@ -22,19 +22,33 @@ pub(crate) struct VersionGate {
 
 pub(crate) fn version_gate_from_headers(headers: &HeaderMap) -> VersionGate {
   let client_version = header_value(headers, HTTP_HEADER_CLIENT_VERSION);
+  let minimum_server_version = header_value(headers, HTTP_HEADER_MINIMUM_SERVER_VERSION);
 
-  let compatible = client_version
+  let client_version_compatible = client_version
     .as_deref()
     .is_some_and(|version| version_at_least(version, MINIMUM_CLIENT_VERSION));
+  let server_version_compatible = minimum_server_version
+    .as_deref()
+    .is_none_or(|minimum| version_at_least(VERSION, minimum));
+
+  let compatible = client_version_compatible && server_version_compatible;
 
   let (reason, message) = if compatible {
     (None, None)
-  } else {
+  } else if !client_version_compatible {
     (
       Some("client_version_too_old"),
       Some(version_too_old_message(
         client_version.as_deref(),
         MINIMUM_CLIENT_VERSION,
+      )),
+    )
+  } else {
+    (
+      Some("server_version_too_old"),
+      Some(server_too_old_message(
+        VERSION,
+        minimum_server_version.as_deref().unwrap_or_default(),
       )),
     )
   };
@@ -166,6 +180,17 @@ fn version_too_old_message(client_version: Option<&str>, minimum_version: &str) 
   }
 }
 
+fn server_too_old_message(server_version: &str, minimum_server_version: &str) -> String {
+  if minimum_server_version.is_empty() {
+    "Update OrbitDock server to a newer version.".to_string()
+  } else {
+    format!(
+      "Update OrbitDock server to version {} or later (current: {}).",
+      minimum_server_version, server_version
+    )
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -206,5 +231,24 @@ mod tests {
     assert!(gate.compatible);
     assert_eq!(gate.reason, None);
     assert_eq!(gate.message, None);
+  }
+
+  #[test]
+  fn version_gate_rejects_client_minimum_server_when_server_is_too_old() {
+    let mut headers = HeaderMap::new();
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.8.0".parse().unwrap());
+    headers.insert(HTTP_HEADER_MINIMUM_SERVER_VERSION, "9.0.0".parse().unwrap());
+
+    let gate = version_gate_from_headers(&headers);
+
+    assert!(!gate.compatible);
+    assert_eq!(gate.reason, Some("server_version_too_old"));
+    assert_eq!(
+      gate.message,
+      Some(format!(
+        "Update OrbitDock server to version 9.0.0 or later (current: {}).",
+        VERSION
+      ))
+    );
   }
 }

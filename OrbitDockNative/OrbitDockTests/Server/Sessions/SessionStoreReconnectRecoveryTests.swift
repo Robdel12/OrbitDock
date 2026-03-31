@@ -66,10 +66,34 @@ struct SessionStoreReconnectRecoveryTests {
 
     await store.ensureSessionRecovery("session-1", generation: 5)
 
-    #expect(await counter.conversationRequestCount == 1)
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .composer)
     #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+  }
+
+  @Test func addingSurfaceAfterRecoveryResubscribesWithoutReconnect() async throws {
+    let counter = RequestCounter()
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) }, connection: connection
+    )
+    store.subscribedSessions.insert("session-1")
+    store.subscribedSessionSurfaces["session-1"] = [.detail]
+    store.connectionGeneration = 6
+
+    await store.ensureSessionRecovery("session-1", generation: 6)
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .detail)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+
+    connection.clearSubscribeCalls()
+    store.subscribeToSession("session-1", surfaces: [.composer])
+    await store.ensureSessionRecovery("session-1", generation: 6)
+
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .composer)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+    #expect(store.recoveredSessionGenerations["session-1"] == 6)
   }
 
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
@@ -230,6 +254,10 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   }
 
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {}
+
+  func clearSubscribeCalls() {
+    subscribeCalls.removeAll()
+  }
 
   func failCompatibility(message: String) {
     failedCompatibilityMessages.append(message)

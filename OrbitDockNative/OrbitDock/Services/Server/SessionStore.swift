@@ -94,6 +94,7 @@ final class SessionStore {
   @ObservationIgnored var inFlightBootstraps: [SessionGenerationKey: GenerationTask<SessionHTTPBootstrap?>] = [:]
   @ObservationIgnored var inFlightSessionRecoveries: [SessionGenerationKey: GenerationTask<Void>] = [:]
   @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
+  @ObservationIgnored var recoveredSessionSurfaceGenerations: [String: [ServerSessionSurface: UInt64]] = [:]
   @ObservationIgnored var lastOlderMessagesRequestBeforeSequence: [String: UInt64] = [:]
   @ObservationIgnored var _localNamingClaimedSessions: Set<String> = []
   @ObservationIgnored var connectionRecoveryTask: GenerationTask<Void>?
@@ -281,9 +282,20 @@ final class SessionStore {
       subscribedSessionSurfaces.removeValue(forKey: sessionId)
       subscribedSessions.remove(sessionId)
       recoveredSessionGenerations.removeValue(forKey: sessionId)
+      recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
       lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
       cancelInFlightSessionTasks(sessionId)
       trimInactiveSessionPayload(sessionId)
+    } else if var recoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] {
+      for surface in targetSurfaces {
+        recoveredSurfaces.removeValue(forKey: surface)
+      }
+      if recoveredSurfaces.isEmpty {
+        recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
+        recoveredSessionGenerations.removeValue(forKey: sessionId)
+      } else {
+        recoveredSessionSurfaceGenerations[sessionId] = recoveredSurfaces
+      }
     }
 
     for surface in targetSurfaces {
@@ -351,7 +363,7 @@ final class SessionStore {
   func ensureSessionRecovery(_ sessionId: String, generation: UInt64) async {
     let key = SessionGenerationKey(sessionId: sessionId, generation: generation)
 
-    if recoveredSessionGenerations[sessionId] == generation {
+    if sessionRecoveryComplete(sessionId: sessionId, generation: generation) {
       netLog(.debug, cat: .store, "Session already recovered for generation", sid: sessionId, data: [
         "generation": generation,
       ])
@@ -455,7 +467,6 @@ final class SessionStore {
       return
     }
 
-    guard recoveredSessionGenerations[sessionId] != generation else { return }
     guard connection.connectionStatus == .connected else {
       netLog(.debug, cat: .store, "Recovery waiting for active connection", sid: sessionId, data: [
         "generation": generation,
@@ -468,32 +479,53 @@ final class SessionStore {
     let conversationRevision = bootstrap?.sharedSurfaceRevision
     let requestedSurfaces = subscribedSessionSurfaces[sessionId] ?? Set(ServerSessionSurface.allCases)
     guard !requestedSurfaces.isEmpty else { return }
+    let recoveredSurfaceGenerations = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
+    let surfacesNeedingSubscribe = requestedSurfaces.filter {
+      recoveredSurfaceGenerations[$0] != generation
+    }
+    guard !surfacesNeedingSubscribe.isEmpty else {
+      recoveredSessionGenerations[sessionId] = generation
+      return
+    }
     var subscribeData: [String: Any] = [
-      "surfaces": requestedSurfaces.map(\.rawValue).sorted(),
+      "surfaces": surfacesNeedingSubscribe.map(\.rawValue).sorted(),
       "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
       "generation": generation,
       "connectionStatus": String(describing: connection.connectionStatus),
     ]
-    if requestedSurfaces.contains(.detail) {
+    if surfacesNeedingSubscribe.contains(.detail) {
       subscribeData["detailRevision"] = detailRevision as Any
     }
-    if requestedSurfaces.contains(.composer) {
+    if surfacesNeedingSubscribe.contains(.composer) {
       subscribeData["composerRevision"] = composerRevision as Any
     }
-    if requestedSurfaces.contains(.conversation) {
+    if surfacesNeedingSubscribe.contains(.conversation) {
       subscribeData["conversationRevision"] = conversationRevision as Any
     }
     netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: subscribeData)
-    if requestedSurfaces.contains(.detail) {
+    if surfacesNeedingSubscribe.contains(.detail) {
       connection.subscribeSessionSurface(sessionId, surface: .detail, sinceRevision: detailRevision)
     }
-    if requestedSurfaces.contains(.composer) {
+    if surfacesNeedingSubscribe.contains(.composer) {
       connection.subscribeSessionSurface(sessionId, surface: .composer, sinceRevision: composerRevision)
     }
-    if requestedSurfaces.contains(.conversation) {
+    if surfacesNeedingSubscribe.contains(.conversation) {
       connection.subscribeSessionSurface(sessionId, surface: .conversation, sinceRevision: conversationRevision)
     }
+    var updatedRecoveredSurfaces = recoveredSurfaceGenerations
+    for surface in surfacesNeedingSubscribe {
+      updatedRecoveredSurfaces[surface] = generation
+    }
+    recoveredSessionSurfaceGenerations[sessionId] = updatedRecoveredSurfaces
     recoveredSessionGenerations[sessionId] = generation
+  }
+
+  private func sessionRecoveryComplete(sessionId: String, generation: UInt64) -> Bool {
+    guard recoveredSessionGenerations[sessionId] == generation else { return false }
+    let requestedSurfaces = subscribedSessionSurfaces[sessionId] ?? Set(ServerSessionSurface.allCases)
+    guard !requestedSurfaces.isEmpty else { return false }
+    let recoveredSurfaceGenerations = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
+    return requestedSurfaces.allSatisfy { recoveredSurfaceGenerations[$0] == generation }
   }
 
   private func cancelInFlightSessionTasks(_ sessionId: String) {
