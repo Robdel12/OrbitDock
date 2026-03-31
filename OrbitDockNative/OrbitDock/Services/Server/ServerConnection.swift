@@ -485,9 +485,9 @@ final class ServerConnection {
   private func handleTransportEvent(_ event: EndpointTransport.Event) async {
     switch event {
       case let .textFrame(text, generation):
-        handleFrame(text, expectedGeneration: generation)
+        await handleFrame(text, expectedGeneration: generation)
       case let .binaryFrame(data, generation):
-        handleBinaryFrame(data, expectedGeneration: generation)
+        await handleBinaryFrame(data, expectedGeneration: generation)
       case let .disconnected(generation, failure):
         await handleDisconnect(expectedGeneration: generation, failure: failure)
     }
@@ -545,12 +545,12 @@ final class ServerConnection {
     ])
   }
 
-  private func handleBinaryFrame(_ data: Data, expectedGeneration generation: UInt64) {
+  private func handleBinaryFrame(_ data: Data, expectedGeneration generation: UInt64) async {
     guard isCurrentGeneration(generation) else { return }
     if data.count >= 2, (data[0] == 0x01 || data[0] == 0x02) {
       handleTerminalBinaryFrame(data)
     } else if let text = String(data: data, encoding: .utf8) {
-      handleFrame(text, expectedGeneration: generation)
+      await handleFrame(text, expectedGeneration: generation)
     }
   }
 
@@ -855,7 +855,7 @@ final class ServerConnection {
 
   // MARK: - Private: Frame handling
 
-  private func handleFrame(_ text: String, expectedGeneration generation: UInt64) {
+  private func handleFrame(_ text: String, expectedGeneration generation: UInt64) async {
     guard isCurrentGeneration(generation) else { return }
     guard let data = text.data(using: .utf8) else { return }
 
@@ -904,6 +904,11 @@ final class ServerConnection {
           failHandshake(error, expectedGeneration: generation)
           return false
         }
+      case .serverInfo:
+        // Legacy servers may still send `server_info` before their realtime
+        // updates begin. Treat it as a valid handshake frame so older-but-still-
+        // compatible servers can connect instead of getting dropped on the floor.
+        return true
       default:
         failHandshake(
           ServerVersionError.missingHelloHandshake(messageType: messageType ?? "unknown"),

@@ -22,6 +22,32 @@ struct ServerConnectionTransportTests {
     #expect(await transport.lastExecutedURL() == request)
   }
 
+  @Test func acceptsLegacyServerInfoAsInitialHandshake() async throws {
+    let transport = TransportSpy(
+      response: HTTPResponse(
+        statusCode: 200,
+        headers: ["Content-Type": "application/json"],
+        body: Data(#"{"status":"ok"}"#.utf8)
+      ),
+      framesOnConnect: [
+        .text(
+          #"{"type":"server_info","is_primary":true,"client_primary_claims":[]}"#,
+          expectedGeneration: 1
+        )
+      ]
+    )
+    let connection = ServerConnection(authToken: nil, transport: transport)
+    let url = try #require(URL(string: "ws://127.0.0.1:4000/ws"))
+
+    connection.connect(to: url)
+    await drainMainActorTasks()
+
+    #expect(connection.connectionStatus == .connected)
+    #expect(connection.requiresManualReconnect == false)
+
+    connection.disconnect()
+  }
+
   @Test func readinessTracksDashboardAndMissionsIndependently() {
     let readiness = ServerRuntimeReadiness.derive(
       connectionStatus: .connected,
@@ -178,17 +204,34 @@ struct ServerConnectionTransportTests {
 private actor TransportSpy: ServerConnectionTransport {
   private var queuedResponses: [HTTPResponse]
   private let disconnectOnConnect: EndpointTransport.DisconnectFailure?
+  private let framesOnConnect: [Frame]
   private var executedRequests: [URLRequest] = []
   private var connectRequests: [URL] = []
 
   init(response: HTTPResponse, disconnectOnConnect: EndpointTransport.DisconnectFailure? = nil) {
     self.queuedResponses = [response]
     self.disconnectOnConnect = disconnectOnConnect
+    self.framesOnConnect = []
   }
 
   init(responses: [HTTPResponse], disconnectOnConnect: EndpointTransport.DisconnectFailure? = nil) {
     self.queuedResponses = responses
     self.disconnectOnConnect = disconnectOnConnect
+    self.framesOnConnect = []
+  }
+
+  init(
+    response: HTTPResponse,
+    disconnectOnConnect: EndpointTransport.DisconnectFailure? = nil,
+    framesOnConnect: [Frame]
+  ) {
+    self.queuedResponses = [response]
+    self.disconnectOnConnect = disconnectOnConnect
+    self.framesOnConnect = framesOnConnect
+  }
+
+  enum Frame: Sendable {
+    case text(String, expectedGeneration: UInt64)
   }
 
   func connect(
@@ -200,6 +243,14 @@ private actor TransportSpy: ServerConnectionTransport {
     onEvent: @escaping EndpointTransport.EventHandler
   ) async {
     connectRequests.append(url)
+    for frame in framesOnConnect {
+      switch frame {
+        case let .text(text, expectedGeneration):
+          if expectedGeneration == generation {
+            await onEvent(.textFrame(text, generation: generation))
+          }
+      }
+    }
     if let disconnectOnConnect {
       await onEvent(.disconnected(generation: generation, failure: disconnectOnConnect))
     }
