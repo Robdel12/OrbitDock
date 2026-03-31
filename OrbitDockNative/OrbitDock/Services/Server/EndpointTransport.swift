@@ -229,28 +229,20 @@ actor EndpointTransport: ServerConnectionTransport {
   }
 
   private func makeDisconnectFailure(from error: Error) -> DisconnectFailure {
-    let transportError: HTTPTransportError
-    if let existing = error as? HTTPTransportError {
-      transportError = existing
-    } else {
-      transportError = HTTPTransportError(error: error)
-    }
+    let transportError = (error as? HTTPTransportError) ?? HTTPTransportError(error: error)
+    return DisconnectFailure(
+      transportError: transportError,
+      urlErrorCode: urlErrorCode(from: error)
+    )
+  }
 
+  private func urlErrorCode(from error: Error) -> URLError.Code? {
     if let urlError = error as? URLError {
-      return DisconnectFailure(
-        transportError: transportError,
-        urlErrorCode: urlError.code
-      )
+      return urlError.code
     }
 
     let nsError = error as NSError
-    if nsError.domain == NSURLErrorDomain {
-      return DisconnectFailure(
-        transportError: transportError,
-        urlErrorCode: URLError.Code(rawValue: nsError.code)
-      )
-    }
-
-    return DisconnectFailure(transportError: transportError, urlErrorCode: nil)
+    guard nsError.domain == NSURLErrorDomain else { return nil }
+    return URLError.Code(rawValue: nsError.code)
   }
 }

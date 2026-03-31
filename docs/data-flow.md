@@ -9,7 +9,7 @@ The short version:
 - The Rust server owns durable business truth.
 - The client renders server state. It does not reconstruct business state from connector internals.
 - WebSocket begins with a lightweight `hello` handshake that advertises `server_version`, `minimum_client_version`, and surface capabilities.
-- See [docs/version-handshake-spec.md](version-handshake-spec.md) for the versioning rule.
+- The versioning rule is enforced at the protocol boundary in `orbitdock-server/crates/server/src/infrastructure/protocol_compat.rs`.
 
 Today’s important nuance:
 

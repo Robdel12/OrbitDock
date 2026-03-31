@@ -133,10 +133,7 @@ enum ServerContractGuard {
     surface: String
   ) -> String {
     switch error {
-      case .clientTooOld:
-        return error.errorDescription
-          ?? "This OrbitDock server is not compatible with the current app."
-      case .serverTooOld:
+      case .clientTooOld, .serverTooOld:
         return error.errorDescription
           ?? "This OrbitDock server is not compatible with the current app."
       case .missingVersionMetadata:

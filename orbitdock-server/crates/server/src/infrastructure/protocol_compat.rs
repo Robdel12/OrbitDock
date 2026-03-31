@@ -85,39 +85,53 @@ fn attach_headers(response: &mut Response<Body>, gate: &VersionGate) {
 
 pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Response<Body> {
   let path = req.uri().path().to_string();
+  let is_ws_route = path == "/ws";
 
+  // OrbitDock version compatibility contract:
+  // 1) Reject clients older than server MINIMUM_CLIENT_VERSION.
+  // 2) Reject when client-advertised minimum server version is above this server VERSION.
+  // 3) Never reject just because the other side is newer.
+  // This keeps compatibility minimum-based and avoids brittle upper-bound checks.
   // Only enforce the version gate on protocol endpoints (WebSocket + API).
   // Health, metrics, and web UI assets are not protocol clients.
-  let is_protocol_route = path == "/ws" || path.starts_with("/api/");
+  let is_protocol_route = is_ws_route || path.starts_with("/api/");
   if !is_protocol_route {
     return next.run(req).await;
   }
 
   let gate = version_gate_for_request(&req);
-  if path == "/ws" {
+  let client_version = header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION);
+  let minimum_server_version = header_value(req.headers(), HTTP_HEADER_MINIMUM_SERVER_VERSION);
+  let has_authorization = req.headers().contains_key("authorization");
+  let has_token_query = req
+    .uri()
+    .query()
+    .is_some_and(|query| query.contains("token="));
+
+  if is_ws_route {
     info!(
       component = "protocol_compat",
       event = "protocol_version.request",
       path = %path,
-      client_version = ?header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION),
-      minimum_server_version = ?header_value(req.headers(), HTTP_HEADER_MINIMUM_SERVER_VERSION),
-      has_authorization = req.headers().contains_key("authorization"),
-      has_token_query = req.uri().query().map(|query| query.contains("token=")).unwrap_or(false),
+      client_version = ?client_version.as_deref(),
+      minimum_server_version = ?minimum_server_version.as_deref(),
+      has_authorization,
+      has_token_query,
       compatible = gate.compatible,
       reason = ?gate.reason,
       "Checked client version headers"
     );
   }
   if !gate.compatible {
-    if path == "/ws" {
+    if is_ws_route {
       warn!(
         component = "protocol_compat",
         event = "protocol_version.rejected",
         path = %path,
-        client_version = ?header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION),
-        minimum_server_version = ?header_value(req.headers(), HTTP_HEADER_MINIMUM_SERVER_VERSION),
-        has_authorization = req.headers().contains_key("authorization"),
-        has_token_query = req.uri().query().map(|query| query.contains("token=")).unwrap_or(false),
+        client_version = ?client_version.as_deref(),
+        minimum_server_version = ?minimum_server_version.as_deref(),
+        has_authorization,
+        has_token_query,
         reason = ?gate.reason,
         message = ?gate.message,
         "Rejected incompatible client version"
