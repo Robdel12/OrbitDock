@@ -4,7 +4,7 @@ private extension View {
   @ViewBuilder
   func controlDeckPillShadow(if condition: Bool) -> some View {
     if condition {
-      self.themeShadow(Shadow.sm)
+      self
     } else {
       self
     }

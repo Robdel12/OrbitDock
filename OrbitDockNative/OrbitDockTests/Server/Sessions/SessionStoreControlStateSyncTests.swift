@@ -236,6 +236,26 @@ struct SessionStoreControlStateSyncTests {
     #expect(worker.model == "gpt-5")
   }
 
+  @Test func sessionEndedEventMarksLifecycleAsEndedImmediately() throws {
+    let store = SessionStore.preview()
+    try store.handleSessionDetailSnapshot(
+      ServerSessionDetailSnapshotPayload(
+        revision: 1,
+        session: decodeSessionState(detailSnapshotJSON)
+      )
+    )
+
+    store.routeEvent(.sessionEnded(sessionId: "session-1", reason: "user_requested"))
+
+    let session = store.session("session-1")
+    #expect(session.status == .ended)
+    #expect(session.workStatus == .ended)
+    #expect(session.lifecycleState == .ended)
+    #expect(session.acceptsUserInput == false)
+    #expect(session.steerable == false)
+    #expect(session.displayStatus == .ended)
+  }
+
   private var detailSnapshotJSON: String {
     """
     {

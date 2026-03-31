@@ -4,17 +4,22 @@ use axum::{
   middleware::Next,
 };
 use orbitdock_protocol::{
-  HTTP_HEADER_CLIENT_VERSION, HTTP_HEADER_MINIMUM_CLIENT_VERSION,
-  HTTP_HEADER_MINIMUM_SERVER_VERSION, HTTP_HEADER_SERVER_VERSION,
+  HTTP_HEADER_CLIENT_COMPATIBILITY, HTTP_HEADER_CLIENT_VERSION, HTTP_HEADER_COMPATIBILITY_MESSAGE,
+  HTTP_HEADER_COMPATIBILITY_REASON, HTTP_HEADER_COMPATIBLE, HTTP_HEADER_MINIMUM_CLIENT_VERSION,
+  HTTP_HEADER_MINIMUM_SERVER_VERSION, HTTP_HEADER_SERVER_COMPATIBILITY, HTTP_HEADER_SERVER_VERSION,
+  SERVER_COMPATIBILITY,
 };
 use tracing::{info, warn};
 
 use crate::{MINIMUM_CLIENT_VERSION, VERSION};
 
+const LEGACY_MINIMUM_CLIENT_VERSION: &str = "0.4.0";
+
 #[derive(Debug, Clone)]
 pub(crate) struct VersionGate {
   pub server_version: String,
   pub minimum_client_version: String,
+  pub server_compatibility: &'static str,
   pub compatible: bool,
   pub reason: Option<&'static str>,
   pub message: Option<String>,
@@ -22,14 +27,26 @@ pub(crate) struct VersionGate {
 
 pub(crate) fn version_gate_from_headers(headers: &HeaderMap) -> VersionGate {
   let client_version = header_value(headers, HTTP_HEADER_CLIENT_VERSION);
+  let client_compatibility = header_value(headers, HTTP_HEADER_CLIENT_COMPATIBILITY);
   let minimum_server_version = header_value(headers, HTTP_HEADER_MINIMUM_SERVER_VERSION);
+  let uses_legacy_contract = minimum_server_version.is_none()
+    && client_compatibility.as_deref() == Some(SERVER_COMPATIBILITY);
+  let required_minimum_client_version = if uses_legacy_contract {
+    LEGACY_MINIMUM_CLIENT_VERSION
+  } else {
+    MINIMUM_CLIENT_VERSION
+  };
 
   let client_version_compatible = client_version
     .as_deref()
-    .is_some_and(|version| version_at_least(version, MINIMUM_CLIENT_VERSION));
-  let server_version_compatible = minimum_server_version
-    .as_deref()
-    .is_none_or(|minimum| version_at_least(VERSION, minimum));
+    .is_some_and(|version| version_at_least(version, required_minimum_client_version));
+  let server_version_compatible = if uses_legacy_contract {
+    true
+  } else {
+    minimum_server_version
+      .as_deref()
+      .is_none_or(|minimum| version_at_least(VERSION, minimum))
+  };
 
   let compatible = client_version_compatible && server_version_compatible;
 
@@ -40,7 +57,7 @@ pub(crate) fn version_gate_from_headers(headers: &HeaderMap) -> VersionGate {
       Some("client_version_too_old"),
       Some(version_too_old_message(
         client_version.as_deref(),
-        MINIMUM_CLIENT_VERSION,
+        required_minimum_client_version,
       )),
     )
   } else {
@@ -55,7 +72,8 @@ pub(crate) fn version_gate_from_headers(headers: &HeaderMap) -> VersionGate {
 
   VersionGate {
     server_version: VERSION.to_string(),
-    minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
+    minimum_client_version: required_minimum_client_version.to_string(),
+    server_compatibility: SERVER_COMPATIBILITY,
     compatible,
     reason,
     message,
@@ -81,6 +99,33 @@ fn attach_headers(response: &mut Response<Body>, gate: &VersionGate) {
       .parse()
       .expect("valid minimum client version header"),
   );
+  response.headers_mut().insert(
+    HTTP_HEADER_SERVER_COMPATIBILITY,
+    gate
+      .server_compatibility
+      .parse()
+      .expect("valid server compatibility header"),
+  );
+  response.headers_mut().insert(
+    HTTP_HEADER_COMPATIBLE,
+    if gate.compatible { "true" } else { "false" }
+      .parse()
+      .expect("valid compatibility status header"),
+  );
+  if let Some(reason) = gate.reason {
+    response.headers_mut().insert(
+      HTTP_HEADER_COMPATIBILITY_REASON,
+      reason.parse().expect("valid compatibility reason header"),
+    );
+  }
+  if let Some(message) = &gate.message {
+    response.headers_mut().insert(
+      HTTP_HEADER_COMPATIBILITY_MESSAGE,
+      message
+        .parse()
+        .expect("valid compatibility guidance header"),
+    );
+  }
 }
 
 pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Response<Body> {
@@ -88,10 +133,11 @@ pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Respon
   let is_ws_route = path == "/ws";
 
   // OrbitDock version compatibility contract:
-  // 1) Reject clients older than server MINIMUM_CLIENT_VERSION.
-  // 2) Reject when client-advertised minimum server version is above this server VERSION.
-  // 3) Never reject just because the other side is newer.
-  // This keeps compatibility minimum-based and avoids brittle upper-bound checks.
+  // 1) Modern contract clients must be at least MINIMUM_CLIENT_VERSION.
+  // 2) Legacy contract clients are temporarily accepted down to LEGACY_MINIMUM_CLIENT_VERSION.
+  // 3) Reject when client-advertised minimum server version is above this server VERSION.
+  // 4) Never reject just because the other side is newer.
+  // This keeps compatibility minimum-based and provides a temporary legacy bridge.
   // Only enforce the version gate on protocol endpoints (WebSocket + API).
   // Health, metrics, and web UI assets are not protocol clients.
   let is_protocol_route = is_ws_route || path.starts_with("/api/");
@@ -101,6 +147,7 @@ pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Respon
 
   let gate = version_gate_for_request(&req);
   let client_version = header_value(req.headers(), HTTP_HEADER_CLIENT_VERSION);
+  let client_compatibility = header_value(req.headers(), HTTP_HEADER_CLIENT_COMPATIBILITY);
   let minimum_server_version = header_value(req.headers(), HTTP_HEADER_MINIMUM_SERVER_VERSION);
   let has_authorization = req.headers().contains_key("authorization");
   let has_token_query = req
@@ -114,6 +161,7 @@ pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Respon
       event = "protocol_version.request",
       path = %path,
       client_version = ?client_version.as_deref(),
+      client_compatibility = ?client_compatibility.as_deref(),
       minimum_server_version = ?minimum_server_version.as_deref(),
       has_authorization,
       has_token_query,
@@ -129,6 +177,7 @@ pub(crate) async fn version_middleware(req: Request<Body>, next: Next) -> Respon
         event = "protocol_version.rejected",
         path = %path,
         client_version = ?client_version.as_deref(),
+        client_compatibility = ?client_compatibility.as_deref(),
         minimum_server_version = ?minimum_server_version.as_deref(),
         has_authorization,
         has_token_query,
@@ -220,6 +269,7 @@ mod tests {
     assert!(gate.compatible);
     assert_eq!(gate.server_version, VERSION);
     assert_eq!(gate.minimum_client_version, MINIMUM_CLIENT_VERSION);
+    assert_eq!(gate.server_compatibility, SERVER_COMPATIBILITY);
     assert_eq!(gate.reason, None);
     assert_eq!(gate.message, None);
   }
@@ -245,6 +295,57 @@ mod tests {
     assert!(gate.compatible);
     assert_eq!(gate.reason, None);
     assert_eq!(gate.message, None);
+  }
+
+  #[test]
+  fn version_gate_accepts_legacy_contract_clients() {
+    let mut headers = HeaderMap::new();
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.4.0".parse().unwrap());
+    headers.insert(
+      HTTP_HEADER_CLIENT_COMPATIBILITY,
+      SERVER_COMPATIBILITY.parse().unwrap(),
+    );
+
+    let gate = version_gate_from_headers(&headers);
+
+    assert!(gate.compatible);
+    assert_eq!(gate.minimum_client_version, LEGACY_MINIMUM_CLIENT_VERSION);
+  }
+
+  #[test]
+  fn version_gate_rejects_too_old_legacy_contract_clients() {
+    let mut headers = HeaderMap::new();
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.3.9".parse().unwrap());
+    headers.insert(
+      HTTP_HEADER_CLIENT_COMPATIBILITY,
+      SERVER_COMPATIBILITY.parse().unwrap(),
+    );
+
+    let gate = version_gate_from_headers(&headers);
+
+    assert!(!gate.compatible);
+    assert_eq!(gate.reason, Some("client_version_too_old"));
+    assert_eq!(
+      gate.message.as_deref(),
+      Some("Update OrbitDock to version 0.4.0 or later (current: 0.3.9).")
+    );
+  }
+
+  #[test]
+  fn modern_contract_cannot_claim_legacy_floor() {
+    let mut headers = HeaderMap::new();
+    headers.insert(HTTP_HEADER_CLIENT_VERSION, "0.6.9".parse().unwrap());
+    headers.insert(
+      HTTP_HEADER_CLIENT_COMPATIBILITY,
+      SERVER_COMPATIBILITY.parse().unwrap(),
+    );
+    headers.insert(HTTP_HEADER_MINIMUM_SERVER_VERSION, "0.8.0".parse().unwrap());
+
+    let gate = version_gate_from_headers(&headers);
+
+    assert!(!gate.compatible);
+    assert_eq!(gate.reason, Some("client_version_too_old"));
+    assert_eq!(gate.minimum_client_version, MINIMUM_CLIENT_VERSION);
   }
 
   #[test]

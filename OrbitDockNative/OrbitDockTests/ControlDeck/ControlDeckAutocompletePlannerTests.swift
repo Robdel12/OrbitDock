@@ -1,0 +1,31 @@
+@testable import OrbitDock
+import Testing
+
+struct ControlDeckAutocompletePlannerTests {
+  @Test func completionModeIsInactiveForBareSkillPrefix() {
+    let mode = ControlDeckAutocompletePlanner.completionMode(for: "$")
+    #expect(mode == .inactive)
+  }
+
+  @Test func completionModeActivatesForSkillQuery() {
+    let mode = ControlDeckAutocompletePlanner.completionMode(for: "$des")
+    #expect(mode == .skill(query: "des"))
+  }
+
+  @Test func skillSuggestionsAreFilteredAndCapped() {
+    let suggestions = ControlDeckAutocompletePlanner.skillSuggestions(
+      for: "de",
+      skills: [
+        ControlDeckSkill(name: "deploy", path: "/skills/deploy", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "debug", path: "/skills/debug", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "describe", path: "/skills/describe", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "devops", path: "/skills/devops", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "dedupe", path: "/skills/dedupe", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "delta", path: "/skills/delta", description: "", shortDescription: nil),
+      ]
+    )
+
+    #expect(suggestions.count == ControlDeckAutocompletePlanner.maxSuggestionCount)
+    #expect(suggestions.allSatisfy { $0.kind == .skill })
+  }
+}

@@ -9,6 +9,8 @@ import UniformTypeIdentifiers
 #endif
 
 struct ControlDeckScreen: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
   let sessionId: String
   let sessionStore: SessionStore
   var chromeStyle: ControlDeckChromeStyle = .standalone
@@ -22,12 +24,14 @@ struct ControlDeckScreen: View {
   @State private var viewModel = ControlDeckViewModel()
   @State private var draft = ControlDeckDraft()
   @State private var completionState = ControlDeckCompletionState()
-  @State private var focusState = ComposerFocusState()
+  @State private var focusState = ControlDeckFocusState()
   @State private var isSubmitting = false
   @State private var uploadedImageIds: [String: String] = [:]
   @State private var isImportingAttachments = false
   @State private var dictationController = LocalDictationController()
   @State private var dictationDraftBase: String?
+  @State private var controlDeckWidth: CGFloat = 0
+  @State private var completionPanelHeight: CGFloat = 0
   @AppStorage("localDictationEnabled") private var localDictationEnabled = true
 
   private var canSubmit: Bool {
@@ -54,6 +58,32 @@ struct ControlDeckScreen: View {
     sessionStore.session(sessionId).workStatus == .working
   }
 
+  private var isApprovalMode: Bool {
+    viewModel.presentation?.mode == .approval && viewModel.pendingApproval != nil
+  }
+
+  private var shouldShowCompletionPanel: Bool {
+    completionState.isActive && !isApprovalMode
+  }
+
+  private var isCompactIOS: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
+
+  private var horizontalContentPadding: CGFloat {
+    isCompactIOS ? Spacing.sm : Spacing.md
+  }
+
+  private var completionPanelWidth: CGFloat {
+    let available = max(controlDeckWidth - (horizontalContentPadding * 2), 0)
+    guard available > 0 else { return 520 }
+    return available
+  }
+
   var body: some View {
     Group {
       if viewModel.isLoading, viewModel.snapshot == nil {
@@ -61,51 +91,12 @@ struct ControlDeckScreen: View {
       } else if let error = viewModel.lastError, viewModel.snapshot == nil {
         errorView(error)
       } else {
-        ControlDeckView(
-          draft: $draft,
-          focusState: $focusState,
-          completionState: $completionState,
-          isSubmitting: isSubmitting,
-          canSubmit: canSubmit,
-          presentation: viewModel.presentation,
-          pendingApproval: viewModel.pendingApproval,
-          completionSuggestions: currentSuggestions,
-          errorMessage: viewModel.lastError,
-          chromeStyle: chromeStyle,
-          onTextChange: handleTextChange,
-          onKeyCommand: handleKeyCommand,
-          onFocusEvent: handleFocusEvent,
-          onPasteImage: pasteImageFromClipboard,
-          canPasteImage: { supportsImageClipboardPaste },
-          onAddImage: { isImportingAttachments = true },
-          onRemoveAttachment: { draft.attachments.remove(id: $0) },
-          onDropImages: handleDrop,
-          onSelectSuggestion: acceptSuggestion,
-          onSubmit: submitDraft,
-          onApprove: { Task { await viewModel.approveTool(decision: .approved) } },
-          onApproveForSession: { Task { await viewModel.approveTool(decision: .approvedForSession) } },
-          onDeny: { Task { await viewModel.approveTool(decision: .denied) } },
-          onAnswer: { answer, promptId in
-            Task { await viewModel.answerQuestion(answer: answer, questionId: promptId) }
-          },
-          onGrantPermission: { Task { await viewModel.respondToPermission(grant: true, scope: .turn) } },
-          onGrantPermissionForSession: { Task { await viewModel.respondToPermission(grant: true, scope: .session) } },
-          onDenyPermission: { Task { await viewModel.respondToPermission(grant: false) } },
-          terminalTitle: terminalTitle,
-          sessionDisplayStatus: sessionDisplayStatus,
-          currentTool: currentTool,
-          onToggleTerminal: onToggleTerminal,
-          onModuleAction: handleModuleAction,
-          onApprovalReviewerAction: handleApprovalReviewerAction,
-          isDictating: isDictationActive,
-          isSessionWorking: isSessionWorking,
-          onDictation: dictationAction,
-          onInterrupt: { Task { await viewModel.interruptSession() } }
-        )
+        controlDeckBody
       }
     }
-    .padding(.horizontal, chromeStyle == .embedded ? 0 : Spacing.sm)
-    .padding(.bottom, chromeStyle == .embedded ? 0 : Spacing.xs)
+    .padding(.horizontal, chromeStyle == .embedded ? Spacing.xs : Spacing.sm)
+    .padding(.top, chromeStyle == .embedded ? Spacing.xxs : 0)
+    .padding(.bottom, Spacing.xs)
     .task(id: sessionId) {
       draft = ControlDeckDraft.restore(for: sessionId)
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
@@ -113,6 +104,9 @@ struct ControlDeckScreen: View {
     }
     .onChange(of: draft) { _, newDraft in
       ControlDeckDraft.save(newDraft, for: sessionId)
+    }
+    .onChange(of: viewModel.skills) { _, _ in
+      syncSelectedSkillsFromText(draft.text)
     }
     .onChange(of: sessionStore.session(sessionId).pendingApproval?.id) { _, _ in
       viewModel.syncApproval()
@@ -159,6 +153,86 @@ struct ControlDeckScreen: View {
     )
   }
 
+  private var controlDeckBody: some View {
+    ControlDeckView(
+      draft: $draft,
+      focusState: $focusState,
+      isSubmitting: isSubmitting,
+      canSubmit: canSubmit,
+      presentation: viewModel.presentation,
+      pendingApproval: viewModel.pendingApproval,
+      errorMessage: viewModel.lastError,
+      chromeStyle: chromeStyle,
+      onTextChange: handleTextChange,
+      onKeyCommand: handleKeyCommand,
+      onFocusEvent: handleFocusEvent,
+      onPasteImage: pasteImageFromClipboard,
+      canPasteImage: { supportsImageClipboardPaste },
+      onAddImage: { isImportingAttachments = true },
+      onRemoveAttachment: { draft.attachments.remove(id: $0) },
+      onDropImages: handleDrop,
+      onSubmit: submitDraft,
+      onResume: resumeSession,
+      onApprove: { Task { await viewModel.approveTool(decision: .approved) } },
+      onApproveForSession: { Task { await viewModel.approveTool(decision: .approvedForSession) } },
+      onDeny: { Task { await viewModel.approveTool(decision: .denied) } },
+      onAnswer: { answer, promptId in
+        Task { await viewModel.answerQuestion(answer: answer, questionId: promptId) }
+      },
+      onGrantPermission: { Task { await viewModel.respondToPermission(grant: true, scope: .turn) } },
+      onGrantPermissionForSession: { Task { await viewModel.respondToPermission(grant: true, scope: .session) } },
+      onDenyPermission: { Task { await viewModel.respondToPermission(grant: false) } },
+      terminalTitle: terminalTitle,
+      sessionDisplayStatus: sessionDisplayStatus,
+      currentTool: currentTool,
+      onToggleTerminal: onToggleTerminal,
+      onModuleAction: handleModuleAction,
+      onApprovalReviewerAction: handleApprovalReviewerAction,
+      isDictating: isDictationActive,
+      isSessionWorking: isSessionWorking,
+      onDictation: dictationAction,
+      onInterrupt: { Task { await viewModel.interruptSession() } }
+    )
+    .background(
+      GeometryReader { proxy in
+        Color.clear.preference(key: ControlDeckWidthPreferenceKey.self, value: proxy.size.width)
+      }
+    )
+    .overlay(alignment: .topLeading) {
+      if shouldShowCompletionPanel {
+        completionPanelOverlay
+      }
+    }
+    .onPreferenceChange(ControlDeckWidthPreferenceKey.self) { width in
+      guard width > 0 else { return }
+      controlDeckWidth = width
+    }
+    .onPreferenceChange(ControlDeckCompletionPanelHeightPreferenceKey.self) { height in
+      guard height > 0 else { return }
+      completionPanelHeight = height
+    }
+    .zIndex(2)
+  }
+
+  private var completionPanelOverlay: some View {
+    ControlDeckCompletionPanel(
+      mode: completionState.mode,
+      suggestions: currentSuggestions,
+      selectedIndex: completionState.selectedIndex,
+      onSelect: acceptSuggestion
+    )
+    .frame(width: completionPanelWidth, alignment: .leading)
+    .background(
+      GeometryReader { proxy in
+        Color.clear.preference(key: ControlDeckCompletionPanelHeightPreferenceKey.self, value: proxy.size.height)
+      }
+    )
+    .offset(x: horizontalContentPadding, y: -(completionPanelHeight + Spacing.xs))
+    .transition(.move(edge: .top).combined(with: .opacity))
+    .animation(Motion.gentle, value: shouldShowCompletionPanel)
+    .zIndex(10)
+  }
+
   // MARK: - Loading / Error
 
   private var loadingView: some View {
@@ -196,20 +270,20 @@ struct ControlDeckScreen: View {
   // MARK: - Text Change → Completions
 
   private func handleTextChange(_ text: String) {
-    if let query = mentionQuery(in: text) {
-      completionState.activate(.mention(query: query))
-      return
-    }
+    syncSelectedSkillsFromText(text)
 
-    if let query = skillQuery(in: text) {
-      if viewModel.skills.isEmpty {
-        Task { await viewModel.loadSkills() }
-      }
-      completionState.activate(.skill(query: query))
-      return
+    let nextMode = ControlDeckAutocompletePlanner.completionMode(for: text)
+    switch nextMode {
+      case let .skill(query):
+        if !query.isEmpty, viewModel.skills.isEmpty {
+          Task { await viewModel.loadSkills() }
+        }
+        completionState.activate(nextMode)
+      case .mention:
+        completionState.activate(nextMode)
+      case .inactive, .command:
+        completionState.dismiss()
     }
-
-    completionState.dismiss()
   }
 
   private var currentSuggestions: [ControlDeckCompletionSuggestion] {
@@ -218,22 +292,11 @@ struct ControlDeckScreen: View {
         return []
       case let .mention(query):
         let files = viewModel.projectFileIndex?.search(query, in: viewModel.projectPath ?? "") ?? []
-        return files.prefix(8).map { file in
+        return files.prefix(ControlDeckAutocompletePlanner.maxSuggestionCount).map { file in
           ControlDeckCompletionSuggestion(id: file.id, kind: .file, title: file.name, subtitle: file.relativePath)
         }
       case let .skill(query):
-        let normalizedQuery = query.lowercased()
-        let matching = viewModel.skills.filter { skill in
-          normalizedQuery.isEmpty || skill.name.lowercased().contains(normalizedQuery)
-        }
-        return matching.prefix(8).map { skill in
-          ControlDeckCompletionSuggestion(
-            id: skill.id,
-            kind: .skill,
-            title: skill.name,
-            subtitle: skill.shortDescription ?? skill.description
-          )
-        }
+        return ControlDeckAutocompletePlanner.skillSuggestions(for: query, skills: viewModel.skills)
       case .command:
         return []
     }
@@ -241,7 +304,7 @@ struct ControlDeckScreen: View {
 
   // MARK: - Keyboard Commands
 
-  private func handleKeyCommand(_ command: ComposerTextAreaKeyCommand) -> Bool {
+  private func handleKeyCommand(_ command: ControlDeckTextAreaKeyCommand) -> Bool {
     if completionState.isActive {
       let suggestions = currentSuggestions
       switch command {
@@ -273,11 +336,11 @@ struct ControlDeckScreen: View {
 
   // MARK: - Focus
 
-  private func handleFocusEvent(_ event: ComposerTextAreaFocusEvent) {
+  private func handleFocusEvent(_ event: ControlDeckTextAreaFocusEvent) {
     switch event {
       case .began:
         focusState.isFocused = true
-      case .ended:
+      case .ended(userInitiated: _):
         focusState.isFocused = false
     }
   }
@@ -329,7 +392,11 @@ struct ControlDeckScreen: View {
           let file = viewModel.projectFileIndex?.files(for: projectPath).first(where: { $0.id == suggestion.id })
     else { return }
 
-    draft.text = replaceTrailingToken(in: draft.text, prefix: "@", with: "@\(file.name) ")
+    draft.text = ControlDeckTextEditing.replacingTrailingToken(
+      in: draft.text,
+      prefix: "@",
+      with: "@\(file.name) "
+    )
     let absolutePath = (projectPath as NSString).appendingPathComponent(file.relativePath)
     draft.attachments.appendMention(ControlDeckMentionDraft(
       fileId: file.id,
@@ -346,7 +413,11 @@ struct ControlDeckScreen: View {
   private func acceptSkillSuggestion(_ suggestion: ControlDeckCompletionSuggestion) {
     guard let skill = viewModel.skills.first(where: { $0.id == suggestion.id }) else { return }
 
-    draft.text = replaceTrailingToken(in: draft.text, prefix: "$", with: "$\(skill.name) ")
+    draft.text = ControlDeckTextEditing.replacingTrailingToken(
+      in: draft.text,
+      prefix: "$",
+      with: "$\(skill.name) "
+    )
     draft.selectedSkillPaths.insert(skill.path)
     completionState.dismiss()
     focusState.requestFocus()
@@ -400,38 +471,16 @@ struct ControlDeckScreen: View {
     }
   }
 
-  // MARK: - Token Parsing
-
-  private func mentionQuery(in text: String) -> String? {
-    guard let range = trailingTokenRange(in: text, prefix: "@") else { return nil }
-    let idx = text.index(after: range.lowerBound)
-    guard idx < range.upperBound || idx == text.endIndex else { return nil }
-    return String(text[idx ..< range.upperBound])
+  private func resumeSession() {
+    guard !isSubmitting else { return }
+    Task { await viewModel.resumeSession() }
   }
 
-  private func skillQuery(in text: String) -> String? {
-    guard let range = trailingTokenRange(in: text, prefix: "$") else { return nil }
-    return String(text[text.index(after: range.lowerBound) ..< range.upperBound])
-  }
-
-  private func trailingTokenRange(in text: String, prefix: Character) -> Range<String.Index>? {
-    guard let idx = text.lastIndex(of: prefix) else { return nil }
-    if prefix == "@", idx != text.startIndex {
-      let before = text[text.index(before: idx)]
-      guard before.isWhitespace else { return nil }
-    }
-    let after = text[text.index(after: idx)...]
-    guard !after.contains(where: \.isWhitespace) else { return nil }
-    return idx ..< text.endIndex
-  }
-
-  private func replaceTrailingToken(in text: String, prefix: Character, with replacement: String) -> String {
-    guard let range = trailingTokenRange(in: text, prefix: prefix) else {
-      return text + replacement
-    }
-    var updated = text
-    updated.replaceSubrange(range, with: replacement)
-    return updated
+  private func syncSelectedSkillsFromText(_ text: String) {
+    guard !viewModel.skills.isEmpty else { return }
+    let matched = ControlDeckSkillResolver.matchedSkillPaths(in: text, availableSkills: viewModel.skills)
+    guard matched != draft.selectedSkillPaths else { return }
+    draft.selectedSkillPaths = matched
   }
 
   // MARK: - Image Handling
@@ -560,6 +609,22 @@ struct ControlDeckScreen: View {
     // If the current text starts with the base, return just the base
     // (user edits during dictation are in the base region)
     current.hasPrefix(base) ? base : current
+  }
+}
+
+private struct ControlDeckWidthPreferenceKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
+  }
+}
+
+private struct ControlDeckCompletionPanelHeightPreferenceKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = max(value, nextValue())
   }
 }
 

@@ -16,6 +16,7 @@ enum ControlDeckPresentationBuilder {
       lifecycleLabel: lifecycleLabel(state.lifecycle),
       lifecycleTint: lifecycleTint(state.lifecycle),
       acceptsUserInput: state.acceptsUserInput,
+      canResume: canResume(state: state),
       supportsImages: snapshot.capabilities.supportsImages,
       headerSubtitle: headerSubtitle(state: state, isLoading: isLoading),
       statusModules: buildStatusModules(
@@ -49,10 +50,14 @@ enum ControlDeckPresentationBuilder {
     }
   }
 
+  private static func canResume(state: ControlDeckSessionState) -> Bool {
+    state.controlMode == .direct && (state.lifecycle == .resumable || state.lifecycle == .ended)
+  }
+
   private static func sendTint(for mode: ControlDeckMode) -> String {
     switch mode {
       case .compose: "accent"
-      case .steer: "accent"
+      case .steer: "feedbackCaution"
       case .approval: "accent"
       case .disabled: "textQuaternary"
     }

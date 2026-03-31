@@ -358,8 +358,10 @@ struct SessionDetailView: View {
         }
       )
     }
-    .background(Color.backgroundSecondary)
-    .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+    .background(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .strokeBorder(Color.panelBorder, lineWidth: 1)
@@ -406,25 +408,19 @@ struct SessionDetailView: View {
 
   @ViewBuilder
   private var directSessionDockHeader: some View {
-    VStack(spacing: 0) {
-      OrbitStatusIndicator(
-        displayStatus: screenPresentation.displayStatus,
-        currentTool: currentTool,
-        chromeStyle: .embedded
-      )
-
+    OrbitStatusIndicator(
+      displayStatus: screenPresentation.displayStatus,
+      currentTool: currentTool,
+      chromeStyle: .embedded,
+      showsDetail: !isCompactLayout
+    )
+    .overlay(alignment: .trailing) {
       if let session = controlDeckTerminalSession {
-        dividerLine
-
-        TerminalLiveStrip(session: session, onTap: {
-          handleTerminalStripTap(session: session)
-        }, fallbackPath: screenPresentation.projectPath, chromeStyle: .embedded)
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        inlineTerminalStrip(session: session)
+          .padding(.trailing, Spacing.md)
       } else if screenPresentation.isActive {
-        dividerLine
-
-        terminalLaunchStrip
-          .transition(.move(edge: .bottom).combined(with: .opacity))
+        inlineTerminalLaunchStrip
+          .padding(.trailing, Spacing.md)
       }
     }
     .padding(.top, Spacing.xs)
@@ -439,6 +435,72 @@ struct SessionDetailView: View {
 
   private var terminalLaunchTitle: String {
     shortenedTerminalPath(screenPresentation.projectPath) ?? "Launch interactive shell"
+  }
+
+  private func inlineTerminalTitle(_ session: TerminalSessionController) -> String {
+    let title = session.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    if title.isEmpty || title == "Terminal" {
+      return shortenedTerminalPath(screenPresentation.projectPath) ?? "Terminal"
+    }
+    if title.contains("/") {
+      return shortenedTerminalPath(title) ?? title
+    }
+    return title
+  }
+
+  private func inlineTerminalStrip(session: TerminalSessionController) -> some View {
+    Button {
+      handleTerminalStripTap(session: session)
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Text("Terminal")
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
+        if !isCompactLayout {
+          Text("·")
+            .font(.system(size: TypeScale.meta, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+          Text(inlineTerminalTitle(session))
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+        }
+      }
+      .padding(.leading, Spacing.sm)
+      .frame(maxWidth: isCompactLayout ? 160 : 420, alignment: .trailing)
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var inlineTerminalLaunchStrip: some View {
+    Button {
+      launchTerminal()
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: "chevron.right")
+          .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.terminal)
+        Text("Terminal")
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
+        if !isCompactLayout {
+          Text("·")
+            .font(.system(size: TypeScale.meta, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+          Text(terminalLaunchTitle)
+            .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+          Image(systemName: "plus.circle.fill")
+            .font(.system(size: IconScale.xs, weight: .bold))
+            .foregroundStyle(Color.accent)
+        }
+      }
+      .padding(.leading, Spacing.sm)
+      .frame(maxWidth: isCompactLayout ? 160 : 420, alignment: .trailing)
+    }
+    .buttonStyle(.plain)
+    .help("Launch terminal")
   }
 
   private var terminalLaunchStrip: some View {

@@ -661,6 +661,17 @@ final class ServerRuntimeRegistry {
             hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
             hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
+          if status == .connected {
+            // Bootstrap snapshots can be loaded over HTTP before the websocket
+            // handshake completes. In that case, explicitly (re)attach stream
+            // subscriptions once the transport is connected so live invalidations resume.
+            if runtime.connection.hasReceivedInitialDashboardSnapshot {
+              runtime.connection.subscribeDashboard()
+            }
+            if runtime.connection.hasReceivedInitialMissionsSnapshot {
+              runtime.connection.subscribeMissions()
+            }
+          }
           if !runtime.connection.hasReceivedInitialDashboardSnapshot
             || !runtime.connection.hasReceivedInitialMissionsSnapshot
           {

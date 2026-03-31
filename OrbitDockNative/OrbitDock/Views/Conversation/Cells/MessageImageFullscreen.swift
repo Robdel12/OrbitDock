@@ -1,13 +1,7 @@
-//
-//  ImageFullscreen.swift
-//  OrbitDock
-//
-//  Fullscreen image viewer — uses ImageLoader for all source types.
-//
-
 import SwiftUI
 
-struct ImageFullscreen: View {
+/// Fullscreen viewer for message image attachments.
+struct MessageImageFullscreen: View {
   let images: [MessageImage]
   let imageLoader: ImageLoader
   @State var currentIndex: Int
@@ -35,7 +29,6 @@ struct ImageFullscreen: View {
           .tint(.white)
       }
 
-      // Top bar
       VStack {
         HStack {
           if images.count > 1 {
@@ -62,7 +55,6 @@ struct ImageFullscreen: View {
 
         Spacer()
 
-        // Navigation arrows for multi-image
         if images.count > 1 {
           HStack {
             Button {
@@ -100,6 +92,7 @@ struct ImageFullscreen: View {
 
   private func loadCurrent() async {
     let image = currentImage
+    loadedImages = loadedImages.filter { $0.key == image.id }
     guard loadedImages[image.id] == nil else { return }
     if let loaded = await imageLoader.load(image) {
       loadedImages[image.id] = loaded

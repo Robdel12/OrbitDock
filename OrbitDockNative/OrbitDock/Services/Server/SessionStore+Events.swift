@@ -204,6 +204,11 @@ extension SessionStore {
   func handleSessionEnded(_ sessionId: String, _ reason: String) {
     let obs = session(sessionId)
     obs.status = .ended
+    obs.workStatus = .ended
+    obs.lifecycleState = .ended
+    obs.acceptsUserInput = false
+    obs.steerable = false
+    obs.attentionReason = .none
     obs.endReason = reason
     obs.endedAt = Date()
     obs.pendingApproval = nil

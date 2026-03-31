@@ -16,6 +16,7 @@ import Foundation
 final class ImageLoader: Sendable {
   private let cache = NSCache<NSString, PlatformImage>()
   private let conversationClient: ConversationClient
+  private static let maxDecodeDimension: CGFloat = 2_048
 
   init(conversationClient: ConversationClient) {
     self.conversationClient = conversationClient
@@ -36,7 +37,7 @@ final class ImageLoader: Sendable {
 
     let loaded = await resolve(image)
     if let loaded {
-      cache.setObject(loaded, forKey: image.id as NSString)
+      cache.setObject(loaded, forKey: image.id as NSString, cost: estimateCacheCost(for: loaded))
     }
     return loaded
   }
@@ -68,10 +69,13 @@ final class ImageLoader: Sendable {
   }
 
   private func loadFromFile(_ path: String) -> PlatformImage? {
+    if let downsampled = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.maxDecodeDimension) {
+      return downsampled
+    }
     #if os(macOS)
-      NSImage(contentsOfFile: path)
+      return NSImage(contentsOfFile: path)
     #else
-      UIImage(contentsOfFile: path)
+      return UIImage(contentsOfFile: path)
     #endif
   }
 
@@ -84,10 +88,13 @@ final class ImageLoader: Sendable {
   }
 
   private func decodePlatformImage(from data: Data) -> PlatformImage? {
+    if let downsampled = ImageDecoding.downsampledImage(fromData: data, maxDimension: Self.maxDecodeDimension) {
+      return downsampled
+    }
     #if os(macOS)
-      NSImage(data: data)
+      return NSImage(data: data)
     #else
-      UIImage(data: data)
+      return UIImage(data: data)
     #endif
   }
 
@@ -111,5 +118,23 @@ final class ImageLoader: Sendable {
       )
       return nil
     }
+  }
+
+  private func estimateCacheCost(for image: PlatformImage) -> Int {
+    #if os(macOS)
+      if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        return max(cgImage.bytesPerRow * cgImage.height, 1)
+      }
+      let width = max(Int(image.size.width.rounded(.up)), 1)
+      let height = max(Int(image.size.height.rounded(.up)), 1)
+      return width * height * 4
+    #else
+      if let cgImage = image.cgImage {
+        return max(cgImage.bytesPerRow * cgImage.height, 1)
+      }
+      let width = max(Int((image.size.width * image.scale).rounded(.up)), 1)
+      let height = max(Int((image.size.height * image.scale).rounded(.up)), 1)
+      return width * height * 4
+    #endif
   }
 }

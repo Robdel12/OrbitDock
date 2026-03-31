@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ImageExpandedView: View {
   let content: ServerRowContent
+  private static let inlineMaxDimension: CGFloat = 2_048
 
   private var filePath: String? {
     content.inputDisplay
@@ -89,7 +90,9 @@ struct ImageExpandedView: View {
   private func inlineImage(path: String) -> some View {
     #if os(macOS)
       let imageMaxHeight: CGFloat = 400
-      if let image = NSImage(contentsOfFile: path) {
+      if let image = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.inlineMaxDimension)
+        ?? NSImage(contentsOfFile: path)
+      {
         let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
         VStack(alignment: .leading, spacing: Spacing.xs) {
           Text(dims)
@@ -109,7 +112,9 @@ struct ImageExpandedView: View {
       }
     #else
       let imageMaxHeight: CGFloat = 280
-      if let image = UIImage(contentsOfFile: path) {
+      if let image = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.inlineMaxDimension)
+        ?? UIImage(contentsOfFile: path)
+      {
         let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
         VStack(alignment: .leading, spacing: Spacing.xs) {
           Text(dims)

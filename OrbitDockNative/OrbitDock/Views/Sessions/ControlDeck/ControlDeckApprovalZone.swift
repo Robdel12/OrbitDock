@@ -11,7 +11,6 @@ struct ControlDeckApprovalZone: View {
   let onDenyPermission: () -> Void
 
   @State private var answerDrafts: [String: String] = [:]
-  @State private var appeared = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -24,16 +23,6 @@ struct ControlDeckApprovalZone: View {
     }
     .padding(.horizontal, Spacing.md)
     .padding(.vertical, Spacing.md)
-    .opacity(appeared ? 1 : 0)
-    .offset(y: appeared ? 0 : 8)
-    .onAppear {
-      withAnimation(Motion.gentle) {
-        appeared = true
-      }
-      #if os(iOS)
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-      #endif
-    }
   }
 
   // MARK: - Header
@@ -139,7 +128,7 @@ struct ControlDeckApprovalZone: View {
       }
 
       if let diff, !diff.isEmpty {
-        ApprovalDiffPreview(diffString: diff)
+        ControlDeckApprovalDiffPreview(diffString: diff)
       }
     }
   }
@@ -428,7 +417,6 @@ struct ControlDeckApprovalZone: View {
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .strokeBorder(tint.opacity(0.95), lineWidth: 1)
     )
-    .themeShadow(Shadow.glow(color: tint, intensity: 0.16))
   }
 
   private func secondaryButton(

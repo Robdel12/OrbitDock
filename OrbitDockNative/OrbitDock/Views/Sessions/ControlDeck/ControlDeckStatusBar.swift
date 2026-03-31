@@ -9,11 +9,13 @@ struct ControlDeckStatusBar: View {
   var supportsImages: Bool = false
   var canPasteImage: Bool = false
   var canSubmit: Bool = false
+  var canResume: Bool = false
   var isSubmitting: Bool = false
   var sendTint: String = "accent"
   var onAddImage: (() -> Void)?
   var onPasteImage: (() -> Void)?
   var onSubmit: (() -> Void)?
+  var onResume: (() -> Void)?
   var isDictating: Bool = false
   var isSessionWorking: Bool = false
   var onDictation: (() -> Void)?
@@ -39,7 +41,7 @@ struct ControlDeckStatusBar: View {
 
   private var actionButtonSize: CGFloat {
     #if os(iOS)
-      isCompactIOS ? 30 : 32
+      44
     #else
       26
     #endif
@@ -47,7 +49,7 @@ struct ControlDeckStatusBar: View {
 
   private var sendButtonSize: CGFloat {
     #if os(iOS)
-      isCompactIOS ? 30 : 34
+      44
     #else
       28
     #endif
@@ -132,10 +134,22 @@ struct ControlDeckStatusBar: View {
         .frame(minWidth: sendButtonSize, minHeight: sendButtonSize)
         .padding(.horizontal, isCompactIOS ? 0 : Spacing.sm_)
         .background(Color.statusError.opacity(OpacityTier.light), in: Capsule())
-        .overlay(
-          Capsule()
-            .strokeBorder(Color.statusError.opacity(OpacityTier.medium), lineWidth: 0.75)
-        )
+      }
+      .buttonStyle(.plain)
+    } else if canResume {
+      Button(action: { onResume?() }) {
+        HStack(spacing: isCompactIOS ? 0 : Spacing.gap) {
+          Image(systemName: "play.fill")
+            .font(.system(size: TypeScale.caption, weight: .bold))
+          if !isCompactIOS {
+            Text("Resume")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+          }
+        }
+        .foregroundStyle(Color.feedbackCaution)
+        .frame(minWidth: sendButtonSize, minHeight: sendButtonSize)
+        .padding(.horizontal, isCompactIOS ? 0 : Spacing.sm_)
+        .background(Color.feedbackCaution.opacity(OpacityTier.light), in: Capsule())
       }
       .buttonStyle(.plain)
     } else {
@@ -153,16 +167,6 @@ struct ControlDeckStatusBar: View {
         }
         .frame(width: sendButtonSize, height: sendButtonSize)
         .background(canSubmit ? resolvedSendTint : Color.backgroundTertiary, in: Circle())
-        .overlay(
-          Circle()
-            .strokeBorder(
-              canSubmit
-                ? resolvedSendTint.opacity(OpacityTier.medium)
-                : Color.panelBorder.opacity(OpacityTier.medium),
-              lineWidth: 0.75
-            )
-        )
-        .themeShadow(canSubmit ? Shadow.glow(color: resolvedSendTint, intensity: 0.18) : Shadow.sm)
       }
       .buttonStyle(.plain)
       .disabled(!canSubmit || isSubmitting)
@@ -223,7 +227,8 @@ struct ControlDeckStatusBar: View {
   }
 
   private func moduleLabel(_ module: ControlDeckStatusModuleItem, interactive: Bool = false) -> some View {
-    HStack(spacing: Spacing.xxs) {
+    let isFlatInteractive = interactive && module.id == .model
+    return HStack(spacing: Spacing.xxs) {
       Image(systemName: module.icon)
         .font(.system(size: IconScale.sm, weight: .semibold))
         .frame(width: 12)
@@ -241,17 +246,10 @@ struct ControlDeckStatusBar: View {
     .padding(.horizontal, interactive ? Spacing.sm_ : 0)
     .padding(.vertical, interactive ? Spacing.gap : 0)
     .background(
-      interactive
+      (interactive && !isFlatInteractive)
         ? Color.backgroundTertiary.opacity(0.72)
         : Color.clear,
       in: Capsule()
-    )
-    .overlay(
-      Capsule()
-        .strokeBorder(
-          interactive ? Color.panelBorder.opacity(OpacityTier.medium) : .clear,
-          lineWidth: 0.5
-        )
     )
   }
 

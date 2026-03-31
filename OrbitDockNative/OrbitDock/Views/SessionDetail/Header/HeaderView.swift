@@ -234,10 +234,6 @@ struct HeaderView: View {
         .foregroundStyle(Color.textTertiary)
         .frame(width: 28, height: 28)
         .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md)
-            .strokeBorder(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
     }
     .menuStyle(.borderlessButton)
     .help("More options")
@@ -287,10 +283,6 @@ struct HeaderView: View {
         .foregroundStyle(Color.textTertiary)
         .frame(width: 28, height: 28)
         .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md)
-            .strokeBorder(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
     }
     .buttonStyle(.plain)
     .help(help)
@@ -356,10 +348,6 @@ struct HeaderView: View {
         .foregroundStyle(isVisible ? Color.accent : Color.textSecondary)
         .frame(width: 28, height: 28)
         .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.md)
-            .strokeBorder(isVisible ? Color.accent.opacity(0.55) : Color.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
     }
     .buttonStyle(.plain)
     .help(isVisible ? "Hide workers" : "Show workers")

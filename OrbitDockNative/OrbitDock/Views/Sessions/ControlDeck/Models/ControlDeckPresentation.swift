@@ -18,6 +18,7 @@ struct ControlDeckPresentation: Equatable, Sendable {
   let lifecycleLabel: String
   let lifecycleTint: String
   let acceptsUserInput: Bool
+  let canResume: Bool
   let supportsImages: Bool
   let headerSubtitle: String
   let statusModules: [ControlDeckStatusModuleItem]

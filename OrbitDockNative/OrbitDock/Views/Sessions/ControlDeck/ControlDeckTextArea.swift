@@ -1,13 +1,13 @@
 //
-//  ComposerTextArea.swift
+//  ControlDeckTextArea.swift
 //  OrbitDock
 //
-//  Cross-platform multiline composer input backed by UITextView/NSTextView.
+//  Cross-platform multiline Control Deck input backed by UITextView/NSTextView.
 //
 
 import SwiftUI
 
-enum ComposerTextAreaKeyCommand {
+enum ControlDeckTextAreaKeyCommand {
   case escape
   case upArrow
   case downArrow
@@ -19,14 +19,13 @@ enum ComposerTextAreaKeyCommand {
   case commandShiftT
 }
 
-enum ComposerTextAreaFocusEvent {
+enum ControlDeckTextAreaFocusEvent {
   case began
   case ended(userInitiated: Bool)
 }
 
-struct ComposerTextArea: View {
+struct ControlDeckTextArea: View {
   @Binding var text: String
-  let placeholder: String
   @Binding var focusRequestSignal: Int
   @Binding var blurRequestSignal: Int
   @Binding var moveCursorToEndSignal: Int
@@ -36,12 +35,11 @@ struct ComposerTextArea: View {
   let maxLines: Int
   let onPasteImage: () -> Bool
   let canPasteImage: () -> Bool
-  let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
-  let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
+  let onKeyCommand: (ControlDeckTextAreaKeyCommand) -> Bool
+  let onFocusEvent: (ControlDeckTextAreaFocusEvent) -> Void
 
   init(
     text: Binding<String>,
-    placeholder: String,
     focusRequestSignal: Binding<Int>,
     blurRequestSignal: Binding<Int>,
     moveCursorToEndSignal: Binding<Int>,
@@ -51,11 +49,10 @@ struct ComposerTextArea: View {
     maxLines: Int = 5,
     onPasteImage: @escaping () -> Bool,
     canPasteImage: @escaping () -> Bool,
-    onKeyCommand: @escaping (ComposerTextAreaKeyCommand) -> Bool,
-    onFocusEvent: @escaping (ComposerTextAreaFocusEvent) -> Void
+    onKeyCommand: @escaping (ControlDeckTextAreaKeyCommand) -> Bool,
+    onFocusEvent: @escaping (ControlDeckTextAreaFocusEvent) -> Void
   ) {
     _text = text
-    self.placeholder = placeholder
     _focusRequestSignal = focusRequestSignal
     _blurRequestSignal = blurRequestSignal
     _moveCursorToEndSignal = moveCursorToEndSignal
@@ -70,31 +67,20 @@ struct ComposerTextArea: View {
   }
 
   var body: some View {
-    ZStack(alignment: .topLeading) {
-      if text.isEmpty {
-        Text(placeholder)
-          .font(.system(size: TypeScale.body))
-          .foregroundStyle(Color.textTertiary)
-          .padding(.top, Spacing.xxs)
-          .padding(.leading, Spacing.xxs)
-          .allowsHitTesting(false)
-      }
-
-      PlatformComposerTextArea(
-        text: $text,
-        focusRequestSignal: $focusRequestSignal,
-        blurRequestSignal: $blurRequestSignal,
-        moveCursorToEndSignal: $moveCursorToEndSignal,
-        measuredHeight: $measuredHeight,
-        isEnabled: isEnabled,
-        minLines: minLines,
-        maxLines: maxLines,
-        onPasteImage: onPasteImage,
-        canPasteImage: canPasteImage,
-        onKeyCommand: onKeyCommand,
-        onFocusEvent: onFocusEvent
-      )
-    }
+    PlatformControlDeckTextArea(
+      text: $text,
+      focusRequestSignal: $focusRequestSignal,
+      blurRequestSignal: $blurRequestSignal,
+      moveCursorToEndSignal: $moveCursorToEndSignal,
+      measuredHeight: $measuredHeight,
+      isEnabled: isEnabled,
+      minLines: minLines,
+      maxLines: maxLines,
+      onPasteImage: onPasteImage,
+      canPasteImage: canPasteImage,
+      onKeyCommand: onKeyCommand,
+      onFocusEvent: onFocusEvent
+    )
   }
 }
 
@@ -108,9 +94,9 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
 #if os(iOS)
   import UIKit
 
-  private typealias PlatformComposerTextArea = ComposerTextAreaIOS
+  private typealias PlatformControlDeckTextArea = ControlDeckTextAreaIOS
 
-  private struct ComposerTextAreaIOS: UIViewRepresentable {
+  private struct ControlDeckTextAreaIOS: UIViewRepresentable {
     @Binding var text: String
     @Binding var focusRequestSignal: Int
     @Binding var blurRequestSignal: Int
@@ -121,15 +107,15 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     let maxLines: Int
     let onPasteImage: () -> Bool
     let canPasteImage: () -> Bool
-    let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
-    let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
+    let onKeyCommand: (ControlDeckTextAreaKeyCommand) -> Bool
+    let onFocusEvent: (ControlDeckTextAreaFocusEvent) -> Void
 
     func makeCoordinator() -> Coordinator {
       Coordinator(parent: self)
     }
 
-    func makeUIView(context: Context) -> ComposerUITextView {
-      let textView = ComposerUITextView(frame: .zero)
+    func makeUIView(context: Context) -> ControlDeckUITextView {
+      let textView = ControlDeckUITextView(frame: .zero)
       let coordinator = context.coordinator
 
       textView.backgroundColor = .clear
@@ -158,7 +144,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       return textView
     }
 
-    func updateUIView(_ uiView: ComposerUITextView, context: Context) {
+    func updateUIView(_ uiView: ControlDeckUITextView, context: Context) {
       let coordinator = context.coordinator
       coordinator.parent = self
       coordinator.textView = uiView
@@ -178,7 +164,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       coordinator.applyCursorRequestIfNeeded(in: uiView)
     }
 
-    static func dismantleUIView(_ uiView: ComposerUITextView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: ControlDeckUITextView, coordinator: Coordinator) {
       uiView.delegate = nil
       uiView.onPasteImage = nil
       uiView.canPasteImage = nil
@@ -188,8 +174,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-      var parent: ComposerTextAreaIOS
-      weak var textView: ComposerUITextView?
+      var parent: ControlDeckTextAreaIOS
+      weak var textView: ControlDeckUITextView?
 
       private var isApplyingExternalText = false
       private var lastAppliedFocusRequestSignal: Int
@@ -198,14 +184,14 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       private var pendingMeasuredHeight: CGFloat?
       private var measuredHeightPublishTask: Task<Void, Never>?
 
-      init(parent: ComposerTextAreaIOS) {
+      init(parent: ControlDeckTextAreaIOS) {
         self.parent = parent
         lastAppliedFocusRequestSignal = parent.focusRequestSignal
         lastAppliedBlurRequestSignal = parent.blurRequestSignal
         lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
-      func syncTextFromSwiftUI(in textView: ComposerUITextView) -> Bool {
+      func syncTextFromSwiftUI(in textView: ControlDeckUITextView) -> Bool {
         let incoming = parent.text
         guard textView.text != incoming else { return false }
         guard textView.markedTextRange == nil else { return false }
@@ -224,7 +210,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         return true
       }
 
-      func applyFocusRequestIfNeeded(in textView: ComposerUITextView) {
+      func applyFocusRequestIfNeeded(in textView: ControlDeckUITextView) {
         guard parent.focusRequestSignal != lastAppliedFocusRequestSignal else { return }
         guard textView.window != nil else { return }
 
@@ -234,7 +220,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         lastAppliedFocusRequestSignal = parent.focusRequestSignal
       }
 
-      func applyBlurRequestIfNeeded(in textView: ComposerUITextView) {
+      func applyBlurRequestIfNeeded(in textView: ControlDeckUITextView) {
         guard parent.blurRequestSignal != lastAppliedBlurRequestSignal else { return }
 
         if textView.isFirstResponder {
@@ -243,7 +229,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         lastAppliedBlurRequestSignal = parent.blurRequestSignal
       }
 
-      func applyCursorRequestIfNeeded(in textView: ComposerUITextView) {
+      func applyCursorRequestIfNeeded(in textView: ControlDeckUITextView) {
         guard parent.moveCursorToEndSignal != lastAppliedCursorSignal else { return }
         guard textView.markedTextRange == nil else { return }
 
@@ -306,10 +292,10 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     }
   }
 
-  private final class ComposerUITextView: UITextView {
+  private final class ControlDeckUITextView: UITextView {
     var onPasteImage: (() -> Bool)?
     var canPasteImage: (() -> Bool)?
-    var onKeyCommand: ((ComposerTextAreaKeyCommand) -> Bool)?
+    var onKeyCommand: ((ControlDeckTextAreaKeyCommand) -> Bool)?
     var onBoundsWidthChange: (() -> Void)?
 
     private var previousBoundsWidth: CGFloat = 0
@@ -352,9 +338,9 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
 #if os(macOS)
   import AppKit
 
-  private typealias PlatformComposerTextArea = ComposerTextAreaMacOS
+  private typealias PlatformControlDeckTextArea = ControlDeckTextAreaMacOS
 
-  private struct ComposerTextAreaMacOS: NSViewRepresentable {
+  private struct ControlDeckTextAreaMacOS: NSViewRepresentable {
     @Binding var text: String
     @Binding var focusRequestSignal: Int
     @Binding var blurRequestSignal: Int
@@ -365,8 +351,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     let maxLines: Int
     let onPasteImage: () -> Bool
     let canPasteImage: () -> Bool
-    let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
-    let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
+    let onKeyCommand: (ControlDeckTextAreaKeyCommand) -> Bool
+    let onFocusEvent: (ControlDeckTextAreaFocusEvent) -> Void
 
     func makeCoordinator() -> Coordinator {
       Coordinator(parent: self)
@@ -381,10 +367,11 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       scrollView.autohidesScrollers = true
       scrollView.verticalScrollElasticity = .none
 
-      let textView = ComposerNSTextView(frame: .zero)
+      let textView = ControlDeckNSTextView(frame: .zero)
       let coordinator = context.coordinator
 
       textView.delegate = coordinator
+      textView.focusRingType = .none
       textView.isRichText = false
       textView.importsGraphics = false
       textView.drawsBackground = false
@@ -429,7 +416,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       let coordinator = context.coordinator
       coordinator.parent = self
 
-      guard let textView = coordinator.textView ?? (nsView.documentView as? ComposerNSTextView) else { return }
+      guard let textView = coordinator.textView ?? (nsView.documentView as? ControlDeckNSTextView) else { return }
       coordinator.textView = textView
 
       if textView.isEditable != isEnabled {
@@ -452,7 +439,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-      if let textView = nsView.documentView as? ComposerNSTextView {
+      if let textView = nsView.documentView as? ControlDeckNSTextView {
         textView.delegate = nil
         textView.onPasteImage = nil
         textView.canPasteImage = nil
@@ -464,8 +451,8 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
-      var parent: ComposerTextAreaMacOS
-      weak var textView: ComposerNSTextView?
+      var parent: ControlDeckTextAreaMacOS
+      weak var textView: ControlDeckNSTextView?
 
       private var isApplyingExternalText = false
       private var lastAppliedFocusRequestSignal: Int
@@ -474,14 +461,14 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       private var pendingMeasuredHeight: CGFloat?
       private var measuredHeightPublishTask: Task<Void, Never>?
 
-      init(parent: ComposerTextAreaMacOS) {
+      init(parent: ControlDeckTextAreaMacOS) {
         self.parent = parent
         lastAppliedFocusRequestSignal = parent.focusRequestSignal
         lastAppliedBlurRequestSignal = parent.blurRequestSignal
         lastAppliedCursorSignal = parent.moveCursorToEndSignal
       }
 
-      func syncTextFromSwiftUI(in textView: ComposerNSTextView) -> Bool {
+      func syncTextFromSwiftUI(in textView: ControlDeckNSTextView) -> Bool {
         let incoming = parent.text
         guard textView.string != incoming else { return false }
         guard !textView.hasMarkedText() else { return false }
@@ -501,7 +488,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         return true
       }
 
-      func applyFocusRequestIfNeeded(in textView: ComposerNSTextView) {
+      func applyFocusRequestIfNeeded(in textView: ControlDeckNSTextView) {
         guard parent.focusRequestSignal != lastAppliedFocusRequestSignal else { return }
         guard let window = textView.window else { return }
 
@@ -511,7 +498,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         lastAppliedFocusRequestSignal = parent.focusRequestSignal
       }
 
-      func applyBlurRequestIfNeeded(in textView: ComposerNSTextView) {
+      func applyBlurRequestIfNeeded(in textView: ControlDeckNSTextView) {
         guard parent.blurRequestSignal != lastAppliedBlurRequestSignal else { return }
         if let window = textView.window, isTextViewFirstResponder(textView) {
           window.makeFirstResponder(nil)
@@ -519,7 +506,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
         lastAppliedBlurRequestSignal = parent.blurRequestSignal
       }
 
-      func applyCursorRequestIfNeeded(in textView: ComposerNSTextView) {
+      func applyCursorRequestIfNeeded(in textView: ControlDeckNSTextView) {
         guard parent.moveCursorToEndSignal != lastAppliedCursorSignal else { return }
         guard !textView.hasMarkedText() else { return }
 
@@ -624,14 +611,19 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
     }
   }
 
-  private final class ComposerNSTextView: NSTextView {
+  private final class ControlDeckNSTextView: NSTextView {
     var onPasteImage: (() -> Bool)?
     var canPasteImage: (() -> Bool)?
-    var onKeyCommand: ((ComposerTextAreaKeyCommand) -> Bool)?
+    var onKeyCommand: ((ControlDeckTextAreaKeyCommand) -> Bool)?
     var onBoundsWidthChange: (() -> Void)?
     var onFirstResponderChange: ((Bool) -> Void)?
 
     private var previousBoundsWidth: CGFloat = 0
+
+    override var focusRingType: NSFocusRingType {
+      get { .none }
+      set { }
+    }
 
     override func becomeFirstResponder() -> Bool {
       let result = super.becomeFirstResponder()
@@ -687,7 +679,7 @@ private func clampedSelection(_ selection: NSRange, maxLength: Int) -> NSRange {
       return onKeyCommand?(command) ?? false
     }
 
-    private func mapCommand(from event: NSEvent) -> ComposerTextAreaKeyCommand? {
+    private func mapCommand(from event: NSEvent) -> ControlDeckTextAreaKeyCommand? {
       let modifiers = event.modifierFlags.intersection([.shift, .control, .command, .option])
       let chars = event.charactersIgnoringModifiers?.lowercased() ?? ""
 

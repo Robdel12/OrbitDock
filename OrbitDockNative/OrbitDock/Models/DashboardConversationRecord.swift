@@ -31,6 +31,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   let activeWorkerCount: UInt32
   let issueIdentifier: String?
   let effort: String?
+  let status: ServerSessionStatus
+  let workStatus: ServerWorkStatus
   let listStatus: ServerSessionListStatus
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
@@ -50,13 +52,11 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   }
 
   nonisolated var displayStatus: SessionDisplayStatus {
-    switch listStatus {
-      case .working: .working
-      case .permission: .permission
-      case .question: .question
-      case .reply: .reply
-      case .ended: .ended
-    }
+    Self.resolveDisplayStatus(
+      status: status,
+      workStatus: workStatus,
+      listStatus: listStatus
+    )
   }
 
   nonisolated var groupingPath: String {
@@ -92,7 +92,7 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   }
 
   nonisolated var canEnd: Bool {
-    listStatus != .ended
+    status == .active
   }
 
   /// Create an updated copy by applying fields from a SessionListItemUpdated event.
@@ -125,6 +125,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
       activeWorkerCount: UInt32(item.activeWorkerCount),
       issueIdentifier: item.issueIdentifier,
       effort: item.effort,
+      status: item.status,
+      workStatus: item.workStatus,
       listStatus: item.listStatus,
       codexIntegrationMode: item.codexIntegrationMode,
       claudeIntegrationMode: item.claudeIntegrationMode,
@@ -179,6 +181,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     activeWorkerCount: UInt32,
     issueIdentifier: String?,
     effort: String?,
+    status: ServerSessionStatus,
+    workStatus: ServerWorkStatus,
     listStatus: ServerSessionListStatus,
     codexIntegrationMode: ServerCodexIntegrationMode?,
     claudeIntegrationMode: ServerClaudeIntegrationMode?,
@@ -214,6 +218,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     self.activeWorkerCount = activeWorkerCount
     self.issueIdentifier = issueIdentifier
     self.effort = effort
+    self.status = status
+    self.workStatus = workStatus
     self.listStatus = listStatus
     self.codexIntegrationMode = codexIntegrationMode
     self.claudeIntegrationMode = claudeIntegrationMode
@@ -255,6 +261,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     self.activeWorkerCount = item.activeWorkerCount
     self.issueIdentifier = item.issueIdentifier
     self.effort = item.effort
+    self.status = item.status
+    self.workStatus = item.workStatus
     self.listStatus = item.listStatus
     self.codexIntegrationMode = item.codexIntegrationMode
     self.claudeIntegrationMode = item.claudeIntegrationMode
@@ -284,6 +292,34 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
 }
 
 private extension DashboardConversationRecord {
+  nonisolated static func resolveDisplayStatus(
+    status: ServerSessionStatus,
+    workStatus: ServerWorkStatus,
+    listStatus: ServerSessionListStatus
+  ) -> SessionDisplayStatus {
+    guard status == .active else { return .ended }
+
+    switch workStatus {
+      case .permission:
+        return .permission
+      case .question:
+        return .question
+      case .working:
+        return .working
+      case .waiting, .reply:
+        break
+      case .ended:
+        break
+    }
+
+    switch listStatus {
+      case .permission: return .permission
+      case .question: return .question
+      case .working: return .working
+      case .reply, .ended: return .reply
+    }
+  }
+
   static func makeCompactPreviewText(
     serverValue: String? = nil,
     lastMessage: String?,

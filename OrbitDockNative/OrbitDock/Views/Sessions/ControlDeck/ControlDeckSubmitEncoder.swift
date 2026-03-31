@@ -9,7 +9,11 @@ enum ControlDeckSubmitEncoder {
     ServerControlDeckSubmitTurnRequest(
       text: draft.trimmedText,
       attachments: encodeAttachments(draft.attachments, uploadedImageIds: uploadedImageIds),
-      skills: encodeSkills(selectedPaths: draft.selectedSkillPaths, availableSkills: availableSkills),
+      skills: ControlDeckSkillResolver.resolveSkillRefs(
+        content: draft.text,
+        selectedSkillPaths: draft.selectedSkillPaths,
+        availableSkills: availableSkills
+      ),
       overrides: encodeOverrides(model: draft.modelOverride, effort: draft.effortOverride)
     )
   }
@@ -60,17 +64,6 @@ enum ControlDeckSubmitEncoder {
           ))
       }
     }
-  }
-
-  // MARK: - Skills
-
-  private static func encodeSkills(
-    selectedPaths: Set<String>,
-    availableSkills: [ControlDeckSkill]
-  ) -> [ServerControlDeckSkillRef] {
-    availableSkills
-      .filter { selectedPaths.contains($0.path) }
-      .map { ServerControlDeckSkillRef(name: $0.name, path: $0.path) }
   }
 
   // MARK: - Overrides

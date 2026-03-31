@@ -9,27 +9,25 @@ enum ControlDeckChromeStyle {
 struct ControlDeckView: View {
   // State from parent
   @Binding var draft: ControlDeckDraft
-  @Binding var focusState: ComposerFocusState
-  @Binding var completionState: ControlDeckCompletionState
+  @Binding var focusState: ControlDeckFocusState
   let isSubmitting: Bool
   let canSubmit: Bool
   let presentation: ControlDeckPresentation?
   let pendingApproval: ControlDeckApproval?
-  let completionSuggestions: [ControlDeckCompletionSuggestion]
   let errorMessage: String?
   var chromeStyle: ControlDeckChromeStyle = .standalone
 
   // Compose callbacks
   let onTextChange: (String) -> Void
-  let onKeyCommand: (ComposerTextAreaKeyCommand) -> Bool
-  let onFocusEvent: (ComposerTextAreaFocusEvent) -> Void
+  let onKeyCommand: (ControlDeckTextAreaKeyCommand) -> Bool
+  let onFocusEvent: (ControlDeckTextAreaFocusEvent) -> Void
   let onPasteImage: () -> Bool
   let canPasteImage: () -> Bool
   let onAddImage: () -> Void
   let onRemoveAttachment: (String) -> Void
   let onDropImages: ([NSItemProvider]) -> Bool
-  let onSelectSuggestion: (ControlDeckCompletionSuggestion) -> Void
   let onSubmit: () -> Void
+  let onResume: (() -> Void)?
 
   // Approval callbacks
   var onApprove: (() -> Void)?
@@ -66,8 +64,8 @@ struct ControlDeckView: View {
     #endif
   }
 
-  private var shouldOverlayCompletions: Bool {
-    isCompactIOS
+  private var horizontalContentPadding: CGFloat {
+    isCompactIOS ? Spacing.sm : Spacing.md
   }
 
   var body: some View {
@@ -97,45 +95,38 @@ struct ControlDeckView: View {
           supportsImages: !isApprovalMode && (presentation.supportsImages),
           canPasteImage: !isApprovalMode && canPasteImage(),
           canSubmit: !isApprovalMode && canSubmit,
+          canResume: !isApprovalMode && (presentation.canResume),
           isSubmitting: isSubmitting,
           sendTint: presentation.sendTint,
           onAddImage: onAddImage,
           onPasteImage: { _ = onPasteImage() },
           onSubmit: onSubmit,
+          onResume: onResume,
           isDictating: isDictating,
           isSessionWorking: isSessionWorking,
           onDictation: onDictation,
           onInterrupt: onInterrupt
         )
-        .padding(.horizontal, Spacing.md)
+        .padding(.horizontal, horizontalContentPadding)
         .padding(.bottom, Spacing.sm)
         .padding(.top, Spacing.xs)
       }
     }
-    .background(backgroundStyle)
-    .clipShape(containerShape)
+    .background(containerBackground)
     .overlay(containerOverlay)
-    .overlay(alignment: .bottomLeading) {
-      if shouldOverlayCompletions, !isApprovalMode, completionState.isActive, !completionSuggestions.isEmpty {
-        completionPanel
-          .padding(.horizontal, Spacing.md)
-          .padding(.bottom, 54)
-          .transition(.move(edge: .bottom).combined(with: .opacity))
-      }
-    }
-    .shadow(color: shadowColor, radius: shadowRadius, y: 0)
-    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isApprovalMode)
-    .animation(.easeInOut(duration: 0.2), value: focusState.isFocused)
-    .animation(.easeInOut(duration: 0.25), value: isSteerMode)
   }
 
   private var isSteerMode: Bool {
     presentation?.mode == .steer
   }
 
+  private var isWorkingHighlight: Bool {
+    isSteerMode || isSessionWorking || sessionDisplayStatus == .working || isSubmitting
+  }
+
   private var hasBorderHighlight: Bool {
     if isApprovalMode { return true }
-    if isSteerMode { return true }
+    if isWorkingHighlight { return true }
     return focusState.isFocused
   }
 
@@ -148,19 +139,16 @@ struct ControlDeckView: View {
         case .none: return Color.panelBorder
       }
     }
-    if isSteerMode { return Color.statusWorking.opacity(0.5) }
+    if isWorkingHighlight { return Color.feedbackCaution.opacity(OpacityTier.vivid) }
     return focusState.isFocused ? Color.accent.opacity(0.5) : Color.panelBorder
-  }
-
-  private var borderGlowColor: Color {
-    if isApprovalMode { return .clear }
-    if isSteerMode { return Color.statusWorking.opacity(0.12) }
-    if focusState.isFocused { return Color.accent.opacity(0.12) }
-    return .clear
   }
 
   private var backgroundStyle: Color {
     chromeStyle == .embedded ? .clear : Color.backgroundSecondary
+  }
+
+  private var containerBackground: some View {
+    containerShape.fill(backgroundStyle)
   }
 
   private var containerShape: some Shape {
@@ -169,23 +157,11 @@ struct ControlDeckView: View {
 
   @ViewBuilder
   private var containerOverlay: some View {
-    if chromeStyle == .standalone {
-      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .strokeBorder(
-          borderColor,
-          lineWidth: hasBorderHighlight ? 1.5 : 1
-        )
-    } else {
-      EmptyView()
-    }
-  }
-
-  private var shadowColor: Color {
-    chromeStyle == .embedded ? .clear : borderGlowColor
-  }
-
-  private var shadowRadius: CGFloat {
-    chromeStyle == .embedded ? 0 : 16
+    RoundedRectangle(cornerRadius: chromeStyle == .embedded ? Radius.lg : Radius.xl, style: .continuous)
+      .strokeBorder(
+        borderColor,
+        lineWidth: isWorkingHighlight ? 1.25 : (hasBorderHighlight ? 1.25 : 1)
+      )
   }
 
   // MARK: - Compose Content
@@ -198,22 +174,15 @@ struct ControlDeckView: View {
           attachments: draft.attachments.items,
           onRemove: onRemoveAttachment
         )
-        .padding(.horizontal, Spacing.md)
+        .padding(.horizontal, horizontalContentPadding)
         .padding(.top, Spacing.sm)
         .padding(.bottom, Spacing.xs)
       }
 
       // Text editor
       editorSection
-        .padding(.horizontal, Spacing.md)
+        .padding(.horizontal, horizontalContentPadding)
         .padding(.top, draft.attachments.hasItems ? 0 : Spacing.sm)
-
-      // Completion panel
-      if !shouldOverlayCompletions, completionState.isActive, !completionSuggestions.isEmpty {
-        completionPanel
-          .padding(.horizontal, Spacing.md)
-          .padding(.top, Spacing.xs)
-      }
 
       // Error
       if let errorMessage, !errorMessage.isEmpty {
@@ -222,7 +191,7 @@ struct ControlDeckView: View {
           .foregroundStyle(Color.statusPermission)
           .textSelection(.enabled)
           .lineLimit(2)
-          .padding(.horizontal, Spacing.lg)
+          .padding(.horizontal, horizontalContentPadding)
           .padding(.top, Spacing.xs)
       }
     }
@@ -241,9 +210,8 @@ struct ControlDeckView: View {
           .allowsHitTesting(false)
       }
 
-      ComposerTextArea(
+      ControlDeckTextArea(
         text: $draft.text,
-        placeholder: "",
         focusRequestSignal: $focusState.focusRequestSignal,
         blurRequestSignal: $focusState.blurRequestSignal,
         moveCursorToEndSignal: $focusState.moveCursorToEndSignal,
@@ -264,12 +232,4 @@ struct ControlDeckView: View {
     }
   }
 
-  private var completionPanel: some View {
-    ControlDeckCompletionPanel(
-      mode: completionState.mode,
-      suggestions: completionSuggestions,
-      selectedIndex: completionState.selectedIndex,
-      onSelect: onSelectSuggestion
-    )
-  }
 }

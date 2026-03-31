@@ -114,6 +114,7 @@ pub(crate) async fn start_claude_fork_session(
     .await;
 
   handle.set_list_tx(state.list_tx());
+  handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
   let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
     claude_session,
     handle,
@@ -243,6 +244,7 @@ pub(crate) async fn finalize_codex_fork_session(
     connector: new_connector,
   };
   handle.set_list_tx(state.list_tx());
+  handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
   let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
     codex_session,
     handle,

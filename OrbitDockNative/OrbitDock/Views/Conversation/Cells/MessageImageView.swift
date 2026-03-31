@@ -31,7 +31,7 @@ struct MessageImageView: View {
         await loadAll()
       }
       .sheet(item: $fullscreenIndex) { index in
-        ImageFullscreen(
+        MessageImageFullscreen(
           images: images,
           imageLoader: imageLoader,
           currentIndex: index
@@ -90,6 +90,9 @@ struct MessageImageView: View {
   }
 
   private func loadAll() async {
+    let validIDs = Set(images.map(\.id))
+    loadedImages = loadedImages.filter { validIDs.contains($0.key) }
+
     await withTaskGroup(of: (String, PlatformImage?).self) { group in
       for image in images where loadedImages[image.id] == nil {
         group.addTask {

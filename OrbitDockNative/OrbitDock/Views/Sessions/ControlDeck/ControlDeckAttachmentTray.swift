@@ -10,6 +10,8 @@ struct ControlDeckAttachmentTray: View {
   let onRemove: (String) -> Void
 
   @State private var previewItem: ControlDeckAttachmentItem?
+  private static let thumbnailMaxDimension: CGFloat = 72
+  private static let previewMaxDimension: CGFloat = 2_048
 
   var body: some View {
     ScrollView(.horizontal, showsIndicators: false) {
@@ -45,7 +47,7 @@ struct ControlDeckAttachmentTray: View {
         ZStack {
           Color.black.ignoresSafeArea()
 
-          if let image = platformImage(from: previewData(for: img)) {
+          if let image = platformImage(from: previewData(for: img), maxDimension: Self.previewMaxDimension) {
             image
               .resizable()
               .aspectRatio(contentMode: .fit)
@@ -86,7 +88,9 @@ struct ControlDeckAttachmentTray: View {
   #if os(macOS)
     @ViewBuilder
     private func imagePreviewSheet(_ item: ControlDeckAttachmentItem) -> some View {
-      if case let .image(img) = item.kind, let image = platformImage(from: previewData(for: img)) {
+      if case let .image(img) = item.kind,
+         let image = platformImage(from: previewData(for: img), maxDimension: Self.previewMaxDimension)
+      {
         ZoomableImagePreview(image: image, title: img.displayName) {
           previewItem = nil
         }
@@ -120,7 +124,7 @@ struct ControlDeckAttachmentTray: View {
   private func chipIcon(_ item: ControlDeckAttachmentItem) -> some View {
     switch item.kind {
       case let .image(img):
-        if let thumbnailImage = platformImage(from: thumbnailData(for: img)) {
+        if let thumbnailImage = platformImage(from: thumbnailData(for: img), maxDimension: Self.thumbnailMaxDimension) {
           thumbnailImage
             .resizable()
             .aspectRatio(contentMode: .fill)
@@ -138,14 +142,20 @@ struct ControlDeckAttachmentTray: View {
     }
   }
 
-  private func platformImage(from data: Data?) -> Image? {
+  private func platformImage(from data: Data?, maxDimension: CGFloat) -> Image? {
     guard let data else { return nil }
     #if os(macOS)
-      guard let nsImage = NSImage(data: data) else { return nil }
-      return Image(nsImage: nsImage)
+      if let image = ImageDecoding.downsampledImage(fromData: data, maxDimension: maxDimension) {
+        return Image(nsImage: image)
+      }
+      guard let fallback = NSImage(data: data) else { return nil }
+      return Image(nsImage: fallback)
     #else
-      guard let uiImage = UIImage(data: data) else { return nil }
-      return Image(uiImage: uiImage)
+      if let image = ImageDecoding.downsampledImage(fromData: data, maxDimension: maxDimension) {
+        return Image(uiImage: image)
+      }
+      guard let fallback = UIImage(data: data) else { return nil }
+      return Image(uiImage: fallback)
     #endif
   }
 

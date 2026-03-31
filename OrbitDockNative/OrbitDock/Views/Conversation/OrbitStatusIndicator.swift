@@ -24,6 +24,7 @@ struct OrbitStatusIndicator: View {
   let displayStatus: SessionDisplayStatus
   var currentTool: String?
   var chromeStyle: ChromeStyle = .standalone
+  var showsDetail: Bool = true
 
   @State private var orbitPhrase = Self.orbitPhrases.randomElement() ?? "In orbit"
 
@@ -101,7 +102,7 @@ struct OrbitStatusIndicator: View {
         .foregroundStyle(statusColor)
         .contentTransition(.interpolate)
 
-      if let detail {
+      if showsDetail, let detail {
         Text("·")
           .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(Color.textQuaternary)

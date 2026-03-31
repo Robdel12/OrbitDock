@@ -246,6 +246,7 @@ async fn spawn_claude_resume(
       Ok(Ok(Ok(claude_session))) => {
         state.register_claude_thread(&session_id, provider_resume_id.as_str());
         handle.set_list_tx(state.list_tx());
+        handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
           claude_session,
           handle,
@@ -467,6 +468,7 @@ async fn spawn_codex_resume(
         .await;
 
         handle.set_list_tx(state.list_tx());
+        handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
           codex_session,
           handle,

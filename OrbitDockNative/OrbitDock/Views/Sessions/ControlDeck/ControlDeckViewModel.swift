@@ -46,9 +46,7 @@ final class ControlDeckViewModel {
   func loadSkills() async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      try await store.listSkills(sessionId: sessionId)
-      let serverSkills = store.session(sessionId).skills
-      skills = serverSkills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
+      skills = try await fetchEnabledSkills(sessionId: sessionId, store: store)
     } catch {
       lastError = String(describing: error)
     }
@@ -61,11 +59,16 @@ final class ControlDeckViewModel {
     uploadedImageIds: [String: String]
   ) async throws {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    let availableSkills = try await resolveSkillsForSubmit(
+      draft: draft,
+      sessionId: sessionId,
+      store: store
+    )
 
     let request = ControlDeckSubmitEncoder.encode(
       draft: draft,
       uploadedImageIds: uploadedImageIds,
-      availableSkills: skills
+      availableSkills: availableSkills
     )
 
     try await store.submitControlDeckTurn(sessionId: sessionId, request: request)
@@ -91,6 +94,16 @@ final class ControlDeckViewModel {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
       try await store.interruptSession(sessionId)
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func resumeSession() async {
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    do {
+      try await store.resumeSession(sessionId)
+      await refresh()
     } catch {
       lastError = String(describing: error)
     }
@@ -377,6 +390,28 @@ final class ControlDeckViewModel {
       return nil
     }
     return trimmed
+  }
+
+  private func fetchEnabledSkills(sessionId: String, store: SessionStore) async throws -> [ControlDeckSkill] {
+    try await store.listSkills(sessionId: sessionId)
+    return store.session(sessionId).skills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
+  }
+
+  private func resolveSkillsForSubmit(
+    draft: ControlDeckDraft,
+    sessionId: String,
+    store: SessionStore
+  ) async throws -> [ControlDeckSkill] {
+    if !skills.isEmpty {
+      return skills
+    }
+
+    let requiresSkillResolution = draft.text.contains("$") || !draft.selectedSkillPaths.isEmpty
+    guard requiresSkillResolution else { return [] }
+
+    let fetched = try await fetchEnabledSkills(sessionId: sessionId, store: store)
+    skills = fetched
+    return fetched
   }
 
   private func applySnapshotPayload(_ payload: ServerControlDeckSnapshotPayload) {

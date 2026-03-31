@@ -11,13 +11,13 @@ import SwiftUI
     @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
     @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
     @Environment(\.colorScheme) private var colorScheme
-    @State private var refreshRotation: Double = 0
     @Environment(AppStore.self) private var appStore
+    @State private var snapshot = MenuBarSnapshot.empty
 
     var body: some View {
-      let activeSessions = appStore.missionControlRecords()
-      let recentSessions = appStore.recentRecords(limit: 5)
-      let hasAnySessions = appStore.counts.total > 0
+      let activeSessions = snapshot.activeSessions
+      let recentSessions = snapshot.recentSessions
+      let hasAnySessions = snapshot.totalCount > 0
 
       VStack(alignment: .leading, spacing: 0) {
         // Header
@@ -127,15 +127,12 @@ import SwiftUI
 
           Button {
             runtimeRegistry.refreshEnabledSessionLists()
-            withAnimation(.linear(duration: 0.6)) {
-              refreshRotation += 360
-            }
+            refreshSnapshot()
             Task { await usageServiceRegistry.refreshAll() }
           } label: {
             Image(systemName: "arrow.clockwise")
               .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(tertiaryTextColor)
-              .rotationEffect(.degrees(refreshRotation))
           }
           .buttonStyle(.plain)
         }
@@ -145,8 +142,16 @@ import SwiftUI
       .frame(width: 332)
       .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
       .onAppear {
-        Task { await usageServiceRegistry.refreshAll() }
+        refreshSnapshot()
       }
+    }
+
+    private func refreshSnapshot() {
+      snapshot = MenuBarSnapshot(
+        activeSessions: Array(appStore.missionControlRecords().prefix(8)),
+        recentSessions: appStore.recentRecords(limit: 5),
+        totalCount: appStore.counts.total
+      )
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -201,10 +206,17 @@ import SwiftUI
     }
   }
 
+  private struct MenuBarSnapshot {
+    let activeSessions: [RootSessionNode]
+    let recentSessions: [RootSessionNode]
+    let totalCount: Int
+
+    static let empty = MenuBarSnapshot(activeSessions: [], recentSessions: [], totalCount: 0)
+  }
+
   struct MenuBarSessionRow: View {
     let session: RootSessionNode
     let isActive: Bool
-    @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
 
     private var displayStatus: SessionDisplayStatus {
@@ -247,11 +259,6 @@ import SwiftUI
       }
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.sm_)
-      .background(
-        isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.09) : Color.clear,
-        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-      )
-      .onHover { isHovering = $0 }
     }
 
     private var branchColor: Color {

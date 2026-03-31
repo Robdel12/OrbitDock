@@ -131,7 +131,7 @@ pub struct SessionRegistry {
   /// Primary claim and WebSocket connection state.
   connections: ConnectionState,
 
-  dashboard_revision: AtomicU64,
+  dashboard_revision: Arc<AtomicU64>,
   mission_revision: AtomicU64,
   workspace_provider_kind: std::sync::RwLock<WorkspaceProviderKind>,
 
@@ -201,7 +201,7 @@ impl SessionRegistry {
       shell_service: Arc::new(ShellService::new()),
       terminal_service: Arc::new(TerminalService::new()),
       connections: ConnectionState::new(is_primary),
-      dashboard_revision: AtomicU64::new(0),
+      dashboard_revision: Arc::new(AtomicU64::new(0)),
       mission_revision: AtomicU64::new(0),
       workspace_provider_kind: std::sync::RwLock::new(workspace_provider_kind),
       mission_trigger_tx,
@@ -608,6 +608,7 @@ impl SessionRegistry {
   /// Add a session by spawning an actor
   pub fn add_session(&self, mut handle: SessionHandle) -> SessionActorHandle {
     handle.set_list_tx(self.list_tx.clone());
+    handle.set_dashboard_revision_counter(self.dashboard_revision.clone());
     let id = handle.id().to_string();
     let actor = SessionActorHandle::spawn(handle, self.persist_tx.clone());
     self.sessions.insert(id, actor.clone());
@@ -877,6 +878,11 @@ impl SessionRegistry {
   /// Get a clone of the list broadcast sender (for passing to background tasks)
   pub fn list_tx(&self) -> broadcast::Sender<orbitdock_protocol::ServerMessage> {
     self.list_tx.clone()
+  }
+
+  /// Get a clone of the shared dashboard revision counter.
+  pub fn dashboard_revision_counter(&self) -> Arc<AtomicU64> {
+    self.dashboard_revision.clone()
   }
 
   // ── Pending hook session cache ────────────────────────────────────

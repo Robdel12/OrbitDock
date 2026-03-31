@@ -1,9 +1,5 @@
 use super::*;
 use crate::infrastructure::persistence::load_row_by_id_async;
-use crate::infrastructure::persistence::load_sessions_for_startup;
-use crate::runtime::restored_sessions::{
-  parse_session_status, parse_work_status, restored_session_to_handle,
-};
 use crate::support::session_time::parse_unix_z;
 use orbitdock_protocol::conversation_contracts::{
   compute_diff_display, compute_expanded_output, compute_input_display, detect_language,
@@ -12,9 +8,7 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::{
-  ConversationSnapshotPage, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
-  DashboardSnapshot, SessionComposerSnapshot, SessionDetailSnapshot, SessionListItem,
-  SessionListStatus, SessionState, SessionStatus, SessionSummary,
+  ConversationSnapshotPage, DashboardSnapshot, SessionComposerSnapshot, SessionDetailSnapshot,
 };
 use std::collections::BTreeMap;
 
@@ -126,25 +120,7 @@ fn duration_ms(started_at: Option<&str>, last_activity_at: Option<&str>) -> u64 
 pub async fn get_dashboard_snapshot(
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<DashboardSnapshot> {
-  let revision = state.current_dashboard_revision();
-  dashboard_snapshot_from_db(revision)
-    .await
-    .map(Json)
-    .map_err(|error| {
-      error!(
-        component = "api",
-        event = "api.get_dashboard.db_error",
-        error = %error,
-        "Failed to load dashboard snapshot from database"
-      );
-      (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ApiErrorResponse {
-          code: "db_error",
-          error,
-        }),
-      )
-    })
+  Ok(Json(state.current_dashboard_snapshot()))
 }
 
 pub async fn get_session_detail(
@@ -197,283 +173,6 @@ pub async fn get_session_detail(
       ))
     }
   }
-}
-
-async fn dashboard_snapshot_from_db(revision: u64) -> Result<DashboardSnapshot, String> {
-  let restored_sessions = load_sessions_for_startup()
-    .await
-    .map_err(|error| error.to_string())?;
-
-  let mut sessions: Vec<SessionListItem> = Vec::with_capacity(restored_sessions.len());
-  let mut conversations: Vec<DashboardConversationItem> = Vec::new();
-
-  for restored in restored_sessions {
-    let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
-    let work_status = parse_work_status(status, &restored.work_status);
-    let handle = restored_session_to_handle(restored, status, work_status);
-    let summary = handle.summary();
-    let state = handle.retained_state();
-
-    sessions.push(summary.to_list_item());
-    if summary.status == SessionStatus::Active {
-      conversations.push(dashboard_conversation_from_state(&state, &summary));
-    }
-  }
-
-  conversations.sort_by(|lhs, rhs| {
-    dashboard_priority(lhs)
-      .cmp(&dashboard_priority(rhs))
-      .then_with(|| rhs.last_activity_at.cmp(&lhs.last_activity_at))
-      .then_with(|| lhs.display_title.cmp(&rhs.display_title))
-  });
-
-  let counts = DashboardCounts {
-    attention: conversations
-      .iter()
-      .filter(|conversation| {
-        matches!(
-          conversation.list_status,
-          SessionListStatus::Permission | SessionListStatus::Question
-        )
-      })
-      .count() as u32,
-    running: conversations
-      .iter()
-      .filter(|conversation| matches!(conversation.list_status, SessionListStatus::Working))
-      .count() as u32,
-    ready: conversations
-      .iter()
-      .filter(|conversation| matches!(conversation.list_status, SessionListStatus::Reply))
-      .count() as u32,
-    direct: conversations
-      .iter()
-      .filter(|conversation| {
-        matches!(
-          (
-            conversation.provider,
-            conversation.codex_integration_mode,
-            conversation.claude_integration_mode
-          ),
-          (
-            orbitdock_protocol::Provider::Codex,
-            Some(orbitdock_protocol::CodexIntegrationMode::Direct),
-            _
-          ) | (
-            orbitdock_protocol::Provider::Claude,
-            _,
-            Some(orbitdock_protocol::ClaudeIntegrationMode::Direct)
-          )
-        )
-      })
-      .count() as u32,
-  };
-
-  Ok(DashboardSnapshot {
-    revision,
-    sessions,
-    conversations,
-    counts,
-  })
-}
-
-fn dashboard_conversation_from_state(
-  state: &SessionState,
-  summary: &SessionSummary,
-) -> DashboardConversationItem {
-  let preview_text = dashboard_preview_text(
-    summary.last_message.as_deref(),
-    summary.context_line.as_deref(),
-  );
-  let activity_summary = dashboard_activity_summary(
-    summary.pending_tool_name.as_deref(),
-    summary.last_message.as_deref(),
-    summary.context_line.as_deref(),
-  );
-  let alert_context = dashboard_alert_context(
-    summary.pending_question.as_deref(),
-    summary.pending_tool_name.as_deref(),
-    summary.pending_tool_input.as_deref(),
-    summary.last_message.as_deref(),
-    summary.context_line.as_deref(),
-  );
-  let tool_count = state
-    .rows
-    .iter()
-    .filter(|entry| matches!(entry.row, ConversationRow::Tool(_)))
-    .count() as u64;
-
-  DashboardConversationItem {
-    session_id: summary.id.clone(),
-    provider: summary.provider,
-    project_path: summary.project_path.clone(),
-    project_name: summary.project_name.clone(),
-    repository_root: summary.repository_root.clone(),
-    git_branch: summary.git_branch.clone(),
-    is_worktree: summary.is_worktree,
-    worktree_id: summary.worktree_id.clone(),
-    model: summary.model.clone(),
-    codex_integration_mode: summary.codex_integration_mode,
-    claude_integration_mode: summary.claude_integration_mode,
-    status: summary.status,
-    work_status: summary.work_status,
-    control_mode: summary.control_mode,
-    lifecycle_state: summary.lifecycle_state,
-    list_status: summary.list_status,
-    display_title: summary.display_title.clone(),
-    context_line: summary.context_line.clone(),
-    last_message: summary.last_message.clone(),
-    preview_text: Some(preview_text),
-    activity_summary: Some(activity_summary),
-    alert_context: Some(alert_context),
-    started_at: summary.started_at.clone(),
-    last_activity_at: summary.last_activity_at.clone(),
-    unread_count: summary.unread_count,
-    has_turn_diff: summary.has_turn_diff,
-    diff_preview: dashboard_diff_preview(state.current_diff.as_deref()),
-    pending_tool_name: summary.pending_tool_name.clone(),
-    pending_tool_input: summary.pending_tool_input.clone(),
-    pending_question: summary.pending_question.clone(),
-    tool_count,
-    active_worker_count: summary.active_worker_count,
-    issue_identifier: summary.issue_identifier.clone(),
-    effort: summary.effort.clone(),
-  }
-}
-
-fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
-  match item.list_status {
-    SessionListStatus::Permission => 0,
-    SessionListStatus::Question => 1,
-    SessionListStatus::Working => 2,
-    SessionListStatus::Reply => 3,
-    SessionListStatus::Ended => 4,
-  }
-}
-
-fn dashboard_preview_text(last_message: Option<&str>, context_line: Option<&str>) -> String {
-  sanitize_dashboard_text(
-    last_message
-      .or(context_line)
-      .unwrap_or("Waiting for your next message."),
-  )
-}
-
-fn dashboard_activity_summary(
-  pending_tool_name: Option<&str>,
-  last_message: Option<&str>,
-  context_line: Option<&str>,
-) -> String {
-  if let Some(tool_name) = pending_tool_name {
-    return format!("Running {tool_name}");
-  }
-
-  sanitize_dashboard_text(last_message.or(context_line).unwrap_or("Processing…"))
-}
-
-fn dashboard_alert_context(
-  pending_question: Option<&str>,
-  pending_tool_name: Option<&str>,
-  pending_tool_input: Option<&str>,
-  last_message: Option<&str>,
-  context_line: Option<&str>,
-) -> String {
-  if let Some(question) = pending_question.filter(|value| !value.is_empty()) {
-    return question.to_string();
-  }
-
-  if let Some(tool_name) = pending_tool_name {
-    return format_tool_context(tool_name, pending_tool_input);
-  }
-
-  sanitize_dashboard_text(
-    last_message
-      .or(context_line)
-      .unwrap_or("Needs your attention."),
-  )
-}
-
-fn sanitize_dashboard_text(text: &str) -> String {
-  text
-    .replace("**", "")
-    .replace("__", "")
-    .replace('`', "")
-    .replace("## ", "")
-    .replace("# ", "")
-}
-
-fn format_tool_context(tool_name: &str, input: Option<&str>) -> String {
-  let Some(input) = input.filter(|value| !value.is_empty()) else {
-    return format!("Wants to run {tool_name}");
-  };
-
-  let Ok(json) = serde_json::from_str::<serde_json::Value>(input) else {
-    return format!("Wants to run {tool_name}");
-  };
-
-  match tool_name {
-    "Bash" => json
-      .get("command")
-      .and_then(serde_json::Value::as_str)
-      .map(ToOwned::to_owned),
-    "Edit" | "Write" | "Read" => json
-      .get("file_path")
-      .and_then(serde_json::Value::as_str)
-      .and_then(|path| std::path::Path::new(path).file_name())
-      .and_then(|name| name.to_str())
-      .map(|name| format!("{tool_name} {name}")),
-    "Grep" => json
-      .get("pattern")
-      .and_then(serde_json::Value::as_str)
-      .map(|pattern| format!("Search for \"{pattern}\"")),
-    "Glob" => json
-      .get("pattern")
-      .and_then(serde_json::Value::as_str)
-      .map(|pattern| format!("Find files matching {pattern}")),
-    _ => None,
-  }
-  .unwrap_or_else(|| format!("Wants to run {tool_name}"))
-}
-
-fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
-  let diff = diff?.trim();
-  if diff.is_empty() {
-    return None;
-  }
-
-  let mut file_paths: Vec<String> = vec![];
-  let mut additions = 0_u32;
-  let mut deletions = 0_u32;
-
-  for line in diff.lines() {
-    if let Some(path) = line.strip_prefix("+++ b/") {
-      let path = path.trim();
-      if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-        file_paths.push(path.to_string());
-      }
-      continue;
-    }
-    if let Some(rest) = line.strip_prefix("diff --git ") {
-      if let Some(path) = rest.split(" b/").nth(1) {
-        let path = path.trim();
-        if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-          file_paths.push(path.to_string());
-        }
-      }
-      continue;
-    }
-    if line.starts_with('+') && !line.starts_with("+++") {
-      additions = additions.saturating_add(1);
-    } else if line.starts_with('-') && !line.starts_with("---") {
-      deletions = deletions.saturating_add(1);
-    }
-  }
-
-  Some(DashboardDiffPreview {
-    file_count: file_paths.len() as u32,
-    additions,
-    deletions,
-    file_paths: file_paths.into_iter().take(3).collect(),
-  })
 }
 
 pub async fn get_session_composer(
@@ -860,7 +559,7 @@ mod tests {
     ConversationRowEntry, ToolRow,
   };
   use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
-  use orbitdock_protocol::{CodexIntegrationMode, Provider};
+  use orbitdock_protocol::Provider;
 
   use crate::domain::sessions::session::SessionHandle;
   use crate::runtime::session_commands::SessionCommand;
@@ -1040,27 +739,26 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn dashboard_snapshot_ignores_stale_in_memory_passive_sessions() {
+  async fn dashboard_snapshot_reads_active_runtime_sessions() {
     ensure_test_db();
     let state = new_test_state(true);
     let session_id = orbitdock_protocol::new_session_id();
-    let mut handle = SessionHandle::new(
+    let handle = SessionHandle::new(
       session_id,
       Provider::Codex,
       "/tmp/orbitdock-dashboard-test".to_string(),
     );
-    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
     state.add_session(handle);
 
     let Json(snapshot) = get_dashboard_snapshot(State(state))
       .await
       .expect("dashboard snapshot should succeed");
 
-    assert!(snapshot.sessions.is_empty());
-    assert!(snapshot.conversations.is_empty());
+    assert_eq!(snapshot.sessions.len(), 1);
+    assert_eq!(snapshot.conversations.len(), 1);
     assert_eq!(snapshot.counts.attention, 0);
     assert_eq!(snapshot.counts.running, 0);
-    assert_eq!(snapshot.counts.ready, 0);
+    assert_eq!(snapshot.counts.ready, 1);
     assert_eq!(snapshot.counts.direct, 0);
   }
 

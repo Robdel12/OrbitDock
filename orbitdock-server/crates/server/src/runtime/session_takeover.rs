@@ -111,6 +111,7 @@ pub(crate) async fn takeover_passive_session(
     .await
     .map_err(|_| TakeoverSessionError::TakeHandleFailed)?;
   handle.set_list_tx(state.list_tx());
+  handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
 
   hydrate_takeover_messages_if_needed(&mut handle, snapshot.transcript_path.as_deref(), session_id)
     .await;

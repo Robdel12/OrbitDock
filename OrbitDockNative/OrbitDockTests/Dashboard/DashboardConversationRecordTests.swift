@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct DashboardConversationRecordTests {
   @Test func codexDirectConversationReportsDirectIntegration() throws {
     let record = try makeRecord(provider: "codex", codexIntegrationMode: "direct")
@@ -38,6 +39,30 @@ struct DashboardConversationRecordTests {
     )
 
     #expect(record.canEnd == false)
+  }
+
+  @Test func activeWorkingConversationUsesWorkingStatusEvenWhenListStatusLags() throws {
+    let record = try makeRecord(
+      provider: "codex",
+      listStatus: "ended",
+      status: "active",
+      workStatus: "working"
+    )
+
+    #expect(record.displayStatus == .working)
+    #expect(record.canEnd == true)
+  }
+
+  @Test func activeReplyConversationDoesNotRenderAsEndedWhenListStatusLags() throws {
+    let record = try makeRecord(
+      provider: "claude",
+      listStatus: "ended",
+      status: "active",
+      workStatus: "reply"
+    )
+
+    #expect(record.displayStatus == .reply)
+    #expect(record.canEnd == true)
   }
 
   private func makeRecord(
