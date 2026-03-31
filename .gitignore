@@ -1,7 +1,7 @@
 .test-workstreams/
 .DS_Store
 site/dist/
-# .orbitdock-worktrees/
+.orbitdock-worktrees/
 *.db
 *.db-wal
 *.db-shm
