@@ -378,6 +378,97 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
   }
 }
 
+struct ServerDashboardCounts: Codable, Sendable {
+  let attention: UInt32
+  let running: UInt32
+  let ready: UInt32
+  let direct: UInt32
+}
+
+struct ServerDashboardSnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let sessions: [ServerSessionListItem]
+  let conversations: [ServerDashboardConversationItem]
+  let counts: ServerDashboardCounts
+}
+
+struct ServerMissionSnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let missions: [MissionSummary]
+}
+
+struct ServerSessionDetailSnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let session: ServerSessionState
+}
+
+struct ServerSessionComposerSnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let session: ServerSessionState
+}
+
+struct ServerConversationSnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let sessionId: String
+  let session: ServerSessionState
+  let rows: [ServerConversationRowEntry]
+  let totalRowCount: UInt64
+  let hasMoreBefore: Bool
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
+
+  enum CodingKeys: String, CodingKey {
+    case revision
+    case sessionId = "session_id"
+    case session
+    case rows
+    case totalRowCount = "total_row_count"
+    case hasMoreBefore = "has_more_before"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
+  }
+}
+
+struct ServerUsageSummaryModelCostPayload: Codable, Sendable {
+  let model: String
+  let costUSD: Double
+
+  enum CodingKeys: String, CodingKey {
+    case model
+    case costUSD = "cost_usd"
+  }
+}
+
+struct ServerUsageSummaryBucketPayload: Codable, Sendable {
+  let sessionCount: UInt64
+  let totalTokens: UInt64
+  let inputTokens: UInt64
+  let outputTokens: UInt64
+  let cachedTokens: UInt64
+  let totalCostUSD: Double
+  let costByModel: [ServerUsageSummaryModelCostPayload]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionCount = "session_count"
+    case totalTokens = "total_tokens"
+    case inputTokens = "input_tokens"
+    case outputTokens = "output_tokens"
+    case cachedTokens = "cached_tokens"
+    case totalCostUSD = "total_cost_usd"
+    case costByModel = "cost_by_model"
+  }
+}
+
+struct ServerUsageSummarySnapshotPayload: Codable, Sendable {
+  let today: ServerUsageSummaryBucketPayload
+  let allTime: ServerUsageSummaryBucketPayload
+
+  enum CodingKeys: String, CodingKey {
+    case today
+    case allTime = "all_time"
+  }
+}
+
 // MARK: - Session Summary
 
 struct ServerSessionSummary: Codable, Identifiable {

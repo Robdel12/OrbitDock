@@ -174,7 +174,7 @@ struct ServerClientsTests {
         Self.jsonResponse(
           url: request.url!,
           statusCode: 200,
-          json: #"{"sessions":[]}"#,
+          json: #"{"revision":1,"sessions":[],"conversations":[],"counts":{"attention":0,"running":0,"ready":0,"direct":0}}"#,
           headers: [
             "Content-Type": "application/json",
             "X-OrbitDock-Server-Version": "0.6.0",
