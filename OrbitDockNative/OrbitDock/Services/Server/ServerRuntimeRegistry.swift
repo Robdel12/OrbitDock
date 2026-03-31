@@ -1066,8 +1066,6 @@ final class ServerRuntimeRegistry {
             !transportError.isDNSResolutionFailure
           case let .httpStatus(status, _, _):
             status >= 500
-          case .incompatibleServer:
-            false
           default:
             false
         }

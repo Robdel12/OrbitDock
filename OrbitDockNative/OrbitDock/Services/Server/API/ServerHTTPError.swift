@@ -30,6 +30,10 @@ enum ServerRequestError: LocalizedError {
     statusCode == 409 && apiErrorCode == "session_not_found"
   }
 
+  var isMissingResourceNotFound: Bool {
+    statusCode == 404 && apiErrorCode == "not_found"
+  }
+
   var errorDescription: String? {
     switch self {
       case .notConnected:

@@ -438,6 +438,7 @@ final class SessionStore {
       return bootstrap
     } catch {
       if let requestError = error as? ServerRequestError,
+         !requestError.isMissingResourceNotFound,
          case let .httpStatus(status, _, message) = requestError,
          let message,
          !message.isEmpty,

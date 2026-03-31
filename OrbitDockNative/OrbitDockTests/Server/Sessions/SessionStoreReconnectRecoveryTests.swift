@@ -140,6 +140,31 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(store.session("session-1").conversationLoaded == false)
   }
 
+  @Test func missingSessionBootstrapDoesNotFailEndpointConnection() async throws {
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 404,
+          httpVersion: nil,
+          headerFields: ["Content-Type": "application/json"]
+        )!
+        let body = Data(#"{"code":"not_found","error":"Session session-1 not found"}"#.utf8)
+        return (body, response)
+      },
+      connection: connection
+    )
+    store.subscribedSessions.insert("session-1")
+    store.connectionGeneration = 13
+
+    let result = await store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 13)
+
+    #expect(result == nil)
+    #expect(connection.failedConnectionMessages.isEmpty)
+    #expect(store.session("session-1").conversationLoaded == false)
+  }
+
   private func makeStore(
     loader: @escaping ServerClients.DataLoader,
     connection: any SessionStoreConnection
