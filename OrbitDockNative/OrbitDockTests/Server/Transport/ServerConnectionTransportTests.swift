@@ -22,7 +22,10 @@ struct ServerConnectionTransportTests {
     #expect(await transport.lastExecutedURL() == request)
   }
 
-  @Test func acceptsLegacyServerInfoAsInitialHandshake() async throws {
+  @Test func acceptsLegacyServerInfoPreludeBeforeHelloHandshake() async throws {
+    let helloPayload = #"""
+      {"type":"hello","hello":{"server_version":"\#(OrbitDockProtocol.minimumServerVersion)","minimum_client_version":"\#(OrbitDockProtocol.clientVersion)","capabilities":[]}}
+      """#
     let transport = TransportSpy(
       response: HTTPResponse(
         statusCode: 200,
@@ -32,6 +35,10 @@ struct ServerConnectionTransportTests {
       framesOnConnect: [
         .text(
           #"{"type":"server_info","is_primary":true,"client_primary_claims":[]}"#,
+          expectedGeneration: 1
+        ),
+        .text(
+          helloPayload,
           expectedGeneration: 1
         )
       ]
