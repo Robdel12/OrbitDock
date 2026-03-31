@@ -49,7 +49,19 @@ fn should_emit_dashboard_invalidation(msg: &ServerMessage) -> bool {
     ServerMessage::SessionDelta { changes, .. } => {
       changes.status.is_some()
         || changes.work_status.is_some()
+        || changes.control_mode.is_some()
+        || changes.lifecycle_state.is_some()
+        || changes.steerable.is_some()
         || changes.pending_approval.is_some()
+        || changes.custom_name.is_some()
+        || changes.summary.is_some()
+        || changes.first_prompt.is_some()
+        || changes.model.is_some()
+        || changes.codex_integration_mode.is_some()
+        || changes.claude_integration_mode.is_some()
+        || changes.current_diff.is_some()
+        || changes.subagents.is_some()
+        || changes.effort.is_some()
         || changes.last_activity_at.is_some()
         || changes.last_message.is_some()
         || changes.unread_count.is_some()
@@ -412,6 +424,8 @@ pub struct SessionSnapshot {
   pub pending_question: Option<String>,
   pub pending_approval_id: Option<String>,
   pub message_count: usize,
+  /// Number of active sub-agents.
+  pub active_worker_count: u32,
   pub token_usage: TokenUsage,
   pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
   pub started_at: Option<String>,
@@ -837,6 +851,7 @@ impl SessionHandle {
       pending_question: None,
       pending_approval_id: None,
       message_count: 0,
+      active_worker_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       started_at: timestamps.started_at.clone(),
@@ -980,6 +995,7 @@ impl SessionHandle {
       pending_question: pending_question.clone(),
       pending_approval_id: pending_approval_id.clone(),
       message_count: rows.len(),
+      active_worker_count: 0,
       token_usage: token_usage.clone(),
       token_usage_snapshot_kind,
       started_at: timestamps.started_at.clone(),
@@ -2268,6 +2284,11 @@ impl SessionHandle {
         .clone()
         .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
       message_count: self.total_row_count as usize,
+      active_worker_count: self
+        .subagents
+        .iter()
+        .filter(|subagent| subagent.ended_at.is_none())
+        .count() as u32,
       token_usage: self.token_usage.clone(),
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
       started_at: self.timestamps.started_at.clone(),
@@ -2562,6 +2583,36 @@ mod tests {
       session_id: "session-1".to_string(),
       changes: Box::new(StateChanges {
         work_status: Some(WorkStatus::Working),
+        ..Default::default()
+      }),
+    });
+
+    let first = list_rx
+      .try_recv()
+      .expect("session delta should be forwarded");
+    assert!(matches!(first, ServerMessage::SessionDelta { .. }));
+
+    let second = list_rx
+      .try_recv()
+      .expect("dashboard invalidation should be emitted");
+    assert!(matches!(
+      second,
+      ServerMessage::DashboardInvalidated { revision: 1 }
+    ));
+  }
+
+  #[test]
+  fn summary_delta_emits_dashboard_invalidation() {
+    let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
+    let dashboard_revision = Arc::new(AtomicU64::new(0));
+    let mut session = session_handle(Provider::Codex);
+    session.set_list_tx(list_tx);
+    session.set_dashboard_revision_counter(dashboard_revision);
+
+    session.broadcast(ServerMessage::SessionDelta {
+      session_id: "session-1".to_string(),
+      changes: Box::new(StateChanges {
+        summary: Some(Some("New summary".to_string())),
         ..Default::default()
       }),
     });

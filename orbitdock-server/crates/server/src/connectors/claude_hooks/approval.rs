@@ -231,6 +231,7 @@ mod tests {
       pending_question: None,
       pending_approval_id: Some("claude-perm-tooluse-1".to_string()),
       message_count: 0,
+      active_worker_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       started_at: None,

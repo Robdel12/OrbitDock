@@ -90,7 +90,12 @@ enum ControlDeckTextEditing {
       }
 
       let rawToken = String(text[tokenStart ..< tokenEnd]).lowercased()
-      if let canonical = availableByLowerName[rawToken], seen.insert(canonical).inserted {
+      if let canonical = canonicalSkillName(
+        for: rawToken,
+        availableByLowerName: availableByLowerName
+      ),
+        seen.insert(canonical).inserted
+      {
         matches.append(canonical)
       }
 
@@ -103,4 +108,26 @@ enum ControlDeckTextEditing {
   private static func isSkillTokenCharacter(_ character: Character) -> Bool {
     character.isLetter || character.isNumber || character == "-" || character == "_" || character == "."
   }
+
+  private static func canonicalSkillName(
+    for rawToken: String,
+    availableByLowerName: [String: String]
+  ) -> String? {
+    if let exact = availableByLowerName[rawToken] {
+      return exact
+    }
+
+    var trimmed = rawToken
+    while let last = trimmed.last, trailingSkillPunctuation.contains(last) {
+      trimmed.removeLast()
+      guard !trimmed.isEmpty else { return nil }
+      if let canonical = availableByLowerName[trimmed] {
+        return canonical
+      }
+    }
+
+    return nil
+  }
+
+  private static let trailingSkillPunctuation: Set<Character> = [".", ",", "!", "?", ":", ";"]
 }

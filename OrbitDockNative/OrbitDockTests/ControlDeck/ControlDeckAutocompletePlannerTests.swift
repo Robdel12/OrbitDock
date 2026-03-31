@@ -22,6 +22,13 @@ struct ControlDeckAutocompletePlannerTests {
         ControlDeckSkill(name: "devops", path: "/skills/devops", description: "", shortDescription: nil),
         ControlDeckSkill(name: "dedupe", path: "/skills/dedupe", description: "", shortDescription: nil),
         ControlDeckSkill(name: "delta", path: "/skills/delta", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "debrief", path: "/skills/debrief", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "decrypt", path: "/skills/decrypt", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "declutter", path: "/skills/declutter", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "decompose", path: "/skills/decompose", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "defer", path: "/skills/defer", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "defend", path: "/skills/defend", description: "", shortDescription: nil),
+        ControlDeckSkill(name: "delight", path: "/skills/delight", description: "", shortDescription: nil),
       ]
     )
 

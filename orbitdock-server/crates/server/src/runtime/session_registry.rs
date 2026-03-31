@@ -11,6 +11,7 @@ use orbitdock_protocol::{
   WorkspaceProviderKind,
 };
 use rusqlite::Connection;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -488,13 +489,13 @@ impl SessionRegistry {
           display_title,
           context_line,
           list_status: SessionSummary::list_status_from_parts(snap.status, snap.work_status),
-          active_worker_count: 0,
+          active_worker_count: snap.active_worker_count,
           pending_tool_family: None,
           forked_from_session_id: None,
-          mission_id: None,
+          mission_id: snap.mission_id.clone(),
           steerable: snap.steerable,
-          issue_identifier: None,
-          allow_bypass_permissions: false,
+          issue_identifier: snap.issue_identifier.clone(),
+          allow_bypass_permissions: snap.allow_bypass_permissions,
         }
       })
       .collect()
@@ -511,6 +512,7 @@ impl SessionRegistry {
 
   #[allow(dead_code)]
   pub fn get_dashboard_conversations(&self) -> Vec<DashboardConversationItem> {
+    let tool_counts_by_session = self.load_active_tool_counts();
     let mut conversations: Vec<DashboardConversationItem> = self
       .sessions
       .iter()
@@ -577,9 +579,9 @@ impl SessionRegistry {
           preview_text: Some(preview_text),
           activity_summary: Some(activity_summary),
           alert_context: Some(alert_context),
-          tool_count: 0,
-          active_worker_count: 0,
-          issue_identifier: None,
+          tool_count: tool_counts_by_session.get(&snap.id).copied().unwrap_or(0),
+          active_worker_count: snap.active_worker_count,
+          issue_identifier: snap.issue_identifier.clone(),
           effort: snap.effort.clone(),
         }
       })
@@ -593,6 +595,57 @@ impl SessionRegistry {
     });
 
     conversations
+  }
+
+  fn load_active_tool_counts(&self) -> HashMap<String, u64> {
+    let conn = match Connection::open(&self.db_path) {
+      Ok(conn) => conn,
+      Err(error) => {
+        warn!(
+            component = "dashboard",
+            event = "dashboard.tool_counts.db_open_failed",
+            error = %error,
+            "Failed to open database for dashboard tool counts"
+        );
+        return HashMap::new();
+      }
+    };
+
+    let mut stmt = match conn.prepare(
+      "SELECT id, COALESCE(tool_count, 0) AS tool_count
+         FROM sessions
+        WHERE status = 'active'",
+    ) {
+      Ok(stmt) => stmt,
+      Err(error) => {
+        warn!(
+            component = "dashboard",
+            event = "dashboard.tool_counts.query_prepare_failed",
+            error = %error,
+            "Failed to prepare dashboard tool count query"
+        );
+        return HashMap::new();
+      }
+    };
+
+    let rows = match stmt.query_map([], |row| {
+      let session_id: String = row.get(0)?;
+      let tool_count: i64 = row.get(1)?;
+      Ok((session_id, tool_count.max(0) as u64))
+    }) {
+      Ok(rows) => rows,
+      Err(error) => {
+        warn!(
+            component = "dashboard",
+            event = "dashboard.tool_counts.query_failed",
+            error = %error,
+            "Failed to read dashboard tool counts"
+        );
+        return HashMap::new();
+      }
+    };
+
+    rows.filter_map(Result::ok).collect()
   }
 
   /// Iterate over all sessions (lock-free DashMap iteration).
@@ -1109,8 +1162,9 @@ mod tests {
   use crate::support::test_support::ensure_server_test_data_dir;
   use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
-    WorkStatus,
+    SubagentInfo, SubagentStatus, WorkStatus, WorkspaceProviderKind,
   };
+  use rusqlite::Connection;
   use tokio::sync::mpsc;
 
   #[test]
@@ -1222,5 +1276,121 @@ mod tests {
 
     assert_eq!(conversation.control_mode, SessionControlMode::Direct);
     assert_eq!(conversation.lifecycle_state, SessionLifecycleState::Open);
+  }
+
+  #[tokio::test]
+  async fn dashboard_and_session_summaries_preserve_worker_and_issue_fields() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+    let mut session = SessionHandle::new(
+      "mission-session".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-mission".to_string(),
+    );
+    session.set_mission_context(Some("mission-1".to_string()), Some("PROJ-42".to_string()));
+    session.set_subagents(vec![
+      SubagentInfo {
+        id: "worker-1".to_string(),
+        agent_type: "worker".to_string(),
+        started_at: "2026-03-30T10:00:00Z".to_string(),
+        ended_at: None,
+        provider: None,
+        label: None,
+        status: SubagentStatus::Running,
+        task_summary: None,
+        result_summary: None,
+        error_summary: None,
+        parent_subagent_id: None,
+        model: None,
+        last_activity_at: None,
+      },
+      SubagentInfo {
+        id: "worker-2".to_string(),
+        agent_type: "worker".to_string(),
+        started_at: "2026-03-30T09:00:00Z".to_string(),
+        ended_at: Some("2026-03-30T09:30:00Z".to_string()),
+        provider: None,
+        label: None,
+        status: SubagentStatus::Completed,
+        task_summary: None,
+        result_summary: None,
+        error_summary: None,
+        parent_subagent_id: None,
+        model: None,
+        last_activity_at: None,
+      },
+    ]);
+    session.refresh_snapshot();
+    registry.add_session(session);
+
+    let summary = registry
+      .get_session_summaries()
+      .into_iter()
+      .find(|item| item.id == "mission-session")
+      .expect("session summary should exist");
+    assert_eq!(summary.active_worker_count, 1);
+    assert_eq!(summary.mission_id.as_deref(), Some("mission-1"));
+    assert_eq!(summary.issue_identifier.as_deref(), Some("PROJ-42"));
+
+    let conversation = registry
+      .get_dashboard_conversations()
+      .into_iter()
+      .find(|item| item.session_id == "mission-session")
+      .expect("dashboard conversation should exist");
+    assert_eq!(conversation.active_worker_count, 1);
+    assert_eq!(conversation.issue_identifier.as_deref(), Some("PROJ-42"));
+  }
+
+  #[tokio::test]
+  async fn dashboard_conversations_load_tool_count_from_persistence() {
+    let db_path = std::env::temp_dir().join(format!(
+      "orbitdock-session-registry-dashboard-{}.db",
+      std::process::id()
+    ));
+    let _ = std::fs::remove_file(&db_path);
+    let conn = Connection::open(&db_path).expect("open temp db");
+    conn
+      .execute(
+        "CREATE TABLE sessions (
+           id TEXT PRIMARY KEY,
+           status TEXT NOT NULL,
+           tool_count INTEGER NOT NULL DEFAULT 0
+         )",
+        [],
+      )
+      .expect("create sessions table");
+    conn
+      .execute(
+        "INSERT INTO sessions (id, status, tool_count) VALUES (?1, ?2, ?3)",
+        ("tool-session", "active", 7_i64),
+      )
+      .expect("seed session row");
+    drop(conn);
+
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = SessionRegistry::new_with_primary_and_db_path(
+      persist_tx,
+      db_path.clone(),
+      true,
+      WorkspaceProviderKind::default(),
+    );
+
+    let session = SessionHandle::new(
+      "tool-session".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-tools".to_string(),
+    );
+    registry.add_session(session);
+
+    let conversation = registry
+      .get_dashboard_conversations()
+      .into_iter()
+      .find(|item| item.session_id == "tool-session")
+      .expect("dashboard conversation should exist");
+    assert_eq!(conversation.tool_count, 7);
+
+    let _ = std::fs::remove_file(db_path);
   }
 }
