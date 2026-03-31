@@ -34,6 +34,15 @@ enum ServerRequestError: LocalizedError {
     statusCode == 404 && apiErrorCode == "not_found"
   }
 
+  var isIncompatibleClientUpgradeRequired: Bool {
+    switch self {
+      case let .httpStatus(status, code, _):
+        status == 426 && code == "incompatible_client"
+      default:
+        false
+    }
+  }
+
   var errorDescription: String? {
     switch self {
       case .notConnected:

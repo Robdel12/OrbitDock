@@ -26,4 +26,29 @@ struct ServerRequestErrorTests {
   @Test func nonHTTPFailuresDoNotLookLikeConnectorConflicts() {
     #expect(ServerRequestError.invalidResponse.isConnectorUnavailableConflict == false)
   }
+
+  @Test func identifiesOnlyExplicitIncompatibleClientUpgradeFailures() {
+    #expect(
+      ServerRequestError.httpStatus(
+        426,
+        code: "incompatible_client",
+        message: "Update OrbitDock to a compatible build."
+      ).isIncompatibleClientUpgradeRequired
+    )
+    #expect(
+      ServerRequestError.httpStatus(
+        426,
+        code: "something_else",
+        message: "Update OrbitDock to a compatible build."
+      ).isIncompatibleClientUpgradeRequired == false
+    )
+    #expect(
+      ServerRequestError.httpStatus(
+        401,
+        code: "unauthorized",
+        message: "Token expired."
+      ).isIncompatibleClientUpgradeRequired == false
+    )
+    #expect(ServerRequestError.invalidResponse.isIncompatibleClientUpgradeRequired == false)
+  }
 }

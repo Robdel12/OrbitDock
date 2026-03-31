@@ -438,11 +438,10 @@ final class SessionStore {
       return bootstrap
     } catch {
       if let requestError = error as? ServerRequestError,
-         !requestError.isMissingResourceNotFound,
-         case let .httpStatus(status, _, message) = requestError,
+         requestError.isIncompatibleClientUpgradeRequired,
+         case let .httpStatus(_, _, message) = requestError,
          let message,
-         !message.isEmpty,
-         status < 500
+         !message.isEmpty
       {
         connection.failConnection(message: message)
         netLog(

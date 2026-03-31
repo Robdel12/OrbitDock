@@ -936,10 +936,10 @@ final class ServerRuntimeRegistry {
       return .success
     } catch {
       if let requestError = error as? ServerRequestError,
-         case let .httpStatus(status, _, message) = requestError,
+         requestError.isIncompatibleClientUpgradeRequired,
+         case let .httpStatus(_, _, message) = requestError,
          let message,
-         !message.isEmpty,
-         status < 500
+         !message.isEmpty
       {
         runtime.connection.failConnection(message: message)
         return .stop
@@ -975,10 +975,10 @@ final class ServerRuntimeRegistry {
       return .success
     } catch {
       if let requestError = error as? ServerRequestError,
-         case let .httpStatus(status, _, message) = requestError,
+         requestError.isIncompatibleClientUpgradeRequired,
+         case let .httpStatus(_, _, message) = requestError,
          let message,
-         !message.isEmpty,
-         status < 500
+         !message.isEmpty
       {
         runtime.connection.failConnection(message: message)
         return .stop
