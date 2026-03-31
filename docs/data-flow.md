@@ -8,14 +8,15 @@ The short version:
 - WebSocket owns realtime updates and replay.
 - The Rust server owns durable business truth.
 - The client renders server state. It does not reconstruct business state from connector internals.
-- WebSocket begins with a lightweight `hello` handshake that advertises `server_version`, a server-authored `compatibility` verdict, and surface capabilities.
+- WebSocket begins with a lightweight `hello` handshake that advertises `server_version`, `minimum_client_version`, and surface capabilities.
+- See [docs/version-handshake-spec.md](version-handshake-spec.md) for the versioning rule.
 
 Today’s important nuance:
 
 - HTTP is the only bootstrap path.
 - WebSocket carries deltas, replay, heartbeats, and explicit resync/refetch hints only.
 - If replay cannot satisfy a revision gap, the client refetches the matching HTTP surface.
-- Compatibility is server-authored. Clients should fail fast when the server says the pair is incompatible instead of guessing.
+- Version compatibility is a minimum-version handshake. Clients should reject only when the server is below the minimum they support, and servers should reject only when the client is below the minimum they support.
 
 ## Architecture Diagram
 

@@ -53,7 +53,6 @@ struct StatsPopoverContent: View {
     }
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
     .task {
-      await runtimeRegistry.waitForAnyQueryReadyRuntime()
       await registry.refreshAll(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }

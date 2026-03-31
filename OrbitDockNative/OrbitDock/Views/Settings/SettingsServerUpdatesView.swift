@@ -556,36 +556,17 @@ struct ServerUpdatesSettingsView: View {
     )
 
     return VStack(alignment: .leading, spacing: Spacing.md) {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
-        Circle()
-          .fill(supportColor(for: state.support))
-          .frame(width: 8, height: 8)
-
-        Text(runtime.endpoint.name)
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-
-        Text(versionLabel(for: state))
-          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
-
-        Spacer()
-
-        if state.isUpgradeInFlight {
-          inFlightBadge()
-        } else if let status = state.updateStatus {
-          updateBadge(status)
-        }
+      ViewThatFits(in: .horizontal) {
+        endpointHeaderRow(runtime: runtime, state: state)
+        endpointHeaderStacked(runtime: runtime, state: state)
       }
 
       ViewThatFits(in: .horizontal) {
         controlsRow(runtime: runtime, state: state, channelSelection: channelSelection)
         VStack(alignment: .leading, spacing: Spacing.md) {
           channelControl(selection: channelSelection, state: state)
-          HStack(spacing: Spacing.md) {
-            checkButton(runtime: runtime, state: state)
-            upgradeButton(runtime: runtime, state: state)
-          }
+          checkButton(runtime: runtime, state: state)
+          upgradeButton(runtime: runtime, state: state)
         }
       }
 
@@ -631,6 +612,68 @@ struct ServerUpdatesSettingsView: View {
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.panelBorder, lineWidth: 1)
     )
+  }
+
+  @ViewBuilder
+  private func endpointHeaderRow(
+    runtime: ServerRuntime,
+    state: ServerUpdatesSettingsModel.EndpointState
+  ) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+      Circle()
+        .fill(supportColor(for: state.support))
+        .frame(width: 8, height: 8)
+
+      Text(runtime.endpoint.name)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+
+      Text(versionLabel(for: state))
+        .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+
+      Spacer()
+
+      updateStateBadge(for: state)
+    }
+  }
+
+  @ViewBuilder
+  private func endpointHeaderStacked(
+    runtime: ServerRuntime,
+    state: ServerUpdatesSettingsModel.EndpointState
+  ) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+        Circle()
+          .fill(supportColor(for: state.support))
+          .frame(width: 8, height: 8)
+
+        Text(runtime.endpoint.name)
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+          .lineLimit(2)
+
+        Text(versionLabel(for: state))
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+      }
+
+      updateStateBadge(for: state)
+    }
+  }
+
+  @ViewBuilder
+  private func updateStateBadge(for state: ServerUpdatesSettingsModel.EndpointState) -> some View {
+    if state.isUpgradeInFlight {
+      inFlightBadge()
+    } else if let status = state.updateStatus {
+      updateBadge(status)
+    }
   }
 
   private func supportColor(for support: ServerUpdatesSettingsModel.SupportState) -> Color {
@@ -736,6 +779,7 @@ struct ServerUpdatesSettingsView: View {
             .controlSize(.small)
         }
         Text("Check Now")
+          .lineLimit(1)
       }
     }
     .buttonStyle(.bordered)
@@ -758,6 +802,7 @@ struct ServerUpdatesSettingsView: View {
             .controlSize(.small)
         }
         Text(upgradeButtonTitle(for: state))
+          .lineLimit(1)
       }
     }
     .buttonStyle(.borderedProminent)

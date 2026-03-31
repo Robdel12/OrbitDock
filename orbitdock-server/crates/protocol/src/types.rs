@@ -1756,20 +1756,10 @@ pub enum SessionSurface {
   Conversation,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompatibilityStatus {
-  pub compatible: bool,
-  pub server_compatibility: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub reason: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub message: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerHello {
   pub server_version: String,
-  pub compatibility: CompatibilityStatus,
+  pub minimum_client_version: String,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub capabilities: Vec<String>,
 }
@@ -1777,7 +1767,7 @@ pub struct ServerHello {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerMeta {
   pub server_version: String,
-  pub compatibility: CompatibilityStatus,
+  pub minimum_client_version: String,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub capabilities: Vec<String>,
   pub is_primary: bool,

@@ -8,7 +8,9 @@ struct SetupSettingsView: View {
       VStack(spacing: Spacing.xl) {
         CodexAccountSetupPane(serverState: serverState)
       }
-      .padding(Spacing.xl)
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.section)
+      .frame(maxWidth: 980, alignment: .leading)
     }
     .task(id: serverState.endpointId) {
       serverState.refreshCodexAccount()

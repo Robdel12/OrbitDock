@@ -26,7 +26,7 @@ enum ServerRuntimeRegistryPlanner {
     readiness: ServerRuntimeReadiness
   ) -> ConnectionStatus {
     switch connectionStatus {
-      case .connected where !readiness.queryReady:
+      case .connected where !readiness.controlPlaneReady:
         .connecting
       default:
         connectionStatus

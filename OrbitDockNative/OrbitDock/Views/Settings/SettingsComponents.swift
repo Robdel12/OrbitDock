@@ -89,7 +89,7 @@ struct SettingsSection<Content: View>: View {
       VStack(alignment: .leading, spacing: Spacing.lg) {
         content()
       }
-      .padding(Spacing.lg + 4)
+      .padding(Spacing.lg)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
       .overlay(

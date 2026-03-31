@@ -9,7 +9,9 @@ struct GeneralSettingsView: View {
         SettingsOpenAiNamingSection(model: openAiNamingModel)
         SettingsDictationSection()
       }
-      .padding(Spacing.xl)
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.section)
+      .frame(maxWidth: 980, alignment: .leading)
     }
   }
 }

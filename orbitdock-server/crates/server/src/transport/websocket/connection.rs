@@ -16,9 +16,9 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::SessionSurface;
-use orbitdock_protocol::{ClientMessage, CompatibilityStatus, ServerMessage};
+use orbitdock_protocol::{ClientMessage, ServerMessage};
 
-use crate::infrastructure::protocol_compat::compatibility_status_from_headers;
+use crate::infrastructure::protocol_compat::version_gate_from_headers;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::snapshot_compaction::{
   sanitize_server_message_for_transport, WS_MAX_TEXT_MESSAGE_BYTES,
@@ -98,30 +98,26 @@ pub async fn ws_handler(
   headers: HeaderMap,
   State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
-  let compatibility = compatibility_status_from_headers(&headers);
+  let gate = version_gate_from_headers(&headers);
   info!(
       component = "websocket",
       event = "ws.upgrade.request",
       client_version = ?headers
           .get(orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION)
           .and_then(|value| value.to_str().ok()),
-      client_compatibility = ?headers
-          .get(orbitdock_protocol::HTTP_HEADER_CLIENT_COMPATIBILITY)
+      minimum_server_version = ?headers
+          .get(orbitdock_protocol::HTTP_HEADER_MINIMUM_SERVER_VERSION)
           .and_then(|value| value.to_str().ok()),
       has_authorization = headers.contains_key("authorization"),
-      compatible = compatibility.compatible,
-      reason = ?compatibility.reason,
+      compatible = gate.compatible,
+      reason = ?gate.reason,
       "Received WebSocket upgrade request"
   );
-  ws.on_upgrade(move |socket| handle_socket(socket, state, compatibility))
+  ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 /// Handle a WebSocket connection
-async fn handle_socket(
-  socket: WebSocket,
-  state: Arc<SessionRegistry>,
-  compatibility: CompatibilityStatus,
-) {
+async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
   let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
   state.ws_connect();
   info!(
@@ -201,7 +197,7 @@ async fn handle_socket(
   let client_tx = outbound_tx.clone();
   let mut subscriptions = ConnectionSubscriptions::default();
 
-  send_json(&outbound_tx, server_hello_message(compatibility)).await;
+  send_json(&outbound_tx, server_hello_message()).await;
   // Announce server role immediately so clients can derive control-plane routing.
   send_json(&outbound_tx, server_info_message(&state)).await;
 

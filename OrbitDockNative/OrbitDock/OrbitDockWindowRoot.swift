@@ -27,9 +27,10 @@ struct OrbitDockWindowRoot: View {
             isInitialLoading: appRuntime.runtimeRegistry.runtimes
               .filter(\.endpoint.isEnabled)
               .contains { runtime in
-                switch runtime.connection.connectionStatus {
+                let readiness = appRuntime.runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id)
+                return switch runtime.connection.connectionStatus {
                   case .connecting, .connected:
-                    !runtime.connection.hasReceivedInitialDashboardSnapshot
+                    !readiness.dashboardReady
                   case .disconnected, .failed:
                     false
                 }
@@ -132,7 +133,10 @@ struct OrbitDockWindowRoot: View {
               .unsubscribeFromSession(oldRef.sessionId)
           }
           detailSessionStore(for: ref.endpointId)
-            .subscribeToSession(ref.sessionId)
+            .subscribeToSession(
+              ref.sessionId,
+              surfaces: [.detail, .composer, .conversation]
+            )
 
         case .mission:
           if case let .session(oldRef) = oldRoute {

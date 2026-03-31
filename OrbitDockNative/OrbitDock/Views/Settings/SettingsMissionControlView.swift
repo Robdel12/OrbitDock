@@ -34,7 +34,9 @@ struct MissionControlDefaultsView: View {
         trackerKeysSection
         defaultProviderSection
       }
-      .padding(Spacing.xl)
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.section)
+      .frame(maxWidth: 980, alignment: .leading)
     }
     .task { await loadState() }
   }
@@ -85,62 +87,15 @@ struct MissionControlDefaultsView: View {
           }
         }
 
-        HStack(spacing: Spacing.sm) {
-          SecureField("lin_api_...", text: $linearApiKey)
-            .textFieldStyle(.plain)
-            .font(.system(size: TypeScale.caption, design: .monospaced))
-            .padding(Spacing.sm)
-            .background(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .fill(Color.backgroundTertiary)
-            )
-
-          Button {
-            Task { await saveLinearKey() }
-          } label: {
-            Group {
-              if isSavingKey {
-                ProgressView()
-                  .controlSize(.mini)
-              } else {
-                Text("Save")
-                  .font(.system(size: TypeScale.caption, weight: .semibold))
-              }
-            }
-            .foregroundStyle(linearApiKey.isEmpty ? Color.textTertiary : .white)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(
-              RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .fill(linearApiKey.isEmpty ? Color.backgroundTertiary : Color.accent)
-            )
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.sm) {
+            linearKeyField
+            linearKeyActions
           }
-          .buttonStyle(.plain)
-          .disabled(linearApiKey.isEmpty || isSavingKey)
 
-          if linearKeyConfigured {
-            Button {
-              Task { await deleteLinearKey() }
-            } label: {
-              Group {
-                if isDeletingKey {
-                  ProgressView()
-                    .controlSize(.mini)
-                } else {
-                  Image(systemName: "trash")
-                    .font(.system(size: 12, weight: .medium))
-                }
-              }
-              .foregroundStyle(Color.feedbackNegative)
-              .padding(.horizontal, Spacing.sm)
-              .padding(.vertical, Spacing.sm)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                  .fill(Color.feedbackNegative.opacity(OpacityTier.subtle))
-              )
-            }
-            .buttonStyle(.plain)
-            .disabled(isDeletingKey)
+          VStack(alignment: .leading, spacing: Spacing.sm) {
+            linearKeyField
+            linearKeyActions
           }
         }
 
@@ -210,37 +165,16 @@ struct MissionControlDefaultsView: View {
               .foregroundStyle(Color.textQuaternary)
           }
 
-          HStack(spacing: Spacing.sm) {
-            SecureField("ghp_...", text: $githubToken)
-              .textFieldStyle(.plain)
-              .font(.system(size: TypeScale.caption, design: .monospaced))
-              .padding(Spacing.sm)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                  .fill(Color.backgroundTertiary)
-              )
-
-            Button {
-              Task { await saveGitHubKey() }
-            } label: {
-              Group {
-                if isSavingGithubKey {
-                  ProgressView().controlSize(.mini)
-                } else {
-                  Text("Save")
-                    .font(.system(size: TypeScale.caption, weight: .semibold))
-                }
-              }
-              .foregroundStyle(githubToken.isEmpty ? Color.textTertiary : .white)
-              .padding(.horizontal, Spacing.lg)
-              .padding(.vertical, Spacing.sm)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                  .fill(githubToken.isEmpty ? Color.backgroundTertiary : Color.accent)
-              )
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: Spacing.sm) {
+              githubTokenField
+              githubSaveButton
             }
-            .buttonStyle(.plain)
-            .disabled(githubToken.isEmpty || isSavingGithubKey)
+
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              githubTokenField
+              githubSaveButton
+            }
           }
         }
 
@@ -329,6 +263,112 @@ struct MissionControlDefaultsView: View {
         RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           .fill(Color.accent.opacity(OpacityTier.light))
       )
+  }
+
+  private var linearKeyField: some View {
+    SecureField("lin_api_...", text: $linearApiKey)
+      .textFieldStyle(.plain)
+      .font(.system(size: TypeScale.caption, design: .monospaced))
+      .padding(Spacing.sm)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.backgroundTertiary)
+      )
+  }
+
+  private var linearKeyActions: some View {
+    HStack(spacing: Spacing.sm) {
+      Button {
+        Task { await saveLinearKey() }
+      } label: {
+        Group {
+          if isSavingKey {
+            ProgressView()
+              .controlSize(.mini)
+          } else {
+            Text("Save")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+        }
+        .foregroundStyle(linearApiKey.isEmpty ? Color.textTertiary : .white)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(linearApiKey.isEmpty ? Color.backgroundTertiary : Color.accent)
+        )
+      }
+      .buttonStyle(.plain)
+      .disabled(linearApiKey.isEmpty || isSavingKey)
+
+      if linearKeyConfigured {
+        Button {
+          Task { await deleteLinearKey() }
+        } label: {
+          Group {
+            if isDeletingKey {
+              ProgressView()
+                .controlSize(.mini)
+            } else {
+              Image(systemName: "trash")
+                .font(.system(size: 12, weight: .medium))
+            }
+          }
+          .foregroundStyle(Color.feedbackNegative)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.sm)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .fill(Color.feedbackNegative.opacity(OpacityTier.subtle))
+          )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDeletingKey)
+      }
+
+      Spacer(minLength: 0)
+    }
+  }
+
+  private var githubTokenField: some View {
+    SecureField("ghp_...", text: $githubToken)
+      .textFieldStyle(.plain)
+      .font(.system(size: TypeScale.caption, design: .monospaced))
+      .padding(Spacing.sm)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .fill(Color.backgroundTertiary)
+      )
+  }
+
+  private var githubSaveButton: some View {
+    HStack(spacing: Spacing.sm) {
+      Button {
+        Task { await saveGitHubKey() }
+      } label: {
+        Group {
+          if isSavingGithubKey {
+            ProgressView().controlSize(.mini)
+          } else {
+            Text("Save")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+        }
+        .foregroundStyle(githubToken.isEmpty ? Color.textTertiary : .white)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            .fill(githubToken.isEmpty ? Color.backgroundTertiary : Color.accent)
+        )
+      }
+      .buttonStyle(.plain)
+      .disabled(githubToken.isEmpty || isSavingGithubKey)
+
+      Spacer(minLength: 0)
+    }
   }
 
   // MARK: - Networking

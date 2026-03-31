@@ -25,13 +25,9 @@ pub use types::*;
 /// provider SDK IDs (Claude CLI, Codex thread IDs) which are plain UUIDs.
 pub const OD_ID_PREFIX: &str = "od-";
 pub const HTTP_HEADER_SERVER_VERSION: &str = "X-OrbitDock-Server-Version";
-pub const HTTP_HEADER_SERVER_COMPATIBILITY: &str = "X-OrbitDock-Server-Compatibility";
-pub const HTTP_HEADER_COMPATIBLE: &str = "X-OrbitDock-Compatible";
-pub const HTTP_HEADER_COMPATIBILITY_REASON: &str = "X-OrbitDock-Compatibility-Reason";
-pub const HTTP_HEADER_COMPATIBILITY_MESSAGE: &str = "X-OrbitDock-Compatibility-Message";
 pub const HTTP_HEADER_CLIENT_VERSION: &str = "X-OrbitDock-Client-Version";
-pub const HTTP_HEADER_CLIENT_COMPATIBILITY: &str = "X-OrbitDock-Client-Compatibility";
-pub const SERVER_COMPATIBILITY: &str = "server_authoritative_session_v1";
+pub const HTTP_HEADER_MINIMUM_CLIENT_VERSION: &str = "X-OrbitDock-Minimum-Client-Version";
+pub const HTTP_HEADER_MINIMUM_SERVER_VERSION: &str = "X-OrbitDock-Minimum-Server-Version";
 pub const CAPABILITY_DASHBOARD_PROJECTION_V1: &str = "dashboard_projection_v1";
 pub const CAPABILITY_MISSIONS_PROJECTION_V1: &str = "missions_projection_v1";
 pub const CAPABILITY_SESSION_DETAIL_SURFACE_V1: &str = "session_detail_surface_v1";

@@ -6,8 +6,8 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use orbitdock_protocol::{
-  ClientMessage, ServerHello, ServerMessage, SessionSurface, HTTP_HEADER_CLIENT_COMPATIBILITY,
-  HTTP_HEADER_CLIENT_VERSION, SERVER_COMPATIBILITY,
+  ClientMessage, ServerHello, ServerMessage, SessionSurface, HTTP_HEADER_CLIENT_VERSION,
+  HTTP_HEADER_MINIMUM_SERVER_VERSION,
 };
 
 use crate::client::config::ClientConfig;
@@ -48,10 +48,10 @@ impl WsClient {
         .context("Invalid client version header")?,
     );
     request.headers_mut().insert(
-      HTTP_HEADER_CLIENT_COMPATIBILITY,
-      SERVER_COMPATIBILITY
+      HTTP_HEADER_MINIMUM_SERVER_VERSION,
+      env!("CARGO_PKG_VERSION")
         .parse()
-        .context("Invalid client compatibility header")?,
+        .context("Invalid minimum server version header")?,
     );
 
     let (ws_stream, _) = tokio_tungstenite::connect_async(request)
@@ -136,15 +136,43 @@ impl WsClient {
 }
 
 fn validate_hello(hello: &ServerHello) -> Result<()> {
-  if !hello.compatibility.compatible {
+  let client_version = env!("CARGO_PKG_VERSION");
+  if !version_at_least(&hello.server_version, env!("CARGO_PKG_VERSION")) {
     bail!(
-      "{}",
-      hello
-        .compatibility
-        .message
-        .as_deref()
-        .unwrap_or("This OrbitDock client is not compatible with the connected server.")
+      "Update the OrbitDock server to version {} or later (current: {}).",
+      env!("CARGO_PKG_VERSION"),
+      hello.server_version
     );
   }
+
+  if !version_at_least(client_version, &hello.minimum_client_version) {
+    bail!(
+      "Update OrbitDock to version {} or later (current: {}).",
+      hello.minimum_client_version,
+      client_version
+    );
+  }
+
   Ok(())
+}
+
+fn version_at_least(left: &str, right: &str) -> bool {
+  match (parse_version(left), parse_version(right)) {
+    (Some(left), Some(right)) => left >= right,
+    _ => false,
+  }
+}
+
+fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
+  let mut parts = value.trim().split('.');
+  let major = parts.next()?.parse().ok()?;
+  let minor = parts.next().unwrap_or("0").parse().ok()?;
+  let patch = parts
+    .next()
+    .unwrap_or("0")
+    .split('-')
+    .next()?
+    .parse()
+    .ok()?;
+  Some((major, minor, patch))
 }

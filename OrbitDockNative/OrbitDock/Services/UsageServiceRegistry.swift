@@ -56,8 +56,7 @@ final class UsageServiceRegistry {
   func refreshAll(todayStart: Date? = nil) async {
     guard let runtime = runtimeRegistry.primaryRuntime
       ?? runtimeRegistry.activeRuntime
-      ?? runtimeRegistry.runtimes.first,
-      runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id).queryReady
+      ?? runtimeRegistry.runtimes.first(where: { $0.endpoint.isEnabled })
     else { return }
     let clients = runtime.clients
 

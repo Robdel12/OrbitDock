@@ -1,8 +1,6 @@
 use super::*;
-use crate::infrastructure::protocol_compat::compatibility_status_from_headers;
 use crate::runtime::server_info::{server_info_message, server_meta};
 use crate::transport::http::errors::bad_request;
-use axum::http::HeaderMap;
 use orbitdock_protocol::WorkspaceProviderKind;
 
 #[derive(Debug, Serialize)]
@@ -115,16 +113,12 @@ pub struct WorkspaceProviderTestResponse {
 }
 
 pub async fn get_server_meta(
-  headers: HeaderMap,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Json<orbitdock_protocol::ServerMeta> {
   // Activity-based update check: if enough time has passed, spawn a background check
   crate::runtime::background::update_checker::maybe_trigger_check(&state);
 
-  Json(server_meta(
-    &state,
-    compatibility_status_from_headers(&headers),
-  ))
+  Json(server_meta(&state))
 }
 
 #[derive(Debug, Deserialize)]

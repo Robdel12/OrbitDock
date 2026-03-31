@@ -12,6 +12,7 @@ final class OrbitDockAppRuntime {
   let startupCoordinator: ClientStartupCoordinator
   let demoExperience: DemoModeExperience
   var isDemoModeEnabled = false
+  var requestedSettingsPane: SettingsPane = .workspace
 
   init() {
     let runtimeRegistry = ServerRuntimeRegistry()

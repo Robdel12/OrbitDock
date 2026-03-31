@@ -29,8 +29,6 @@ final class MissionListViewModel {
     for runtime in registry.runtimes where runtime.endpoint.isEnabled {
       let endpointId = runtime.endpoint.id
       let endpointName = runtime.endpoint.name
-      let status = registry.connectionStatusByEndpointId[endpointId]
-      guard status == .connected else { continue }
       do {
         let response = try await runtime.clients.missions.listMissions()
         let aggregated = response.missions.map { mission in

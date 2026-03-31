@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-private enum SettingsPane: String, CaseIterable, Identifiable {
+enum SettingsPane: String, CaseIterable, Identifiable {
   case workspace
   case integrations
   case missionControl
@@ -72,16 +72,21 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+  private enum LayoutMode {
+    case compact
+    case split
+  }
+
+  private static let compactLayoutThreshold: CGFloat = 840
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(\.dismiss) private var dismiss
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
   private let showsCloseButton: Bool
-  @State private var selectedPane: SettingsPane = .workspace
+  @State private var selectedPane: SettingsPane
 
-  init(showsCloseButton: Bool = false) {
+  init(showsCloseButton: Bool = false, initialPane: SettingsPane = .workspace) {
     self.showsCloseButton = showsCloseButton
+    _selectedPane = State(initialValue: initialPane)
   }
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
@@ -113,37 +118,38 @@ struct SettingsView: View {
     }
   }
 
-  private var usesCompactLayout: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+  private static func layoutMode(for width: CGFloat) -> LayoutMode {
+    width < compactLayoutThreshold ? .compact : .split
   }
 
   var body: some View {
-    Group {
-      if usesCompactLayout {
-        compactLayout
-      } else {
-        splitLayout
+    GeometryReader { proxy in
+      let layoutMode = Self.layoutMode(for: proxy.size.width)
+      Group {
+        if layoutMode == .compact {
+          compactLayout
+        } else {
+          splitLayout
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(
+        ZStack {
+          Color.backgroundPrimary
+          Rectangle()
+            .fill(Color.backgroundSecondary.opacity(0.32))
+            .frame(height: 148)
+            .frame(maxHeight: .infinity, alignment: .top)
+        }
+      )
+      .animation(Motion.standard, value: selectedPane)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .onChange(of: appRuntime.requestedSettingsPane) { _, newPane in
+      if selectedPane != newPane {
+        selectedPane = newPane
       }
     }
-    #if os(macOS)
-    .frame(width: 900, height: 620)
-    #else
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    #endif
-    .background(
-      ZStack {
-        Color.backgroundPrimary
-        Rectangle()
-          .fill(Color.backgroundSecondary.opacity(0.32))
-          .frame(height: 148)
-          .frame(maxHeight: .infinity, alignment: .top)
-      }
-    )
-    .animation(Motion.standard, value: selectedPane)
   }
 
   private var splitLayout: some View {
@@ -219,15 +225,13 @@ struct SettingsView: View {
           .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
         Spacer()
-        #if os(iOS)
-          if showsCloseButton {
-            Button("Done") {
-              dismiss()
-            }
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.accent)
+        if showsCloseButton {
+          Button("Done") {
+            dismiss()
           }
-        #endif
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        }
       }
       .padding(.horizontal, Spacing.section)
       .padding(.top, Spacing.lg)
@@ -276,7 +280,7 @@ struct SettingsView: View {
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:
-            DebugSettingsView()
+            ServersSettingsView()
           case .notifications:
             NotificationSettingsView()
           case .diagnostics:
@@ -298,15 +302,13 @@ struct SettingsView: View {
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
         Spacer()
-        #if os(iOS)
-          if showsCloseButton {
-            Button("Done") {
-              dismiss()
-            }
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.accent)
+        if showsCloseButton {
+          Button("Done") {
+            dismiss()
           }
-        #endif
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        }
       }
       .padding(.horizontal, Spacing.xl)
       .padding(.top, Spacing.section)
@@ -324,7 +326,7 @@ struct SettingsView: View {
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:
-            DebugSettingsView()
+            ServersSettingsView()
           case .notifications:
             NotificationSettingsView()
           case .diagnostics:

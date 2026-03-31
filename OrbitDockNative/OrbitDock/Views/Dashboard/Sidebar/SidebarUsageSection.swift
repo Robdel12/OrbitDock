@@ -45,7 +45,6 @@ struct SidebarUsageSection: View {
       .padding(.bottom, Spacing.md)
     }
     .task {
-      await runtimeRegistry.waitForAnyQueryReadyRuntime()
       await registry.refreshAll()
     }
   }

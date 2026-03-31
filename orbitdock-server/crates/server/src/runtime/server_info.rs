@@ -1,11 +1,11 @@
 use orbitdock_protocol::{
-  CompatibilityStatus, ServerHello, ServerMessage, ServerMeta, CAPABILITY_CONVERSATION_SURFACE_V1,
+  ServerHello, ServerMessage, ServerMeta, CAPABILITY_CONVERSATION_SURFACE_V1,
   CAPABILITY_DASHBOARD_PROJECTION_V1, CAPABILITY_MISSIONS_PROJECTION_V1,
   CAPABILITY_SESSION_COMPOSER_SURFACE_V1, CAPABILITY_SESSION_DETAIL_SURFACE_V1,
 };
 
 use crate::runtime::session_registry::SessionRegistry;
-use crate::VERSION;
+use crate::{MINIMUM_CLIENT_VERSION, VERSION};
 
 fn capabilities() -> Vec<String> {
   vec![
@@ -17,23 +17,20 @@ fn capabilities() -> Vec<String> {
   ]
 }
 
-pub(crate) fn server_hello_message(compatibility: CompatibilityStatus) -> ServerMessage {
+pub(crate) fn server_hello_message() -> ServerMessage {
   ServerMessage::Hello {
     hello: ServerHello {
       server_version: VERSION.to_string(),
-      compatibility,
+      minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
       capabilities: capabilities(),
     },
   }
 }
 
-pub(crate) fn server_meta(
-  state: &SessionRegistry,
-  compatibility: CompatibilityStatus,
-) -> ServerMeta {
+pub(crate) fn server_meta(state: &SessionRegistry) -> ServerMeta {
   ServerMeta {
     server_version: VERSION.to_string(),
-    compatibility,
+    minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
     capabilities: capabilities(),
     is_primary: state.is_primary(),
     client_primary_claims: state.active_client_primary_claims(),

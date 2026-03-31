@@ -1,63 +1,122 @@
 import Foundation
 
 enum OrbitDockProtocol {
-  static let compatibility = "server_authoritative_session_v1"
-  static let releaseVersion = "0.4.0"
+  static let releaseVersion: String = {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? "0.0.0"
+  }()
   static let clientVersion = releaseVersion
+  static let minimumServerVersion: String = {
+    Bundle.main.object(forInfoDictionaryKey: "OrbitDockMinimumServerVersion") as? String
+      ?? clientVersion
+  }()
 }
 
-enum ServerCompatibilityError: Error, Equatable, Sendable, LocalizedError {
-  case incompatibleServer(
-    serverVersion: String,
-    serverCompatibility: String,
-    reason: String?,
-    message: String?
-  )
-  case missingCompatibilityMetadata(transport: String)
+private struct OrbitDockSemVer: Comparable, Sendable {
+  let major: UInt64
+  let minor: UInt64
+  let patch: UInt64
+
+  init?(_ string: String) {
+    let parts = string.split(separator: ".", omittingEmptySubsequences: false)
+    func parseComponent(_ component: Substring) -> UInt64? {
+      let trimmed = component.split(whereSeparator: { $0 == "-" || $0 == "+" }).first ?? component
+      return UInt64(trimmed)
+    }
+
+    guard let majorPart = parts.first, let major = parseComponent(majorPart) else { return nil }
+    let minor: UInt64
+    if parts.count > 1 {
+      guard let parsedMinor = parseComponent(parts[1]) else { return nil }
+      minor = parsedMinor
+    } else {
+      minor = 0
+    }
+    let patchPart = parts.count > 2 ? parts[2] : "0"
+    guard let patch = parseComponent(patchPart) else {
+      return nil
+    }
+    self.major = major
+    self.minor = minor
+    self.patch = patch
+  }
+
+  static func < (lhs: Self, rhs: Self) -> Bool {
+    if lhs.major != rhs.major { return lhs.major < rhs.major }
+    if lhs.minor != rhs.minor { return lhs.minor < rhs.minor }
+    return lhs.patch < rhs.patch
+  }
+}
+
+private func versionAtLeast(_ value: String, minimum: String) -> Bool {
+  guard let lhs = OrbitDockSemVer(value), let rhs = OrbitDockSemVer(minimum) else {
+    return false
+  }
+  return lhs >= rhs
+}
+
+enum ServerVersionError: Error, Equatable, Sendable, LocalizedError {
+  case clientTooOld(clientVersion: String, minimumClientVersion: String)
+  case serverTooOld(serverVersion: String, minimumServerVersion: String)
+  case missingVersionMetadata(transport: String)
   case missingHelloHandshake(messageType: String)
 
   var errorDescription: String? {
     switch self {
-      case let .incompatibleServer(serverVersion, serverCompatibility, _, message):
-        message
-          ?? "Server \(serverVersion) (\(serverCompatibility)) is not compatible with this app."
-      case let .missingCompatibilityMetadata(transport):
-        "Server \(transport) response did not include compatibility metadata."
+      case let .clientTooOld(clientVersion, minimumClientVersion):
+        "Update OrbitDock to version \(minimumClientVersion) or later (current: \(clientVersion))."
+      case let .serverTooOld(serverVersion, minimumServerVersion):
+        "Update the OrbitDock server to version \(minimumServerVersion) or later (current: \(serverVersion))."
+      case let .missingVersionMetadata(transport):
+        "Server \(transport) response did not include version metadata."
       case let .missingHelloHandshake(messageType):
         "Server handshake failed: expected hello as the first WebSocket frame, received \(messageType)"
     }
   }
 }
 
-extension ServerCompatibilityError {
+extension ServerVersionError {
   var recoverySuggestion: String? {
     switch self {
-      case let .incompatibleServer(_, _, reason, _):
-        switch reason {
-          case "upgrade_app":
-            "Update OrbitDock to a build that matches the connected server."
-          case "upgrade_server":
-            "Update the OrbitDock server to match this app."
-          default:
-            "Run a compatible OrbitDock app and server pair."
-        }
-      case .missingCompatibilityMetadata:
-        "Update the OrbitDock server so it can report compatibility cleanly."
+      case .clientTooOld:
+        "Update OrbitDock to a build that matches the connected server."
+      case .serverTooOld:
+        "Update the OrbitDock server to match this app."
+      case .missingVersionMetadata:
+        "Update the OrbitDock server so it can report version metadata cleanly."
       case .missingHelloHandshake:
         "Check that the server and client are running the same transport contract."
     }
   }
 }
 
+extension HTTPResponse {
+  func validateServerVersionHeaders() throws {
+    guard let serverVersion = headerValue(for: "X-OrbitDock-Server-Version"),
+          let minimumClientVersion = headerValue(for: "X-OrbitDock-Minimum-Client-Version")
+    else {
+      // Legacy/proxied servers may omit version headers on HTTP.
+      // When headers are absent we keep the request flow alive and rely on
+      // WebSocket hello + /api/server/meta checks for compatibility diagnosis.
+      return
+    }
+
+    try ServerVersionMetadata(
+      serverVersion: serverVersion,
+      minimumClientVersion: minimumClientVersion
+    ).validate()
+  }
+}
+
 enum ServerContractGuard {
-  static func compatibilityMessage(for error: Error, surface: String) -> String? {
+  static func versionMessage(for error: Error, surface: String) -> String? {
     switch error {
-      case let compatibility as ServerCompatibilityError:
-        return userFacingMessage(for: compatibility, surface: surface)
+      case let versionError as ServerVersionError:
+        return userFacingMessage(for: versionError, surface: surface)
       case let requestError as ServerRequestError:
         switch requestError {
-          case let .incompatibleServer(compatibility):
-            return userFacingMessage(for: compatibility, surface: surface)
+          case let .incompatibleServer(versionError):
+            return userFacingMessage(for: versionError, surface: surface)
           default:
             return nil
         }
@@ -70,71 +129,53 @@ enum ServerContractGuard {
   }
 
   private static func userFacingMessage(
-    for error: ServerCompatibilityError,
+    for error: ServerVersionError,
     surface: String
   ) -> String {
     switch error {
-      case .incompatibleServer:
+      case .clientTooOld:
         return error.errorDescription
           ?? "This OrbitDock server is not compatible with the current app."
-      case .missingCompatibilityMetadata:
+      case .serverTooOld:
+        return error.errorDescription
+          ?? "This OrbitDock server is not compatible with the current app."
+      case .missingVersionMetadata:
         return
-          "OrbitDock couldn't verify server compatibility for \(surface). This usually means the server is too old for this app."
+          "OrbitDock couldn't verify server version metadata for \(surface). This usually means the server is too old for this app."
       case .missingHelloHandshake:
         return
-          "OrbitDock couldn't complete the server compatibility handshake. Make sure the server is upgraded to match this app."
+          "OrbitDock couldn't complete the server version handshake. Make sure the server is upgraded to match this app."
     }
   }
 }
 
-struct ServerCompatibilityStatus: Codable, Equatable, Sendable {
-  let compatible: Bool
-  let serverCompatibility: String
-  let reason: String?
-  let message: String?
+struct ServerVersionMetadata: Codable, Equatable, Sendable {
+  let serverVersion: String
+  let minimumClientVersion: String
 
   enum CodingKeys: String, CodingKey {
-    case compatible
-    case serverCompatibility = "server_compatibility"
-    case reason
-    case message
+    case serverVersion = "server_version"
+    case minimumClientVersion = "minimum_client_version"
   }
-}
 
-extension ServerCompatibilityStatus {
-  func validate(serverVersion: String) throws {
-    guard compatible else {
-      throw ServerCompatibilityError.incompatibleServer(
+  func validate() throws {
+    if !versionAtLeast(serverVersion, minimum: OrbitDockProtocol.minimumServerVersion) {
+      throw ServerVersionError.serverTooOld(
         serverVersion: serverVersion,
-        serverCompatibility: serverCompatibility,
-        reason: reason,
-        message: message
+        minimumServerVersion: OrbitDockProtocol.minimumServerVersion
+      )
+    }
+
+    if !versionAtLeast(OrbitDockProtocol.clientVersion, minimum: minimumClientVersion) {
+      throw ServerVersionError.clientTooOld(
+        clientVersion: OrbitDockProtocol.clientVersion,
+        minimumClientVersion: minimumClientVersion
       )
     }
   }
 }
 
-extension HTTPResponse {
-  func validateServerCompatibilityHeaders() throws {
-    guard let serverVersion = headerValue(for: "X-OrbitDock-Server-Version"),
-          let serverCompatibility = headerValue(for: "X-OrbitDock-Server-Compatibility"),
-          let rawCompatible = headerValue(for: "X-OrbitDock-Compatible")
-    else {
-      throw ServerCompatibilityError.missingCompatibilityMetadata(transport: "HTTP")
-    }
-
-    guard rawCompatible.caseInsensitiveCompare("true") == .orderedSame else {
-      throw ServerCompatibilityError.incompatibleServer(
-        serverVersion: serverVersion,
-        serverCompatibility: serverCompatibility,
-        reason: headerValue(for: "X-OrbitDock-Compatibility-Reason"),
-        message: headerValue(for: "X-OrbitDock-Compatibility-Message")
-      )
-    }
-  }
-}
-
-enum ServerSessionSurface: String, Codable, Sendable {
+enum ServerSessionSurface: String, Codable, CaseIterable, Sendable {
   case detail
   case composer
   case conversation
@@ -142,23 +183,26 @@ enum ServerSessionSurface: String, Codable, Sendable {
 
 struct ServerHelloMetadata: Codable, Sendable {
   let serverVersion: String
-  let compatibility: ServerCompatibilityStatus
+  let minimumClientVersion: String
   let capabilities: [String]
 
   enum CodingKeys: String, CodingKey {
     case serverVersion = "server_version"
-    case compatibility
+    case minimumClientVersion = "minimum_client_version"
     case capabilities
   }
 
   func validateCompatibility() throws {
-    try compatibility.validate(serverVersion: serverVersion)
+    try ServerVersionMetadata(
+      serverVersion: serverVersion,
+      minimumClientVersion: minimumClientVersion
+    ).validate()
   }
 }
 
 struct ServerMetaResponse: Codable, Sendable {
   let serverVersion: String
-  let compatibility: ServerCompatibilityStatus
+  let minimumClientVersion: String
   let capabilities: [String]
   let isPrimary: Bool
   let clientPrimaryClaims: [ServerClientPrimaryClaim]
@@ -166,7 +210,7 @@ struct ServerMetaResponse: Codable, Sendable {
 
   enum CodingKeys: String, CodingKey {
     case serverVersion = "server_version"
-    case compatibility
+    case minimumClientVersion = "minimum_client_version"
     case capabilities
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
@@ -175,14 +219,14 @@ struct ServerMetaResponse: Codable, Sendable {
 
   init(
     serverVersion: String,
-    compatibility: ServerCompatibilityStatus,
+    minimumClientVersion: String,
     capabilities: [String],
     isPrimary: Bool,
     clientPrimaryClaims: [ServerClientPrimaryClaim],
     updateStatus: ServerUpdateStatus? = nil
   ) {
     self.serverVersion = serverVersion
-    self.compatibility = compatibility
+    self.minimumClientVersion = minimumClientVersion
     self.capabilities = capabilities
     self.isPrimary = isPrimary
     self.clientPrimaryClaims = clientPrimaryClaims
@@ -192,7 +236,8 @@ struct ServerMetaResponse: Codable, Sendable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     serverVersion = try container.decode(String.self, forKey: .serverVersion)
-    compatibility = try container.decode(ServerCompatibilityStatus.self, forKey: .compatibility)
+    minimumClientVersion = try container.decodeIfPresent(String.self, forKey: .minimumClientVersion)
+      ?? OrbitDockProtocol.releaseVersion
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
     isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? false
     clientPrimaryClaims =
@@ -201,7 +246,10 @@ struct ServerMetaResponse: Codable, Sendable {
   }
 
   func validateCompatibility() throws {
-    try compatibility.validate(serverVersion: serverVersion)
+    try ServerVersionMetadata(
+      serverVersion: serverVersion,
+      minimumClientVersion: minimumClientVersion
+    ).validate()
   }
 }
 

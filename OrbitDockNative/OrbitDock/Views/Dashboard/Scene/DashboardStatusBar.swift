@@ -18,13 +18,17 @@ struct DashboardStatusBar: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var usageRegistry
   @Environment(AppRouter.self) private var router
+  #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+  #endif
 
   let sessions: [RootSessionNode]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
 
-  @State private var showServerSettings = false
+  #if os(iOS)
   @State private var showAppSettings = false
+  #endif
   @State private var showStatsPopover = false
 
   private var layoutMode: DashboardLayoutMode {
@@ -111,16 +115,6 @@ struct DashboardStatusBar: View {
     return Color.textTertiary
   }
 
-  private var connectionSummaryText: String? {
-    if unavailableEndpointCount > 0 {
-      return unavailableEndpointCount == 1 ? "1 offline" : "\(unavailableEndpointCount) offline"
-    }
-    if connectingEndpointCount > 0 || isInitialLoading || isRefreshingCachedSessions {
-      return "Syncing"
-    }
-    return nil
-  }
-
   private var serverButtonLabelText: String? {
     guard !enabledRuntimes.isEmpty else { return nil }
     if unavailableEndpointCount > 0 {
@@ -168,20 +162,17 @@ struct DashboardStatusBar: View {
         .fill(Color.panelBorder.opacity(layoutMode.isPhoneCompact ? 0.45 : 0.28))
         .frame(height: 1)
     }
-    .sheet(isPresented: $showServerSettings) {
-      ServerCommPanel()
-    }
-    .sheet(isPresented: $showAppSettings) {
-      SettingsView(showsCloseButton: true)
-        .environment(appRuntime)
-        .environment(appRuntime.notificationCoordinator)
-        .environment(runtimeRegistry)
-        .environment(runtimeRegistry.activeSessionStore)
-        #if os(iOS)
+    #if os(iOS)
+      .sheet(isPresented: $showAppSettings) {
+        SettingsView(showsCloseButton: true, initialPane: appRuntime.requestedSettingsPane)
+          .environment(appRuntime)
+          .environment(appRuntime.notificationCoordinator)
+          .environment(runtimeRegistry)
+          .environment(runtimeRegistry.activeSessionStore)
           .presentationDetents([.large])
           .presentationDragIndicator(.visible)
-        #endif
-    }
+      }
+    #endif
     .task(id: Calendar.current.startOfDay(for: Date())) {
       await usageRegistry.refreshAll()
     }
@@ -194,10 +185,6 @@ struct DashboardStatusBar: View {
       DashboardTabSwitcher()
 
       Spacer(minLength: Spacing.md)
-
-      if let connectionSummaryText {
-        connectionStateBadge(text: connectionSummaryText)
-      }
 
       todayStatsCluster(todayStats: todayStats, allStats: allStats)
 
@@ -215,11 +202,6 @@ struct DashboardStatusBar: View {
         DashboardTabSwitcher(compact: true)
           .layoutPriority(1)
 
-        if let connectionSummaryText {
-          phoneTelemetryDivider
-          phoneConnectionBadge(text: connectionSummaryText)
-        }
-
         Spacer(minLength: Spacing.sm)
 
         phoneActionButtons
@@ -229,10 +211,6 @@ struct DashboardStatusBar: View {
         phoneStatsButton(todayStats: todayStats, allStats: allStats)
 
         Spacer(minLength: Spacing.sm_)
-
-        if let connectionSummaryText {
-          connectionStateBadge(text: connectionSummaryText)
-        }
 
         if let serverButtonLabelText {
           phoneServerStatusBadge(text: serverButtonLabelText)
@@ -315,32 +293,6 @@ struct DashboardStatusBar: View {
     }
   }
 
-  // MARK: - Connection Badge
-
-  private func connectionStateBadge(text: String) -> some View {
-    HStack(spacing: Spacing.xs) {
-      if unavailableEndpointCount > 0 {
-        Image(systemName: "wifi.slash")
-          .font(.system(size: TypeScale.micro, weight: .bold))
-          .foregroundStyle(Color.statusPermission)
-      } else {
-        ProgressView()
-          .controlSize(.mini)
-      }
-
-      Text(text)
-        .font(.system(size: TypeScale.micro, weight: .medium))
-        .foregroundStyle(unavailableEndpointCount > 0 ? Color.statusPermission : Color.textTertiary)
-    }
-    .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, Spacing.xs)
-    .background(
-      (unavailableEndpointCount > 0 ? Color.statusPermission : Color.backgroundTertiary)
-        .opacity(unavailableEndpointCount > 0 ? OpacityTier.light : 0.6),
-      in: Capsule()
-    )
-  }
-
   // MARK: - Action Buttons
 
   private var actionButtons: some View {
@@ -410,7 +362,14 @@ struct DashboardStatusBar: View {
   }
 
   private var settingsButton: some View {
-    Button(action: { showAppSettings = true }) {
+    Button(action: {
+      appRuntime.requestedSettingsPane = .workspace
+      #if os(macOS)
+        openSettings()
+      #else
+        showAppSettings = true
+      #endif
+    }) {
       Image(systemName: "gearshape")
         .font(.system(size: 10, weight: .medium))
         .foregroundStyle(Color.textTertiary)
@@ -420,7 +379,14 @@ struct DashboardStatusBar: View {
   }
 
   private func serverButton(showLabel: Bool) -> some View {
-    Button(action: { showServerSettings = true }) {
+    Button(action: {
+      appRuntime.requestedSettingsPane = .servers
+      #if os(macOS)
+        openSettings()
+      #else
+        showAppSettings = true
+      #endif
+    }) {
       HStack(spacing: Spacing.xs) {
         Circle()
           .fill(serverStatusColor)
@@ -472,37 +438,6 @@ struct DashboardStatusBar: View {
       serverStatusColor.opacity(OpacityTier.light),
       in: Capsule()
     )
-  }
-
-  private var phoneTelemetryDivider: some View {
-    Capsule(style: .continuous)
-      .fill(Color.panelBorder.opacity(0.75))
-      .frame(width: 1, height: 14)
-      .padding(.vertical, Spacing.xxs)
-      .accessibilityHidden(true)
-  }
-
-  private func phoneConnectionBadge(text: String) -> some View {
-    HStack(spacing: Spacing.xs) {
-      if unavailableEndpointCount > 0 {
-        Image(systemName: "wifi.slash")
-          .font(.system(size: TypeScale.micro, weight: .bold))
-          .foregroundStyle(Color.statusPermission)
-      } else if connectingEndpointCount > 0 || isInitialLoading || isRefreshingCachedSessions {
-        ProgressView()
-          .controlSize(.mini)
-      } else {
-        Circle()
-          .fill(Color.feedbackPositive)
-          .frame(width: 6, height: 6)
-          .shadow(color: Color.feedbackPositive.opacity(0.45), radius: 3)
-      }
-
-      Text(text)
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(unavailableEndpointCount > 0 ? Color.statusPermission : Color.textTertiary)
-        .lineLimit(1)
-    }
   }
 
   private func headerMetric(

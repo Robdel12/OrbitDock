@@ -177,11 +177,8 @@ struct ServerClientsTests {
           json: #"{"sessions":[]}"#,
           headers: [
             "Content-Type": "application/json",
-            "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
-            "X-OrbitDock-Server-Compatibility": "legacy_contract",
-            "X-OrbitDock-Compatible": "false",
-            "X-OrbitDock-Compatibility-Reason": "upgrade_app",
-            "X-OrbitDock-Compatibility-Message": "Update OrbitDock to a build compatible with server 0.4.0.",
+            "X-OrbitDock-Server-Version": "0.6.0",
+            "X-OrbitDock-Minimum-Client-Version": OrbitDockProtocol.clientVersion,
           ]
         )
       }
@@ -189,7 +186,7 @@ struct ServerClientsTests {
 
     do {
       _ = try await clients.dashboard.fetchDashboardSnapshot()
-      Issue.record("Expected fetchDashboardSnapshot() to reject incompatible server compatibility headers.")
+      Issue.record("Expected fetchDashboardSnapshot() to reject old server version headers.")
     } catch let error as ServerRequestError {
       guard case let .incompatibleServer(compatibilityError) = error else {
         Issue.record("Expected an incompatible server error.")
@@ -197,11 +194,9 @@ struct ServerClientsTests {
       }
       #expect(
         compatibilityError
-          == .incompatibleServer(
-            serverVersion: OrbitDockProtocol.releaseVersion,
-            serverCompatibility: "legacy_contract",
-            reason: "upgrade_app",
-            message: "Update OrbitDock to a build compatible with server 0.4.0."
+          == .serverTooOld(
+            serverVersion: "0.6.0",
+            minimumServerVersion: OrbitDockProtocol.minimumServerVersion
           )
       )
     } catch {
@@ -216,8 +211,7 @@ struct ServerClientsTests {
     headers: [String: String] = [
       "Content-Type": "application/json",
       "X-OrbitDock-Server-Version": OrbitDockProtocol.releaseVersion,
-      "X-OrbitDock-Server-Compatibility": OrbitDockProtocol.compatibility,
-      "X-OrbitDock-Compatible": "true",
+      "X-OrbitDock-Minimum-Client-Version": OrbitDockProtocol.clientVersion,
     ]
   ) -> (Data, URLResponse) {
     let response = HTTPURLResponse(

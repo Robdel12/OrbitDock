@@ -11,6 +11,11 @@ import SwiftUI
 private let serverSettingsLogger = Logger(subsystem: "com.orbitdock", category: "server-settings")
 
 struct ServerSettingsSheet: View {
+  enum LayoutMode {
+    case sheet
+    case embedded
+  }
+
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   #if os(iOS)
@@ -30,11 +35,13 @@ struct ServerSettingsSheet: View {
   @State private var editorError: String?
   @State private var endpointPendingDelete: ServerEndpoint?
   private let endpointSettings: ServerEndpointSettingsClient
+  private let layoutMode: LayoutMode
 
   @MainActor
-  init(endpointSettings: ServerEndpointSettingsClient? = nil) {
+  init(endpointSettings: ServerEndpointSettingsClient? = nil, layoutMode: LayoutMode = .sheet) {
     let resolvedEndpointSettings = endpointSettings ?? .live()
     self.endpointSettings = resolvedEndpointSettings
+    self.layoutMode = layoutMode
     _endpoints = State(initialValue: resolvedEndpointSettings.endpoints())
   }
 
@@ -42,33 +49,73 @@ struct ServerSettingsSheet: View {
     ServerSettingsSheetPlanner.orderedEndpoints(endpoints)
   }
 
+  private var enabledEndpoints: [ServerEndpoint] {
+    endpoints.filter(\.isEnabled)
+  }
+
+  private var connectedEndpointCount: Int {
+    enabledEndpoints.filter { endpoint in
+      runtimeRegistry.displayConnectionStatus(for: endpoint.id) == .connected
+    }.count
+  }
+
+  private var failedEndpointCount: Int {
+    enabledEndpoints.filter { endpoint in
+      if case .failed = runtimeRegistry.displayConnectionStatus(for: endpoint.id) {
+        return true
+      }
+      return false
+    }.count
+  }
+
+  private var healthSummaryText: String {
+    guard !enabledEndpoints.isEmpty else { return "No enabled endpoints" }
+    if failedEndpointCount > 0 {
+      return failedEndpointCount == 1 ? "1 endpoint needs attention" : "\(failedEndpointCount) endpoints need attention"
+    }
+    if connectedEndpointCount == enabledEndpoints.count {
+      return connectedEndpointCount == 1 ? "1 endpoint live" : "\(connectedEndpointCount) endpoints live"
+    }
+    return "Sync in progress"
+  }
+
+  private var healthSummaryColor: Color {
+    if enabledEndpoints.isEmpty {
+      return Color.textTertiary
+    }
+    if failedEndpointCount > 0 {
+      return Color.statusPermission
+    }
+    if connectedEndpointCount == enabledEndpoints.count {
+      return Color.feedbackPositive
+    }
+    return Color.statusQuestion
+  }
+
   // MARK: - Body
 
   var body: some View {
-    NavigationStack {
-      ScrollView {
-        VStack(alignment: .leading, spacing: Spacing.lg) {
-          ForEach(orderedEndpoints) { endpoint in
-            endpointCard(endpoint)
+    Group {
+      switch layoutMode {
+        case .sheet:
+          NavigationStack {
+            content
+              .navigationTitle("Servers")
+            #if os(iOS)
+              .navigationBarTitleDisplayMode(.inline)
+            #endif
+              .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                  Button("Done") {
+                    dismiss()
+                  }
+                  .foregroundStyle(Color.accent)
+                }
+              }
           }
-
-          addEndpointButton
-        }
-        .padding(Spacing.section)
+        case .embedded:
+          content
       }
-      .background(Color.backgroundPrimary)
-      .navigationTitle("Servers")
-      #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Done") {
-              dismiss()
-            }
-            .foregroundStyle(Color.accent)
-          }
-        }
     }
     .onAppear {
       refreshFromSettings()
@@ -97,8 +144,63 @@ struct ServerSettingsSheet: View {
     } message: { endpoint in
       Text("Remove \(endpoint.name)? Any active connection to this endpoint will be stopped.")
     }
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
+    .modifier(SheetPresentationModifier(isPresentedAsSheet: layoutMode == .sheet))
+  }
+
+  private var content: some View {
+    Group {
+      if layoutMode == .sheet {
+        ScrollView {
+          contentStack
+            .padding(Spacing.section)
+        }
+      } else {
+        contentStack
+      }
+    }
+    .background(Color.backgroundPrimary)
+  }
+
+  private var contentStack: some View {
+    VStack(alignment: .leading, spacing: Spacing.lg) {
+      if layoutMode == .embedded {
+        embeddedHeader
+      }
+      ForEach(orderedEndpoints) { endpoint in
+        endpointCard(endpoint)
+      }
+
+      addEndpointButton
+    }
+  }
+
+  private var embeddedHeader: some View {
+    HStack(spacing: Spacing.md) {
+      Circle()
+        .fill(healthSummaryColor)
+        .frame(width: 8, height: 8)
+        .shadow(color: healthSummaryColor.opacity(0.45), radius: 4)
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text("Endpoint Connection Health")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+        Text(healthSummaryText)
+          .font(.system(size: TypeScale.meta, weight: .semibold, design: .monospaced))
+          .foregroundStyle(healthSummaryColor)
+      }
+
+      Spacer()
+    }
+    .padding(Spacing.md)
+    .background(
+      Color.backgroundSecondary,
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.panelBorder, lineWidth: 1)
+    )
   }
 
   // MARK: - Endpoint Card (flat, no expand/collapse)
@@ -108,7 +210,7 @@ struct ServerSettingsSheet: View {
     let isPrimary = runtimeRegistry.primaryEndpointId == endpoint.id
     let isServerPrimary = runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true
     let isConnected = endpointStatus == .connected
-    let authFailure = isAuthFailure(endpointStatus)
+    let failurePresentation = failurePresentation(for: endpointStatus)
     let endpointStatusColor = statusColor(for: endpointStatus)
 
     return HStack(alignment: .top, spacing: 0) {
@@ -127,74 +229,23 @@ struct ServerSettingsSheet: View {
       ))
 
       VStack(alignment: .leading, spacing: Spacing.sm) {
-        // Row 1: Status dot + Name + Primary badge + Connection button + Toggle
-        HStack(spacing: Spacing.sm) {
-          // Status dot with glow
-          Circle()
-            .fill(endpointStatusColor)
-            .frame(width: 7, height: 7)
-            .shadow(color: isConnected ? endpointStatusColor.opacity(0.4) : .clear, radius: 4)
+        endpointHeader(
+          endpoint: endpoint,
+          status: endpointStatus,
+          statusColor: endpointStatusColor,
+          isConnected: isConnected
+        )
 
-          Text(endpoint.name)
-            .font(.system(size: TypeScale.title, weight: .semibold))
-            .foregroundStyle(endpoint.isEnabled ? Color.textPrimary : Color.textTertiary)
-
-          // Status text
-          Text(statusLabel(for: endpointStatus))
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(endpointStatusColor)
-
-          if isPrimary {
-            HStack(spacing: Spacing.gap) {
-              Image(systemName: "crown.fill")
-                .font(.system(size: 8))
-              Text("Primary")
-                .font(.system(size: TypeScale.micro, weight: .bold))
-            }
-            .foregroundStyle(Color.accent)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
-          }
-
-          Spacer(minLength: Spacing.sm)
-
-          // Connection action button
-          if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
-            Button {
-              action.handler(endpoint.id)
-            } label: {
-              Image(systemName: connectionIcon(for: endpointStatus))
-                .font(.system(size: IconScale.lg, weight: .semibold))
-                .foregroundStyle(Color.accent)
-                .frame(width: 28, height: 28)
-                .background(Color.accent.opacity(OpacityTier.subtle), in: Circle())
-            }
-            .buttonStyle(.plain)
-          }
-
-          // Enable toggle
-          Toggle(
-            isOn: Binding(
-              get: { endpoint.isEnabled },
-              set: { isEnabled in
-                updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
-              }
-            )
-          ) {
-            EmptyView()
-          }
-          .toggleStyle(.switch)
-          .tint(Color.accent)
-          .labelsHidden()
-          .fixedSize()
+        if isPrimary {
+          primaryBadge
         }
 
-        // Row 2: URL + role tags
-        HStack(spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
           Text(endpoint.wsURL.absoluteString)
             .font(.system(size: TypeScale.caption, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+            .truncationMode(.middle)
             .textSelection(.enabled)
 
           if isServerPrimary {
@@ -207,56 +258,59 @@ struct ServerSettingsSheet: View {
             Text(claimsText)
               .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
           }
         }
 
-        // Row 3: Auth failure banner (conditional)
-        if authFailure {
+        // Row 3: Failure guidance banner (conditional)
+        if let failurePresentation {
           HStack(spacing: Spacing.sm) {
-            Image(systemName: "exclamationmark.triangle.fill")
-              .foregroundStyle(Color.statusPermission)
+            Image(systemName: failurePresentation.icon)
+              .foregroundStyle(failurePresentation.color)
               .font(.system(size: IconScale.lg))
             VStack(alignment: .leading, spacing: Spacing.xxs) {
-              Text("Authentication failed")
+              Text(failurePresentation.title)
                 .font(.system(size: TypeScale.body, weight: .semibold))
-                .foregroundStyle(Color.statusPermission)
-              Text("Update the auth token for this server.")
+                .foregroundStyle(failurePresentation.color)
+              Text(failurePresentation.detail)
                 .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textSecondary)
             }
           }
           .padding(Spacing.md)
           .background(
-            Color.statusPermission.opacity(OpacityTier.light),
+            failurePresentation.color.opacity(OpacityTier.light),
             in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
           )
           .overlay(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .stroke(Color.statusPermission.opacity(OpacityTier.subtle), lineWidth: 1)
+              .stroke(failurePresentation.color.opacity(OpacityTier.subtle), lineWidth: 1)
           )
         }
 
-        // Row 4: Action pills (always visible)
-        HStack(spacing: Spacing.sm) {
-          actionPill("Edit", icon: "pencil", color: Color.textSecondary) {
-            beginEditing(endpoint)
-          }
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: Spacing.sm) {
+            actionPill("Edit", icon: "pencil", color: Color.textSecondary) {
+              beginEditing(endpoint)
+            }
 
-          if !isPrimary, endpoint.isEnabled {
-            actionPill("Set Primary", icon: "crown", color: Color.accent) {
-              setDefaultEndpoint(endpoint.id)
+            if !isPrimary, endpoint.isEnabled {
+              actionPill("Set Primary", icon: "crown", color: Color.accent) {
+                setDefaultEndpoint(endpoint.id)
+              }
+            }
+
+            if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
+              actionPill(roleAction.label, icon: "server.rack", color: Color.textSecondary) {
+                roleAction.handler(endpoint.id)
+              }
+            }
+
+            actionPill("Remove", icon: "trash", color: Color.statusPermission) {
+              endpointPendingDelete = endpoint
             }
           }
-
-          if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
-            actionPill(roleAction.label, icon: "server.rack", color: Color.textSecondary) {
-              roleAction.handler(endpoint.id)
-            }
-          }
-
-          actionPill("Remove", icon: "trash", color: Color.statusPermission) {
-            endpointPendingDelete = endpoint
-          }
+          .padding(.vertical, Spacing.xxs)
         }
       }
       .padding(.horizontal, Spacing.lg)
@@ -269,13 +323,103 @@ struct ServerSettingsSheet: View {
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(
-          authFailure
-            ? Color.statusPermission.opacity(OpacityTier.medium)
+          failurePresentation != nil
+            ? endpointStatusColor.opacity(OpacityTier.medium)
             : Color.panelBorder,
           lineWidth: 1
         )
     )
     .clipped()
+  }
+
+  private func endpointHeader(
+    endpoint: ServerEndpoint,
+    status: ConnectionStatus,
+    statusColor: Color,
+    isConnected: Bool
+  ) -> some View {
+    HStack(alignment: .top, spacing: Spacing.sm) {
+      endpointStatusDot(color: statusColor, isConnected: isConnected)
+
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text(endpoint.name)
+          .font(.system(size: TypeScale.title, weight: .semibold))
+          .foregroundStyle(endpoint.isEnabled ? Color.textPrimary : Color.textTertiary)
+          .lineLimit(2)
+          .truncationMode(.tail)
+
+        statusBadge(status: status, color: statusColor)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: Spacing.sm_) {
+        if let action = connectionAction(for: status), endpoint.isEnabled {
+          connectionActionButton(action: action, endpointID: endpoint.id, status: status)
+        }
+
+        endpointEnabledToggle(endpointID: endpoint.id, isEnabled: endpoint.isEnabled)
+      }
+    }
+  }
+
+  private func endpointStatusDot(color: Color, isConnected: Bool) -> some View {
+    Circle()
+      .fill(color)
+      .frame(width: 7, height: 7)
+      .shadow(color: isConnected ? color.opacity(0.4) : .clear, radius: 4)
+  }
+
+  private func statusBadge(status: ConnectionStatus, color: Color) -> some View {
+    Text(statusLabel(for: status))
+      .font(.system(size: TypeScale.caption, weight: .medium))
+      .foregroundStyle(color)
+  }
+
+  private var primaryBadge: some View {
+    HStack(spacing: Spacing.gap) {
+      Image(systemName: "crown.fill")
+        .font(.system(size: 8))
+      Text("Primary")
+        .font(.system(size: TypeScale.micro, weight: .bold))
+    }
+    .foregroundStyle(Color.accent)
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.xxs)
+    .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
+  }
+
+  private func connectionActionButton(
+    action: (label: String, handler: (UUID) -> Void),
+    endpointID: UUID,
+    status: ConnectionStatus
+  ) -> some View {
+    Button {
+      action.handler(endpointID)
+    } label: {
+      Image(systemName: connectionIcon(for: status))
+      .font(.system(size: IconScale.lg, weight: .semibold))
+      .foregroundStyle(Color.accent)
+      .frame(width: 32, height: 32)
+      .background(Color.accent.opacity(OpacityTier.subtle), in: Circle())
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func endpointEnabledToggle(endpointID: UUID, isEnabled: Bool) -> some View {
+    Toggle(
+      isOn: Binding(
+        get: { isEnabled },
+        set: { nextEnabled in
+          updateEndpointEnabled(endpointID, isEnabled: nextEnabled)
+        }
+      )
+    ) {
+      EmptyView()
+    }
+    .toggleStyle(.switch)
+    .tint(Color.accent)
+    .labelsHidden()
+    .fixedSize()
   }
 
   // MARK: - Action Pill
@@ -502,6 +646,13 @@ struct ServerSettingsSheet: View {
 
   // MARK: - Helpers
 
+  private struct FailurePresentation {
+    let title: String
+    let detail: String
+    let icon: String
+    let color: Color
+  }
+
   private func status(for endpoint: ServerEndpoint) -> ConnectionStatus {
     if !endpoint.isEnabled {
       return .disconnected
@@ -518,10 +669,45 @@ struct ServerSettingsSheet: View {
     return "Claimed as control plane by: \(names)"
   }
 
-  private func isAuthFailure(_ status: ConnectionStatus) -> Bool {
-    guard case let .failed(message) = status else { return false }
+  private func failurePresentation(for status: ConnectionStatus) -> FailurePresentation? {
+    guard case let .failed(message) = status else { return nil }
     let lowered = message.lowercased()
-    return lowered.contains("401") || lowered.contains("unauthorized") || lowered.contains("auth")
+
+    if lowered.contains("401") || lowered.contains("403") || lowered.contains("unauthorized")
+      || lowered.contains("auth")
+    {
+      return FailurePresentation(
+        title: "Authentication failed",
+        detail: "Update the auth token for this server, then retry.",
+        icon: "key.horizontal.fill",
+        color: Color.statusPermission
+      )
+    }
+
+    if lowered.contains("dns") || lowered.contains("hostname") || lowered.contains("resolve") {
+      return FailurePresentation(
+        title: "Hostname could not be resolved",
+        detail: "OrbitDock is backing off retries to reduce noise. Verify DNS or endpoint host availability.",
+        icon: "network.slash",
+        color: Color.feedbackWarning
+      )
+    }
+
+    if lowered.contains("websocket upgrade failed") || lowered.contains("reverse-proxy") {
+      return FailurePresentation(
+        title: "Realtime upgrade failed",
+        detail: "HTTP is reachable, but `/ws` upgrade is blocked. Check proxy WebSocket upgrade settings.",
+        icon: "bolt.horizontal.circle",
+        color: Color.statusQuestion
+      )
+    }
+
+    return FailurePresentation(
+      title: "Connection failed",
+      detail: message,
+      icon: "exclamationmark.triangle.fill",
+      color: Color.statusPermission
+    )
   }
 
   private func statusLabel(for status: ConnectionStatus) -> String {
@@ -681,6 +867,21 @@ struct ServerSettingsSheet: View {
 
   private func refreshFromSettings() {
     endpoints = endpointSettings.endpoints()
+  }
+}
+
+private struct SheetPresentationModifier: ViewModifier {
+  let isPresentedAsSheet: Bool
+
+  @ViewBuilder
+  func body(content: Content) -> some View {
+    if isPresentedAsSheet {
+      content
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    } else {
+      content
+    }
   }
 }
 

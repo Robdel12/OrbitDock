@@ -6,17 +6,17 @@ struct CodexAccountSetupPane: View {
   var body: some View {
     SettingsSection(title: "CODEX CLI", icon: "sparkles") {
       VStack(alignment: .leading, spacing: Spacing.md) {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: serverState
-            .codexAccountStatus?.account == nil ? "person.crop.circle.badge.exclamationmark" :
-            "person.crop.circle.badge.checkmark")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color
-              .feedbackPositive)
-          Text("Account")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-          Spacer()
-          codexAuthBadge
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.sm) {
+            accountHeaderLabel
+            Spacer()
+            codexAuthBadge
+          }
+
+          VStack(alignment: .leading, spacing: Spacing.sm_) {
+            accountHeaderLabel
+            codexAuthBadge
+          }
         }
 
         switch serverState.codexAccountStatus?.account {
@@ -47,41 +47,15 @@ struct CodexAccountSetupPane: View {
               .foregroundStyle(Color.textSecondary)
         }
 
-        HStack(spacing: Spacing.md_) {
-          if serverState.codexAccountStatus?.loginInProgress == true {
-            Button {
-              serverState.cancelCodexChatgptLogin()
-            } label: {
-              Label("Cancel Sign-In", systemImage: "xmark.circle")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-            }
-            .buttonStyle(.bordered)
-          } else if serverState.codexAccountStatus?.account == nil {
-            Button {
-              serverState.startCodexChatgptLogin()
-            } label: {
-              Label("Sign in with ChatGPT", systemImage: "sparkles")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.accent)
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.md_) {
+            accountActionButtons
+            Spacer(minLength: 0)
           }
 
-          if serverState.codexAccountStatus?.account != nil {
-            Button("Usage") {
-              openCodexUsagePage()
-            }
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .buttonStyle(.bordered)
-
-            Button("Sign Out") {
-              serverState.logoutCodexAccount()
-            }
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .buttonStyle(.bordered)
+          VStack(alignment: .leading, spacing: Spacing.sm) {
+            accountActionButtons
           }
-
-          Spacer()
         }
 
         if let error = serverState.codexAuthError, !error.isEmpty {
@@ -143,6 +117,55 @@ struct CodexAccountSetupPane: View {
         .padding(.vertical, Spacing.xs)
         .background(Color.feedbackPositive.opacity(0.2), in: Capsule())
         .foregroundStyle(Color.feedbackPositive)
+    }
+  }
+
+  private var accountHeaderLabel: some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: serverState
+        .codexAccountStatus?.account == nil ? "person.crop.circle.badge.exclamationmark" :
+        "person.crop.circle.badge.checkmark")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color
+          .feedbackPositive)
+      Text("Account")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+    }
+  }
+
+  @ViewBuilder
+  private var accountActionButtons: some View {
+    if serverState.codexAccountStatus?.loginInProgress == true {
+      Button {
+        serverState.cancelCodexChatgptLogin()
+      } label: {
+        Label("Cancel Sign-In", systemImage: "xmark.circle")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      .buttonStyle(.bordered)
+    } else if serverState.codexAccountStatus?.account == nil {
+      Button {
+        serverState.startCodexChatgptLogin()
+      } label: {
+        Label("Sign in with ChatGPT", systemImage: "sparkles")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      .buttonStyle(.borderedProminent)
+      .tint(Color.accent)
+    }
+
+    if serverState.codexAccountStatus?.account != nil {
+      Button("Usage") {
+        openCodexUsagePage()
+      }
+      .font(.system(size: TypeScale.caption, weight: .semibold))
+      .buttonStyle(.bordered)
+
+      Button("Sign Out") {
+        serverState.logoutCodexAccount()
+      }
+      .font(.system(size: TypeScale.caption, weight: .semibold))
+      .buttonStyle(.bordered)
     }
   }
 

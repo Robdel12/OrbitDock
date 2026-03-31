@@ -292,8 +292,8 @@ final class ServerRuntimeRegistry {
     runtimesByEndpointId.values.contains(where: \.endpoint.isEnabled)
   }
 
-  var hasAnyQueryReadyRuntime: Bool {
-    readinessByEndpointId.values.contains(where: \.queryReady)
+  var hasAnyControlPlaneReadyRuntime: Bool {
+    readinessByEndpointId.values.contains(where: \.controlPlaneReady)
   }
 
   var activeConnectionStatus: ConnectionStatus {
@@ -332,7 +332,8 @@ final class ServerRuntimeRegistry {
     readinessByEndpointId[endpointId] = ServerRuntimeReadiness(
       transportReady: true,
       controlPlaneReady: true,
-      queryReady: true
+      dashboardReady: true,
+      missionsReady: true
     )
   }
 
@@ -341,11 +342,11 @@ final class ServerRuntimeRegistry {
     readinessByEndpointId[endpointId] = nil
   }
 
-  func waitForAnyQueryReadyRuntime() async {
-    guard hasEnabledRuntimes, !hasAnyQueryReadyRuntime else { return }
+  func waitForAnyControlPlaneReadyRuntime() async {
+    guard hasEnabledRuntimes, !hasAnyControlPlaneReadyRuntime else { return }
     let updates = readinessUpdates
     for await _ in updates {
-      if hasAnyQueryReadyRuntime || !hasEnabledRuntimes {
+      if hasAnyControlPlaneReadyRuntime || !hasEnabledRuntimes {
         return
       }
     }
@@ -412,7 +413,11 @@ final class ServerRuntimeRegistry {
     guard startEnabled else { return }
 
     for endpoint in configuredEndpoints where endpoint.isEnabled {
-      runtimesByEndpointId[endpoint.id]?.start()
+      guard let runtime = runtimesByEndpointId[endpoint.id] else { continue }
+      runtime.start()
+      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
+        scheduleSurfaceBootstrap(for: runtime, resetAttempts: true)
+      }
     }
 
     schedulePrimaryClaimReconciliation()
@@ -452,11 +457,10 @@ final class ServerRuntimeRegistry {
 
   func reconnectAllIfNeeded() {
     for runtime in runtimesByEndpointId.values {
-      if runtime.readiness.transportReady, !runtime.readiness.queryReady {
+      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
         scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-      } else {
-        runtime.reconnectIfNeeded()
       }
+      runtime.reconnectIfNeeded()
     }
   }
 
@@ -466,11 +470,10 @@ final class ServerRuntimeRegistry {
       .filter(\.endpoint.isEnabled)
       .map { runtime in
         if runtime.isStarted {
-          if runtime.readiness.transportReady, !runtime.readiness.queryReady {
+          if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
             scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-          } else {
-            runtime.reconnectIfNeeded()
           }
+          runtime.reconnectIfNeeded()
         }
         return runtime.endpoint.id
       }
@@ -478,18 +481,17 @@ final class ServerRuntimeRegistry {
 
   func refreshAll() async {
     for runtime in runtimes where runtime.endpoint.isEnabled && runtime.isStarted {
-      if runtime.readiness.transportReady, !runtime.readiness.queryReady {
+      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
         scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-      } else {
-        runtime.reconnectIfNeeded()
       }
+      runtime.reconnectIfNeeded()
     }
   }
 
   func refreshDashboardConversations() async {
     ensureInitialized()
 
-    for runtime in runtimes where runtime.endpoint.isEnabled && runtime.readiness.queryReady {
+    for runtime in runtimes where runtime.endpoint.isEnabled {
       _ = await refreshDashboardConversations(for: runtime)
     }
   }
@@ -656,23 +658,27 @@ final class ServerRuntimeRegistry {
           self.connectionStatusByEndpointId[endpointId] = status
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: status,
-            hasReceivedInitialRootList: runtime.connection.hasReceivedInitialDashboardSnapshot
+            hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
+            hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
-          if status == .connected, !runtime.connection.hasReceivedInitialDashboardSnapshot {
-            self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: true)
-          } else if status != .connected {
+          if !runtime.connection.hasReceivedInitialDashboardSnapshot
+            || !runtime.connection.hasReceivedInitialMissionsSnapshot
+          {
+            self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: status == .connected)
+          } else {
             self.cancelBootstrapRetry(for: endpointId)
             self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-          } else if runtime.connection.hasReceivedInitialDashboardSnapshot {
-            self.cancelBootstrapRetry(for: endpointId)
-            self.scheduleDashboardProjectionRefresh()
+            if runtime.connection.hasReceivedInitialDashboardSnapshot {
+              self.scheduleDashboardProjectionRefresh()
+            }
           }
 
         case let .dashboardSnapshot(snapshot):
           self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: runtime.connection.connectionStatus,
-            hasReceivedInitialRootList: true
+            hasReceivedInitialDashboardSnapshot: true,
+            hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
           var index: [String: RootSessionNode] = [:]
           for item in snapshot.sessions {
@@ -699,6 +705,12 @@ final class ServerRuntimeRegistry {
           }
 
         case let .missionsSnapshot(snapshot):
+          self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
+          self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
+            connectionStatus: runtime.connection.connectionStatus,
+            hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
+            hasReceivedInitialMissionsSnapshot: true
+          )
           let endpointName = runtime.endpoint.name
           var index: [String: AggregatedMissionSummary] = [:]
           for mission in snapshot.missions {
@@ -896,15 +908,16 @@ final class ServerRuntimeRegistry {
 
   private func refreshDashboardConversations(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
     guard runtime.endpoint.isEnabled else { return .stop }
-    guard runtime.connection.connectionStatus == .connected else { return .stop }
 
     do {
       let snapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
       runtime.connection.applyDashboardSnapshot(snapshot)
-      runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
+      if runtime.connection.connectionStatus == .connected {
+        runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
+      }
       return .success
     } catch {
-      if let message = ServerContractGuard.compatibilityMessage(
+      if let message = ServerContractGuard.versionMessage(
         for: error,
         surface: "dashboard bootstrap"
       ) {
@@ -927,15 +940,16 @@ final class ServerRuntimeRegistry {
 
   private func refreshMissions(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
     guard runtime.endpoint.isEnabled else { return .stop }
-    guard runtime.connection.connectionStatus == .connected else { return .stop }
 
     do {
       let snapshot = try await runtime.clients.missions.fetchMissionSnapshot()
       runtime.connection.applyMissionsSnapshot(snapshot)
-      runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
+      if runtime.connection.connectionStatus == .connected {
+        runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
+      }
       return .success
     } catch {
-      if let message = ServerContractGuard.compatibilityMessage(
+      if let message = ServerContractGuard.versionMessage(
         for: error,
         surface: "missions bootstrap"
       ) {
@@ -974,7 +988,7 @@ final class ServerRuntimeRegistry {
       }
 
       guard !Task.isCancelled else { return }
-      guard runtime.endpoint.isEnabled, runtime.connection.connectionStatus == .connected else {
+      guard runtime.endpoint.isEnabled, runtime.isStarted else {
         self.bootstrapRetryTasksByEndpointId[endpointId] = nil
         return
       }
@@ -983,9 +997,7 @@ final class ServerRuntimeRegistry {
       let missionsDecision = await self.refreshMissions(for: runtime)
       self.bootstrapRetryTasksByEndpointId[endpointId] = nil
 
-      let shouldRetry = runtime.connection.connectionStatus == .connected
-        && (!runtime.connection.hasReceivedInitialDashboardSnapshot || missionsDecision == .retry)
-        && (dashboardDecision == .retry || missionsDecision == .retry)
+      let shouldRetry = dashboardDecision == .retry || missionsDecision == .retry
 
       guard shouldRetry else {
         self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil

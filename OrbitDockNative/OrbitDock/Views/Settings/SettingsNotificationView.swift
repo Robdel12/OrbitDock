@@ -42,6 +42,7 @@ struct NotificationSettingsView: View {
               }
               .toggleStyle(.switch)
               .tint(Color.accent)
+              .frame(maxWidth: .infinity, alignment: .leading)
 
               Text("Master switch for all OrbitDock notifications.")
                 .font(.system(size: TypeScale.meta))
@@ -59,6 +60,7 @@ struct NotificationSettingsView: View {
               .toggleStyle(.switch)
               .tint(Color.accent)
               .disabled(!notificationsEnabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
 
               Text("Alert when a session stops working and is ready for input.")
                 .font(.system(size: TypeScale.meta))
@@ -77,6 +79,7 @@ struct NotificationSettingsView: View {
               .toggleStyle(.switch)
               .tint(Color.accent)
               .disabled(!notificationsEnabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
 
               Text("Show toast banners when a session needs attention while you're using OrbitDock.")
                 .font(.system(size: TypeScale.meta))
@@ -88,40 +91,26 @@ struct NotificationSettingsView: View {
 
         SettingsSection(title: "SOUND", icon: "speaker.wave.2") {
           VStack(alignment: .leading, spacing: Spacing.md_) {
-            HStack {
-              Text("Notification Sound")
-                .font(.system(size: TypeScale.body))
+            ViewThatFits(in: .horizontal) {
+              HStack {
+                Text("Notification Sound")
+                  .font(.system(size: TypeScale.body))
 
-              Spacer()
+                Spacer()
 
-              Picker("", selection: $notificationSound) {
-                ForEach(systemSounds, id: \.id) { sound in
-                  Text(sound.name).tag(sound.id)
+                soundPicker
+                previewSoundButton
+              }
+
+              VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text("Notification Sound")
+                  .font(.system(size: TypeScale.body))
+                HStack(spacing: Spacing.sm) {
+                  soundPicker
+                  previewSoundButton
+                  Spacer(minLength: 0)
                 }
               }
-              .pickerStyle(.menu)
-              .frame(width: 140)
-              .tint(Color.accent)
-
-              Button {
-                previewSound()
-              } label: {
-                Image(systemName: "play.fill")
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                  .foregroundStyle(notificationSound == "none" ? Color.textTertiary : Color.accent)
-                  .frame(width: 28, height: 28)
-                  .background(
-                    Color.backgroundTertiary,
-                    in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  )
-                  .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                      .strokeBorder(Color.panelBorder, lineWidth: 1)
-                  )
-              }
-              .buttonStyle(.plain)
-              .disabled(notificationSound == "none")
-              .help("Preview sound")
             }
 
             Text("Plays when a session needs your attention.")
@@ -171,7 +160,9 @@ struct NotificationSettingsView: View {
         .disabled(!notificationsEnabled)
         .help("Send a test notification to verify your settings")
       }
-      .padding(Spacing.xl)
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.section)
+      .frame(maxWidth: 980, alignment: .leading)
     }
     #if os(iOS)
     .onChange(of: hapticFeedbackLevel) { _, newValue in
@@ -202,5 +193,37 @@ struct NotificationSettingsView: View {
 
   private func sendTestNotification() {
     notificationCoordinator.sendTestNotification(soundID: notificationSound)
+  }
+
+  private var soundPicker: some View {
+    Picker("", selection: $notificationSound) {
+      ForEach(systemSounds, id: \.id) { sound in
+        Text(sound.name).tag(sound.id)
+      }
+    }
+    .pickerStyle(.menu)
+    .tint(Color.accent)
+  }
+
+  private var previewSoundButton: some View {
+    Button {
+      previewSound()
+    } label: {
+      Image(systemName: "play.fill")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(notificationSound == "none" ? Color.textTertiary : Color.accent)
+        .frame(width: 32, height: 32)
+        .background(
+          Color.backgroundTertiary,
+          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .strokeBorder(Color.panelBorder, lineWidth: 1)
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(notificationSound == "none")
+    .help("Preview sound")
   }
 }

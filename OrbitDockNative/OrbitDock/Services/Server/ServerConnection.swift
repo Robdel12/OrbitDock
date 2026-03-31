@@ -143,15 +143,27 @@ enum ServerEvent: Sendable {
 
 // MARK: - ServerConnection
 
-/// Single connection to one OrbitDock server endpoint.
-/// Owns both the WebSocket (real-time events) and HTTP execution (REST queries).
-/// One connection status gates everything — when WS is down, HTTP throws immediately.
+/// Main-actor facade for one OrbitDock server endpoint.
+/// `EndpointTransport` owns raw HTTP + WebSocket mechanics; this type owns
+/// app-facing state, handshake validation, and typed event fanout.
 @MainActor
 final class ServerConnection {
+  private struct RetryHint {
+    let minimumDelay: TimeInterval
+    let waitingMessage: String
+  }
+
+  private struct DisconnectDiagnosis {
+    let message: String
+    let shouldReconnect: Bool
+    let retryHint: RetryHint?
+  }
+
   private(set) var connectionStatus: ConnectionStatus = .disconnected
   private(set) var latestSessionListItems: [ServerSessionListItem] = []
   private(set) var latestDashboardConversationItems: [ServerDashboardConversationItem] = []
   private(set) var hasReceivedInitialDashboardSnapshot = false
+  private(set) var hasReceivedInitialMissionsSnapshot = false
   private(set) var hasSubscribedDashboardStream = false
 
   /// Event listeners. Multiple consumers can register.
@@ -171,75 +183,42 @@ final class ServerConnection {
 
   // MARK: - Private state
 
-  private let authToken: String?
   private var serverURL: URL?
-  private var webSocket: URLSessionWebSocketTask?
-  private let wsSession: URLSession
-  private let httpSession: URLSession
-  private var receiveTask: Task<Void, Never>?
-  private var connectTask: Task<Void, Never>?
-  private var keepAliveTask: Task<Void, Never>?
+  private let authToken: String?
+  private let transport: any ServerConnectionTransport
   private var connectionProbeTask: Task<Void, Never>?
   private var connectionProbeGeneration: UInt64?
   private let circuitBreaker: ConnectionCircuitBreaker
   private var stableConnectionTask: Task<Void, Never>?
+  private var handshakeTimeoutTask: Task<Void, Never>?
+  private var connectLaunchTask: Task<Void, Never>?
   private var lastConnectedAt: Date?
   private var reconnectTask: Task<Void, Never>?
   private var connectionGeneration: UInt64 = 0
+  private var reconnectRetryHint: RetryHint?
+  private var consecutiveDNSFailures: Int = 0
 
-  private static let maxInboundBytes = 8 * 1_024 * 1_024
+  private static let handshakeTimeout: TimeInterval = 10
   private static let stableConnectionThreshold: TimeInterval = 30
-  private static let keepAliveInterval: TimeInterval = 30
 
   var isRemote: Bool {
     guard let host = serverURL?.host else { return false }
     return host != "127.0.0.1" && host != "localhost" && host != "::1"
   }
 
-  init(authToken: String?) {
+  init(authToken: String?, transport: (any ServerConnectionTransport)? = nil) {
     self.authToken = authToken
-
-    // WS session: unlimited resource timeout for long-lived connection
-    let wsConfig = URLSessionConfiguration.default
-    wsConfig.timeoutIntervalForRequest = 10
-    wsConfig.timeoutIntervalForResource = 0
-    self.wsSession = URLSession(configuration: wsConfig)
-
-    // HTTP session: bounded timeouts for data requests
-    let httpConfig = URLSessionConfiguration.default
-    httpConfig.timeoutIntervalForRequest = 10
-    httpConfig.timeoutIntervalForResource = 60
-    httpConfig.httpMaximumConnectionsPerHost = 2
-    httpConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
-    httpConfig.urlCache = nil
-    self.httpSession = URLSession(configuration: httpConfig)
-
+    self.transport = transport ?? EndpointTransport(authToken: authToken)
     self.circuitBreaker = .local()
     netLog(.info, cat: .ws, "ServerConnection initialized")
   }
 
   // MARK: - HTTP execution
 
-  /// Execute an HTTP request. Throws `.serverUnreachable` when WS is not connected.
+  /// Execute an HTTP request through the endpoint transport.
+  /// HTTP reachability is independent from dashboard bootstrap state.
   func execute(_ request: URLRequest) async throws -> HTTPResponse {
-    guard connectionStatus == .connected else {
-      throw HTTPTransportError.serverUnreachable
-    }
-
-    let result: (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in
-      let task = httpSession.dataTask(with: request) { data, response, error in
-        if let error {
-          continuation.resume(throwing: HTTPTransportError(error: error))
-        } else if let data, let response {
-          continuation.resume(returning: (data, response))
-        } else {
-          continuation.resume(throwing: HTTPTransportError.invalidResponse)
-        }
-      }
-      task.resume()
-    }
-
-    return try HTTPResponse(data: result.0, response: result.1)
+    return try await transport.execute(request)
   }
 
   // MARK: - WebSocket connection
@@ -261,7 +240,7 @@ final class ServerConnection {
     guard serverURL != nil else { return }
     switch connectionStatus {
       case .connected:
-        guard connectTask == nil, reconnectTask == nil else { return }
+        guard reconnectTask == nil else { return }
         let generation = connectionGeneration
         pruneStaleConnectionProbe(for: generation)
         guard connectionProbeTask == nil else {
@@ -270,18 +249,11 @@ final class ServerConnection {
           ])
           return
         }
-        guard let socket = webSocket else {
-          netLog(.warning, cat: .ws, "Reconnect probe missing socket", data: [
-            "generation": generation,
-          ])
-          handleDisconnect(expectedGeneration: generation)
-          return
-        }
-        startConnectionProbe(expectedGeneration: generation, socket: socket)
+        startConnectionProbe(expectedGeneration: generation)
       case .connecting:
         break // already attempting
       case .disconnected, .failed:
-        guard connectTask == nil, reconnectTask == nil else { return }
+        guard reconnectTask == nil else { return }
         attemptConnect()
     }
   }
@@ -292,10 +264,13 @@ final class ServerConnection {
     _ = invalidateConnectionGeneration()
     teardownConnectionTasks()
     circuitBreaker.reset()
+    reconnectRetryHint = nil
+    consecutiveDNSFailures = 0
     lastConnectedAt = nil
     latestSessionListItems = []
     latestDashboardConversationItems = []
     hasReceivedInitialDashboardSnapshot = false
+    hasReceivedInitialMissionsSnapshot = false
     hasSubscribedDashboardStream = false
     setStatus(.disconnected)
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
@@ -305,6 +280,8 @@ final class ServerConnection {
     let failureGeneration = invalidateConnectionGeneration()
     pruneStaleConnectionProbe(for: failureGeneration)
     teardownConnectionTasks()
+    reconnectRetryHint = nil
+    consecutiveDNSFailures = 0
     lastConnectedAt = nil
     setStatus(.failed(message))
     netLog(.error, cat: .ws, "Connection marked incompatible", data: [
@@ -345,6 +322,7 @@ final class ServerConnection {
   }
 
   func applyMissionsSnapshot(_ snapshot: ServerMissionSnapshotPayload) {
+    hasReceivedInitialMissionsSnapshot = true
     emit(.missionsSnapshot(snapshot))
   }
 
@@ -383,31 +361,27 @@ final class ServerConnection {
     reconnectTask = nil
     setStatus(.connecting)
     let generation = advanceConnectionGeneration()
+    startHandshakeTimeout(expectedGeneration: generation)
 
-    var request = URLRequest(url: serverURL)
-    if let authToken, !authToken.isEmpty {
-      request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-    }
-    request.setValue(OrbitDockProtocol.clientVersion, forHTTPHeaderField: "X-OrbitDock-Client-Version")
-    request.setValue(
-      OrbitDockProtocol.compatibility,
-      forHTTPHeaderField: "X-OrbitDock-Client-Compatibility"
-    )
-
-    let socket = wsSession.webSocketTask(with: request)
-    socket.maximumMessageSize = Self.maxInboundBytes
-    webSocket = socket
-    socket.resume()
-    startReceiving(on: socket, generation: generation)
-
-    connectTask = Task {
-      do {
-        try await ping(on: socket)
-        guard !Task.isCancelled, isCurrentGeneration(generation) else { return }
-        completeConnection(expectedGeneration: generation)
-      } catch {
-        guard !Task.isCancelled else { return }
-        handleDisconnect(expectedGeneration: generation)
+    connectLaunchTask?.cancel()
+    connectLaunchTask = Task { [weak self] in
+      guard let self else { return }
+      guard !Task.isCancelled else { return }
+      await transport.connect(
+        to: serverURL,
+        clientVersion: OrbitDockProtocol.clientVersion,
+        minimumServerVersion: OrbitDockProtocol.minimumServerVersion,
+        generation: generation,
+        onEvent: { [weak self] event in
+          guard let self else { return }
+          await self.handleTransportEvent(event)
+        }
+      )
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        if self.connectionGeneration == generation {
+          self.connectLaunchTask = nil
+        }
       }
     }
   }
@@ -415,13 +389,19 @@ final class ServerConnection {
   private func completeConnection(expectedGeneration generation: UInt64) {
     guard isCurrentGeneration(generation) else { return }
     guard case .connecting = connectionStatus else { return }
-    connectTask?.cancel()
-    connectTask = nil
+    connectLaunchTask?.cancel()
+    connectLaunchTask = nil
+    handshakeTimeoutTask?.cancel()
+    handshakeTimeoutTask = nil
     lastConnectedAt = Date()
+    reconnectRetryHint = nil
+    consecutiveDNSFailures = 0
     netLog(.info, cat: .ws, "Connection complete", data: ["url": serverURL?.absoluteString ?? "nil"])
     setStatus(.connected)
-    guard let socket = webSocket else { return }
-    startKeepAlive(on: socket, generation: generation)
+    Task { [weak self] in
+      guard let self else { return }
+      await transport.activateKeepAlive(for: generation)
+    }
     startStableConnectionTimer(generation: generation)
   }
 
@@ -435,34 +415,34 @@ final class ServerConnection {
     }
   }
 
-  private func ping(on socket: URLSessionWebSocketTask) async throws {
-    try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-      socket.sendPing { error in
-        if let error { cont.resume(throwing: error) }
-        else { cont.resume() }
-      }
+  private func startHandshakeTimeout(expectedGeneration generation: UInt64) {
+    handshakeTimeoutTask?.cancel()
+    handshakeTimeoutTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(Self.handshakeTimeout))
+      guard let self, !Task.isCancelled else { return }
+      await self.handleHandshakeTimeout(expectedGeneration: generation)
     }
   }
 
-  private func startKeepAlive(on socket: URLSessionWebSocketTask, generation: UInt64) {
-    keepAliveTask?.cancel()
-    keepAliveTask = Task {
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(Self.keepAliveInterval))
-        guard !Task.isCancelled, isCurrentGeneration(generation) else { break }
-        do { try await ping(on: socket) }
-        catch {
-          guard !Task.isCancelled else { break }
-          handleDisconnect(expectedGeneration: generation)
-          break
-        }
-      }
-    }
+  private func handleHandshakeTimeout(expectedGeneration generation: UInt64) async {
+    guard isCurrentGeneration(generation) else { return }
+    guard case .connecting = connectionStatus else { return }
+    netLog(.warning, cat: .ws, "Server handshake timed out", data: [
+      "generation": generation,
+      "url": serverURL?.absoluteString ?? "nil",
+    ])
+    await handleDisconnect(expectedGeneration: generation)
   }
 
-  private func stopKeepAlive() {
-    keepAliveTask?.cancel()
-    keepAliveTask = nil
+  private func handleTransportEvent(_ event: EndpointTransport.Event) async {
+    switch event {
+      case let .textFrame(text, generation):
+        handleFrame(text, expectedGeneration: generation)
+      case let .binaryFrame(data, generation):
+        handleBinaryFrame(data, expectedGeneration: generation)
+      case let .disconnected(generation, failure):
+        await handleDisconnect(expectedGeneration: generation, failure: failure)
+    }
   }
 
   private func stopConnectionProbe() {
@@ -481,7 +461,7 @@ final class ServerConnection {
     stopConnectionProbe()
   }
 
-  private func startConnectionProbe(expectedGeneration generation: UInt64, socket: URLSessionWebSocketTask) {
+  private func startConnectionProbe(expectedGeneration generation: UInt64) {
     connectionProbeGeneration = generation
     netLog(.debug, cat: .ws, "Reconnect probe started", data: [
       "generation": generation,
@@ -489,13 +469,13 @@ final class ServerConnection {
     connectionProbeTask = Task { [weak self] in
       guard let self else { return }
       do {
-        try await self.ping(on: socket)
+        try await self.transport.probe(generation: generation)
         guard !Task.isCancelled else { return }
         self.finishConnectionProbe(expectedGeneration: generation, outcome: "success")
       } catch {
         guard !Task.isCancelled else { return }
         self.finishConnectionProbe(expectedGeneration: generation, outcome: "failure")
-        self.handleDisconnect(expectedGeneration: generation)
+        await self.handleDisconnect(expectedGeneration: generation)
       }
     }
   }
@@ -517,37 +497,19 @@ final class ServerConnection {
     ])
   }
 
-  private func startReceiving(on socket: URLSessionWebSocketTask, generation: UInt64) {
-    receiveTask?.cancel()
-    receiveTask = Task { await receiveLoop(on: socket, generation: generation) }
-  }
-
-  private func receiveLoop(on socket: URLSessionWebSocketTask, generation: UInt64) async {
-    while !Task.isCancelled {
-      guard isCurrentGeneration(generation) else { break }
-      do {
-        let message = try await socket.receive()
-        guard !Task.isCancelled, isCurrentGeneration(generation) else { break }
-        switch message {
-          case let .string(text): handleFrame(text, expectedGeneration: generation)
-          case let .data(data):
-            // Check for terminal binary frame (type byte 0x01 or 0x02).
-            if data.count >= 2, (data[0] == 0x01 || data[0] == 0x02) {
-              handleTerminalBinaryFrame(data)
-            } else if let text = String(data: data, encoding: .utf8) {
-              handleFrame(text, expectedGeneration: generation)
-            }
-          @unknown default: break
-        }
-      } catch {
-        guard !Task.isCancelled else { break }
-        handleDisconnect(expectedGeneration: generation)
-        break
-      }
+  private func handleBinaryFrame(_ data: Data, expectedGeneration generation: UInt64) {
+    guard isCurrentGeneration(generation) else { return }
+    if data.count >= 2, (data[0] == 0x01 || data[0] == 0x02) {
+      handleTerminalBinaryFrame(data)
+    } else if let text = String(data: data, encoding: .utf8) {
+      handleFrame(text, expectedGeneration: generation)
     }
   }
 
-  private func handleDisconnect(expectedGeneration generation: UInt64) {
+  private func handleDisconnect(
+    expectedGeneration generation: UInt64,
+    failure: EndpointTransport.DisconnectFailure? = nil
+  ) async {
     guard isCurrentGeneration(generation) else { return }
 
     let reconnectGeneration = invalidateConnectionGeneration()
@@ -555,14 +517,212 @@ final class ServerConnection {
     teardownConnectionTasks()
     lastConnectedAt = nil
 
+    let wasConnecting: Bool
+    if case .connecting = connectionStatus {
+      wasConnecting = true
+    } else {
+      wasConnecting = false
+    }
+
+    let diagnosis = await diagnoseDisconnect(
+      failure: failure,
+      wasConnecting: wasConnecting,
+      expectedGeneration: reconnectGeneration
+    )
+    guard isCurrentGeneration(reconnectGeneration) else { return }
+
+    if let diagnosis, diagnosis.shouldReconnect == false {
+      reconnectRetryHint = nil
+      setStatus(.failed(diagnosis.message))
+      netLog(.error, cat: .ws, "Connection failed without retry", data: [
+        "message": diagnosis.message,
+        "url": serverURL?.absoluteString ?? "nil",
+      ])
+      return
+    }
+
     circuitBreaker.recordFailure()
     netLog(.warning, cat: .circuit, "Circuit breaker recorded failure", data: [
       "state": String(describing: circuitBreaker.state),
       "url": serverURL?.absoluteString ?? "nil",
     ])
 
-    setStatus(.disconnected)
+    if let diagnosis {
+      reconnectRetryHint = diagnosis.retryHint
+      setStatus(.failed(diagnosis.message))
+    } else {
+      consecutiveDNSFailures = 0
+      reconnectRetryHint = nil
+      setStatus(.disconnected)
+    }
     scheduleReconnect(expectedGeneration: reconnectGeneration)
+  }
+
+  private func diagnoseDisconnect(
+    failure: EndpointTransport.DisconnectFailure?,
+    wasConnecting: Bool,
+    expectedGeneration generation: UInt64
+  ) async -> DisconnectDiagnosis? {
+    guard wasConnecting, let failure else { return nil }
+    guard isCurrentGeneration(generation) else { return nil }
+
+    switch failure.urlErrorCode {
+      case .cannotFindHost, .dnsLookupFailed:
+        consecutiveDNSFailures += 1
+        let delay = min(15 * pow(2, Double(max(consecutiveDNSFailures - 1, 0))), 300)
+        return DisconnectDiagnosis(
+          message: "Could not resolve the server hostname. Check the endpoint URL and DNS.",
+          shouldReconnect: true,
+          retryHint: RetryHint(
+            minimumDelay: delay,
+            waitingMessage: "DNS lookup still failing"
+          )
+        )
+      case .cannotConnectToHost:
+        consecutiveDNSFailures = 0
+        return DisconnectDiagnosis(
+          message: "Reached the host but could not open a connection. Verify the server is running and reachable.",
+          shouldReconnect: true,
+          retryHint: nil
+        )
+      case .notConnectedToInternet:
+        consecutiveDNSFailures = 0
+        return DisconnectDiagnosis(
+          message: "No network connection available.",
+          shouldReconnect: true,
+          retryHint: nil
+        )
+      case .badServerResponse:
+        consecutiveDNSFailures = 0
+        return await diagnoseHandshakeFailure(expectedGeneration: generation)
+      default:
+        break
+    }
+
+    consecutiveDNSFailures = 0
+    switch failure.transportError {
+      case .unreachable:
+        return DisconnectDiagnosis(
+          message: failure.transportError.errorDescription
+            ?? "Server is currently unreachable.",
+          shouldReconnect: true,
+          retryHint: nil
+        )
+      case .timedOut:
+        return DisconnectDiagnosis(
+          message: "Connection attempt timed out while waiting for server handshake.",
+          shouldReconnect: true,
+          retryHint: nil
+        )
+      case .transport:
+        return await diagnoseHandshakeFailure(expectedGeneration: generation)
+      case .cancelled, .serverUnreachable, .invalidResponse:
+        return nil
+    }
+  }
+
+  private func diagnoseHandshakeFailure(expectedGeneration generation: UInt64) async
+    -> DisconnectDiagnosis?
+  {
+    guard isCurrentGeneration(generation) else { return nil }
+    guard let serverURL, let baseURL = makeHTTPBaseURL(from: serverURL) else {
+      return nil
+    }
+
+    do {
+      let request = try HTTPRequestBuilder(baseURL: baseURL, authToken: authToken).build(
+        path: "/api/server/meta",
+        method: "GET"
+      )
+      let response = try await transport.execute(request)
+      guard isCurrentGeneration(generation) else { return nil }
+
+      switch response.statusCode {
+        case 200 ..< 300:
+          if let meta = try? JSONDecoder().decode(ServerMetaResponse.self, from: response.body) {
+            do {
+              try meta.validateCompatibility()
+            } catch {
+              if let message = ServerContractGuard.versionMessage(
+                for: error,
+                surface: "WebSocket handshake"
+              ) {
+                return DisconnectDiagnosis(message: message, shouldReconnect: false, retryHint: nil)
+              }
+              return DisconnectDiagnosis(
+                message: (error as? LocalizedError)?.errorDescription ?? String(describing: error),
+                shouldReconnect: false,
+                retryHint: nil
+              )
+            }
+          }
+          return DisconnectDiagnosis(
+            message:
+              "HTTP is reachable, but WebSocket upgrade failed. Check reverse-proxy support for `/ws` upgrades.",
+            shouldReconnect: true,
+            retryHint: nil
+          )
+
+        case 401, 403:
+          return DisconnectDiagnosis(
+            message: "Authentication failed while opening the realtime connection. Check the endpoint token.",
+            shouldReconnect: false,
+            retryHint: nil
+          )
+
+        case 426:
+          let apiError = decodeAPIError(from: response.body)
+          return DisconnectDiagnosis(
+            message: apiError?.error
+              ?? "This OrbitDock client version is incompatible with the connected server.",
+            shouldReconnect: false,
+            retryHint: nil
+          )
+
+        case 404:
+          return DisconnectDiagnosis(
+            message:
+              "The server is reachable but `/api/server/meta` is unavailable. This server build may be too old for this app.",
+            shouldReconnect: false,
+            retryHint: nil
+          )
+
+        default:
+          let apiError = decodeAPIError(from: response.body)
+          let detail = apiError?.error ?? "status \(response.statusCode)"
+          return DisconnectDiagnosis(
+            message: "Server rejected the compatibility probe: \(detail)",
+            shouldReconnect: true,
+            retryHint: nil
+          )
+      }
+    } catch {
+      return nil
+    }
+  }
+
+  private func decodeAPIError(from body: Data) -> APIErrorResponse? {
+    try? JSONDecoder().decode(APIErrorResponse.self, from: body)
+  }
+
+  private func makeHTTPBaseURL(from webSocketURL: URL) -> URL? {
+    guard var components = URLComponents(url: webSocketURL, resolvingAgainstBaseURL: false) else {
+      return nil
+    }
+
+    switch components.scheme?.lowercased() {
+      case "ws":
+        components.scheme = "http"
+      case "wss":
+        components.scheme = "https"
+      default:
+        break
+    }
+
+    components.path = ""
+    components.query = nil
+    components.fragment = nil
+    return components.url
   }
 
   private func scheduleReconnect(expectedGeneration generation: UInt64) {
@@ -572,27 +732,40 @@ final class ServerConnection {
     guard serverURL != nil else { return }
     guard isCurrentGeneration(generation) else { return }
 
-    if circuitBreaker.shouldAllow {
-      // Breaker is still closed — reconnect on the next run loop tick
-      // (not synchronously, so duplicate handleDisconnect calls collapse)
+    let breakerAllows = circuitBreaker.shouldAllow
+    let breakerDelay = breakerAllows ? 0 : (circuitBreaker.cooldownRemaining ?? 1)
+    let hintDelay = reconnectRetryHint?.minimumDelay ?? 0
+    let delay = max(breakerDelay, hintDelay)
+
+    guard delay > 0 else {
+      // Breaker is closed and no dampening hint applies — retry on next run
+      // loop tick so duplicate disconnect callbacks collapse.
       reconnectTask = Task {
         await Task.yield()
         guard !Task.isCancelled, isCurrentGeneration(generation) else { return }
         reconnectTask = nil
         attemptConnect()
       }
+      return
+    }
+
+    let countdown = Int(delay.rounded(.up))
+    let fallbackMessage = isRemote
+      ? "Could not reach remote server — retrying in \(countdown)s"
+      : "Failed to connect — retrying in \(countdown)s"
+    let msg: String
+    if let reconnectRetryHint {
+      msg = "\(reconnectRetryHint.waitingMessage) — retrying in \(countdown)s"
     } else {
-      let remaining = circuitBreaker.cooldownRemaining ?? 1
-      let msg = isRemote
-        ? "Could not reach remote server — retrying in \(Int(remaining.rounded(.up)))s"
-        : "Failed to connect — retrying in \(Int(remaining.rounded(.up)))s"
-      setStatus(.failed(msg))
-      reconnectTask = Task {
-        try? await Task.sleep(for: .seconds(max(remaining, 1)))
-        guard !Task.isCancelled, isCurrentGeneration(generation) else { return }
-        reconnectTask = nil
-        attemptConnect()
-      }
+      msg = fallbackMessage
+    }
+    setStatus(.failed(msg))
+
+    reconnectTask = Task {
+      try? await Task.sleep(for: .seconds(max(delay, 1)))
+      guard !Task.isCancelled, isCurrentGeneration(generation) else { return }
+      reconnectTask = nil
+      attemptConnect()
     }
   }
 
@@ -649,7 +822,7 @@ final class ServerConnection {
         }
       default:
         failHandshake(
-          ServerCompatibilityError.missingHelloHandshake(messageType: messageType ?? "unknown"),
+          ServerVersionError.missingHelloHandshake(messageType: messageType ?? "unknown"),
           expectedGeneration: generation
         )
         return false
@@ -662,6 +835,8 @@ final class ServerConnection {
     let reconnectGeneration = invalidateConnectionGeneration()
     pruneStaleConnectionProbe(for: reconnectGeneration)
     teardownConnectionTasks()
+    reconnectRetryHint = nil
+    consecutiveDNSFailures = 0
     lastConnectedAt = nil
 
     let message = (error as? LocalizedError)?.errorDescription
@@ -839,16 +1014,16 @@ final class ServerConnection {
   }
 
   private func teardownConnectionTasks() {
-    stopKeepAlive()
+    connectLaunchTask?.cancel()
+    connectLaunchTask = nil
+    handshakeTimeoutTask?.cancel()
+    handshakeTimeoutTask = nil
     stopConnectionProbe()
     stableConnectionTask?.cancel()
     stableConnectionTask = nil
-    connectTask?.cancel()
-    connectTask = nil
-    receiveTask?.cancel()
-    receiveTask = nil
-    webSocket?.cancel(with: .goingAway, reason: nil)
-    webSocket = nil
+    Task { [transport] in
+      await transport.disconnect()
+    }
   }
 
   private func advanceConnectionGeneration() -> UInt64 {
@@ -877,9 +1052,8 @@ final class ServerConnection {
     guard connectionStatus != status else { return }
     connectionStatus = status
     if status != .connected {
-      latestSessionListItems = []
-      latestDashboardConversationItems = []
-      hasReceivedInitialDashboardSnapshot = false
+      // Keep the latest HTTP-backed snapshots available when WS drops so the
+      // app remains navigable in degraded realtime mode.
       hasSubscribedDashboardStream = false
     }
     emit(.connectionStatusChanged(status))
@@ -893,6 +1067,7 @@ final class ServerConnection {
         hasReceivedInitialDashboardSnapshot = true
       case let .missionsSnapshot(snapshot):
         _ = snapshot
+        hasReceivedInitialMissionsSnapshot = true
       case .dashboardInvalidated:
         break
       default: break
@@ -983,20 +1158,38 @@ final class ServerConnection {
 
   /// Send an arbitrary Encodable payload as JSON text frame.
   private func sendJSON<T: Encodable>(_ payload: T) {
-    guard let webSocket else { return }
-    let encoder = JSONEncoder()
-    encoder.keyEncodingStrategy = .convertToSnakeCase
-    guard let data = try? encoder.encode(payload),
-          let text = String(data: data, encoding: .utf8) else { return }
-    webSocket.send(.string(text)) { _ in }
+    guard let text = encodeOutboundText(payload) else { return }
+    Task { [transport] in
+      await transport.sendText(text)
+    }
   }
 
   private func send(_ message: ClientToServerMessage) {
-    guard let webSocket else { return }
+    guard let text = encodeOutboundText(message) else { return }
+    Task { [transport] in
+      await transport.sendText(text)
+    }
+  }
+
+  private func encodeOutboundText<T: Encodable>(_ payload: T) -> String? {
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
-    guard let data = try? encoder.encode(message),
-          let text = String(data: data, encoding: .utf8) else { return }
-    webSocket.send(.string(text)) { _ in }
+
+    do {
+      let data = try encoder.encode(payload)
+      guard let text = String(data: data, encoding: .utf8) else {
+        netLog(.error, cat: .ws, "Failed to encode outbound payload as UTF-8", data: [
+          "payload": String(describing: T.self),
+        ])
+        return nil
+      }
+      return text
+    } catch {
+      netLog(.error, cat: .ws, "Failed to encode outbound payload", data: [
+        "payload": String(describing: T.self),
+        "error": String(describing: error),
+      ])
+      return nil
+    }
   }
 }

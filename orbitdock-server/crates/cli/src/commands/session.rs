@@ -1956,15 +1956,10 @@ fn print_watch_event(msg: &ServerMessage) {
   match msg {
     ServerMessage::Hello { hello } => {
       println!(
-        "{} compatibility {} [{}] ({})",
+        "{} version {} (min client {})",
         dim.apply_to("hello"),
-        if hello.compatibility.compatible {
-          "compatible"
-        } else {
-          "incompatible"
-        },
-        hello.compatibility.server_compatibility,
-        hello.server_version
+        hello.server_version,
+        hello.minimum_client_version
       );
     }
     ServerMessage::SessionDelta { changes, .. } => {

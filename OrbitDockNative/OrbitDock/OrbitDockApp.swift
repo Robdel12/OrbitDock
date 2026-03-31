@@ -52,7 +52,7 @@ struct OrbitDockApp: App {
       .commands { OrbitDockWindowCommands() }
 
       Settings {
-        SettingsView()
+        SettingsView(initialPane: appRuntime.requestedSettingsPane)
           .environment(appRuntime)
           .environment(appRuntime.runtimeRegistry.activeSessionStore)
           .environment(\.modelPricingService, modelPricingService)

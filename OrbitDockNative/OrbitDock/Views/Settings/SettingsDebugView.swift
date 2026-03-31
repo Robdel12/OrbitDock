@@ -1,68 +1,12 @@
 import SwiftUI
 
-struct DebugSettingsView: View {
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+struct ServersSettingsView: View {
   @Environment(OrbitDockAppRuntime.self) private var appRuntime
-  @State private var showEndpointSettings = false
-
-  private var activeConnectionStatus: ConnectionStatus {
-    runtimeRegistry.activeConnectionStatus
-  }
-
-  private var endpointHealthSummary: SettingsEndpointHealthSummary {
-    SettingsEndpointHealthSummary.current(for: runtimeRegistry)
-  }
-
-  private var endpointStatusColor: Color {
-    endpointHealthSummary.color
-  }
 
   var body: some View {
     ScrollView {
       VStack(spacing: Spacing.xl) {
-        SettingsSection(title: "ENDPOINTS", icon: "network") {
-          HStack(spacing: Spacing.md_) {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-              .foregroundStyle(endpointStatusColor)
-
-            VStack(alignment: .leading, spacing: Spacing.gap) {
-              Text(endpointHealthSummary.detailedText)
-                .font(.system(size: TypeScale.body))
-                .foregroundStyle(.primary)
-              Text("\(endpointHealthSummary.endpointCount) total endpoints configured")
-                .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.textTertiary)
-            }
-
-            Spacer()
-
-            Button("Manage Endpoints") {
-              showEndpointSettings = true
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.accent)
-          }
-
-          Text(
-            "Choose one control-plane endpoint for this Mac while keeping additional endpoints connected in parallel."
-          )
-          .font(.system(size: TypeScale.meta))
-          .foregroundStyle(Color.textTertiary)
-        }
-
-        SettingsSection(title: "CONNECTION", icon: "bolt.horizontal") {
-          HStack {
-            Circle()
-              .fill(connectionColor)
-              .frame(width: 8, height: 8)
-
-            Text("WebSocket: \(connectionText)")
-              .font(.system(size: TypeScale.body))
-
-            Spacer()
-          }
-        }
+        ServerSettingsSheet(layoutMode: .embedded)
 
         ServerUpdatesSettingsView()
 
@@ -93,37 +37,9 @@ struct DebugSettingsView: View {
           }
         }
       }
-      .padding(Spacing.xl)
-    }
-    .sheet(isPresented: $showEndpointSettings) {
-      ServerSettingsSheet()
-        .environment(runtimeRegistry)
-    }
-  }
-
-  private var connectionColor: Color {
-    switch activeConnectionStatus {
-      case .connected:
-        .feedbackPositive
-      case .connecting:
-        .statusQuestion
-      case .disconnected:
-        .statusEnded
-      case .failed:
-        .statusError
-    }
-  }
-
-  private var connectionText: String {
-    switch activeConnectionStatus {
-      case .connected:
-        "Connected"
-      case .connecting:
-        "Connecting..."
-      case .disconnected:
-        "Disconnected"
-      case let .failed(reason):
-        "Failed: \(reason)"
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.section)
+      .frame(maxWidth: 980, alignment: .leading)
     }
   }
 }

@@ -123,9 +123,10 @@ struct ContentView: View {
       isInitialLoading: runtimeRegistry.runtimes
         .filter(\.endpoint.isEnabled)
         .contains { runtime in
-          switch runtime.connection.connectionStatus {
+          let readiness = runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id)
+          return switch runtime.connection.connectionStatus {
             case .connecting, .connected:
-              !runtime.connection.hasReceivedInitialDashboardSnapshot
+              !readiness.dashboardReady
             case .disconnected, .failed:
               false
           }

@@ -11,7 +11,7 @@ import Foundation
 
 /// WebSocket-only outbound messages.
 /// All reads and mutations go via typed HTTP server clients. Only subscription management uses WS.
-enum ClientToServerMessage: Codable {
+enum ClientToServerMessage: Codable, Sendable {
   case subscribeDashboard(sinceRevision: UInt64? = nil)
   case subscribeMissions(sinceRevision: UInt64? = nil)
   case subscribeSessionSurface(sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64? = nil)

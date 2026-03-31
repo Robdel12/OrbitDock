@@ -6,7 +6,7 @@ enum ServerRequestError: LocalizedError {
   case invalidEndpoint
   case invalidResponse
   case transport(HTTPTransportError)
-  case incompatibleServer(ServerCompatibilityError)
+  case incompatibleServer(ServerVersionError)
   case httpStatus(Int, code: String? = nil, message: String? = nil)
 
   var statusCode: Int? {
