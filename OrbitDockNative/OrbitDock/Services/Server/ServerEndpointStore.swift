@@ -309,8 +309,22 @@ struct ServerEndpointTokenStore {
   }
 
   func set(_ token: String?, forEndpointID endpointID: String) {
-    remove(forEndpointID: endpointID)
     guard let token, let tokenData = token.data(using: .utf8) else {
+      remove(forEndpointID: endpointID)
+      return
+    }
+
+    var updateQuery = keychainQuery(forEndpointID: endpointID)
+    updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    let updateStatus = SecItemUpdate(
+      updateQuery as CFDictionary,
+      [kSecValueData as String: tokenData] as CFDictionary
+    )
+    if updateStatus == errSecSuccess {
+      return
+    }
+    if updateStatus != errSecItemNotFound {
+      Self.logger.error("Keychain update failed: \(Int(updateStatus))")
       return
     }
 
@@ -386,16 +400,26 @@ private struct ServerEndpointCloudSyncKeychain {
     }
     guard let data = try? encoder.encode(redacted) else { return }
 
-    var deleteQuery = keychainQuery
-    deleteQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
-    SecItemDelete(deleteQuery as CFDictionary)
+    var updateQuery = keychainQuery
+    updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    let updateStatus = SecItemUpdate(
+      updateQuery as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    if updateStatus == errSecSuccess {
+      return
+    }
+    if updateStatus != errSecItemNotFound {
+      Self.logger.error("Synced endpoints update failed: \(Int(updateStatus))")
+      return
+    }
 
     var addQuery = keychainQuery
     addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
     addQuery[kSecValueData as String] = data
-    let status = SecItemAdd(addQuery as CFDictionary, nil)
-    if status != errSecSuccess {
-      Self.logger.error("Synced endpoints write failed: \(Int(status))")
+    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+    if addStatus != errSecSuccess {
+      Self.logger.error("Synced endpoints write failed: \(Int(addStatus))")
     }
   }
 
