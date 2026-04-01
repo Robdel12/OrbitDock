@@ -290,13 +290,28 @@ struct ServerDashboardDiffPreview: Codable, Equatable {
   let fileCount: UInt32
   let additions: UInt32
   let deletions: UInt32
-  var filePaths: [String] = []
+  let filePaths: [String]
 
   enum CodingKeys: String, CodingKey {
     case fileCount = "file_count"
     case additions
     case deletions
     case filePaths = "file_paths"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    fileCount = try container.decode(UInt32.self, forKey: .fileCount)
+    additions = try container.decode(UInt32.self, forKey: .additions)
+    deletions = try container.decode(UInt32.self, forKey: .deletions)
+    filePaths = try container.decodeIfPresent([String].self, forKey: .filePaths) ?? []
+  }
+
+  init(fileCount: UInt32, additions: UInt32, deletions: UInt32, filePaths: [String] = []) {
+    self.fileCount = fileCount
+    self.additions = additions
+    self.deletions = deletions
+    self.filePaths = filePaths
   }
 }
 

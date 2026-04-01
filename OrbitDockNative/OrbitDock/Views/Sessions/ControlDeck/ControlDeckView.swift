@@ -68,6 +68,45 @@ struct ControlDeckView: View {
     isCompactIOS ? Spacing.sm : Spacing.md
   }
 
+  // MARK: - Approval Cluster Support
+
+  private var approvalClusterMode: ControlDeckStatusBar.ApprovalClusterMode {
+    guard isApprovalMode, let approval = pendingApproval else { return .none }
+    switch approval.kind {
+      case .tool: return .tool
+      case .patch: return .patch
+      case .permission: return .permission
+      case .question: return .none  // Questions have inline answers, not approve/deny
+    }
+  }
+
+  private var resolvedApproveAction: (() -> Void)? {
+    guard isApprovalMode, let approval = pendingApproval else { return nil }
+    switch approval.kind {
+      case .tool, .patch: return onApprove
+      case .permission: return onGrantPermission
+      case .question: return nil
+    }
+  }
+
+  private var resolvedApproveForSessionAction: (() -> Void)? {
+    guard isApprovalMode, let approval = pendingApproval else { return nil }
+    switch approval.kind {
+      case .tool, .patch: return onApproveForSession
+      case .permission: return onGrantPermissionForSession
+      case .question: return nil
+    }
+  }
+
+  private var resolvedDenyAction: (() -> Void)? {
+    guard isApprovalMode, let approval = pendingApproval else { return nil }
+    switch approval.kind {
+      case .tool, .patch: return onDeny
+      case .permission: return onDenyPermission
+      case .question: return nil
+    }
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       if isApprovalMode, let approval = pendingApproval {
@@ -105,7 +144,11 @@ struct ControlDeckView: View {
           isDictating: isDictating,
           isSessionWorking: isSessionWorking,
           onDictation: onDictation,
-          onInterrupt: onInterrupt
+          onInterrupt: onInterrupt,
+          approvalMode: approvalClusterMode,
+          onApprove: resolvedApproveAction,
+          onApproveForSession: resolvedApproveForSessionAction,
+          onDeny: resolvedDenyAction
         )
         .padding(.horizontal, horizontalContentPadding)
         .padding(.bottom, Spacing.sm)
@@ -134,8 +177,9 @@ struct ControlDeckView: View {
     if isApprovalMode {
       switch pendingApproval?.kind {
         case .tool: return Color.feedbackCaution.opacity(0.5)
+        case .patch: return Color.toolWrite.opacity(0.5)
         case .permission: return Color.statusPermission.opacity(0.5)
-        case .question: return Color.accent.opacity(0.5)
+        case .question: return Color.statusQuestion.opacity(0.5)
         case .none: return Color.panelBorder
       }
     }

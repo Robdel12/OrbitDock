@@ -157,37 +157,16 @@ nonisolated enum ControlDeckSnapshotMapper {
     switch request.type {
       case .exec:
         title = request.toolName ?? "Tool Execution"
-        kind = .tool(
-          toolName: request.toolName,
-          command: request.command,
-          filePath: request.filePath,
-          diff: request.diff
-        )
+        kind = .tool(mapToolApproval(request))
       case .patch:
-        title = request.filePath.map { "Edit \($0)" } ?? "File Edit"
-        kind = .tool(
-          toolName: request.toolName,
-          command: nil,
-          filePath: request.filePath,
-          diff: request.diff
-        )
+        title = request.filePath.flatMap { formatFilePath($0) } ?? "File Edit"
+        kind = .patch(mapPatchApproval(request))
       case .question:
-        title = "Question"
-        let prompts = request.questionPrompts.map { prompt in
-          ControlDeckApproval.Prompt(
-            id: prompt.id,
-            question: prompt.question,
-            options: prompt.options.map(\.label),
-            allowsMultipleSelection: prompt.allowsMultipleSelection,
-            allowsOther: prompt.allowsOther,
-            isSecret: prompt.isSecret
-          )
-        }
-        kind = .question(prompts: prompts)
+        title = request.questionPrompts.count > 1 ? "Questions" : "Question"
+        kind = .question(prompts: mapPrompts(request.questionPrompts))
       case .permissions:
         title = "Permission Request"
-        let descriptions = request.requestedPermissions?.map(describePermission) ?? []
-        kind = .permission(reason: request.permissionReason, descriptions: descriptions)
+        kind = .permission(mapPermissionApproval(request))
     }
 
     return ControlDeckApproval(
@@ -195,23 +174,204 @@ nonisolated enum ControlDeckSnapshotMapper {
       sessionId: request.sessionId,
       kind: kind,
       title: title,
-      detail: request.question ?? request.permissionReason
+      detail: request.question ?? request.permissionReason,
+      riskLevel: mapRiskLevel(request.preview?.riskLevel),
+      riskFindings: request.preview?.riskFindings ?? [],
+      previewType: mapPreviewType(request.preview?.type),
+      decisionScope: request.preview?.decisionScope,
+      proposedAmendment: request.proposedAmendment,
+      mcpServerName: request.mcpServerName,
+      elicitation: mapElicitation(request),
+      networkHost: request.networkHost,
+      networkProtocol: request.networkProtocol
     )
   }
 
-  private static func describePermission(_ perm: ServerPermissionDescriptor) -> String {
-    switch perm {
-      case let .filesystem(readPaths, writePaths):
-        let parts = (readPaths.isEmpty ? [] : ["read: \(readPaths.joined(separator: ", "))"]) +
-          (writePaths.isEmpty ? [] : ["write: \(writePaths.joined(separator: ", "))"])
-        return "Filesystem \(parts.joined(separator: "; "))"
-      case let .network(hosts):
-        return "Network: \(hosts.joined(separator: ", "))"
-      case let .macOs(entitlement, details):
-        return details ?? entitlement
-      case let .generic(permission, details):
-        return details ?? permission
+  // MARK: - Tool Approval
+
+  private static func mapToolApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.ToolApproval {
+    let segments = request.preview?.shellSegments ?? []
+    let commandChain: [ControlDeckApproval.CommandSegment] = segments.enumerated().map { index, segment in
+      ControlDeckApproval.CommandSegment(
+        index: index,
+        command: segment.command,
+        chainOperator: index > 0 ? segment.leadingOperator : nil
+      )
     }
+
+    return ControlDeckApproval.ToolApproval(
+      toolName: request.toolName,
+      command: request.command ?? request.preview?.value,
+      filePath: request.filePath,
+      commandChain: commandChain
+    )
+  }
+
+  // MARK: - Patch Approval
+
+  private static func mapPatchApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.PatchApproval {
+    ControlDeckApproval.PatchApproval(
+      toolName: request.toolName,
+      filePath: request.filePath,
+      diff: request.diff
+    )
+  }
+
+  // MARK: - Question Prompts
+
+  private static func mapPrompts(_ prompts: [ServerApprovalQuestionPrompt]) -> [ControlDeckApproval.Prompt] {
+    prompts.map { prompt in
+      ControlDeckApproval.Prompt(
+        id: prompt.id,
+        header: prompt.header,
+        question: prompt.question,
+        options: prompt.options.map { option in
+          ControlDeckApproval.PromptOption(
+            label: option.label,
+            description: option.description
+          )
+        },
+        allowsMultipleSelection: prompt.allowsMultipleSelection,
+        allowsOther: prompt.allowsOther,
+        isSecret: prompt.isSecret
+      )
+    }
+  }
+
+  // MARK: - Permission Approval
+
+  private static func mapPermissionApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.PermissionApproval {
+    let groups = groupPermissions(request.requestedPermissions ?? [])
+    return ControlDeckApproval.PermissionApproval(
+      reason: request.permissionReason,
+      groups: groups
+    )
+  }
+
+  private static func groupPermissions(_ descriptors: [ServerPermissionDescriptor]) -> [ControlDeckApproval.PermissionGroup] {
+    var networkItems: [ControlDeckApproval.PermissionItem] = []
+    var filesystemItems: [ControlDeckApproval.PermissionItem] = []
+    var macOsItems: [ControlDeckApproval.PermissionItem] = []
+    var genericItems: [ControlDeckApproval.PermissionItem] = []
+
+    for descriptor in descriptors {
+      switch descriptor {
+        case let .network(hosts):
+          if hosts.isEmpty {
+            networkItems.append(ControlDeckApproval.PermissionItem(action: "access", target: "any host"))
+          } else {
+            for host in hosts {
+              networkItems.append(ControlDeckApproval.PermissionItem(action: "access", target: host))
+            }
+          }
+
+        case let .filesystem(readPaths, writePaths):
+          for path in readPaths {
+            filesystemItems.append(ControlDeckApproval.PermissionItem(action: "read", target: path))
+          }
+          for path in writePaths {
+            filesystemItems.append(ControlDeckApproval.PermissionItem(action: "write", target: path))
+          }
+
+        case let .macOs(entitlement, details):
+          let target = formatMacOsEntitlement(entitlement: entitlement, details: details)
+          macOsItems.append(ControlDeckApproval.PermissionItem(action: entitlement, target: target))
+
+        case let .generic(permission, details):
+          genericItems.append(ControlDeckApproval.PermissionItem(
+            action: permission,
+            target: details ?? permission
+          ))
+      }
+    }
+
+    var groups: [ControlDeckApproval.PermissionGroup] = []
+    if !networkItems.isEmpty {
+      groups.append(ControlDeckApproval.PermissionGroup(category: .network, items: networkItems))
+    }
+    if !filesystemItems.isEmpty {
+      groups.append(ControlDeckApproval.PermissionGroup(category: .filesystem, items: filesystemItems))
+    }
+    if !macOsItems.isEmpty {
+      groups.append(ControlDeckApproval.PermissionGroup(category: .macOs, items: macOsItems))
+    }
+    if !genericItems.isEmpty {
+      groups.append(ControlDeckApproval.PermissionGroup(category: .generic, items: genericItems))
+    }
+    return groups
+  }
+
+  private static func formatMacOsEntitlement(entitlement: String, details: String?) -> String {
+    switch entitlement {
+      case "preferences":
+        switch details {
+          case "read_write": return "Read and write system preferences"
+          case "read_only": return "Read system preferences"
+          default: return details ?? "System preferences"
+        }
+      case "automation":
+        if let details {
+          return details == "all" ? "Automate all apps" : "Automate \(details)"
+        }
+        return "App automation"
+      case "accessibility":
+        return "Accessibility control"
+      case "calendar":
+        return "Calendar access"
+      default:
+        return details ?? entitlement
+    }
+  }
+
+  // MARK: - Elicitation
+
+  private static func mapElicitation(_ request: ServerApprovalRequest) -> ControlDeckApproval.Elicitation? {
+    guard let mode = request.elicitationMode else { return nil }
+    return ControlDeckApproval.Elicitation(
+      mode: mapElicitationMode(mode),
+      url: request.elicitationUrl,
+      message: request.elicitationMessage
+    )
+  }
+
+  private static func mapElicitationMode(_ mode: ServerElicitationMode) -> ControlDeckApproval.Elicitation.Mode {
+    switch mode {
+      case .form: .form
+      case .url: .url
+    }
+  }
+
+  // MARK: - Risk & Preview
+
+  private static func mapRiskLevel(_ level: ServerApprovalRiskLevel?) -> ControlDeckApproval.RiskLevel {
+    switch level {
+      case .low: .low
+      case .normal: .normal
+      case .high: .high
+      case .none: .normal
+    }
+  }
+
+  private static func mapPreviewType(_ type: ServerApprovalPreviewType?) -> ControlDeckApproval.PreviewType {
+    switch type {
+      case .shellCommand: .shellCommand
+      case .diff: .diff
+      case .url: .url
+      case .searchQuery: .searchQuery
+      case .pattern: .pattern
+      case .prompt: .prompt
+      case .value: .value
+      case .filePath: .filePath
+      case .action, .none: .action
+    }
+  }
+
+  // MARK: - Formatting Helpers
+
+  private static func formatFilePath(_ path: String) -> String {
+    let components = path.split(separator: "/")
+    guard let fileName = components.last else { return path }
+    return "Edit \(fileName)"
   }
 
   private static func mapSnapshotKind(_ kind: ServerTokenUsageSnapshotKind) -> ControlDeckTokenUsageSnapshotKind {
