@@ -166,6 +166,37 @@ struct ServerClientsTests {
     }
   }
 
+  @Test func surfacesCreateSessionConnectorStartFailures() async throws {
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
+      authToken: nil,
+      dataLoader: { request in
+        Self.jsonResponse(
+          url: request.url!,
+          statusCode: 503,
+          json: #"{"code":"connector_start_failed","error":"Failed to start Codex connector"}"#
+        )
+      }
+    )
+
+    do {
+      _ = try await clients.sessions.createSession(
+        SessionsClient.CreateSessionRequest(provider: "codex", cwd: "/tmp/project")
+      )
+      Issue.record("Expected createSession to surface connector start failures.")
+    } catch let error as ServerRequestError {
+      guard case let .httpStatus(status, code, message) = error else {
+        Issue.record("Expected an HTTP status error.")
+        return
+      }
+      #expect(status == 503)
+      #expect(code == "connector_start_failed")
+      #expect(message == "Failed to start Codex connector")
+    } catch {
+      Issue.record("Expected ServerRequestError, got \(error).")
+    }
+  }
+
   @Test func ignoresHTTPVersionHeadersForDashboardBootstrap() async throws {
     let clients = try ServerClients(
       serverURL: #require(URL(string: "http://localhost:4000")),

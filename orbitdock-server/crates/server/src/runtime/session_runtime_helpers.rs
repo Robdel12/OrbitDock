@@ -252,6 +252,16 @@ pub(crate) fn direct_resume_failure_changes(provider: Provider) -> StateChanges 
   changes
 }
 
+pub(crate) fn should_detach_direct_connector_after_send_error(message: &str) -> bool {
+  let normalized = message.to_ascii_lowercase();
+  let has_not_found = normalized.contains("not found") || normalized.contains("not_found");
+  let references_session = normalized.contains("session") || normalized.contains("thread");
+  let has_explicit_session_not_found =
+    normalized.contains("session_not_found") || normalized.contains("thread_not_found");
+
+  (has_not_found && references_session) || has_explicit_session_not_found
+}
+
 pub(crate) async fn activate_direct_session_runtime(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -531,6 +541,29 @@ mod tests {
       changes.claude_integration_mode,
       Some(Some(ClaudeIntegrationMode::Direct))
     );
+  }
+
+  #[test]
+  fn detach_classifier_matches_missing_session_signals() {
+    assert!(should_detach_direct_connector_after_send_error(
+      "Failed to send message: Session abc not found"
+    ));
+    assert!(should_detach_direct_connector_after_send_error(
+      "httpStatus(429, code: Optional(\"session_not_found\"), message: Optional(\"session not found\"))"
+    ));
+    assert!(should_detach_direct_connector_after_send_error(
+      "Thread not found"
+    ));
+  }
+
+  #[test]
+  fn detach_classifier_ignores_non_session_not_found_errors() {
+    assert!(!should_detach_direct_connector_after_send_error(
+      "Failed to list plugin marketplaces: timeout"
+    ));
+    assert!(!should_detach_direct_connector_after_send_error(
+      "Permission denied while running command"
+    ));
   }
 
   fn user_row(id: &str, sequence: u64) -> ConversationRowEntry {

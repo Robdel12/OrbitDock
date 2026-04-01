@@ -514,9 +514,18 @@ pub async fn create_session(
         component = "session",
         event = "session.create.http.connector_failed",
         session_id = %session_id,
+        provider = ?body.provider,
         error = %error_message,
         "HTTP: Failed to start direct session connector"
     );
+    return Err(lifecycle_error(
+      StatusCode::SERVICE_UNAVAILABLE,
+      "connector_start_failed",
+      format!(
+        "Failed to start {:?} connector for session {}: {}",
+        body.provider, session_id, error_message
+      ),
+    ));
   }
 
   if let Some(initial_prompt) = &body.initial_prompt {
@@ -729,10 +738,14 @@ pub async fn resume_session(
   if let Some(handle) = state.get_session(&session_id) {
     let snap = handle.snapshot();
     if snap.status == SessionStatus::Active {
-      return Err(conflict(
-        "already_active",
-        format!("Session {} is already active", session_id),
-      ));
+      let summary = handle
+        .summary()
+        .await
+        .map_err(|error| internal("runtime_error", error))?;
+      return Ok(Json(ResumeSessionResponse {
+        session_id,
+        session: summary,
+      }));
     }
     state.remove_session(&session_id);
   }
@@ -1094,7 +1107,8 @@ pub async fn fork_session_to_existing_worktree(
 #[cfg(test)]
 mod tests {
   use super::*;
-  use orbitdock_protocol::CodexApprovalsReviewer;
+  use crate::domain::sessions::session::SessionHandle;
+  use orbitdock_protocol::{CodexApprovalsReviewer, SessionStatus};
 
   fn codex_request(
     codex_config_mode: Option<CodexConfigMode>,
@@ -1207,5 +1221,24 @@ mod tests {
       update.approvals_reviewer,
       Some(Some(CodexApprovalsReviewer::GuardianSubagent))
     );
+  }
+
+  #[tokio::test]
+  async fn resume_session_returns_ok_when_runtime_session_is_already_active() {
+    let state = crate::support::test_support::new_test_session_registry(true);
+    let session_id = orbitdock_protocol::new_session_id();
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-resume-idempotent".to_string(),
+    ));
+
+    let Json(response) = resume_session(Path(session_id.clone()), State(state))
+      .await
+      .expect("resume should return active runtime summary");
+
+    assert_eq!(response.session_id, session_id);
+    assert_eq!(response.session.id, response.session_id);
+    assert_eq!(response.session.status, SessionStatus::Active);
   }
 }

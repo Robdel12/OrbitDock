@@ -11,7 +11,7 @@ use orbitdock_protocol::{McpAuthStatus, McpResource, McpResourceTemplate, McpToo
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
@@ -21,6 +21,7 @@ use crate::runtime::session_command_handler::{
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::should_detach_direct_connector_after_send_error;
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_claude::session::{
@@ -63,7 +64,7 @@ pub fn start_event_loop(
     let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
-    loop {
+    'session_loop: loop {
       tokio::select! {
           event = event_rx.recv() => {
               let Some(event) = event else {
@@ -153,6 +154,7 @@ pub fn start_event_loop(
           }
 
           Some(action) = action_rx.recv() => {
+              let is_send_action = matches!(&action, ClaudeAction::SendMessage { .. });
               // Capture first user message as first_prompt
               if !first_prompt_captured {
                   if let ClaudeAction::SendMessage { ref content, .. } = action {
@@ -319,31 +321,67 @@ pub fn start_event_loop(
                               );
                           }
                           Err(e) => {
-                              error!(
-                                  component = "claude_connector",
-                                  event = "claude.steer.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Steer turn failed"
-                              );
+                              let should_detach =
+                                  should_detach_direct_connector_after_send_error(&e.to_string());
+                              if should_detach {
+                                  warn!(
+                                      component = "claude_connector",
+                                      event = "claude.connector.detached_after_fatal_send_error",
+                                      session_id = %session_id,
+                                      error = %e,
+                                      "Detaching direct connector after fatal steer error"
+                                  );
+                              } else {
+                                  error!(
+                                      component = "claude_connector",
+                                      event = "claude.steer.failed",
+                                      session_id = %session_id,
+                                      error = %e,
+                                      "Steer turn failed"
+                                  );
+                              }
                               dispatch_connector_event(
                                   &session_id,
                                   ConnectorEvent::Error(format!("Steer failed: {e}")),
                                   &mut session_handle,
                                   &persist,
                               ).await;
+                              if should_detach {
+                                  break 'session_loop;
+                              }
                           }
                       }
                   }
                   _ => {
                       if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
-                          error!(
-                              component = "claude_connector",
-                              event = "claude.action.failed",
-                              session_id = %session_id,
-                              error = %e,
-                              "Failed to handle Claude action"
-                          );
+                          let should_detach = is_send_action
+                              && should_detach_direct_connector_after_send_error(&e.to_string());
+                          if should_detach {
+                              warn!(
+                                  component = "claude_connector",
+                                  event = "claude.connector.detached_after_fatal_send_error",
+                                  session_id = %session_id,
+                                  error = %e,
+                                  "Detaching direct connector after fatal send error"
+                              );
+                          } else {
+                              error!(
+                                  component = "claude_connector",
+                                  event = "claude.action.failed",
+                                  session_id = %session_id,
+                                  error = %e,
+                                  "Failed to handle Claude action"
+                              );
+                          }
+                          dispatch_connector_event(
+                              &session_id,
+                              ConnectorEvent::Error(format!("Action failed: {e}")),
+                              &mut session_handle,
+                              &persist,
+                          ).await;
+                          if should_detach {
+                              break 'session_loop;
+                          }
                       }
                   }
               }

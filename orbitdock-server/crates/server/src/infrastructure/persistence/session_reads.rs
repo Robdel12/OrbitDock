@@ -378,36 +378,36 @@ async fn load_sessions_for_startup_with_db_path(
                 params![chrono_now()],
             )?;
 
+            let direct_control_mode_predicate = "COALESCE(control_mode, CASE
+                    WHEN provider = 'claude' AND claude_integration_mode = 'direct' THEN 'direct'
+                    WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+                    ELSE 'passive'
+                  END) = 'direct'";
+
             conn.execute(
-                "UPDATE sessions
-                 SET work_status = 'reply'
-                 WHERE status = 'active'
-                   AND work_status = 'working'
-                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))",
+                &format!(
+                    "UPDATE sessions
+                     SET status = 'active',
+                         work_status = 'waiting',
+                         lifecycle_state = 'resumable',
+                         ended_at = NULL,
+                         end_reason = NULL
+                     WHERE status = 'ended'
+                       AND end_reason = 'server_shutdown'
+                       AND {direct_control_mode_predicate}"
+                ),
                 [],
             )?;
 
             conn.execute(
-                "UPDATE sessions
-                 SET status = 'active',
-                     work_status = 'reply',
-                     ended_at = NULL,
-                     end_reason = NULL
-                 WHERE provider = 'claude'
-                   AND claude_integration_mode = 'direct'
-                   AND status = 'ended'
-                   AND end_reason = 'server_shutdown'",
-                [],
-            )?;
-
-            conn.execute(
-                "UPDATE sessions
-                 SET lifecycle_state = 'open'
-                 WHERE status = 'active'
-                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))
-                   AND COALESCE(lifecycle_state, 'open') != 'open'",
+                &format!(
+                    "UPDATE sessions
+                     SET lifecycle_state = 'resumable',
+                         work_status = 'waiting'
+                     WHERE status = 'active'
+                       AND {direct_control_mode_predicate}
+                       AND COALESCE(lifecycle_state, CASE WHEN status = 'ended' THEN 'ended' ELSE 'open' END) != 'ended'"
+                ),
                 [],
             )?;
 

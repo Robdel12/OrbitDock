@@ -1200,6 +1200,172 @@ fn startup_restore_only_ends_stale_passive_codex_sessions() {
 }
 
 #[test]
+fn startup_restore_marks_open_direct_sessions_as_resumable() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at
+         ) VALUES (
+            'direct-codex-open', 'codex', 'active', 'working', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-direct-codex-open', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            'direct-claude-open', 'claude', 'active', 'reply', 'open', 'direct',
+            '/tmp/test', 'direct', 'claude-sdk-direct-open', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
+    .unwrap();
+
+  let restored_codex = restored
+    .iter()
+    .find(|session| session.id == "direct-codex-open")
+    .expect("direct codex session should be restored");
+  assert_eq!(
+    restored_codex.lifecycle_state,
+    SessionLifecycleState::Resumable
+  );
+  assert_eq!(restored_codex.work_status, "waiting");
+
+  let restored_claude = restored
+    .iter()
+    .find(|session| session.id == "direct-claude-open")
+    .expect("direct claude session should be restored");
+  assert_eq!(
+    restored_claude.lifecycle_state,
+    SessionLifecycleState::Resumable
+  );
+  assert_eq!(restored_claude.work_status, "waiting");
+
+  let conn = Connection::open(&db_path).unwrap();
+  let codex_row: (String, String) = conn
+    .query_row(
+      "SELECT work_status, lifecycle_state FROM sessions WHERE id = 'direct-codex-open'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap();
+  assert_eq!(codex_row.0, "waiting");
+  assert_eq!(codex_row.1, "resumable");
+
+  let claude_row: (String, String) = conn
+    .query_row(
+      "SELECT work_status, lifecycle_state FROM sessions WHERE id = 'direct-claude-open'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap();
+  assert_eq!(claude_row.0, "waiting");
+  assert_eq!(claude_row.1, "resumable");
+}
+
+#[test]
+fn startup_restore_reactivates_server_shutdown_direct_sessions_as_resumable() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode, end_reason, ended_at,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at
+         ) VALUES (
+            'direct-codex-server-shutdown', 'codex', 'ended', 'ended', 'ended', 'direct', 'server_shutdown', '2026-03-20T10:10:00Z',
+            '/tmp/test', 'direct', 'thread-direct-codex-server-shutdown', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode, end_reason, ended_at,
+            project_path, claude_integration_mode, claude_sdk_session_id, started_at, last_activity_at
+         ) VALUES (
+            'direct-claude-server-shutdown', 'claude', 'ended', 'ended', 'ended', 'direct', 'server_shutdown', '2026-03-20T10:10:00Z',
+            '/tmp/test', 'direct', 'claude-sdk-server-shutdown', '2026-03-20T10:00:00Z', '2026-03-20T10:00:00Z'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path.clone()))
+    .unwrap();
+
+  let restored_codex = restored
+    .iter()
+    .find(|session| session.id == "direct-codex-server-shutdown")
+    .expect("direct codex server-shutdown session should be restored");
+  assert_eq!(restored_codex.status, "active");
+  assert_eq!(restored_codex.work_status, "waiting");
+  assert_eq!(
+    restored_codex.lifecycle_state,
+    SessionLifecycleState::Resumable
+  );
+
+  let restored_claude = restored
+    .iter()
+    .find(|session| session.id == "direct-claude-server-shutdown")
+    .expect("direct claude server-shutdown session should be restored");
+  assert_eq!(restored_claude.status, "active");
+  assert_eq!(restored_claude.work_status, "waiting");
+  assert_eq!(
+    restored_claude.lifecycle_state,
+    SessionLifecycleState::Resumable
+  );
+
+  let conn = Connection::open(&db_path).unwrap();
+  let codex_row: (String, String, String, Option<String>) = conn
+    .query_row(
+      "SELECT status, work_status, lifecycle_state, end_reason FROM sessions WHERE id = 'direct-codex-server-shutdown'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .unwrap();
+  assert_eq!(codex_row.0, "active");
+  assert_eq!(codex_row.1, "waiting");
+  assert_eq!(codex_row.2, "resumable");
+  assert_eq!(codex_row.3, None);
+
+  let claude_row: (String, String, String, Option<String>) = conn
+    .query_row(
+      "SELECT status, work_status, lifecycle_state, end_reason FROM sessions WHERE id = 'direct-claude-server-shutdown'",
+      [],
+      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    )
+    .unwrap();
+  assert_eq!(claude_row.0, "active");
+  assert_eq!(claude_row.1, "waiting");
+  assert_eq!(claude_row.2, "resumable");
+  assert_eq!(claude_row.3, None);
+}
+
+#[test]
 fn claude_session_upsert_skips_new_shadow_when_direct_owner_exists() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
 

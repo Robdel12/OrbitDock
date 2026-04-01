@@ -22,6 +22,7 @@ use crate::runtime::session_command_handler::{
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::should_detach_direct_connector_after_send_error;
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_codex::session::{
@@ -74,7 +75,7 @@ pub fn start_event_loop(
     let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
-    loop {
+    'session_loop: loop {
       tokio::select! {
           Some(event) = event_rx.recv() => {
               if is_turn_ending(&event) {
@@ -188,13 +189,25 @@ pub fn start_event_loop(
                               );
                           }
                           Err(e) => {
-                              error!(
-                                  component = "codex_connector",
-                                  event = "codex.steer.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Steer turn failed"
-                              );
+                              let should_detach =
+                                  should_detach_direct_connector_after_send_error(&e.to_string());
+                              if should_detach {
+                                  warn!(
+                                      component = "codex_connector",
+                                      event = "codex.connector.detached_after_fatal_send_error",
+                                      session_id = %session_id,
+                                      error = %e,
+                                      "Detaching direct connector after fatal steer error"
+                                  );
+                              } else {
+                                  error!(
+                                      component = "codex_connector",
+                                      event = "codex.steer.failed",
+                                      session_id = %session_id,
+                                      error = %e,
+                                      "Steer turn failed"
+                                  );
+                              }
                               dispatch_connector_event(
                                   &session_id,
                                   orbitdock_connector_core::ConnectorEvent::Error(
@@ -203,6 +216,9 @@ pub fn start_event_loop(
                                   &mut session_handle,
                                   &persist,
                               ).await;
+                              if should_detach {
+                                  break 'session_loop;
+                              }
                           }
                       }
                   }
@@ -236,14 +252,38 @@ pub fn start_event_loop(
                       }
                   }
                   other => {
+                      let is_send_action = matches!(&other, CodexAction::SendMessage { .. });
                       if let Err(e) = CodexSession::handle_action(&mut session.connector, other).await {
-                          error!(
-                              component = "codex_connector",
-                              event = "codex.action.failed",
-                              session_id = %session_id,
-                              error = %e,
-                              "Failed to handle codex action"
-                          );
+                          let should_detach = is_send_action
+                              && should_detach_direct_connector_after_send_error(&e.to_string());
+                          if should_detach {
+                              warn!(
+                                  component = "codex_connector",
+                                  event = "codex.connector.detached_after_fatal_send_error",
+                                  session_id = %session_id,
+                                  error = %e,
+                                  "Detaching direct connector after fatal send error"
+                              );
+                          } else {
+                              error!(
+                                  component = "codex_connector",
+                                  event = "codex.action.failed",
+                                  session_id = %session_id,
+                                  error = %e,
+                                  "Failed to handle codex action"
+                              );
+                          }
+                          dispatch_connector_event(
+                              &session_id,
+                              orbitdock_connector_core::ConnectorEvent::Error(
+                                  format!("Action failed: {e}"),
+                              ),
+                              &mut session_handle,
+                              &persist,
+                          ).await;
+                          if should_detach {
+                              break 'session_loop;
+                          }
                       }
                   }
               }
