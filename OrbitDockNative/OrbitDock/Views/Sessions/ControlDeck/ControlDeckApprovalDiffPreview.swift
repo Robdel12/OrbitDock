@@ -69,7 +69,7 @@ struct ControlDeckApprovalDiffPreview: View {
       // Only show file header if multiple files
       if model.files.count > 1 {
         HStack(spacing: Spacing.xs) {
-          Text(file.newPath.components(separatedBy: "/").last ?? file.newPath)
+          Text(compactPath(file.newPath))
             .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textSecondary)
             .lineLimit(1)
@@ -153,5 +153,14 @@ struct ControlDeckApprovalDiffPreview: View {
       case .removed: Color.diffRemovedBg
       case .context: .clear
     }
+  }
+
+  /// Shows parent/filename for disambiguation (e.g., "Views/MyFile.swift")
+  private func compactPath(_ path: String) -> String {
+    let components = path.components(separatedBy: "/")
+    guard components.count >= 2 else { return path }
+    let parent = components[components.count - 2]
+    let fileName = components[components.count - 1]
+    return "\(parent)/\(fileName)"
   }
 }

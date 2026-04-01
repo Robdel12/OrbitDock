@@ -262,6 +262,22 @@ struct ControlDeckApprovalZone: View {
 
   private func questionPromptView(_ prompt: ControlDeckApproval.Prompt, index: Int, total: Int) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
+      // Header for multi-prompt or when explicitly provided
+      if total > 1 || prompt.header != nil {
+        HStack(spacing: Spacing.xs) {
+          if let header = prompt.header {
+            Text(header)
+              .font(.system(size: TypeScale.mini, weight: .semibold))
+              .foregroundStyle(Color.statusQuestion)
+          }
+          if total > 1 {
+            Text("(\(index + 1) of \(total))")
+              .font(.system(size: TypeScale.mini, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+          }
+        }
+      }
+
       // Question text
       Text(prompt.question)
         .font(.system(size: TypeScale.caption, weight: .medium))

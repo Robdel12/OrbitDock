@@ -370,8 +370,16 @@ nonisolated enum ControlDeckSnapshotMapper {
 
   private static func formatFilePath(_ path: String) -> String {
     let components = path.split(separator: "/")
-    guard let fileName = components.last else { return path }
-    return "Edit \(fileName)"
+    guard components.count > 0 else { return path }
+
+    // Show parent/filename for context (e.g., "Edit Views/MyFile.swift")
+    if components.count >= 2 {
+      let parent = components[components.count - 2]
+      let fileName = components[components.count - 1]
+      return "Edit \(parent)/\(fileName)"
+    }
+
+    return "Edit \(components.last!)"
   }
 
   private static func mapSnapshotKind(_ kind: ServerTokenUsageSnapshotKind) -> ControlDeckTokenUsageSnapshotKind {
