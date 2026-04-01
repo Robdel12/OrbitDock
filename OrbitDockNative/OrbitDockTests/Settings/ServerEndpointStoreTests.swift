@@ -3,6 +3,10 @@ import Foundation
 import Testing
 
 struct ServerEndpointStoreTests {
+  private final class InMemoryCloudSync {
+    var endpoints: [ServerEndpoint]?
+  }
+
   @Test func startsEmptyWhenNoConfigExists() {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
@@ -114,23 +118,71 @@ struct ServerEndpointStoreTests {
     #expect(ServerEndpointStore.hostInput(from: customPortURL, defaultPort: 4_000) == "10.0.0.8:4111")
   }
 
+  @Test func prefersCloudSyncedEndpointsOverLocalDefaults() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let local = try ServerEndpoint(
+      name: "Local",
+      wsURL: #require(URL(string: "ws://10.0.0.10:4000/ws"))
+    )
+    let cloud = try ServerEndpoint(
+      name: "Cloud",
+      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
+      isDefault: true
+    )
+
+    context.defaults.set(try JSONEncoder().encode([local]), forKey: context.endpointsKey)
+    context.cloudSync.endpoints = [cloud]
+
+    let endpoints = context.store.endpoints()
+
+    #expect(endpoints.count == 1)
+    #expect(endpoints.first?.name == "Cloud")
+  }
+
+  @Test func saveWritesRedactedEndpointsToCloudSync() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let endpoint = try ServerEndpoint(
+      name: "Synced",
+      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
+      isEnabled: true,
+      isDefault: true,
+      authToken: "secret-token"
+    )
+
+    context.store.save([endpoint])
+
+    #expect(context.cloudSync.endpoints?.count == 1)
+    #expect(context.cloudSync.endpoints?.first?.name == "Synced")
+    #expect(context.cloudSync.endpoints?.first?.authToken == nil)
+  }
+
   private func makeStoreContext() -> (
     store: ServerEndpointStore,
     defaults: UserDefaults,
     suiteName: String,
-    endpointsKey: String
+    endpointsKey: String,
+    cloudSync: InMemoryCloudSync
   ) {
     let suiteName = "ServerEndpointStoreTests.\(UUID().uuidString)"
     let endpointsKey = "endpoints.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
+    let cloudSync = InMemoryCloudSync()
 
     let store = ServerEndpointStore(
       defaults: defaults,
       endpointsKey: endpointsKey,
+      cloudSyncStore: ServerEndpointCloudSyncStore(
+        load: { cloudSync.endpoints },
+        save: { cloudSync.endpoints = $0 }
+      ),
       defaultPort: 4_000
     )
 
-    return (store, defaults, suiteName, endpointsKey)
+    return (store, defaults, suiteName, endpointsKey, cloudSync)
   }
 }

@@ -11,6 +11,7 @@ struct ServerEndpointStore {
   private let endpointTokenIdsKey: String
   private let defaultPort: Int
   private let tokenStore: ServerEndpointTokenStore
+  private let cloudSyncStore: ServerEndpointCloudSyncStore
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
@@ -19,16 +20,27 @@ struct ServerEndpointStore {
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
     endpointTokenIdsKey: String = ServerEndpointStore.endpointTokenIdsStorageKey,
     tokenStore: ServerEndpointTokenStore = ServerEndpointTokenStore(),
+    cloudSyncStore: ServerEndpointCloudSyncStore = .live(),
     defaultPort: Int = ServerEndpointSettings.defaultPort
   ) {
     self.defaults = defaults
     self.endpointsKey = endpointsKey
     self.endpointTokenIdsKey = endpointTokenIdsKey
     self.tokenStore = tokenStore
+    self.cloudSyncStore = cloudSyncStore
     self.defaultPort = defaultPort
   }
 
   func endpoints() -> [ServerEndpoint] {
+    if let cloud = cloudSyncStore.load() {
+      let normalized = normalizedEndpoints(cloud)
+      let hydrated = hydratedEndpoints(normalized)
+      if normalized != persistedEndpoints() {
+        writeRedactedEndpointsToDefaults(normalized)
+      }
+      return hydrated
+    }
+
     guard let persisted = persistedEndpoints() else {
       return []
     }
@@ -37,7 +49,9 @@ struct ServerEndpointStore {
     let hydrated = hydratedEndpoints(normalized)
     if normalized != persisted {
       save(hydrated)
+      return hydrated
     }
+    cloudSyncStore.save(redactedEndpoints(normalized))
     return hydrated
   }
 
@@ -69,13 +83,8 @@ struct ServerEndpointStore {
   func save(_ rawEndpoints: [ServerEndpoint]) {
     let normalized = normalizedEndpoints(rawEndpoints)
     syncAuthTokens(from: normalized)
-    let redacted = normalized.map { endpoint -> ServerEndpoint in
-      var copy = endpoint
-      copy.authToken = nil
-      return copy
-    }
-    guard let data = try? encoder.encode(redacted) else { return }
-    defaults.set(data, forKey: endpointsKey)
+    writeRedactedEndpointsToDefaults(normalized)
+    cloudSyncStore.save(redactedEndpoints(normalized))
   }
 
   func upsert(_ endpoint: ServerEndpoint) {
@@ -135,6 +144,20 @@ struct ServerEndpointStore {
       return nil
     }
     return try? decoder.decode([ServerEndpoint].self, from: data)
+  }
+
+  private func writeRedactedEndpointsToDefaults(_ endpoints: [ServerEndpoint]) {
+    let redacted = redactedEndpoints(endpoints)
+    guard let data = try? encoder.encode(redacted) else { return }
+    defaults.set(data, forKey: endpointsKey)
+  }
+
+  private func redactedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
+    endpoints.map { endpoint -> ServerEndpoint in
+      var copy = endpoint
+      copy.authToken = nil
+      return copy
+    }
   }
 
   private func hydratedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
@@ -270,6 +293,7 @@ struct ServerEndpointTokenStore {
     var query = keychainQuery(forEndpointID: endpointID)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
+    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
 
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -285,26 +309,13 @@ struct ServerEndpointTokenStore {
   }
 
   func set(_ token: String?, forEndpointID endpointID: String) {
+    remove(forEndpointID: endpointID)
     guard let token, let tokenData = token.data(using: .utf8) else {
-      remove(forEndpointID: endpointID)
       return
     }
 
-    let query = keychainQuery(forEndpointID: endpointID)
-    let status = SecItemCopyMatching(query as CFDictionary, nil)
-
-    if status == errSecSuccess {
-      let updateStatus = SecItemUpdate(
-        query as CFDictionary,
-        [kSecValueData as String: tokenData] as CFDictionary
-      )
-      if updateStatus != errSecSuccess {
-        Self.logger.error("Keychain update failed: \(Int(updateStatus))")
-      }
-      return
-    }
-
-    var addQuery = query
+    var addQuery = keychainQuery(forEndpointID: endpointID)
+    addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
     addQuery[kSecValueData as String] = tokenData
     let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
     if addStatus != errSecSuccess {
@@ -313,7 +324,9 @@ struct ServerEndpointTokenStore {
   }
 
   func remove(forEndpointID endpointID: String) {
-    SecItemDelete(keychainQuery(forEndpointID: endpointID) as CFDictionary)
+    var query = keychainQuery(forEndpointID: endpointID)
+    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    SecItemDelete(query as CFDictionary)
   }
 
   private func keychainQuery(forEndpointID endpointID: String) -> [String: Any] {
@@ -321,6 +334,76 @@ struct ServerEndpointTokenStore {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: serviceName,
       kSecAttrAccount as String: endpointID,
+      kSecUseDataProtectionKeychain as String: true,
+      kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
+    ]
+  }
+}
+
+struct ServerEndpointCloudSyncStore {
+  let load: () -> [ServerEndpoint]?
+  let save: ([ServerEndpoint]) -> Void
+
+  static func live() -> ServerEndpointCloudSyncStore {
+    let keychain = ServerEndpointCloudSyncKeychain()
+    return ServerEndpointCloudSyncStore(
+      load: { keychain.load() },
+      save: { keychain.save($0) }
+    )
+  }
+}
+
+private struct ServerEndpointCloudSyncKeychain {
+  private static let logger = Logger(subsystem: "com.orbitdock", category: "keychain")
+  private let encoder = JSONEncoder()
+  private let decoder = JSONDecoder()
+  private let serviceName = "com.orbitdock.server-endpoints-sync"
+  private let accountName = "endpoints-json-v1"
+
+  func load() -> [ServerEndpoint]? {
+    var query = keychainQuery
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound {
+      return nil
+    }
+    guard status == errSecSuccess, let data = result as? Data else {
+      Self.logger.error("Synced endpoints read failed: \(Int(status))")
+      return nil
+    }
+    return try? decoder.decode([ServerEndpoint].self, from: data)
+  }
+
+  func save(_ endpoints: [ServerEndpoint]) {
+    let redacted = endpoints.map { endpoint -> ServerEndpoint in
+      var copy = endpoint
+      copy.authToken = nil
+      return copy
+    }
+    guard let data = try? encoder.encode(redacted) else { return }
+
+    var deleteQuery = keychainQuery
+    deleteQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    SecItemDelete(deleteQuery as CFDictionary)
+
+    var addQuery = keychainQuery
+    addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
+    addQuery[kSecValueData as String] = data
+    let status = SecItemAdd(addQuery as CFDictionary, nil)
+    if status != errSecSuccess {
+      Self.logger.error("Synced endpoints write failed: \(Int(status))")
+    }
+  }
+
+  private var keychainQuery: [String: Any] {
+    [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: serviceName,
+      kSecAttrAccount as String: accountName,
       kSecUseDataProtectionKeychain as String: true,
       kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
     ]
