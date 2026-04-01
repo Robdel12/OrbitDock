@@ -1,3 +1,4 @@
+mod bind_guard;
 mod doctor;
 mod ensure_path;
 mod hook_forward;

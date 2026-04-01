@@ -819,9 +819,12 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     axum_server::bind_rustls(options.bind_addr, tls_config)
       .handle(handle)
       .serve(app.into_make_service())
-      .await?;
+      .await
+      .map_err(|error| describe_bind_failure(error, options.bind_addr))?;
   } else {
-    let listener = tokio::net::TcpListener::bind(options.bind_addr).await?;
+    let listener = tokio::net::TcpListener::bind(options.bind_addr)
+      .await
+      .map_err(|error| describe_bind_failure(error, options.bind_addr))?;
 
     info!(
         component = "server",
@@ -845,6 +848,17 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   }
 
   Ok(())
+}
+
+fn describe_bind_failure(error: std::io::Error, bind_addr: SocketAddr) -> anyhow::Error {
+  if error.kind() == std::io::ErrorKind::AddrInUse {
+    return anyhow::anyhow!(
+      "OrbitDock could not start because {} is already in use. Stop the existing OrbitDock/dev server or choose a different `--bind` address.",
+      bind_addr
+    );
+  }
+
+  anyhow::Error::new(error)
 }
 
 fn parse_server_role_value(value: &str) -> Option<bool> {

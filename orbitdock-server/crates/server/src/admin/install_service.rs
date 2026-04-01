@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
+use super::bind_guard;
+
 const PATH_PROBE_SENTINEL: &str = "__ORBITDOCK_PATH__";
 const COMMON_PATH_DIRS: [&str; 6] = [
   "/opt/homebrew/bin",
@@ -86,6 +88,7 @@ struct ServiceInstallPlan {
   bind_addr: String,
   data_dir: String,
   extra_args: Vec<String>,
+  uses_tls: bool,
   auth_token: Option<String>,
   enable: bool,
 }
@@ -140,6 +143,7 @@ fn plan_service_install(
     bind_addr: opts.bind.to_string(),
     data_dir: data_dir.to_string_lossy().to_string(),
     extra_args,
+    uses_tls: opts.tls_cert.is_some() || opts.tls_key.is_some(),
     auth_token: opts
       .auth_token
       .as_deref()
@@ -180,6 +184,9 @@ fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
   println!("  Wrote {}", plist_path.display());
 
   if plan.enable {
+    let bind_addr: SocketAddr = plan.bind_addr.parse()?;
+    bind_guard::ensure_bind_addr_available(bind_addr, Path::new(&plan.data_dir))?;
+
     let bootstrap = std::process::Command::new("launchctl")
       .args(["bootstrap", &domain, &plist_path.to_string_lossy()])
       .output()?;
@@ -199,7 +206,7 @@ fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
       anyhow::bail!("launchctl kickstart failed: {}", stderr.trim());
     }
 
-    wait_for_service_health(Duration::from_secs(5))?;
+    wait_for_service_health(bind_addr, plan.uses_tls, Duration::from_secs(5))?;
     println!("  Service bootstrapped and started");
   } else {
     println!();
@@ -236,20 +243,16 @@ fn stop_existing_launchd_service(
     .args(["bootout", domain, &plist_path.to_string_lossy()])
     .output();
 
-  wait_for_existing_server_stop(Duration::from_secs(5));
+  let bind_addr: SocketAddr = plan.bind_addr.parse()?;
+  wait_for_existing_server_stop(bind_addr, Duration::from_secs(5));
   remove_stale_pid_file(plan);
   Ok(())
 }
 
-fn wait_for_existing_server_stop(timeout: Duration) {
+fn wait_for_existing_server_stop(bind_addr: SocketAddr, timeout: Duration) {
   let deadline = Instant::now() + timeout;
   while Instant::now() < deadline {
-    if local_healthcheck_ok() {
-      std::thread::sleep(Duration::from_millis(200));
-      continue;
-    }
-
-    if !server_port_in_use() {
+    if !server_port_in_use(bind_addr) {
       break;
     }
 
@@ -257,35 +260,47 @@ fn wait_for_existing_server_stop(timeout: Duration) {
   }
 }
 
-fn wait_for_service_health(timeout: Duration) -> anyhow::Result<()> {
+fn wait_for_service_health(
+  bind_addr: SocketAddr,
+  uses_tls: bool,
+  timeout: Duration,
+) -> anyhow::Result<()> {
   let deadline = Instant::now() + timeout;
   while Instant::now() < deadline {
-    if local_healthcheck_ok() {
+    if local_healthcheck_ok(bind_addr, uses_tls) {
       return Ok(());
     }
     std::thread::sleep(Duration::from_millis(250));
   }
 
-  anyhow::bail!("service did not become healthy after launchctl bootstrap")
+  anyhow::bail!(
+    "service did not become healthy on {} over {} after bootstrap",
+    bind_addr,
+    if uses_tls { "HTTPS" } else { "HTTP" }
+  )
 }
 
-fn local_healthcheck_ok() -> bool {
-  std::process::Command::new("curl")
-    .args([
-      "-s",
-      "--connect-timeout",
-      "1",
-      "--max-time",
-      "2",
-      "http://127.0.0.1:4000/health",
-    ])
+fn local_healthcheck_ok(bind_addr: SocketAddr, uses_tls: bool) -> bool {
+  let scheme = if uses_tls { "https" } else { "http" };
+  let url = format!("{scheme}://127.0.0.1:{}/health", bind_addr.port());
+  let mut command = std::process::Command::new("curl");
+  command.args(["-s", "--connect-timeout", "1", "--max-time", "2"]);
+  if uses_tls {
+    command.arg("-k");
+  }
+  command
+    .arg(&url)
     .output()
     .map(|output| output.status.success())
     .unwrap_or(false)
 }
 
-fn server_port_in_use() -> bool {
-  std::net::TcpListener::bind("127.0.0.1:4000").is_err()
+fn server_port_in_use(bind_addr: SocketAddr) -> bool {
+  std::net::TcpListener::bind(SocketAddr::new(
+    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+    bind_addr.port(),
+  ))
+  .is_err()
 }
 
 fn remove_stale_pid_file(plan: &ServiceInstallPlan) {
@@ -606,15 +621,19 @@ fn install_systemd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
     .output();
 
   if plan.enable {
+    let bind_addr: SocketAddr = plan.bind_addr.parse()?;
+    bind_guard::ensure_bind_addr_available(bind_addr, Path::new(&plan.data_dir))?;
+
     let output = std::process::Command::new("systemctl")
       .args(["--user", "enable", "--now", "orbitdock-server.service"])
       .output()?;
 
     if output.status.success() {
+      wait_for_service_health(bind_addr, plan.uses_tls, Duration::from_secs(5))?;
       println!("  Service enabled and started");
     } else {
       let stderr = String::from_utf8_lossy(&output.stderr);
-      println!("  Warning: systemctl enable failed: {}", stderr.trim());
+      anyhow::bail!("systemctl enable failed: {}", stderr.trim());
     }
   } else {
     println!();
@@ -766,6 +785,7 @@ mod tests {
         "/tmp/server.key".to_string()
       ]
     );
+    assert!(plan.uses_tls);
     assert!(plan.enable);
   }
 
@@ -776,6 +796,7 @@ mod tests {
       bind_addr: "127.0.0.1:4000".to_string(),
       data_dir: "/tmp/orbitdock".to_string(),
       extra_args: vec!["--tls-cert".to_string(), "/tmp/server.crt".to_string()],
+      uses_tls: true,
       auth_token: Some("secret-token".to_string()),
       enable: true,
     };
@@ -805,6 +826,7 @@ mod tests {
       bind_addr: "0.0.0.0:4000".to_string(),
       data_dir: "/tmp/orbitdock".to_string(),
       extra_args: vec!["--tls-key".to_string(), "/tmp/server.key".to_string()],
+      uses_tls: true,
       auth_token: Some("secret-token".to_string()),
       enable: false,
     };
