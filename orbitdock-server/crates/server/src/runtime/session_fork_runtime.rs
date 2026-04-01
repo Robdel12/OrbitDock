@@ -113,6 +113,16 @@ pub(crate) async fn start_claude_fork_session(
     )))
     .await;
 
+  // Persist provider PID for dead-process detection on restart.
+  if let Some(pid) = claude_session.connector.pid().await {
+    let _ = persist_tx
+      .send(PersistCommand::SetProviderPid {
+        session_id: new_session_id.clone(),
+        pid,
+      })
+      .await;
+  }
+
   handle.set_list_tx(state.list_tx());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
   let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(

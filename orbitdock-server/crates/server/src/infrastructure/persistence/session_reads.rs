@@ -388,6 +388,53 @@ async fn load_sessions_for_startup_with_db_path(
                 [],
             )?;
 
+            // Mark active direct sessions as resumable if their provider
+            // process is no longer alive.  This catches sessions that were
+            // killed externally (e.g. cleanup scripts, manual `kill`) while
+            // the server was down or while the connector-detach handler could
+            // not run.  Sessions whose process is still alive (survived a
+            // server restart as an orphan) are left as-is for auto-resume.
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT id, provider_pid FROM sessions
+                     WHERE status = 'active'
+                       AND provider_pid IS NOT NULL
+                       AND ((provider = 'claude' AND claude_integration_mode = 'direct')
+                         OR (provider = 'codex' AND codex_integration_mode = 'direct'))",
+                )?;
+                let dead_ids: Vec<String> = stmt
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .filter(|(_, pid)| {
+                        let alive = unsafe { libc::kill(*pid as i32, 0) == 0 };
+                        !alive
+                    })
+                    .map(|(id, _)| id)
+                    .collect();
+
+                for id in &dead_ids {
+                    conn.execute(
+                        "UPDATE sessions
+                         SET lifecycle_state = 'resumable',
+                             work_status = 'waiting',
+                             provider_pid = NULL
+                         WHERE id = ?1",
+                        params![id],
+                    )?;
+                }
+
+                if !dead_ids.is_empty() {
+                    tracing::info!(
+                        component = "restore",
+                        event = "restore.cleanup.dead_provider_processes",
+                        count = dead_ids.len(),
+                        "Marked sessions with dead provider processes as resumable"
+                    );
+                }
+            }
+
             conn.execute(
                 "UPDATE sessions
                  SET status = 'active',
@@ -401,13 +448,18 @@ async fn load_sessions_for_startup_with_db_path(
                 [],
             )?;
 
+            // Normalize lifecycle_state for active direct sessions that have
+            // a NULL or empty value.  Crucially, this must NOT reset
+            // 'resumable' sessions back to 'open' -- those were marked
+            // resumable because their provider process died and they should
+            // wait for the user to explicitly re-resume them.
             conn.execute(
                 "UPDATE sessions
                  SET lifecycle_state = 'open'
                  WHERE status = 'active'
                    AND ((provider = 'claude' AND claude_integration_mode = 'direct')
                      OR (provider = 'codex' AND codex_integration_mode = 'direct'))
-                   AND COALESCE(lifecycle_state, 'open') != 'open'",
+                   AND (lifecycle_state IS NULL OR trim(lifecycle_state) = '')",
                 [],
             )?;
 

@@ -1202,6 +1202,11 @@ impl ClaudeConnector {
       .await
   }
 
+  /// Return the OS PID of the child process, if still available.
+  pub async fn pid(&self) -> Option<u32> {
+    self.child.lock().await.id()
+  }
+
   /// Shutdown the subprocess.
   pub async fn shutdown(&self) -> Result<(), ConnectorError> {
     // Drop the stdin sender to close the pipe, which signals the CLI to exit

@@ -244,6 +244,16 @@ async fn spawn_claude_resume(
 
     match tokio::time::timeout(connector_timeout, connector_task).await {
       Ok(Ok(Ok(claude_session))) => {
+        // Persist the provider child PID so startup can detect dead processes.
+        if let Some(pid) = claude_session.connector.pid().await {
+          let _ = persist_tx
+            .send(PersistCommand::SetProviderPid {
+              session_id: session_id.clone(),
+              pid,
+            })
+            .await;
+        }
+
         state.register_claude_thread(&session_id, provider_resume_id.as_str());
         handle.set_list_tx(state.list_tx());
         handle.set_dashboard_revision_counter(state.dashboard_revision_counter());

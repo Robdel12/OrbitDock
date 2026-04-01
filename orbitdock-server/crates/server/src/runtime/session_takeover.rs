@@ -498,6 +498,17 @@ async fn complete_claude_takeover(
       }
 
       let persist_tx = state.persist().clone();
+
+      // Persist provider PID for dead-process detection on restart.
+      if let Some(pid) = claude_session.connector.pid().await {
+        let _ = persist_tx
+          .send(PersistCommand::SetProviderPid {
+            session_id: session_id.clone(),
+            pid,
+          })
+          .await;
+      }
+
       let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
         claude_session,
         handle,

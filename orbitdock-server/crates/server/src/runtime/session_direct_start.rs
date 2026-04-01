@@ -12,6 +12,7 @@ use crate::runtime::session_runtime_helpers::{
   activate_direct_session_runtime, claim_codex_thread_for_direct_session,
 };
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
+use crate::infrastructure::persistence::PersistCommand;
 use orbitdock_protocol::Provider;
 
 pub(crate) struct StartDirectCodexRequest<'a> {
@@ -173,6 +174,19 @@ pub(crate) async fn start_direct_claude_session(
   )
   .await
   .map_err(|error| error.to_string())?;
+
+  // Persist provider PID for dead-process detection on restart.
+  {
+    let persist_tx = state.persist().clone();
+    if let Some(pid) = claude_session.connector.pid().await {
+      let _ = persist_tx
+        .send(PersistCommand::SetProviderPid {
+          session_id: session_id.clone(),
+          pid,
+        })
+        .await;
+    }
+  }
 
   handle.set_list_tx(state.list_tx());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());

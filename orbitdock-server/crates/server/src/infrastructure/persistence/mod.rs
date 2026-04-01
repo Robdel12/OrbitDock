@@ -1089,6 +1089,13 @@ pub(super) fn execute_command(
       )?;
     }
 
+    PersistCommand::SetProviderPid { session_id, pid } => {
+      conn.execute(
+        "UPDATE sessions SET provider_pid = ?1 WHERE id = ?2",
+        params![pid, session_id],
+      )?;
+    }
+
     PersistCommand::ClaudeSessionUpsert {
       id,
       project_path,

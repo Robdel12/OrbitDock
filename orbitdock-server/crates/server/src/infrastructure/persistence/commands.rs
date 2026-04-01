@@ -153,6 +153,9 @@ pub enum PersistCommand {
   /// Reactivate an ended session (for resume) while preserving activity timestamps
   ReactivateSession { id: String },
 
+  /// Store the OS PID of the provider child process for liveness checks on restart
+  SetProviderPid { session_id: String, pid: u32 },
+
   /// Upsert a Claude hook-backed session
   ClaudeSessionUpsert {
     id: String,
@@ -416,6 +419,7 @@ impl PersistCommand {
       PersistCommand::SetSessionConfig { .. } => "SetSessionConfig",
       PersistCommand::MarkSessionRead { .. } => "MarkSessionRead",
       PersistCommand::ReactivateSession { .. } => "ReactivateSession",
+      PersistCommand::SetProviderPid { .. } => "SetProviderPid",
       PersistCommand::ClaudeSessionUpsert { .. } => "ClaudeSessionUpsert",
       PersistCommand::ClaudeSessionUpdate { .. } => "ClaudeSessionUpdate",
       PersistCommand::ClaudeSessionEnd { .. } => "ClaudeSessionEnd",
