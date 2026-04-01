@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
@@ -28,6 +28,7 @@ use crate::runtime::transcript_sync_policy::{
 use crate::support::session_time::{chrono_now, parse_unix_z};
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
+pub(crate) const DIRECT_RUNTIME_STARTUP_GRACE: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TranscriptSyncUsageSignature {
@@ -260,6 +261,79 @@ pub(crate) fn should_detach_direct_connector_after_send_error(message: &str) -> 
     normalized.contains("session_not_found") || normalized.contains("thread_not_found");
 
   (has_not_found && references_session) || has_explicit_session_not_found
+}
+
+pub(crate) fn verify_direct_runtime_ready_snapshot(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  provider: Provider,
+) -> Result<(), String> {
+  let actor = state.get_session(session_id).ok_or_else(|| {
+    format!("Connector started but session actor {session_id} was not registered")
+  })?;
+  let snapshot = actor.snapshot();
+  if snapshot.status != SessionStatus::Active
+    || snapshot.control_mode != orbitdock_protocol::SessionControlMode::Direct
+    || snapshot.lifecycle_state != SessionLifecycleState::Open
+  {
+    return Err(format!(
+      "Connector started but session {session_id} did not reach active/direct/open state"
+    ));
+  }
+
+  let action_tx = match provider {
+    Provider::Codex => state
+      .get_codex_action_tx(session_id)
+      .map(|tx| tx.is_closed()),
+    Provider::Claude => state
+      .get_claude_action_tx(session_id)
+      .map(|tx| tx.is_closed()),
+  }
+  .ok_or_else(|| format!("Connector started but session {session_id} has no action channel"))?;
+
+  if action_tx {
+    return Err(format!(
+      "Connector started but session {session_id} action channel is closed"
+    ));
+  }
+
+  Ok(())
+}
+
+pub(crate) async fn verify_direct_runtime_ready_with_startup_grace(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  provider: Provider,
+  startup_grace: Duration,
+) -> Result<(), String> {
+  verify_direct_runtime_ready_snapshot(state, session_id, provider)?;
+
+  let closed_during_grace = match provider {
+    Provider::Codex => {
+      let tx = state.get_codex_action_tx(session_id).ok_or_else(|| {
+        format!("Connector started but session {session_id} has no action channel")
+      })?;
+      tokio::time::timeout(startup_grace, tx.closed())
+        .await
+        .is_ok()
+    }
+    Provider::Claude => {
+      let tx = state.get_claude_action_tx(session_id).ok_or_else(|| {
+        format!("Connector started but session {session_id} has no action channel")
+      })?;
+      tokio::time::timeout(startup_grace, tx.closed())
+        .await
+        .is_ok()
+    }
+  };
+
+  if closed_during_grace {
+    return Err(format!(
+      "Connector started but session {session_id} action channel closed during startup grace period"
+    ));
+  }
+
+  verify_direct_runtime_ready_snapshot(state, session_id, provider)
 }
 
 pub(crate) async fn activate_direct_session_runtime(

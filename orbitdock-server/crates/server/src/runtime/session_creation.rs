@@ -4,8 +4,7 @@ use tokio::sync::mpsc;
 
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexIntegrationMode,
-  CodexSessionOverrides, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
-  SessionSummary,
+  CodexSessionOverrides, Provider, SessionSummary,
 };
 
 use crate::domain::sessions::session::{SessionConfig, SessionHandle};
@@ -15,6 +14,9 @@ use crate::runtime::session_direct_start::{
 };
 use crate::runtime::session_mutations::end_failed_direct_session;
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_runtime_helpers::{
+  verify_direct_runtime_ready_with_startup_grace, DIRECT_RUNTIME_STARTUP_GRACE,
+};
 
 pub(crate) struct DirectSessionCreationInputs {
   pub id: String,
@@ -338,40 +340,16 @@ pub(crate) async fn launch_prepared_direct_session(
     return start_result;
   }
 
-  if let Err(readiness_error) = verify_direct_runtime_ready(state, &session_id, request.provider) {
+  if let Err(readiness_error) = verify_direct_runtime_ready_with_startup_grace(
+    state,
+    &session_id,
+    request.provider,
+    DIRECT_RUNTIME_STARTUP_GRACE,
+  )
+  .await
+  {
     end_failed_direct_session(state, &session_id).await;
     return Err(readiness_error);
-  }
-
-  Ok(())
-}
-
-fn verify_direct_runtime_ready(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  provider: Provider,
-) -> Result<(), String> {
-  let actor = state.get_session(session_id).ok_or_else(|| {
-    format!("Connector started but session actor {session_id} was not registered")
-  })?;
-  let snapshot = actor.snapshot();
-  if snapshot.status != SessionStatus::Active
-    || snapshot.control_mode != SessionControlMode::Direct
-    || snapshot.lifecycle_state != SessionLifecycleState::Open
-  {
-    return Err(format!(
-      "Connector started but session {session_id} did not reach active/direct/open state"
-    ));
-  }
-
-  let has_action_tx = match provider {
-    Provider::Codex => state.get_codex_action_tx(session_id).is_some(),
-    Provider::Claude => state.get_claude_action_tx(session_id).is_some(),
-  };
-  if !has_action_tx {
-    return Err(format!(
-      "Connector started but session {session_id} has no action channel"
-    ));
   }
 
   Ok(())
@@ -380,14 +358,18 @@ fn verify_direct_runtime_ready(
 #[cfg(test)]
 mod tests {
   use super::{
-    prepare_direct_session, verify_direct_runtime_ready, DirectSessionCreationInputs,
-    DirectSessionRequest, PreparedPersistedDirectSession, SessionConfig,
+    prepare_direct_session, DirectSessionCreationInputs, DirectSessionRequest,
+    PreparedPersistedDirectSession, SessionConfig,
   };
   use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
+  use std::time::Duration;
   use tokio::sync::mpsc;
 
   use crate::connectors::codex_session::CodexAction;
   use crate::domain::sessions::session::SessionHandle;
+  use crate::runtime::session_runtime_helpers::{
+    verify_direct_runtime_ready_snapshot, verify_direct_runtime_ready_with_startup_grace,
+  };
   use crate::support::test_support::new_test_session_registry;
 
   #[test]
@@ -538,7 +520,7 @@ mod tests {
   #[tokio::test]
   async fn verify_direct_runtime_ready_requires_registered_actor() {
     let state = new_test_session_registry(true);
-    let error = verify_direct_runtime_ready(&state, "missing-session", Provider::Codex)
+    let error = verify_direct_runtime_ready_snapshot(&state, "missing-session", Provider::Codex)
       .expect_err("missing actor should fail readiness");
     assert!(error.contains("was not registered"));
   }
@@ -555,7 +537,7 @@ mod tests {
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     state.add_session(handle);
 
-    let error = verify_direct_runtime_ready(&state, session_id, Provider::Codex)
+    let error = verify_direct_runtime_ready_snapshot(&state, session_id, Provider::Codex)
       .expect_err("missing action channel should fail readiness");
     assert!(error.contains("has no action channel"));
   }
@@ -574,7 +556,36 @@ mod tests {
     let (tx, _rx) = mpsc::channel::<CodexAction>(1);
     state.set_codex_action_tx(session_id, tx);
 
-    verify_direct_runtime_ready(&state, session_id, Provider::Codex)
+    verify_direct_runtime_ready_snapshot(&state, session_id, Provider::Codex)
       .expect("active direct open session should satisfy readiness");
+  }
+
+  #[tokio::test]
+  async fn verify_direct_runtime_ready_with_startup_grace_rejects_early_channel_close() {
+    let state = new_test_session_registry(true);
+    let session_id = "readiness-early-close";
+    let mut handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/readiness-early-close".to_string(),
+    );
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    state.add_session(handle);
+    let (tx, rx) = mpsc::channel::<CodexAction>(1);
+    state.set_codex_action_tx(session_id, tx);
+    tokio::spawn(async move {
+      tokio::time::sleep(Duration::from_millis(10)).await;
+      drop(rx);
+    });
+
+    let error = verify_direct_runtime_ready_with_startup_grace(
+      &state,
+      session_id,
+      Provider::Codex,
+      Duration::from_millis(100),
+    )
+    .await
+    .expect_err("early channel closure should fail readiness");
+    assert!(error.contains("closed during startup grace period"));
   }
 }
