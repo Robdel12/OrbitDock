@@ -612,18 +612,8 @@ jobs:
 
           upload_asset() {
             local file="$1"
-            local asset_name existing_asset_id
             [[ -f "$file" ]] || return 0
-            asset_name="$(basename "$file")"
-            existing_asset_id="$(gh api "/repos/${GH_REPO}/releases/${release_id}/assets" --jq ".[] | select(.name == \"${asset_name}\") | .id" | head -n 1 || true)"
-            if [[ -n "${existing_asset_id:-}" ]]; then
-              gh api --method DELETE "/repos/${GH_REPO}/releases/assets/${existing_asset_id}" >/dev/null
-            fi
-            gh api \
-              --method POST \
-              "/repos/${GH_REPO}/releases/${release_id}/assets?name=${asset_name}" \
-              --header 'Content-Type: application/octet-stream' \
-              --input "$file" >/dev/null
+            gh release upload "$TAG_NAME" "$file" --repo "$GH_REPO" --clobber >/dev/null
           }
 
           mapfile -t release_assets < <(
