@@ -3,6 +3,11 @@ import Foundation
 @MainActor
 @Observable
 final class ControlDeckViewModel {
+  private struct BindingContext {
+    let sessionId: String
+    let store: SessionStore
+  }
+
   // MARK: - Deck-native state (no Server* types)
 
   private(set) var snapshot: ControlDeckSnapshot?
@@ -31,28 +36,36 @@ final class ControlDeckViewModel {
   // MARK: - Bootstrap
 
   func refresh() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let binding = currentBindingContext else { return }
+    let sessionId = binding.sessionId
+    let store = binding.store
     print("[ResumeTrace] VM refresh start sid=\(sessionId)")
     netLog(.debug, cat: .store, "ControlDeck refresh started", sid: sessionId)
 
     isLoading = true
     lastError = nil
+    defer {
+      if isCurrent(binding) {
+        isLoading = false
+      }
+    }
 
     do {
       let serverSnapshot = try await store.fetchControlDeckSnapshot(sessionId: sessionId)
+      guard isCurrent(binding) else { return }
       applySnapshotPayload(serverSnapshot)
-      await loadCodexModelsIfNeeded(for: serverSnapshot.state.provider)
+      await loadCodexModelsIfNeeded(for: serverSnapshot.state.provider, binding: binding)
+      guard isCurrent(binding) else { return }
       print("[ResumeTrace] VM refresh finish sid=\(sessionId)")
       netLog(.debug, cat: .store, "ControlDeck refresh finished", sid: sessionId)
     } catch {
+      guard isCurrent(binding) else { return }
       lastError = String(describing: error)
       print("[ResumeTrace] VM refresh failed sid=\(sessionId) error=\(String(describing: error))")
       netLog(.error, cat: .store, "ControlDeck refresh failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
     }
-
-    isLoading = false
   }
 
   // MARK: - Skills
@@ -114,7 +127,9 @@ final class ControlDeckViewModel {
   }
 
   func resumeSession() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let binding = currentBindingContext else { return }
+    let sessionId = binding.sessionId
+    let store = binding.store
     guard !isResuming else { return }
     isResuming = true
     print(
@@ -126,9 +141,14 @@ final class ControlDeckViewModel {
       "acceptsUserInput": acceptsUserInput,
       "steerable": steerable,
     ])
-    defer { isResuming = false }
+    defer {
+      if isCurrent(binding) {
+        isResuming = false
+      }
+    }
     do {
       try await store.resumeSession(sessionId)
+      guard isCurrent(binding) else { return }
       syncApproval()
       print(
         "[ResumeTrace] VM resume sync sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) mode=\(presentation?.mode.debugLabel ?? "nil")"
@@ -210,6 +230,10 @@ final class ControlDeckViewModel {
 
   /// Call from a task that observes session changes to keep approval in sync.
   func syncApproval() {
+    syncApproval(mergeSessionState: true)
+  }
+
+  func syncApproval(mergeSessionState: Bool) {
     guard let sessionId = currentSessionId, let store = currentSessionStore else {
       pendingApproval = nil
       controlMode = .passive
@@ -230,8 +254,7 @@ final class ControlDeckViewModel {
       pendingApproval = nil
     }
 
-    // Sync live session flags into the snapshot so mode resolves correctly
-    if let snap = snapshot {
+    if mergeSessionState, let snap = snapshot {
       let resolvedProjectPath = session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
       let projectPath = resolvedProjectPath.isEmpty ? snap.state.projectPath : resolvedProjectPath
       let currentCwd = nonEmpty(session.currentCwd) ?? snap.state.currentCwd
@@ -463,7 +486,7 @@ final class ControlDeckViewModel {
     lifecycle = mapped.state.lifecycle
     acceptsUserInput = mapped.state.acceptsUserInput
     steerable = mapped.state.steerable
-    syncApproval()
+    syncApproval(mergeSessionState: false)
   }
 
   private func logSessionStateIfChanged(source: String) {
@@ -495,17 +518,36 @@ final class ControlDeckViewModel {
     }
   }
 
-  private func loadCodexModelsIfNeeded(for provider: ServerProvider) async {
-    guard provider == .codex, let store = currentSessionStore else { return }
+  private var currentBindingContext: BindingContext? {
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return nil }
+    return BindingContext(sessionId: sessionId, store: store)
+  }
+
+  private func isCurrent(_ binding: BindingContext) -> Bool {
+    currentSessionId == binding.sessionId && currentSessionStore === binding.store
+  }
+
+  private func loadCodexModelsIfNeeded(for provider: ServerProvider, binding: BindingContext) async {
+    guard provider == .codex else {
+      if isCurrent(binding) {
+        rebuildPresentation()
+      }
+      return
+    }
+
+    guard isCurrent(binding) else { return }
+    let store = binding.store
     guard store.codexModels.isEmpty else {
       rebuildPresentation()
       return
     }
 
     if let models = try? await store.clients.usage.listCodexModels() {
+      guard isCurrent(binding) else { return }
       store.codexModels = models
     }
 
+    guard isCurrent(binding) else { return }
     rebuildPresentation()
   }
 

@@ -29,12 +29,12 @@ use crate::runtime::session_runtime_helpers::verify_direct_runtime_ready_snapsho
 use crate::runtime::session_takeover::{
   takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
-use std::time::Duration;
 use orbitdock_protocol::CodexApprovalsReviewer;
 use orbitdock_protocol::{
   CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
   ServerMessage,
 };
+use std::time::Duration;
 use tracing::{error, info};
 
 fn resolve_developer_instructions(
@@ -312,17 +312,17 @@ fn create_codex_selection(
   });
 
   Some(codex_overrides)
-  .zip(codex_config_source)
-  .map(|(overrides, source)| {
-    CodexConfigSelection {
-      config_source: source,
-      config_mode,
-      config_profile: body.codex_config_profile.clone(),
-      model_provider: body.codex_model_provider.clone(),
-      overrides,
-    }
-    .normalized()
-  })
+    .zip(codex_config_source)
+    .map(|(overrides, source)| {
+      CodexConfigSelection {
+        config_source: source,
+        config_mode,
+        config_profile: body.codex_config_profile.clone(),
+        model_provider: body.codex_model_provider.clone(),
+        overrides,
+      }
+      .normalized()
+    })
 }
 
 pub async fn create_session(
