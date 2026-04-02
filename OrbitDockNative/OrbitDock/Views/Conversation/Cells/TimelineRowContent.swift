@@ -108,13 +108,22 @@ struct TimelineRowContent: View {
         )
 
       case let .notice(notice):
+        let isSettingsNotice = notice.title == "Session settings updated"
+        let noticeIcon = isSettingsNotice
+          ? "gearshape.fill"
+          : (notice.severity == .error ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+        let noticeColor = isSettingsNotice
+          ? Color.textSecondary
+          : (notice.severity == .info ? .feedbackCaution : .statusPermission)
         SemanticInfoRowView(
-          icon: notice.severity == .error ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill",
-          iconColor: notice.severity == .info ? .feedbackCaution : .statusPermission,
+          icon: noticeIcon,
+          iconColor: noticeColor,
           title: notice.title,
           subtitle: nil,
           summary: notice.summary,
-          detail: notice.body
+          detail: notice.body,
+          density: isSettingsNotice ? .compact : .standard,
+          emphasis: isSettingsNotice ? .subtle : .standard
         )
 
       case let .shellCommand(shellCommand):

@@ -35,10 +35,17 @@ struct ControlDeckScreen: View {
   @State private var completionPanelHeight: CGFloat = 0
   @AppStorage("localDictationEnabled") private var localDictationEnabled = true
 
+  private var currentMode: ControlDeckMode {
+    viewModel.presentation?.mode ?? .disabled
+  }
+
   private var canSubmit: Bool {
-    let mode = viewModel.presentation?.mode ?? .disabled
-    let modeAllowsInput = mode == .compose || mode == .steer
-    return modeAllowsInput && draft.hasContent && !isSubmitting
+    let modeAllowsInput = currentMode == .compose || currentMode == .steer
+    return modeAllowsInput && draft.hasContent && !isSubmitting && !viewModel.isResuming
+  }
+
+  private var isInputEnabled: Bool {
+    return (currentMode == .compose || currentMode == .steer) && !isSubmitting && !viewModel.isResuming
   }
 
   private var shouldShowDictation: Bool {
@@ -60,7 +67,7 @@ struct ControlDeckScreen: View {
   }
 
   private var isApprovalMode: Bool {
-    viewModel.presentation?.mode == .approval && viewModel.pendingApproval != nil
+    currentMode == .approval && viewModel.pendingApproval != nil
   }
 
   private var shouldShowCompletionPanel: Bool {
@@ -89,6 +96,23 @@ struct ControlDeckScreen: View {
     sessionStore.session(sessionId)
   }
 
+  private var sessionSyncKey: SessionSyncKey {
+    let session = sessionSnapshot
+    return SessionSyncKey(
+      pendingApprovalId: session.pendingApproval?.id,
+      approvalVersion: session.approvalVersion,
+      workStatus: session.workStatus,
+      lifecycleState: session.lifecycleState,
+      controlMode: session.controlMode,
+      status: session.status,
+      acceptsUserInput: session.acceptsUserInput,
+      steerable: session.steerable,
+      projectPath: session.projectPath,
+      currentCwd: session.currentCwd,
+      branch: session.branch
+    )
+  }
+
   var body: some View {
     Group {
       if viewModel.isLoading, viewModel.snapshot == nil {
@@ -113,28 +137,18 @@ struct ControlDeckScreen: View {
     .onChange(of: viewModel.skills) { _, _ in
       syncSelectedSkillsFromText(draft.text)
     }
-    .onChange(of: sessionSnapshot.pendingApproval?.id) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.approvalVersion) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.workStatus) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.acceptsUserInput) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.steerable) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.projectPath) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.currentCwd) { _, _ in
-      viewModel.syncApproval()
-    }
-    .onChange(of: sessionSnapshot.branch) { _, _ in
+    .onChange(of: sessionSyncKey) { _, _ in
+      print(
+        "[ResumeTrace] Screen session change sid=\(sessionId) lifecycle=\(sessionSyncKey.lifecycleState.rawValue) control=\(sessionSyncKey.controlMode.rawValue) status=\(sessionSyncKey.status.rawValue) work=\(sessionSyncKey.workStatus.rawValue) accepts=\(sessionSyncKey.acceptsUserInput) steerable=\(sessionSyncKey.steerable)"
+      )
+      netLog(.debug, cat: .store, "ControlDeckScreen observed session change", sid: sessionId, data: [
+        "lifecycle": sessionSyncKey.lifecycleState.rawValue,
+        "controlMode": sessionSyncKey.controlMode.rawValue,
+        "status": sessionSyncKey.status.rawValue,
+        "workStatus": sessionSyncKey.workStatus.rawValue,
+        "acceptsUserInput": sessionSyncKey.acceptsUserInput,
+        "steerable": sessionSyncKey.steerable,
+      ])
       viewModel.syncApproval()
     }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
@@ -163,6 +177,8 @@ struct ControlDeckScreen: View {
       draft: $draft,
       focusState: $focusState,
       isSubmitting: isSubmitting,
+      isResuming: viewModel.isResuming,
+      isInputEnabled: isInputEnabled,
       canSubmit: canSubmit,
       presentation: viewModel.presentation,
       pendingApproval: viewModel.pendingApproval,
@@ -436,7 +452,7 @@ struct ControlDeckScreen: View {
   private func submitDraft() {
     guard draft.hasContent, !isSubmitting else { return }
 
-    let shouldSteer = viewModel.presentation?.mode == .steer || isSessionWorking
+    let shouldSteer = currentMode == .steer || isSessionWorking
     isSubmitting = true
     let currentDraft = draft
 
@@ -480,6 +496,15 @@ struct ControlDeckScreen: View {
 
   private func resumeSession() {
     guard !isSubmitting else { return }
+    print(
+      "[ResumeTrace] Screen resume tapped sid=\(sessionId) isSubmitting=\(isSubmitting) isResuming=\(viewModel.isResuming) mode=\(debugModeLabel(viewModel.presentation?.mode)) canResume=\(viewModel.presentation?.canResume ?? false)"
+    )
+    netLog(.info, cat: .store, "ControlDeckScreen resume tapped", sid: sessionId, data: [
+      "isSubmitting": isSubmitting,
+      "isResuming": viewModel.isResuming,
+      "presentationMode": debugModeLabel(viewModel.presentation?.mode),
+      "canResume": viewModel.presentation?.canResume ?? false,
+    ])
     Task { await viewModel.resumeSession() }
   }
 
@@ -565,6 +590,16 @@ struct ControlDeckScreen: View {
     return (props[kCGImagePropertyPixelWidth] as? Int, props[kCGImagePropertyPixelHeight] as? Int)
   }
 
+  private func debugModeLabel(_ mode: ControlDeckMode?) -> String {
+    guard let mode else { return "nil" }
+    switch mode {
+      case .compose: return "compose"
+      case .steer: return "steer"
+      case .approval: return "approval"
+      case .disabled: return "disabled"
+    }
+  }
+
   // MARK: - Dictation
 
   private func toggleDictation() {
@@ -617,6 +652,20 @@ struct ControlDeckScreen: View {
     // (user edits during dictation are in the base region)
     current.hasPrefix(base) ? base : current
   }
+}
+
+private struct SessionSyncKey: Equatable {
+  let pendingApprovalId: String?
+  let approvalVersion: UInt64
+  let workStatus: Session.WorkStatus
+  let lifecycleState: ServerSessionLifecycleState
+  let controlMode: ServerSessionControlMode
+  let status: Session.SessionStatus
+  let acceptsUserInput: Bool
+  let steerable: Bool
+  let projectPath: String
+  let currentCwd: String?
+  let branch: String?
 }
 
 private struct ControlDeckWidthPreferenceKey: PreferenceKey {

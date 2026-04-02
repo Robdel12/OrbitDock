@@ -11,6 +11,7 @@ struct ControlDeckStatusBar: View {
   var canSubmit: Bool = false
   var canResume: Bool = false
   var isSubmitting: Bool = false
+  var isResuming: Bool = false
   var sendTint: String = "accent"
   var onAddImage: (() -> Void)?
   var onPasteImage: (() -> Void)?
@@ -66,6 +67,15 @@ struct ControlDeckStatusBar: View {
     #else
       28
     #endif
+  }
+
+  private func isControlModule(_ module: ControlDeckStatusModuleItem) -> Bool {
+    switch module.id {
+      case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort:
+        return true
+      default:
+        return false
+    }
   }
 
   var body: some View {
@@ -201,13 +211,33 @@ struct ControlDeckStatusBar: View {
       .accessibilityLabel("Stop")
     } else if canResume {
       Button(action: { onResume?() }) {
-        Image(systemName: "play.fill")
-          .font(.system(size: TypeScale.caption, weight: .bold))
-          .frame(width: sendButtonSize, height: sendButtonSize)
-          .foregroundStyle(Color.feedbackWarning)
-          .background(Color.feedbackWarning.opacity(OpacityTier.light), in: Circle())
+        HStack(spacing: Spacing.xxs) {
+          if isResuming {
+            ProgressView()
+              .controlSize(.mini)
+              .tint(Color.feedbackWarning)
+          } else {
+            Image(systemName: "play.fill")
+              .font(.system(size: TypeScale.caption, weight: .bold))
+          }
+          Text("Resume")
+            .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
+            .lineLimit(1)
+        }
+        .foregroundStyle(Color.feedbackWarning)
+        .padding(.horizontal, Spacing.sm)
+        .frame(height: sendButtonSize)
+        .background(
+          Capsule()
+            .fill(Color.feedbackWarning.opacity(OpacityTier.light))
+            .overlay(
+              Capsule()
+                .strokeBorder(Color.feedbackWarning.opacity(0.25), lineWidth: 1)
+            )
+        )
       }
       .buttonStyle(.plain)
+      .disabled(isResuming)
       .accessibilityLabel("Resume")
     } else {
       Button(action: { onSubmit?() }) {
@@ -343,7 +373,7 @@ struct ControlDeckStatusBar: View {
   }
 
   private func controlModuleRow(_ modules: [ControlDeckStatusModuleItem]) -> some View {
-    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.xs) {
+    HStack(spacing: Spacing.xs) {
       ForEach(modules) { module in
         moduleView(module)
       }
@@ -351,7 +381,7 @@ struct ControlDeckStatusBar: View {
   }
 
   private func metadataModuleRow(_ modules: [ControlDeckStatusModuleItem]) -> some View {
-    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.xs) {
+    HStack(spacing: Spacing.xs) {
       ForEach(Array(modules.enumerated()), id: \.element.id) { index, module in
         if index > 0 {
           Text("\u{00B7}")
@@ -365,25 +395,11 @@ struct ControlDeckStatusBar: View {
   }
 
   private var controlModules: [ControlDeckStatusModuleItem] {
-    modules.filter { module in
-      switch module.id {
-        case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort:
-          true
-        default:
-          false
-      }
-    }
+    modules.filter { isControlModule($0) }
   }
 
   private var metadataModules: [ControlDeckStatusModuleItem] {
-    modules.filter { module in
-      switch module.id {
-        case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort:
-          false
-        default:
-          true
-      }
-    }
+    modules.filter { !isControlModule($0) }
   }
 
   private func specializedControlView(_ module: ControlDeckStatusModuleItem) -> AnyView? {

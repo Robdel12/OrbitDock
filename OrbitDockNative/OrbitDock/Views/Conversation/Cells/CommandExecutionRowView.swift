@@ -20,40 +20,64 @@ struct CommandExecutionRowView: View {
     sizeClass == .compact
   }
 
+  private var actionCount: Int {
+    row.commandActions.count
+  }
+
   private var semanticSummary: String {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
-      return row.commandActions.count == 1 ? "Read file" : "Read \(row.commandActions.count) files"
+    if isReadOnlyActionSet {
+      return actionCount == 1 ? "Read file" : "Read \(actionCount) files"
     }
-    if row.commandActions.allSatisfy({ $0.type == .search }) {
-      return row.commandActions.count == 1 ? "Search files" : "Search across files"
+    if isSearchOnlyActionSet {
+      return actionCount == 1 ? "Search files" : "Search across files"
     }
-    if row.commandActions.allSatisfy({ $0.type == .listFiles }) {
-      return row.commandActions.count == 1 ? "List files" : "List file groups"
+    if isListFilesOnlyActionSet {
+      return actionCount == 1 ? "List files" : "List file groups"
     }
     return "Run command"
   }
 
   private var semanticIcon: String {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
+    if isReadOnlyActionSet {
       return "doc.text.fill"
     }
-    if row.commandActions.allSatisfy({ $0.type == .search }) {
+    if isSearchOnlyActionSet {
       return "magnifyingglass"
     }
-    if row.commandActions.allSatisfy({ $0.type == .listFiles }) {
+    if isListFilesOnlyActionSet {
       return "folder.fill"
     }
     return "terminal"
   }
 
   private var semanticColor: Color {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
+    if isReadOnlyActionSet {
       return .toolRead
     }
-    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
+    if isSearchOnlyActionSet || isListFilesOnlyActionSet {
       return .toolSearch
     }
     return .toolBash
+  }
+
+  private func commandActionTypesMatch(_ types: [ServerConversationCommandActionType]) -> Bool {
+    row.commandActions.allSatisfy { types.contains($0.type) }
+  }
+
+  private var isReadOnlyActionSet: Bool {
+    commandActionTypesMatch([.read])
+  }
+
+  private var isSearchOnlyActionSet: Bool {
+    commandActionTypesMatch([.search])
+  }
+
+  private var isListFilesOnlyActionSet: Bool {
+    commandActionTypesMatch([.listFiles])
+  }
+
+  private var isGenericCommandExecution: Bool {
+    !(isReadOnlyActionSet || isSearchOnlyActionSet || isListFilesOnlyActionSet)
   }
 
   private var statusColor: Color {
@@ -107,9 +131,16 @@ struct CommandExecutionRowView: View {
   }
 
   private var supportingText: String? {
+    if isGenericCommandExecution {
+      let commandSummary = normalizedInlineText(row.command, limit: 84)
+      if !commandSummary.isEmpty {
+        return commandSummary
+      }
+    }
+
     let actions = row.commandActions
 
-    if actions.allSatisfy({ $0.type == .search }) {
+    if isSearchOnlyActionSet {
       if let query = actions
         .compactMap({ $0.query })
         .map({ normalizedInlineText($0, limit: 72) })
@@ -144,19 +175,37 @@ struct CommandExecutionRowView: View {
   }
 
   private var previewLines: [String] {
+    let baseLines: [String]
     if let lines = preview?.lines, !lines.isEmpty {
-      return lines
+      baseLines = lines
+    } else {
+      let source = row.aggregatedOutput ?? row.liveOutputPreview
+      guard let source else {
+        return leadingCommandPreviewLine.map { [$0] } ?? []
+      }
+
+      baseLines = source
+        .components(separatedBy: .newlines)
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .suffix(2)
+        .map { normalizedInlineText($0, limit: 180) }
     }
 
-    let source = row.aggregatedOutput ?? row.liveOutputPreview
-    guard let source else { return [] }
+    guard let commandLine = leadingCommandPreviewLine else {
+      return baseLines
+    }
+    if baseLines.contains(where: { normalizedInlineText($0, limit: 180) == commandLine }) {
+      return baseLines
+    }
+    return [commandLine] + baseLines
+  }
 
-    return source
-      .components(separatedBy: .newlines)
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-      .suffix(2)
-      .map { normalizedInlineText($0, limit: 180) }
+  private var leadingCommandPreviewLine: String? {
+    guard isGenericCommandExecution else { return nil }
+    let command = normalizedInlineText(row.command, limit: 170)
+    guard !command.isEmpty else { return nil }
+    return "$ \(command)"
   }
 
   private var expandedOutput: String? {
@@ -187,7 +236,7 @@ struct CommandExecutionRowView: View {
   }
 
   private var usesSearchPreviewStyle: Bool {
-    preview?.kind == .searchMatches || (preview == nil && row.commandActions.allSatisfy({ $0.type == .search }))
+    preview?.kind == .searchMatches || (preview == nil && isSearchOnlyActionSet)
   }
 
   private var usesStatusPreviewStyle: Bool {
@@ -195,7 +244,7 @@ struct CommandExecutionRowView: View {
   }
 
   private var usesDiffPreviewStyle: Bool {
-    preview?.kind == .diff
+    preview?.kind == .diff && !isGenericCommandExecution
   }
 
   var body: some View {

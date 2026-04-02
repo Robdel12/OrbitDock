@@ -35,6 +35,7 @@ extension SessionStore {
       let response = try await clients.controlDeck.submitTurn(sessionId, request: request)
       session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
       triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: request.text)
+      await reconcileConversationState(sessionId: sessionId)
     } catch {
       netLog(
         .error,
@@ -79,6 +80,7 @@ extension SessionStore {
     do {
       let response = try await clients.conversation.sendMessage(sessionId, request: request)
       session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
+      await reconcileConversationState(sessionId: sessionId)
     } catch {
       netLog(
         .error,
@@ -104,6 +106,7 @@ extension SessionStore {
     request.mentions = mentions
     let response = try await clients.conversation.steerTurn(sessionId, request: request)
     session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
+    await reconcileConversationState(sessionId: sessionId)
   }
 
   func approveTool(
@@ -176,9 +179,32 @@ extension SessionStore {
   }
 
   func resumeSession(_ sessionId: String) async throws {
+    netLog(.info, cat: .store, "Resume session requested", sid: sessionId)
     let response = try await clients.sessions.resumeSession(sessionId)
+    netLog(.info, cat: .store, "Resume session response received", sid: sessionId, data: [
+      "status": response.session.status.rawValue,
+      "workStatus": response.session.workStatus.rawValue,
+      "controlMode": response.session.controlMode.rawValue,
+      "lifecycleState": response.session.lifecycleState.rawValue,
+      "acceptsUserInput": response.session.acceptsUserInput,
+      "steerable": response.session.steerable,
+    ])
     let obs = session(sessionId)
     obs.applyResumeSummary(response.session)
+    netLog(.info, cat: .store, "Resume summary applied to observable", sid: sessionId, data: [
+      "status": obs.status.rawValue,
+      "workStatus": obs.workStatus.rawValue,
+      "controlMode": obs.controlMode.rawValue,
+      "lifecycleState": obs.lifecycleState.rawValue,
+      "acceptsUserInput": obs.acceptsUserInput,
+      "steerable": obs.steerable,
+    ])
+    // Resume can coincide with transient WS disconnects. Reassert subscription
+    // so the active screen gets fresh bootstrap/state without requiring
+    // dashboard navigation.
+    subscribeToSession(sessionId, forceRecovery: true)
+    await reconcileConversationState(sessionId: sessionId)
+    netLog(.info, cat: .store, "Resume triggered session resubscribe", sid: sessionId)
   }
 
   func endSession(_ sessionId: String) async throws {
@@ -577,6 +603,10 @@ extension SessionStore {
     for (_, observable) in _sessionObservables where !subscribedSessions.contains(observable.id) {
       observable.trimInactiveDetailPayloads()
     }
+  }
+
+  private func reconcileConversationState(sessionId: String) async {
+    _ = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
   }
 
   // MARK: - Local Conversation Naming

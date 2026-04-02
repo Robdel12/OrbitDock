@@ -7,7 +7,8 @@ use codex_protocol::protocol::{
 use codex_protocol::request_permissions::RequestPermissionsEvent;
 use orbitdock_connector_core::{ApprovalType, ConnectorEvent};
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, ConversationRow, ConversationRowEntry, ToolDisplayInput, ToolRow,
+  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
+  ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -20,16 +21,8 @@ fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
 }
 
 fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = if row.invocation.is_object() {
-    Some(&row.invocation)
-  } else {
-    None
-  };
-  let result_str = row
-    .result
-    .as_ref()
-    .and_then(|v| v.get("output").and_then(|o| o.as_str()))
-    .map(String::from);
+  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
+  let result_str = extract_compact_result_text(row.result.as_ref());
   row.tool_display = Some(compute_tool_display(ToolDisplayInput {
     kind: row.kind,
     family: row.family,

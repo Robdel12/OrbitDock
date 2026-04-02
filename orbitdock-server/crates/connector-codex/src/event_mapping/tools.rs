@@ -13,9 +13,9 @@ use codex_protocol::protocol::{
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  compute_command_execution_preview, compute_tool_display, CommandExecutionAction,
-  CommandExecutionRow, CommandExecutionStatus, ConversationRow, ConversationRowEntry,
-  ToolDisplayInput, ToolRow,
+  compute_command_execution_preview, compute_tool_display, extract_compact_result_text,
+  CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
+  ConversationRowEntry, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -115,16 +115,8 @@ fn command_preview(
 
 /// Compute and attach tool_display to a ToolRow from its own fields.
 fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = if row.invocation.is_object() {
-    Some(&row.invocation)
-  } else {
-    None
-  };
-  let result_str = row
-    .result
-    .as_ref()
-    .and_then(|v| v.get("output").and_then(|o| o.as_str()))
-    .map(String::from);
+  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
+  let result_str = extract_compact_result_text(row.result.as_ref());
   row.tool_display = Some(compute_tool_display(ToolDisplayInput {
     kind: row.kind,
     family: row.family,

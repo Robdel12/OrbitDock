@@ -29,6 +29,7 @@ use crate::runtime::session_runtime_helpers::verify_direct_runtime_ready_snapsho
 use crate::runtime::session_takeover::{
   takeover_passive_session, TakeoverSessionError, TakeoverSessionInputs,
 };
+use std::time::Duration;
 use orbitdock_protocol::CodexApprovalsReviewer;
 use orbitdock_protocol::{
   CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
@@ -281,7 +282,7 @@ fn create_codex_selection(
     return None;
   }
 
-  Some(CodexSessionOverrides {
+  let codex_overrides = CodexSessionOverrides {
     model: body.model.clone(),
     model_provider: body.codex_model_provider.clone(),
     approval_policy: body.approval_policy.clone().or_else(|| {
@@ -299,20 +300,23 @@ fn create_codex_selection(
     service_tier: body.service_tier.clone(),
     developer_instructions,
     effort: body.effort.clone(),
-  })
+  };
+  let config_mode = body.codex_config_mode.unwrap_or({
+    if body.codex_config_profile.is_some() {
+      CodexConfigMode::Profile
+    } else if body.codex_model_provider.is_some() {
+      CodexConfigMode::Custom
+    } else {
+      CodexConfigMode::Inherit
+    }
+  });
+
+  Some(codex_overrides)
   .zip(codex_config_source)
   .map(|(overrides, source)| {
     CodexConfigSelection {
       config_source: source,
-      config_mode: body.codex_config_mode.unwrap_or({
-        if body.codex_config_profile.is_some() {
-          CodexConfigMode::Profile
-        } else if body.codex_model_provider.is_some() {
-          CodexConfigMode::Custom
-        } else {
-          CodexConfigMode::Inherit
-        }
-      }),
+      config_mode,
       config_profile: body.codex_config_profile.clone(),
       model_provider: body.codex_model_provider.clone(),
       overrides,
@@ -647,19 +651,20 @@ pub async fn update_codex_preferences(
 pub async fn inspect_codex_config(
   Json(body): Json<InspectCodexConfigRequest>,
 ) -> Result<Json<CodexConfigInspectorResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  let config_mode = body.codex_config_mode.unwrap_or({
+    if body.codex_config_profile.is_some() {
+      CodexConfigMode::Profile
+    } else if body.codex_model_provider.is_some() {
+      CodexConfigMode::Custom
+    } else {
+      CodexConfigMode::Inherit
+    }
+  });
   let response = resolve_codex_settings(
     &body.cwd,
     CodexConfigSelection {
       config_source: body.codex_config_source.unwrap_or(CodexConfigSource::User),
-      config_mode: body.codex_config_mode.unwrap_or({
-        if body.codex_config_profile.is_some() {
-          CodexConfigMode::Profile
-        } else if body.codex_model_provider.is_some() {
-          CodexConfigMode::Custom
-        } else {
-          CodexConfigMode::Inherit
-        }
-      }),
+      config_mode,
       config_profile: body.codex_config_profile,
       model_provider: body.codex_model_provider.clone(),
       overrides: CodexSessionOverrides {
@@ -734,36 +739,45 @@ pub async fn resume_session(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<ResumeSessionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  use orbitdock_protocol::{SessionControlMode, SessionStatus};
+  use orbitdock_protocol::{SessionControlMode, SessionLifecycleState, SessionStatus};
 
   if let Some(handle) = state.get_session(&session_id) {
     let snap = handle.snapshot();
     if snap.status == SessionStatus::Active {
-      let is_direct_runtime_ready = snap.control_mode != SessionControlMode::Direct
-        || verify_direct_runtime_ready_snapshot(&state, &session_id, snap.provider).is_ok();
+      let requires_direct_relaunch = snap.control_mode == SessionControlMode::Direct
+        && snap.lifecycle_state == SessionLifecycleState::Resumable;
+      if requires_direct_relaunch {
+        // Active + resumable means the process is present in-memory but not
+        // ready for direct user input. Resume must relaunch instead of
+        // short-circuiting with a stale summary.
+        state.remove_session(&session_id);
+      } else {
+        let is_direct_runtime_ready = snap.control_mode != SessionControlMode::Direct
+          || verify_direct_runtime_ready_snapshot(&state, &session_id, snap.provider).is_ok();
 
-      if is_direct_runtime_ready {
-        let summary = handle
-          .summary()
-          .await
-          .map_err(|error| internal("runtime_error", error))?;
+        if is_direct_runtime_ready {
+          let summary = handle
+            .summary()
+            .await
+            .map_err(|error| internal("runtime_error", error))?;
 
-        if let Some(ref mission_id) = summary.mission_id {
-          crate::runtime::session_mutations::sync_mission_issue_on_resume(
-            &state,
-            &session_id,
-            mission_id,
-          )
-          .await;
+          if let Some(ref mission_id) = summary.mission_id {
+            crate::runtime::session_mutations::sync_mission_issue_on_resume(
+              &state,
+              &session_id,
+              mission_id,
+            )
+            .await;
+          }
+
+          return Ok(Json(ResumeSessionResponse {
+            session_id,
+            session: summary,
+          }));
         }
 
-        return Ok(Json(ResumeSessionResponse {
-          session_id,
-          session: summary,
-        }));
+        state.remove_session(&session_id);
       }
-
-      state.remove_session(&session_id);
     } else {
       state.remove_session(&session_id);
     }
@@ -776,10 +790,22 @@ pub async fn resume_session(
   };
 
   let resume_mission_id = prepared.summary.mission_id.clone();
-  let summary = launch_resumed_session(&state, &session_id, prepared)
+  let launch = launch_resumed_session(&state, &session_id, prepared)
     .await
-    .map_err(map_resume_error)?
-    .summary;
+    .map_err(map_resume_error)?;
+  let mut summary = launch.summary;
+
+  if let Some(startup_ready) = launch.startup_ready {
+    // Wait for resume startup completion so HTTP resume returns authoritative
+    // control flags (open/accepts_user_input) instead of stale persisted
+    // resumable state. Runtime startup itself has a 15s connector timeout.
+    let _ = tokio::time::timeout(Duration::from_secs(16), startup_ready).await;
+    if let Some(handle) = state.get_session(&session_id) {
+      if let Ok(fresh_summary) = handle.summary().await {
+        summary = fresh_summary;
+      }
+    }
+  }
 
   // Mission hook: if this session belongs to a mission,
   // update the linked issue back to running

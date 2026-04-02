@@ -6,6 +6,9 @@ import Testing
 struct SessionStoreReconnectRecoveryTests {
   fileprivate nonisolated static let fixtureServerVersion = "0.9.0"
   fileprivate nonisolated static let fixtureMinimumClientVersion = "0.4.0"
+  fileprivate nonisolated static let recoveredSessionSurfaces: SessionSurfaceSet = Set(
+    ServerSessionSurface.allCases
+  )
 
   @Test func bootstrapFetchIsSingleFlightForTheSameGeneration() async throws {
     let counter = RequestCounter()
@@ -13,8 +16,7 @@ struct SessionStoreReconnectRecoveryTests {
       loader: { request in try await counter.loader(request) },
       connection: SessionStoreConnectionSpy()
     )
-    store.subscribedSessions.insert("session-1")
-    store.connectionGeneration = 3
+    prepareRecoveryStore(store, generation: 3)
 
     async let first = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 3)
     async let second = store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 3)
@@ -34,8 +36,7 @@ struct SessionStoreReconnectRecoveryTests {
     let store = try makeStore(
       loader: { request in try await counter.loader(request) }, connection: connection
     )
-    store.subscribedSessions.insert("session-1")
-    store.connectionGeneration = 4
+    prepareRecoveryStore(store, generation: 4)
 
     async let first: Void = store.ensureSessionRecovery("session-1", generation: 4)
     async let second: Void = store.ensureSessionRecovery("session-1", generation: 4)
@@ -60,9 +61,7 @@ struct SessionStoreReconnectRecoveryTests {
     let store = try makeStore(
       loader: { request in try await counter.loader(request) }, connection: connection
     )
-    store.subscribedSessions.insert("session-1")
-    store.subscribedSessionSurfaces["session-1"] = [.composer]
-    store.connectionGeneration = 5
+    prepareRecoveryStore(store, generation: 5, surfaces: [.composer])
 
     await store.ensureSessionRecovery("session-1", generation: 5)
 
@@ -77,9 +76,7 @@ struct SessionStoreReconnectRecoveryTests {
     let store = try makeStore(
       loader: { request in try await counter.loader(request) }, connection: connection
     )
-    store.subscribedSessions.insert("session-1")
-    store.subscribedSessionSurfaces["session-1"] = [.detail]
-    store.connectionGeneration = 6
+    prepareRecoveryStore(store, generation: 6, surfaces: [.detail])
 
     await store.ensureSessionRecovery("session-1", generation: 6)
     #expect(connection.subscribeCalls.count == 1)
@@ -96,14 +93,70 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(store.recoveredSessionGenerations["session-1"] == 6)
   }
 
+  @Test func forceRecoveryResubscribesEvenWhenSessionWasAlreadyRecovered() async throws {
+    let counter = RequestCounter()
+    let connection = SessionStoreConnectionSpy()
+    let store = try makeStore(
+      loader: { request in try await counter.loader(request) }, connection: connection
+    )
+    prepareRecoveryStore(store, generation: 7, surfaces: Self.recoveredSessionSurfaces)
+
+    await store.ensureSessionRecovery("session-1", generation: 7)
+    let baselineRequests = await counter.conversationRequestCount
+    connection.clearSubscribeCalls()
+
+    store.subscribeToSession("session-1", forceRecovery: true)
+    await store.ensureSessionRecovery("session-1", generation: 7)
+
+    #expect(await counter.conversationRequestCount == baselineRequests + 1)
+    #expect(connection.subscribeCalls.count == 3)
+    #expect(
+      Set(connection.subscribeCalls.map(\.surface))
+        == Set([.detail, .composer, .conversation])
+    )
+  }
+
+  @Test func resumeSessionReconcilesConversationBeforeReturning() async throws {
+    let fixture = ResumeAndConversationMutationFixture()
+    let store = try makeStore(
+      loader: { request in try await fixture.loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    store.connectionGeneration = 8
+
+    try await store.resumeSession("session-1")
+
+    #expect(await fixture.resumeRequestCount == 1)
+    #expect(await fixture.conversationRequestCount == 1)
+    #expect(store.session("session-1").conversationLoaded == true)
+    #expect(store.session("session-1").lifecycleState == .open)
+    #expect(store.session("session-1").acceptsUserInput == true)
+    #expect(store.session("session-1").rowEntries.contains(where: { $0.id == "bootstrap-row-1" }))
+  }
+
+  @Test func sendMessageReconcilesConversationWithBootstrapState() async throws {
+    let fixture = ResumeAndConversationMutationFixture()
+    let store = try makeStore(
+      loader: { request in try await fixture.loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    prepareRecoveryStore(store, generation: 9)
+
+    try await store.sendMessage(sessionId: "session-1", content: "hello from test")
+
+    #expect(await fixture.sendMessageRequestCount == 1)
+    #expect(await fixture.conversationRequestCount == 1)
+    #expect(store.session("session-1").conversationLoaded == true)
+    #expect(store.session("session-1").rowEntries.contains(where: { $0.id == "bootstrap-row-1" }))
+  }
+
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
     let fixture = BlockingBootstrapFixture()
     let store = try makeStore(
       loader: { request in try await fixture.loader(request: request) },
       connection: SessionStoreConnectionSpy()
     )
-    store.subscribedSessions.insert("session-1")
-    store.connectionGeneration = 8
+    prepareRecoveryStore(store, generation: 8)
 
     async let bootstrap = store.hydrateSessionFromHTTPBootstrap(
       sessionId: "session-1", generation: 8
@@ -124,8 +177,7 @@ struct SessionStoreReconnectRecoveryTests {
       loader: { request in try await fixture.loader(request: request) },
       connection: SessionStoreConnectionSpy()
     )
-    store.subscribedSessions.insert("session-1")
-    store.connectionGeneration = 11
+    prepareRecoveryStore(store, generation: 11)
 
     async let bootstrap = store.hydrateSessionFromHTTPBootstrap(
       sessionId: "session-1", generation: 11
@@ -155,8 +207,7 @@ struct SessionStoreReconnectRecoveryTests {
       },
       connection: connection
     )
-    store.subscribedSessions.insert("session-1")
-    store.connectionGeneration = 13
+    prepareRecoveryStore(store, generation: 13)
 
     let result = await store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 13)
 
@@ -176,6 +227,19 @@ struct SessionStoreReconnectRecoveryTests {
       connection: connection,
       endpointId: UUID()
     )
+  }
+
+  private func prepareRecoveryStore(
+    _ store: SessionStore,
+    generation: UInt64,
+    surfaces: SessionSurfaceSet? = nil,
+    sessionId: String = "session-1"
+  ) {
+    store.subscribedSessions.insert(sessionId)
+    if let surfaces {
+      store.subscribedSessionSurfaces[sessionId] = surfaces
+    }
+    store.connectionGeneration = generation
   }
 
   fileprivate nonisolated static func makeHTTPResponse(for url: URL, json: String) -> (
@@ -230,16 +294,95 @@ struct SessionStoreReconnectRecoveryTests {
   }
 
   fileprivate nonisolated static var conversationResponseJSON: String {
+    conversationResponseJSON(rowsJSON: "[]")
+  }
+
+  fileprivate nonisolated static func conversationResponseJSON(rowsJSON: String) -> String {
     """
     {
       "revision": 13,
       "session_id": "session-1",
       "session": \(sessionJSON(revision: 13)),
-      "rows": [],
+      "rows": \(rowsJSON),
       "total_row_count": 0,
       "has_more_before": false,
       "oldest_sequence": null,
       "newest_sequence": null
+    }
+    """
+  }
+
+  fileprivate nonisolated static var resumeSessionResponseJSON: String {
+    """
+    {
+      "session_id": "session-1",
+      "session": \(sessionSummaryJSON)
+    }
+    """
+  }
+
+  fileprivate nonisolated static var sessionSummaryJSON: String {
+    """
+    {
+      "id": "session-1",
+      "provider": "claude",
+      "project_path": "/tmp/project",
+      "project_name": "OrbitDock",
+      "status": "active",
+      "work_status": "waiting",
+      "control_mode": "direct",
+      "lifecycle_state": "open",
+      "accepts_user_input": true,
+      "steerable": false,
+      "token_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cached_tokens": 0,
+        "context_window": 0
+      },
+      "token_usage_snapshot_kind": "unknown",
+      "has_pending_approval": false,
+      "allow_bypass_permissions": false,
+      "is_worktree": false,
+      "unread_count": 0,
+      "display_title": "OrbitDock Session",
+      "list_status": "reply",
+      "summary_revision": 1
+    }
+    """
+  }
+
+  fileprivate nonisolated static var bootstrapRowJSON: String {
+    """
+    {
+      "session_id": "session-1",
+      "sequence": 10,
+      "turn_id": "turn-1",
+      "row": {
+        "row_type": "user",
+        "id": "bootstrap-row-1",
+        "content": "hello from bootstrap",
+        "is_streaming": false
+      }
+    }
+    """
+  }
+
+  fileprivate nonisolated static var sendMessageResponseJSON: String {
+    """
+    {
+      "accepted": true,
+      "row": {
+        "session_id": "session-1",
+        "sequence": 9,
+        "turn_id": "turn-1",
+        "row": {
+          "row_type": "user",
+          "id": "send-row-1",
+          "content": "hello from send",
+          "is_streaming": false
+        }
+      }
     }
     """
   }
@@ -306,6 +449,50 @@ actor RequestCounter {
       for: request.url!,
       json: SessionStoreReconnectRecoveryTests.conversationResponseJSON
     )
+  }
+}
+
+actor ResumeAndConversationMutationFixture {
+  private(set) var conversationRequestCount = 0
+  private(set) var resumeRequestCount = 0
+  private(set) var sendMessageRequestCount = 0
+
+  func loader(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    let path = request.url?.path ?? ""
+
+    if path.hasSuffix("/resume") {
+      resumeRequestCount += 1
+      return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+        for: request.url!,
+        json: SessionStoreReconnectRecoveryTests.resumeSessionResponseJSON
+      )
+    }
+
+    if path.hasSuffix("/messages"), request.httpMethod == "POST" {
+      sendMessageRequestCount += 1
+      return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+        for: request.url!,
+        json: SessionStoreReconnectRecoveryTests.sendMessageResponseJSON
+      )
+    }
+
+    if path.hasSuffix("/conversation") {
+      conversationRequestCount += 1
+      let rowsJSON = "[\(SessionStoreReconnectRecoveryTests.bootstrapRowJSON)]"
+      return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+        for: request.url!,
+        json: SessionStoreReconnectRecoveryTests.conversationResponseJSON(rowsJSON: rowsJSON)
+      )
+    }
+
+    if path.hasSuffix("/approvals") {
+      return SessionStoreReconnectRecoveryTests.makeHTTPResponse(
+        for: request.url!,
+        json: #"{"approvals":[]}"#
+      )
+    }
+
+    throw URLError(.badURL)
   }
 }
 

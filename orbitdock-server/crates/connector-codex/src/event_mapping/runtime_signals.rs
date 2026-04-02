@@ -13,8 +13,8 @@ use codex_protocol::protocol::{
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, ConversationRow, ConversationRowEntry, HandoffRow, HookRow,
-  MessageRowContent, ToolDisplayInput, ToolRow,
+  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
+  HandoffRow, HookRow, MessageRowContent, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{
   HandoffPayload, HookPayload, PlanStepPayload, PlanStepStatus, ToolFamily, ToolKind, ToolStatus,
@@ -32,16 +32,8 @@ fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
 }
 
 fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = if row.invocation.is_object() {
-    Some(&row.invocation)
-  } else {
-    None
-  };
-  let result_str = row
-    .result
-    .as_ref()
-    .and_then(|v| v.get("output").and_then(|o| o.as_str()))
-    .map(String::from);
+  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
+  let result_str = extract_compact_result_text(row.result.as_ref());
   row.tool_display = Some(compute_tool_display(ToolDisplayInput {
     kind: row.kind,
     family: row.family,
@@ -377,11 +369,10 @@ pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorE
 }
 
 pub(crate) fn handle_thread_name_updated(event: ThreadNameUpdatedEvent) -> Vec<ConnectorEvent> {
-  event
-    .thread_name
-    .map(ConnectorEvent::ThreadNameUpdated)
-    .into_iter()
-    .collect()
+  match event.thread_name {
+    Some(thread_name) => vec![ConnectorEvent::ThreadNameUpdated(thread_name)],
+    None => vec![],
+  }
 }
 
 pub(crate) fn handle_shutdown_complete() -> Vec<ConnectorEvent> {

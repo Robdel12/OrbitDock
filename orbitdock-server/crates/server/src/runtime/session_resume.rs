@@ -131,8 +131,7 @@ pub(crate) async fn launch_resumed_session(
           message_count: prepared.row_count,
         },
       )
-      .await;
-      None
+      .await
     }
   };
 

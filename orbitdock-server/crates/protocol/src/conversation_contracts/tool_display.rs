@@ -272,6 +272,63 @@ pub fn compute_tool_display(input: ToolDisplayInput<'_>) -> ToolDisplay {
   }
 }
 
+/// Extract a compact human-readable result string for tool cards.
+///
+/// Preference order:
+/// 1. explicit `summary`
+/// 2. explicit `output`
+/// 3. explicit `raw_output`
+/// 4. scalar string payload
+/// 5. compact JSON serialization of the full result object
+pub fn extract_compact_result_text(result: Option<&serde_json::Value>) -> Option<String> {
+  let result = result?;
+
+  if let Some(summary) = result.get("summary").and_then(|value| value.as_str()) {
+    return Some(summary.to_string());
+  }
+
+  if let Some(output) = result.get("output").and_then(|value| value.as_str()) {
+    return Some(output.to_string());
+  }
+
+  if let Some(raw_output) = result.get("raw_output").and_then(|value| value.as_str()) {
+    return Some(raw_output.to_string());
+  }
+
+  if let Some(text) = result.as_str() {
+    return Some(text.to_string());
+  }
+
+  serde_json::to_string(result).ok()
+}
+
+/// Extract a full human-readable result string for expanded tool content.
+///
+/// Preference order:
+/// 1. explicit `output`
+/// 2. explicit `raw_output`
+/// 3. scalar string payload
+/// 4. pretty JSON serialization of the full result object
+pub fn extract_expanded_result_text(result: Option<&serde_json::Value>) -> Option<String> {
+  let result = result?;
+
+  if let Some(output) = result.get("output").and_then(|value| value.as_str()) {
+    return Some(output.to_string());
+  }
+
+  if let Some(raw_output) = result.get("raw_output").and_then(|value| value.as_str()) {
+    return Some(raw_output.to_string());
+  }
+
+  if let Some(text) = result.as_str() {
+    return Some(text.to_string());
+  }
+
+  serde_json::to_string_pretty(result)
+    .or_else(|_| serde_json::to_string(result))
+    .ok()
+}
+
 // ---------------------------------------------------------------------------
 // Glyph mapping
 // ---------------------------------------------------------------------------
@@ -1429,7 +1486,10 @@ pub fn classify_tool_name(name: &str) -> (ToolFamily, ToolKind) {
 
 #[cfg(test)]
 mod tests {
-  use super::{compute_tool_display, ToolDisplayInput};
+  use super::{
+    compute_tool_display, extract_compact_result_text, extract_expanded_result_text,
+    ToolDisplayInput,
+  };
   use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
 
   #[test]
@@ -1486,6 +1546,27 @@ mod tests {
     assert_eq!(preview.additions, 2);
     assert_eq!(preview.deletions, 0);
     assert_eq!(preview.preview_lines, vec!["let a = 1", "let b = 2"]);
+  }
+
+  #[test]
+  fn compact_result_text_prefers_summary_then_output() {
+    let summary_result = serde_json::json!({
+        "summary": "3 files updated",
+        "raw_output": { "files": 3 }
+    });
+    assert_eq!(
+      extract_compact_result_text(Some(&summary_result)).as_deref(),
+      Some("3 files updated")
+    );
+
+    let output_result = serde_json::json!({
+        "raw_output": { "files": 3 },
+        "output": "done"
+    });
+    assert_eq!(
+      extract_compact_result_text(Some(&output_result)).as_deref(),
+      Some("done")
+    );
   }
 
   // ── Guardian Assessment display tests ────────────────────────────────
@@ -1605,5 +1686,18 @@ mod tests {
     let input = compute_input_display(ToolKind::GuardianAssessment, Some(&invocation)).unwrap();
     assert!(input.contains("\"tool\": \"write\""));
     assert!(input.contains("\"path\": \"/tmp/test.txt\""));
+  }
+
+  #[test]
+  fn expanded_result_text_preserves_structured_payloads() {
+    let payload = serde_json::json!({
+        "status_label": "approved",
+        "risk_level": "low",
+        "risk_score": 12,
+        "rationale": "Local-only command"
+    });
+    let text = extract_expanded_result_text(Some(&payload)).unwrap();
+    assert!(text.contains("\"status_label\": \"approved\""));
+    assert!(text.contains("\"risk_score\": 12"));
   }
 }

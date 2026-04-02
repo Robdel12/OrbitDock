@@ -193,19 +193,25 @@ final class SessionStore {
 
   func subscribeToSession(
     _ sessionId: String,
-    surfaces: SessionSurfaceSet = Set(ServerSessionSurface.allCases)
+    surfaces: SessionSurfaceSet = Set(ServerSessionSurface.allCases),
+    forceRecovery: Bool = false
   ) {
     guard !surfaces.isEmpty else { return }
     let previousSurfaces = subscribedSessionSurfaces[sessionId] ?? []
     let requestedSurfaces = previousSurfaces.union(surfaces)
     let inserted = subscribedSessions.insert(sessionId).inserted
-    if !inserted, requestedSurfaces == previousSurfaces {
+    if !inserted, requestedSurfaces == previousSurfaces, !forceRecovery {
       netLog(.debug, cat: .store, "Already subscribed, skipping", sid: sessionId)
       return
     }
     subscribedSessionSurfaces[sessionId] = requestedSurfaces
+    if forceRecovery {
+      recoveredSessionGenerations.removeValue(forKey: sessionId)
+      removeRecoveredSurfaces(sessionId: sessionId, surfaces: requestedSurfaces)
+    }
     netLog(.info, cat: .store, "Subscribe: HTTP bootstrap + WS", sid: sessionId, data: [
       "surfaces": requestedSurfaces.map(\.rawValue).sorted(),
+      "forceRecovery": forceRecovery,
     ])
 
     Task {
@@ -281,21 +287,12 @@ final class SessionStore {
     if didClearSessionSubscription {
       subscribedSessionSurfaces.removeValue(forKey: sessionId)
       subscribedSessions.remove(sessionId)
-      recoveredSessionGenerations.removeValue(forKey: sessionId)
-      recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
+      clearRecoveredSessionRecoveryState(sessionId: sessionId)
       lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
       cancelInFlightSessionTasks(sessionId)
       trimInactiveSessionPayload(sessionId)
-    } else if var recoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] {
-      for surface in targetSurfaces {
-        recoveredSurfaces.removeValue(forKey: surface)
-      }
-      if recoveredSurfaces.isEmpty {
-        recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
-        recoveredSessionGenerations.removeValue(forKey: sessionId)
-      } else {
-        recoveredSessionSurfaceGenerations[sessionId] = recoveredSurfaces
-      }
+    } else {
+      removeRecoveredSurfaces(sessionId: sessionId, surfaces: targetSurfaces)
     }
 
     for surface in targetSurfaces {
@@ -484,58 +481,87 @@ final class SessionStore {
       return
     }
 
-    let detailRevision = bootstrap?.sharedSurfaceRevision
-    let composerRevision = bootstrap?.sharedSurfaceRevision
-    let conversationRevision = bootstrap?.sharedSurfaceRevision
-    let requestedSurfaces = subscribedSessionSurfaces[sessionId] ?? Set(ServerSessionSurface.allCases)
+    let requestedSurfaces = requestedSurfaces(for: sessionId)
     guard !requestedSurfaces.isEmpty else { return }
     let recoveredSurfaceGenerations = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
-    let surfacesNeedingSubscribe = requestedSurfaces.filter {
-      recoveredSurfaceGenerations[$0] != generation
+    let surfacesInOrder: [ServerSessionSurface] = [.detail, .composer, .conversation]
+    let surfacesNeedingSubscribe = surfacesInOrder.filter {
+      requestedSurfaces.contains($0) && recoveredSurfaceGenerations[$0] != generation
     }
     guard !surfacesNeedingSubscribe.isEmpty else {
       recoveredSessionGenerations[sessionId] = generation
       return
     }
-    var subscribeData: [String: Any] = [
-      "surfaces": surfacesNeedingSubscribe.map(\.rawValue).sorted(),
-      "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
-      "generation": generation,
-      "connectionStatus": String(describing: connection.connectionStatus),
-    ]
-    if surfacesNeedingSubscribe.contains(.detail) {
-      subscribeData["detailRevision"] = detailRevision as Any
-    }
-    if surfacesNeedingSubscribe.contains(.composer) {
-      subscribeData["composerRevision"] = composerRevision as Any
-    }
-    if surfacesNeedingSubscribe.contains(.conversation) {
-      subscribeData["conversationRevision"] = conversationRevision as Any
-    }
-    netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: subscribeData)
-    if surfacesNeedingSubscribe.contains(.detail) {
-      connection.subscribeSessionSurface(sessionId, surface: .detail, sinceRevision: detailRevision)
-    }
-    if surfacesNeedingSubscribe.contains(.composer) {
-      connection.subscribeSessionSurface(sessionId, surface: .composer, sinceRevision: composerRevision)
-    }
-    if surfacesNeedingSubscribe.contains(.conversation) {
-      connection.subscribeSessionSurface(sessionId, surface: .conversation, sinceRevision: conversationRevision)
-    }
-    var updatedRecoveredSurfaces = recoveredSurfaceGenerations
-    for surface in surfacesNeedingSubscribe {
-      updatedRecoveredSurfaces[surface] = generation
-    }
-    recoveredSessionSurfaceGenerations[sessionId] = updatedRecoveredSurfaces
-    recoveredSessionGenerations[sessionId] = generation
+    subscribeRecoveredSurfaces(
+      sessionId: sessionId,
+      generation: generation,
+      bootstrap: bootstrap,
+      surfaces: surfacesNeedingSubscribe
+    )
   }
 
   private func sessionRecoveryComplete(sessionId: String, generation: UInt64) -> Bool {
     guard recoveredSessionGenerations[sessionId] == generation else { return false }
-    let requestedSurfaces = subscribedSessionSurfaces[sessionId] ?? Set(ServerSessionSurface.allCases)
+    let requestedSurfaces = requestedSurfaces(for: sessionId)
     guard !requestedSurfaces.isEmpty else { return false }
     let recoveredSurfaceGenerations = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
     return requestedSurfaces.allSatisfy { recoveredSurfaceGenerations[$0] == generation }
+  }
+
+  private func requestedSurfaces(for sessionId: String) -> SessionSurfaceSet {
+    subscribedSessionSurfaces[sessionId] ?? Set(ServerSessionSurface.allCases)
+  }
+
+  private func removeRecoveredSurfaces(sessionId: String, surfaces: SessionSurfaceSet) {
+    guard var recoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] else { return }
+    for surface in surfaces {
+      recoveredSurfaces.removeValue(forKey: surface)
+    }
+    if recoveredSurfaces.isEmpty {
+      recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
+      recoveredSessionGenerations.removeValue(forKey: sessionId)
+    } else {
+      recoveredSessionSurfaceGenerations[sessionId] = recoveredSurfaces
+    }
+  }
+
+  private func clearRecoveredSessionRecoveryState(sessionId: String) {
+    recoveredSessionGenerations.removeValue(forKey: sessionId)
+    recoveredSessionSurfaceGenerations.removeValue(forKey: sessionId)
+  }
+
+  private func subscribeRecoveredSurfaces(
+    sessionId: String,
+    generation: UInt64,
+    bootstrap: SessionHTTPBootstrap?,
+    surfaces: [ServerSessionSurface]
+  ) {
+    let sharedRevision = bootstrap?.sharedSurfaceRevision
+    var subscribeData: [String: Any] = [
+      "surfaces": surfaces.map(\.rawValue).sorted(),
+      "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
+      "generation": generation,
+      "connectionStatus": String(describing: connection.connectionStatus),
+    ]
+    if surfaces.contains(.detail) {
+      subscribeData["detailRevision"] = sharedRevision as Any
+    }
+    if surfaces.contains(.composer) {
+      subscribeData["composerRevision"] = sharedRevision as Any
+    }
+    if surfaces.contains(.conversation) {
+      subscribeData["conversationRevision"] = sharedRevision as Any
+    }
+    netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: subscribeData)
+    for surface in surfaces {
+      connection.subscribeSessionSurface(sessionId, surface: surface, sinceRevision: sharedRevision)
+    }
+    var updatedRecoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
+    for surface in surfaces {
+      updatedRecoveredSurfaces[surface] = generation
+    }
+    recoveredSessionSurfaceGenerations[sessionId] = updatedRecoveredSurfaces
+    recoveredSessionGenerations[sessionId] = generation
   }
 
   private func cancelInFlightSessionTasks(_ sessionId: String) {

@@ -219,6 +219,9 @@ struct ActivityGroupRowView: View {
         }
         return tool.toolDisplay.toolType.capitalized
       case let .commandExecution(commandExecution):
+        if let command = commandExecutionPrimaryCommand(commandExecution) {
+          return command
+        }
         if let previewLine = commandExecution.preview?.lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
            !previewLine.isEmpty
         {
@@ -279,24 +282,31 @@ struct ActivityGroupRowView: View {
     }
   }
 
+  private func commandExecutionActionTypesMatch(
+    _ row: ServerConversationCommandExecutionRow,
+    _ types: [ServerConversationCommandActionType]
+  ) -> Bool {
+    row.commandActions.allSatisfy { types.contains($0.type) }
+  }
+
   private func commandExecutionTint(_ row: ServerConversationCommandExecutionRow) -> Color {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
+    if commandExecutionActionTypesMatch(row, [.read]) {
       return .toolRead
     }
-    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
+    if commandExecutionActionTypesMatch(row, [.search, .listFiles]) {
       return .toolSearch
     }
     return .toolBash
   }
 
   private func commandExecutionGlyph(_ row: ServerConversationCommandExecutionRow) -> String {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
+    if commandExecutionActionTypesMatch(row, [.read]) {
       return "doc.text.fill"
     }
-    if row.commandActions.allSatisfy({ $0.type == .search }) {
+    if commandExecutionActionTypesMatch(row, [.search]) {
       return "magnifyingglass"
     }
-    if row.commandActions.allSatisfy({ $0.type == .listFiles }) {
+    if commandExecutionActionTypesMatch(row, [.listFiles]) {
       return "folder.fill"
     }
     return "terminal"
@@ -313,6 +323,14 @@ struct ActivityGroupRowView: View {
       case .unknown:
         return "Run command"
     }
+  }
+
+  private func commandExecutionPrimaryCommand(_ row: ServerConversationCommandExecutionRow) -> String? {
+    guard !row.commandActions.isEmpty else { return nil }
+    guard !commandExecutionActionTypesMatch(row, [.read, .search, .listFiles]) else { return nil }
+    let command = row.command.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !command.isEmpty else { return nil }
+    return command
   }
 
   private func nonEmpty(_ text: String?) -> String? {

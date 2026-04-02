@@ -61,6 +61,23 @@ struct SessionTurnDiffSnapshotProjection {
 
 @MainActor
 extension SessionObservable {
+  private func applyServerSessionActivity(
+    status: ServerSessionStatus,
+    workStatus: ServerWorkStatus,
+    controlMode: ServerSessionControlMode,
+    lifecycleState: ServerSessionLifecycleState,
+    acceptsUserInput: Bool,
+    steerable: Bool
+  ) {
+    self.status = status == .active ? .active : .ended
+    self.workStatus = workStatus.toSessionWorkStatus()
+    self.controlMode = controlMode
+    self.lifecycleState = lifecycleState
+    self.acceptsUserInput = acceptsUserInput
+    self.steerable = steerable
+    attentionReason = workStatus.toAttentionReason()
+  }
+
   func applyServerSnapshot(_ state: ServerSessionState) {
     let resolvedProvider = serverProvider(state.provider)
     projectPath = state.projectPath
@@ -83,13 +100,14 @@ extension SessionObservable {
     firstPrompt = state.firstPrompt
     lastMessage = state.lastMessage
     transcriptPath = state.transcriptPath
-    status = state.status == .active ? .active : .ended
-    workStatus = state.workStatus.toSessionWorkStatus()
-    controlMode = state.controlMode
-    lifecycleState = state.lifecycleState
-    acceptsUserInput = state.acceptsUserInput
-    steerable = state.steerable
-    attentionReason = state.workStatus.toAttentionReason()
+    applyServerSessionActivity(
+      status: state.status,
+      workStatus: state.workStatus,
+      controlMode: state.controlMode,
+      lifecycleState: state.lifecycleState,
+      acceptsUserInput: state.acceptsUserInput,
+      steerable: state.steerable
+    )
     lastActivityAt = parseServerTimestamp(state.lastActivityAt)
     inputTokens = Int(state.tokenUsage.inputTokens)
     outputTokens = Int(state.tokenUsage.outputTokens)
@@ -132,18 +150,41 @@ extension SessionObservable {
   /// so the UI reflects the resumed session immediately rather than waiting
   /// for a WS event.
   func applyResumeSummary(_ summary: ServerSessionSummary) {
-    status = summary.status == .active ? .active : .ended
-    workStatus = summary.workStatus.toSessionWorkStatus()
-    controlMode = summary.controlMode
-    lifecycleState = summary.lifecycleState
-    acceptsUserInput = summary.acceptsUserInput
-    steerable = summary.steerable
-    attentionReason = summary.workStatus.toAttentionReason()
+    print(
+      "[ResumeTrace] Observable apply begin sid=\(id) incomingStatus=\(summary.status.rawValue) incomingWork=\(summary.workStatus.rawValue) incomingControl=\(summary.controlMode.rawValue) incomingLifecycle=\(summary.lifecycleState.rawValue) incomingAccepts=\(summary.acceptsUserInput) incomingSteerable=\(summary.steerable)"
+    )
+    netLog(.debug, cat: .store, "SessionObservable applyResumeSummary begin", sid: id, data: [
+      "incomingStatus": summary.status.rawValue,
+      "incomingWorkStatus": summary.workStatus.rawValue,
+      "incomingControlMode": summary.controlMode.rawValue,
+      "incomingLifecycleState": summary.lifecycleState.rawValue,
+      "incomingAcceptsUserInput": summary.acceptsUserInput,
+      "incomingSteerable": summary.steerable,
+    ])
+    applyServerSessionActivity(
+      status: summary.status,
+      workStatus: summary.workStatus,
+      controlMode: summary.controlMode,
+      lifecycleState: summary.lifecycleState,
+      acceptsUserInput: summary.acceptsUserInput,
+      steerable: summary.steerable
+    )
     endedAt = nil
     endReason = nil
     if let m = summary.model { model = m }
     if let e = summary.effort { effort = e }
     if let b = summary.gitBranch { branch = b }
+    print(
+      "[ResumeTrace] Observable apply end sid=\(id) status=\(status.rawValue) work=\(workStatus.rawValue) control=\(controlMode.rawValue) lifecycle=\(lifecycleState.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable)"
+    )
+    netLog(.debug, cat: .store, "SessionObservable applyResumeSummary end", sid: id, data: [
+      "status": status.rawValue,
+      "workStatus": workStatus.rawValue,
+      "controlMode": controlMode.rawValue,
+      "lifecycleState": lifecycleState.rawValue,
+      "acceptsUserInput": acceptsUserInput,
+      "steerable": steerable,
+    ])
   }
 
   /// Apply incremental state changes from a SessionDelta event.

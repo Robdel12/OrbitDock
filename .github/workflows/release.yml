@@ -168,6 +168,7 @@ jobs:
           tag=""
           version=""
           release_title=""
+          build_date="$(date -u +%Y-%m-%d)"
 
           if [[ "$version_mode" == "explicit" ]]; then
             if [[ -z "$requested_version" ]]; then
@@ -221,12 +222,10 @@ jobs:
                 ;;
               nightly)
                 date_stamp="$(date -u +%Y%m%d)"
-                build_date="$(date -u +%Y-%m-%d)"
                 version="${base_version}-nightly.${date_stamp}"
                 tag="nightly"
                 prerelease="true"
                 release_title="🔖 v${version}"
-                echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
                 ;;
               *)
                 echo "error: unsupported channel '$channel'" >&2
@@ -235,10 +234,7 @@ jobs:
             esac
           fi
 
-          if [[ "$channel" != "nightly" ]]; then
-            build_date="$(date -u +%Y-%m-%d)"
-            echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
-          fi
+          echo "build_date=${build_date}" >> "$GITHUB_OUTPUT"
 
           short_sha="$(git rev-parse --short=12 HEAD)"
           date_stamp="$(date -u +%Y%m%d)"
@@ -561,105 +557,93 @@ jobs:
         run: |
           set -euo pipefail
 
-          prerelease_flag=""
-          if [[ "$PRERELEASE" == "true" ]]; then
-            prerelease_flag="--prerelease"
-          fi
-
           notes_file="dist/${APP_NAME}-${VERSION}.md"
           if [[ ! -f "$notes_file" ]]; then
             notes_file="/tmp/notes.md"
             printf "# %s %s\n\nAuto-generated release.\n" "$APP_NAME" "$VERSION" > "$notes_file"
           fi
 
-          draft_flag=""
-          if [[ "$PUBLISH_RELEASE" != "true" && "$TAG_NAME" != "nightly" ]]; then
-            draft_flag="--draft"
-          fi
-
-          if [[ "$TAG_NAME" == "nightly" ]]; then
-            if gh release view nightly --repo "$GH_REPO" >/dev/null 2>&1; then
-              gh api \
-                --method PATCH \
-                "/repos/${GH_REPO}/git/refs/tags/nightly" \
-                -f sha="${RELEASE_SHA}" \
-                -F force=true >/dev/null 2>&1 || \
-              gh api \
-                --method POST \
-                "/repos/${GH_REPO}/git/refs" \
-                -f ref="refs/tags/nightly" \
-                -f sha="${RELEASE_SHA}" >/dev/null
-
-              gh release edit nightly \
-                --repo "$GH_REPO" \
-                --title "$RELEASE_TITLE" \
-                --notes-file "$notes_file" \
-                --prerelease
-            else
-              gh release create nightly \
-                --repo "$GH_REPO" \
-                --target "${RELEASE_SHA}" \
-                --title "$RELEASE_TITLE" \
-                --notes-file "$notes_file" \
-                --prerelease
-            fi
-          else
-            if ! gh release view "$TAG_NAME" --repo "$GH_REPO" >/dev/null 2>&1; then
-              gh release create "$TAG_NAME" \
-                --repo "$GH_REPO" \
-                --target "${RELEASE_SHA}" \
-                --title "$RELEASE_TITLE" \
-                --notes-file "$notes_file" \
-                $prerelease_flag \
-                $draft_flag
-            else
-              gh release edit "$TAG_NAME" \
-                --repo "$GH_REPO" \
-                --title "$RELEASE_TITLE" \
-                --notes-file "$notes_file" \
-                $prerelease_flag
-            fi
-          fi
-
-          release_id="$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json id --jq '.id')"
-          upload_url="$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json uploadUrl --jq '.uploadUrl')"
-          upload_url="${upload_url%\{*}"
-          draft_value="false"
-          if [[ "$PUBLISH_RELEASE" != "true" && "$PUBLISH_RELEASE" != "True" ]]; then
-            draft_value="true"
+          draft_value="true"
+          if [[ "${PUBLISH_RELEASE,,}" == "true" ]]; then
+            draft_value="false"
           fi
           prerelease_value="false"
-          if [[ "$PRERELEASE" == "true" ]]; then
+          if [[ "${PRERELEASE,,}" == "true" ]]; then
             prerelease_value="true"
           fi
 
-          gh api \
-            --method PATCH \
-            "/repos/${GH_REPO}/releases/$release_id" \
-            -F draft="$draft_value" \
-            -F prerelease="$prerelease_value" >/dev/null
+          if [[ "$TAG_NAME" == "nightly" ]]; then
+            gh api \
+              --method PATCH \
+              "/repos/${GH_REPO}/git/refs/tags/nightly" \
+              -f sha="${RELEASE_SHA}" \
+              -F force=true >/dev/null 2>&1 || \
+            gh api \
+              --method POST \
+              "/repos/${GH_REPO}/git/refs" \
+              -f ref="refs/tags/nightly" \
+              -f sha="${RELEASE_SHA}" >/dev/null
+          fi
+
+          if release_id="$(gh api "/repos/${GH_REPO}/releases/tags/${TAG_NAME}" --jq '.id' 2>/dev/null)"; then
+            gh api \
+              --method PATCH \
+              "/repos/${GH_REPO}/releases/${release_id}" \
+              -f tag_name="$TAG_NAME" \
+              -f target_commitish="$RELEASE_SHA" \
+              -f name="$RELEASE_TITLE" \
+              -F body="@${notes_file}" \
+              -F draft="$draft_value" \
+              -F prerelease="$prerelease_value" >/dev/null
+          else
+            release_id="$(
+              gh api \
+                --method POST \
+                "/repos/${GH_REPO}/releases" \
+                -f tag_name="$TAG_NAME" \
+                -f target_commitish="$RELEASE_SHA" \
+                -f name="$RELEASE_TITLE" \
+                -F body="@${notes_file}" \
+                -F draft="$draft_value" \
+                -F prerelease="$prerelease_value" \
+                --jq '.id'
+            )"
+          fi
 
           upload_asset() {
             local file="$1"
             local asset_name existing_asset_id
             [[ -f "$file" ]] || return 0
             asset_name="$(basename "$file")"
-            existing_asset_id="$(gh api "/repos/${GH_REPO}/releases/$release_id/assets" --jq ".[] | select(.name == \"${asset_name}\") | .id" | head -n 1 || true)"
+            existing_asset_id="$(gh api "/repos/${GH_REPO}/releases/${release_id}/assets" --jq ".[] | select(.name == \"${asset_name}\") | .id" | head -n 1 || true)"
             if [[ -n "${existing_asset_id:-}" ]]; then
               gh api --method DELETE "/repos/${GH_REPO}/releases/assets/${existing_asset_id}" >/dev/null
             fi
             gh api \
               --method POST \
-              "${upload_url}?name=${asset_name}" \
+              "/repos/${GH_REPO}/releases/${release_id}/assets?name=${asset_name}" \
               --header 'Content-Type: application/octet-stream' \
               --input "$file" >/dev/null
           }
 
-          if [[ "$PUBLISH_RELEASE" == "true" || "$PUBLISH_RELEASE" == "True" ]]; then
-            shopt -s nullglob
-            for pkg in dist/orbitdock-*.zip; do
-              upload_asset "$pkg"
-              upload_asset "$pkg.sha256"
-            done
-            shopt -u nullglob || true
+          mapfile -t release_assets < <(
+            find dist -maxdepth 1 -type f \
+              \( -name 'orbitdock-*.zip' -o -name 'orbitdock-*.zip.sha256' \) \
+              | sort
+          )
+
+          if [[ "${#release_assets[@]}" -eq 0 ]]; then
+            echo "No server release assets found in dist; skipping upload."
+            exit 0
+          fi
+
+          for asset_path in "${release_assets[@]}"; do
+            upload_asset "$asset_path"
+          done
+
+          if [[ "${PUBLISH_RELEASE,,}" == "true" ]]; then
+            gh api \
+              --method PATCH \
+              "/repos/${GH_REPO}/releases/${release_id}" \
+              -F draft=false >/dev/null
           fi

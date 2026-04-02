@@ -1,6 +1,6 @@
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, ConversationRow, ToolDisplayInput, ToolRow,
+  compute_tool_display, extract_compact_result_text, ConversationRow, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{
   GuardianAssessmentPayload, ToolFamily, ToolInvocationPayload, ToolKind, ToolResultPayload,
@@ -15,12 +15,8 @@ fn tool_row_entry(
 }
 
 fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_json = serde_json::to_value(&row.invocation).ok();
-  let result_text = row.result.as_ref().and_then(|result| {
-    serde_json::to_string(result)
-      .ok()
-      .filter(|text| !text.trim().is_empty())
-  });
+  let invocation_json = row.invocation.is_object().then_some(&row.invocation);
+  let result_text = extract_compact_result_text(row.result.as_ref());
   row.tool_display = Some(compute_tool_display(ToolDisplayInput {
     kind: row.kind,
     family: row.family,
@@ -29,7 +25,7 @@ fn with_display(mut row: ToolRow) -> ToolRow {
     subtitle: row.subtitle.as_deref(),
     summary: row.summary.as_deref(),
     duration_ms: row.duration_ms,
-    invocation_input: invocation_json.as_ref(),
+    invocation_input: invocation_json,
     result_output: result_text.as_deref(),
   }));
   row

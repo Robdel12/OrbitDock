@@ -4,7 +4,7 @@ use crate::conversation_contracts::activity_groups::{ActivityGroupRow, ActivityG
 use crate::conversation_contracts::approvals::{ApprovalRow, QuestionRow};
 use crate::conversation_contracts::render_hints::RenderHints;
 use crate::conversation_contracts::tool_display::{
-  compute_tool_display, ToolDisplay, ToolDisplayInput,
+  compute_tool_display, extract_compact_result_text, ToolDisplay, ToolDisplayInput,
 };
 use crate::conversation_contracts::tool_payloads::{
   ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract,
@@ -329,7 +329,7 @@ pub fn compute_command_execution_preview(
     .filter(|line| is_diff_preview_line(line))
     .cloned()
     .collect();
-  if !diff_lines.is_empty() {
+  if !diff_lines.is_empty() && supports_diff_preview(actions) {
     return Some(preview_from_lines(
       CommandExecutionPreviewKind::Diff,
       &diff_lines,
@@ -429,6 +429,13 @@ fn truncate_preview_line(line: &str, max_chars: usize) -> String {
 fn is_diff_preview_line(line: &str) -> bool {
   (line.starts_with('+') && !line.starts_with("+++"))
     || (line.starts_with('-') && !line.starts_with("---"))
+}
+
+fn supports_diff_preview(actions: &[CommandExecutionAction]) -> bool {
+  !actions.is_empty()
+    && !actions
+      .iter()
+      .all(|action| matches!(action, CommandExecutionAction::Unknown { .. }))
 }
 
 fn is_file_list_preview_line(line: &str) -> bool {
@@ -650,13 +657,7 @@ pub struct ToolRowSummary {
 impl ToolRow {
   pub fn to_summary(&self) -> ToolRowSummary {
     let display = self.tool_display.clone().unwrap_or_else(|| {
-      let result_str = self.result.as_ref().and_then(|value| {
-        value
-          .get("output")
-          .and_then(|output| output.as_str())
-          .or_else(|| value.get("raw_output").and_then(|output| output.as_str()))
-          .or_else(|| value.as_str())
-      });
+      let result_str = extract_compact_result_text(self.result.as_ref());
       compute_tool_display(ToolDisplayInput {
         kind: self.kind,
         family: self.family,
@@ -666,7 +667,7 @@ impl ToolRow {
         summary: self.summary.as_deref(),
         duration_ms: self.duration_ms,
         invocation_input: Some(&self.invocation),
-        result_output: result_str,
+        result_output: result_str.as_deref(),
       })
     });
     ToolRowSummary {
@@ -1076,5 +1077,19 @@ mod tests {
     assert_eq!(preview.kind, CommandExecutionPreviewKind::FileList);
     assert_eq!(preview.lines.len(), 2);
     assert_eq!(preview.overflow_count, Some(1));
+  }
+
+  #[test]
+  fn command_execution_preview_does_not_mark_generic_shell_as_diff() {
+    let preview = compute_command_execution_preview(
+      &[CommandExecutionAction::Unknown {
+        command: "git diff".to_string(),
+      }],
+      Some("+++ b/src/main.rs\n--- a/src/main.rs\n+let value = 42;\n-let value = 7;\n"),
+    )
+    .expect("preview");
+
+    assert_eq!(preview.kind, CommandExecutionPreviewKind::Status);
+    assert_eq!(preview.lines, vec!["-let value = 7;".to_string()]);
   }
 }

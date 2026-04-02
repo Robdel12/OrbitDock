@@ -51,7 +51,13 @@ enum ControlDeckPresentationBuilder {
   }
 
   private static func canResume(state: ControlDeckSessionState) -> Bool {
-    state.controlMode == .direct && (state.lifecycle == .resumable || state.lifecycle == .ended)
+    guard state.controlMode == .direct else { return false }
+    if state.lifecycle == .resumable || state.lifecycle == .ended {
+      return true
+    }
+    // Harden transient state after resume: lifecycle can report open before
+    // acceptsUserInput flips, and we should keep the resume affordance visible.
+    return state.lifecycle == .open && !state.acceptsUserInput
   }
 
   private static func sendTint(for mode: ControlDeckMode) -> String {

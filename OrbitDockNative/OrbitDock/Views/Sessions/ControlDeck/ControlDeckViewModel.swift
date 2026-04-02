@@ -10,12 +10,18 @@ final class ControlDeckViewModel {
   private(set) var pendingApproval: ControlDeckApproval?
   private(set) var skills: [ControlDeckSkill] = []
   private(set) var isLoading = false
+  private(set) var isResuming = false
+  private(set) var controlMode: ControlDeckControlMode = .passive
+  private(set) var lifecycle: ControlDeckLifecycle = .ended
+  private(set) var acceptsUserInput = false
+  private(set) var steerable = false
   var lastError: String?
 
   // MARK: - Binding
 
   @ObservationIgnored private var currentSessionId: String?
   @ObservationIgnored private var currentSessionStore: SessionStore?
+  @ObservationIgnored private var lastLoggedSessionSignature: String?
 
   func bind(sessionId: String, sessionStore: SessionStore) {
     currentSessionId = sessionId
@@ -26,6 +32,8 @@ final class ControlDeckViewModel {
 
   func refresh() async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    print("[ResumeTrace] VM refresh start sid=\(sessionId)")
+    netLog(.debug, cat: .store, "ControlDeck refresh started", sid: sessionId)
 
     isLoading = true
     lastError = nil
@@ -34,8 +42,14 @@ final class ControlDeckViewModel {
       let serverSnapshot = try await store.fetchControlDeckSnapshot(sessionId: sessionId)
       applySnapshotPayload(serverSnapshot)
       await loadCodexModelsIfNeeded(for: serverSnapshot.state.provider)
+      print("[ResumeTrace] VM refresh finish sid=\(sessionId)")
+      netLog(.debug, cat: .store, "ControlDeck refresh finished", sid: sessionId)
     } catch {
       lastError = String(describing: error)
+      print("[ResumeTrace] VM refresh failed sid=\(sessionId) error=\(String(describing: error))")
+      netLog(.error, cat: .store, "ControlDeck refresh failed", sid: sessionId, data: [
+        "error": String(describing: error),
+      ])
     }
 
     isLoading = false
@@ -101,11 +115,40 @@ final class ControlDeckViewModel {
 
   func resumeSession() async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard !isResuming else { return }
+    isResuming = true
+    print(
+      "[ResumeTrace] VM resume start sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable)"
+    )
+    netLog(.info, cat: .store, "ControlDeck resume started", sid: sessionId, data: [
+      "lifecycle": lifecycle.rawValue,
+      "controlMode": controlMode.rawValue,
+      "acceptsUserInput": acceptsUserInput,
+      "steerable": steerable,
+    ])
+    defer { isResuming = false }
     do {
       try await store.resumeSession(sessionId)
-      await refresh()
+      syncApproval()
+      print(
+        "[ResumeTrace] VM resume sync sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) mode=\(presentation?.mode.debugLabel ?? "nil")"
+      )
+      netLog(.info, cat: .store, "ControlDeck resume sync complete", sid: sessionId, data: [
+        "lifecycle": lifecycle.rawValue,
+        "controlMode": controlMode.rawValue,
+        "acceptsUserInput": acceptsUserInput,
+        "steerable": steerable,
+        "mode": presentation?.mode.debugLabel ?? "nil",
+      ])
+      // Keep UI responsive: the resume response already contains enough state
+      // to unlock the deck; fetch snapshot details in the background.
+      Task { await refresh() }
     } catch {
       lastError = String(describing: error)
+      print("[ResumeTrace] VM resume failed sid=\(sessionId) error=\(String(describing: error))")
+      netLog(.error, cat: .store, "ControlDeck resume failed", sid: sessionId, data: [
+        "error": String(describing: error),
+      ])
     }
   }
 
@@ -169,9 +212,18 @@ final class ControlDeckViewModel {
   func syncApproval() {
     guard let sessionId = currentSessionId, let store = currentSessionStore else {
       pendingApproval = nil
+      controlMode = .passive
+      lifecycle = .ended
+      acceptsUserInput = false
+      steerable = false
       return
     }
     let session = store.session(sessionId)
+    controlMode = mapControlMode(session.controlMode)
+    lifecycle = mapLifecycle(session.lifecycleState)
+    acceptsUserInput = session.acceptsUserInput
+    steerable = session.steerable
+
     if let serverApproval = session.pendingApproval {
       pendingApproval = ControlDeckSnapshotMapper.mapApproval(serverApproval)
     } else {
@@ -187,10 +239,10 @@ final class ControlDeckViewModel {
 
       let updatedState = ControlDeckSessionState(
         provider: snap.state.provider,
-        controlMode: snap.state.controlMode,
-        lifecycle: snap.state.lifecycle,
-        acceptsUserInput: session.acceptsUserInput,
-        steerable: session.steerable,
+        controlMode: controlMode,
+        lifecycle: lifecycle,
+        acceptsUserInput: acceptsUserInput,
+        steerable: steerable,
         projectPath: projectPath,
         currentCwd: currentCwd,
         gitBranch: gitBranch,
@@ -207,13 +259,10 @@ final class ControlDeckViewModel {
         tokenStatus: snap.tokenStatus
       )
       snapshot = updatedSnap
-      presentation = ControlDeckPresentationBuilder.build(
-        snapshot: updatedSnap,
-        isLoading: false,
-        hasPendingApproval: pendingApproval != nil,
-        availableModels: availableModels
-      )
     }
+
+    rebuildPresentation()
+    logSessionStateIfChanged(source: "syncApproval")
   }
 
   // MARK: - Approval Actions
@@ -271,13 +320,21 @@ final class ControlDeckViewModel {
 
   // MARK: - Session Config Mutations
 
+  private func updateConfig(
+    sessionId: String,
+    store: SessionStore,
+    configure: (inout ServerControlDeckConfigUpdateRequest) -> Void
+  ) async throws {
+    var request = ServerControlDeckConfigUpdateRequest()
+    configure(&request)
+    let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
+    applySnapshotPayload(updated)
+  }
+
   func updateModel(_ model: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.model = model
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.model = model }
     } catch {
       lastError = String(describing: error)
     }
@@ -286,10 +343,7 @@ final class ControlDeckViewModel {
   func updateEffort(_ effort: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.effort = effort
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.effort = effort }
     } catch {
       lastError = String(describing: error)
     }
@@ -298,10 +352,7 @@ final class ControlDeckViewModel {
   func updatePermissionMode(_ mode: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.permissionMode = mode
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.permissionMode = mode }
     } catch {
       lastError = String(describing: error)
     }
@@ -310,10 +361,7 @@ final class ControlDeckViewModel {
   func updateApprovalPolicy(_ policy: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.approvalPolicy = policy
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.approvalPolicy = policy }
     } catch {
       lastError = String(describing: error)
     }
@@ -322,10 +370,7 @@ final class ControlDeckViewModel {
   func updateApprovalsReviewer(_ reviewer: ServerCodexApprovalsReviewer) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.approvalsReviewer = reviewer
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.approvalsReviewer = reviewer }
     } catch {
       lastError = String(describing: error)
     }
@@ -334,10 +379,7 @@ final class ControlDeckViewModel {
   func updateCollaborationMode(_ mode: String) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.collaborationMode = mode
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) { $0.collaborationMode = mode }
     } catch {
       lastError = String(describing: error)
     }
@@ -349,11 +391,10 @@ final class ControlDeckViewModel {
           let option = snapshot?.capabilities.autoReviewOptions.first(where: { $0.value == value })
     else { return }
     do {
-      var request = ServerControlDeckConfigUpdateRequest()
-      request.approvalPolicy = option.approvalPolicy
-      request.sandboxMode = option.sandboxMode
-      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      applySnapshotPayload(updated)
+      try await updateConfig(sessionId: sessionId, store: store) {
+        $0.approvalPolicy = option.approvalPolicy
+        $0.sandboxMode = option.sandboxMode
+      }
     } catch {
       lastError = String(describing: error)
     }
@@ -416,8 +457,42 @@ final class ControlDeckViewModel {
 
   private func applySnapshotPayload(_ payload: ServerControlDeckSnapshotPayload) {
     lastError = nil
-    snapshot = ControlDeckSnapshotMapper.map(payload)
+    let mapped = ControlDeckSnapshotMapper.map(payload)
+    snapshot = mapped
+    controlMode = mapped.state.controlMode
+    lifecycle = mapped.state.lifecycle
+    acceptsUserInput = mapped.state.acceptsUserInput
+    steerable = mapped.state.steerable
     syncApproval()
+  }
+
+  private func logSessionStateIfChanged(source: String) {
+    let signature = [
+      "source=\(source)",
+      "lifecycle=\(lifecycle.rawValue)",
+      "control=\(controlMode.rawValue)",
+      "accepts=\(acceptsUserInput)",
+      "steerable=\(steerable)",
+      "approval=\(pendingApproval?.requestId ?? "-")",
+      "mode=\(presentation?.mode.debugLabel ?? "nil")",
+    ].joined(separator: "|")
+
+    guard signature != lastLoggedSessionSignature else { return }
+    lastLoggedSessionSignature = signature
+    netLog(.debug, cat: .store, "ControlDeck session state updated", sid: currentSessionId, data: [
+      "source": source,
+      "lifecycle": lifecycle.rawValue,
+      "controlMode": controlMode.rawValue,
+      "acceptsUserInput": acceptsUserInput,
+      "steerable": steerable,
+      "pendingApprovalId": pendingApproval?.requestId ?? "",
+      "presentationMode": presentation?.mode.debugLabel ?? "nil",
+    ])
+    if let sid = currentSessionId {
+      print(
+        "[ResumeTrace] VM state sid=\(sid) source=\(source) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) approval=\(pendingApproval?.requestId ?? "-") mode=\(presentation?.mode.debugLabel ?? "nil")"
+      )
+    }
   }
 
   private func loadCodexModelsIfNeeded(for provider: ServerProvider) async {
@@ -446,6 +521,32 @@ final class ControlDeckViewModel {
       hasPendingApproval: pendingApproval != nil,
       availableModels: availableModels
     )
+  }
+
+  private func mapControlMode(_ mode: ServerSessionControlMode) -> ControlDeckControlMode {
+    switch mode {
+      case .direct: .direct
+      case .passive: .passive
+    }
+  }
+
+  private func mapLifecycle(_ lifecycle: ServerSessionLifecycleState) -> ControlDeckLifecycle {
+    switch lifecycle {
+      case .open: .open
+      case .resumable: .resumable
+      case .ended: .ended
+    }
+  }
+}
+
+private extension ControlDeckMode {
+  var debugLabel: String {
+    switch self {
+      case .compose: "compose"
+      case .steer: "steer"
+      case .approval: "approval"
+      case .disabled: "disabled"
+    }
   }
 }
 

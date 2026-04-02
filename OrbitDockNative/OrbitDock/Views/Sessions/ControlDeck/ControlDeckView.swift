@@ -11,6 +11,8 @@ struct ControlDeckView: View {
   @Binding var draft: ControlDeckDraft
   @Binding var focusState: ControlDeckFocusState
   let isSubmitting: Bool
+  let isResuming: Bool
+  let isInputEnabled: Bool
   let canSubmit: Bool
   let presentation: ControlDeckPresentation?
   let pendingApproval: ControlDeckApproval?
@@ -52,8 +54,12 @@ struct ControlDeckView: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+  private var currentMode: ControlDeckMode {
+    presentation?.mode ?? .disabled
+  }
+
   private var isApprovalMode: Bool {
-    presentation?.mode == .approval && pendingApproval != nil
+    currentMode == .approval && pendingApproval != nil
   }
 
   private var isCompactIOS: Bool {
@@ -131,11 +137,12 @@ struct ControlDeckView: View {
           modules: presentation.statusModules,
           onModuleAction: onModuleAction,
           onApprovalReviewerAction: onApprovalReviewerAction,
-          supportsImages: !isApprovalMode && (presentation.supportsImages),
-          canPasteImage: !isApprovalMode && canPasteImage(),
+          supportsImages: !isApprovalMode && isInputEnabled && presentation.supportsImages,
+          canPasteImage: !isApprovalMode && isInputEnabled && canPasteImage(),
           canSubmit: !isApprovalMode && canSubmit,
           canResume: !isApprovalMode && (presentation.canResume),
           isSubmitting: isSubmitting,
+          isResuming: isResuming,
           sendTint: presentation.sendTint,
           onAddImage: onAddImage,
           onPasteImage: { _ = onPasteImage() },
@@ -160,7 +167,7 @@ struct ControlDeckView: View {
   }
 
   private var isSteerMode: Bool {
-    presentation?.mode == .steer
+    currentMode == .steer
   }
 
   private var isWorkingHighlight: Bool {
@@ -264,7 +271,7 @@ struct ControlDeckView: View {
         blurRequestSignal: $focusState.blurRequestSignal,
         moveCursorToEndSignal: $focusState.moveCursorToEndSignal,
         measuredHeight: $focusState.measuredHeight,
-        isEnabled: !isSubmitting,
+        isEnabled: isInputEnabled,
         minLines: 1,
         maxLines: 8,
         onPasteImage: onPasteImage,

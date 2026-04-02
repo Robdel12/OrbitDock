@@ -217,7 +217,7 @@ struct ToolCardView: View {
 
     return VStack(alignment: .leading, spacing: isCompactLayout ? 1 : 0) {
       Text(summary)
-        .font(display?.summaryFont == "monospace"
+        .font((display?.summaryFont == "mono" || display?.summaryFont == "monospace")
           ? .system(size: isCompactLayout ? TypeScale.subhead : TypeScale.body, weight: .medium, design: .monospaced)
           : .system(size: isCompactLayout ? TypeScale.subhead : TypeScale.body, weight: .semibold, design: .rounded))
         .foregroundStyle(summaryColor)
