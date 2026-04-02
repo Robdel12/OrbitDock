@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
+use codex_features::Feature;
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, ModelProviderInfo, ThreadManager};
@@ -12,9 +13,9 @@ use codex_protocol::config_types::{
   ReasoningSummary, ServiceTier, Settings,
 };
 use codex_protocol::openai_models::{
-  default_input_modalities, ConfigShellToolType, ModelInfo, ModelInstructionsVariables,
-  ModelMessages, ModelVisibility, ModelsResponse, ReasoningEffort, TruncationPolicyConfig,
-  WebSearchToolType,
+  ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
+  ModelVisibility, ModelsResponse, ReasoningEffort, TruncationPolicyConfig, WebSearchToolType,
+  default_input_modalities,
 };
 use codex_protocol::protocol::{Op, SessionSource};
 use tracing::{info, warn};
@@ -32,7 +33,8 @@ const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 const ORBITDOCK_OPENROUTER_SITE_URL: &str = "https://orbitdock.dev";
 const ORBITDOCK_OPENROUTER_TITLE: &str = "OrbitDock";
-const ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS: &str = "You are a coding assistant running in OrbitDock. Help the user with software tasks in the terminal. Do not claim to be a specific branded assistant, company, foundation model, or hosted service unless the active session configuration explicitly says so. If the user asks which model or provider is active, answer using the current session configuration when known.";
+const ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS: &str =
+  include_str!("../prompts/external_model_instructions.md");
 const ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER: &str = "{{ personality }}";
 const ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE: &str =
   "You optimize for team morale and being a supportive teammate as much as code quality.";
@@ -423,7 +425,7 @@ impl CodexConnector {
       ));
     }
 
-    let harness_overrides = ConfigOverrides {
+    let build_harness_overrides = || ConfigOverrides {
       cwd: Some(std::path::PathBuf::from(cwd)),
       model_provider: config_overrides.model_provider.clone(),
       service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
@@ -435,11 +437,17 @@ impl CodexConnector {
     };
 
     let mut config =
-      Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
+      Config::load_with_cli_overrides_and_harness_overrides(
+        cli_overrides.clone(),
+        build_harness_overrides(),
+      )
         .await
         .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
     apply_orbitdock_provider_defaults(&mut config);
     apply_orbitdock_external_model_defaults(&mut config);
+    let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);
+    log_apply_patch_tool_resolution(cwd, &config, forced_apply_patch_feature);
+
     Ok(config)
   }
 
@@ -649,11 +657,12 @@ pub(crate) fn apply_orbitdock_external_model_defaults(config: &mut Config) {
   let catalog = config
     .model_catalog
     .get_or_insert_with(|| ModelsResponse { models: Vec::new() });
-  if catalog
+  if let Some(existing_model) = catalog
     .models
-    .iter()
-    .any(|candidate| model_slug.starts_with(&candidate.slug))
+    .iter_mut()
+    .find(|candidate| model_slug.starts_with(&candidate.slug))
   {
+    merge_external_model_instructions(existing_model);
     return;
   }
 
@@ -661,6 +670,79 @@ pub(crate) fn apply_orbitdock_external_model_defaults(config: &mut Config) {
     &model_slug,
     &config.model_provider_id,
   ));
+}
+
+fn merge_external_model_instructions(model: &mut ModelInfo) {
+  model.base_instructions = merge_instruction_text(
+    model.base_instructions.as_str(),
+    ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS,
+  );
+
+  let external_messages = ModelMessages {
+    instructions_template: Some(format!(
+      "{}\n\n{}",
+      ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS,
+      ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER
+    )),
+    instructions_variables: Some(ModelInstructionsVariables {
+      personality_default: Some(String::new()),
+      personality_friendly: Some(ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE.to_string()),
+      personality_pragmatic: Some(ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE.to_string()),
+    }),
+  };
+
+  match model.model_messages.as_mut() {
+    Some(existing) => {
+      let merged_template = merge_instruction_text(
+        existing.instructions_template.as_deref().unwrap_or_default(),
+        external_messages
+          .instructions_template
+          .as_deref()
+          .unwrap_or_default(),
+      );
+      existing.instructions_template = Some(merged_template);
+
+      let merged_variables = existing
+        .instructions_variables
+        .get_or_insert(ModelInstructionsVariables {
+          personality_default: None,
+          personality_friendly: None,
+          personality_pragmatic: None,
+        });
+      if merged_variables.personality_default.is_none() {
+        merged_variables.personality_default = Some(String::new());
+      }
+      if merged_variables.personality_friendly.is_none() {
+        merged_variables.personality_friendly =
+          Some(ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE.to_string());
+      }
+      if merged_variables.personality_pragmatic.is_none() {
+        merged_variables.personality_pragmatic =
+          Some(ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE.to_string());
+      }
+    }
+    None => {
+      model.model_messages = Some(external_messages);
+    }
+  }
+
+  if model.apply_patch_tool_type.is_none() {
+    model.apply_patch_tool_type = Some(ApplyPatchToolType::Function);
+  }
+}
+
+fn merge_instruction_text(existing: &str, required: &str) -> String {
+  let existing_trimmed = existing.trim();
+  let required_trimmed = required.trim();
+
+  if existing_trimmed.is_empty() {
+    return required_trimmed.to_string();
+  }
+  if existing_trimmed.contains(required_trimmed) {
+    return existing_trimmed.to_string();
+  }
+
+  format!("{}\n\n{}", existing_trimmed, required_trimmed)
 }
 
 fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelInfo {
@@ -695,7 +777,7 @@ fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelIn
     default_reasoning_summary: ReasoningSummary::Auto,
     support_verbosity: false,
     default_verbosity: None,
-    apply_patch_tool_type: None,
+    apply_patch_tool_type: Some(ApplyPatchToolType::Function),
     web_search_tool_type: WebSearchToolType::Text,
     truncation_policy: TruncationPolicyConfig::bytes(10_000),
     supports_parallel_tool_calls: false,
@@ -708,6 +790,50 @@ fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelIn
     used_fallback_model_metadata: false,
     supports_search_tool: false,
   }
+}
+
+fn is_openai_provider(config: &Config) -> bool {
+  config.model_provider_id.eq_ignore_ascii_case("openai") || config.model_provider.is_openai()
+}
+
+pub(crate) fn should_enable_apply_patch_for_custom_models(config: &Config) -> bool {
+  !is_openai_provider(config)
+}
+
+pub(crate) fn ensure_apply_patch_feature_for_custom_models(config: &mut Config) -> bool {
+  if !should_enable_apply_patch_for_custom_models(config) {
+    return false;
+  }
+  if config.features.enabled(Feature::ApplyPatchFreeform) {
+    return false;
+  }
+
+  match config.features.enable(Feature::ApplyPatchFreeform) {
+    Ok(()) => true,
+    Err(error) => {
+      warn!(
+        event = "codex.connector.apply_patch_feature_enable_failed",
+        model_provider_id = %config.model_provider_id,
+        error = %error,
+        "Failed to force apply_patch feature for non-OpenAI provider"
+      );
+      false
+    }
+  }
+}
+
+fn log_apply_patch_tool_resolution(cwd: &str, config: &Config, forced_by_orbitdock: bool) {
+  info!(
+    event = "codex.connector.apply_patch_tool_resolved",
+    cwd,
+    model = ?config.model,
+    model_provider_id = %config.model_provider_id,
+    include_apply_patch_tool = config.include_apply_patch_tool,
+    feature_apply_patch_freeform = config.features.enabled(Feature::ApplyPatchFreeform),
+    feature_js_repl = config.features.enabled(Feature::JsRepl),
+    feature_unified_exec = config.features.enabled(Feature::UnifiedExec),
+    forced_by_orbitdock,
+  );
 }
 
 fn log_provider_route(phase: &str, cwd: &str, config: &Config) {

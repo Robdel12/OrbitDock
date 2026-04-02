@@ -5556,6 +5556,7 @@ dependencies = [
  "codex-arg0",
  "codex-core",
  "codex-exec-server",
+ "codex-features",
  "codex-git-utils",
  "codex-login",
  "codex-protocol",

@@ -1,7 +1,8 @@
 use super::config::{
   apply_orbitdock_external_model_defaults, apply_orbitdock_provider_defaults,
   collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
-  model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
+  ensure_apply_patch_feature_for_custom_models, model_rejects_reasoning_summary, parse_personality,
+  parse_reasoning_summary, should_enable_apply_patch_for_custom_models,
   parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
 };
 use super::event_mapping::{guardian, messages, runtime_signals, streaming};
@@ -16,7 +17,7 @@ use codex_core::config::Config as CoreConfig;
 use codex_core::{ModelProviderInfo, WireApi};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
-use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::{ApplyPatchToolType, ReasoningEffort};
 use codex_protocol::protocol::{
   AgentStatus, CodexErrorInfo, HookCompletedEvent, HookEventName, HookExecutionMode,
   HookHandlerType, HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
@@ -265,7 +266,7 @@ fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
       supports_websockets: false,
     },
   );
-  config.model = Some("qwen/qwen3-coder-next".to_string());
+  config.model = Some("z-ai/glm-5v-turbo".to_string());
   config.model_catalog = None;
 
   apply_orbitdock_external_model_defaults(&mut config);
@@ -274,14 +275,16 @@ fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
   let model = catalog
     .models
     .iter()
-    .find(|candidate| candidate.slug == "qwen/qwen3-coder-next")
+    .find(|candidate| candidate.slug == "z-ai/glm-5v-turbo")
     .expect("synthetic model should exist");
-  assert_eq!(model.display_name, "qwen/qwen3-coder-next");
+  assert_eq!(model.apply_patch_tool_type, Some(ApplyPatchToolType::Function));
   assert!(!model.used_fallback_model_metadata);
   assert!(model.model_messages.is_some());
+  assert!(model.base_instructions.contains("Tool invocation contract:"));
   assert!(model
     .base_instructions
-    .contains("Do not claim to be a specific branded assistant"));
+    .contains("Do not claim a specific provider/model identity"));
+  assert!(model.base_instructions.contains("`exec_command`"));
 }
 
 #[test]
@@ -296,6 +299,162 @@ fn external_model_defaults_leave_openai_models_untouched() {
   apply_orbitdock_external_model_defaults(&mut config);
 
   assert!(config.model_catalog.is_none());
+}
+
+#[test]
+fn external_model_defaults_merge_into_existing_catalog_model() {
+  let mut config = config_with_provider(
+    "ollama",
+    ModelProviderInfo {
+      name: "Ollama".to_string(),
+      base_url: Some("http://localhost:11434/v1".to_string()),
+      env_key: None,
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: None,
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+  config.model = Some("seed-model".to_string());
+  config.model_catalog = None;
+  apply_orbitdock_external_model_defaults(&mut config);
+
+  let mut existing_model = config
+    .model_catalog
+    .as_mut()
+    .expect("catalog should exist")
+    .models
+    .pop()
+    .expect("synthetic seed model should exist");
+  existing_model.slug = "gemma4".to_string();
+  existing_model.base_instructions = "Provider baseline instructions.".to_string();
+  existing_model.apply_patch_tool_type = None;
+  if let Some(messages) = existing_model.model_messages.as_mut() {
+    messages.instructions_template = Some("Provider template guidance.".to_string());
+    messages.instructions_variables = None;
+  }
+
+  config.model = Some("gemma4:e4b".to_string());
+  config.model_catalog = Some(codex_protocol::openai_models::ModelsResponse {
+    models: vec![existing_model],
+  });
+
+  apply_orbitdock_external_model_defaults(&mut config);
+
+  let catalog = config.model_catalog.expect("catalog should exist");
+  assert_eq!(catalog.models.len(), 1);
+  let model = catalog.models.first().expect("model should exist");
+  assert_eq!(model.slug, "gemma4");
+  assert!(model
+    .base_instructions
+    .contains("Provider baseline instructions."));
+  assert!(model.base_instructions.contains("Tool invocation contract:"));
+  assert_eq!(model.apply_patch_tool_type, Some(ApplyPatchToolType::Function));
+
+  let model_messages = model.model_messages.as_ref().expect("model messages should exist");
+  let template = model_messages
+    .instructions_template
+    .as_deref()
+    .expect("template should exist");
+  assert!(template.contains("Provider template guidance."));
+  assert!(template.contains("Tool invocation contract:"));
+  assert!(template.contains("{{ personality }}"));
+
+  let vars = model_messages
+    .instructions_variables
+    .as_ref()
+    .expect("instruction variables should exist");
+  assert_eq!(vars.personality_default.as_deref(), Some(""));
+  assert!(vars.personality_friendly.is_some());
+  assert!(vars.personality_pragmatic.is_some());
+}
+
+#[test]
+fn custom_provider_should_enable_apply_patch_override() {
+  let config = config_with_provider(
+    "openrouter",
+    ModelProviderInfo {
+      name: "OpenRouter".to_string(),
+      base_url: Some("https://openrouter.ai/api/v1".to_string()),
+      env_key: Some("OPENROUTER_API_KEY".to_string()),
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: None,
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+  assert!(should_enable_apply_patch_for_custom_models(&config));
+}
+
+#[test]
+fn openai_provider_should_not_enable_apply_patch_override() {
+  let config = config_with_provider(
+    "openai",
+    ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
+  );
+  assert!(!should_enable_apply_patch_for_custom_models(&config));
+}
+
+#[test]
+fn custom_provider_force_enables_apply_patch_feature() {
+  let mut config = config_with_provider(
+    "openrouter",
+    ModelProviderInfo {
+      name: "OpenRouter".to_string(),
+      base_url: Some("https://openrouter.ai/api/v1".to_string()),
+      env_key: Some("OPENROUTER_API_KEY".to_string()),
+      env_key_instructions: None,
+      experimental_bearer_token: None,
+      wire_api: WireApi::Responses,
+      query_params: None,
+      http_headers: None,
+      env_http_headers: None,
+      request_max_retries: None,
+      stream_max_retries: None,
+      stream_idle_timeout_ms: None,
+      websocket_connect_timeout_ms: None,
+      requires_openai_auth: false,
+      supports_websockets: false,
+    },
+  );
+
+  let _ = config.features.disable(codex_features::Feature::ApplyPatchFreeform);
+
+  let forced = ensure_apply_patch_feature_for_custom_models(&mut config);
+
+  assert!(forced);
+  assert!(config.features.enabled(codex_features::Feature::ApplyPatchFreeform));
+}
+
+#[test]
+fn openai_provider_does_not_force_enable_apply_patch_feature() {
+  let mut config = config_with_provider(
+    "openai",
+    ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
+  );
+
+  let _ = config.features.disable(codex_features::Feature::ApplyPatchFreeform);
+
+  let forced = ensure_apply_patch_feature_for_custom_models(&mut config);
+
+  assert!(!forced);
+  assert!(!config.features.enabled(codex_features::Feature::ApplyPatchFreeform));
 }
 
 fn config_with_provider(provider_id: &str, provider: ModelProviderInfo) -> CoreConfig {

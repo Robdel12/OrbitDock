@@ -1895,7 +1895,190 @@ impl ClaudeConnector {
       None => return events,
     };
 
-    for block in content_blocks {
+    // Collect blocks by type to ensure logical ordering
+    // Tools (tool_use/tool_result) must appear before text summaries in DB
+    let mut tool_use_blocks = Vec::new();
+    let mut tool_result_blocks = Vec::new();
+    let mut text_thinking_blocks = Vec::new();
+
+    for block in content_blocks.iter() {
+      let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+      match block_type {
+        "tool_use" => tool_use_blocks.push(block.clone()),
+        "tool_result" => tool_result_blocks.push(block.clone()),
+        "text" if !had_streaming => text_thinking_blocks.push(block.clone()),
+        "thinking" if !had_streaming => text_thinking_blocks.push(block.clone()),
+        _ => {}
+      }
+    }
+
+    // Process tool_use blocks first (creates Tool rows)
+    for block in tool_use_blocks {
+      let tool_name = block
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+      let input_value = block.get("input");
+      let tool_use_id = block.get("id").and_then(|v| v.as_str());
+      let message_id = tool_use_id.map(str::to_string).unwrap_or_else(|| {
+        format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], uuid::Uuid::new_v4())
+      });
+
+      let tr = make_tool_row(
+        message_id.clone(),
+        tool_name,
+        input_value,
+        ToolStatus::Running,
+      );
+      state.tool_rows.insert(message_id.clone(), tr.clone());
+      events.push(ConnectorEvent::ConversationRowCreated(make_entry(
+        session_id,
+        ConversationRow::Tool(tr),
+      )));
+
+      // Build an aggregated per-turn patch diff stream from direct edit/write tools.
+      if let Some(payload) = input_value {
+        if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload) {
+          if !state.turn_patch_diff.is_empty() {
+            state.turn_patch_diff.push_str("\n\n");
+          }
+          state.turn_patch_diff.push_str(&diff);
+          events.push(ConnectorEvent::DiffUpdated(state.turn_patch_diff.clone()));
+        }
+      }
+    }
+
+    // Process tool_result blocks (updates existing tool rows)
+    for block in tool_result_blocks {
+      let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+      if block_type != "tool_result" {
+        continue;
+      }
+
+      let content = block
+        .get("content")
+        .map(|v| {
+          if let Some(s) = v.as_str() {
+            s.to_string()
+          } else if let Some(arr) = v.as_array() {
+            arr
+              .iter()
+              .filter_map(|item| {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                  item.get("text").and_then(|t| t.as_str()).map(String::from)
+                } else {
+                  None
+                }
+              })
+              .collect::<Vec<_>>()
+              .join("\n")
+          } else {
+            v.to_string()
+          }
+        })
+        .unwrap_or_default();
+      let is_error = block
+        .get("is_error")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+      if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+        let task_id = state.task_tool_use_map.remove(tool_use_id);
+        // Determine the row_id: either the task_id (for background tasks)
+        // or the tool_use_id (for regular tools).
+        let row_id = task_id.unwrap_or_else(|| tool_use_id.to_string());
+
+        if let Some(mut tr) = state.tool_rows.remove(&row_id) {
+          tr.status = if is_error {
+            ToolStatus::Failed
+          } else {
+            ToolStatus::Completed
+          };
+          let ended = now_iso();
+          // Compute duration from started_at → ended_at
+          if tr.duration_ms.is_none() {
+            if let Some(ref started) = tr.started_at {
+              if let (Some(s), Some(e)) = (parse_epoch_ms(started), parse_epoch_ms(&ended)) {
+                if e > s {
+                  tr.duration_ms = Some(e - s);
+                }
+              }
+            }
+          }
+          tr.ended_at = Some(ended);
+          // Compute summary from tool output
+          if tr.summary.is_none() {
+            tr.summary = if is_error {
+              Some("Error".to_string())
+            } else {
+              extract_result_summary(&tr.title, &content)
+            };
+          }
+          let result_summary = tr.summary.clone();
+          tr.result = Some(serde_json::json!({
+              "tool_name": tr.title.clone(),
+              "output": content.clone(),
+              "summary": result_summary.as_deref().unwrap_or(""),
+          }));
+          // Recompute tool_display with result data
+          let raw_input = if tr.invocation.is_object() {
+            Some(&tr.invocation)
+          } else {
+            None
+          };
+          tr.tool_display = Some(
+            orbitdock_protocol::conversation_contracts::compute_tool_display(
+              orbitdock_protocol::conversation_contracts::ToolDisplayInput {
+                kind: tr.kind,
+                family: tr.family,
+                status: tr.status,
+                title: &tr.title,
+                subtitle: tr.subtitle.as_deref(),
+                summary: tr.summary.as_deref(),
+                duration_ms: tr.duration_ms,
+                invocation_input: raw_input,
+                result_output: Some(&content),
+              },
+            ),
+          );
+          events.push(ConnectorEvent::ConversationRowUpdated {
+            row_id: row_id.clone(),
+            entry: make_entry(session_id, ConversationRow::Tool(tr)),
+          });
+        } else {
+          // No tracked row — create a minimal completed tool row.
+          let mut tr = make_tool_row(
+            row_id.clone(),
+            "unknown",
+            None,
+            if is_error {
+              ToolStatus::Failed
+            } else {
+              ToolStatus::Completed
+            },
+          );
+          tr.ended_at = Some(now_iso());
+          tr.result = Some(serde_json::json!({
+              "tool_name": "unknown",
+              "output": content.clone(),
+          }));
+          events.push(ConnectorEvent::ConversationRowUpdated {
+            row_id,
+            entry: make_entry(session_id, ConversationRow::Tool(tr)),
+          });
+        }
+      } else {
+        warn!(
+          component = "claude_connector",
+          event = "claude.tool_result.no_tool_use_id",
+          session_id = %session_id,
+          "tool_result block missing tool_use_id"
+        );
+      }
+    }
+
+    // Process text/thinking blocks last (creates Assistant/Thinking rows)
+    for block in text_thinking_blocks {
       let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
       let id = format!(
         "claude-msg-{}-{}",
@@ -1904,8 +2087,6 @@ impl ClaudeConnector {
       );
 
       match block_type {
-        // Skip text blocks if streaming already delivered the content
-        "text" if had_streaming => continue,
         "text" => {
           let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
           let row = ConversationRow::Assistant(MessageRowContent {
@@ -1921,38 +2102,6 @@ impl ClaudeConnector {
           events.push(ConnectorEvent::ConversationRowCreated(make_entry(
             session_id, row,
           )));
-        }
-        "tool_use" => {
-          let tool_name = block
-            .get("name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-          let input_value = block.get("input");
-          let tool_use_id = block.get("id").and_then(|v| v.as_str());
-          let message_id = tool_use_id.map(str::to_string).unwrap_or(id);
-
-          let tr = make_tool_row(
-            message_id.clone(),
-            tool_name,
-            input_value,
-            ToolStatus::Running,
-          );
-          state.tool_rows.insert(message_id.clone(), tr.clone());
-          events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-            session_id,
-            ConversationRow::Tool(tr),
-          )));
-
-          // Build an aggregated per-turn patch diff stream from direct edit/write tools.
-          if let Some(payload) = input_value {
-            if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload) {
-              if !state.turn_patch_diff.is_empty() {
-                state.turn_patch_diff.push_str("\n\n");
-              }
-              state.turn_patch_diff.push_str(&diff);
-              events.push(ConnectorEvent::DiffUpdated(state.turn_patch_diff.clone()));
-            }
-          }
         }
         "thinking" => {
           let thinking = block.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
