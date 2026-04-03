@@ -155,15 +155,19 @@ fn exec_file_read(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspa
     Err(error) => return tool_error(format!("failed to read file: {error}")),
   };
 
-  let truncated = bytes.len() > MAX_FILE_READ_BYTES;
-  let bytes = if truncated {
-    &bytes[..MAX_FILE_READ_BYTES]
-  } else {
-    bytes.as_slice()
-  };
-  let content = match std::str::from_utf8(bytes) {
-    Ok(text) => text.to_string(),
+  let text = match std::str::from_utf8(bytes.as_slice()) {
+    Ok(text) => text,
     Err(_) => return tool_error("file_read supports UTF-8 text files only".to_string()),
+  };
+  let truncated = bytes.len() > MAX_FILE_READ_BYTES;
+  let content = if truncated {
+    let mut cutoff = MAX_FILE_READ_BYTES.min(text.len());
+    while cutoff > 0 && !text.is_char_boundary(cutoff) {
+      cutoff -= 1;
+    }
+    text[..cutoff].to_string()
+  } else {
+    text.to_string()
   };
 
   tool_ok(json!({
@@ -479,5 +483,31 @@ mod tests {
     .expect("file_read tool result");
     assert!(!read.success);
     assert!(read.output.contains("escapes project root"));
+  }
+
+  #[test]
+  fn file_read_handles_multibyte_boundary_when_truncated() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ctx = test_context(temp.path());
+    let target = temp.path().join("utf8-boundary.txt");
+    let content = format!("{}éz", "a".repeat(MAX_FILE_READ_BYTES - 1));
+    fs::write(&target, content).expect("seed file");
+
+    let read = execute_codex_workspace_tool(
+      &ctx,
+      "file_read",
+      json!({ "path": target.to_string_lossy().to_string() }),
+    )
+    .expect("file_read tool result");
+    assert!(read.success);
+
+    let payload: Value = serde_json::from_str(&read.output).expect("read output json");
+    assert_eq!(payload["truncated"], true);
+    let rendered = payload
+      .get("content")
+      .and_then(Value::as_str)
+      .expect("content string");
+    assert_eq!(rendered.len(), MAX_FILE_READ_BYTES - 1);
+    assert!(rendered.chars().all(|ch| ch == 'a'));
   }
 }

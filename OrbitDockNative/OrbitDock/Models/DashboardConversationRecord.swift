@@ -66,7 +66,7 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   }
 
   nonisolated var displayProjectName: String {
-    serverGroupingName ?? projectName ?? URL(fileURLWithPath: groupingPath).lastPathComponent
+    projectName ?? serverGroupingName ?? URL(fileURLWithPath: groupingPath).lastPathComponent
   }
 
   nonisolated var isDirect: Bool {
@@ -101,13 +101,17 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   /// Fields not present in the list item (lastMessage, diffPreview, pendingToolInput,
   /// pendingQuestion, toolCount) are preserved from the existing record.
   func applyingListItemUpdate(_ item: ServerSessionListItem, endpointName: String?) -> DashboardConversationRecord {
-    DashboardConversationRecord(
+    let updatedGroupingPath = item.repositoryRoot ?? item.projectPath
+    let updatedGroupingName =
+      item.projectName ?? URL(fileURLWithPath: updatedGroupingPath).lastPathComponent
+
+    return DashboardConversationRecord(
       sessionRef: sessionRef,
       endpointName: endpointName ?? self.endpointName,
       provider: item.provider == .codex ? .codex : .claude,
       projectPath: item.projectPath,
-      serverGroupingPath: serverGroupingPath,
-      serverGroupingName: serverGroupingName,
+      serverGroupingPath: updatedGroupingPath,
+      serverGroupingName: updatedGroupingName,
       projectName: item.projectName,
       repositoryRoot: item.repositoryRoot,
       branch: item.gitBranch,

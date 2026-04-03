@@ -547,7 +547,11 @@ impl SessionRegistry {
         );
         let control_mode = snap.control_mode;
         let lifecycle_state = snap.lifecycle_state;
-        let (grouping_path, grouping_name) = dashboard_grouping_details(&snap.project_path);
+        let (grouping_path, grouping_name) = dashboard_grouping_details(
+          &snap.project_path,
+          snap.repository_root.as_deref(),
+          snap.project_name.as_deref(),
+        );
 
         DashboardConversationItem {
           session_id: snap.id.clone(),
@@ -1030,14 +1034,25 @@ fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
   }
 }
 
-fn dashboard_grouping_details(project_path: &str) -> (String, String) {
-  let grouping_name = project_path
-    .rsplit('/')
-    .find(|segment| !segment.is_empty())
-    .map(std::string::ToString::to_string)
-    .unwrap_or_else(|| "Unknown".to_string());
+fn dashboard_grouping_details(
+  project_path: &str,
+  repository_root: Option<&str>,
+  project_name: Option<&str>,
+) -> (String, String) {
+  let grouping_path = repository_root.unwrap_or(project_path).to_string();
+  let grouping_name = project_name
+    .map(str::trim)
+    .filter(|name| !name.is_empty())
+    .map(ToOwned::to_owned)
+    .unwrap_or_else(|| {
+      grouping_path
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(std::string::ToString::to_string)
+        .unwrap_or_else(|| "Unknown".to_string())
+    });
 
-  (project_path.to_string(), grouping_name)
+  (grouping_path, grouping_name)
 }
 
 fn dashboard_preview_text(last_message: Option<&str>, context_line: Option<&str>) -> String {
@@ -1236,6 +1251,8 @@ mod tests {
       "/tmp/orbitdock-summary".to_string(),
     );
     session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+    session.set_project_name(Some("orbitdock".to_string()));
+    session.set_worktree_info(Some("/tmp/orbitdock".to_string()), false, None);
     session.set_first_prompt(Some("Check the latest output".to_string()));
     session.set_last_message(Some("## Heading with `code`".to_string()));
     session.set_pending_attention(
@@ -1260,6 +1277,11 @@ mod tests {
       Some("Running Bash")
     );
     assert_eq!(conversation.alert_context.as_deref(), Some("ls -la"));
+    assert_eq!(
+      conversation.grouping_path.as_deref(),
+      Some("/tmp/orbitdock")
+    );
+    assert_eq!(conversation.grouping_name.as_deref(), Some("orbitdock"));
   }
 
   #[tokio::test]
