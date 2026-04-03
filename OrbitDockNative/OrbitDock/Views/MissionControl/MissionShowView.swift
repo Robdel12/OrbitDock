@@ -365,7 +365,7 @@ struct MissionShowView: View {
               .stroke(mission.statusColor.opacity(OpacityTier.light), lineWidth: 1)
               .frame(width: 28, height: 28)
               .animation(
-                .easeInOut(duration: 2.0).repeatForever(autoreverses: true),
+                Motion.animationsEnabled ? .easeInOut(duration: 2.0).repeatForever(autoreverses: true) : nil,
                 value: mission.orchestratorStatus
               )
           }

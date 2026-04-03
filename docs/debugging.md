@@ -100,6 +100,34 @@ curl -s -X POST -H "Content-Type: application/json" \
   http://127.0.0.1:4000/api/hook
 ```
 
+## Memory Profiling (macOS)
+
+Use the capture script when the app looks memory-heavy and you need reproducible artifacts:
+
+```bash
+scripts/capture_memory_profile.sh
+```
+
+Target a specific process or shorten capture windows:
+
+```bash
+scripts/capture_memory_profile.sh \
+  --pid 9718 \
+  --sample-seconds 5 \
+  --trace-seconds 10 \
+  --out-dir /tmp/orbitdock-profile
+```
+
+The script writes a timestamped output directory with:
+
+- `ps.txt`
+- `vmmap-summary.txt`
+- `sample.txt`
+- `allocations.trace` and `xctrace-toc.xml` when trace capture is enabled
+- `capture-summary.txt`
+
+If `vmmap`, `sample`, or `xctrace` fails with permission errors, rerun with elevated permissions.
+
 ## Good Places To Read Code
 
 When logs point at a specific subsystem, these are the usual next stops:

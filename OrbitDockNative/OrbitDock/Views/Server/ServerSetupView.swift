@@ -134,9 +134,9 @@ struct ServerSetupView: View {
     }
     .opacity(beaconPulseOpacity)
     .animation(
-      beaconPhase == .connecting
+      Motion.animationsEnabled && beaconPhase == .connecting
         ? .easeInOut(duration: 1.8).repeatForever(autoreverses: true)
-        : .default,
+        : nil,
       value: beaconPhase
     )
   }

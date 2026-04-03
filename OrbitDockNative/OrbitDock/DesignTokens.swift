@@ -75,6 +75,15 @@ extension View {
   func themeShadow(_ token: ShadowToken) -> some View {
     self.shadow(color: token.color, radius: token.radius, x: token.x, y: token.y)
   }
+
+  /// Disables implicit and explicit animations when performance mode is active.
+  func motionPolicy() -> some View {
+    self.transaction { transaction in
+      guard !Motion.animationsEnabled else { return }
+      transaction.disablesAnimations = true
+      transaction.animation = nil
+    }
+  }
 }
 
 // MARK: - Motion
@@ -87,17 +96,34 @@ extension View {
 ///   spring(0.30-0.35, 0.80) → .gentle
 ///   spring(0.30, 0.70) → .bouncy
 enum Motion {
+  /// Global performance mode: keep this false until we have headroom for richer motion.
+  /// This intentionally prioritizes memory/render efficiency over animation polish.
+  static let animationsEnabled = false
+  private static let instant = Animation.linear(duration: 0.001)
+
   /// Instant feedback: hover, press, toggle
-  static let snappy = Animation.spring(response: 0.20, dampingFraction: 0.90)
+  static var snappy: Animation {
+    animationsEnabled ? Animation.spring(response: 0.20, dampingFraction: 0.90) : instant
+  }
   /// Standard UI: expand/collapse, selection, navigation
-  static let standard = Animation.spring(response: 0.25, dampingFraction: 0.85)
+  static var standard: Animation {
+    animationsEnabled ? Animation.spring(response: 0.25, dampingFraction: 0.85) : instant
+  }
   /// Comfortable: panel slides, content entry, messages
-  static let gentle = Animation.spring(response: 0.35, dampingFraction: 0.80)
+  static var gentle: Animation {
+    animationsEnabled ? Animation.spring(response: 0.35, dampingFraction: 0.80) : instant
+  }
   /// Playful: picker selection, sheet present
-  static let bouncy = Animation.spring(response: 0.30, dampingFraction: 0.70)
+  static var bouncy: Animation {
+    animationsEnabled ? Animation.spring(response: 0.30, dampingFraction: 0.70) : instant
+  }
 
   /// Micro ease for hover opacity transitions
-  static let hover = Animation.easeOut(duration: 0.15)
+  static var hover: Animation {
+    animationsEnabled ? Animation.easeOut(duration: 0.15) : instant
+  }
   /// Fade in/out for loading states
-  static let fade = Animation.easeOut(duration: 0.25)
+  static var fade: Animation {
+    animationsEnabled ? Animation.easeOut(duration: 0.25) : instant
+  }
 }

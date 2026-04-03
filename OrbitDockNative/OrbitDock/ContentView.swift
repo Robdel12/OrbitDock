@@ -85,6 +85,7 @@ struct ContentView: View {
     .sheet(isPresented: newSessionSheetBinding) {
       newSessionSheet
     }
+    .motionPolicy()
   }
 
   // MARK: - Main Content

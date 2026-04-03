@@ -178,6 +178,7 @@ struct OrbitDockWindowRoot: View {
         .presentationDragIndicator(.visible)
       #endif
     }
+    .motionPolicy()
   }
 
   // MARK: - Quick Switcher Overlay

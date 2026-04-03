@@ -16,9 +16,15 @@ struct ConversationLoadingView: View {
     }
     .padding(.horizontal, 40)
     .frame(maxWidth: 720, maxHeight: .infinity)
-    .opacity(pulse ? 1.0 : 0.76)
-    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: pulse)
-    .onAppear { pulse = true }
+    .opacity(Motion.animationsEnabled ? (pulse ? 1.0 : 0.76) : 0.9)
+    .animation(
+      Motion.animationsEnabled ? .easeInOut(duration: 1.2).repeatForever(autoreverses: true) : nil,
+      value: pulse
+    )
+    .onAppear {
+      guard Motion.animationsEnabled else { return }
+      pulse = true
+    }
   }
 
   private func skeletonBubble(alignment: HorizontalAlignment, widths: [CGFloat]) -> some View {

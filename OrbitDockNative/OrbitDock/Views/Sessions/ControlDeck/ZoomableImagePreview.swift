@@ -28,7 +28,7 @@ import SwiftUI
         Spacer()
 
         HStack(spacing: Spacing.sm) {
-          Button { withAnimation(.spring(response: 0.3)) { resetZoom() } } label: {
+          Button { withAnimation(Motion.standard) { resetZoom() } } label: {
             Image(systemName: "arrow.counterclockwise")
               .font(.system(size: TypeScale.caption, weight: .medium))
               .foregroundStyle(.white.opacity(0.7))
@@ -62,7 +62,7 @@ import SwiftUI
           .gesture(magnification)
           .gesture(drag)
           .onTapGesture(count: 2) {
-            withAnimation(.spring(response: 0.3)) {
+            withAnimation(Motion.standard) {
               if scale > 1.05 {
                 resetZoom()
               } else {
@@ -83,7 +83,7 @@ import SwiftUI
         .onEnded { _ in
           lastScale = scale
           if scale < 1.0 {
-            withAnimation(.spring(response: 0.3)) { resetZoom() }
+            withAnimation(Motion.standard) { resetZoom() }
           }
         }
     }

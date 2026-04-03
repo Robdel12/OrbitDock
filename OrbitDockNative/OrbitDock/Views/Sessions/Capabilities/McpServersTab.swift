@@ -619,6 +619,7 @@ private struct SpinningDotModifier: ViewModifier {
     content
       .rotationEffect(.degrees(isSpinning ? 360 : 0))
       .onAppear {
+        guard Motion.animationsEnabled else { return }
         withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
           isSpinning = true
         }

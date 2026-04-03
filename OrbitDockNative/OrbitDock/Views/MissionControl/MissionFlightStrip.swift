@@ -147,7 +147,7 @@ struct MissionFlightStrip: View {
             .scaleEffect(isPolling ? 1.0 : 0.6)
             .opacity(isPolling ? 1.0 : 0.0)
             .animation(
-              .easeInOut(duration: 1.8).repeatForever(autoreverses: true),
+              Motion.animationsEnabled ? .easeInOut(duration: 1.8).repeatForever(autoreverses: true) : nil,
               value: isPolling
             )
 
@@ -156,7 +156,7 @@ struct MissionFlightStrip: View {
             .fill(statusColor.opacity(OpacityTier.light))
             .frame(width: 14, height: 14)
             .animation(
-              .easeInOut(duration: 1.5).repeatForever(autoreverses: true),
+              Motion.animationsEnabled ? .easeInOut(duration: 1.5).repeatForever(autoreverses: true) : nil,
               value: isPolling
             )
         }
