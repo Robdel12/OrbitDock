@@ -10,6 +10,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   let endpointName: String?
   let provider: Provider
   let projectPath: String
+  let serverGroupingPath: String?
+  let serverGroupingName: String?
   let projectName: String?
   let repositoryRoot: String?
   let branch: String?
@@ -60,11 +62,11 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
   }
 
   nonisolated var groupingPath: String {
-    repositoryRoot ?? projectPath
+    serverGroupingPath ?? repositoryRoot ?? projectPath
   }
 
   nonisolated var displayProjectName: String {
-    projectName ?? URL(fileURLWithPath: projectPath).lastPathComponent
+    serverGroupingName ?? projectName ?? URL(fileURLWithPath: groupingPath).lastPathComponent
   }
 
   nonisolated var isDirect: Bool {
@@ -104,6 +106,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
       endpointName: endpointName ?? self.endpointName,
       provider: item.provider == .codex ? .codex : .claude,
       projectPath: item.projectPath,
+      serverGroupingPath: serverGroupingPath,
+      serverGroupingName: serverGroupingName,
       projectName: item.projectName,
       repositoryRoot: item.repositoryRoot,
       branch: item.gitBranch,
@@ -160,6 +164,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     endpointName: String?,
     provider: Provider,
     projectPath: String,
+    serverGroupingPath: String?,
+    serverGroupingName: String?,
     projectName: String?,
     repositoryRoot: String?,
     branch: String?,
@@ -197,6 +203,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     self.endpointName = endpointName
     self.provider = provider
     self.projectPath = projectPath
+    self.serverGroupingPath = serverGroupingPath
+    self.serverGroupingName = serverGroupingName
     self.projectName = projectName
     self.repositoryRoot = repositoryRoot
     self.branch = branch
@@ -240,6 +248,8 @@ struct DashboardConversationRecord: Identifiable, Sendable, Equatable {
     self.endpointName = endpointName
     self.provider = item.provider == .codex ? .codex : .claude
     self.projectPath = item.projectPath
+    self.serverGroupingPath = item.groupingPath
+    self.serverGroupingName = item.groupingName
     self.projectName = item.projectName
     self.repositoryRoot = item.repositoryRoot
     self.branch = item.gitBranch

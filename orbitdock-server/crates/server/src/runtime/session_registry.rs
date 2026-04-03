@@ -547,11 +547,14 @@ impl SessionRegistry {
         );
         let control_mode = snap.control_mode;
         let lifecycle_state = snap.lifecycle_state;
+        let (grouping_path, grouping_name) = dashboard_grouping_details(&snap.project_path);
 
         DashboardConversationItem {
           session_id: snap.id.clone(),
           provider: snap.provider,
           project_path: snap.project_path.clone(),
+          grouping_path: Some(grouping_path),
+          grouping_name: Some(grouping_name),
           project_name: snap.project_name.clone(),
           repository_root: snap.repository_root.clone(),
           git_branch: snap.git_branch.clone(),
@@ -1025,6 +1028,16 @@ fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
     orbitdock_protocol::SessionListStatus::Reply => 3,
     orbitdock_protocol::SessionListStatus::Ended => 4,
   }
+}
+
+fn dashboard_grouping_details(project_path: &str) -> (String, String) {
+  let grouping_name = project_path
+    .rsplit('/')
+    .find(|segment| !segment.is_empty())
+    .map(std::string::ToString::to_string)
+    .unwrap_or_else(|| "Unknown".to_string());
+
+  (project_path.to_string(), grouping_name)
 }
 
 fn dashboard_preview_text(last_message: Option<&str>, context_line: Option<&str>) -> String {

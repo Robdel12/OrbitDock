@@ -1280,6 +1280,10 @@ pub struct DashboardConversationItem {
   pub session_id: String,
   pub provider: Provider,
   pub project_path: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub grouping_path: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub grouping_name: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub project_name: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

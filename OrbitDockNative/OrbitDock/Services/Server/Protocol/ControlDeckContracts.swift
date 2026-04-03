@@ -103,6 +103,7 @@ struct ServerControlDeckCapabilities: Codable, Sendable {
   let supportsSteer: Bool
   let allowPerTurnModelOverride: Bool
   let allowPerTurnEffortOverride: Bool
+  let effortOptions: [ServerControlDeckPickerOption]
   let approvalModeOptions: [ServerControlDeckPickerOption]
   let permissionModeOptions: [ServerControlDeckPickerOption]
   let collaborationModeOptions: [ServerControlDeckPickerOption]
@@ -116,11 +117,28 @@ struct ServerControlDeckCapabilities: Codable, Sendable {
     case supportsSteer = "supports_steer"
     case allowPerTurnModelOverride = "allow_per_turn_model_override"
     case allowPerTurnEffortOverride = "allow_per_turn_effort_override"
+    case effortOptions = "effort_options"
     case approvalModeOptions = "approval_mode_options"
     case permissionModeOptions = "permission_mode_options"
     case collaborationModeOptions = "collaboration_mode_options"
     case autoReviewOptions = "auto_review_options"
     case availableStatusModules = "available_status_modules"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    supportsSkills = try container.decode(Bool.self, forKey: .supportsSkills)
+    supportsMentions = try container.decode(Bool.self, forKey: .supportsMentions)
+    supportsImages = try container.decode(Bool.self, forKey: .supportsImages)
+    supportsSteer = try container.decode(Bool.self, forKey: .supportsSteer)
+    allowPerTurnModelOverride = try container.decode(Bool.self, forKey: .allowPerTurnModelOverride)
+    allowPerTurnEffortOverride = try container.decode(Bool.self, forKey: .allowPerTurnEffortOverride)
+    effortOptions = try container.decodeIfPresent([ServerControlDeckPickerOption].self, forKey: .effortOptions) ?? []
+    approvalModeOptions = try container.decodeIfPresent([ServerControlDeckPickerOption].self, forKey: .approvalModeOptions) ?? []
+    permissionModeOptions = try container.decodeIfPresent([ServerControlDeckPickerOption].self, forKey: .permissionModeOptions) ?? []
+    collaborationModeOptions = try container.decodeIfPresent([ServerControlDeckPickerOption].self, forKey: .collaborationModeOptions) ?? []
+    autoReviewOptions = try container.decodeIfPresent([ServerControlDeckAutoReviewOption].self, forKey: .autoReviewOptions) ?? []
+    availableStatusModules = try container.decodeIfPresent([ServerControlDeckModule].self, forKey: .availableStatusModules) ?? []
   }
 }
 

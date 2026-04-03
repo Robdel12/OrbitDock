@@ -36,6 +36,7 @@ nonisolated enum ControlDeckSnapshotMapper {
       supportsSteer: caps.supportsSteer,
       allowPerTurnModelOverride: caps.allowPerTurnModelOverride,
       allowPerTurnEffortOverride: caps.allowPerTurnEffortOverride,
+      effortOptions: caps.effortOptions.map(mapPickerOption),
       approvalModeOptions: caps.approvalModeOptions.map(mapPickerOption),
       permissionModeOptions: caps.permissionModeOptions.map(mapPickerOption),
       collaborationModeOptions: caps.collaborationModeOptions.map(mapPickerOption),

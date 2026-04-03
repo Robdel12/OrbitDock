@@ -63,6 +63,7 @@ struct ControlDeckCapabilities: Sendable {
   let supportsSteer: Bool
   let allowPerTurnModelOverride: Bool
   let allowPerTurnEffortOverride: Bool
+  let effortOptions: [ControlDeckPickerOption]
   let approvalModeOptions: [ControlDeckPickerOption]
   let permissionModeOptions: [ControlDeckPickerOption]
   let collaborationModeOptions: [ControlDeckPickerOption]

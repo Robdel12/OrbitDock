@@ -319,6 +319,8 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
   let sessionId: String
   let provider: ServerProvider
   let projectPath: String
+  let groupingPath: String?
+  let groupingName: String?
   let projectName: String?
   let repositoryRoot: String?
   let gitBranch: String?
@@ -359,6 +361,8 @@ struct ServerDashboardConversationItem: Codable, Identifiable, Equatable {
     case sessionId = "session_id"
     case provider
     case projectPath = "project_path"
+    case groupingPath = "grouping_path"
+    case groupingName = "grouping_name"
     case projectName = "project_name"
     case repositoryRoot = "repository_root"
     case gitBranch = "git_branch"
