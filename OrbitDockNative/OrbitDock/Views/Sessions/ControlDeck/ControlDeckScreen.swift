@@ -34,6 +34,9 @@ struct ControlDeckScreen: View {
   @State private var controlDeckWidth: CGFloat = 0
   @State private var completionPanelHeight: CGFloat = 0
   @AppStorage("localDictationEnabled") private var localDictationEnabled = true
+  private var bindingIdentity: String {
+    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
 
   private var currentMode: ControlDeckMode {
     viewModel.presentation?.mode ?? .disabled
@@ -126,7 +129,7 @@ struct ControlDeckScreen: View {
     .padding(.horizontal, chromeStyle == .embedded ? Spacing.xs : Spacing.sm)
     .padding(.top, chromeStyle == .embedded ? Spacing.xxs : 0)
     .padding(.bottom, Spacing.xs)
-    .task(id: sessionId) {
+    .task(id: bindingIdentity) {
       draft = ControlDeckDraft.restore(for: sessionId)
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
       await viewModel.refresh()

@@ -3,6 +3,9 @@ import SwiftUI
 struct SetupSettingsView: View {
   let serverState: SessionStore
   @State private var viewModel: CodexAccountSetupViewModel
+  private var bindingIdentity: String {
+    "\(serverState.endpointId.uuidString):\(ObjectIdentifier(serverState))"
+  }
 
   init(serverState: SessionStore) {
     self.serverState = serverState
@@ -18,7 +21,7 @@ struct SetupSettingsView: View {
       .padding(.vertical, Spacing.section)
       .frame(maxWidth: 980, alignment: .leading)
     }
-    .task(id: serverState.endpointId) {
+    .task(id: bindingIdentity) {
       viewModel.update(serverState: serverState)
       viewModel.refresh()
     }

@@ -62,24 +62,27 @@ final class SessionDetailViewModel {
     modelPricingService: ModelPricingService
   ) {
     let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: fallbackStore)
+    self.modelPricingService = modelPricingService
 
-    guard currentSessionId != sessionId || currentEndpointId != endpointId || currentSessionStore
-      .endpointId != resolvedStore.endpointId
-    else {
-      self.modelPricingService = modelPricingService
-      currentSessionStore = resolvedStore
-      refreshFromSession()
-      return
-    }
+    let didSessionChange = currentSessionId != sessionId || currentEndpointId != endpointId
+    let didStoreChange = ObjectIdentifier(currentSessionStore) != ObjectIdentifier(resolvedStore)
 
     currentSessionId = sessionId
     currentEndpointId = endpointId
     currentSessionStore = resolvedStore
-    self.modelPricingService = modelPricingService
-    conversationFollowState = .initial
-    conversationScrollCommand = nil
-    conversationScrollCommandNonce = 0
-    pendingApprovalPanelOpenSignal = 0
+
+    guard didSessionChange || didStoreChange else {
+      refreshFromSession()
+      return
+    }
+
+    if didSessionChange {
+      conversationFollowState = .initial
+      conversationScrollCommand = nil
+      conversationScrollCommandNonce = 0
+      pendingApprovalPanelOpenSignal = 0
+    }
+
     sessionObservationGeneration &+= 1
     startSessionObservation(generation: sessionObservationGeneration)
   }

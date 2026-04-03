@@ -21,6 +21,9 @@ struct WorktreeListView: View {
   let onDismiss: () -> Void
   let onCreateClaudeSession: (String) -> Void
   let onCreateCodexSession: (String) -> Void
+  private var bindingIdentity: String {
+    "\(repoRoot):\(serverState.endpointId.uuidString):\(ObjectIdentifier(serverState))"
+  }
 
   init(
     serverState: SessionStore,
@@ -56,7 +59,7 @@ struct WorktreeListView: View {
         panelLayout
       #endif
     }
-    .onAppear {
+    .task(id: bindingIdentity) {
       viewModel.bind(serverState: serverState, repoRoot: repoRoot)
       viewModel.refreshWorktrees()
     }

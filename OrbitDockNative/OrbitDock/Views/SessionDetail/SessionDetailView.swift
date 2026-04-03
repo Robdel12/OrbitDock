@@ -24,6 +24,10 @@ struct SessionDetailView: View {
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
+  private var bindingIdentity: String {
+    let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: sessionStore)
+    return "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(resolvedStore))"
+  }
 
   var isCompactLayout: Bool {
     horizontalSizeClass == .compact
@@ -84,7 +88,7 @@ struct SessionDetailView: View {
       }
     }
     .background(Color.backgroundPrimary)
-    .task(id: "\(endpointId.uuidString):\(sessionId)") {
+    .task(id: bindingIdentity) {
       viewModel.bind(
         sessionId: sessionId,
         endpointId: endpointId,

@@ -20,6 +20,9 @@ struct ConversationView: View {
   let onFollowStateChanged: (ConversationFollowState) -> Void
   @State private var viewModel = ConversationViewModel()
   @State private var localFollowState = ConversationFollowState.initial
+  private var bindingIdentity: String {
+    "\(sessionStore.endpointId.uuidString):\(sessionId ?? ""):\(ObjectIdentifier(sessionStore))"
+  }
 
   var body: some View {
     ZStack {
@@ -71,7 +74,7 @@ struct ConversationView: View {
           .transition(.opacity)
       }
     }
-    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId ?? "")") {
+    .task(id: bindingIdentity) {
       localFollowState = .initial
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
     }

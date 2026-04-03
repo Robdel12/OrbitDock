@@ -13,6 +13,9 @@ struct SkillsTab: View {
   @Binding var selectedSkills: Set<String>
 
   @State private var viewModel = SkillsTabViewModel()
+  private var bindingIdentity: String {
+    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
 
   var body: some View {
     let skills = viewModel.skills
@@ -27,7 +30,7 @@ struct SkillsTab: View {
         EmptyView()
       }
     }
-    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+    .task(id: bindingIdentity) {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
   }

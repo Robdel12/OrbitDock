@@ -59,6 +59,9 @@ struct ReviewCanvas: View {
   /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = ReviewDiffParseCache()
   @State var viewModel = ReviewCanvasViewModel()
+  private var bindingIdentity: String {
+    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
 
   private var rawDiff: String? {
     viewModel.rawDiff(selectedTurnDiffId: selectedTurnDiffId)
@@ -134,7 +137,7 @@ struct ReviewCanvas: View {
       }
     }
     .background(Color.backgroundPrimary)
-    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+    .task(id: bindingIdentity) {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
     .onChange(of: rawDiff) { _, _ in

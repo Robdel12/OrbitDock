@@ -125,6 +125,9 @@ struct McpServersTab: View {
   let sessionStore: SessionStore
 
   @State private var viewModel = McpServersTabViewModel()
+  private var bindingIdentity: String {
+    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
 
   var body: some View {
     let serverEntries = viewModel.serverEntries
@@ -175,7 +178,7 @@ struct McpServersTab: View {
         .padding(.vertical, Spacing.xs)
       }
     }
-    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+    .task(id: bindingIdentity) {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
     .background(Color.backgroundPrimary)
