@@ -1,0 +1,4 @@
+interface:
+  display_name: "OrbitDock Memory Profiling"
+  short_description: "Profile OrbitDock memory with macOS CLI tools"
+  default_prompt: "Use $orbitdock-memory-profiling to capture vmmap, sample, and xctrace allocation traces for the running app."
