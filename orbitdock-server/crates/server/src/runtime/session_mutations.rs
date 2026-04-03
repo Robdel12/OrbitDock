@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use orbitdock_protocol::{
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage,
+  conversation_contracts::{
+    ConversationRow, ConversationRowEntry, NoticeRow, NoticeRowKind, NoticeRowSeverity, TurnStatus,
+  },
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage, SessionSummary,
 };
 
 use orbitdock_protocol::StateChanges;
@@ -186,7 +189,10 @@ pub(crate) async fn update_session_config(
     codex_config_source,
     codex_config_overrides,
   ) = if current_summary.provider == orbitdock_protocol::Provider::Codex {
-    let mut overrides = current_summary.codex_config_overrides.unwrap_or_default();
+    let mut overrides = current_summary
+      .codex_config_overrides
+      .clone()
+      .unwrap_or_default();
     if let Some(value) = model {
       overrides.model = value;
     }
@@ -351,6 +357,28 @@ pub(crate) async fn update_session_config(
     return Err(SessionMutationError::NotFound(session_id.to_string()));
   }
 
+  let updated_summary = actor
+    .summary()
+    .await
+    .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+
+  if let Some(entry) =
+    build_session_config_change_notice_row(session_id, &current_summary, &updated_summary)
+  {
+    let row_id = entry.id().to_string();
+    actor
+      .send_checked(SessionCommand::AddRowAndBroadcast { entry })
+      .await
+      .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+    tracing::info!(
+      component = "session",
+      event = "session.config.notice_row_emitted",
+      session_id = %session_id,
+      row_id = %row_id,
+      "Emitted session-config notice row"
+    );
+  }
+
   state.publish_dashboard_snapshot();
 
   if let Some(Some(ref mode)) = permission_mode {
@@ -382,6 +410,110 @@ pub(crate) async fn update_session_config(
   }
 
   Ok(())
+}
+
+fn build_session_config_change_notice_row(
+  session_id: &str,
+  before: &SessionSummary,
+  after: &SessionSummary,
+) -> Option<ConversationRowEntry> {
+  let mut changes = Vec::new();
+  for (label, before_value, after_value) in [
+    ("Model", before.model.as_deref(), after.model.as_deref()),
+    (
+      "Reasoning effort",
+      before.effort.as_deref(),
+      after.effort.as_deref(),
+    ),
+    (
+      "Approval mode",
+      before.approval_policy.as_deref(),
+      after.approval_policy.as_deref(),
+    ),
+    (
+      "Sandbox mode",
+      before.sandbox_mode.as_deref(),
+      after.sandbox_mode.as_deref(),
+    ),
+    (
+      "Permission mode",
+      before.permission_mode.as_deref(),
+      after.permission_mode.as_deref(),
+    ),
+    (
+      "Collaboration mode",
+      before.collaboration_mode.as_deref(),
+      after.collaboration_mode.as_deref(),
+    ),
+    (
+      "Reviewer",
+      codex_overrides_reviewer(before),
+      codex_overrides_reviewer(after),
+    ),
+  ] {
+    push_config_change(&mut changes, label, before_value, after_value);
+  }
+
+  if changes.is_empty() {
+    return None;
+  }
+
+  let summary = changes.join(" | ");
+  let body = if changes.len() > 1 {
+    Some(
+      changes
+        .iter()
+        .map(|change| format!("- {change}"))
+        .collect::<Vec<_>>()
+        .join("\n"),
+    )
+  } else {
+    None
+  };
+
+  Some(ConversationRowEntry {
+    session_id: session_id.to_string(),
+    sequence: 0,
+    turn_id: None,
+    turn_status: TurnStatus::Active,
+    row: ConversationRow::Notice(NoticeRow {
+      id: orbitdock_protocol::new_id(),
+      kind: NoticeRowKind::Generic,
+      severity: NoticeRowSeverity::Info,
+      title: "Session settings updated".to_string(),
+      summary: Some(summary),
+      body,
+      render_hints: Default::default(),
+    }),
+  })
+}
+
+fn push_config_change(
+  changes: &mut Vec<String>,
+  label: &str,
+  before: Option<&str>,
+  after: Option<&str>,
+) {
+  if before == after {
+    return;
+  }
+  changes.push(format!(
+    "{label}: {} -> {}",
+    format_config_value(before),
+    format_config_value(after)
+  ));
+}
+
+fn format_config_value(value: Option<&str>) -> String {
+  value.unwrap_or("default").to_owned()
+}
+
+fn codex_overrides_reviewer(summary: &SessionSummary) -> Option<&'static str> {
+  summary
+    .codex_config_overrides
+    .as_ref()
+    .and_then(|overrides| overrides.approvals_reviewer)
+    .map(|reviewer| reviewer.as_str())
 }
 
 pub(crate) async fn end_session(state: &Arc<SessionRegistry>, session_id: &str) -> usize {
@@ -538,7 +670,8 @@ mod tests {
   use std::sync::Arc;
 
   use orbitdock_protocol::{
-    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, WorkStatus,
+    conversation_contracts::ConversationRow, CodexIntegrationMode, Provider, ServerMessage,
+    SessionStatus, WorkStatus,
   };
   use tokio::sync::{mpsc, oneshot};
   use tokio::time::{timeout, Duration};
@@ -548,6 +681,20 @@ mod tests {
   use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
   use crate::runtime::session_registry::SessionRegistry;
   use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+
+  fn count_settings_notice_rows(
+    rows: &[orbitdock_protocol::conversation_contracts::ConversationRowEntry],
+  ) -> usize {
+    rows
+      .iter()
+      .filter(|entry| {
+        matches!(
+          &entry.row,
+          ConversationRow::Notice(notice) if notice.title == "Session settings updated"
+        )
+      })
+      .count()
+  }
 
   #[tokio::test]
   async fn ending_direct_session_emits_local_ended_delta_before_removal() {
@@ -636,5 +783,127 @@ mod tests {
     assert_eq!(snapshot.effort.as_deref(), Some("high"));
     assert_eq!(snapshot.permission_mode.as_deref(), Some("full"));
     assert_eq!(snapshot.collaboration_mode.as_deref(), Some("enabled"));
+  }
+
+  #[tokio::test]
+  async fn update_session_config_emits_notice_row_for_effective_changes() {
+    let state = new_test_session_registry(true);
+    let session_id = "control-deck-update-row";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Claude,
+      "/tmp/control-deck-update-row".to_string(),
+    ));
+
+    let actor = state
+      .get_session(session_id)
+      .expect("session should exist before config update");
+    let before = actor
+      .summary()
+      .await
+      .expect("summary should be available before update");
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        model: Some(Some("row-test-model".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("control deck config update should succeed");
+
+    let actor = state
+      .get_session(session_id)
+      .expect("session still exists after config update");
+    let after = actor
+      .summary()
+      .await
+      .expect("summary should be available after update");
+    assert_ne!(
+      before.model, after.model,
+      "test requires an actual model change to validate notice-row behavior"
+    );
+    assert_eq!(after.model.as_deref(), Some("row-test-model"));
+
+    let page = actor
+      .conversation_page(None, 50)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_settings_notice_rows(&page.rows),
+      1,
+      "one settings notice row should be appended"
+    );
+    let row = page
+      .rows
+      .first()
+      .expect("notice row should be present after config update");
+
+    let ConversationRow::Notice(notice) = &row.row else {
+      panic!("expected notice row for config change, got {:?}", row.row);
+    };
+
+    assert_eq!(notice.title, "Session settings updated");
+    let summary = notice
+      .summary
+      .as_deref()
+      .expect("summary should describe changed settings");
+    assert!(summary.contains("Model:"));
+    assert!(summary.contains("row-test-model"));
+    assert!(
+      notice.body.is_none(),
+      "single-change settings notice should not duplicate summary in body"
+    );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_skips_notice_row_when_values_do_not_change() {
+    let state = new_test_session_registry(true);
+    let session_id = "control-deck-update-noop-row";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Claude,
+      "/tmp/control-deck-update-noop-row".to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        model: Some(Some("row-test-model".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("initial config update should succeed");
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        model: Some(Some("row-test-model".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("second config update should succeed");
+
+    let page = state
+      .get_session(session_id)
+      .expect("session should still exist")
+      .conversation_page(None, 50)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_settings_notice_rows(&page.rows),
+      1,
+      "no-op config update should not append an extra settings notice row"
+    );
   }
 }

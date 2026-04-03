@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use orbitdock_connector_codex::discover_models_for_context;
 use orbitdock_protocol::{
-  ControlDeckConfigUpdate, ControlDeckPreferences, ControlDeckSnapshot,
+  ControlDeckConfigUpdate, ControlDeckPickerOption, ControlDeckPreferences, ControlDeckSnapshot,
   ControlDeckSubmitTurnRequest, ImageInput, MentionInput, SkillInput,
 };
+use tracing::{debug, info, warn};
 
 use crate::domain::control_deck::{
-  build_control_deck_snapshot, default_control_deck_preferences,
+  build_control_deck_snapshot, control_deck_effort_options, default_control_deck_preferences,
   validate_control_deck_submit_request, ControlDeckSubmitValidationError,
   CONTROL_DECK_PREFERENCES_CONFIG_KEY,
 };
@@ -83,13 +85,106 @@ pub(crate) async fn load_control_deck_snapshot(
   session_id: &str,
 ) -> Result<ControlDeckSnapshot, ControlDeckSnapshotLoadError> {
   match load_full_session_state(state, session_id, false).await {
-    Ok(session) => Ok(build_control_deck_snapshot(
-      &session,
-      load_control_deck_preferences(),
-    )),
+    Ok(session) => {
+      let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
+      let snapshot =
+        build_control_deck_snapshot(&session, load_control_deck_preferences(), effort_options);
+      debug!(
+        component = "control_deck",
+        event = "snapshot.loaded",
+        session_id = %session_id,
+        revision = snapshot.revision,
+        provider = ?snapshot.state.provider,
+        model = ?snapshot.state.config.model,
+        effort = ?snapshot.state.config.effort,
+        effort_options = snapshot.capabilities.effort_options.len(),
+        "Loaded control deck snapshot"
+      );
+      Ok(snapshot)
+    }
     Err(SessionLoadError::NotFound) => Err(ControlDeckSnapshotLoadError::NotFound),
     Err(SessionLoadError::Db(err)) => Err(ControlDeckSnapshotLoadError::Db(err)),
     Err(SessionLoadError::Runtime(err)) => Err(ControlDeckSnapshotLoadError::Runtime(err)),
+  }
+}
+
+async fn resolve_control_deck_effort_options(
+  session_id: &str,
+  session: &orbitdock_protocol::SessionState,
+) -> Vec<ControlDeckPickerOption> {
+  if session.provider != orbitdock_protocol::Provider::Codex {
+    let options = control_deck_effort_options(session.provider, None);
+    let values = effort_option_values(&options);
+    debug!(
+      component = "control_deck",
+      event = "effort_options.resolved.non_codex",
+      session_id = %session_id,
+      provider = ?session.provider,
+      effort_options = ?values,
+      "Resolved control deck effort options for non-Codex session"
+    );
+    return options;
+  }
+
+  let cwd = session
+    .current_cwd
+    .as_deref()
+    .unwrap_or(session.project_path.as_str());
+  let model_provider = session.codex_model_provider.as_deref();
+  let discovered = discover_models_for_context(Some(cwd), model_provider)
+    .await
+    .ok();
+  let active_model = session.model.as_deref().map(|value| value.trim());
+
+  let codex_model_efforts = discovered
+    .as_ref()
+    .and_then(|models| {
+      let active_model = active_model?;
+      models.iter().find(|option| {
+        option.model.eq_ignore_ascii_case(active_model)
+          || option.id.eq_ignore_ascii_case(active_model)
+      })
+    })
+    .map(|option| option.supported_reasoning_efforts.as_slice());
+
+  let options = control_deck_effort_options(session.provider, codex_model_efforts);
+  let values = effort_option_values(&options);
+  info!(
+    component = "control_deck",
+    event = "effort_options.resolved.codex",
+    session_id = %session_id,
+    model_provider = ?model_provider,
+    active_model = ?active_model,
+    discovered_models = discovered.as_ref().map(|models| models.len()).unwrap_or(0),
+    effort_options = ?values,
+    "Resolved control deck effort options for Codex session"
+  );
+  options
+}
+
+fn effort_option_values(options: &[ControlDeckPickerOption]) -> Vec<&str> {
+  options
+    .iter()
+    .map(|option| option.value.as_str())
+    .collect::<Vec<_>>()
+}
+
+fn map_session_mutation_error(error: SessionMutationError) -> ControlDeckConfigUpdateError {
+  match error {
+    SessionMutationError::NotFound(_) => ControlDeckConfigUpdateError::NotFound,
+    SessionMutationError::InvalidCodexConfig(message) => {
+      ControlDeckConfigUpdateError::InvalidConfig(message)
+    }
+  }
+}
+
+fn map_snapshot_load_error(error: ControlDeckSnapshotLoadError) -> ControlDeckConfigUpdateError {
+  match error {
+    ControlDeckSnapshotLoadError::NotFound => ControlDeckConfigUpdateError::NotFound,
+    ControlDeckSnapshotLoadError::Db(message) => ControlDeckConfigUpdateError::Db(message),
+    ControlDeckSnapshotLoadError::Runtime(message) => {
+      ControlDeckConfigUpdateError::Runtime(message)
+    }
   }
 }
 
@@ -117,7 +212,15 @@ pub(crate) async fn update_control_deck_config(
   session_id: &str,
   update: ControlDeckConfigUpdate,
 ) -> Result<ControlDeckSnapshot, ControlDeckConfigUpdateError> {
-  update_runtime_session_config(
+  info!(
+    component = "control_deck",
+    event = "config_update.runtime.request",
+    session_id = %session_id,
+    update = ?update,
+    "Applying control deck config update"
+  );
+
+  if let Err(error) = update_runtime_session_config(
     state,
     session_id,
     SessionConfigUpdate {
@@ -133,22 +236,54 @@ pub(crate) async fn update_control_deck_config(
     },
   )
   .await
-  .map_err(|error| match error {
-    SessionMutationError::NotFound(_) => ControlDeckConfigUpdateError::NotFound,
-    SessionMutationError::InvalidCodexConfig(message) => {
-      ControlDeckConfigUpdateError::InvalidConfig(message)
-    }
-  })?;
+  {
+    warn!(
+      component = "control_deck",
+      event = "config_update.runtime.apply_failed",
+      session_id = %session_id,
+      error = ?error,
+      "Failed to apply control deck config update"
+    );
+    return Err(map_session_mutation_error(error));
+  }
 
-  load_control_deck_snapshot(state, session_id)
-    .await
-    .map_err(|error| match error {
-      ControlDeckSnapshotLoadError::NotFound => ControlDeckConfigUpdateError::NotFound,
-      ControlDeckSnapshotLoadError::Db(message) => ControlDeckConfigUpdateError::Db(message),
-      ControlDeckSnapshotLoadError::Runtime(message) => {
-        ControlDeckConfigUpdateError::Runtime(message)
-      }
-    })
+  info!(
+    component = "control_deck",
+    event = "config_update.runtime.applied",
+    session_id = %session_id,
+    "Applied control deck config update; reloading snapshot"
+  );
+
+  match load_control_deck_snapshot(state, session_id).await {
+    Ok(snapshot) => {
+      info!(
+        component = "control_deck",
+        event = "config_update.runtime.response",
+        session_id = %session_id,
+        revision = snapshot.revision,
+        model = ?snapshot.state.config.model,
+        effort = ?snapshot.state.config.effort,
+        approval_policy = ?snapshot.state.config.approval_policy,
+        sandbox_mode = ?snapshot.state.config.sandbox_mode,
+        permission_mode = ?snapshot.state.config.permission_mode,
+        collaboration_mode = ?snapshot.state.config.collaboration_mode,
+        approvals_reviewer = ?snapshot.state.config.approvals_reviewer,
+        effort_options = snapshot.capabilities.effort_options.len(),
+        "Returning updated control deck snapshot"
+      );
+      Ok(snapshot)
+    }
+    Err(error) => {
+      warn!(
+        component = "control_deck",
+        event = "config_update.runtime.snapshot_failed",
+        session_id = %session_id,
+        error = ?error,
+        "Control deck config update applied but snapshot reload failed"
+      );
+      Err(map_snapshot_load_error(error))
+    }
+  }
 }
 
 pub(crate) async fn submit_control_deck_turn(

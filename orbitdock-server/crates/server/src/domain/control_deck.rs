@@ -89,6 +89,76 @@ fn codex_collaboration_mode_options() -> Vec<ControlDeckPickerOption> {
   ]
 }
 
+fn claude_effort_options() -> Vec<ControlDeckPickerOption> {
+  vec![
+    picker_option("low", "Low"),
+    picker_option("medium", "Medium"),
+    picker_option("high", "High"),
+    picker_option("max", "Max"),
+  ]
+}
+
+fn codex_default_effort_options() -> Vec<ControlDeckPickerOption> {
+  vec![
+    picker_option("none", "None"),
+    picker_option("minimal", "Minimal"),
+    picker_option("low", "Low"),
+    picker_option("medium", "Medium"),
+    picker_option("high", "High"),
+    picker_option("xhigh", "XHigh"),
+  ]
+}
+
+fn codex_effort_label(value: &str) -> String {
+  match value {
+    "none" => "None".to_string(),
+    "minimal" => "Minimal".to_string(),
+    "low" => "Low".to_string(),
+    "medium" => "Medium".to_string(),
+    "high" => "High".to_string(),
+    "xhigh" => "XHigh".to_string(),
+    other => {
+      let mut chars = other.chars();
+      match chars.next() {
+        Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+        None => "Unknown".to_string(),
+      }
+    }
+  }
+}
+
+pub(crate) fn control_deck_effort_options(
+  provider: Provider,
+  codex_model_efforts: Option<&[String]>,
+) -> Vec<ControlDeckPickerOption> {
+  match provider {
+    Provider::Claude => claude_effort_options(),
+    Provider::Codex => {
+      if let Some(efforts) = codex_model_efforts {
+        let mut options = Vec::new();
+        for effort in efforts {
+          let normalized = effort.trim().to_ascii_lowercase();
+          if normalized.is_empty()
+            || options
+              .iter()
+              .any(|option: &ControlDeckPickerOption| option.value == normalized)
+          {
+            continue;
+          }
+          options.push(ControlDeckPickerOption {
+            value: normalized.clone(),
+            label: codex_effort_label(&normalized),
+          });
+        }
+        if !options.is_empty() {
+          return options;
+        }
+      }
+      codex_default_effort_options()
+    }
+  }
+}
+
 /// Provider-aware module list. Claude and Codex have different control surfaces.
 pub(crate) fn control_deck_status_modules(provider: Provider) -> Vec<ControlDeckModule> {
   let mut modules = Vec::new();
@@ -112,6 +182,7 @@ pub(crate) fn build_control_deck_capabilities(
   provider: Provider,
   steerable: bool,
   _codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
+  effort_options: Vec<ControlDeckPickerOption>,
 ) -> ControlDeckCapabilities {
   ControlDeckCapabilities {
     supports_skills: provider == Provider::Codex,
@@ -120,6 +191,7 @@ pub(crate) fn build_control_deck_capabilities(
     supports_steer: steerable,
     allow_per_turn_model_override: provider == Provider::Claude || provider == Provider::Codex,
     allow_per_turn_effort_override: provider == Provider::Codex,
+    effort_options,
     approval_mode_options: if provider == Provider::Codex {
       codex_approval_mode_options()
     } else {
@@ -143,6 +215,7 @@ pub(crate) fn build_control_deck_capabilities(
 pub(crate) fn build_control_deck_snapshot(
   session: &SessionState,
   preferences: ControlDeckPreferences,
+  effort_options: Vec<ControlDeckPickerOption>,
 ) -> ControlDeckSnapshot {
   let state = ControlDeckState {
     provider: session.provider,
@@ -179,6 +252,7 @@ pub(crate) fn build_control_deck_snapshot(
       session.provider,
       session.steerable,
       session.codex_config_mode,
+      effort_options,
     ),
     preferences,
     state,
@@ -454,7 +528,11 @@ mod tests {
   #[test]
   fn builds_snapshot_from_session_state() {
     let session = sample_session_state();
-    let snapshot = build_control_deck_snapshot(&session, default_control_deck_preferences());
+    let snapshot = build_control_deck_snapshot(
+      &session,
+      default_control_deck_preferences(),
+      control_deck_effort_options(session.provider, None),
+    );
 
     assert_eq!(snapshot.session_id, "session-1");
     assert_eq!(snapshot.revision, 42);

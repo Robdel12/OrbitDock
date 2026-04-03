@@ -120,6 +120,8 @@ pub struct ControlDeckCapabilities {
   pub allow_per_turn_model_override: bool,
   pub allow_per_turn_effort_override: bool,
   #[serde(default)]
+  pub effort_options: Vec<ControlDeckPickerOption>,
+  #[serde(default)]
   pub approval_mode_options: Vec<ControlDeckPickerOption>,
   #[serde(default)]
   pub permission_mode_options: Vec<ControlDeckPickerOption>,

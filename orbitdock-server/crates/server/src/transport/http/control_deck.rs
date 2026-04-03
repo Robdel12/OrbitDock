@@ -11,6 +11,7 @@ use orbitdock_protocol::{
   ControlDeckSnapshot, ControlDeckSubmitTurnRequest,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
 
 use super::{
   errors::{bad_request, internal, not_found, service_unavailable},
@@ -63,10 +64,50 @@ pub async fn update_control_deck_config(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<ControlDeckConfigUpdate>,
 ) -> Result<Json<ControlDeckSnapshot>, (StatusCode, Json<ApiErrorResponse>)> {
-  update_control_deck_config_runtime(&state, &session_id, body)
-    .await
-    .map(Json)
-    .map_err(|error| map_config_update_error(error, &session_id))
+  info!(
+    component = "control_deck",
+    event = "config_update.http.request",
+    session_id = %session_id,
+    model = ?body.model,
+    effort = ?body.effort,
+    approval_policy = ?body.approval_policy,
+    sandbox_mode = ?body.sandbox_mode,
+    permission_mode = ?body.permission_mode,
+    collaboration_mode = ?body.collaboration_mode,
+    approvals_reviewer = ?body.approvals_reviewer,
+    "Received control deck config update request"
+  );
+
+  match update_control_deck_config_runtime(&state, &session_id, body).await {
+    Ok(snapshot) => {
+      info!(
+        component = "control_deck",
+        event = "config_update.http.response",
+        session_id = %session_id,
+        revision = snapshot.revision,
+        model = ?snapshot.state.config.model,
+        effort = ?snapshot.state.config.effort,
+        approval_policy = ?snapshot.state.config.approval_policy,
+        sandbox_mode = ?snapshot.state.config.sandbox_mode,
+        permission_mode = ?snapshot.state.config.permission_mode,
+        collaboration_mode = ?snapshot.state.config.collaboration_mode,
+        approvals_reviewer = ?snapshot.state.config.approvals_reviewer,
+        effort_options = snapshot.capabilities.effort_options.len(),
+        "Control deck config update applied"
+      );
+      Ok(Json(snapshot))
+    }
+    Err(error) => {
+      warn!(
+        component = "control_deck",
+        event = "config_update.http.error",
+        session_id = %session_id,
+        error = ?error,
+        "Control deck config update failed"
+      );
+      Err(map_config_update_error(error, &session_id))
+    }
+  }
 }
 
 pub async fn get_control_deck_preferences() -> Json<ControlDeckPreferences> {
