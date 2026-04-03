@@ -1921,7 +1921,11 @@ impl ClaudeConnector {
       let input_value = block.get("input");
       let tool_use_id = block.get("id").and_then(|v| v.as_str());
       let message_id = tool_use_id.map(str::to_string).unwrap_or_else(|| {
-        format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], uuid::Uuid::new_v4())
+        format!(
+          "claude-msg-{}-{}",
+          &session_id[..8.min(session_id.len())],
+          uuid::Uuid::new_v4()
+        )
       });
 
       let tr = make_tool_row(

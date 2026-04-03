@@ -2,8 +2,8 @@ use super::config::{
   apply_orbitdock_external_model_defaults, apply_orbitdock_provider_defaults,
   collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
   ensure_apply_patch_feature_for_custom_models, model_rejects_reasoning_summary, parse_personality,
-  parse_reasoning_summary, should_enable_apply_patch_for_custom_models,
-  parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
+  parse_reasoning_summary, parse_service_tier_override, reasoning_summary_for_model,
+  should_disable_reasoning_summary, should_enable_apply_patch_for_custom_models,
 };
 use super::event_mapping::{guardian, messages, runtime_signals, streaming};
 use super::runtime::StreamingMessage;
@@ -277,10 +277,15 @@ fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
     .iter()
     .find(|candidate| candidate.slug == "z-ai/glm-5v-turbo")
     .expect("synthetic model should exist");
-  assert_eq!(model.apply_patch_tool_type, Some(ApplyPatchToolType::Function));
+  assert_eq!(
+    model.apply_patch_tool_type,
+    Some(ApplyPatchToolType::Function)
+  );
   assert!(!model.used_fallback_model_metadata);
   assert!(model.model_messages.is_some());
-  assert!(model.base_instructions.contains("Tool invocation contract:"));
+  assert!(model
+    .base_instructions
+    .contains("Tool invocation contract:"));
   assert!(model
     .base_instructions
     .contains("Do not claim a specific provider/model identity"));
@@ -356,10 +361,18 @@ fn external_model_defaults_merge_into_existing_catalog_model() {
   assert!(model
     .base_instructions
     .contains("Provider baseline instructions."));
-  assert!(model.base_instructions.contains("Tool invocation contract:"));
-  assert_eq!(model.apply_patch_tool_type, Some(ApplyPatchToolType::Function));
+  assert!(model
+    .base_instructions
+    .contains("Tool invocation contract:"));
+  assert_eq!(
+    model.apply_patch_tool_type,
+    Some(ApplyPatchToolType::Function)
+  );
 
-  let model_messages = model.model_messages.as_ref().expect("model messages should exist");
+  let model_messages = model
+    .model_messages
+    .as_ref()
+    .expect("model messages should exist");
   let template = model_messages
     .instructions_template
     .as_deref()
@@ -434,12 +447,16 @@ fn custom_provider_force_enables_apply_patch_feature() {
     },
   );
 
-  let _ = config.features.disable(codex_features::Feature::ApplyPatchFreeform);
+  let _ = config
+    .features
+    .disable(codex_features::Feature::ApplyPatchFreeform);
 
   let forced = ensure_apply_patch_feature_for_custom_models(&mut config);
 
   assert!(forced);
-  assert!(config.features.enabled(codex_features::Feature::ApplyPatchFreeform));
+  assert!(config
+    .features
+    .enabled(codex_features::Feature::ApplyPatchFreeform));
 }
 
 #[test]
@@ -449,12 +466,16 @@ fn openai_provider_does_not_force_enable_apply_patch_feature() {
     ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
   );
 
-  let _ = config.features.disable(codex_features::Feature::ApplyPatchFreeform);
+  let _ = config
+    .features
+    .disable(codex_features::Feature::ApplyPatchFreeform);
 
   let forced = ensure_apply_patch_feature_for_custom_models(&mut config);
 
   assert!(!forced);
-  assert!(!config.features.enabled(codex_features::Feature::ApplyPatchFreeform));
+  assert!(!config
+    .features
+    .enabled(codex_features::Feature::ApplyPatchFreeform));
 }
 
 fn config_with_provider(provider_id: &str, provider: ModelProviderInfo) -> CoreConfig {

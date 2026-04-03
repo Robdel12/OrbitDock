@@ -1,6 +1,6 @@
 # OrbitDock
 
-Run, review, and orchestrate AI coding agents from anywhere.
+Run, review, and orchestrate AI coding agents from anywhere, including your phone.
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-18.0+-blue)
