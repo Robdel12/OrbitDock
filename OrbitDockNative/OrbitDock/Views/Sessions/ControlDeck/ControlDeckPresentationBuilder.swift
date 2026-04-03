@@ -140,7 +140,9 @@ enum ControlDeckPresentationBuilder {
     availableModels: [String] = []
   ) -> ControlDeckStatusModuleItem? {
     let folder = (state.currentCwd ?? state.projectPath).split(separator: "/").last.map(String.init) ?? "\u{2014}"
-    let effortOptions = ["low", "medium", "high"]
+    let effortOptions = capabilities.effortOptions.isEmpty
+      ? EffortLevel.concreteCases.map { ControlDeckPickerOption(value: $0.rawValue, label: $0.displayName) }
+      : capabilities.effortOptions
 
     switch module {
       case .connection:
@@ -239,7 +241,7 @@ enum ControlDeckPresentationBuilder {
           tintName: "textTertiary",
           selectedValue: state.config.effort,
           reviewerValue: nil,
-          interaction: .picker(options: effortOptions.map { .init(value: $0, label: $0.capitalized) })
+          interaction: .picker(options: pickerOptions(from: effortOptions))
         )
       case .branch:
         // Hide branch module when no git data — showing "—" with the branch icon

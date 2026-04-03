@@ -122,15 +122,34 @@ enum CodexApprovalMode: String, CaseIterable, Identifiable {
   }
 
   static func from(rawValue: String?) -> CodexApprovalMode {
-    guard let rawValue, let mode = CodexApprovalMode(rawValue: rawValue) else {
-      return .onRequest
-    }
-    return mode
+    parse(rawValue) ?? .onRequest
   }
 
   static func supportedCases(from options: [ControlDeckStatusModuleItem.Option]) -> [CodexApprovalMode] {
-    let modes = options.compactMap { CodexApprovalMode(rawValue: $0.value) }
+    let modes = options.compactMap { parse($0.value) }
     return modes.isEmpty ? allCases : modes
+  }
+
+  private static func parse(_ rawValue: String?) -> CodexApprovalMode? {
+    guard let rawValue else { return nil }
+    let normalized = rawValue
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "_", with: "-")
+      .replacingOccurrences(of: " ", with: "-")
+    if let mode = CodexApprovalMode(rawValue: normalized) {
+      return mode
+    }
+    switch normalized {
+      case "onrequest":
+        return .onRequest
+      case "onfailure":
+        return .onFailure
+      case "unless-trusted":
+        return .untrusted
+      default:
+        return nil
+    }
   }
 }
 
@@ -505,19 +524,45 @@ struct CodexAutoReviewPill: View {
 
 extension EffortLevel {
   static func fromControlDeckValue(_ value: String?) -> EffortLevel {
-    guard let value, let level = EffortLevel(rawValue: value) else {
-      return .default
-    }
-    return level
+    parse(value) ?? .default
   }
 
   static func supportedControlDeckCases(
     from options: [ControlDeckStatusModuleItem.Option]
   ) -> [EffortLevel] {
-    let levels = options.compactMap { option in
-      EffortLevel(rawValue: option.value)
-    }
+    let levels = options.compactMap { option in parse(option.value) }
     return levels.isEmpty ? concreteCases : levels
+  }
+
+  private static func parse(_ rawValue: String?) -> EffortLevel? {
+    guard let rawValue else { return nil }
+    let normalized = rawValue
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "_", with: "")
+      .replacingOccurrences(of: "-", with: "")
+      .replacingOccurrences(of: " ", with: "")
+
+    switch normalized {
+      case "":
+        return .default
+      case "auto", "default":
+        return .default
+      case "none":
+        return .none
+      case "minimal":
+        return .minimal
+      case "low":
+        return .low
+      case "medium":
+        return .medium
+      case "high":
+        return .high
+      case "xhigh", "extrahigh", "max":
+        return .xhigh
+      default:
+        return nil
+    }
   }
 }
 

@@ -83,7 +83,26 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
   /// Parse a raw string from the server, mapping unknown values (including
   /// the legacy "auto") to `.default`.
   init(fromServer raw: String?) {
-    self = Self(rawValue: raw ?? Self.default.rawValue) ?? .default
+    let normalized = raw?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "_", with: "")
+      .replacingOccurrences(of: "-", with: "")
+      .lowercased()
+
+    switch normalized {
+      case nil, "", "default", "auto":
+        self = .default
+      case "plan":
+        self = .plan
+      case "dontask":
+        self = .dontAsk
+      case "acceptedits", "autoedit":
+        self = .acceptEdits
+      case "bypasspermissions", "bypass":
+        self = .bypassPermissions
+      default:
+        self = .default
+    }
   }
 }
 

@@ -53,7 +53,7 @@ final class ControlDeckViewModel {
     do {
       let serverSnapshot = try await store.fetchControlDeckSnapshot(sessionId: sessionId)
       guard isCurrent(binding) else { return }
-      applySnapshotPayload(serverSnapshot)
+      applySnapshotPayload(serverSnapshot, source: "refresh")
       await loadCodexModelsIfNeeded(for: serverSnapshot.state.provider, binding: binding)
       guard isCurrent(binding) else { return }
       print("[ResumeTrace] VM refresh finish sid=\(sessionId)")
@@ -350,76 +350,98 @@ final class ControlDeckViewModel {
   ) async throws {
     var request = ServerControlDeckConfigUpdateRequest()
     configure(&request)
-    let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-    applySnapshotPayload(updated)
+    let requestData = configUpdateLogData(request: request)
+    print(
+      "[ControlDeckTrace] config update request sid=\(sessionId) fields=\((requestData["changedFields"] as? [String]) ?? []) model=\(request.model ?? "") effort=\(request.effort ?? "") approval=\(request.approvalPolicy ?? "") permission=\(request.permissionMode ?? "") collaboration=\(request.collaborationMode ?? "") reviewer=\(request.approvalsReviewer?.rawValue ?? "")"
+    )
+    netLog(.info, cat: .store, "ControlDeck config update requested", sid: sessionId, data: requestData)
+    do {
+      let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
+      print(
+        "[ControlDeckTrace] config update response sid=\(sessionId) revision=\(updated.revision) model=\(updated.state.config.model ?? "") effort=\(updated.state.config.effort ?? "") approval=\(updated.state.config.approvalPolicy ?? "") permission=\(updated.state.config.permissionMode ?? "") collaboration=\(updated.state.config.collaborationMode ?? "") reviewer=\(updated.state.config.approvalsReviewer?.rawValue ?? "")"
+      )
+      applySnapshotToSessionState(updated, sessionId: sessionId, store: store)
+      netLog(
+        .info,
+        cat: .store,
+        "ControlDeck config update response received",
+        sid: sessionId,
+        data: snapshotLogData(snapshot: updated, source: "config_update_response")
+      )
+      applySnapshotPayload(updated, source: "config_update")
+    } catch {
+      var errorData = requestData
+      errorData["error"] = String(describing: error)
+      print("[ControlDeckTrace] config update failed sid=\(sessionId) error=\(String(describing: error))")
+      netLog(.error, cat: .store, "ControlDeck config update failed", sid: sessionId, data: errorData)
+      throw error
+    }
+  }
+
+  private func applyConfigUpdate(
+    action: String,
+    value: String,
+    configure: (inout ServerControlDeckConfigUpdateRequest) -> Void
+  ) async {
+    print(
+      "[ControlDeckTrace] \(action) called value=\(value) hasSessionId=\(currentSessionId != nil) hasStore=\(currentSessionStore != nil)"
+    )
+    guard let sessionId = currentSessionId, let store = currentSessionStore else {
+      print("[ControlDeckTrace] \(action) skipped missing binding")
+      return
+    }
+    do {
+      try await updateConfig(sessionId: sessionId, store: store, configure: configure)
+    } catch {
+      print("[ControlDeckTrace] \(action) failed error=\(String(describing: error))")
+      lastError = String(describing: error)
+    }
   }
 
   func updateModel(_ model: String) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.model = model }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updateModel", value: model) { request in
+      request.model = model
     }
   }
 
   func updateEffort(_ effort: String) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.effort = effort }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updateEffort", value: effort) { request in
+      request.effort = effort
     }
   }
 
   func updatePermissionMode(_ mode: String) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.permissionMode = mode }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updatePermissionMode", value: mode) { request in
+      request.permissionMode = mode
     }
   }
 
   func updateApprovalPolicy(_ policy: String) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.approvalPolicy = policy }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updateApprovalPolicy", value: policy) { request in
+      request.approvalPolicy = policy
     }
   }
 
   func updateApprovalsReviewer(_ reviewer: ServerCodexApprovalsReviewer) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.approvalsReviewer = reviewer }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updateApprovalsReviewer", value: reviewer.rawValue) { request in
+      request.approvalsReviewer = reviewer
     }
   }
 
   func updateCollaborationMode(_ mode: String) async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) { $0.collaborationMode = mode }
-    } catch {
-      lastError = String(describing: error)
+    await applyConfigUpdate(action: "updateCollaborationMode", value: mode) { request in
+      request.collaborationMode = mode
     }
   }
 
   func updateAutoReview(_ value: String) async {
-    guard let sessionId = currentSessionId,
-          let store = currentSessionStore,
-          let option = snapshot?.capabilities.autoReviewOptions.first(where: { $0.value == value })
-    else { return }
-    do {
-      try await updateConfig(sessionId: sessionId, store: store) {
-        $0.approvalPolicy = option.approvalPolicy
-        $0.sandboxMode = option.sandboxMode
-      }
-    } catch {
-      lastError = String(describing: error)
+    guard let option = snapshot?.capabilities.autoReviewOptions.first(where: { $0.value == value }) else {
+      print("[ControlDeckTrace] updateAutoReview skipped missing binding or option")
+      return
+    }
+    await applyConfigUpdate(action: "updateAutoReview", value: value) { request in
+      request.approvalPolicy = option.approvalPolicy
+      request.sandboxMode = option.sandboxMode
     }
   }
 
@@ -478,8 +500,21 @@ final class ControlDeckViewModel {
     return fetched
   }
 
-  private func applySnapshotPayload(_ payload: ServerControlDeckSnapshotPayload) {
+  private func applySnapshotPayload(
+    _ payload: ServerControlDeckSnapshotPayload,
+    source: String
+  ) {
     lastError = nil
+    print(
+      "[ControlDeckTrace] apply snapshot sid=\(payload.sessionId) source=\(source) revision=\(payload.revision) model=\(payload.state.config.model ?? "") effort=\(payload.state.config.effort ?? "") approval=\(payload.state.config.approvalPolicy ?? "") permission=\(payload.state.config.permissionMode ?? "") collaboration=\(payload.state.config.collaborationMode ?? "") reviewer=\(payload.state.config.approvalsReviewer?.rawValue ?? "") codexMode=\(payload.state.config.codexConfigMode?.rawValue ?? "") codexProfile=\(payload.state.config.codexConfigProfile ?? "") codexProvider=\(payload.state.config.codexModelProvider ?? "")"
+    )
+    netLog(
+      .info,
+      cat: .store,
+      "ControlDeck snapshot apply start",
+      sid: payload.sessionId,
+      data: snapshotLogData(snapshot: payload, source: source)
+    )
     let mapped = ControlDeckSnapshotMapper.map(payload)
     snapshot = mapped
     controlMode = mapped.state.controlMode
@@ -562,6 +597,86 @@ final class ControlDeckViewModel {
       isLoading: isLoading,
       hasPendingApproval: pendingApproval != nil,
       availableModels: availableModels
+    )
+  }
+
+  private func configUpdateLogData(
+    request: ServerControlDeckConfigUpdateRequest
+  ) -> [String: Any] {
+    let changedFields = [
+      request.model != nil ? "model" : nil,
+      request.effort != nil ? "effort" : nil,
+      request.approvalPolicy != nil ? "approval_policy" : nil,
+      request.approvalPolicyDetails != nil ? "approval_policy_details" : nil,
+      request.sandboxMode != nil ? "sandbox_mode" : nil,
+      request.approvalsReviewer != nil ? "approvals_reviewer" : nil,
+      request.permissionMode != nil ? "permission_mode" : nil,
+      request.collaborationMode != nil ? "collaboration_mode" : nil,
+    ].compactMap { $0 }
+
+    return [
+      "changedFields": changedFields,
+      "model": request.model ?? "",
+      "effort": request.effort ?? "",
+      "approvalPolicy": request.approvalPolicy ?? "",
+      "approvalPolicyDetails": request.approvalPolicyDetails?.legacySummary ?? "",
+      "sandboxMode": request.sandboxMode ?? "",
+      "approvalsReviewer": request.approvalsReviewer?.rawValue ?? "",
+      "permissionMode": request.permissionMode ?? "",
+      "collaborationMode": request.collaborationMode ?? "",
+    ]
+  }
+
+  private func snapshotLogData(
+    snapshot: ServerControlDeckSnapshotPayload,
+    source: String
+  ) -> [String: Any] {
+    [
+      "source": source,
+      "revision": snapshot.revision,
+      "provider": snapshot.state.provider.rawValue,
+      "controlMode": snapshot.state.controlMode.rawValue,
+      "lifecycleState": snapshot.state.lifecycleState.rawValue,
+      "model": snapshot.state.config.model ?? "",
+      "effort": snapshot.state.config.effort ?? "",
+      "approvalPolicy": snapshot.state.config.approvalPolicy ?? "",
+      "sandboxMode": snapshot.state.config.sandboxMode ?? "",
+      "permissionMode": snapshot.state.config.permissionMode ?? "",
+      "collaborationMode": snapshot.state.config.collaborationMode ?? "",
+      "approvalsReviewer": snapshot.state.config.approvalsReviewer?.rawValue ?? "",
+      "codexConfigMode": snapshot.state.config.codexConfigMode?.rawValue ?? "",
+      "codexConfigProfile": snapshot.state.config.codexConfigProfile ?? "",
+      "codexModelProvider": snapshot.state.config.codexModelProvider ?? "",
+      "effortOptions": snapshot.capabilities.effortOptions.map(\.value),
+      "approvalModeOptions": snapshot.capabilities.approvalModeOptions.map(\.value),
+      "permissionModeOptions": snapshot.capabilities.permissionModeOptions.map(\.value),
+      "collaborationModeOptions": snapshot.capabilities.collaborationModeOptions.map(\.value),
+      "autoReviewOptions": snapshot.capabilities.autoReviewOptions.map(\.value),
+    ]
+  }
+
+  private func applySnapshotToSessionState(
+    _ snapshot: ServerControlDeckSnapshotPayload,
+    sessionId: String,
+    store: SessionStore
+  ) {
+    let config = snapshot.state.config
+    let changes = ServerStateChanges(
+      approvalPolicy: .some(config.approvalPolicy),
+      approvalPolicyDetails: .some(config.approvalPolicyDetails),
+      sandboxMode: .some(config.sandboxMode),
+      approvalsReviewer: .some(config.approvalsReviewer),
+      collaborationMode: .some(config.collaborationMode),
+      codexConfigMode: .some(config.codexConfigMode),
+      codexConfigProfile: .some(config.codexConfigProfile),
+      codexModelProvider: .some(config.codexModelProvider),
+      model: .some(config.model),
+      effort: .some(config.effort),
+      permissionMode: .some(config.permissionMode)
+    )
+    store.handleSessionDelta(sessionId, changes)
+    print(
+      "[ControlDeckTrace] applied snapshot to shared session state sid=\(sessionId) model=\(config.model ?? "") effort=\(config.effort ?? "") permission=\(config.permissionMode ?? "") collaboration=\(config.collaborationMode ?? "")"
     )
   }
 

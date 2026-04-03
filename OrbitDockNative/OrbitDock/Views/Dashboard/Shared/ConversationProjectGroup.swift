@@ -27,28 +27,28 @@ struct ConversationProjectGroup: Identifiable {
     return .statusReply
   }
 
-  /// Sessions sorted for display: attention first, then working, then most recent ready/ended.
+  /// Sessions sorted for display with stable ordering to avoid list jumpiness.
+  /// "In orbit" sessions stay pinned to the top, but preserve stable ordering
+  /// within that bucket.
   var sortedConversations: [DashboardConversationRecord] {
     conversations.sorted { lhs, rhs in
-      let lhsPriority = Self.statusPriority(lhs.displayStatus)
-      let rhsPriority = Self.statusPriority(rhs.displayStatus)
-      if lhsPriority != rhsPriority {
-        return lhsPriority < rhsPriority
+      let lhsBucket = Self.sortBucket(for: lhs.displayStatus)
+      let rhsBucket = Self.sortBucket(for: rhs.displayStatus)
+      if lhsBucket != rhsBucket {
+        return lhsBucket < rhsBucket
       }
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      return lhsDate > rhsDate
+
+      let lhsDate = lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.startedAt ?? .distantPast
+      if lhsDate != rhsDate {
+        return lhsDate > rhsDate
+      }
+      return lhs.id < rhs.id
     }
   }
 
-  private static func statusPriority(_ status: SessionDisplayStatus) -> Int {
-    switch status {
-      case .permission: 0
-      case .question: 1
-      case .working: 2
-      case .reply: 3
-      case .ended: 4
-    }
+  private static func sortBucket(for status: SessionDisplayStatus) -> Int {
+    status == .working ? 0 : 1
   }
 }
 

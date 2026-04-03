@@ -410,7 +410,7 @@ struct ControlDeckStatusBar: View {
             currentMode: ClaudePermissionMode(fromServer: module.selectedValue),
             size: .statusBar,
             onUpdate: { mode in
-              onModuleAction?(module.id, mode.rawValue)
+              onModuleAction?(module.id, permissionModeValue(mode, for: module))
             }
           )
         )
@@ -422,7 +422,7 @@ struct ControlDeckStatusBar: View {
             supportedModes: CodexApprovalMode.supportedCases(from: pickerOptions(for: module)),
             size: .statusBar,
             onUpdate: { mode in
-              onModuleAction?(module.id, mode.rawValue)
+              onModuleAction?(module.id, approvalModeValue(mode, for: module))
             },
             onReviewerUpdate: { reviewer in
               onApprovalReviewerAction?(ServerCodexApprovalsReviewer(rawValue: reviewer.rawValue) ?? .user)
@@ -436,7 +436,7 @@ struct ControlDeckStatusBar: View {
             supportedModes: codexCollaborationModes(for: module),
             size: .statusBar,
             onUpdate: { mode in
-              onModuleAction?(module.id, mode.rawValue)
+              onModuleAction?(module.id, collaborationModeValue(mode, for: module))
             }
           )
         )
@@ -461,7 +461,7 @@ struct ControlDeckStatusBar: View {
             supportedLevels: EffortLevel.supportedControlDeckCases(from: pickerOptions(for: module)),
             size: .statusBar,
             onUpdate: { level in
-              onModuleAction?(module.id, level.rawValue)
+              onModuleAction?(module.id, effortValue(level, for: module))
             }
           )
         )
@@ -481,9 +481,57 @@ struct ControlDeckStatusBar: View {
 
   private func codexCollaborationModes(for module: ControlDeckStatusModuleItem) -> [CodexCollaborationMode] {
     let modes = pickerOptions(for: module).compactMap { option in
-      CodexCollaborationMode(rawValue: option.value)
+      CodexCollaborationMode.from(rawValue: option.value)
     }
     return modes.isEmpty ? CodexCollaborationMode.allCases : modes
+  }
+
+  private func permissionModeValue(
+    _ mode: ClaudePermissionMode,
+    for module: ControlDeckStatusModuleItem
+  ) -> String {
+    selectedOptionValue(for: module, fallback: mode.rawValue) {
+      ClaudePermissionMode(fromServer: $0.value) == mode
+    }
+  }
+
+  private func approvalModeValue(
+    _ mode: CodexApprovalMode,
+    for module: ControlDeckStatusModuleItem
+  ) -> String {
+    selectedOptionValue(for: module, fallback: mode.rawValue) {
+      CodexApprovalMode.from(rawValue: $0.value) == mode
+    }
+  }
+
+  private func collaborationModeValue(
+    _ mode: CodexCollaborationMode,
+    for module: ControlDeckStatusModuleItem
+  ) -> String {
+    selectedOptionValue(for: module, fallback: mode.rawValue) {
+      CodexCollaborationMode.from(rawValue: $0.value) == mode
+    }
+  }
+
+  private func effortValue(
+    _ level: EffortLevel,
+    for module: ControlDeckStatusModuleItem
+  ) -> String {
+    selectedOptionValue(for: module, fallback: level.rawValue) {
+      EffortLevel.fromControlDeckValue($0.value) == level
+    }
+  }
+
+  private func selectedOptionValue(
+    for module: ControlDeckStatusModuleItem,
+    fallback: String,
+    where matches: (ControlDeckStatusModuleItem.Option) -> Bool
+  ) -> String {
+    let options = pickerOptions(for: module)
+    if let match = options.first(where: matches) {
+      return match.value
+    }
+    return fallback
   }
 
   private func autoReviewValue(for level: AutonomyLevel) -> String {

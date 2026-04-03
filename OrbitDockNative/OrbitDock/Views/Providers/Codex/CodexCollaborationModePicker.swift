@@ -46,13 +46,31 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
   }
 
   static func from(rawValue: String?, permissionMode: ClaudePermissionMode? = nil) -> CodexCollaborationMode {
-    if let rawValue, let mode = CodexCollaborationMode(rawValue: rawValue) {
+    if let mode = parse(rawValue) {
       return mode
     }
     if permissionMode == .plan {
       return .plan
     }
     return .default
+  }
+
+  private static func parse(_ rawValue: String?) -> CodexCollaborationMode? {
+    guard let rawValue else { return nil }
+    let normalized = rawValue
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "_", with: "-")
+      .replacingOccurrences(of: " ", with: "-")
+    if let mode = CodexCollaborationMode(rawValue: normalized) {
+      return mode
+    }
+    switch normalized {
+      case "pair", "pair-programming", "execute", "auto":
+        return .default
+      default:
+        return nil
+    }
   }
 
   static func supportedCases(from option: ServerCodexModelOption?) -> [CodexCollaborationMode] {
