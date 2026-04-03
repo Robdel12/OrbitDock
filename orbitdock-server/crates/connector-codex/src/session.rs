@@ -14,6 +14,7 @@ use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
+use crate::config::ResumeConnectorWithToolsConfig;
 use crate::{CodexConfigOverrides, CodexConnector, CodexControlPlane, UpdateConfigOptions};
 
 /// Groups the parameters common to all Codex session constructors.
@@ -313,6 +314,15 @@ pub struct CodexSession {
   pub connector: CodexConnector,
 }
 
+fn parse_dynamic_tools(
+  dynamic_tools_json: Vec<serde_json::Value>,
+) -> Vec<codex_protocol::dynamic_tools::DynamicToolSpec> {
+  dynamic_tools_json
+    .into_iter()
+    .filter_map(|value| serde_json::from_value(value).ok())
+    .collect()
+}
+
 impl CodexSession {
   /// Create a new Codex session
   pub async fn new(
@@ -436,11 +446,7 @@ impl CodexSession {
     session_id: String,
     config: CodexSessionConfig<'_>,
   ) -> Result<Self, ConnectorError> {
-    let dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec> = config
-      .dynamic_tools_json
-      .into_iter()
-      .filter_map(|v| serde_json::from_value(v).ok())
-      .collect();
+    let dynamic_tools = parse_dynamic_tools(config.dynamic_tools_json);
 
     let connector = CodexConnector::new_with_config_overrides_control_plane_and_tools(
       config.cwd,
@@ -535,14 +541,18 @@ impl CodexSession {
     thread_id: &str,
     config: CodexSessionConfig<'_>,
   ) -> Result<Self, ConnectorError> {
-    let connector = CodexConnector::resume_with_config_overrides_and_control_plane(
-      config.cwd,
-      thread_id,
-      config.model,
-      config.approval_policy,
-      config.sandbox_mode,
-      &config.config_overrides,
-      config.control_plane,
+    let dynamic_tools = parse_dynamic_tools(config.dynamic_tools_json);
+    let connector = CodexConnector::resume_with_config_overrides_control_plane_and_tools(
+      ResumeConnectorWithToolsConfig {
+        cwd: config.cwd,
+        thread_id,
+        model: config.model,
+        approval_policy: config.approval_policy,
+        sandbox_mode: config.sandbox_mode,
+        config_overrides: &config.config_overrides,
+        control_plane: config.control_plane,
+        dynamic_tools,
+      },
     )
     .await?;
 

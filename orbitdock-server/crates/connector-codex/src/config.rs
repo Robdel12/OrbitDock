@@ -3,19 +3,19 @@ use std::sync::Arc;
 
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_features::Feature;
 use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, ModelProviderInfo, ThreadManager};
 use codex_exec_server::EnvironmentManager;
+use codex_features::Feature;
 use codex_protocol::config_types::{
   ApprovalsReviewer, CollaborationMode, CollaborationModeMask, ModeKind, Personality,
   ReasoningSummary, ServiceTier, Settings,
 };
 use codex_protocol::openai_models::{
-  ApplyPatchToolType, ConfigShellToolType, ModelInfo, ModelInstructionsVariables, ModelMessages,
-  ModelVisibility, ModelsResponse, ReasoningEffort, TruncationPolicyConfig, WebSearchToolType,
-  default_input_modalities,
+  default_input_modalities, ApplyPatchToolType, ConfigShellToolType, ModelInfo,
+  ModelInstructionsVariables, ModelMessages, ModelVisibility, ModelsResponse, ReasoningEffort,
+  TruncationPolicyConfig, WebSearchToolType,
 };
 use codex_protocol::protocol::{Op, SessionSource};
 use tracing::{info, warn};
@@ -51,6 +51,17 @@ struct ProviderRouteDebugInfo {
   env_http_header_names: Vec<String>,
   has_orbitdock_openrouter_referer: bool,
   has_orbitdock_openrouter_title: bool,
+}
+
+pub struct ResumeConnectorWithToolsConfig<'a> {
+  pub cwd: &'a str,
+  pub thread_id: &'a str,
+  pub model: Option<&'a str>,
+  pub approval_policy: Option<&'a str>,
+  pub sandbox_mode: Option<&'a str>,
+  pub config_overrides: &'a CodexConfigOverrides,
+  pub control_plane: CodexControlPlane,
+  pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
 }
 
 impl CodexConnector {
@@ -207,15 +218,17 @@ impl CodexConnector {
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_and_control_plane(
+    let default_overrides = CodexConfigOverrides::default();
+    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
       approval_policy,
       sandbox_mode,
-      &CodexConfigOverrides::default(),
-      CodexControlPlane::default(),
-    )
+      config_overrides: &default_overrides,
+      control_plane: CodexControlPlane::default(),
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -227,15 +240,16 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_and_control_plane(
+    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
       approval_policy,
       sandbox_mode,
       config_overrides,
-      CodexControlPlane::default(),
-    )
+      control_plane: CodexControlPlane::default(),
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -247,15 +261,17 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     control_plane: CodexControlPlane,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_and_control_plane(
+    let default_overrides = CodexConfigOverrides::default();
+    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
       approval_policy,
       sandbox_mode,
-      &CodexConfigOverrides::default(),
+      config_overrides: &default_overrides,
       control_plane,
-    )
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -268,6 +284,33 @@ impl CodexConnector {
     config_overrides: &CodexConfigOverrides,
     control_plane: CodexControlPlane,
   ) -> Result<Self, ConnectorError> {
+    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      config_overrides,
+      control_plane,
+      dynamic_tools: Vec::new(),
+    })
+    .await
+  }
+
+  pub async fn resume_with_config_overrides_control_plane_and_tools(
+    params: ResumeConnectorWithToolsConfig<'_>,
+  ) -> Result<Self, ConnectorError> {
+    let ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      config_overrides,
+      control_plane,
+      dynamic_tools,
+    } = params;
+
     info!(
       "Resuming codex-core connector for {} with thread {}",
       cwd, thread_id
@@ -314,6 +357,27 @@ impl CodexConnector {
     log_provider_route("resume", cwd, &config);
 
     let configured_model = config.model.clone();
+    if !dynamic_tools.is_empty() {
+      match codex_protocol::ThreadId::try_from(thread_id) {
+        Ok(resume_thread_id) => {
+          let state_db = codex_core::state_db::get_state_db(&config).await;
+          codex_core::state_db::persist_dynamic_tools(
+            state_db.as_deref(),
+            resume_thread_id,
+            Some(dynamic_tools.as_slice()),
+            "connector_resume_with_tools",
+          )
+          .await;
+        }
+        Err(err) => {
+          warn!(
+            thread_id = %thread_id,
+            error = %err,
+            "Failed to parse thread id for resume dynamic tool persistence"
+          );
+        }
+      }
+    }
     let new_thread = thread_manager
       .resume_thread_from_rollout(config, rollout_path, auth_manager, None)
       .await
@@ -436,13 +500,12 @@ impl CodexConnector {
       ..Default::default()
     };
 
-    let mut config =
-      Config::load_with_cli_overrides_and_harness_overrides(
-        cli_overrides.clone(),
-        build_harness_overrides(),
-      )
-        .await
-        .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    let mut config = Config::load_with_cli_overrides_and_harness_overrides(
+      cli_overrides.clone(),
+      build_harness_overrides(),
+    )
+    .await
+    .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
     apply_orbitdock_provider_defaults(&mut config);
     apply_orbitdock_external_model_defaults(&mut config);
     let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);
@@ -681,8 +744,7 @@ fn merge_external_model_instructions(model: &mut ModelInfo) {
   let external_messages = ModelMessages {
     instructions_template: Some(format!(
       "{}\n\n{}",
-      ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS,
-      ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER
+      ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS, ORBITDOCK_EXTERNAL_MODEL_PERSONALITY_PLACEHOLDER
     )),
     instructions_variables: Some(ModelInstructionsVariables {
       personality_default: Some(String::new()),
@@ -694,7 +756,10 @@ fn merge_external_model_instructions(model: &mut ModelInfo) {
   match model.model_messages.as_mut() {
     Some(existing) => {
       let merged_template = merge_instruction_text(
-        existing.instructions_template.as_deref().unwrap_or_default(),
+        existing
+          .instructions_template
+          .as_deref()
+          .unwrap_or_default(),
         external_messages
           .instructions_template
           .as_deref()
@@ -702,13 +767,14 @@ fn merge_external_model_instructions(model: &mut ModelInfo) {
       );
       existing.instructions_template = Some(merged_template);
 
-      let merged_variables = existing
-        .instructions_variables
-        .get_or_insert(ModelInstructionsVariables {
-          personality_default: None,
-          personality_friendly: None,
-          personality_pragmatic: None,
-        });
+      let merged_variables =
+        existing
+          .instructions_variables
+          .get_or_insert(ModelInstructionsVariables {
+            personality_default: None,
+            personality_friendly: None,
+            personality_pragmatic: None,
+          });
       if merged_variables.personality_default.is_none() {
         merged_variables.personality_default = Some(String::new());
       }

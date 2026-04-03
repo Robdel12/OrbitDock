@@ -10,6 +10,9 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
+use crate::domain::codex_tools::{
+  execute_codex_workspace_tool, CodexWorkspaceToolContext, CodexWorkspaceToolResult,
+};
 use crate::domain::mission_control::executor::execute_mission_tool;
 use crate::domain::mission_control::tools::MissionToolContext;
 use crate::domain::sessions::session::SessionHandle;
@@ -32,6 +35,43 @@ pub use orbitdock_connector_codex::session::{
 struct MissionToolExecutionContext {
   tracker_kind: String,
   context: MissionToolContext,
+}
+
+struct DynamicToolExecutionResult {
+  success: bool,
+  output: String,
+  blocked: bool,
+  completed_state: Option<String>,
+  pr_url: Option<String>,
+  has_mission_side_effects: bool,
+}
+
+impl DynamicToolExecutionResult {
+  fn workspace(success: bool, output: String) -> Self {
+    Self {
+      success,
+      output,
+      blocked: false,
+      completed_state: None,
+      pr_url: None,
+      has_mission_side_effects: false,
+    }
+  }
+
+  fn mission(result: crate::domain::mission_control::executor::MissionToolResult) -> Self {
+    Self {
+      success: result.success,
+      output: result.output,
+      blocked: result.blocked,
+      completed_state: result.completed_state,
+      pr_url: result.pr_url,
+      has_mission_side_effects: true,
+    }
+  }
+
+  fn failure_json(message: String) -> Self {
+    Self::workspace(false, serde_json::json!({ "error": message }).to_string())
+  }
 }
 
 struct DynamicToolCallRequest<'a> {
@@ -331,24 +371,15 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
     arguments,
   } = request;
 
-  let result = execute_dynamic_mission_tool(handle, state, &tool_name, arguments).await;
-
-  let (success, output, blocked, completed_state, pr_url) = match result {
-    Ok(result) => (
-      result.success,
-      result.output,
-      result.blocked,
-      result.completed_state,
-      result.pr_url,
-    ),
-    Err(error) => (
-      false,
-      serde_json::json!({ "error": error }).to_string(),
-      false,
-      None,
-      None,
-    ),
-  };
+  let result = execute_dynamic_tool(handle, state, &tool_name, arguments).await;
+  let DynamicToolExecutionResult {
+    success,
+    output,
+    blocked,
+    completed_state,
+    pr_url,
+    has_mission_side_effects,
+  } = result;
 
   if let Err(error) = session
     .connector
@@ -372,6 +403,10 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
         error = %error,
         "Failed to submit dynamic tool response"
     );
+    return;
+  }
+
+  if !has_mission_side_effects {
     return;
   }
 
@@ -441,6 +476,32 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
 
     crate::runtime::session_mutations::end_session(state, session_id).await;
     broadcast_mission_delta_by_id(state, &mission_context.context.mission_id).await;
+  }
+}
+
+async fn execute_dynamic_tool(
+  handle: &SessionHandle,
+  state: &Arc<SessionRegistry>,
+  tool_name: &str,
+  arguments: Value,
+) -> DynamicToolExecutionResult {
+  if tool_name.starts_with("mission_") {
+    return match execute_dynamic_mission_tool(handle, state, tool_name, arguments).await {
+      Ok(result) => DynamicToolExecutionResult::mission(result),
+      Err(error) => DynamicToolExecutionResult::failure_json(error),
+    };
+  }
+
+  let snapshot = handle.retained_state();
+  let workspace_ctx = CodexWorkspaceToolContext {
+    project_path: snapshot.project_path,
+    current_cwd: snapshot.current_cwd,
+  };
+  match execute_codex_workspace_tool(&workspace_ctx, tool_name, arguments) {
+    Some(CodexWorkspaceToolResult { success, output }) => {
+      DynamicToolExecutionResult::workspace(success, output)
+    }
+    None => DynamicToolExecutionResult::failure_json(format!("Unknown dynamic tool: {tool_name}")),
   }
 }
 

@@ -291,41 +291,48 @@ async fn complete_codex_takeover(
   let model = effective_model.clone();
   let approval = effective_approval.clone();
   let sandbox = effective_sandbox.clone();
+  let dynamic_tools_json = crate::domain::codex_tools::default_codex_workspace_tools_json();
   let task_session_id = session_id.clone();
   let mut connector_task = tokio::spawn(async move {
     if let Some(ref thread_id) = thread_id {
-      match CodexSession::resume_with_control_plane(
+      match CodexSession::resume_with_config(
         task_session_id.clone(),
-        &project_path,
         thread_id,
-        model.as_deref(),
-        approval.as_deref(),
-        sandbox.as_deref(),
-        control_plane.clone(),
+        orbitdock_connector_codex::session::CodexSessionConfig {
+          cwd: &project_path,
+          model: model.as_deref(),
+          approval_policy: approval.as_deref(),
+          sandbox_mode: sandbox.as_deref(),
+          config_overrides: orbitdock_connector_codex::CodexConfigOverrides::default(),
+          control_plane: control_plane.clone(),
+          dynamic_tools_json: dynamic_tools_json.clone(),
+        },
       )
       .await
       {
         Ok(codex) => Ok(codex),
         Err(_) => {
-          CodexSession::new_with_control_plane(
+          CodexSession::new_with_control_plane_and_tools(
             task_session_id.clone(),
             &project_path,
             model.as_deref(),
             approval.as_deref(),
             sandbox.as_deref(),
             control_plane.clone(),
+            dynamic_tools_json.clone(),
           )
           .await
         }
       }
     } else {
-      CodexSession::new_with_control_plane(
+      CodexSession::new_with_control_plane_and_tools(
         task_session_id.clone(),
         &project_path,
         model.as_deref(),
         approval.as_deref(),
         sandbox.as_deref(),
         control_plane.clone(),
+        dynamic_tools_json.clone(),
       )
       .await
     }

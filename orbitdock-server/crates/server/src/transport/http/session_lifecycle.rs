@@ -359,19 +359,20 @@ pub async fn create_session(
       )
     })
     .unwrap_or_default();
-  let dynamic_tools = if body.tracker_api_key.is_some() {
-    crate::domain::mission_control::tools::mission_tool_definitions()
-      .into_iter()
-      .map(|tool| codex_protocol::dynamic_tools::DynamicToolSpec {
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.input_schema,
-        defer_loading: false,
-      })
-      .collect()
-  } else {
-    Vec::new()
-  };
+  let mut dynamic_tools =
+    crate::domain::codex_tools::with_default_codex_workspace_tools(Vec::new());
+  if body.tracker_api_key.is_some() {
+    dynamic_tools.extend(
+      crate::domain::mission_control::tools::mission_tool_definitions()
+        .into_iter()
+        .map(|tool| codex_protocol::dynamic_tools::DynamicToolSpec {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.input_schema,
+          defer_loading: false,
+        }),
+    );
+  }
   if !claude_extra_env.is_empty() {
     let orbitdock_bin = std::env::current_exe()
       .map(|path| path.to_string_lossy().to_string())

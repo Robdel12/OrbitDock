@@ -294,6 +294,9 @@ pub(crate) async fn launch_prepared_direct_session(
 
   let start_result = match request.provider {
     Provider::Codex => {
+      let dynamic_tools = crate::domain::codex_tools::with_default_codex_workspace_tools(
+        request.dynamic_tools.clone(),
+      );
       start_direct_codex_session(
         state,
         StartDirectCodexRequest {
@@ -310,7 +313,7 @@ pub(crate) async fn launch_prepared_direct_session(
           developer_instructions: request.developer_instructions.as_deref(),
           config_profile: request.codex_config_profile.as_deref(),
           model_provider: request.codex_model_provider.as_deref(),
-          dynamic_tools: request.dynamic_tools.clone(),
+          dynamic_tools,
         },
       )
       .await

@@ -401,6 +401,8 @@ async fn spawn_codex_resume(
     let resumed_session_model = effective_model.clone();
     let task_session_id = session_id.clone();
     let mut connector_task = tokio::spawn(async move {
+      let workspace_dynamic_tools_json =
+        crate::domain::codex_tools::default_codex_workspace_tools_json();
       let control_plane = orbitdock_connector_codex::CodexControlPlane {
         approvals_reviewer: normalized_selection
           .overrides
@@ -424,7 +426,7 @@ async fn spawn_codex_resume(
             config_profile: effective_config_profile.clone(),
           },
           control_plane: cp,
-          dynamic_tools_json: Vec::new(),
+          dynamic_tools_json: workspace_dynamic_tools_json.clone(),
         }
       };
 
