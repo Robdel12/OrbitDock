@@ -554,10 +554,13 @@ struct CodexConfigManagerSheet: View {
     defer { saving = false }
 
     let newName = profileDraft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-    let payload: [String: Any] = [
-      "model": normalizedOptional(profileDraft.model) as Any,
-      "model_provider": normalizedOptional(profileDraft.modelProvider) as Any,
-    ].compactMapValues { $0 }
+    var payload: [String: Any] = [:]
+    if let model = normalizedOptional(profileDraft.model) {
+      payload["model"] = model
+    }
+    if let provider = normalizedOptional(profileDraft.modelProvider) {
+      payload["model_provider"] = provider
+    }
 
     var edits = [
       SessionsClient.CodexConfigEditRequest(
