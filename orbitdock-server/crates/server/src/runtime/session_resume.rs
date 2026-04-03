@@ -108,6 +108,10 @@ pub(crate) async fn launch_resumed_session(
       Some(startup_ready)
     }
     Provider::Codex => {
+      let include_mission_tools = crate::domain::codex_tools::has_mission_context(
+        prepared.summary.mission_id.as_deref(),
+        prepared.summary.issue_identifier.as_deref(),
+      );
       spawn_codex_resume(
         state,
         CodexResumeRequest {
@@ -127,6 +131,7 @@ pub(crate) async fn launch_resumed_session(
           codex_model_provider: prepared.codex_model_provider,
           codex_config_source: prepared.codex_config_source,
           codex_config_overrides: prepared.codex_config_overrides,
+          include_mission_tools,
           handle: prepared.handle,
           message_count: prepared.row_count,
         },
@@ -342,6 +347,7 @@ async fn spawn_codex_resume(
     session_id,
     project_path,
     codex_thread_id,
+    include_mission_tools,
     mut handle,
     message_count,
     ..
@@ -401,8 +407,8 @@ async fn spawn_codex_resume(
     let resumed_session_model = effective_model.clone();
     let task_session_id = session_id.clone();
     let mut connector_task = tokio::spawn(async move {
-      let workspace_dynamic_tools_json =
-        crate::domain::codex_tools::default_codex_workspace_tools_json();
+      let dynamic_tools_json =
+        crate::domain::codex_tools::default_codex_dynamic_tools_json(include_mission_tools);
       let control_plane = orbitdock_connector_codex::CodexControlPlane {
         approvals_reviewer: normalized_selection
           .overrides
@@ -426,7 +432,7 @@ async fn spawn_codex_resume(
             config_profile: effective_config_profile.clone(),
           },
           control_plane: cp,
-          dynamic_tools_json: workspace_dynamic_tools_json.clone(),
+          dynamic_tools_json: dynamic_tools_json.clone(),
         }
       };
 
@@ -529,6 +535,7 @@ struct CodexResumeRequest {
   codex_model_provider: Option<String>,
   codex_config_source: Option<CodexConfigSource>,
   codex_config_overrides: Option<CodexSessionOverrides>,
+  include_mission_tools: bool,
   handle: crate::domain::sessions::session::SessionHandle,
   message_count: usize,
 }
@@ -560,6 +567,7 @@ mod tests {
       codex_model_provider: codex_model_provider.map(str::to_string),
       codex_config_source: Some(CodexConfigSource::User),
       codex_config_overrides: None,
+      include_mission_tools: false,
       handle: crate::domain::sessions::session::SessionHandle::new(
         "session-1".to_string(),
         Provider::Codex,

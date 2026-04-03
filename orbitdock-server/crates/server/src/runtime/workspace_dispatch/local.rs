@@ -234,18 +234,7 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
       None => Some(orbitdock_instructions),
     };
 
-    let mut dynamic_tools =
-      crate::domain::codex_tools::with_default_codex_workspace_tools(Vec::new());
-    dynamic_tools.extend(
-      crate::domain::mission_control::tools::mission_tool_definitions()
-        .into_iter()
-        .map(|t| codex_protocol::dynamic_tools::DynamicToolSpec {
-          name: t.name,
-          description: t.description,
-          input_schema: t.input_schema,
-          defer_loading: false,
-        }),
-    );
+    let dynamic_tools = crate::domain::codex_tools::default_codex_dynamic_tool_specs(true);
 
     let session_id = orbitdock_protocol::new_session_id();
     let request = DirectSessionRequest {

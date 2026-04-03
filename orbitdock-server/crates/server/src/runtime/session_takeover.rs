@@ -153,6 +153,10 @@ pub(crate) async fn takeover_passive_session(
           session_id: session_id.to_string(),
           project_path: snapshot.project_path.clone(),
           handle,
+          include_mission_tools: crate::domain::codex_tools::has_mission_context(
+            snapshot.mission_id.as_deref(),
+            snapshot.issue_identifier.as_deref(),
+          ),
           effective_model: takeover_plan.effective_model,
           effective_effort: takeover_plan.effective_effort,
           effective_approval: takeover_plan.effective_approval_policy,
@@ -253,6 +257,7 @@ async fn complete_codex_takeover(
     session_id,
     project_path,
     mut handle,
+    include_mission_tools,
     effective_model,
     effective_effort,
     effective_approval,
@@ -291,7 +296,8 @@ async fn complete_codex_takeover(
   let model = effective_model.clone();
   let approval = effective_approval.clone();
   let sandbox = effective_sandbox.clone();
-  let dynamic_tools_json = crate::domain::codex_tools::default_codex_workspace_tools_json();
+  let dynamic_tools_json =
+    crate::domain::codex_tools::default_codex_dynamic_tools_json(include_mission_tools);
   let task_session_id = session_id.clone();
   let mut connector_task = tokio::spawn(async move {
     if let Some(ref thread_id) = thread_id {
@@ -436,6 +442,7 @@ struct CodexTakeoverRequest {
   session_id: String,
   project_path: String,
   handle: SessionHandle,
+  include_mission_tools: bool,
   effective_model: Option<String>,
   effective_effort: Option<String>,
   effective_approval: Option<String>,

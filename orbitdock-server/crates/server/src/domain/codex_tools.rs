@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use codex_protocol::dynamic_tools::DynamicToolSpec;
@@ -106,8 +107,30 @@ pub fn codex_workspace_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
     .collect()
 }
 
-pub fn default_codex_workspace_tools_json() -> Vec<Value> {
-  with_default_codex_workspace_tools(Vec::new())
+pub fn has_mission_context(mission_id: Option<&str>, issue_identifier: Option<&str>) -> bool {
+  mission_id.is_some_and(|value| !value.trim().is_empty())
+    && issue_identifier.is_some_and(|value| !value.trim().is_empty())
+}
+
+pub fn default_codex_dynamic_tool_specs(include_mission_tools: bool) -> Vec<DynamicToolSpec> {
+  let mut tools = with_default_codex_workspace_tools(Vec::new());
+  if include_mission_tools {
+    tools.extend(
+      crate::domain::mission_control::tools::mission_tool_definitions()
+        .into_iter()
+        .map(|tool| DynamicToolSpec {
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.input_schema,
+          defer_loading: false,
+        }),
+    );
+  }
+  tools
+}
+
+pub fn default_codex_dynamic_tools_json(include_mission_tools: bool) -> Vec<Value> {
+  default_codex_dynamic_tool_specs(include_mission_tools)
     .into_iter()
     .filter_map(|tool| serde_json::to_value(tool).ok())
     .collect()
@@ -150,24 +173,28 @@ fn exec_file_read(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspa
     Err(error) => return tool_error(error),
   };
 
-  let bytes = match fs::read(&resolved) {
+  let mut bytes = match read_file_prefix_bytes(&resolved, MAX_FILE_READ_BYTES) {
     Ok(bytes) => bytes,
     Err(error) => return tool_error(format!("failed to read file: {error}")),
   };
-
-  let text = match std::str::from_utf8(bytes.as_slice()) {
-    Ok(text) => text,
-    Err(_) => return tool_error("file_read supports UTF-8 text files only".to_string()),
-  };
   let truncated = bytes.len() > MAX_FILE_READ_BYTES;
-  let content = if truncated {
-    let mut cutoff = MAX_FILE_READ_BYTES.min(text.len());
-    while cutoff > 0 && !text.is_char_boundary(cutoff) {
-      cutoff -= 1;
+  if truncated {
+    bytes.truncate(MAX_FILE_READ_BYTES);
+  }
+
+  let content = match std::str::from_utf8(bytes.as_slice()) {
+    Ok(text) => text.to_string(),
+    Err(error) if truncated && error.error_len().is_none() => {
+      let cutoff = error.valid_up_to();
+      let safe_prefix = bytes
+        .get(..cutoff)
+        .expect("UTF-8 valid_up_to always within source bytes");
+      match std::str::from_utf8(safe_prefix) {
+        Ok(text) => text.to_string(),
+        Err(_) => return tool_error("file_read supports UTF-8 text files only".to_string()),
+      }
     }
-    text[..cutoff].to_string()
-  } else {
-    text.to_string()
+    Err(_) => return tool_error("file_read supports UTF-8 text files only".to_string()),
   };
 
   tool_ok(json!({
@@ -175,6 +202,14 @@ fn exec_file_read(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspa
     "content": content,
     "truncated": truncated
   }))
+}
+
+fn read_file_prefix_bytes(path: &Path, max_bytes: usize) -> std::io::Result<Vec<u8>> {
+  let mut file = fs::File::open(path)?;
+  let mut limited_reader = file.by_ref().take((max_bytes.saturating_add(1)) as u64);
+  let mut bytes = Vec::with_capacity(max_bytes.saturating_add(1));
+  limited_reader.read_to_end(&mut bytes)?;
+  Ok(bytes)
 }
 
 fn exec_file_write(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspaceToolResult {
@@ -374,13 +409,35 @@ mod tests {
 
   #[test]
   fn default_workspace_tools_json_contains_all_three_tools() {
-    let tools = default_codex_workspace_tools_json();
+    let tools = default_codex_dynamic_tools_json(false);
     let names: Vec<String> = tools
       .iter()
       .filter_map(|tool| tool.get("name").and_then(Value::as_str))
       .map(ToOwned::to_owned)
       .collect();
     assert_eq!(names, vec!["file_read", "file_write", "file_edit"]);
+  }
+
+  #[test]
+  fn has_mission_context_requires_both_values() {
+    assert!(!has_mission_context(None, None));
+    assert!(!has_mission_context(Some("mission-1"), None));
+    assert!(!has_mission_context(None, Some("ISSUE-1")));
+    assert!(!has_mission_context(Some(" "), Some("ISSUE-1")));
+    assert!(has_mission_context(Some("mission-1"), Some("ISSUE-1")));
+  }
+
+  #[test]
+  fn default_dynamic_tools_include_mission_tools_when_requested() {
+    let tools = default_codex_dynamic_tools_json(true);
+    let names: Vec<String> = tools
+      .iter()
+      .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+      .map(ToOwned::to_owned)
+      .collect();
+
+    assert!(names.contains(&"file_read".to_string()));
+    assert!(names.contains(&"mission_get_issue".to_string()));
   }
 
   #[test]
@@ -509,5 +566,16 @@ mod tests {
       .expect("content string");
     assert_eq!(rendered.len(), MAX_FILE_READ_BYTES - 1);
     assert!(rendered.chars().all(|ch| ch == 'a'));
+  }
+
+  #[test]
+  fn file_read_only_reads_prefix_budget() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let target = temp.path().join("large.txt");
+    let content = "a".repeat(MAX_FILE_READ_BYTES + 1024);
+    fs::write(&target, content).expect("seed file");
+
+    let bytes = read_file_prefix_bytes(&target, MAX_FILE_READ_BYTES).expect("prefix read");
+    assert_eq!(bytes.len(), MAX_FILE_READ_BYTES + 1);
   }
 }
