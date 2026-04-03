@@ -12,7 +12,7 @@
   /// Conforms to `UIKeyInput` so the iOS software keyboard appears when
   /// this view becomes first responder. Hardware keyboard events still
   /// arrive through `pressesBegan`.
-  final class TerminalUIView: UIView, UIKeyInput {
+  final class TerminalUIView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     // MARK: - Configuration
 
     weak var sessionController: TerminalSessionController?
@@ -38,6 +38,8 @@
     private var cursorBlinkTimer: Timer?
     private var cursorVisible = true
     var shouldAutoFocusOnFirstAttachment = false
+    /// When false, pan scroll only applies while the terminal is focused.
+    var captureScrollWithoutFocus = true
     private var hasAutoFocusedOnAttachment = false
 
     /// Modifier state toggled by the accessory bar (Ctrl, Alt).
@@ -245,17 +247,36 @@
 
     /// Accumulated fractional scroll distance (converted to row deltas).
     private var scrollAccumulator: CGFloat = 0
+    private var scrollPanGesture: UIPanGestureRecognizer?
 
     private func setupScrollGesture() {
       let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanScroll(_:)))
-      // Two-finger only — one-finger drag is reserved for text selection (long press).
-      pan.minimumNumberOfTouches = 2
-      pan.maximumNumberOfTouches = 2
+      pan.minimumNumberOfTouches = 1
+      pan.maximumNumberOfTouches = 1
+      pan.delegate = self
       addGestureRecognizer(pan)
+      scrollPanGesture = pan
+    }
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      if gestureRecognizer === scrollPanGesture {
+        guard captureScrollWithoutFocus || isFirstResponder else { return false }
+        guard !isSelecting else { return false }
+        if let pan = gestureRecognizer as? UIPanGestureRecognizer {
+          let velocity = pan.velocity(in: self)
+          // Avoid hijacking horizontal drags that are typically selection gestures.
+          if abs(velocity.y) <= abs(velocity.x) {
+            return false
+          }
+        }
+        return true
+      }
+      return true
     }
 
     @objc private func handlePanScroll(_ gesture: UIPanGestureRecognizer) {
       guard let controller = sessionController else { return }
+      if !captureScrollWithoutFocus, !isFirstResponder { return }
 
       switch gesture.state {
         case .changed:
@@ -347,6 +368,9 @@
     private func setupSelectionGesture() {
       let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressSelection(_:)))
       longPress.minimumPressDuration = 0.3
+      if let scrollPanGesture {
+        scrollPanGesture.require(toFail: longPress)
+      }
       addGestureRecognizer(longPress)
     }
 

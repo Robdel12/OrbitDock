@@ -1,6 +1,6 @@
 # Conversation Contracts
 
-Last updated: 2026-03-13
+Last updated: 2026-04-03
 
 This doc describes the typed conversation row system that OrbitDock uses for all conversation data across HTTP and WebSocket.
 
@@ -8,7 +8,7 @@ Source of truth: `orbitdock-server/crates/protocol/src/conversation_contracts/` 
 
 ## Overview
 
-Every piece of conversation content is a `ConversationRow` — a tagged enum with 12 variants. Rows are wrapped in `ConversationRowEntry` which adds session scoping and sequence ordering.
+Every piece of conversation content is a `ConversationRow` — a tagged enum with typed variants. Rows are wrapped in `ConversationRowEntry` which adds session scoping and sequence ordering.
 
 The server normalizes both Claude and Codex provider payloads into this shared contract. Clients never parse provider-specific JSON.
 
@@ -99,6 +99,42 @@ The primary row type for tool executions. Carries typed invocation and result pa
   }
 }
 ```
+
+### Command Execution Row
+
+Structured shell execution row for Codex command runtime events. This is separate from generic tool rows and carries shell-specific fields used by clients for transcript rendering.
+
+```json
+{
+  "row_type": "command_execution",
+  "id": "call_abc123",
+  "status": "completed",
+  "command": "git -C /repo status --short",
+  "cwd": "/Users/you/repo",
+  "process_id": "96556",
+  "command_actions": [
+    { "type": "unknown", "command": "git -C /repo status --short" }
+  ],
+  "aggregated_output": "M src/main.rs\n",
+  "terminal_snapshot": {
+    "command": "git -C /repo status --short",
+    "cwd": "/Users/you/repo",
+    "output": "M src/main.rs",
+    "transcript": "\u001b[38;5;84m➜\u001b[0m \u001b[38;5;81m.../you/repo\u001b[0m $ git -C /repo status --short\nM src/main.rs\n\u001b[38;5;84m➜\u001b[0m \u001b[38;5;81m.../you/repo\u001b[0m $ ",
+    "title": ".../you/repo"
+  },
+  "exit_code": 0,
+  "duration_ms": 42,
+  "render_hints": { "can_expand": true }
+}
+```
+
+`terminal_snapshot` is optional for backward compatibility. When present, it carries:
+
+- typed fields: `command`, `cwd`, `output`
+- presentation fields: `transcript` for expanded terminal rendering and `title` for the terminal header/path label
+
+Clients should treat the typed fields as the canonical data and use `transcript` and `title` for presentation. The server is authoritative for this formatting so all clients render the same non-interactive terminal transcript semantics.
 
 ### Activity Group Row
 

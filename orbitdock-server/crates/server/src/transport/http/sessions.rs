@@ -630,6 +630,7 @@ mod tests {
         }],
         live_output_preview: None,
         aggregated_output: output.map(ToString::to_string),
+        terminal_snapshot: None,
         preview: None,
         exit_code: Some(0),
         duration_ms: Some(18),

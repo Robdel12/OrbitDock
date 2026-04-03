@@ -33,7 +33,11 @@
     private var cursorBlinkTimer: Timer?
     private var cursorVisible = true
     var shouldAutoFocusOnFirstAttachment = false
+    /// When false, wheel events are ignored unless this view is focused.
+    var captureScrollWithoutFocus = true
     private var hasAutoFocusedOnAttachment = false
+    /// Accumulates high-resolution wheel deltas so trackpad scroll isn't lost.
+    private var scrollAccumulator: CGFloat = 0
 
     // MARK: - Init
 
@@ -327,11 +331,33 @@
 
     override func scrollWheel(with event: NSEvent) {
       guard let controller = sessionController else { return }
+      let isFocused = window?.firstResponder === self
+      if !captureScrollWithoutFocus, !isFocused {
+        super.scrollWheel(with: event)
+        return
+      }
 
-      let delta = Int(-event.scrollingDeltaY)
-      if delta != 0 {
-        controller.ghostty.scrollViewport(delta: delta)
+      // Trackpads emit sub-line deltas; convert to row movement using cell height.
+      let deltaY: CGFloat
+      if event.hasPreciseScrollingDeltas {
+        deltaY = event.scrollingDeltaY
+      } else {
+        // Mouse wheels are line-ish units. Scale by row height for consistent feel.
+        deltaY = event.scrollingDeltaY * cellHeight
+      }
+
+      scrollAccumulator += -deltaY
+      let rowDelta = Int(scrollAccumulator / cellHeight)
+      if rowDelta != 0 {
+        controller.ghostty.scrollViewport(delta: rowDelta)
+        scrollAccumulator -= CGFloat(rowDelta) * cellHeight
         needsDisplay = true
+      }
+
+      if event.phase == .ended || event.phase == .cancelled
+        || event.momentumPhase == .ended || event.momentumPhase == .cancelled
+      {
+        scrollAccumulator = 0
       }
     }
   }

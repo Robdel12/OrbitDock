@@ -20,8 +20,20 @@ struct CommandExecutionRowView: View {
     sizeClass == .compact
   }
 
+  private var outputViewportMaxHeight: CGFloat {
+    #if os(iOS)
+      360
+    #else
+      500
+    #endif
+  }
+
   private var actionCount: Int {
     row.commandActions.count
+  }
+
+  private var isFailureState: Bool {
+    row.status == .failed || row.status == .declined
   }
 
   private var semanticSummary: String {
@@ -61,7 +73,8 @@ struct CommandExecutionRowView: View {
   }
 
   private func commandActionTypesMatch(_ types: [ServerConversationCommandActionType]) -> Bool {
-    row.commandActions.allSatisfy { types.contains($0.type) }
+    let allowedTypes = Set(types)
+    return row.commandActions.allSatisfy { allowedTypes.contains($0.type) }
   }
 
   private var isReadOnlyActionSet: Bool {
@@ -121,21 +134,14 @@ struct CommandExecutionRowView: View {
   }
 
   private var workingDirectoryLabel: String? {
-    if let shortened = shortenedPath(row.cwd) {
-      return shortened
-    }
-
-    let cwd = row.cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !cwd.isEmpty else { return nil }
-    return cwd
+    shortenedPath(row.cwd) ?? trimmedOrNil(row.cwd)
   }
 
   private var supportingText: String? {
-    if isGenericCommandExecution {
-      let commandSummary = normalizedInlineText(row.command, limit: 84)
-      if !commandSummary.isEmpty {
-        return commandSummary
-      }
+    let commandSummary = normalizedInlineText(row.command, limit: 84)
+
+    if isGenericCommandExecution, !commandSummary.isEmpty {
+      return commandSummary
     }
 
     let actions = row.commandActions
@@ -166,12 +172,28 @@ struct CommandExecutionRowView: View {
       return workingDirectoryLabel
     }
 
-    let commandSummary = normalizedInlineText(row.command, limit: 84)
     return commandSummary.isEmpty ? nil : commandSummary
   }
 
   private var preview: ServerConversationCommandExecutionPreview? {
     row.preview
+  }
+
+  private var terminalSnapshot: ServerConversationCommandExecutionTerminalSnapshot? {
+    row.terminalSnapshot
+  }
+
+  private var terminalSnapshotTranscript: String? {
+    guard let transcript = terminalSnapshot?.transcript,
+      !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      return nil
+    }
+    return transcript
+  }
+
+  private var terminalSnapshotTitle: String? {
+    trimmedOrNil(terminalSnapshot?.title)
   }
 
   private var previewLines: [String] {
@@ -184,12 +206,7 @@ struct CommandExecutionRowView: View {
         return leadingCommandPreviewLine.map { [$0] } ?? []
       }
 
-      baseLines = source
-        .components(separatedBy: .newlines)
-        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .suffix(2)
-        .map { normalizedInlineText($0, limit: 180) }
+      baseLines = previewSourceLines(from: source)
     }
 
     guard let commandLine = leadingCommandPreviewLine else {
@@ -209,27 +226,43 @@ struct CommandExecutionRowView: View {
   }
 
   private var expandedOutput: String? {
-    if let output = fetchedContent?.outputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+    if let output = fetchedContent?.outputDisplay, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       return output
     }
-    if let output = row.aggregatedOutput?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+    if let output = row.aggregatedOutput, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       return output
     }
-    if let output = row.liveOutputPreview?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+    if let output = row.liveOutputPreview, !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       return output
     }
     return nil
   }
 
+  private var terminalTitle: String {
+    terminalSnapshotTitle ?? workingDirectoryLabel ?? "Terminal"
+  }
+
+  private var expandedTranscript: String? {
+    if let snapshotTranscript = terminalSnapshotTranscript {
+      return snapshotTranscript
+    }
+
+    return ShellTranscriptBuilder.makeSnapshot(
+      command: row.command,
+      output: expandedOutput,
+      cwd: row.cwd
+    )
+  }
+
   private var previewAccent: Color {
-    if row.status == .failed || row.status == .declined {
+    if isFailureState {
       return .feedbackNegative
     }
     return semanticColor
   }
 
   private var previewTextColor: Color {
-    if row.status == .failed || row.status == .declined {
+    if isFailureState {
       return .feedbackNegative.opacity(0.92)
     }
     return .textTertiary
@@ -430,54 +463,11 @@ struct CommandExecutionRowView: View {
   }
 
   private var expandedBody: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      codeBlock(label: "Command", text: row.command)
-
-      if let workingDirectoryLabel {
-        codeBlock(label: "Working Directory", text: workingDirectoryLabel)
-      }
-
-      if let processId = row.processId, !processId.isEmpty {
-        codeBlock(label: "Process", text: processId)
-      }
-
-      if !row.commandActions.isEmpty {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          sectionLabel("Actions")
-
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            ForEach(Array(row.commandActions.enumerated()), id: \.offset) { _, action in
-              HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
-                Text(action.type.rawValue.replacingOccurrences(of: "_", with: " "))
-                  .font(.system(size: TypeScale.mini, weight: .semibold))
-                  .foregroundStyle(Color.textTertiary)
-
-                Text(actionDetail(action))
-                  .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-                  .foregroundStyle(Color.textSecondary)
-                  .lineLimit(2)
-                  .textSelection(.enabled)
-              }
-            }
-          }
-          .padding(Spacing.sm)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
-        }
-      }
-
-      if let expandedOutput {
-        codeBlock(label: "Output", text: expandedOutput)
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      if let expandedTranscript {
+        terminalOutputBlock(expandedTranscript)
       } else if row.status == .inProgress {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          sectionLabel("Output")
-          Text("Waiting for command output…")
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .padding(Spacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
-        }
+        terminalWaitingState
       }
     }
     .padding(Spacing.md)
@@ -503,28 +493,28 @@ struct CommandExecutionRowView: View {
       )
   }
 
-  private func sectionLabel(_ text: String) -> some View {
-    Text(text)
-      .font(.system(size: TypeScale.caption, weight: .semibold))
-      .foregroundStyle(Color.textTertiary)
+  private func terminalOutputBlock(_ text: String) -> some View {
+    TerminalTranscriptSurface(
+      output: text,
+      title: terminalTitle,
+      maxHeight: outputViewportMaxHeight
+    )
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
-  private func codeBlock(label: String, text: String) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.xs) {
-      sectionLabel(label)
-
-      Text(text)
-        .font(.system(size: TypeScale.code, design: .monospaced))
-        .foregroundStyle(Color.textSecondary)
-        .padding(Spacing.sm)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
-        .textSelection(.enabled)
+  private var terminalWaitingState: some View {
+    HStack(spacing: Spacing.xs) {
+      Circle()
+        .fill(Color.statusWorking.opacity(0.75))
+        .frame(width: 5, height: 5)
+      Text("Waiting for command output…")
+        .font(.system(size: TypeScale.caption, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+      Spacer()
     }
-  }
-
-  private func actionDetail(_ action: ServerConversationCommandAction) -> String {
-    action.name ?? action.query ?? action.path ?? action.command
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
   }
 
   private func orderedUniqueNonEmpty(_ values: [String]) -> [String] {
@@ -545,6 +535,21 @@ struct CommandExecutionRowView: View {
       return nil
     }
     return ToolCardStyle.shortenPath(value)
+  }
+
+  private func trimmedOrNil(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private func previewSourceLines(from source: String) -> [String] {
+    source
+      .components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .suffix(2)
+      .map { normalizedInlineText($0, limit: 180) }
   }
 
   private func normalizedInlineText(_ value: String, limit: Int = 54) -> String {

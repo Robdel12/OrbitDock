@@ -212,6 +212,211 @@ pub enum CommandExecutionStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandExecutionTerminalSnapshot {
+  /// Normalized command (shell wrapper prefixes stripped by connector mapping).
+  pub command: String,
+  /// Absolute working directory used for prompt/title rendering.
+  pub cwd: String,
+  /// Normalized terminal output body (without forced trailing newline).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub output: Option<String>,
+  /// Preformatted ANSI transcript for non-interactive terminal rendering.
+  pub transcript: String,
+  /// Prompt path/title label (already shortened for compact headers).
+  pub title: String,
+}
+
+impl CommandExecutionTerminalSnapshot {
+  pub fn transcript(&self) -> &str {
+    self.transcript.as_str()
+  }
+}
+
+pub fn command_execution_terminal_snapshot(
+  command: &str,
+  cwd: &str,
+  output: Option<&str>,
+) -> Option<CommandExecutionTerminalSnapshot> {
+  let command = normalize_terminal_command(command)?;
+  let cwd = cwd.trim();
+  if cwd.is_empty() {
+    return None;
+  }
+
+  let output = normalize_terminal_output(output);
+  let transcript =
+    command_execution_terminal_transcript(Some(command.as_str()), output.as_deref(), Some(cwd))?;
+  let title = normalize_prompt_path(Some(cwd));
+
+  Some(CommandExecutionTerminalSnapshot {
+    command,
+    cwd: cwd.to_string(),
+    output,
+    transcript,
+    title,
+  })
+}
+
+pub fn command_execution_terminal_transcript(
+  command: Option<&str>,
+  output: Option<&str>,
+  cwd: Option<&str>,
+) -> Option<String> {
+  let normalized_command = command.and_then(normalize_terminal_command);
+  let normalized_output = normalize_terminal_output(output);
+
+  if normalized_command.is_none() && normalized_output.is_none() {
+    return None;
+  }
+
+  let prompt = terminal_prompt_prefix(cwd);
+  let mut chunks = Vec::new();
+  let has_command = normalized_command.is_some();
+
+  if let Some(command) = normalized_command {
+    let wrapped_command_lines = wrap_terminal_command_for_display(&command);
+    if let Some(first_line) = wrapped_command_lines.first() {
+      chunks.push(format!("{prompt}{first_line}"));
+    }
+    if wrapped_command_lines.len() > 1 {
+      for continuation in wrapped_command_lines.iter().skip(1) {
+        chunks.push(format!("  {continuation}"));
+      }
+    }
+  }
+
+  if let Some(output) = normalized_output {
+    chunks.push(output);
+  }
+
+  if has_command {
+    chunks.push(prompt);
+  }
+
+  Some(chunks.join("\n"))
+}
+
+fn normalize_terminal_command(command: &str) -> Option<String> {
+  let trimmed = command.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+
+  Some(
+    trimmed
+      .lines()
+      .map(str::trim)
+      .filter(|line| !line.is_empty())
+      .collect::<Vec<_>>()
+      .join(" "),
+  )
+}
+
+fn normalize_terminal_output(output: Option<&str>) -> Option<String> {
+  let output = output?;
+  if output.trim().is_empty() {
+    return None;
+  }
+
+  Some(output.trim_matches('\n').to_string())
+}
+
+fn wrap_terminal_command_for_display(command: &str) -> Vec<String> {
+  const COMMAND_SOFT_WRAP_THRESHOLD: usize = 120;
+
+  if command.chars().count() <= COMMAND_SOFT_WRAP_THRESHOLD {
+    return vec![command.to_string()];
+  }
+
+  let words: Vec<String> = command
+    .split(' ')
+    .filter(|word| !word.is_empty())
+    .map(ToString::to_string)
+    .collect();
+  if words.len() <= 1 {
+    return vec![command.to_string()];
+  }
+
+  let mut lines = Vec::new();
+  let mut current = String::new();
+
+  for word in words {
+    if current.is_empty() {
+      current = word;
+      continue;
+    }
+
+    let candidate = format!("{current} {word}");
+    if candidate.chars().count() <= COMMAND_SOFT_WRAP_THRESHOLD {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+
+  if !current.is_empty() {
+    lines.push(current);
+  }
+
+  if lines.is_empty() {
+    vec![command.to_string()]
+  } else {
+    lines
+  }
+}
+
+fn terminal_prompt_prefix(cwd: Option<&str>) -> String {
+  const ANSI_RESET: &str = "\u{001b}[0m";
+  const ANSI_PROMPT_GLYPH: &str = "\u{001b}[38;5;84m";
+  const ANSI_PROMPT_PATH: &str = "\u{001b}[38;5;81m";
+
+  let path = normalize_prompt_path(cwd);
+  format!("{ANSI_PROMPT_GLYPH}➜{ANSI_RESET} {ANSI_PROMPT_PATH}{path}{ANSI_RESET} $ ")
+}
+
+fn normalize_prompt_path(cwd: Option<&str>) -> String {
+  let Some(cwd) = cwd else {
+    return "~".to_string();
+  };
+
+  let trimmed = cwd.trim();
+  if trimmed.is_empty() {
+    return "~".to_string();
+  }
+
+  let with_home_tilde = home_directory_path()
+    .and_then(|home| {
+      trimmed
+        .strip_prefix(&home)
+        .map(|suffix| format!("~{suffix}"))
+    })
+    .unwrap_or_else(|| trimmed.to_string());
+
+  shorten_display_path(with_home_tilde)
+}
+
+fn home_directory_path() -> Option<String> {
+  std::env::var_os("HOME").and_then(|home| {
+    let home = home.to_string_lossy().trim().to_string();
+    (!home.is_empty()).then_some(home)
+  })
+}
+
+fn shorten_display_path(path: String) -> String {
+  let components: Vec<&str> = path.split('/').collect();
+  if components.len() > 3 {
+    format!(
+      ".../{}",
+      components[components.len().saturating_sub(2)..].join("/")
+    )
+  } else {
+    path
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CommandExecutionAction {
   Read {
@@ -269,6 +474,11 @@ pub struct CommandExecutionRow {
   pub live_output_preview: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub aggregated_output: Option<String>,
+  /// Canonical terminal snapshot for expanded shell rendering.
+  /// Typed fields (`command`, `cwd`, `output`) stay authoritative; `transcript`
+  /// and `title` are derived presentation fields.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub terminal_snapshot: Option<CommandExecutionTerminalSnapshot>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub preview: Option<CommandExecutionPreview>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -885,8 +1095,9 @@ pub fn extract_row_content_str_summary(row: &ConversationRowSummary) -> String {
 #[cfg(test)]
 mod tests {
   use super::{
-    compute_command_execution_preview, extract_row_content_str, CommandExecutionAction,
-    CommandExecutionPreviewKind, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
+    command_execution_terminal_snapshot, compute_command_execution_preview,
+    extract_row_content_str, CommandExecutionAction, CommandExecutionPreviewKind,
+    CommandExecutionRow, CommandExecutionStatus, CommandExecutionTerminalSnapshot, ConversationRow,
     ConversationRowEntry, MessageRowContent, ToolRow, TurnStatus,
   };
   use crate::conversation_contracts::render_hints::RenderHints;
@@ -1038,6 +1249,13 @@ mod tests {
       }],
       live_output_preview: Some("preview".to_string()),
       aggregated_output: Some("[package]".to_string()),
+      terminal_snapshot: Some(CommandExecutionTerminalSnapshot {
+        command: "cat Cargo.toml".to_string(),
+        cwd: "/tmp/project".to_string(),
+        output: Some("[package]".to_string()),
+        transcript: "➜ /tmp/project $ cat Cargo.toml\n[package]\n➜ /tmp/project $ ".to_string(),
+        title: "/tmp/project".to_string(),
+      }),
       preview: None,
       exit_code: Some(0),
       duration_ms: Some(12),
@@ -1045,6 +1263,58 @@ mod tests {
     });
 
     assert_eq!(extract_row_content_str(&row), "[package]");
+  }
+
+  #[test]
+  fn command_execution_terminal_snapshot_renders_shell_like_transcript() {
+    let snapshot = command_execution_terminal_snapshot(
+      "swiftc -print-target-info",
+      "/tmp/project",
+      Some("done\n"),
+    )
+    .expect("terminal snapshot");
+
+    assert_eq!(snapshot.command, "swiftc -print-target-info");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert_eq!(snapshot.output.as_deref(), Some("done"));
+    let transcript = snapshot.transcript();
+    assert!(transcript.contains("➜"));
+    assert!(transcript.contains("swiftc -print-target-info"));
+    assert!(transcript.contains("done"));
+    assert!(transcript.ends_with("$ "));
+    assert_eq!(snapshot.title, "/tmp/project");
+  }
+
+  #[test]
+  fn command_execution_row_deserializes_without_terminal_snapshot() {
+    let json = serde_json::json!({
+      "row_type": "command_execution",
+      "id": "cmd-legacy",
+      "status": "completed",
+      "command": "echo hi",
+      "cwd": "/tmp/project",
+      "process_id": null,
+      "command_actions": [],
+      "live_output_preview": null,
+      "aggregated_output": "hi\n",
+      "preview": null,
+      "exit_code": 0,
+      "duration_ms": 4,
+      "render_hints": {
+        "can_expand": false,
+        "default_expanded": false,
+        "emphasized": false,
+        "monospace_summary": false,
+        "accent_tone": null
+      }
+    });
+
+    let row: ConversationRow = serde_json::from_value(json).expect("command execution row");
+    let ConversationRow::CommandExecution(row) = row else {
+      panic!("expected command execution row");
+    };
+
+    assert!(row.terminal_snapshot.is_none());
   }
 
   #[test]

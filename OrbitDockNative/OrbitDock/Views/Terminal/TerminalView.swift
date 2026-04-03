@@ -8,11 +8,13 @@ import SwiftUI
   struct TerminalView: NSViewRepresentable {
     let session: TerminalSessionController
     var shouldAutoFocusOnFirstAttachment: Bool = true
+    var captureScrollWithoutFocus: Bool = true
 
     func makeNSView(context: Context) -> TerminalNSView {
       let view = TerminalNSView()
       view.sessionController = session
       view.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
+      view.captureScrollWithoutFocus = captureScrollWithoutFocus
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -35,6 +37,7 @@ import SwiftUI
     func updateNSView(_ nsView: TerminalNSView, context: Context) {
       nsView.sessionController = session
       nsView.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
+      nsView.captureScrollWithoutFocus = captureScrollWithoutFocus
     }
 
     func makeCoordinator() -> Coordinator {
@@ -49,11 +52,13 @@ import SwiftUI
   struct TerminalView: UIViewRepresentable {
     let session: TerminalSessionController
     var shouldAutoFocusOnFirstAttachment: Bool = true
+    var captureScrollWithoutFocus: Bool = true
 
     func makeUIView(context: Context) -> TerminalUIView {
       let view = TerminalUIView()
       view.sessionController = session
       view.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
+      view.captureScrollWithoutFocus = captureScrollWithoutFocus
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -75,6 +80,7 @@ import SwiftUI
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
       uiView.sessionController = session
       uiView.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
+      uiView.captureScrollWithoutFocus = captureScrollWithoutFocus
     }
 
     func makeCoordinator() -> Coordinator {

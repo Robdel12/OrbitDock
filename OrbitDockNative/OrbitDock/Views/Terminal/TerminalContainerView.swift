@@ -4,6 +4,9 @@ import SwiftUI
 /// Core Text-based terminal renderer.
 struct TerminalContainerView: View {
   let session: TerminalSessionController
+  var shouldAutoFocusOnFirstAttachment: Bool = true
+  var captureScrollWithoutFocus: Bool = true
+  var titleOverride: String?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -11,7 +14,11 @@ struct TerminalContainerView: View {
       terminalTitleBar
 
       // The actual terminal renderer.
-      TerminalView(session: session)
+      TerminalView(
+        session: session,
+        shouldAutoFocusOnFirstAttachment: shouldAutoFocusOnFirstAttachment,
+        captureScrollWithoutFocus: captureScrollWithoutFocus
+      )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(Color.backgroundCode)
@@ -30,7 +37,7 @@ struct TerminalContainerView: View {
 
       Spacer()
 
-      Text(session.title)
+      Text(titleOverride ?? session.title)
         .font(.system(size: TypeScale.caption, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
         .lineLimit(1)

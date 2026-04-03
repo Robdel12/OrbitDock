@@ -765,6 +765,14 @@ struct ServerConversationCommandExecutionPreview: Codable, Equatable {
   }
 }
 
+struct ServerConversationCommandExecutionTerminalSnapshot: Codable, Equatable {
+  let command: String?
+  let cwd: String?
+  let output: String?
+  let transcript: String?
+  let title: String?
+}
+
 struct ServerConversationCommandExecutionRow: Codable {
   let id: String
   let status: ServerConversationCommandExecutionStatus
@@ -775,6 +783,7 @@ struct ServerConversationCommandExecutionRow: Codable {
   let liveOutputPreview: String?
   let aggregatedOutput: String?
   let preview: ServerConversationCommandExecutionPreview?
+  let terminalSnapshot: ServerConversationCommandExecutionTerminalSnapshot?
   let exitCode: Int?
   let durationMs: UInt64?
   let renderHints: ServerConversationRenderHints
@@ -789,6 +798,7 @@ struct ServerConversationCommandExecutionRow: Codable {
     case liveOutputPreview = "live_output_preview"
     case aggregatedOutput = "aggregated_output"
     case preview
+    case terminalSnapshot = "terminal_snapshot"
     case exitCode = "exit_code"
     case durationMs = "duration_ms"
     case renderHints = "render_hints"
@@ -807,6 +817,11 @@ struct ServerConversationCommandExecutionRow: Codable {
     liveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
     aggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
     preview = try container.decodeIfPresent(ServerConversationCommandExecutionPreview.self, forKey: .preview)
+    terminalSnapshot =
+      try container.decodeIfPresent(
+        ServerConversationCommandExecutionTerminalSnapshot.self,
+        forKey: .terminalSnapshot
+      )
     exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
     durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
     renderHints =
@@ -907,9 +922,9 @@ enum ServerConversationRow: Codable {
         self = try .system(ServerConversationMessageRow(from: decoder))
       case .unknown:
         // Decode minimal system row for unknown types — id may be present or synthesized
-        let id = (try? container.decode(String.self, forKey: .rowType)) ?? UUID().uuidString
+        let fallbackIdentifier = (try? container.decode(String.self, forKey: .rowType)) ?? UUID().uuidString
         self = .system(ServerConversationMessageRow(
-          id: "unknown-\(id)",
+          id: "unknown-\(fallbackIdentifier)",
           content: "",
           turnId: nil,
           timestamp: nil,

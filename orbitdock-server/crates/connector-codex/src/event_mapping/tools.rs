@@ -13,9 +13,9 @@ use codex_protocol::protocol::{
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  compute_command_execution_preview, compute_tool_display, extract_compact_result_text,
-  CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
-  ConversationRowEntry, ToolDisplayInput, ToolRow,
+  command_execution_terminal_snapshot, compute_command_execution_preview, compute_tool_display,
+  extract_compact_result_text, CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus,
+  ConversationRow, ConversationRowEntry, ToolDisplayInput, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -37,15 +37,33 @@ fn combined_exec_stdio(stdout: &str, stderr: &str) -> Option<String> {
 }
 
 fn terminal_exec_output(event: &ExecCommandEndEvent, streamed_output: String) -> Option<String> {
-  [
+  let preferred = [
     (!event.aggregated_output.trim().is_empty()).then(|| event.aggregated_output.clone()),
     (!event.formatted_output.trim().is_empty()).then(|| event.formatted_output.clone()),
     combined_exec_stdio(&event.stdout, &event.stderr),
-    (!streamed_output.trim().is_empty()).then_some(streamed_output),
   ]
   .into_iter()
   .flatten()
-  .next()
+  .next();
+
+  let streamed = (!streamed_output.trim().is_empty()).then_some(streamed_output);
+  match (preferred, streamed) {
+    (None, None) => None,
+    (Some(preferred), None) => Some(preferred),
+    (None, Some(streamed)) => Some(streamed),
+    (Some(preferred), Some(streamed)) => {
+      // Some runtimes send a compact aggregated payload even when the live
+      // stream captured significantly richer output. Prefer the richer stream
+      // when it is materially larger to avoid clipped expanded cards.
+      let materially_larger = streamed.len() > preferred.len().saturating_add(256)
+        || streamed.len() > preferred.len().saturating_mul(2);
+      if materially_larger {
+        Some(streamed)
+      } else {
+        Some(preferred)
+      }
+    }
+  }
 }
 
 fn command_execution_status(event: &ExecCommandEndEvent) -> CommandExecutionStatus {
@@ -399,6 +417,7 @@ pub(crate) async fn handle_exec_command_begin(
     }
   }
 
+  let terminal_snapshot = command_execution_terminal_snapshot(&command_str, &cwd, None);
   connector_events.push(ConnectorEvent::ConversationRowCreated(
     command_execution_row_entry(CommandExecutionRow {
       id: event.call_id.clone(),
@@ -409,6 +428,7 @@ pub(crate) async fn handle_exec_command_begin(
       command_actions,
       live_output_preview: None,
       aggregated_output: None,
+      terminal_snapshot,
       preview: None,
       exit_code: None,
       duration_ms: None,
@@ -442,6 +462,11 @@ pub(crate) async fn handle_exec_command_output_delta(
         command_actions: buffer.command_actions.clone(),
         live_output_preview: buffer.preview(),
         aggregated_output: None,
+        terminal_snapshot: command_execution_terminal_snapshot(
+          &buffer.command,
+          &buffer.cwd,
+          buffer.preview().as_deref(),
+        ),
         preview: command_preview(&buffer.command_actions, buffer.preview().as_deref(), None),
         exit_code: None,
         duration_ms: None,
@@ -478,18 +503,23 @@ pub(crate) async fn handle_exec_command_end(
   let duration_ms = Some(event.duration.as_millis() as u64);
   let status = command_execution_status(&event);
   let command_actions = command_actions_from_parsed(&event.parsed_cmd);
+  let command = display_command_from_exec_tokens(&event.command);
+  let cwd = event.cwd.display().to_string();
   let aggregated_output = terminal_exec_output(&event, streamed_output);
+  let terminal_snapshot =
+    command_execution_terminal_snapshot(&command, &cwd, aggregated_output.as_deref());
   let preview = command_preview(&command_actions, None, aggregated_output.as_deref());
 
   let entry = command_execution_row_entry(CommandExecutionRow {
     id: event.call_id.clone(),
     status,
-    command: display_command_from_exec_tokens(&event.command),
-    cwd: event.cwd.display().to_string(),
+    command: command.clone(),
+    cwd: cwd.clone(),
     process_id: event.process_id,
     command_actions,
     live_output_preview: None,
     aggregated_output,
+    terminal_snapshot,
     preview,
     exit_code: Some(event.exit_code),
     duration_ms,
@@ -943,6 +973,11 @@ pub(crate) async fn handle_terminal_interaction(
       command_actions: entry.command_actions.clone(),
       live_output_preview: entry.preview(),
       aggregated_output: None,
+      terminal_snapshot: command_execution_terminal_snapshot(
+        &entry.command,
+        &entry.cwd,
+        entry.preview().as_deref(),
+      ),
       preview: command_preview(&entry.command_actions, entry.preview().as_deref(), None),
       exit_code: None,
       duration_ms: None,
@@ -962,7 +997,7 @@ mod tests {
   use super::{
     display_command_from_exec_tokens, handle_dynamic_tool_call_request,
     handle_dynamic_tool_call_response, handle_exec_command_begin, handle_exec_command_end,
-    handle_exec_command_output_delta,
+    handle_exec_command_output_delta, handle_terminal_interaction,
   };
   use crate::event_mapping::{SharedEnvironmentTracker, SharedOutputBuffers};
   use crate::runtime::EnvironmentTracker;
@@ -1032,6 +1067,10 @@ mod tests {
       orbitdock_protocol::conversation_contracts::CommandExecutionStatus::InProgress
     );
     assert_eq!(row.command_actions.len(), 1);
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "sed -n 1,40p");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert!(snapshot.output.is_none());
   }
 
   #[tokio::test]
@@ -1110,11 +1149,112 @@ mod tests {
       orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
     );
     assert_eq!(
-      row.aggregated_output.as_deref(),
-      Some("src/lib.rs:needle\n")
+      row
+        .aggregated_output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some("src/lib.rs:needle")
+    );
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "rg needle src");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert_eq!(
+      snapshot
+        .output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some("src/lib.rs:needle")
     );
     assert_eq!(row.exit_code, Some(0));
     assert_eq!(row.duration_ms, Some(42));
+  }
+
+  #[tokio::test]
+  async fn exec_command_end_prefers_richer_stream_output_when_terminal_payload_is_short() {
+    let output_buffers = shared_output_buffers();
+    let env_tracker = shared_env_tracker();
+
+    handle_exec_command_begin(
+      ExecCommandBeginEvent {
+        call_id: "cmd-2b".to_string(),
+        process_id: Some("pty-2b".to_string()),
+        turn_id: "turn-2b".to_string(),
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "cargo test".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+      },
+      &output_buffers,
+      &env_tracker,
+    )
+    .await;
+
+    let streamed = "Compiling crate-a\nCompiling crate-b\nerror: tests failed\n";
+    handle_exec_command_output_delta(
+      ExecCommandOutputDeltaEvent {
+        call_id: "cmd-2b".to_string(),
+        stream: ExecOutputStream::Stdout,
+        chunk: streamed.as_bytes().to_vec(),
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let events = handle_exec_command_end(
+      ExecCommandEndEvent {
+        call_id: "cmd-2b".to_string(),
+        process_id: Some("pty-2b".to_string()),
+        turn_id: "turn-2b".to_string(),
+        command: vec!["cargo".to_string(), "test".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "cargo test".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+        stdout: String::new(),
+        stderr: String::new(),
+        aggregated_output: "tests failed".to_string(),
+        exit_code: 1,
+        duration: Duration::from_millis(1337),
+        formatted_output: "tests failed".to_string(),
+        status: ExecCommandStatus::Failed,
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    let expected_streamed = streamed.trim_end_matches('\n');
+    assert_eq!(
+      row
+        .aggregated_output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some(expected_streamed)
+    );
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "cargo test");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert_eq!(
+      snapshot
+        .output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some(expected_streamed)
+    );
   }
 
   #[tokio::test]
@@ -1159,10 +1299,26 @@ mod tests {
       panic!("expected command execution row");
     };
 
-    assert_eq!(row.aggregated_output.as_deref(), Some("done\n"));
+    assert_eq!(
+      row
+        .aggregated_output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some("done")
+    );
     assert_eq!(
       row.status,
       orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
+    );
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "python -c print('done')");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert_eq!(
+      snapshot
+        .output
+        .as_deref()
+        .map(|value| value.trim_end_matches('\n')),
+      Some("done")
     );
   }
 
@@ -1213,6 +1369,64 @@ mod tests {
       orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Declined
     );
     assert_eq!(row.aggregated_output.as_deref(), Some("permission denied"));
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "rm -rf /tmp/project");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert_eq!(snapshot.output.as_deref(), Some("permission denied"));
+  }
+
+  #[tokio::test]
+  async fn terminal_interaction_updates_command_execution_snapshot_with_stdin() {
+    let output_buffers = shared_output_buffers();
+    let env_tracker = shared_env_tracker();
+
+    handle_exec_command_begin(
+      ExecCommandBeginEvent {
+        call_id: "cmd-stdin-1".to_string(),
+        process_id: Some("pty-stdin-1".to_string()),
+        turn_id: "turn-stdin-1".to_string(),
+        command: vec!["python".to_string(), "-i".to_string()],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "python -i".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+      },
+      &output_buffers,
+      &env_tracker,
+    )
+    .await;
+
+    let events = handle_terminal_interaction(
+      codex_protocol::protocol::TerminalInteractionEvent {
+        call_id: "cmd-stdin-1".to_string(),
+        process_id: "pty-stdin-1".to_string(),
+        stdin: "print('hello')".to_string(),
+      },
+      &output_buffers,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+
+    let entry = updated.expect("updated row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+
+    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(snapshot.command, "python -i");
+    assert_eq!(snapshot.cwd, "/tmp/project");
+    assert!(snapshot
+      .output
+      .as_deref()
+      .expect("snapshot output")
+      .contains("[stdin] print('hello')"));
+    assert!(snapshot.transcript().contains("[stdin] print('hello')"));
   }
 
   #[test]

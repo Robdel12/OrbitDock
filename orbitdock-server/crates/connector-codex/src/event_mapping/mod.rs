@@ -14,7 +14,9 @@ pub(super) mod runtime_signals;
 pub(super) mod streaming;
 pub(super) mod tools;
 
-const OUTPUT_PREVIEW_CHAR_LIMIT: usize = 8 * 1024;
+/// Keep a large rolling preview so expanded command cards do not clip typical
+/// build/test output while still bounding websocket row updates.
+const OUTPUT_PREVIEW_CHAR_LIMIT: usize = 64 * 1024;
 
 #[derive(Debug)]
 pub(super) struct OutputBufferState {
@@ -71,7 +73,7 @@ pub(super) type SharedPatchContexts = Arc<tokio::sync::Mutex<HashMap<String, ser
 
 #[cfg(test)]
 mod tests {
-  use super::OutputBufferState;
+  use super::{OutputBufferState, OUTPUT_PREVIEW_CHAR_LIMIT};
 
   #[test]
   fn output_buffer_keeps_full_output_but_trims_preview_tail() {
@@ -81,7 +83,7 @@ mod tests {
 
     assert_eq!(state.full_output.len(), 9004);
     let preview = state.preview().expect("preview output");
-    assert!(preview.len() <= 8 * 1024);
+    assert!(preview.len() <= OUTPUT_PREVIEW_CHAR_LIMIT);
     assert!(preview.ends_with("tail"));
   }
 }
