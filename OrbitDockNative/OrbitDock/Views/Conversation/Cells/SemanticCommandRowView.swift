@@ -80,12 +80,18 @@ struct SemanticCommandRowView: View {
   }
 
   private var orderedPreviewLines: [String] {
-    guard row.stdout != nil, row.stderr != nil else { return [] }
     return previewLines(from: row.outputPreview, limit: isCompactLayout ? 9 : 8)
   }
 
   private var hasOutput: Bool {
     !orderedPreviewLines.isEmpty || !stdoutLines.isEmpty || !stderrLines.isEmpty
+  }
+
+  private var outputLineCount: Int {
+    if !orderedPreviewLines.isEmpty {
+      return orderedPreviewLines.count
+    }
+    return stdoutLines.count + stderrLines.count
   }
 
   private var summaryText: String? {
@@ -249,7 +255,7 @@ struct SemanticCommandRowView: View {
 
       Spacer(minLength: Spacing.sm)
 
-      Text("\(stdoutLines.count + stderrLines.count) lines")
+      Text("\(outputLineCount) lines")
         .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
     }
@@ -299,12 +305,24 @@ struct SemanticCommandRowView: View {
 
   private func previewLines(from text: String?, limit: Int) -> [String] {
     guard let text else { return [] }
+    var lines: [String] = []
+    lines.reserveCapacity(limit)
 
-    return text
-      .components(separatedBy: .newlines)
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-      .prefix(limit)
-      .map { String($0.prefix(180)) }
+    text.enumerateLines { line, stop in
+      guard lines.count < limit else {
+        stop = true
+        return
+      }
+
+      let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+      lines.append(String(trimmed.prefix(180)))
+
+      if lines.count >= limit {
+        stop = true
+      }
+    }
+
+    return lines
   }
 }

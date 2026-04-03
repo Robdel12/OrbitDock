@@ -870,7 +870,14 @@ async fn load_sessions_for_startup_with_db_path(
 
 /// Load a specific session by ID (for resume — includes ended sessions).
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
-  load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id).await
+  load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id, true).await
+}
+
+/// Load session metadata by ID without hydrating full message rows.
+pub async fn load_session_metadata_by_id(
+  id: &str,
+) -> Result<Option<RestoredSession>, anyhow::Error> {
+  load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id, false).await
 }
 
 #[cfg(test)]
@@ -879,12 +886,13 @@ pub async fn load_session_by_id_from_db_path(
   db_path: PathBuf,
   id: &str,
 ) -> Result<Option<RestoredSession>, anyhow::Error> {
-  load_session_by_id_with_db_path(db_path, id).await
+  load_session_by_id_with_db_path(db_path, id, true).await
 }
 
 async fn load_session_by_id_with_db_path(
   db_path: PathBuf,
   id: &str,
+  include_rows: bool,
 ) -> Result<Option<RestoredSession>, anyhow::Error> {
   let id_owned = id.to_string();
   let result = tokio::task::spawn_blocking(
@@ -1008,7 +1016,11 @@ async fn load_session_by_id_with_db_path(
             let (codex_integration_mode, claude_integration_mode) =
                 control_mode_to_integration_mode(&provider, control_mode);
 
-            let rows = load_messages_from_db(&conn, &id)?;
+            let rows = if include_rows {
+                load_messages_from_db(&conn, &id)?
+            } else {
+                Vec::new()
+            };
             let custom_name = resolve_custom_name_from_first_prompt(
                 &conn,
                 &id,
@@ -1072,9 +1084,13 @@ async fn load_session_by_id_with_db_path(
                     |row| row.get(0),
                 )
                 .unwrap_or(None);
-            let last_message = load_latest_completed_conversation_message_from_db(&conn, &id)
-                .unwrap_or(None)
-                .or(persisted_last_message);
+            let last_message = if include_rows {
+                load_latest_completed_conversation_message_from_db(&conn, &id)
+                    .unwrap_or(None)
+                    .or(persisted_last_message)
+            } else {
+                persisted_last_message
+            };
 
             let effort: Option<String> = conn
                 .query_row(

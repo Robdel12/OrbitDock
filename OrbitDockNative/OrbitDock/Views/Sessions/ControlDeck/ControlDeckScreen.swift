@@ -295,8 +295,8 @@ struct ControlDeckScreen: View {
 
     let nextMode = ControlDeckAutocompletePlanner.completionMode(for: text)
     switch nextMode {
-      case let .skill(query):
-        if !query.isEmpty, viewModel.skills.isEmpty {
+      case .skill:
+        if viewModel.skills.isEmpty {
           Task { await viewModel.loadSkills() }
         }
         completionState.activate(nextMode)

@@ -48,7 +48,7 @@ struct TimelineScrollView: View {
     #if os(iOS)
       sizeClass == .compact ? 40 : 60
     #else
-      120
+      60
     #endif
   }
 
@@ -56,7 +56,7 @@ struct TimelineScrollView: View {
     #if os(iOS)
       sizeClass == .compact ? 20 : 30
     #else
-      80
+      40
     #endif
   }
 

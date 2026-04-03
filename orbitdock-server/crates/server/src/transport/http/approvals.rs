@@ -9,6 +9,17 @@ fn approval_dispatch_error_response(
   session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
   match code {
+    "session_not_found" => not_found("not_found", format!("Session {} not found", session_id)),
+    "connector_unavailable" => (
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(ApiErrorResponse {
+        code: "connector_unavailable",
+        error: format!(
+          "Session {} is direct but has no active connector attached",
+          session_id
+        ),
+      }),
+    ),
     "not_found" => not_found(
       "not_found",
       format!(

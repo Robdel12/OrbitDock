@@ -50,7 +50,8 @@ pub(crate) use mission_control::{
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
   load_direct_claude_owner_by_sdk_session_id, load_direct_codex_owner_by_thread_id,
-  load_session_by_id, load_session_permission_mode, load_sessions_for_startup, RestoredSession,
+  load_session_by_id, load_session_metadata_by_id, load_session_permission_mode,
+  load_sessions_for_startup, RestoredSession,
 };
 pub(crate) use startup_cleanup::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,

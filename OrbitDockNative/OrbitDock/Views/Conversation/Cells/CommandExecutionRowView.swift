@@ -544,12 +544,20 @@ struct CommandExecutionRowView: View {
   }
 
   private func previewSourceLines(from source: String) -> [String] {
-    source
-      .components(separatedBy: .newlines)
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-      .suffix(2)
-      .map { normalizedInlineText($0, limit: 180) }
+    var tailLines: [String] = []
+    tailLines.reserveCapacity(2)
+
+    source.enumerateLines { line, _ in
+      let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return }
+
+      if tailLines.count == 2 {
+        tailLines.removeFirst()
+      }
+      tailLines.append(trimmed)
+    }
+
+    return tailLines.map { normalizedInlineText($0, limit: 180) }
   }
 
   private func normalizedInlineText(_ value: String, limit: Int = 54) -> String {

@@ -122,79 +122,13 @@ enum McpServersTabPlanner {
 
 struct McpServersTab: View {
   let sessionId: String
+  let sessionStore: SessionStore
 
-  @Environment(SessionStore.self) private var serverState
-  @State private var expandedServers: Set<String> = []
-
-  private var startupState: McpStartupState? {
-    serverState.session(sessionId).mcpStartupState
-  }
-
-  private var tools: [String: ServerMcpTool] {
-    serverState.session(sessionId).mcpTools
-  }
-
-  private var authStatuses: [String: ServerMcpAuthStatus] {
-    serverState.session(sessionId).mcpAuthStatuses
-  }
-
-  private var resources: [String: [ServerMcpResource]] {
-    serverState.session(sessionId).mcpResources
-  }
-
-  private var resourceTemplates: [String: [ServerMcpResourceTemplate]] {
-    serverState.session(sessionId).mcpResourceTemplates
-  }
-
-  private var provider: Provider {
-    serverState.session(sessionId).provider
-  }
-
-  private var capabilityNotice: McpCapabilityNotice? {
-    McpServersTabPlanner.capabilityNotice(
-      provider: provider,
-      codexAccountStatus: serverState.codexAccountStatus
-    )
-  }
-
-  /// All known server names from startup state + tools
-  private var serverEntries: [ServerEntry] {
-    var names = Set<String>()
-
-    // From startup state
-    if let state = startupState {
-      names.formUnion(state.serverStatuses.keys)
-      names.formUnion(state.readyServers)
-      names.formUnion(state.failedServers.map(\.server))
-      names.formUnion(state.cancelledServers)
-    }
-
-    // From tools/resources/templates (extract server from mcp__<server>__<tool> keys)
-    for key in tools.keys {
-      if let server = extractServerName(from: key) {
-        names.insert(server)
-      }
-    }
-    names.formUnion(resources.keys)
-    names.formUnion(resourceTemplates.keys)
-
-    return names.map { name in
-      ServerEntry(
-        name: name,
-        status: serverStatus(for: name),
-        tools: toolsForServer(name),
-        resources: resourcesForServer(name),
-        resourceTemplates: resourceTemplatesForServer(name),
-        authStatus: authStatuses[name],
-        error: errorForServer(name)
-      )
-    }
-    .sorted { lhs, rhs in
-      lhs.sortOrder < rhs.sortOrder
-    }
-  }
+  @State private var viewModel = McpServersTabViewModel()
 
   var body: some View {
+    let serverEntries = viewModel.serverEntries
+
     VStack(spacing: 0) {
       // Header
       HStack {
@@ -205,7 +139,7 @@ struct McpServersTab: View {
         Spacer()
 
         Button {
-          Task { try? await serverState.refreshMcpServers(sessionId) }
+          Task { await viewModel.refreshMcpServers() }
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: TypeScale.meta, weight: .medium))
@@ -222,7 +156,7 @@ struct McpServersTab: View {
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
-      if let capabilityNotice {
+      if let capabilityNotice = viewModel.capabilityNotice {
         CodexCapabilityNoticeCard(notice: capabilityNotice)
           .padding(.horizontal, Spacing.md)
           .padding(.vertical, Spacing.sm)
@@ -241,6 +175,9 @@ struct McpServersTab: View {
         .padding(.vertical, Spacing.xs)
       }
     }
+    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+    }
     .background(Color.backgroundPrimary)
   }
 
@@ -248,16 +185,12 @@ struct McpServersTab: View {
 
   @ViewBuilder
   private func serverRow(_ entry: ServerEntry) -> some View {
-    let isExpanded = expandedServers.contains(entry.name)
+    let isExpanded = viewModel.isServerExpanded(entry.name)
 
     VStack(alignment: .leading, spacing: 0) {
       Button {
         withAnimation(Motion.standard) {
-          if isExpanded {
-            expandedServers.remove(entry.name)
-          } else {
-            expandedServers.insert(entry.name)
-          }
+          viewModel.toggleServerExpansion(entry.name)
         }
       } label: {
         HStack(spacing: Spacing.sm) {
@@ -287,9 +220,8 @@ struct McpServersTab: View {
           Spacer()
 
           // Tool count
-          let capabilities = capabilitySummary(for: entry)
-          if !capabilities.isEmpty {
-            Text(capabilities)
+          if !entry.capabilitySummary.isEmpty {
+            Text(entry.capabilitySummary)
               .font(.system(size: TypeScale.micro, weight: .medium))
               .foregroundStyle(Color.textTertiary)
           }
@@ -347,7 +279,7 @@ struct McpServersTab: View {
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
 
-      if entry.id != serverEntries.last?.id {
+      if entry.id != viewModel.serverEntries.last?.id {
         Divider()
           .foregroundStyle(Color.panelBorder.opacity(0.3))
           .padding(.horizontal, Spacing.md)
@@ -474,85 +406,6 @@ struct McpServersTab: View {
     }
   }
 
-  // MARK: - Helpers
-
-  private func extractServerName(from toolKey: String) -> String? {
-    // Keys can be "mcp__<server>__<tool>" or "<server>__<tool>" or just server-scoped
-    // The mcpTools dict is keyed by fully qualified name
-    let parts = toolKey.split(separator: "__")
-    if parts.count >= 2, parts[0] == "mcp" {
-      return String(parts[1])
-    } else if parts.count >= 2 {
-      return String(parts[0])
-    }
-    // Try using the tool's name to extract server from parent key structure
-    return nil
-  }
-
-  private func toolsForServer(_ server: String) -> [ServerMcpTool] {
-    tools.compactMap { key, tool in
-      if let name = extractServerName(from: key), name == server {
-        return tool
-      }
-      return nil
-    }
-    .sorted { $0.name < $1.name }
-  }
-
-  private func resourcesForServer(_ server: String) -> [ServerMcpResource] {
-    (resources[server] ?? []).sorted { $0.name < $1.name }
-  }
-
-  private func resourceTemplatesForServer(_ server: String) -> [ServerMcpResourceTemplate] {
-    (resourceTemplates[server] ?? []).sorted { $0.name < $1.name }
-  }
-
-  private func capabilitySummary(for entry: ServerEntry) -> String {
-    [
-      entry.tools.isEmpty ? nil : "\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")",
-      entry.resources.isEmpty ? nil : "\(entry.resources.count) resource\(entry.resources.count == 1 ? "" : "s")",
-      entry.resourceTemplates
-        .isEmpty ? nil : "\(entry.resourceTemplates.count) template\(entry.resourceTemplates.count == 1 ? "" : "s")",
-    ]
-    .compactMap { $0 }
-    .joined(separator: " · ")
-  }
-
-  private func serverStatus(for name: String) -> ServerEntryStatus {
-    if let state = startupState {
-      if let status = state.serverStatuses[name] {
-        switch status {
-          case .ready: return .ready
-          case .starting: return .starting
-          case .connecting: return .connecting
-          case .needsAuth: return .needsAuth
-          case .failed: return .failed
-          case .cancelled: return .cancelled
-        }
-      }
-      if state.readyServers.contains(name) { return .ready }
-      if state.failedServers.contains(where: { $0.server == name }) { return .failed }
-      if state.cancelledServers.contains(name) { return .cancelled }
-    }
-    // If we have tools but no startup state, assume ready
-    if !toolsForServer(name).isEmpty || !resourcesForServer(name).isEmpty || !resourceTemplatesForServer(name).isEmpty {
-      return .ready
-    }
-    return .starting
-  }
-
-  private func errorForServer(_ name: String) -> String? {
-    if let state = startupState {
-      if case let .failed(error) = state.serverStatuses[name] {
-        return error
-      }
-      if let failure = state.failedServers.first(where: { $0.server == name }) {
-        return failure.error
-      }
-    }
-    return nil
-  }
-
   private func authLabel(_ status: ServerMcpAuthStatus) -> String {
     switch status {
       case .unsupported: "N/A"
@@ -571,43 +424,6 @@ struct McpServersTab: View {
     }
   }
 
-}
-
-// MARK: - Models
-
-private enum ServerEntryStatus: Int, Comparable {
-  case ready = 0
-  case starting = 1
-  case connecting = 2
-  case needsAuth = 3
-  case failed = 4
-  case cancelled = 5
-
-  static func < (lhs: Self, rhs: Self) -> Bool {
-    lhs.rawValue < rhs.rawValue
-  }
-}
-
-private struct ServerEntry: Identifiable {
-  let name: String
-  let status: ServerEntryStatus
-  let tools: [ServerMcpTool]
-  let resources: [ServerMcpResource]
-  let resourceTemplates: [ServerMcpResourceTemplate]
-  let authStatus: ServerMcpAuthStatus?
-  let error: String?
-
-  var id: String {
-    name
-  }
-
-  var sortOrder: Int {
-    status.rawValue
-  }
-
-  var hasExpandedContent: Bool {
-    !tools.isEmpty || !resources.isEmpty || !resourceTemplates.isEmpty
-  }
 }
 
 // MARK: - Spinning Dot Animation

@@ -561,10 +561,8 @@ final class ServerRuntimeRegistry {
   }
 
   func sessionNode(forScopedID scopedID: String) -> RootSessionNode? {
-    for index in sessionsByEndpoint.values {
-      if let node = index[scopedID] { return node }
-    }
-    return nil
+    guard let ref = SessionRef(scopedID: scopedID) else { return nil }
+    return sessionsByEndpoint[ref.endpointId]?[ref.sessionId]
   }
 
   var dashboardRefreshIdentity: String {
@@ -699,7 +697,7 @@ final class ServerRuntimeRegistry {
               session: item, endpointId: endpointId, endpointName: endpointName,
               connectionStatus: .connected
             )
-            index[node.scopedID] = node
+            index[node.sessionId] = node
           }
           self.sessionsByEndpoint[endpointId] = index
           self.setSessionsAggregationDirty()
@@ -757,11 +755,11 @@ final class ServerRuntimeRegistry {
           }
 
         case let .sessionEnded(sessionId, reason):
-          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
-          if let existing = self.sessionsByEndpoint[endpointId]?[scopedID] {
-            self.sessionsByEndpoint[endpointId]?[scopedID] = existing.ended(reason: reason)
+          if let existing = self.sessionsByEndpoint[endpointId]?[sessionId] {
+            self.sessionsByEndpoint[endpointId]?[sessionId] = existing.ended(reason: reason)
             self.setSessionsAggregationDirty()
           }
+          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
           self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
           self.setDashboardAggregationDirty()
 

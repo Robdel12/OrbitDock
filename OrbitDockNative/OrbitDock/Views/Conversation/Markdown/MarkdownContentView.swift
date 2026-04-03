@@ -16,6 +16,7 @@ struct MarkdownContentView: View {
   private static let collapseLineThreshold = 50
   private static let collapsedLineCount = 20
   private static let maxCharacterCount = 8_000
+  private static let maxCacheableCharacterCount = 4_000
 
   @State private var isExpanded = false
 
@@ -61,7 +62,8 @@ struct MarkdownContentView: View {
     let stablePrefix = streamingProjection.stablePrefix
     let cached = MarkdownRenderSegmentCache.resolve(
       markdown: stablePrefix,
-      style: style
+      style: style,
+      allowCaching: !isStreaming && stablePrefix.count <= Self.maxCacheableCharacterCount
     )
     var segments = cached.segments
 
@@ -149,9 +151,11 @@ private enum MarkdownRenderSegmentCache {
   private static let maxEntryCost = 250_000
 
   private final class Box: NSObject {
+    let source: String
     let value: Value
 
-    init(_ value: Value) {
+    init(source: String, value: Value) {
+      self.source = source
       self.value = value
     }
   }
@@ -159,18 +163,27 @@ private enum MarkdownRenderSegmentCache {
   private static let cache: NSCache<NSString, Box> = {
     let cache = NSCache<NSString, Box>()
     #if os(iOS)
-      cache.countLimit = 64
-      cache.totalCostLimit = 6_000_000
+      cache.countLimit = 24
+      cache.totalCostLimit = 3_000_000
     #else
-      cache.countLimit = 192
-      cache.totalCostLimit = 18_000_000
+      cache.countLimit = 96
+      cache.totalCostLimit = 8_000_000
     #endif
     return cache
   }()
 
-  static func resolve(markdown: String, style: ContentStyle) -> Value {
-    let key = "\(style.cacheToken)|\(markdown)" as NSString
-    if let cached = cache.object(forKey: key) {
+  static func resolve(markdown: String, style: ContentStyle, allowCaching: Bool) -> Value {
+    guard allowCaching else {
+      let blocks = MarkdownSystemParser.parse(markdown, style: style)
+      return Value(
+        blockCount: blocks.count,
+        segments: MarkdownRenderSegmentProjector.project(blocks)
+      )
+    }
+
+    let signature = "\(style.cacheToken)|\(markdown.count)|\(markdown.hashValue)"
+    let key = signature as NSString
+    if let cached = cache.object(forKey: key), cached.source == markdown {
       return cached.value
     }
 
@@ -181,8 +194,8 @@ private enum MarkdownRenderSegmentCache {
     )
     // Cache cost tracks source markdown size so large transcripts get evicted
     // before parsed segment storage can grow without bound on mobile.
-    let estimatedCost = min(max(markdown.utf8.count * 3, 1), maxEntryCost)
-    cache.setObject(Box(value), forKey: key, cost: estimatedCost)
+    let estimatedCost = min(max(markdown.utf8.count * 2 + value.segments.count * 128, 1), maxEntryCost)
+    cache.setObject(Box(source: markdown, value: value), forKey: key, cost: estimatedCost)
     return value
   }
 }

@@ -8,7 +8,6 @@ pub(crate) mod message_dispatch_policy;
 pub(crate) mod mission_dispatch;
 pub(crate) mod mission_orchestrator;
 pub(crate) mod mission_reconciliation;
-pub(crate) mod query_fallback_policy;
 pub(crate) mod restored_sessions;
 pub(crate) mod server_info;
 pub(crate) mod session_actor;

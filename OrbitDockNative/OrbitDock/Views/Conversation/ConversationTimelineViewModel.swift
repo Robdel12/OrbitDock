@@ -4,6 +4,7 @@ import Observation
 @MainActor
 @Observable
 final class ConversationTimelineViewModel {
+  private let fetchedRowContentLimit = 24
   private var currentSessionId: String?
   private var currentViewMode: ChatViewMode = .focused
   private var projection = TimelineDataSource.Projection.make(entries: [], viewMode: .focused)
@@ -12,14 +13,15 @@ final class ConversationTimelineViewModel {
 
   private var expandedRowIDs: Set<String> = []
   private var fetchedRowContent: [String: ServerRowContent] = [:]
+  private var fetchedRowContentOrder: [String] = []
   private var rowContentFetchInFlight: Set<String> = []
 
   var displayedEntryCount: Int {
     projection.count
   }
 
-  func renderedEntries(limit: Int) -> [ServerConversationRowEntry] {
-    Array(projection.suffix(limit))
+  func renderedEntries(limit: Int) -> ArraySlice<ServerConversationRowEntry> {
+    projection.suffix(limit)
   }
 
   func displayAnchorID(for rowId: String) -> String? {
@@ -52,6 +54,8 @@ final class ConversationTimelineViewModel {
     } else if presentation.contentRevision != lastContentRevision {
       projection.applyContentUpdates(changedEntries: presentation.changedEntries)
     }
+
+    pruneCaches(validRowIDs: Set(presentation.entries.map(\.id)))
 
     lastStructureRevision = presentation.structureRevision
     lastContentRevision = presentation.contentRevision
@@ -93,7 +97,7 @@ final class ConversationTimelineViewModel {
           sessionId: sessionId,
           rowId: rowId
         )
-        fetchedRowContent[rowId] = content
+        cacheRowContent(content, for: rowId)
       } catch {}
       rowContentFetchInFlight.remove(rowId)
     }
@@ -103,8 +107,26 @@ final class ConversationTimelineViewModel {
     projection = TimelineDataSource.Projection.make(entries: [], viewMode: currentViewMode)
     expandedRowIDs.removeAll()
     fetchedRowContent.removeAll()
+    fetchedRowContentOrder.removeAll()
     rowContentFetchInFlight.removeAll()
     lastStructureRevision = 0
     lastContentRevision = 0
+  }
+
+  private func cacheRowContent(_ content: ServerRowContent, for rowId: String) {
+    fetchedRowContent[rowId] = content
+    fetchedRowContentOrder.removeAll { $0 == rowId }
+    fetchedRowContentOrder.append(rowId)
+    while fetchedRowContentOrder.count > fetchedRowContentLimit {
+      let evicted = fetchedRowContentOrder.removeFirst()
+      fetchedRowContent.removeValue(forKey: evicted)
+    }
+  }
+
+  private func pruneCaches(validRowIDs: Set<String>) {
+    expandedRowIDs = expandedRowIDs.filter { validRowIDs.contains($0) }
+    fetchedRowContent = fetchedRowContent.filter { validRowIDs.contains($0.key) }
+    fetchedRowContentOrder = fetchedRowContentOrder.filter { validRowIDs.contains($0) }
+    rowContentFetchInFlight = rowContentFetchInFlight.filter { validRowIDs.contains($0) }
   }
 }

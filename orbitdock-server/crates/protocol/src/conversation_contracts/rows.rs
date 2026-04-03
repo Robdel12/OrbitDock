@@ -924,6 +924,98 @@ pub enum ConversationRowSummary {
   System(SystemRow),
 }
 
+const MAX_INLINE_PREVIEW_CHARACTERS: usize = 8_192;
+const MAX_COMMAND_PREVIEW_LINES: usize = 6;
+const MAX_PREVIEW_LINE_CHARACTERS: usize = 220;
+
+fn clipped_text(value: Option<&str>, max_characters: usize) -> Option<String> {
+  let value = value?;
+  if value.trim().is_empty() {
+    return None;
+  }
+  if value.chars().count() <= max_characters {
+    return Some(value.to_string());
+  }
+  let clipped: String = value.chars().take(max_characters).collect();
+  Some(format!("{clipped}..."))
+}
+
+fn bounded_command_preview(
+  preview: Option<&CommandExecutionPreview>,
+) -> Option<CommandExecutionPreview> {
+  let preview = preview?;
+  let original_line_count = preview.lines.len();
+  let lines: Vec<String> = preview
+    .lines
+    .iter()
+    .take(MAX_COMMAND_PREVIEW_LINES)
+    .map(|line| {
+      let trimmed = line.trim();
+      if trimmed.chars().count() > MAX_PREVIEW_LINE_CHARACTERS {
+        let clipped: String = trimmed.chars().take(MAX_PREVIEW_LINE_CHARACTERS).collect();
+        format!("{clipped}...")
+      } else {
+        trimmed.to_string()
+      }
+    })
+    .filter(|line| !line.is_empty())
+    .collect();
+
+  let dropped_line_count = original_line_count.saturating_sub(lines.len());
+  let overflow_count = if dropped_line_count > 0 {
+    Some(
+      preview
+        .overflow_count
+        .unwrap_or(0)
+        .saturating_add(dropped_line_count.min(u32::MAX as usize) as u32),
+    )
+  } else {
+    preview.overflow_count
+  };
+
+  Some(CommandExecutionPreview {
+    kind: preview.kind,
+    lines,
+    overflow_count,
+  })
+}
+
+fn transport_command_execution_row(row: &CommandExecutionRow) -> CommandExecutionRow {
+  CommandExecutionRow {
+    id: row.id.clone(),
+    status: row.status,
+    command: row.command.clone(),
+    cwd: row.cwd.clone(),
+    process_id: row.process_id.clone(),
+    command_actions: row.command_actions.clone(),
+    live_output_preview: clipped_text(
+      row
+        .live_output_preview
+        .as_deref()
+        .or(row.aggregated_output.as_deref()),
+      MAX_INLINE_PREVIEW_CHARACTERS,
+    ),
+    aggregated_output: None,
+    terminal_snapshot: None,
+    preview: bounded_command_preview(row.preview.as_ref()),
+    exit_code: row.exit_code,
+    duration_ms: row.duration_ms,
+    render_hints: row.render_hints.clone(),
+  }
+}
+
+impl ConversationRowSummary {
+  /// Convert an already-summarized row into transport-safe form.
+  pub fn into_transport_summary(self) -> ConversationRowSummary {
+    match self {
+      ConversationRowSummary::CommandExecution(row) => {
+        ConversationRowSummary::CommandExecution(transport_command_execution_row(&row))
+      }
+      other => other,
+    }
+  }
+}
+
 impl ConversationRow {
   pub fn is_steer(&self) -> bool {
     matches!(self, ConversationRow::Steer(_))
@@ -960,6 +1052,17 @@ impl ConversationRow {
       ConversationRow::Handoff(r) => ConversationRowSummary::Handoff(r.clone()),
     }
   }
+
+  /// Convert to transport-safe timeline summary.
+  /// Heavy command execution fields are omitted; expanded content is fetched via HTTP.
+  pub fn to_transport_summary(&self) -> ConversationRowSummary {
+    match self {
+      ConversationRow::CommandExecution(row) => {
+        ConversationRowSummary::CommandExecution(transport_command_execution_row(row))
+      }
+      _ => self.to_summary(),
+    }
+  }
 }
 
 /// Wire-safe entry wrapper.
@@ -976,6 +1079,11 @@ pub struct RowEntrySummary {
 }
 
 impl RowEntrySummary {
+  pub fn into_transport_summary(mut self) -> RowEntrySummary {
+    self.row = self.row.into_transport_summary();
+    self
+  }
+
   pub fn id(&self) -> &str {
     match &self.row {
       ConversationRowSummary::User(row)
@@ -1009,6 +1117,17 @@ impl ConversationRowEntry {
       turn_id: self.turn_id.clone(),
       turn_status: self.turn_status,
       row: self.row.to_summary(),
+    }
+  }
+
+  /// Convert to transport-safe timeline summary.
+  pub fn to_transport_summary(&self) -> RowEntrySummary {
+    RowEntrySummary {
+      session_id: self.session_id.clone(),
+      sequence: self.sequence,
+      turn_id: self.turn_id.clone(),
+      turn_status: self.turn_status,
+      row: self.row.to_transport_summary(),
     }
   }
 }
@@ -1098,7 +1217,7 @@ mod tests {
     command_execution_terminal_snapshot, compute_command_execution_preview,
     extract_row_content_str, CommandExecutionAction, CommandExecutionPreviewKind,
     CommandExecutionRow, CommandExecutionStatus, CommandExecutionTerminalSnapshot, ConversationRow,
-    ConversationRowEntry, MessageRowContent, ToolRow, TurnStatus,
+    ConversationRowEntry, ConversationRowSummary, MessageRowContent, ToolRow, TurnStatus,
   };
   use crate::conversation_contracts::render_hints::RenderHints;
   use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
@@ -1361,5 +1480,98 @@ mod tests {
 
     assert_eq!(preview.kind, CommandExecutionPreviewKind::Status);
     assert_eq!(preview.lines, vec!["-let value = 7;".to_string()]);
+  }
+
+  #[test]
+  fn command_execution_transport_summary_omits_heavy_fields() {
+    let row = ConversationRow::CommandExecution(CommandExecutionRow {
+      id: "cmd-transport".to_string(),
+      status: CommandExecutionStatus::Completed,
+      command: "cat big.log".to_string(),
+      cwd: "/tmp/project".to_string(),
+      process_id: Some("pty-1".to_string()),
+      command_actions: vec![],
+      live_output_preview: None,
+      aggregated_output: Some("x".repeat(20_000)),
+      terminal_snapshot: Some(CommandExecutionTerminalSnapshot {
+        command: "cat big.log".to_string(),
+        cwd: "/tmp/project".to_string(),
+        output: Some("payload".to_string()),
+        transcript: "payload".to_string(),
+        title: "/tmp/project".to_string(),
+      }),
+      preview: Some(super::CommandExecutionPreview {
+        kind: CommandExecutionPreviewKind::Status,
+        lines: vec![
+          "line 1".to_string(),
+          "line 2".to_string(),
+          "line 3".to_string(),
+          "line 4".to_string(),
+          "line 5".to_string(),
+          "line 6".to_string(),
+          "line 7".to_string(),
+        ],
+        overflow_count: None,
+      }),
+      exit_code: Some(0),
+      duration_ms: Some(7),
+      render_hints: RenderHints::default(),
+    });
+
+    let summary = row.to_transport_summary();
+    let ConversationRowSummary::CommandExecution(summary) = summary else {
+      panic!("expected command execution summary");
+    };
+    assert!(summary.aggregated_output.is_none());
+    assert!(summary.terminal_snapshot.is_none());
+    assert!(summary.live_output_preview.is_some());
+    assert!(
+      summary
+        .live_output_preview
+        .unwrap_or_default()
+        .chars()
+        .count()
+        <= 8_195
+    );
+    assert_eq!(summary.preview.as_ref().map(|p| p.lines.len()), Some(6));
+  }
+
+  #[test]
+  fn row_entry_transport_summary_uses_transport_row_shape() {
+    let entry = ConversationRowEntry {
+      session_id: "session-1".to_string(),
+      sequence: 42,
+      turn_id: Some("turn-1".to_string()),
+      turn_status: TurnStatus::Active,
+      row: ConversationRow::CommandExecution(CommandExecutionRow {
+        id: "cmd-entry".to_string(),
+        status: CommandExecutionStatus::Completed,
+        command: "echo hi".to_string(),
+        cwd: "/tmp/project".to_string(),
+        process_id: None,
+        command_actions: vec![],
+        live_output_preview: Some("preview".to_string()),
+        aggregated_output: Some("full".to_string()),
+        terminal_snapshot: Some(CommandExecutionTerminalSnapshot {
+          command: "echo hi".to_string(),
+          cwd: "/tmp/project".to_string(),
+          output: Some("full".to_string()),
+          transcript: "full".to_string(),
+          title: "/tmp/project".to_string(),
+        }),
+        preview: None,
+        exit_code: Some(0),
+        duration_ms: Some(1),
+        render_hints: RenderHints::default(),
+      }),
+    };
+
+    let summary = entry.to_transport_summary();
+    let ConversationRowSummary::CommandExecution(summary) = summary.row else {
+      panic!("expected command execution summary");
+    };
+    assert!(summary.aggregated_output.is_none());
+    assert!(summary.terminal_snapshot.is_none());
+    assert_eq!(summary.live_output_preview.as_deref(), Some("preview"));
   }
 }

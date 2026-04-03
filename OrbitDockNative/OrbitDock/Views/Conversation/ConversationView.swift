@@ -88,7 +88,7 @@ struct ConversationView: View {
 
   @ViewBuilder
   private var conversationTimeline: some View {
-    if viewModel.timeline != nil, let sessionId {
+    if viewModel.hasTimeline, let sessionId {
       TimelineScrollView(
         viewModel: viewModel.timelineViewModel,
         sessionId: sessionId,

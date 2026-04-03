@@ -102,7 +102,10 @@ pub async fn list_subagent_messages_endpoint(
   Json(SubagentMessagesResponse {
     session_id,
     subagent_id,
-    rows: rows.iter().map(|e| e.to_summary()).collect(),
+    rows: rows
+      .iter()
+      .map(|entry| entry.to_transport_summary())
+      .collect(),
   })
 }
 

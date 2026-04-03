@@ -45,6 +45,17 @@ pub(crate) struct DispatchSendMessage {
   pub message_id: String,
 }
 
+fn ensure_session_exists(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), &'static str> {
+  if state.get_session(session_id).is_some() {
+    Ok(())
+  } else {
+    Err("session_not_found")
+  }
+}
+
 pub(crate) async fn dispatch_send_message(
   state: &Arc<SessionRegistry>,
   request: DispatchSendMessage,
@@ -160,13 +171,13 @@ pub(crate) async fn dispatch_send_message(
       .is_ok()
     {
     } else {
-      state.remove_codex_action_tx(&session_id);
       crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
         state,
         &session_id,
         Provider::Codex,
       )
       .await;
+      state.remove_codex_action_tx(&session_id);
       warn!(
           component = "session",
           event = "session.message.action_channel_closed",
@@ -190,13 +201,13 @@ pub(crate) async fn dispatch_send_message(
       .is_ok()
     {
     } else {
-      state.remove_claude_action_tx(&session_id);
       crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
         state,
         &session_id,
         Provider::Claude,
       )
       .await;
+      state.remove_claude_action_tx(&session_id);
       warn!(
           component = "session",
           event = "session.message.action_channel_closed",
@@ -381,18 +392,20 @@ pub(crate) async fn dispatch_interrupt(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_codex_action_tx(session_id) {
     tx.send(CodexAction::Interrupt).await.map_err(|_| {
       state.remove_codex_action_tx(session_id);
-      "interrupt_failed"
+      "connector_unavailable"
     })
   } else if let Some(tx) = state.get_claude_action_tx(session_id) {
     tx.send(ClaudeAction::Interrupt).await.map_err(|_| {
       state.remove_claude_action_tx(session_id);
-      "interrupt_failed"
+      "connector_unavailable"
     })
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -400,6 +413,8 @@ pub(crate) async fn dispatch_compact(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_codex_action_tx(session_id) {
     let _ = tx.send(CodexAction::Compact).await;
     Ok(())
@@ -407,7 +422,7 @@ pub(crate) async fn dispatch_compact(
     let _ = tx.send(ClaudeAction::Compact).await;
     Ok(())
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -415,6 +430,8 @@ pub(crate) async fn dispatch_undo(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_codex_action_tx(session_id) {
     let _ = tx.send(CodexAction::Undo).await;
     Ok(())
@@ -422,7 +439,7 @@ pub(crate) async fn dispatch_undo(
     let _ = tx.send(ClaudeAction::Undo).await;
     Ok(())
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -431,11 +448,13 @@ pub(crate) async fn dispatch_rollback(
   session_id: &str,
   num_turns: u32,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_codex_action_tx(session_id) {
     let _ = tx.send(CodexAction::ThreadRollback { num_turns }).await;
     Ok(())
   } else if let Some(tx) = state.get_claude_action_tx(session_id) {
-    let actor = state.get_session(session_id).ok_or("not_found")?;
+    let actor = state.get_session(session_id).ok_or("session_not_found")?;
     match actor.resolve_user_message_id(num_turns).await {
       Ok(Some(user_message_id)) => {
         let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
@@ -445,7 +464,7 @@ pub(crate) async fn dispatch_rollback(
       Err(_) => Err("actor_closed"),
     }
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -454,11 +473,13 @@ pub(crate) async fn dispatch_stop_task(
   session_id: &str,
   task_id: String,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_claude_action_tx(session_id) {
     let _ = tx.send(ClaudeAction::StopTask { task_id }).await;
     Ok(())
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -467,11 +488,13 @@ pub(crate) async fn dispatch_rewind_files(
   session_id: &str,
   user_message_id: String,
 ) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
   if let Some(tx) = state.get_claude_action_tx(session_id) {
     let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
     Ok(())
   } else {
-    Err("not_found")
+    Err("connector_unavailable")
   }
 }
 
@@ -516,7 +539,7 @@ pub(crate) async fn dispatch_answer_question(
       }
     }
   } else {
-    return Err("not_found");
+    return Err("session_not_found");
   }
 
   let _ = state
@@ -554,6 +577,8 @@ pub(crate) async fn dispatch_answer_question(
         answers: normalized_answers,
       })
       .await;
+  } else {
+    return Err("connector_unavailable");
   }
 
   // Record the answer on the question tool row so the UI shows
@@ -624,7 +649,7 @@ pub(crate) async fn dispatch_request_permissions_response(
       }
     }
   } else {
-    return Err("not_found");
+    return Err("session_not_found");
   }
 
   let decision = if normalized_permissions
@@ -656,7 +681,7 @@ pub(crate) async fn dispatch_request_permissions_response(
       })
       .await;
   } else {
-    return Err("not_found");
+    return Err("connector_unavailable");
   }
 
   let _ = state
@@ -740,6 +765,27 @@ mod tests {
     assert_eq!(snapshot.message_count, 0);
     assert_eq!(snapshot.first_prompt.as_deref(), None);
     assert!(state.get_codex_action_tx(session_id).is_none());
+  }
+
+  #[tokio::test]
+  async fn interrupt_reports_connector_unavailable_when_session_exists_without_connector() {
+    let state = new_test_session_registry(true);
+    let session_id = "session-no-connector";
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-test".to_string(),
+    ));
+
+    let result = dispatch_interrupt(&state, session_id).await;
+    assert_eq!(result, Err("connector_unavailable"));
+  }
+
+  #[tokio::test]
+  async fn interrupt_reports_session_not_found_when_actor_is_missing() {
+    let state = new_test_session_registry(true);
+    let result = dispatch_interrupt(&state, "missing-session").await;
+    assert_eq!(result, Err("session_not_found"));
   }
 
   #[test]

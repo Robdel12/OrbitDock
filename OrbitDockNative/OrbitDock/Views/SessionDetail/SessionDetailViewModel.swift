@@ -406,7 +406,7 @@ final class SessionDetailViewModel {
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: workerState.subagentTools,
       messagesByWorker: workerState.subagentMessages,
-      timelineEntries: workerState.timelineEntries
+      timelineEntries: sessionStore.session(sessionId).rowEntries
     )
   }
 
@@ -493,7 +493,7 @@ final class SessionDetailViewModel {
         subagents: session.subagents,
         subagentTools: session.subagentTools,
         subagentMessages: session.subagentMessages,
-        timelineEntries: session.rowEntries
+        timelineRevision: session.rowEntriesRevision
       ),
       currentTool: session.lastTool,
       lastActivityAt: session.lastActivityAt,
@@ -706,12 +706,12 @@ struct SessionDetailWorkerState {
   let subagents: [ServerSubagentInfo]
   let subagentTools: [String: [ServerSubagentTool]]
   let subagentMessages: [String: [ServerConversationRowEntry]]
-  let timelineEntries: [ServerConversationRowEntry]
+  let timelineRevision: Int
 
   static let empty = SessionDetailWorkerState(
     subagents: [],
     subagentTools: [:],
     subagentMessages: [:],
-    timelineEntries: []
+    timelineRevision: 0
   )
 }

@@ -13,7 +13,11 @@ pub struct ConversationPage {
 impl ConversationPage {
   pub fn into_row_page_summary(self) -> RowPageSummary {
     RowPageSummary {
-      rows: self.rows.iter().map(|e| e.to_summary()).collect(),
+      rows: self
+        .rows
+        .iter()
+        .map(|entry| entry.to_transport_summary())
+        .collect(),
       total_row_count: self.total_row_count,
       has_more_before: self.has_more_before,
       oldest_sequence: self.oldest_sequence,

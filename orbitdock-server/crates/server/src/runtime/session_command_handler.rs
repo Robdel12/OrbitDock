@@ -215,9 +215,7 @@ pub async fn handle_session_command(
     SessionCommand::GetLastTool { reply } => {
       let _ = reply.send(handle.last_tool().map(String::from));
     }
-    SessionCommand::GetConversationBootstrap { limit, reply } => {
-      let _ = reply.send(handle.conversation_bootstrap(limit));
-    }
+    #[cfg(test)]
     SessionCommand::GetConversationPage {
       before_sequence,
       limit,
@@ -377,8 +375,8 @@ pub async fn handle_session_command(
       // Re-derive summary from the now-updated in-memory row.
       let summary = handle
         .row_by_id(&row_id)
-        .map(|r| r.to_summary())
-        .unwrap_or_else(|| entry.to_summary());
+        .map(|row| row.to_transport_summary())
+        .unwrap_or_else(|| entry.to_transport_summary());
       let upserted = vec![summary];
       if handle.should_emit_streaming_row_update(&upserted) {
         handle.broadcast(ServerMessage::ConversationRowsChanged {
@@ -441,8 +439,8 @@ pub async fn handle_session_command(
 
       let summary = handle
         .row_by_id(&row_id)
-        .map(|r| r.to_summary())
-        .unwrap_or_else(|| entry.to_summary());
+        .map(|row| row.to_transport_summary())
+        .unwrap_or_else(|| entry.to_transport_summary());
       handle.broadcast(ServerMessage::ConversationRowsChanged {
         session_id,
         upserted: vec![summary],
@@ -509,8 +507,8 @@ pub async fn handle_session_command(
 
         let summary = handle
           .row_by_id(&row_id)
-          .map(|r| r.to_summary())
-          .unwrap_or_else(|| entry.to_summary());
+          .map(|row| row.to_transport_summary())
+          .unwrap_or_else(|| entry.to_transport_summary());
         handle.broadcast(ServerMessage::ConversationRowsChanged {
           session_id,
           upserted: vec![summary],
@@ -581,31 +579,6 @@ pub async fn handle_session_command(
     SessionCommand::MarkRead { reply } => {
       persist_and_broadcast_mark_read(handle, persist_tx).await;
       let _ = reply.send(handle.unread_count());
-    }
-    SessionCommand::LoadTranscriptAndSync {
-      path,
-      session_id,
-      reply,
-    } => {
-      let state = handle.retained_state();
-      if state.rows.is_empty() {
-        match crate::infrastructure::persistence::load_messages_from_transcript_path(
-          &path,
-          &session_id,
-        )
-        .await
-        {
-          Ok(rows) if !rows.is_empty() => {
-            handle.replace_rows(rows);
-            let _ = reply.send(Some(handle.retained_state()));
-          }
-          _ => {
-            let _ = reply.send(Some(state));
-          }
-        }
-      } else {
-        let _ = reply.send(Some(state));
-      }
     }
   }
 
@@ -750,7 +723,7 @@ pub(crate) async fn dispatch_transition_input(
       // Re-derive summaries from now-updated in-memory rows.
       for summary in upserted.iter_mut() {
         if let Some(row) = handle.row_by_id(summary.id()) {
-          *summary = row.to_summary();
+          *summary = row.to_transport_summary();
         }
       }
       for entry in upserted.iter() {
@@ -790,7 +763,7 @@ pub(crate) async fn dispatch_transition_input(
       // Broadcast updated summaries so connected clients see the change.
       let upserted: Vec<_> = affected_ids
         .iter()
-        .filter_map(|id| handle.row_by_id(id).map(|r| r.to_summary()))
+        .filter_map(|id| handle.row_by_id(id).map(|row| row.to_transport_summary()))
         .collect();
       if !upserted.is_empty() {
         let total = handle.total_row_count();

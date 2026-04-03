@@ -1,10 +1,11 @@
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct ControlDeckAutocompletePlannerTests {
-  @Test func completionModeIsInactiveForBareSkillPrefix() {
+  @Test func completionModeActivatesForBareSkillPrefix() {
     let mode = ControlDeckAutocompletePlanner.completionMode(for: "$")
-    #expect(mode == .inactive)
+    #expect(mode == .skill(query: ""))
   }
 
   @Test func completionModeActivatesForSkillQuery() {

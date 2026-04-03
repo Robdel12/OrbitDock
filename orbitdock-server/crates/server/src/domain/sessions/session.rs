@@ -27,10 +27,12 @@ use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
+#[cfg(test)]
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
 use crate::domain::sessions::transition::{
   approval_preview, ApprovalPreviewInput, TransitionState, WorkPhase,
 };
+use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
 
 /// Events that matter for list/dashboard subscribers.
 /// Keep conversation row streaming off this channel; session-level deltas are
@@ -762,6 +764,7 @@ impl SessionHandle {
       .retain(|entry| entry.sequence >= oldest_allowed_sequence);
   }
 
+  #[cfg(test)]
   pub fn conversation_page(&self, before_sequence: Option<u64>, limit: usize) -> ConversationPage {
     if self.rows.is_empty() || limit == 0 {
       return ConversationPage {
@@ -797,6 +800,7 @@ impl SessionHandle {
     }
   }
 
+  #[cfg(test)]
   pub fn conversation_bootstrap(&self, limit: usize) -> ConversationBootstrap {
     let page = self.conversation_page(None, limit);
     let session = self.retained_state();
@@ -2347,6 +2351,7 @@ impl SessionHandle {
   pub fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
     self.revision += 1;
     let rev = self.revision;
+    let msg = sanitize_server_message_for_transport(msg);
 
     // Pre-serialize with revision for event log
     if let Ok(json) = serialize_with_revision(&msg, rev) {
@@ -2533,7 +2538,8 @@ mod tests {
   use super::*;
   use crate::support::session_time::parse_unix_z;
   use orbitdock_protocol::conversation_contracts::{
-    rows::MessageDeliveryStatus, MessageRowContent,
+    rows::MessageDeliveryStatus, CommandExecutionRow, CommandExecutionStatus,
+    CommandExecutionTerminalSnapshot, MessageRowContent,
   };
   use std::sync::atomic::AtomicU64;
   use std::sync::Arc;
@@ -2561,6 +2567,41 @@ mod tests {
         images: vec![],
         memory_citation: None,
         delivery_status: None,
+      }),
+    }
+  }
+
+  fn command_entry_with_large_payload(
+    session_id: &str,
+    row_id: &str,
+    aggregated_output: String,
+  ) -> ConversationRowEntry {
+    ConversationRowEntry {
+      session_id: session_id.to_string(),
+      sequence: 0,
+      turn_id: None,
+      turn_status: Default::default(),
+      row: ConversationRow::CommandExecution(CommandExecutionRow {
+        id: row_id.to_string(),
+        status: CommandExecutionStatus::Completed,
+        command: "cat big.log".to_string(),
+        cwd: "/tmp".to_string(),
+        process_id: None,
+        command_actions: vec![],
+        live_output_preview: None,
+        aggregated_output: Some(aggregated_output),
+        terminal_snapshot: Some(CommandExecutionTerminalSnapshot {
+          command: "cat big.log".to_string(),
+          cwd: "/tmp".to_string(),
+          output: Some("payload".to_string()),
+          transcript: "payload".to_string(),
+          title: "/tmp".to_string(),
+        }),
+        preview: None,
+        exit_code: Some(0),
+        duration_ms: Some(1),
+        render_hints:
+          orbitdock_protocol::conversation_contracts::render_hints::RenderHints::default(),
       }),
     }
   }
@@ -2643,6 +2684,26 @@ mod tests {
       second,
       ServerMessage::DashboardInvalidated { revision: 1 }
     ));
+  }
+
+  #[test]
+  fn conversation_event_log_omits_heavy_command_payloads() {
+    let mut session = session_handle(Provider::Codex);
+    let row = command_entry_with_large_payload("session-1", "cmd-1", "x".repeat(25_000));
+    let summary = row.to_summary();
+
+    session.broadcast(ServerMessage::ConversationRowsChanged {
+      session_id: "session-1".to_string(),
+      upserted: vec![summary],
+      removed_row_ids: vec![],
+      total_row_count: 1,
+    });
+
+    let replay = session.replay_since(0).expect("replay");
+    let payload = replay.first().expect("event payload");
+    assert!(!payload.contains("\"aggregated_output\""));
+    assert!(!payload.contains("\"terminal_snapshot\""));
+    assert!(payload.contains("\"live_output_preview\""));
   }
 
   #[test]

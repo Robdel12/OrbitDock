@@ -476,9 +476,53 @@ mod tests {
   use tokio::sync::mpsc;
 
   use crate::connectors::codex_session::CodexAction;
-  use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
+  use crate::domain::sessions::session::SessionHandle;
+  use crate::infrastructure::persistence::{
+    flush_batch_for_test, PersistCommand, SessionCreateParams,
+  };
   use crate::runtime::session_commands::SessionCommand;
-  use crate::transport::http::test_support::new_test_state;
+  use crate::transport::http::test_support::{new_persist_test_state, new_test_state};
+
+  fn persist_codex_session(
+    db_path: &PathBuf,
+    session_id: &str,
+    project_path: &str,
+    developer_instructions: Option<&str>,
+  ) {
+    flush_batch_for_test(
+      db_path,
+      vec![PersistCommand::SessionCreate(Box::new(
+        SessionCreateParams {
+          id: session_id.to_string(),
+          provider: Provider::Codex,
+          control_mode: orbitdock_protocol::SessionControlMode::Passive,
+          project_path: project_path.to_string(),
+          project_name: Some("orbitdock-api-test".to_string()),
+          branch: Some("main".to_string()),
+          model: Some("gpt-5".to_string()),
+          approval_policy: None,
+          sandbox_mode: None,
+          permission_mode: None,
+          collaboration_mode: None,
+          multi_agent: None,
+          personality: None,
+          service_tier: None,
+          developer_instructions: developer_instructions.map(str::to_string),
+          codex_config_mode: None,
+          codex_config_profile: None,
+          codex_model_provider: None,
+          codex_config_source: None,
+          codex_config_overrides_json: None,
+          forked_from_session_id: None,
+          mission_id: None,
+          issue_identifier: None,
+          allow_bypass_permissions: false,
+          worktree_id: None,
+        },
+      ))],
+    )
+    .expect("persist codex session fixture");
+  }
 
   #[tokio::test]
   async fn list_skills_endpoint_dispatches_action_and_returns_payload() {
@@ -570,13 +614,9 @@ mod tests {
 
   #[tokio::test]
   async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    state.add_session(SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-api-test".to_string(),
-    ));
+    persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
     let (action_tx, mut action_rx) = mpsc::channel(8);
     state.set_codex_action_tx(&session_id, action_tx);
 
@@ -663,13 +703,9 @@ mod tests {
 
   #[tokio::test]
   async fn install_plugin_endpoint_dispatches_action_and_returns_payload() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    state.add_session(SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-api-test".to_string(),
-    ));
+    persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
     let (action_tx, mut action_rx) = mpsc::channel(8);
     state.set_codex_action_tx(&session_id, action_tx);
 
@@ -733,13 +769,9 @@ mod tests {
 
   #[tokio::test]
   async fn uninstall_plugin_endpoint_dispatches_action_and_returns_payload() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    state.add_session(SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-api-test".to_string(),
-    ));
+    persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
     let (action_tx, mut action_rx) = mpsc::channel(8);
     state.set_codex_action_tx(&session_id, action_tx);
 
@@ -942,18 +974,14 @@ mod tests {
 
   #[tokio::test]
   async fn instructions_endpoint_returns_codex_developer_instructions() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    let mut handle = SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-instructions-test".to_string(),
+    persist_codex_session(
+      &db_path,
+      &session_id,
+      "/tmp/orbitdock-instructions-test",
+      Some("Stay focused and verify outputs"),
     );
-    handle.set_config(SessionConfigPatch {
-      developer_instructions: Some("Stay focused and verify outputs".to_string()),
-      ..Default::default()
-    });
-    state.add_session(handle);
 
     let response = get_session_instructions(Path(session_id.clone()), State(state))
       .await

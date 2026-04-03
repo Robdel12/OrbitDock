@@ -14,6 +14,7 @@ final class ControlDeckViewModel {
   private(set) var presentation: ControlDeckPresentation?
   private(set) var pendingApproval: ControlDeckApproval?
   private(set) var skills: [ControlDeckSkill] = []
+  private(set) var isLoadingSkills = false
   private(set) var isLoading = false
   private(set) var isResuming = false
   private(set) var controlMode: ControlDeckControlMode = .passive
@@ -72,6 +73,10 @@ final class ControlDeckViewModel {
 
   func loadSkills() async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard !isLoadingSkills else { return }
+    isLoadingSkills = true
+    defer { isLoadingSkills = false }
+
     do {
       skills = try await fetchEnabledSkills(sessionId: sessionId, store: store)
     } catch {
@@ -479,8 +484,9 @@ final class ControlDeckViewModel {
   }
 
   private func fetchEnabledSkills(sessionId: String, store: SessionStore) async throws -> [ControlDeckSkill] {
-    try await store.listSkills(sessionId: sessionId)
-    return store.session(sessionId).skills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
+    let capabilities = CapabilitiesService(sessionStore: store)
+    let skills = try await capabilities.listSkills(sessionId: sessionId)
+    return skills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
   }
 
   private func resolveSkillsForSubmit(

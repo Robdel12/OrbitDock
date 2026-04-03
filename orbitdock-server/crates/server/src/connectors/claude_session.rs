@@ -398,13 +398,13 @@ pub fn start_event_loop(
     if let Some(h) = interrupt_watchdog.take() {
       h.abort();
     }
-    state.remove_claude_action_tx(&session_id);
     crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
       &state,
       &session_id,
       orbitdock_protocol::Provider::Claude,
     )
     .await;
+    state.remove_claude_action_tx(&session_id);
 
     info!(
         component = "claude_connector",

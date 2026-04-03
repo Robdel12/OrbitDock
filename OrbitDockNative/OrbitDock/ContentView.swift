@@ -183,9 +183,9 @@ struct ContentView: View {
   private var newSessionSheet: some View {
     NewSessionSheet(
       provider: router.newSessionProvider,
-      continuation: router.newSessionContinuation
+      continuation: router.newSessionContinuation,
+      sessionStore: creationStore()
     )
-    .environment(creationStore())
     #if os(iOS)
       .presentationDetents([.large])
       .presentationDragIndicator(.visible)

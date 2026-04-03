@@ -120,7 +120,34 @@ fn duration_ms(started_at: Option<&str>, last_activity_at: Option<&str>) -> u64 
 pub async fn get_dashboard_snapshot(
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<DashboardSnapshot> {
-  Ok(Json(state.current_dashboard_snapshot()))
+  match load_dashboard_snapshot(&state).await {
+    Ok(snapshot) => Ok(Json(snapshot)),
+    Err(SessionLoadError::Db(err)) => Err((
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(ApiErrorResponse {
+        code: "db_error",
+        error: err,
+      }),
+    )),
+    Err(SessionLoadError::Runtime(err)) => Err((
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(ApiErrorResponse {
+        code: "runtime_error",
+        error: err,
+      }),
+    )),
+    Err(SessionLoadError::NotFound) => Ok(Json(DashboardSnapshot {
+      revision: state.current_dashboard_revision(),
+      sessions: Vec::new(),
+      conversations: Vec::new(),
+      counts: orbitdock_protocol::DashboardCounts {
+        attention: 0,
+        running: 0,
+        ready: 0,
+        direct: 0,
+      },
+    })),
+  }
 }
 
 pub async fn get_session_detail(
@@ -221,7 +248,7 @@ pub async fn get_conversation_snapshot(
         .session
         .rows
         .iter()
-        .map(|entry| entry.to_summary())
+        .map(|entry| entry.to_transport_summary())
         .collect();
       Ok(Json(ConversationSnapshotPage {
         revision: bootstrap.session.revision.unwrap_or_default(),
@@ -261,10 +288,10 @@ pub async fn get_conversation_snapshot(
 pub async fn get_conversation_history(
   Path(session_id): Path<String>,
   Query(query): Query<ConversationPageQuery>,
-  State(state): State<Arc<SessionRegistry>>,
+  State(_state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<RowPageSummary> {
   let limit = clamp_conversation_limit(query.limit);
-  match load_conversation_page(&state, &session_id, query.before_sequence, limit).await {
+  match load_conversation_page(&session_id, query.before_sequence, limit).await {
     Ok(page) => Ok(Json(page.into_row_page_summary())),
     Err(SessionLoadError::NotFound) => Err((
       StatusCode::NOT_FOUND,
@@ -352,7 +379,10 @@ pub async fn search_conversation_rows(
     .filter(|entry| row_matches_search(entry, &query))
     .collect();
 
-  let summary_rows: Vec<RowEntrySummary> = rows.iter().map(|e| e.to_summary()).collect();
+  let summary_rows: Vec<RowEntrySummary> = rows
+    .iter()
+    .map(|entry| entry.to_transport_summary())
+    .collect();
 
   Ok(Json(RowPageSummary {
     total_row_count: summary_rows.len() as u64,
@@ -559,11 +589,60 @@ mod tests {
     ConversationRowEntry, ToolRow,
   };
   use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
-  use orbitdock_protocol::Provider;
+  use orbitdock_protocol::{Provider, SessionControlMode};
+  use std::path::PathBuf;
 
-  use crate::domain::sessions::session::SessionHandle;
-  use crate::runtime::session_commands::SessionCommand;
-  use crate::transport::http::test_support::{ensure_test_db, new_test_state};
+  use crate::infrastructure::persistence::{
+    flush_batch_for_test, PersistCommand, SessionCreateParams,
+  };
+  use crate::transport::http::test_support::new_persist_test_state;
+
+  fn persist_session_fixture(
+    db_path: &PathBuf,
+    session_id: &str,
+    project_path: &str,
+    rows: Vec<ConversationRowEntry>,
+  ) {
+    let mut batch = vec![PersistCommand::SessionCreate(Box::new(
+      SessionCreateParams {
+        id: session_id.to_string(),
+        provider: Provider::Codex,
+        control_mode: SessionControlMode::Passive,
+        project_path: project_path.to_string(),
+        project_name: Some("orbitdock-test".to_string()),
+        branch: Some("main".to_string()),
+        model: Some("gpt-5".to_string()),
+        approval_policy: None,
+        sandbox_mode: None,
+        permission_mode: None,
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
+        codex_config_source: None,
+        codex_config_overrides_json: None,
+        forked_from_session_id: None,
+        mission_id: None,
+        issue_identifier: None,
+        allow_bypass_permissions: false,
+        worktree_id: None,
+      },
+    ))];
+
+    batch.extend(rows.into_iter().map(|entry| PersistCommand::RowAppend {
+      session_id: session_id.to_string(),
+      entry,
+      viewer_present: false,
+      assigned_sequence: None,
+      sequence_tx: None,
+    }));
+
+    flush_batch_for_test(db_path, batch).expect("persist session fixture");
+  }
 
   fn test_tool_row(
     session_id: &str,
@@ -641,31 +720,21 @@ mod tests {
 
   #[tokio::test]
   async fn search_conversation_rows_filters_by_query_and_tool_metadata() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    state.add_session(SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-search-test".to_string(),
-    ));
-    let actor = state
-      .get_session(&session_id)
-      .expect("session should exist for search test");
-
-    actor
-      .send(SessionCommand::ProcessEvent {
-        event: crate::domain::sessions::transition::Input::RowCreated(test_tool_row(
-          &session_id,
-          "tool-1",
-          1,
-          "Deploy preview build",
-          ToolStatus::Completed,
-          Some(1200),
-        )),
-      })
-      .await;
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
+    persist_session_fixture(
+      &db_path,
+      &session_id,
+      "/tmp/orbitdock-search-test",
+      vec![test_tool_row(
+        &session_id,
+        "tool-1",
+        1,
+        "Deploy preview build",
+        ToolStatus::Completed,
+        Some(1200),
+      )],
+    );
 
     let response = search_conversation_rows(
       Path(session_id.clone()),
@@ -689,44 +758,31 @@ mod tests {
 
   #[tokio::test]
   async fn session_stats_reports_tool_rollups() {
-    let state = new_test_state(true);
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    let handle = SessionHandle::new(
-      session_id.clone(),
-      Provider::Codex,
-      "/tmp/orbitdock-stats-test".to_string(),
+    persist_session_fixture(
+      &db_path,
+      &session_id,
+      "/tmp/orbitdock-stats-test",
+      vec![
+        test_tool_row(
+          &session_id,
+          "tool-1",
+          1,
+          "Run build",
+          ToolStatus::Completed,
+          Some(1000),
+        ),
+        test_tool_row(
+          &session_id,
+          "tool-2",
+          2,
+          "Run deploy",
+          ToolStatus::Failed,
+          Some(3000),
+        ),
+      ],
     );
-    state.add_session(handle);
-    let actor = state
-      .get_session(&session_id)
-      .expect("session should exist for stats test");
-
-    for entry in [
-      test_tool_row(
-        &session_id,
-        "tool-1",
-        1,
-        "Run build",
-        ToolStatus::Completed,
-        Some(1000),
-      ),
-      test_tool_row(
-        &session_id,
-        "tool-2",
-        2,
-        "Run deploy",
-        ToolStatus::Failed,
-        Some(3000),
-      ),
-    ] {
-      actor
-        .send(SessionCommand::ProcessEvent {
-          event: crate::domain::sessions::transition::Input::RowCreated(entry),
-        })
-        .await;
-    }
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
 
     let response = get_session_stats(Path(session_id), State(state))
       .await
@@ -740,16 +796,15 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn dashboard_snapshot_reads_active_runtime_sessions() {
-    ensure_test_db();
-    let state = new_test_state(true);
+  async fn dashboard_snapshot_reads_persisted_sessions() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
     let session_id = orbitdock_protocol::new_session_id();
-    let handle = SessionHandle::new(
-      session_id,
-      Provider::Codex,
-      "/tmp/orbitdock-dashboard-test".to_string(),
+    persist_session_fixture(
+      &db_path,
+      &session_id,
+      "/tmp/orbitdock-dashboard-test",
+      vec![],
     );
-    state.add_session(handle);
 
     let Json(snapshot) = get_dashboard_snapshot(State(state))
       .await
@@ -761,6 +816,35 @@ mod tests {
     assert_eq!(snapshot.counts.running, 0);
     assert_eq!(snapshot.counts.ready, 1);
     assert_eq!(snapshot.counts.direct, 0);
+  }
+
+  #[tokio::test]
+  async fn search_and_stats_return_not_found_for_runtime_only_sessions() {
+    let (state, _persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    state.add_session(crate::domain::sessions::session::SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-runtime-only".to_string(),
+    ));
+
+    let (search_status, Json(search_error)) = search_conversation_rows(
+      Path(session_id.clone()),
+      Query(ConversationSearchQuery::default()),
+      State(state.clone()),
+    )
+    .await
+    .expect_err("runtime-only session should not satisfy DB-backed search");
+
+    assert_eq!(search_status, StatusCode::NOT_FOUND);
+    assert_eq!(search_error.code, "not_found");
+
+    let (stats_status, Json(stats_error)) = get_session_stats(Path(session_id), State(state))
+      .await
+      .expect_err("runtime-only session should not satisfy DB-backed stats");
+
+    assert_eq!(stats_status, StatusCode::NOT_FOUND);
+    assert_eq!(stats_error.code, "not_found");
   }
 
   #[tokio::test]

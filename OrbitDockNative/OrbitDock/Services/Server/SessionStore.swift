@@ -45,6 +45,14 @@ typealias SessionSurfaceSet = Set<ServerSessionSurface>
 
 // MARK: - SessionStore
 
+// NOTE:
+// SessionStore is a transport/recovery shell. Treat it as frozen for new
+// product logic so we do not regrow a monolithic store.
+// This is a legacy/dead-end integration layer: do not add new feature logic here.
+// Do not add new business behavior here.
+// Feature-owned projection/reducer logic belongs in the destination
+// models/services (for example SessionObservable or MissionObservable), with
+// SessionStore limited to wiring, bootstrap, subscription, and recovery.
 @Observable
 @MainActor
 final class SessionStore {
@@ -66,12 +74,12 @@ final class SessionStore {
 
   // MARK: - Mission Control live updates
 
-  var missionListSnapshot: [MissionSummary] = []
   @ObservationIgnored var _missionObservables: [String: MissionObservable] = [:]
 
   var codexModels: [ServerCodexModelOption] = []
   var codexAccountStatus: ServerCodexAccountStatus?
   var codexAuthError: String?
+  @ObservationIgnored lazy var codexAccountService = CodexAccountService(store: self)
   var lastServerError: (code: String, message: String)?
   var worktreesByRepo: [String: [ServerWorktreeSummary]] = [:]
   var serverIsPrimary: Bool?
@@ -302,55 +310,6 @@ final class SessionStore {
 
   func isSessionSubscribed(_ sessionId: String) -> Bool {
     subscribedSessions.contains(sessionId)
-  }
-
-  // MARK: - Codex Account Actions
-
-  func refreshCodexAccount() {
-    guard Self.shouldAutoRefreshCodexAccount() else { return }
-    Task {
-      do {
-        let status = try await clients.usage.readCodexAccount()
-        codexAccountStatus = status
-      } catch {
-        netLog(.warning, cat: .store, "Refresh Codex account failed", data: ["error": error.localizedDescription])
-      }
-    }
-  }
-
-  func startCodexChatgptLogin() {
-    Task {
-      do {
-        let resp = try await clients.usage.startCodexLogin()
-        if let url = URL(string: resp.authUrl) {
-          _ = Platform.services.openURL(url)
-        }
-      } catch {
-        codexAuthError = error.localizedDescription
-      }
-    }
-  }
-
-  func cancelCodexChatgptLogin() {
-    guard let loginId = codexAccountStatus?.activeLoginId else { return }
-    Task {
-      do {
-        try await clients.usage.cancelCodexLogin(loginId: loginId)
-      } catch {
-        netLog(.warning, cat: .store, "Cancel Codex login failed", data: ["error": error.localizedDescription])
-      }
-    }
-  }
-
-  func logoutCodexAccount() {
-    Task {
-      do {
-        let status = try await clients.usage.logoutCodexAccount()
-        codexAccountStatus = status
-      } catch {
-        codexAuthError = error.localizedDescription
-      }
-    }
   }
 
   var isRemoteConnection: Bool {

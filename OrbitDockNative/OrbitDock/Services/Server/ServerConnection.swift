@@ -160,8 +160,6 @@ final class ServerConnection {
   }
 
   private(set) var connectionStatus: ConnectionStatus = .disconnected
-  private(set) var latestSessionListItems: [ServerSessionListItem] = []
-  private(set) var latestDashboardConversationItems: [ServerDashboardConversationItem] = []
   private(set) var hasReceivedInitialDashboardSnapshot = false
   private(set) var hasReceivedInitialMissionsSnapshot = false
   private(set) var hasSubscribedDashboardStream = false
@@ -273,8 +271,6 @@ final class ServerConnection {
     reconnectRetryHint = nil
     requiresManualReconnect = false
     lastConnectedAt = nil
-    latestSessionListItems = []
-    latestDashboardConversationItems = []
     hasReceivedInitialDashboardSnapshot = false
     hasReceivedInitialMissionsSnapshot = false
     hasSubscribedDashboardStream = false
@@ -321,8 +317,6 @@ final class ServerConnection {
   }
 
   func applyDashboardSnapshot(_ snapshot: ServerDashboardSnapshotPayload) {
-    latestSessionListItems = snapshot.sessions
-    latestDashboardConversationItems = snapshot.conversations
     hasReceivedInitialDashboardSnapshot = true
     emit(.dashboardSnapshot(snapshot))
   }
@@ -335,8 +329,6 @@ final class ServerConnection {
   // MARK: - Testing
 
   func seedDashboardSnapshotForTesting(_ snapshot: ServerDashboardSnapshotPayload) {
-    latestSessionListItems = snapshot.sessions
-    latestDashboardConversationItems = snapshot.conversations
     hasReceivedInitialDashboardSnapshot = true
     emit(.dashboardSnapshot(snapshot))
   }
@@ -1059,8 +1051,7 @@ final class ServerConnection {
   private func updateRootState(for event: ServerEvent) {
     switch event {
       case let .dashboardSnapshot(snapshot):
-        latestSessionListItems = snapshot.sessions
-        latestDashboardConversationItems = snapshot.conversations
+        _ = snapshot
         hasReceivedInitialDashboardSnapshot = true
       case let .missionsSnapshot(snapshot):
         _ = snapshot

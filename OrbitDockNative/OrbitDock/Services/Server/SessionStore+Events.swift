@@ -2,7 +2,16 @@ import Foundation
 
 @MainActor
 extension SessionStore {
+  // Legacy fan-out boundary:
+  // keep this as routing glue and avoid adding feature/business logic directly
+  // inside this switch. New behavior should live in feature-owned reducers or
+  // projection helpers, then be invoked from here.
   func routeEvent(_ event: ServerEvent) {
+    if routeCodexAccountEvent(event) || routeCapabilitiesEvent(event) || routeWorktreeEvent(event)
+      || routeMissionEvent(event)
+    {
+      return
+    }
     switch event {
       case .hello, .dashboardInvalidated, .missionsInvalidated:
         break
@@ -27,42 +36,6 @@ extension SessionStore {
         codexModels = models
       case .claudeModelsList:
         break
-      case let .codexAccountStatus(status):
-        codexAccountStatus = status
-      case let .codexAccountUpdated(status):
-        codexAccountStatus = status
-      case .codexLoginChatgptStarted, .codexLoginChatgptCompleted, .codexLoginChatgptCanceled:
-        break
-      case let .skillsList(sessionId, skills, _):
-        session(sessionId).skills = skills.flatMap(\.skills)
-      case .skillsUpdateAvailable:
-        break
-      case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
-        let obs = session(sessionId)
-        obs.mcpTools = tools
-        obs.mcpResources = resources
-        obs.mcpResourceTemplates = resourceTemplates
-        obs.mcpAuthStatuses = authStatuses
-      case let .mcpStartupUpdate(sessionId, server, status):
-        let obs = session(sessionId)
-        if obs.mcpStartupState == nil {
-          obs.mcpStartupState = McpStartupState()
-        }
-        obs.mcpStartupState?.serverStatuses[server] = status
-      case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
-        let obs = session(sessionId)
-        if obs.mcpStartupState == nil {
-          obs.mcpStartupState = McpStartupState()
-        }
-        obs.mcpStartupState?.isComplete = true
-        obs.mcpStartupState?.readyServers = ready
-        obs.mcpStartupState?.failedServers = failed
-        obs.mcpStartupState?.cancelledServers = cancelled
-      case let .claudeCapabilities(sessionId, slashCommands, skills, tools, _):
-        let obs = session(sessionId)
-        obs.slashCommands = Set(slashCommands)
-        obs.claudeSkillNames = skills
-        obs.claudeToolNames = tools
       case let .contextCompacted(sessionId):
         let obs = session(sessionId)
         obs.compactInProgress = false
@@ -116,28 +89,6 @@ extension SessionStore {
         break
       case let .shellOutput(sessionId, _, _, _, _, _, _):
         _ = session(sessionId)
-      case let .worktreesList(_, repoRoot, _, worktrees):
-        if let root = repoRoot {
-          worktreesByRepo[root] = worktrees
-        }
-      case let .worktreeCreated(_, _, _, worktree):
-        let root = worktree.repoRoot
-        if worktreesByRepo[root] != nil {
-          worktreesByRepo[root]?.append(worktree)
-        } else {
-          worktreesByRepo[root] = [worktree]
-        }
-      case let .worktreeRemoved(_, repoRoot, _, worktreeId):
-        worktreesByRepo[repoRoot]?.removeAll { $0.id == worktreeId }
-      case let .worktreeStatusChanged(worktreeId, status, repoRoot):
-        if var wts = worktreesByRepo[repoRoot],
-           let idx = wts.firstIndex(where: { $0.id == worktreeId })
-        {
-          wts[idx].status = status
-          worktreesByRepo[repoRoot] = wts
-        }
-      case .worktreeError:
-        break
       case let .rateLimitEvent(sessionId, info):
         session(sessionId).rateLimitInfo = info
       case let .promptSuggestion(sessionId, suggestion):
@@ -153,27 +104,6 @@ extension SessionStore {
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
         handleConnectionStatusChanged(status)
-      case let .missionsList(missions):
-        missionListSnapshot = missions
-      case let .missionDelta(missionId, issues, summary):
-        let obs = mission(missionId)
-        obs.summary = summary
-        obs.issues = issues
-        obs.deltaRevision &+= 1
-        obs.lastTickAt = Date()
-      case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
-        let obs = mission(missionId)
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        obs.lastTickAt = iso.date(from: tickStartedAt) ?? {
-          iso.formatOptions = [.withInternetDateTime]
-          return iso.date(from: tickStartedAt)
-        }()
-        obs.nextTickAt = iso.date(from: nextTickAt) ?? {
-          iso.formatOptions = [.withInternetDateTime]
-          return iso.date(from: nextTickAt)
-        }()
-        obs.heartbeatRevision &+= 1
       case let .revision(sessionId, revision):
         lastRevision[sessionId] = revision
       default:
@@ -354,7 +284,7 @@ extension SessionStore {
     }
 
     if code == "codex_auth_error" {
-      codexAuthError = message
+      applyCodexAuthError(message)
       return
     }
 

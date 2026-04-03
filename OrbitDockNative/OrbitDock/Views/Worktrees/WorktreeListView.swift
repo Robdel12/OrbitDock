@@ -9,36 +9,9 @@
 
 import SwiftUI
 
-private struct WorktreeRemoveAttempt: Identifiable {
-  let worktreeId: String
-  let branch: String
-  let worktreePath: String
-  let force: Bool
-  let deleteBranch: Bool
-  let deleteRemoteBranch: Bool
-  let archiveOnly: Bool
-
-  var id: String {
-    worktreeId
-  }
-}
-
-private enum WorktreeRemoveFeedbackAlert: Identifiable {
-  case dirty(WorktreeRemoveAttempt)
-  case error(String)
-
-  var id: String {
-    switch self {
-      case let .dirty(attempt):
-        "dirty-\(attempt.id)-\(attempt.force)-\(attempt.deleteBranch)-\(attempt.deleteRemoteBranch)"
-      case let .error(message):
-        "error-\(message)"
-    }
-  }
-}
-
 struct WorktreeListView: View {
-  @Environment(SessionStore.self) private var serverState
+  @State private var viewModel = WorktreeListViewModel()
+  private let serverState: SessionStore
   #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   #endif
@@ -49,16 +22,20 @@ struct WorktreeListView: View {
   let onCreateClaudeSession: (String) -> Void
   let onCreateCodexSession: (String) -> Void
 
-  @State private var showCreateSheet = false
-  @State private var worktreeForCleanup: ServerWorktreeSummary?
-  @State private var cleanupSheetMode: WorktreeCleanupMode = .complete
-  @State private var lastRemoveAttempt: WorktreeRemoveAttempt?
-  @State private var removeFeedbackAlert: WorktreeRemoveFeedbackAlert?
-
-  private var worktrees: [ServerWorktreeSummary] {
-    serverState.worktrees(for: repoRoot)
-      .filter { $0.status != .removed }
-      .sorted { $0.createdAt > $1.createdAt }
+  init(
+    serverState: SessionStore,
+    repoRoot: String,
+    projectName: String,
+    onDismiss: @escaping () -> Void,
+    onCreateClaudeSession: @escaping (String) -> Void,
+    onCreateCodexSession: @escaping (String) -> Void
+  ) {
+    self.serverState = serverState
+    self.repoRoot = repoRoot
+    self.projectName = projectName
+    self.onDismiss = onDismiss
+    self.onCreateClaudeSession = onCreateClaudeSession
+    self.onCreateCodexSession = onCreateCodexSession
   }
 
   #if os(iOS)
@@ -80,22 +57,16 @@ struct WorktreeListView: View {
       #endif
     }
     .onAppear {
-      Task { try? await serverState.clients.worktrees.listWorktrees(repoRoot: repoRoot) }
+      viewModel.bind(serverState: serverState, repoRoot: repoRoot)
+      viewModel.refreshWorktrees()
     }
-    .sheet(isPresented: $showCreateSheet) {
+    .sheet(isPresented: $viewModel.showCreateSheet) {
       CreateWorktreeSheet(
         repoPath: repoRoot,
         projectName: projectName,
-        onCancel: { showCreateSheet = false },
+        onCancel: { viewModel.cancelCreateWorktree() },
         onCreate: { branchName, baseBranch in
-          Task {
-            try? await serverState.clients.worktrees.createWorktree(
-              repoPath: repoRoot,
-              branchName: branchName,
-              baseBranch: baseBranch
-            )
-          }
-          showCreateSheet = false
+          viewModel.createWorktree(branchName: branchName, baseBranch: baseBranch)
         }
       )
       #if os(iOS)
@@ -103,32 +74,13 @@ struct WorktreeListView: View {
       .presentationDragIndicator(.visible)
       #endif
     }
-    .sheet(item: $worktreeForCleanup) { wt in
+    .sheet(item: $viewModel.worktreeForCleanup) { wt in
       CompleteWorktreeSheet(
         worktree: wt,
-        initialMode: cleanupSheetMode,
-        onCancel: { worktreeForCleanup = nil },
+        initialMode: viewModel.cleanupSheetMode,
+        onCancel: { viewModel.cancelCleanup() },
         onConfirm: { request in
-          let attempt = WorktreeRemoveAttempt(
-            worktreeId: wt.id,
-            branch: wt.branch,
-            worktreePath: wt.worktreePath,
-            force: request.force,
-            deleteBranch: request.deleteBranch,
-            deleteRemoteBranch: request.deleteRemoteBranch,
-            archiveOnly: request.archiveOnly
-          )
-          lastRemoveAttempt = attempt
-          Task {
-            try? await serverState.clients.worktrees.removeWorktree(
-              worktreeId: wt.id,
-              force: request.force,
-              deleteBranch: request.deleteBranch,
-              deleteRemoteBranch: request.deleteRemoteBranch,
-              archiveOnly: request.archiveOnly
-            )
-          }
-          worktreeForCleanup = nil
+          viewModel.confirmCleanup(for: wt, request: request)
         }
       )
       #if os(iOS)
@@ -137,7 +89,7 @@ struct WorktreeListView: View {
       #endif
     }
     .onChange(of: serverState.lastServerError?.message) { _, _ in
-      handleRemoveErrorFromServer()
+      viewModel.handleRemoveError(serverState.lastServerError)
     }
     .background(removeFeedbackAlertHost)
   }
@@ -182,12 +134,12 @@ struct WorktreeListView: View {
 
   @ViewBuilder
   private var panelContent: some View {
-    if worktrees.isEmpty {
+    if viewModel.worktrees.isEmpty {
       panelEmptyState
     } else {
       ScrollView {
         VStack(spacing: Spacing.xxs) {
-          ForEach(worktrees) { wt in
+          ForEach(viewModel.worktrees) { wt in
             worktreeRow(wt)
           }
         }
@@ -219,7 +171,7 @@ struct WorktreeListView: View {
   private var panelActionBar: some View {
     HStack {
       Button {
-        Task { try? await serverState.clients.worktrees.discoverWorktrees(repoPath: repoRoot) }
+        viewModel.discoverWorktrees()
       } label: {
         Label("Discover", systemImage: "arrow.clockwise")
           .font(.system(size: TypeScale.meta, weight: .medium))
@@ -230,7 +182,7 @@ struct WorktreeListView: View {
       Spacer()
 
       Button {
-        showCreateSheet = true
+        viewModel.beginCreateWorktree()
       } label: {
         Label("New Worktree", systemImage: "plus")
           .font(.system(size: TypeScale.meta, weight: .medium))
@@ -248,12 +200,12 @@ struct WorktreeListView: View {
         VStack(spacing: 0) {
           compactProjectHeader
 
-          if worktrees.isEmpty {
+          if viewModel.worktrees.isEmpty {
             compactEmptyState
           } else {
             ScrollView {
               VStack(spacing: Spacing.sm) {
-                ForEach(worktrees) { wt in
+                ForEach(viewModel.worktrees) { wt in
                   compactWorktreeRow(wt)
                 }
               }
@@ -323,7 +275,7 @@ struct WorktreeListView: View {
     private var compactActionBar: some View {
       HStack(spacing: Spacing.sm) {
         Button {
-          Task { try? await serverState.clients.worktrees.discoverWorktrees(repoPath: repoRoot) }
+          viewModel.discoverWorktrees()
         } label: {
           Label("Discover", systemImage: "arrow.clockwise")
             .font(.system(size: TypeScale.body, weight: .semibold))
@@ -332,7 +284,7 @@ struct WorktreeListView: View {
         .buttonStyle(.bordered)
 
         Button {
-          showCreateSheet = true
+          viewModel.beginCreateWorktree()
         } label: {
           Label("New Worktree", systemImage: "plus")
             .font(.system(size: TypeScale.body, weight: .semibold))
@@ -516,15 +468,13 @@ struct WorktreeListView: View {
   private func actionMenu(for wt: ServerWorktreeSummary, iconSize: CGFloat, frameSize: CGFloat) -> some View {
     Menu {
       Button {
-        cleanupSheetMode = .complete
-        worktreeForCleanup = wt
+        viewModel.beginCleanup(for: wt, mode: .complete)
       } label: {
         Label("Complete...", systemImage: "checkmark.circle")
       }
 
       Button {
-        cleanupSheetMode = .archive
-        worktreeForCleanup = wt
+        viewModel.beginCleanup(for: wt, mode: .archive)
       } label: {
         Label("Archive in OrbitDock", systemImage: "archivebox")
       }
@@ -549,25 +499,9 @@ struct WorktreeListView: View {
     }
   }
 
-  private func handleRemoveErrorFromServer() {
-    guard let attempt = lastRemoveAttempt else { return }
-    guard let error = serverState.lastServerError else { return }
-    guard error.code == "remove_failed" else { return }
-    guard !attempt.archiveOnly else { return }
-
-    serverState.clearServerError()
-
-    if !attempt.force, error.message.localizedCaseInsensitiveContains("contains modified or untracked files") {
-      removeFeedbackAlert = .dirty(attempt)
-      return
-    }
-
-    removeFeedbackAlert = .error(error.message)
-  }
-
   private var removeFeedbackAlertHost: some View {
     Color.clear
-      .alert(item: $removeFeedbackAlert) { alert in
+      .alert(item: $viewModel.removeFeedbackAlert) { alert in
         switch alert {
           case let .dirty(attempt):
             Alert(
@@ -576,25 +510,7 @@ struct WorktreeListView: View {
                 "“\(attempt.branch)” at \(attempt.worktreePath) has modified or untracked files. Force remove will discard those local changes."
               ),
               primaryButton: .destructive(Text("Force Remove")) {
-                let forceAttempt = WorktreeRemoveAttempt(
-                  worktreeId: attempt.worktreeId,
-                  branch: attempt.branch,
-                  worktreePath: attempt.worktreePath,
-                  force: true,
-                  deleteBranch: attempt.deleteBranch,
-                  deleteRemoteBranch: attempt.deleteRemoteBranch,
-                  archiveOnly: false
-                )
-                lastRemoveAttempt = forceAttempt
-                Task {
-                  try? await serverState.clients.worktrees.removeWorktree(
-                    worktreeId: attempt.worktreeId,
-                    force: true,
-                    deleteBranch: attempt.deleteBranch,
-                    deleteRemoteBranch: attempt.deleteRemoteBranch,
-                    archiveOnly: false
-                  )
-                }
+                viewModel.forceRemove(attempt)
               },
               secondaryButton: .cancel()
             )

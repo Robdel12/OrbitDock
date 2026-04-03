@@ -2,6 +2,11 @@ import Foundation
 
 @MainActor
 extension SessionStore {
+  // Compatibility-only command bridge.
+  // Legacy/dead-end surface: do not route new feature work through this file.
+  // Do not add new feature commands here.
+  // New behavior belongs in feature-owned services/view models; keep this file
+  // limited to forwarding that existing callers still depend on.
   func fetchControlDeckSnapshot(sessionId: String) async throws -> ServerControlDeckSnapshotPayload {
     try await clients.controlDeck.fetchSnapshot(sessionId)
   }
@@ -541,24 +546,6 @@ extension SessionStore {
     return approval.type
   }
 
-  func listSkills(sessionId: String) async throws {
-    let response = try await clients.skills.listSkills(sessionId: sessionId)
-    session(sessionId).skills = response.skills.flatMap(\.skills)
-  }
-
-  func listMcpTools(sessionId: String) async throws {
-    let response = try await clients.mcp.listTools(sessionId: sessionId)
-    let obs = session(sessionId)
-    obs.mcpTools = response.tools
-    obs.mcpResources = response.resources
-    obs.mcpResourceTemplates = response.resourceTemplates
-    obs.mcpAuthStatuses = response.authStatuses
-  }
-
-  func refreshMcpServers(_ sessionId: String) async throws {
-    try await clients.mcp.refreshServers(sessionId: sessionId)
-  }
-
   func listReviewComments(sessionId: String, turnId: String?) async throws {
     let response = try await clients.approvals.listReviewComments(sessionId: sessionId, turnId: turnId)
     session(sessionId).reviewComments = response.comments
@@ -566,29 +553,6 @@ extension SessionStore {
 
   func worktrees(for repoRoot: String) -> [ServerWorktreeSummary] {
     worktreesByRepo[repoRoot] ?? []
-  }
-
-  func refreshWorktreesForActiveSessions() {
-    let roots = Set(_sessionObservables.values.filter(\.isActive).map(\.groupingPath))
-    for root in roots {
-      Task {
-        do {
-          let worktrees = try await clients.worktrees.listWorktrees(repoRoot: root)
-          worktreesByRepo[root] = worktrees
-        } catch {
-          netLog(
-            .error,
-            cat: .store,
-            "List worktrees failed",
-            data: ["repoRoot": root, "error": error.localizedDescription]
-          )
-        }
-      }
-    }
-  }
-
-  func refreshSessionsList() {
-    // Global dashboard state is owned by ServerRuntimeRegistry.
   }
 
   func clearServerError() {

@@ -9,33 +9,26 @@ import SwiftUI
 
 struct SkillsTab: View {
   let sessionId: String
+  let sessionStore: SessionStore
   @Binding var selectedSkills: Set<String>
 
-  @Environment(SessionStore.self) private var serverState
-
-  private let scopeOrder: [ServerSkillScope] = [.repo, .user, .system, .admin]
-
-  private var skills: [ServerSkillMetadata] {
-    serverState.session(sessionId).skills.filter(\.enabled)
-  }
-
-  private var claudeSkillNames: [String] {
-    serverState.session(sessionId).claudeSkillNames.sorted()
-  }
-
-  private var groupedSkills: [(scope: ServerSkillScope, skills: [ServerSkillMetadata])] {
-    scopeOrder.compactMap { scope in
-      let matching = skills.filter { $0.scope == scope }
-      guard !matching.isEmpty else { return nil }
-      return (scope, matching)
-    }
-  }
+  @State private var viewModel = SkillsTabViewModel()
 
   var body: some View {
-    if !skills.isEmpty {
-      codexSkillsView
-    } else if !claudeSkillNames.isEmpty {
-      claudeSkillsView
+    let skills = viewModel.skills
+    let claudeSkillNames = viewModel.claudeSkillNames
+
+    Group {
+      if !skills.isEmpty {
+        codexSkillsView
+      } else if !claudeSkillNames.isEmpty {
+        claudeSkillsView
+      } else {
+        EmptyView()
+      }
+    }
+    .task(id: "\(sessionStore.endpointId.uuidString):\(sessionId)") {
+      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
     }
   }
 
@@ -44,7 +37,7 @@ struct SkillsTab: View {
   private var claudeSkillsView: some View {
     VStack(spacing: 0) {
       HStack(spacing: Spacing.sm_) {
-        Text("\(claudeSkillNames.count) skill\(claudeSkillNames.count == 1 ? "" : "s")")
+        Text("\(viewModel.claudeSkillNames.count) skill\(viewModel.claudeSkillNames.count == 1 ? "" : "s")")
           .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
         Spacer()
@@ -57,7 +50,7 @@ struct SkillsTab: View {
 
       ScrollView(.vertical, showsIndicators: true) {
         LazyVStack(alignment: .leading, spacing: Spacing.xxs) {
-          ForEach(claudeSkillNames, id: \.self) { name in
+          ForEach(viewModel.claudeSkillNames, id: \.self) { name in
             HStack(spacing: Spacing.sm) {
               Image(systemName: "bolt.fill")
                 .font(.system(size: TypeScale.meta, weight: .medium))
@@ -86,7 +79,7 @@ struct SkillsTab: View {
     VStack(spacing: 0) {
       // Header
       HStack(spacing: Spacing.sm_) {
-        Text("\(skills.count) skill\(skills.count == 1 ? "" : "s")")
+        Text("\(viewModel.skills.count) skill\(viewModel.skills.count == 1 ? "" : "s")")
           .font(.system(size: TypeScale.meta, weight: .medium))
           .foregroundStyle(.secondary)
 
@@ -101,7 +94,7 @@ struct SkillsTab: View {
         Spacer()
 
         Button {
-          Task { try? await serverState.listSkills(sessionId: sessionId) }
+          Task { await viewModel.refreshSkills() }
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: TypeScale.meta, weight: .medium))
@@ -121,7 +114,7 @@ struct SkillsTab: View {
       // Skills list grouped by scope
       ScrollView(.vertical, showsIndicators: true) {
         LazyVStack(alignment: .leading, spacing: Spacing.md) {
-          ForEach(groupedSkills, id: \.scope) { group in
+          ForEach(viewModel.groupedSkills, id: \.scope) { group in
             VStack(alignment: .leading, spacing: Spacing.xs) {
               // Scope header
               HStack(spacing: Spacing.xs) {
@@ -153,11 +146,7 @@ struct SkillsTab: View {
 
     return Button {
       withAnimation(Motion.snappy) {
-        if isAttached {
-          selectedSkills.remove(skill.path)
-        } else {
-          selectedSkills.insert(skill.path)
-        }
+        selectedSkills = viewModel.toggleSkillSelection(skill.path, selectedSkills: selectedSkills)
       }
     } label: {
       HStack(spacing: Spacing.sm) {

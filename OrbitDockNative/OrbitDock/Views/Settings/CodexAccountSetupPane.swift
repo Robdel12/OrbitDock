@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct CodexAccountSetupPane: View {
-  let serverState: SessionStore
+  let viewModel: CodexAccountSetupViewModel
 
   var body: some View {
     SettingsSection(title: "CODEX CLI", icon: "sparkles") {
@@ -19,12 +19,12 @@ struct CodexAccountSetupPane: View {
           }
         }
 
-        switch serverState.codexAccountStatus?.account {
-          case .apiKey?:
+        switch viewModel.accountState {
+          case .apiKey:
             Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textSecondary)
-          case let .chatgpt(email, planType)?:
+          case let .chatgpt(email, planType):
             VStack(alignment: .leading, spacing: Spacing.xs) {
               if let email {
                 Text(email)
@@ -58,7 +58,7 @@ struct CodexAccountSetupPane: View {
           }
         }
 
-        if let error = serverState.codexAuthError, !error.isEmpty {
+        if let error = viewModel.authError, !error.isEmpty {
           HStack(spacing: Spacing.sm) {
             Image(systemName: "exclamationmark.triangle.fill")
               .font(.system(size: TypeScale.meta))
@@ -96,14 +96,14 @@ struct CodexAccountSetupPane: View {
 
   @ViewBuilder
   private var codexAuthBadge: some View {
-    if serverState.codexAccountStatus?.loginInProgress == true {
+    if viewModel.isSigningIn {
       Label("Signing In", systemImage: "clock")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, Spacing.xs)
         .background(Color.statusWorking.opacity(0.18), in: Capsule())
         .foregroundStyle(Color.statusWorking)
-    } else if serverState.codexAccountStatus?.account == nil {
+    } else if !viewModel.hasConnectedAccount {
       Label("Not Connected", systemImage: "xmark")
         .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
         .padding(.horizontal, Spacing.sm)
@@ -122,12 +122,9 @@ struct CodexAccountSetupPane: View {
 
   private var accountHeaderLabel: some View {
     HStack(spacing: Spacing.sm) {
-      Image(systemName: serverState
-        .codexAccountStatus?.account == nil ? "person.crop.circle.badge.exclamationmark" :
-        "person.crop.circle.badge.checkmark")
+      Image(systemName: viewModel.accountHeaderIconName)
         .font(.system(size: TypeScale.body, weight: .semibold))
-        .foregroundStyle(serverState.codexAccountStatus?.account == nil ? Color.statusPermission : Color
-          .feedbackPositive)
+        .foregroundStyle(viewModel.accountHeaderIconColor)
       Text("Account")
         .font(.system(size: TypeScale.body, weight: .semibold))
     }
@@ -135,17 +132,17 @@ struct CodexAccountSetupPane: View {
 
   @ViewBuilder
   private var accountActionButtons: some View {
-    if serverState.codexAccountStatus?.loginInProgress == true {
+    if viewModel.isSigningIn {
       Button {
-        serverState.cancelCodexChatgptLogin()
+        viewModel.cancelLogin()
       } label: {
         Label("Cancel Sign-In", systemImage: "xmark.circle")
           .font(.system(size: TypeScale.caption, weight: .semibold))
       }
       .buttonStyle(.bordered)
-    } else if serverState.codexAccountStatus?.account == nil {
+    } else if !viewModel.hasConnectedAccount {
       Button {
-        serverState.startCodexChatgptLogin()
+        viewModel.startLogin()
       } label: {
         Label("Sign in with ChatGPT", systemImage: "sparkles")
           .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -154,23 +151,18 @@ struct CodexAccountSetupPane: View {
       .tint(Color.accent)
     }
 
-    if serverState.codexAccountStatus?.account != nil {
+    if viewModel.hasConnectedAccount {
       Button("Usage") {
-        openCodexUsagePage()
+        viewModel.openUsagePage()
       }
       .font(.system(size: TypeScale.caption, weight: .semibold))
       .buttonStyle(.bordered)
 
       Button("Sign Out") {
-        serverState.logoutCodexAccount()
+        viewModel.logout()
       }
       .font(.system(size: TypeScale.caption, weight: .semibold))
       .buttonStyle(.bordered)
     }
-  }
-
-  private func openCodexUsagePage() {
-    guard let url = URL(string: "https://chatgpt.com/codex/settings/usage") else { return }
-    _ = Platform.services.openURL(url)
   }
 }

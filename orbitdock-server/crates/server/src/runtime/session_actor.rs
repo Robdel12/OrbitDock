@@ -10,7 +10,8 @@ use arc_swap::ArcSwap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
-use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
+#[cfg(test)]
+use crate::domain::sessions::conversation::ConversationPage;
 use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
@@ -130,20 +131,7 @@ impl SessionActorHandle {
     reply_rx.await.map_err(|error| error.to_string())
   }
 
-  pub async fn conversation_bootstrap(
-    &self,
-    limit: usize,
-  ) -> Result<ConversationBootstrap, String> {
-    let (reply_tx, reply_rx) = oneshot::channel();
-    self
-      .send(SessionCommand::GetConversationBootstrap {
-        limit,
-        reply: reply_tx,
-      })
-      .await;
-    reply_rx.await.map_err(|error| error.to_string())
-  }
-
+  #[cfg(test)]
   pub async fn conversation_page(
     &self,
     before_sequence: Option<u64>,
@@ -178,22 +166,6 @@ impl SessionActorHandle {
     let (reply_tx, reply_rx) = oneshot::channel();
     self
       .send(SessionCommand::MarkRead { reply: reply_tx })
-      .await;
-    reply_rx.await.map_err(|error| error.to_string())
-  }
-
-  pub async fn load_transcript_and_sync(
-    &self,
-    path: String,
-    session_id: String,
-  ) -> Result<Option<SessionState>, String> {
-    let (reply_tx, reply_rx) = oneshot::channel();
-    self
-      .send(SessionCommand::LoadTranscriptAndSync {
-        path,
-        session_id,
-        reply: reply_tx,
-      })
       .await;
     reply_rx.await.map_err(|error| error.to_string())
   }

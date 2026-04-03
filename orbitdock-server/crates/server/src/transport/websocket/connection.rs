@@ -132,16 +132,58 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
         OutboundMessage::Json(server_msg) => {
           let sanitized = sanitize_server_message_for_transport(*server_msg);
           match serde_json::to_string(&sanitized) {
-            Ok(json) => {
+            Ok(mut json) => {
               if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
-                warn!(
+                let message_type = server_message_type_for_log(&sanitized);
+                error!(
                   component = "websocket",
-                  event = "ws.send.oversize_message",
+                  event = "ws.contract_violation.oversize_payload",
                   connection_id = conn_id,
+                  message_type = %message_type,
                   bytes = json.len(),
                   max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                  "Sending oversized server message (no truncation)"
+                  "Oversized websocket payload violates transport contract (HTTP must carry heavy payloads)"
                 );
+
+                if let Some(resync_hint) = oversize_resync_hint(&sanitized) {
+                  let fallback_json = serde_json::to_string(&resync_hint);
+                  match fallback_json {
+                    Ok(compacted) => {
+                      warn!(
+                        component = "websocket",
+                        event = "ws.send.oversize_resync_hint",
+                        connection_id = conn_id,
+                        message_type = %message_type,
+                        original_bytes = json.len(),
+                        compacted_bytes = compacted.len(),
+                        "Replacing oversized payload with explicit HTTP resync hint"
+                      );
+                      json = compacted;
+                    }
+                    Err(error) => {
+                      error!(
+                        component = "websocket",
+                        event = "ws.contract_violation.serialize_resync_hint_failed",
+                        connection_id = conn_id,
+                        message_type = %message_type,
+                        error = %error,
+                        "Failed to serialize oversized-message resync hint"
+                      );
+                      continue;
+                    }
+                  }
+                } else {
+                  error!(
+                    component = "websocket",
+                    event = "ws.contract_violation.drop_oversize_payload",
+                    connection_id = conn_id,
+                    message_type = %message_type,
+                    bytes = json.len(),
+                    max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
+                    "Dropping oversized server message; no safe compaction available"
+                  );
+                  continue;
+                }
               }
               ws_tx.send(Message::Text(json.into())).await
             }
@@ -275,4 +317,70 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
 
 fn truncate_for_log(value: &str, max_chars: usize) -> String {
   value.chars().take(max_chars).collect()
+}
+
+fn server_message_type_for_log(msg: &ServerMessage) -> String {
+  serde_json::to_value(msg)
+    .ok()
+    .and_then(|value| {
+      value
+        .as_object()
+        .and_then(|object| object.get("type"))
+        .and_then(|entry| entry.as_str())
+        .map(String::from)
+    })
+    .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn server_message_session_id(msg: &ServerMessage) -> Option<String> {
+  serde_json::to_value(msg).ok().and_then(|value| {
+    value
+      .as_object()
+      .and_then(|object| object.get("session_id"))
+      .and_then(|entry| entry.as_str())
+      .map(String::from)
+  })
+}
+
+fn oversize_resync_hint(msg: &ServerMessage) -> Option<ServerMessage> {
+  let message_type = server_message_type_for_log(msg);
+
+  if let Some(session_id) = server_message_session_id(msg) {
+    let (code, endpoint) = if message_type == "conversation_rows_changed" {
+      (
+        "conversation_resync_required",
+        format!("/api/sessions/{session_id}/conversation"),
+      )
+    } else {
+      (
+        "session_detail_resync_required",
+        format!("/api/sessions/{session_id}/detail"),
+      )
+    };
+
+    return Some(ServerMessage::Error {
+      code: code.to_string(),
+      message: format!(
+        "Realtime payload ({message_type}) exceeded WebSocket transport budget; refetch GET {endpoint}"
+      ),
+      session_id: Some(session_id),
+    });
+  }
+
+  if message_type.starts_with("mission_") || message_type == "missions_list" {
+    return Some(ServerMessage::Error {
+      code: "missions_resync_required".to_string(),
+      message:
+        "Realtime missions payload exceeded WebSocket transport budget; refetch GET /api/missions"
+          .to_string(),
+      session_id: None,
+    });
+  }
+
+  Some(ServerMessage::Error {
+    code: "dashboard_resync_required".to_string(),
+    message: "Realtime payload exceeded WebSocket transport budget; refetch GET /api/dashboard"
+      .to_string(),
+    session_id: None,
+  })
 }

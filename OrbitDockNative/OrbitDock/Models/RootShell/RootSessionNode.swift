@@ -297,6 +297,11 @@ extension RootSessionNode: Equatable {
 }
 
 extension RootSessionNode {
+  private nonisolated static let titleCharacterLimit = 140
+  private nonisolated static let sortKeyCharacterLimit = 180
+  private nonisolated static let searchTextCharacterLimit = 320
+  private nonisolated static let contextLineCharacterLimit = 220
+
   nonisolated init(
     session: ServerSessionListItem,
     endpointId: UUID,
@@ -324,7 +329,10 @@ extension RootSessionNode {
       projectName: session.projectName,
       projectPath: session.projectPath
     )
-    let trimmedContextLine = session.contextLine?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedContextLine = RootSessionNode.boundedText(
+      session.contextLine?.trimmingCharacters(in: .whitespacesAndNewlines),
+      maxCharacters: RootSessionNode.contextLineCharacterLimit
+    )
     let titleSortKey = RootSessionNode.sortKey(
       explicit: session.displayTitleSortKey,
       title: title
@@ -632,20 +640,22 @@ extension RootSessionNode {
 
   nonisolated static func displayTitle(explicit: String?, projectName: String?, projectPath: String) -> String {
     if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
-      return explicit
+      return boundedText(explicit, maxCharacters: titleCharacterLimit) ?? explicit
     }
     if let projectName = projectName?.trimmingCharacters(in: .whitespacesAndNewlines), !projectName.isEmpty {
-      return projectName
+      return boundedText(projectName, maxCharacters: titleCharacterLimit) ?? projectName
     }
     let lastComponent = URL(fileURLWithPath: projectPath).lastPathComponent
-    return lastComponent.isEmpty ? projectPath : lastComponent
+    let fallback = lastComponent.isEmpty ? projectPath : lastComponent
+    return boundedText(fallback, maxCharacters: titleCharacterLimit) ?? fallback
   }
 
   nonisolated static func sortKey(explicit: String?, title: String) -> String {
     if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
-      return explicit
+      return boundedText(explicit, maxCharacters: sortKeyCharacterLimit) ?? explicit
     }
-    return title.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+    let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+    return boundedText(normalized, maxCharacters: sortKeyCharacterLimit) ?? normalized
   }
 
   nonisolated static func searchText(
@@ -657,18 +667,29 @@ extension RootSessionNode {
     model: String?
   ) -> String {
     if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
-      return explicit
+      return boundedText(explicit, maxCharacters: searchTextCharacterLimit) ?? explicit
     }
-    return [title, contextLine, projectName, branch, model]
+    let fallback = [title, contextLine, projectName, branch, model]
       .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
       .filter { !$0.isEmpty }
       .joined(separator: " ")
+    return boundedText(fallback, maxCharacters: searchTextCharacterLimit) ?? fallback
   }
 
   nonisolated static func contextLine(summary: String?, firstPrompt: String?, lastMessage: String?) -> String? {
     [lastMessage, summary, firstPrompt]
       .compactMap { $0?.strippingXMLTags().trimmingCharacters(in: .whitespacesAndNewlines) }
       .first { !$0.isEmpty }
+      .flatMap { boundedText($0, maxCharacters: contextLineCharacterLimit) }
+  }
+
+  nonisolated private static func boundedText(_ value: String?, maxCharacters: Int) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard trimmed.count > maxCharacters else { return trimmed }
+    let endIndex = trimmed.index(trimmed.startIndex, offsetBy: maxCharacters)
+    return String(trimmed[..<endIndex])
   }
 
   nonisolated static func displayStatus(

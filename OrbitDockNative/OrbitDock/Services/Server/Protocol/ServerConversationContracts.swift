@@ -7,6 +7,54 @@
 
 import Foundation
 
+private enum ConversationPayloadBudget {
+  static let maxInlinePreviewCharacters = 8_192
+  static let maxToolDisplayCharacters = 12_000
+  static let maxCommandPreviewLines = 6
+  static let maxPreviewLineCharacters = 220
+
+  static func clippedText(_ value: String?, maxCharacters: Int) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    guard trimmed.count > maxCharacters else { return trimmed }
+    return String(trimmed.prefix(maxCharacters)) + "..."
+  }
+
+  static func clippedLines(_ values: [String], maxLines: Int, maxLineCharacters: Int) -> [String] {
+    guard !values.isEmpty else { return [] }
+    return values
+      .prefix(maxLines)
+      .map { line in
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.count > maxLineCharacters {
+          return String(trimmed.prefix(maxLineCharacters)) + "..."
+        }
+        return trimmed
+      }
+      .filter { !$0.isEmpty }
+  }
+
+  static func shellOutputPreview(
+    outputPreview: String?,
+    stdout: String?,
+    stderr: String?
+  ) -> String? {
+    if let outputPreview = clippedText(outputPreview, maxCharacters: maxInlinePreviewCharacters) {
+      return outputPreview
+    }
+
+    let stdoutPreview = clippedText(stdout, maxCharacters: maxInlinePreviewCharacters / 2)
+    let stderrPreview = clippedText(stderr, maxCharacters: maxInlinePreviewCharacters / 2)
+
+    if let stdoutPreview, let stderrPreview {
+      return "\(stdoutPreview)\n\(stderrPreview)"
+    }
+
+    return stdoutPreview ?? stderrPreview
+  }
+}
+
 // MARK: - Conversation Rows
 
 enum ServerConversationRowType: Codable, Equatable {
@@ -725,9 +773,16 @@ struct ServerConversationShellCommandRow: Codable {
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     command = try container.decodeIfPresent(String.self, forKey: .command)
     args = try container.decodeIfPresent([String].self, forKey: .args) ?? []
-    stdout = try container.decodeIfPresent(String.self, forKey: .stdout)
-    stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
-    outputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
+    let decodedStdout = try container.decodeIfPresent(String.self, forKey: .stdout)
+    let decodedStderr = try container.decodeIfPresent(String.self, forKey: .stderr)
+    let decodedOutputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
+    stdout = nil
+    stderr = nil
+    outputPreview = ConversationPayloadBudget.shellOutputPreview(
+      outputPreview: decodedOutputPreview,
+      stdout: decodedStdout,
+      stderr: decodedStderr
+    )
     exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
     durationSeconds = try container.decodeIfPresent(Double.self, forKey: .durationSeconds)
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
@@ -814,19 +869,49 @@ struct ServerConversationCommandExecutionRow: Codable {
     commandActions =
       try container.decodeIfPresent([ServerConversationCommandAction].self, forKey: .commandActions)
       ?? []
-    liveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
-    aggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
-    preview = try container.decodeIfPresent(ServerConversationCommandExecutionPreview.self, forKey: .preview)
-    terminalSnapshot =
-      try container.decodeIfPresent(
-        ServerConversationCommandExecutionTerminalSnapshot.self,
-        forKey: .terminalSnapshot
-      )
+    let decodedLiveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
+    let decodedAggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
+    let decodedPreview =
+      try container.decodeIfPresent(ServerConversationCommandExecutionPreview.self, forKey: .preview)
+    liveOutputPreview = ConversationPayloadBudget.clippedText(
+      decodedLiveOutputPreview ?? decodedAggregatedOutput,
+      maxCharacters: ConversationPayloadBudget.maxInlinePreviewCharacters
+    )
+    aggregatedOutput = nil
+    preview = Self.boundedPreview(decodedPreview)
+    terminalSnapshot = nil
     exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
     durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
     renderHints =
       try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
       ?? ServerConversationRenderHints()
+  }
+
+  private static func boundedPreview(
+    _ preview: ServerConversationCommandExecutionPreview?
+  ) -> ServerConversationCommandExecutionPreview? {
+    guard let preview else { return nil }
+
+    let boundedLines = ConversationPayloadBudget.clippedLines(
+      preview.lines,
+      maxLines: ConversationPayloadBudget.maxCommandPreviewLines,
+      maxLineCharacters: ConversationPayloadBudget.maxPreviewLineCharacters
+    )
+
+    let droppedLineCount = max(preview.lines.count - boundedLines.count, 0)
+    let overflowCount: UInt32?
+    if droppedLineCount > 0 {
+      let baseOverflow = Int(preview.overflowCount ?? 0)
+      overflowCount = UInt32(min(baseOverflow + droppedLineCount, Int(UInt32.max)))
+    } else {
+      overflowCount = preview.overflowCount
+    }
+
+    return ServerConversationCommandExecutionPreview(
+      kind: preview.kind,
+      lines: boundedLines,
+      overflowCount: overflowCount
+    )
   }
 }
 
@@ -1305,14 +1390,26 @@ struct ServerToolDisplay: Codable {
     glyphColor = try container.decode(String.self, forKey: .glyphColor)
     language = try container.decodeIfPresent(String.self, forKey: .language)
     diffPreview = try container.decodeIfPresent(ServerToolDiffPreview.self, forKey: .diffPreview)
-    outputPreview = try container.decodeIfPresent(String.self, forKey: .outputPreview)
-    liveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
+    outputPreview = ConversationPayloadBudget.clippedText(
+      try container.decodeIfPresent(String.self, forKey: .outputPreview),
+      maxCharacters: ConversationPayloadBudget.maxInlinePreviewCharacters
+    )
+    liveOutputPreview = ConversationPayloadBudget.clippedText(
+      try container.decodeIfPresent(String.self, forKey: .liveOutputPreview),
+      maxCharacters: ConversationPayloadBudget.maxInlinePreviewCharacters
+    )
     todoItems = try container.decodeIfPresent([ServerToolTodoItem].self, forKey: .todoItems) ?? []
     toolType = try container.decode(String.self, forKey: .toolType)
     summaryFont = try container.decodeIfPresent(String.self, forKey: .summaryFont) ?? "system"
     displayTier = try container.decodeIfPresent(String.self, forKey: .displayTier) ?? "standard"
-    inputDisplay = try container.decodeIfPresent(String.self, forKey: .inputDisplay)
-    outputDisplay = try container.decodeIfPresent(String.self, forKey: .outputDisplay)
+    inputDisplay = ConversationPayloadBudget.clippedText(
+      try container.decodeIfPresent(String.self, forKey: .inputDisplay),
+      maxCharacters: ConversationPayloadBudget.maxToolDisplayCharacters
+    )
+    outputDisplay = ConversationPayloadBudget.clippedText(
+      try container.decodeIfPresent(String.self, forKey: .outputDisplay),
+      maxCharacters: ConversationPayloadBudget.maxToolDisplayCharacters
+    )
     diffDisplay = try container.decodeIfPresent([ServerDiffLine].self, forKey: .diffDisplay)
   }
 

@@ -19,6 +19,8 @@ struct McpStartupState {
 @MainActor
 final class SessionObservable {
   let id: String
+  private let bootstrapRecentRowLimit = 180
+  private let liveRecentRowLimit = 260
 
   // Approval
   var pendingApproval: ServerApprovalRequest?
@@ -402,9 +404,12 @@ final class SessionObservable {
   ) {
     let normalizedRows = normalizedRowBatch(rows)
     var structureChanged = false
+    var droppedBootstrapRows = false
 
     if isBootstrap {
-      rowEntries = normalizedRows
+      let boundedRows = boundedBootstrapRows(from: normalizedRows)
+      droppedBootstrapRows = boundedRows.count < normalizedRows.count
+      rowEntries = boundedRows
       structureChanged = true
     } else {
       for entry in normalizedRows {
@@ -412,9 +417,11 @@ final class SessionObservable {
       }
     }
 
-    lastChangedRowEntries = normalizedRows
+    // For full-page merges we always rebuild structure in the view-model path,
+    // so retaining a duplicate changed-entry array only increases memory.
+    lastChangedRowEntries = []
     lastRemovedRowIds = []
-    hasMoreHistoryBefore = hasMoreBefore
+    hasMoreHistoryBefore = hasMoreBefore || droppedBootstrapRows
     oldestLoadedSequence = rowEntries.first.map(\.sequence)
     rowEntriesRevision += 1
     rowEntriesContentRevision += 1
@@ -430,6 +437,7 @@ final class SessionObservable {
   ) {
     let normalizedUpserted = normalizedRowBatch(upserted)
     var structureChanged = false
+    var effectiveRemovedIds = removedIds
 
     if !removedIds.isEmpty {
       let removed = Set(removedIds)
@@ -440,8 +448,17 @@ final class SessionObservable {
       structureChanged = upsertRow(entry).structureChanged || structureChanged
     }
 
+    if !isLoadingOlderMessages {
+      let memoryEvictedIds = evictOldestRowsIfNeeded()
+      if !memoryEvictedIds.isEmpty {
+        effectiveRemovedIds.append(contentsOf: memoryEvictedIds)
+        structureChanged = true
+      }
+    }
+
     lastChangedRowEntries = normalizedUpserted
-    lastRemovedRowIds = removedIds
+    lastRemovedRowIds = effectiveRemovedIds
+    oldestLoadedSequence = rowEntries.first.map(\.sequence)
     rowEntriesRevision += 1
     rowEntriesContentRevision += 1
     if structureChanged {
@@ -503,10 +520,17 @@ final class SessionObservable {
   private func upsertRow(_ entry: ServerConversationRowEntry) -> ConversationRowMutation {
     if let existingIndex = rowEntries.firstIndex(where: { $0.id == entry.id }) {
       let existingEntry = rowEntries[existingIndex]
+      let sequenceChanged = existingEntry.sequence != entry.sequence
+      let rowTypeChanged = rowTypeKey(for: existingEntry) != rowTypeKey(for: entry)
+
+      if !sequenceChanged {
+        rowEntries[existingIndex] = entry
+        return .updated(structureChanged: rowTypeChanged)
+      }
+
       rowEntries.remove(at: existingIndex)
       rowEntries.insert(entry, at: insertionIndex(for: entry.sequence))
-      return .updated(structureChanged: existingEntry.sequence != entry
-        .sequence || rowTypeKey(for: existingEntry) != rowTypeKey(for: entry))
+      return .updated(structureChanged: true)
     }
 
     guard !rowEntries.isEmpty else {
@@ -587,6 +611,23 @@ final class SessionObservable {
     guard !duplicateIDs.isEmpty else { return rows }
 
     return order.compactMap { dedupedByID[$0] }
+  }
+
+  private func boundedBootstrapRows(
+    from rows: [ServerConversationRowEntry]
+  ) -> [ServerConversationRowEntry] {
+    guard rows.count > bootstrapRecentRowLimit else { return rows }
+    return Array(rows.suffix(bootstrapRecentRowLimit))
+  }
+
+  private func evictOldestRowsIfNeeded() -> [String] {
+    guard rowEntries.count > liveRecentRowLimit else { return [] }
+    let overflow = rowEntries.count - liveRecentRowLimit
+    guard overflow > 0 else { return [] }
+    let removedIds = rowEntries.prefix(overflow).map(\.id)
+    rowEntries.removeFirst(overflow)
+    hasMoreHistoryBefore = true
+    return removedIds
   }
 }
 

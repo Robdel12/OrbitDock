@@ -12,11 +12,11 @@ import SwiftUI
 
 struct NewSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
-  @Environment(SessionStore.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
 
   let continuation: SessionContinuation?
+  private let sessionStore: SessionStore
   private let availableEndpointsOverride: [ServerEndpoint]?
   private let endpointSettings: ServerEndpointSettingsClient
   @State private var model: NewSessionModel
@@ -39,10 +39,12 @@ struct NewSessionSheet: View {
   init(
     provider: SessionProvider = .claude,
     continuation: SessionContinuation? = nil,
+    sessionStore: SessionStore,
     availableEndpointsOverride: [ServerEndpoint]? = nil,
     endpointSettings: ServerEndpointSettingsClient? = nil
   ) {
     self.continuation = continuation
+    self.sessionStore = sessionStore
     self.availableEndpointsOverride = availableEndpointsOverride
     let resolvedEndpointSettings = endpointSettings ?? .live()
     self.endpointSettings = resolvedEndpointSettings
@@ -109,7 +111,7 @@ struct NewSessionSheet: View {
   }
 
   private var endpointAppState: SessionStore {
-    runtimeRegistry.sessionStore(for: model.selectedEndpointId, fallback: serverState)
+    runtimeRegistry.sessionStore(for: model.selectedEndpointId, fallback: sessionStore)
   }
 
   private var continuationDefaults: NewSessionContinuationDefaults? {
@@ -417,10 +419,10 @@ struct NewSessionSheet: View {
       loginInProgress: endpointAppState.codexAccountStatus?.loginInProgress == true,
       authError: endpointAppState.codexAuthError,
       onStartLogin: {
-        endpointAppState.startCodexChatgptLogin()
+        endpointAppState.codexAccountService.startLogin()
       },
       onCancelLogin: {
-        endpointAppState.cancelCodexChatgptLogin()
+        endpointAppState.codexAccountService.cancelLogin()
       }
     )
   }
@@ -513,7 +515,7 @@ struct NewSessionSheet: View {
       isCreating: model.isCreating,
       canCreateSession: canCreateSession,
       onSignOut: {
-        endpointAppState.logoutCodexAccount()
+        endpointAppState.codexAccountService.logout()
       },
       onCancel: {
         dismiss()
@@ -535,7 +537,7 @@ struct NewSessionSheet: View {
   private func refreshEndpointData() {
     guard model.provider == .codex else { return }
     endpointAppState.refreshCodexModels()
-    endpointAppState.refreshCodexAccount()
+    endpointAppState.codexAccountService.refresh()
   }
 
   private func resetProviderState() {
@@ -828,6 +830,9 @@ struct NewSessionSheet: View {
 #Preview {
   let preview = PreviewRuntime(scenario: .newSession)
   preview.inject(
-    NewSessionSheet(availableEndpointsOverride: preview.endpoints)
+    NewSessionSheet(
+      sessionStore: preview.sessionStore,
+      availableEndpointsOverride: preview.endpoints
+    )
   )
 }

@@ -13,8 +13,6 @@ enum ControlDeckAutocompletePlanner {
     }
 
     if let skillQuery = ControlDeckTextEditing.trailingTokenQuery(in: text, prefix: "$") {
-      // Keep the surface quiet on bare "$" so we do not flood the editor with the full list.
-      guard !skillQuery.isEmpty else { return .inactive }
       return .skill(query: skillQuery)
     }
 

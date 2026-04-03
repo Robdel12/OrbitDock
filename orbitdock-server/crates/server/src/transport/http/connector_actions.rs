@@ -53,6 +53,8 @@ pub(crate) fn dispatch_error_response(
   session_id: &str,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
   match code {
+    "session_not_found" => session_not_found_error(session_id),
+    "connector_unavailable" => connector_unavailable_error(session_id),
     "not_found" => session_not_found_error(session_id),
     "invalid_answer_payload" => bad_request(
       "invalid_answer_payload",
@@ -67,10 +69,16 @@ pub(crate) fn dispatch_error_response(
 }
 
 pub(crate) fn session_not_found_error(session_id: &str) -> (StatusCode, Json<ApiErrorResponse>) {
-  not_found(
-    "not_found",
+  not_found("not_found", format!("Session {} not found", session_id))
+}
+
+pub(crate) fn connector_unavailable_error(
+  session_id: &str,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+  service_unavailable(
+    "connector_unavailable",
     format!(
-      "Session {} not found or has no active connector",
+      "Session {} is direct but has no active connector attached",
       session_id
     ),
   )

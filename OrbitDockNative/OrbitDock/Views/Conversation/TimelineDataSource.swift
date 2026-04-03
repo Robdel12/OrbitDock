@@ -113,13 +113,12 @@ enum TimelineDataSource {
     ) {
       guard !changedEntries.isEmpty else { return }
 
-      var updatedEntries = displayedEntries
       let changedEntriesByID = TimelineDataSource.entryDictionary(changedEntries)
       var dirtyGroupIndices: Set<Int> = []
 
       for changedEntry in changedEntries {
         if let displayIndex = directDisplayIndexByRowID[changedEntry.id] {
-          updatedEntries[displayIndex] = changedEntry
+          displayedEntries[displayIndex] = changedEntry
         }
 
         if let groupIndex = groupIndexByChildRowID[changedEntry.id] {
@@ -129,14 +128,12 @@ enum TimelineDataSource {
 
       for groupIndex in dirtyGroupIndices {
         guard let spec = groupSpecsByIndex[groupIndex] else { continue }
-        updatedEntries[groupIndex] = makeActivityGroupEntry(
+        displayedEntries[groupIndex] = makeActivityGroupEntry(
           spec: spec,
           rawEntriesByID: changedEntriesByID,
           fallbackEntries: displayedEntries
         )
       }
-
-      displayedEntries = updatedEntries
     }
 
     var count: Int {

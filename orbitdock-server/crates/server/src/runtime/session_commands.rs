@@ -7,7 +7,8 @@ use orbitdock_protocol::{
 };
 use tokio::sync::{broadcast, oneshot};
 
-use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
+#[cfg(test)]
+use crate::domain::sessions::conversation::ConversationPage;
 
 /// A persistence operation that the actor executes on behalf of the caller.
 /// The actor already holds `persist_tx`, so callers don't need to pass it.
@@ -164,22 +165,11 @@ pub enum SessionCommand {
     msg: ServerMessage,
   },
 
-  // -- Complex operations --
-  /// Load transcript from path and sync messages into session
-  LoadTranscriptAndSync {
-    path: String,
-    session_id: String,
-    reply: oneshot::Sender<Option<SessionState>>,
-  },
-
   // -- Queries that read fields --
   GetLastTool {
     reply: oneshot::Sender<Option<String>>,
   },
-  GetConversationBootstrap {
-    limit: usize,
-    reply: oneshot::Sender<ConversationBootstrap>,
-  },
+  #[cfg(test)]
   GetConversationPage {
     before_sequence: Option<u64>,
     limit: usize,

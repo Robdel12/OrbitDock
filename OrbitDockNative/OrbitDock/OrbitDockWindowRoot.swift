@@ -167,9 +167,9 @@ struct OrbitDockWindowRoot: View {
     )) {
       NewSessionSheet(
         provider: router.newSessionProvider,
-        continuation: router.newSessionContinuation
+        continuation: router.newSessionContinuation,
+        sessionStore: creationStore()
       )
-      .environment(creationStore())
       .environment(appRuntime.runtimeRegistry)
       .environment(router)
       .environment(appStore)

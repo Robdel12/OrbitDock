@@ -96,17 +96,6 @@ pub(crate) fn prepend_conversation_page(
   }
 }
 
-pub(crate) fn expected_page_row_count(
-  total_row_count: u64,
-  before_sequence: Option<u64>,
-  limit: usize,
-) -> usize {
-  let max_available = before_sequence
-    .and_then(|sequence| usize::try_from(sequence).ok())
-    .unwrap_or(usize::MAX);
-  limit.min(max_available).min(total_row_count as usize)
-}
-
 fn row_starts_turn(entry: &ConversationRowEntry) -> bool {
   entry.row.starts_turn()
 }
