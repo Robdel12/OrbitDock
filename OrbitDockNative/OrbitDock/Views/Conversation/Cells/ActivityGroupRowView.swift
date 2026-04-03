@@ -202,7 +202,7 @@ struct ActivityGroupRowView: View {
     switch child {
       case let .tool(tool):
         let text = tool.toolDisplay.summary.isEmpty ? tool.title : tool.toolDisplay.summary
-        return text.isEmpty ? tool.toolDisplay.toolType.capitalized : text
+        return text.isEmpty ? displayTypeLabel(for: tool.toolDisplay.toolType) : text
       case let .commandExecution(commandExecution):
         return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Run command"
     }
@@ -217,7 +217,7 @@ struct ActivityGroupRowView: View {
         if let meta = nonEmpty(tool.toolDisplay.rightMeta) {
           return meta
         }
-        return tool.toolDisplay.toolType.capitalized
+        return displayTypeLabel(for: tool.toolDisplay.toolType)
       case let .commandExecution(commandExecution):
         if let command = commandExecutionPrimaryCommand(commandExecution) {
           return command
@@ -276,9 +276,21 @@ struct ActivityGroupRowView: View {
   private func childTypeLabel(_ child: ServerConversationActivityGroupChild) -> String {
     switch child {
       case let .tool(tool):
-        return tool.toolDisplay.toolType.capitalized
+        return displayTypeLabel(for: tool.toolDisplay.toolType)
       case let .commandExecution(commandExecution):
         return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Command"
+    }
+  }
+
+  private func displayTypeLabel(for toolType: String) -> String {
+    switch toolType {
+      case "dynamicTool": return "Dynamic Tool"
+      case "toolSearch": return "Tool Search"
+      case "webSearch": return "Web Search"
+      case "webFetch": return "Web Fetch"
+      case "guardianAssessment": return "Guardian Review"
+      case "compactContext": return "Compact Context"
+      default: return toolType.capitalized
     }
   }
 

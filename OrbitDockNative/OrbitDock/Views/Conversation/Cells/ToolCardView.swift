@@ -87,6 +87,7 @@ struct ToolCardView: View {
       "webSearch",
       "task",
       "mcp",
+      "dynamicTool",
       "question",
       "plan",
       "hook",
@@ -424,6 +425,11 @@ struct ToolCardView: View {
     if toolType == "mcp", !mcpPreviewLines.isEmpty {
       let preview = mcpPreviewLines
       mcpPreviewStrip(preview)
+    }
+
+    if toolType == "dynamicTool", !dynamicToolPreviewLines.isEmpty {
+      let preview = dynamicToolPreviewLines
+      dynamicToolPreviewStrip(preview)
     }
 
     if toolType == "question", let preview = questionPreviewText, !preview.isEmpty {
@@ -767,6 +773,43 @@ struct ToolCardView: View {
     .previewStripChrome(tint: Color.toolMcp, horizontalPad: previewHorizontalPad, bottomPad: Spacing.sm_)
   }
 
+  private var dynamicToolPreviewLines: [String] {
+    if let preview = display?.outputPreview, !preview.isEmpty {
+      return compactPreviewLines(from: preview, limit: isCompactLayout ? 3 : 2)
+    }
+    if let output = display?.outputDisplay, !output.isEmpty {
+      return compactPreviewLines(from: output, limit: isCompactLayout ? 3 : 2)
+    }
+    return compactPreviewLines(from: rawSummary, limit: 2)
+  }
+
+  private func dynamicToolPreviewStrip(_ lines: [String]) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      previewStripHeader(
+        title: "Dynamic Tool",
+        tint: Color.toolTask,
+        titleStyle: .compact,
+        symbol: "wrench.and.screwdriver"
+      ) {
+        if let scope = rawSubtitle, !scope.isEmpty {
+          Text(scope)
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
+      }
+
+      ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+        previewCodeLine(
+          line,
+          tint: Color.toolTask,
+          font: .system(size: TypeScale.caption, design: .monospaced)
+        )
+      }
+    }
+    .previewStripChrome(tint: Color.toolTask, horizontalPad: previewHorizontalPad, bottomPad: Spacing.sm_)
+  }
+
   private var questionPreviewText: String? {
     nonEmpty(rawSubtitle) ?? nonEmpty(display?.outputPreview) ?? nonEmpty(rawSummary)
   }
@@ -1034,6 +1077,8 @@ struct ToolCardView: View {
           TaskExpandedView(content: content, toolRow: toolRow)
         case "mcp":
           MCPExpandedView(content: content, toolRow: toolRow)
+        case "dynamicTool":
+          dynamicToolExpandedView(content)
         case "webSearch":
           WebSearchExpandedView(content: content)
         case "webFetch":
@@ -1079,6 +1124,81 @@ struct ToolCardView: View {
       WebFetchExpandedView(content: content)
     } else {
       WebSearchExpandedView(content: content)
+    }
+  }
+
+  @ViewBuilder
+  private func dynamicToolExpandedView(_ content: ServerRowContent) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "wrench.and.screwdriver")
+          .font(.system(size: IconScale.sm, weight: .semibold))
+          .foregroundStyle(Color.toolTask)
+
+        Text("Dynamic Tool")
+          .font(.system(size: TypeScale.caption, weight: .bold))
+          .foregroundStyle(Color.toolTask)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(Color.toolTask.opacity(OpacityTier.subtle), in: Capsule())
+
+        if let name = nonEmpty(toolRow.title) {
+          Text(name)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 0)
+
+        if let meta = nonEmpty(display?.rightMeta) {
+          Text(meta)
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+
+      if let subtitle = nonEmpty(rawSubtitle) {
+        HStack(spacing: Spacing.xs) {
+          Text("Scope")
+            .font(.system(size: TypeScale.mini, weight: .bold))
+            .foregroundStyle(Color.textQuaternary)
+            .textCase(.uppercase)
+            .tracking(0.8)
+          Text(subtitle)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(2)
+        }
+      }
+
+      if let input = nonEmpty(content.inputDisplay ?? display?.inputDisplay) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Input")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+          SmartJSONView(jsonString: input)
+        }
+      }
+
+      if let output = nonEmpty(content.outputDisplay ?? display?.outputDisplay ?? display?.outputPreview) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Output")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+          SmartJSONView(jsonString: output)
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.sm)
+                .fill(Color.backgroundCode)
+                .overlay(
+                  RoundedRectangle(cornerRadius: Radius.sm)
+                    .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+                )
+            )
+        }
+      }
     }
   }
 

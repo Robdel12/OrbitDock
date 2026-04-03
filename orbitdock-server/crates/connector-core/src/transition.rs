@@ -8,14 +8,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::ConnectorEvent;
-#[cfg(test)]
-use orbitdock_protocol::conversation_contracts::ToolRow;
 use orbitdock_protocol::conversation_contracts::{
-  ConversationRow, ConversationRowEntry, MessageRowContent, TurnStatus,
+  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
+  MessageRowContent, ToolDisplayInput, ToolRow, TurnStatus,
 };
-use orbitdock_protocol::domain_events::ToolStatus;
 #[cfg(test)]
-use orbitdock_protocol::domain_events::{ToolFamily, ToolKind};
+use orbitdock_protocol::domain_events::ToolFamily;
+use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use orbitdock_protocol::{
   ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
   ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
@@ -24,6 +23,38 @@ use orbitdock_protocol::{
   TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
+
+fn is_placeholder_dynamic_tool_invocation(value: &JsonValue) -> bool {
+  let Some(obj) = value.as_object() else {
+    return false;
+  };
+  if obj.is_empty() {
+    return true;
+  }
+  if obj.len() != 1 {
+    return false;
+  }
+  obj
+    .get("tool_name")
+    .and_then(JsonValue::as_str)
+    .is_some_and(str::is_empty)
+}
+
+fn refresh_tool_display(row: &mut ToolRow) {
+  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
+  let result_str = extract_compact_result_text(row.result.as_ref());
+  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
+    kind: row.kind,
+    family: row.family,
+    status: row.status,
+    title: &row.title,
+    subtitle: row.subtitle.as_deref(),
+    summary: row.summary.as_deref(),
+    duration_ms: row.duration_ms,
+    invocation_input: invocation_ref,
+    result_output: result_str.as_deref(),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // WorkPhase — internal state machine (maps to WorkStatus for the wire)
@@ -783,6 +814,36 @@ pub fn transition(
       // Replace the existing row in state if found, otherwise upsert it into
       // the retained window so out-of-order provider updates do not vanish.
       if let Some(existing) = state.rows.iter_mut().find(|e| e.id() == row_id.as_str()) {
+        if let (ConversationRow::Tool(existing_tool), ConversationRow::Tool(incoming_tool)) =
+          (&existing.row, &mut entry.row)
+        {
+          let mut changed = false;
+          if incoming_tool.kind == ToolKind::DynamicToolCall
+            && existing_tool.kind != ToolKind::DynamicToolCall
+          {
+            incoming_tool.kind = existing_tool.kind;
+            incoming_tool.family = existing_tool.family;
+            changed = true;
+          }
+          if incoming_tool.title.is_empty() && !existing_tool.title.is_empty() {
+            incoming_tool.title = existing_tool.title.clone();
+            changed = true;
+          }
+          if incoming_tool.subtitle.is_none() && existing_tool.subtitle.is_some() {
+            incoming_tool.subtitle = existing_tool.subtitle.clone();
+            changed = true;
+          }
+          // Dynamic tool responses currently emit a placeholder invocation payload.
+          // Preserve the original invocation so expanded input rendering remains useful.
+          if is_placeholder_dynamic_tool_invocation(&incoming_tool.invocation) {
+            incoming_tool.invocation = existing_tool.invocation.clone();
+            changed = true;
+          }
+          if changed {
+            refresh_tool_display(incoming_tool);
+          }
+        }
+
         if entry.sequence == 0 {
           entry.sequence = existing.sequence;
         }
@@ -3213,6 +3274,89 @@ mod tests {
         Effect::Persist(ref op)
             if matches!(op.as_ref(), PersistOp::RowUpsert { .. })
     ));
+  }
+
+  #[test]
+  fn row_updated_preserves_dynamic_tool_invocation_when_update_is_placeholder() {
+    let mut state = test_state();
+    let existing_invocation = json!({
+      "tool_name": "file_write",
+      "raw_input": {
+        "path": ".tmp_codex_tool_probe.txt",
+        "content": "hello-from-file-write"
+      }
+    });
+    let existing = ConversationRowEntry {
+      session_id: String::new(),
+      sequence: 2,
+      turn_id: None,
+      turn_status: TurnStatus::Active,
+      row: ConversationRow::Tool(ToolRow {
+        id: "call_dynamic_1".to_string(),
+        provider: Provider::Codex,
+        family: ToolFamily::Generic,
+        kind: ToolKind::DynamicToolCall,
+        status: ToolStatus::Running,
+        title: "file_write".to_string(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: None,
+        ended_at: None,
+        duration_ms: None,
+        grouping_key: None,
+        invocation: existing_invocation.clone(),
+        result: None,
+        render_hints: RenderHints::default(),
+        tool_display: None,
+      }),
+    };
+    state.rows.push(existing.clone());
+    state.total_row_count = 1;
+
+    let incoming = ConversationRowEntry {
+      session_id: String::new(),
+      sequence: 0,
+      turn_id: None,
+      turn_status: TurnStatus::Active,
+      row: ConversationRow::Tool(ToolRow {
+        id: "call_dynamic_1".to_string(),
+        provider: Provider::Codex,
+        family: ToolFamily::Generic,
+        kind: ToolKind::DynamicToolCall,
+        status: ToolStatus::Completed,
+        title: String::new(),
+        subtitle: None,
+        summary: Some("{\"ok\":true}".to_string()),
+        preview: None,
+        started_at: None,
+        ended_at: Some("1001Z".to_string()),
+        duration_ms: Some(11),
+        grouping_key: None,
+        invocation: json!({ "tool_name": "" }),
+        result: Some(json!({
+          "tool_name": "",
+          "raw_output": "{\"ok\":true}",
+          "summary": "{\"ok\":true}"
+        })),
+        render_hints: RenderHints::default(),
+        tool_display: None,
+      }),
+    };
+
+    let (new_state, _) = transition(
+      state,
+      Input::RowUpdated {
+        row_id: "call_dynamic_1".to_string(),
+        entry: incoming,
+      },
+      NOW,
+    );
+
+    let ConversationRow::Tool(updated_tool) = &new_state.rows[0].row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(updated_tool.invocation, existing_invocation);
   }
 
   #[test]

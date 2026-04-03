@@ -345,10 +345,10 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
     }
     ToolKind::WebSearch => ("globe".into(), "toolWeb".into()),
     ToolKind::WebFetch => ("globe".into(), "toolWeb".into()),
-    ToolKind::McpToolCall
-    | ToolKind::ReadMcpResource
-    | ToolKind::ListMcpResources
-    | ToolKind::DynamicToolCall => ("puzzlepiece.extension".into(), "toolMcp".into()),
+    ToolKind::McpToolCall | ToolKind::ReadMcpResource | ToolKind::ListMcpResources => {
+      ("puzzlepiece.extension".into(), "toolMcp".into())
+    }
+    ToolKind::DynamicToolCall => ("wrench.and.screwdriver".into(), "toolTask".into()),
     ToolKind::SpawnAgent
     | ToolKind::SendAgentInput
     | ToolKind::ResumeAgent
@@ -396,9 +396,16 @@ fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
     ToolKind::ToolSearch => "Tool Search".into(),
     ToolKind::WebSearch => "Web Search".into(),
     ToolKind::WebFetch => "Web Fetch".into(),
-    ToolKind::McpToolCall | ToolKind::DynamicToolCall => {
+    ToolKind::McpToolCall => {
       if title.is_empty() {
         "MCP Tool".into()
+      } else {
+        title.to_string()
+      }
+    }
+    ToolKind::DynamicToolCall => {
+      if title.is_empty() {
+        "Dynamic Tool".into()
       } else {
         title.to_string()
       }
@@ -440,7 +447,8 @@ fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
     | ToolKind::ResumeAgent
     | ToolKind::WaitAgent
     | ToolKind::CloseAgent => "task",
-    ToolKind::McpToolCall | ToolKind::DynamicToolCall => "mcp",
+    ToolKind::McpToolCall => "mcp",
+    ToolKind::DynamicToolCall => "dynamicTool",
     ToolKind::ReadMcpResource | ToolKind::ListMcpResources => "mcp",
     ToolKind::WebSearch => "webSearch",
     ToolKind::WebFetch => "webFetch",
@@ -1699,5 +1707,32 @@ mod tests {
     let text = extract_expanded_result_text(Some(&payload)).unwrap();
     assert!(text.contains("\"status_label\": \"approved\""));
     assert!(text.contains("\"risk_score\": 12"));
+  }
+
+  #[test]
+  fn dynamic_tool_display_is_not_classified_as_mcp() {
+    let invocation = serde_json::json!({
+      "tool_name": "file_write",
+      "raw_input": {
+        "path": "README.md",
+        "content": "hello"
+      }
+    });
+    let display = compute_tool_display(ToolDisplayInput {
+      kind: ToolKind::DynamicToolCall,
+      family: ToolFamily::Generic,
+      status: ToolStatus::Completed,
+      title: "file_write",
+      subtitle: None,
+      summary: None,
+      duration_ms: Some(7),
+      invocation_input: Some(&invocation),
+      result_output: Some("{\"bytes_written\":5}"),
+    });
+
+    assert_eq!(display.summary, "file_write");
+    assert_eq!(display.tool_type, "dynamicTool");
+    assert_eq!(display.glyph_symbol, "wrench.and.screwdriver");
+    assert_eq!(display.glyph_color, "toolTask");
   }
 }

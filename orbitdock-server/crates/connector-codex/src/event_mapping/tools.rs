@@ -19,7 +19,7 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::time::Instant;
 
 const OUTPUT_STREAM_THROTTLE_MS: u128 = 120;
@@ -105,6 +105,103 @@ fn command_actions_from_parsed(parsed_cmd: &[ParsedCommand]) -> Vec<CommandExecu
     .collect()
 }
 
+fn command_token_basename(token: &str) -> String {
+  std::path::Path::new(token)
+    .file_name()
+    .map(|name| name.to_string_lossy().to_string())
+    .unwrap_or_else(|| token.to_string())
+    .to_ascii_lowercase()
+}
+
+fn strip_env_wrapper_tokens(command: &[String]) -> &[String] {
+  let Some(first) = command.first() else {
+    return command;
+  };
+  if command_token_basename(first.as_str()) != "env" {
+    return command;
+  }
+
+  let mut index = 1;
+  while index < command.len() {
+    let token = command[index].as_str();
+    if token == "-u" {
+      index += if index + 1 < command.len() { 2 } else { 1 };
+      continue;
+    }
+    if token.starts_with('-') {
+      index += 1;
+      continue;
+    }
+    if token.contains('=') {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  command.get(index..).unwrap_or_default()
+}
+
+fn shell_payload_index(command: &[String]) -> Option<usize> {
+  let first = command.first()?;
+  let shell = command_token_basename(first.as_str());
+
+  if matches!(
+    shell.as_str(),
+    "sh" | "bash" | "zsh" | "dash" | "ksh" | "mksh" | "ash" | "fish" | "csh" | "tcsh"
+  ) {
+    for (index, token) in command.iter().enumerate().skip(1) {
+      if token == "--" {
+        continue;
+      }
+      if let Some(flags) = token.strip_prefix('-') {
+        if token.starts_with("--") || flags.is_empty() {
+          continue;
+        }
+        if flags.chars().all(|ch| ch.is_ascii_alphabetic()) && flags.contains('c') {
+          return (index + 1 < command.len()).then_some(index + 1);
+        }
+        continue;
+      }
+      break;
+    }
+  }
+
+  if matches!(
+    shell.as_str(),
+    "pwsh" | "pwsh.exe" | "powershell" | "powershell.exe"
+  ) {
+    for (index, token) in command.iter().enumerate().skip(1) {
+      let lower = token.to_ascii_lowercase();
+      if lower == "-command" || lower == "-c" {
+        return (index + 1 < command.len()).then_some(index + 1);
+      }
+    }
+  }
+
+  if matches!(shell.as_str(), "cmd" | "cmd.exe") {
+    for (index, token) in command.iter().enumerate().skip(1) {
+      let lower = token.to_ascii_lowercase();
+      if lower == "/c" || lower == "/k" {
+        return (index + 1 < command.len()).then_some(index + 1);
+      }
+    }
+  }
+
+  None
+}
+
+fn display_command_from_exec_tokens(command: &[String]) -> String {
+  let stripped = strip_env_wrapper_tokens(command);
+  if let Some(index) = shell_payload_index(stripped) {
+    let inner = stripped[index..].join(" ").trim().to_string();
+    if !inner.is_empty() {
+      return inner;
+    }
+  }
+  command.join(" ")
+}
+
 fn command_preview(
   actions: &[CommandExecutionAction],
   live_output_preview: Option<&str>,
@@ -131,12 +228,135 @@ fn with_display(mut row: ToolRow) -> ToolRow {
   row
 }
 
+fn dynamic_tool_identity_from_name(
+  tool_name: &str,
+) -> Option<(ToolFamily, ToolKind, &'static str)> {
+  match tool_name {
+    "file_read" => Some((ToolFamily::FileRead, ToolKind::Read, "Read")),
+    "file_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
+    "file_edit" => Some((ToolFamily::FileChange, ToolKind::Edit, "Edit")),
+    _ => None,
+  }
+}
+
+fn dynamic_tool_identity_from_output(
+  output: Option<&String>,
+) -> Option<(ToolFamily, ToolKind, &'static str)> {
+  let parsed = dynamic_tool_raw_output_value(output)?;
+  let object = parsed.as_object()?;
+  if object.contains_key("bytes_written") {
+    return Some((ToolFamily::FileChange, ToolKind::Write, "Write"));
+  }
+  if object.contains_key("replacements") {
+    return Some((ToolFamily::FileChange, ToolKind::Edit, "Edit"));
+  }
+  if object.contains_key("content") && object.contains_key("truncated") {
+    return Some((ToolFamily::FileRead, ToolKind::Read, "Read"));
+  }
+  None
+}
+
+fn dynamic_tool_raw_output_value(output: Option<&String>) -> Option<Value> {
+  let output = output?;
+  match serde_json::from_str::<Value>(output).ok() {
+    Some(Value::String(inner)) => serde_json::from_str::<Value>(&inner)
+      .ok()
+      .or(Some(Value::String(inner))),
+    Some(parsed) => Some(parsed),
+    None => Some(Value::String(output.clone())),
+  }
+}
+
+fn dynamic_tool_result_payload(
+  tool_name: &str,
+  kind: ToolKind,
+  arguments: &Value,
+  output: Option<&String>,
+) -> (Option<String>, Value) {
+  let raw_output = dynamic_tool_raw_output_value(output);
+  let object = raw_output.as_ref().and_then(Value::as_object);
+  let path = object
+    .and_then(|map| map.get("path"))
+    .and_then(Value::as_str)
+    .map(ToOwned::to_owned);
+  let replacements = object
+    .and_then(|map| map.get("replacements"))
+    .and_then(Value::as_u64);
+  let bytes_written = object
+    .and_then(|map| map.get("bytes_written"))
+    .and_then(Value::as_u64);
+  let read_content = object
+    .and_then(|map| map.get("content"))
+    .and_then(Value::as_str)
+    .map(ToOwned::to_owned);
+  let read_truncated = object
+    .and_then(|map| map.get("truncated"))
+    .and_then(Value::as_bool);
+
+  let output_text = match kind {
+    ToolKind::Read => read_content.clone(),
+    ToolKind::Write => bytes_written
+      .map(|count| {
+        path
+          .as_deref()
+          .map(|value| format!("Wrote {count} bytes to {value}"))
+          .unwrap_or_else(|| format!("Wrote {count} bytes"))
+      })
+      .or_else(|| output.cloned()),
+    ToolKind::Edit => replacements
+      .map(|count| {
+        path
+          .as_deref()
+          .map(|value| format!("Applied {count} replacement(s) in {value}"))
+          .unwrap_or_else(|| format!("Applied {count} replacement(s)"))
+      })
+      .or_else(|| output.cloned()),
+    _ => output.cloned(),
+  };
+
+  let summary = match kind {
+    ToolKind::Read => path
+      .as_deref()
+      .map(|value| format!("Read {value}"))
+      .or_else(|| Some("Read file".to_string())),
+    ToolKind::Write | ToolKind::Edit => output_text.clone().or_else(|| output.cloned()),
+    _ => output.cloned(),
+  };
+
+  let mut result = serde_json::Map::new();
+  result.insert("tool_name".to_string(), json!(tool_name));
+  result.insert("raw_input".to_string(), arguments.clone());
+  if let Some(raw_output) = raw_output {
+    result.insert("raw_output".to_string(), raw_output);
+  }
+  if let Some(summary_text) = summary.as_ref() {
+    result.insert("summary".to_string(), json!(summary_text));
+  }
+  if let Some(output_text) = output_text.as_ref() {
+    result.insert("output".to_string(), json!(output_text));
+  }
+  if let Some(path) = path.as_ref() {
+    result.insert("path".to_string(), json!(path));
+  }
+  if let Some(bytes_written) = bytes_written {
+    result.insert("bytes_written".to_string(), json!(bytes_written));
+  }
+  if let Some(replacements) = replacements {
+    result.insert("replacements".to_string(), json!(replacements));
+  }
+  if let Some(truncated) = read_truncated {
+    result.insert("truncated".to_string(), json!(truncated));
+  }
+
+  (summary, Value::Object(result))
+}
+
 pub(crate) async fn handle_exec_command_begin(
   event: ExecCommandBeginEvent,
   output_buffers: &SharedOutputBuffers,
   env_tracker: &SharedEnvironmentTracker,
 ) -> Vec<ConnectorEvent> {
-  let command_str = event.command.join(" ");
+  let command_str = display_command_from_exec_tokens(&event.command);
   let cwd = event.cwd.display().to_string();
   let command_actions = command_actions_from_parsed(&event.parsed_cmd);
 
@@ -264,7 +484,7 @@ pub(crate) async fn handle_exec_command_end(
   let entry = command_execution_row_entry(CommandExecutionRow {
     id: event.call_id.clone(),
     status,
-    command: event.command.join(" "),
+    command: display_command_from_exec_tokens(&event.command),
     cwd: event.cwd.display().to_string(),
     process_id: event.process_id,
     command_actions,
@@ -618,14 +838,19 @@ pub(crate) fn handle_dynamic_tool_call_request(
   let call_id = event.call_id.clone();
   let tool = event.tool.clone();
   let arguments = event.arguments.clone();
+  let (family, kind, title) = dynamic_tool_identity_from_name(&tool).unwrap_or((
+    ToolFamily::Generic,
+    ToolKind::DynamicToolCall,
+    tool.as_str(),
+  ));
   vec![
     ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
       id: call_id.clone(),
       provider: Provider::Codex,
-      family: ToolFamily::Generic,
-      kind: ToolKind::DynamicToolCall,
+      family,
+      kind,
       status: ToolStatus::Running,
-      title: tool.clone(),
+      title: title.to_string(),
       subtitle: None,
       summary: None,
       preview: None,
@@ -652,6 +877,8 @@ pub(crate) fn handle_dynamic_tool_call_request(
 pub(crate) fn handle_dynamic_tool_call_response(
   event: DynamicToolCallResponseEvent,
 ) -> Vec<ConnectorEvent> {
+  let tool_name = event.tool.clone();
+  let arguments = event.arguments.clone();
   let output = dynamic_tool_output_to_text(&event.content_items, event.error);
   let status = if event.success {
     ToolStatus::Completed
@@ -659,28 +886,35 @@ pub(crate) fn handle_dynamic_tool_call_response(
     ToolStatus::Failed
   };
 
+  let (family, kind, title) = dynamic_tool_identity_from_output(output.as_ref())
+    .or_else(|| dynamic_tool_identity_from_name(&tool_name))
+    .unwrap_or((
+      ToolFamily::Generic,
+      ToolKind::DynamicToolCall,
+      tool_name.as_str(),
+    ));
+  let (summary, result) =
+    dynamic_tool_result_payload(tool_name.as_str(), kind, &arguments, output.as_ref());
+
   let entry = tool_row_entry(ToolRow {
     id: event.call_id.clone(),
     provider: Provider::Codex,
-    family: ToolFamily::Generic,
-    kind: ToolKind::DynamicToolCall,
+    family,
+    kind,
     status,
-    title: String::new(),
+    title: title.to_string(),
     subtitle: None,
-    summary: output.clone(),
+    summary,
     preview: None,
     started_at: None,
     ended_at: Some(iso_now()),
     duration_ms: Some(event.duration.as_millis() as u64),
     grouping_key: None,
     invocation: json!({
-        "tool_name": "",
+        "tool_name": tool_name.clone(),
+        "raw_input": arguments,
     }),
-    result: Some(json!({
-        "tool_name": "",
-        "raw_output": output.as_ref().map(|o| json!(o)),
-        "summary": output,
-    })),
+    result: Some(result),
     render_hints: Default::default(),
     tool_display: None,
   });
@@ -726,17 +960,21 @@ pub(crate) async fn handle_terminal_interaction(
 #[cfg(test)]
 mod tests {
   use super::{
-    handle_exec_command_begin, handle_exec_command_end, handle_exec_command_output_delta,
+    display_command_from_exec_tokens, handle_dynamic_tool_call_request,
+    handle_dynamic_tool_call_response, handle_exec_command_begin, handle_exec_command_end,
+    handle_exec_command_output_delta,
   };
   use crate::event_mapping::{SharedEnvironmentTracker, SharedOutputBuffers};
   use crate::runtime::EnvironmentTracker;
+  use codex_protocol::dynamic_tools::{DynamicToolCallOutputContentItem, DynamicToolCallRequest};
   use codex_protocol::parse_command::ParsedCommand;
   use codex_protocol::protocol::{
-    ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, ExecCommandSource,
-    ExecCommandStatus, ExecOutputStream,
+    DynamicToolCallResponseEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
+    ExecCommandOutputDeltaEvent, ExecCommandSource, ExecCommandStatus, ExecOutputStream,
   };
   use orbitdock_connector_core::ConnectorEvent;
   use orbitdock_protocol::conversation_contracts::ConversationRow;
+  use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
   use std::collections::HashMap;
   use std::path::PathBuf;
   use std::sync::Arc;
@@ -975,5 +1213,303 @@ mod tests {
       orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Declined
     );
     assert_eq!(row.aggregated_output.as_deref(), Some("permission denied"));
+  }
+
+  #[test]
+  fn display_command_from_exec_tokens_strips_shell_launcher_prefixes() {
+    assert_eq!(
+      display_command_from_exec_tokens(&[
+        "/bin/zsh".to_string(),
+        "-lc".to_string(),
+        "swiftc --version".to_string(),
+      ]),
+      "swiftc --version"
+    );
+    assert_eq!(
+      display_command_from_exec_tokens(&[
+        "/usr/bin/env".to_string(),
+        "SHELL=/bin/bash".to_string(),
+        "/bin/bash".to_string(),
+        "-lc".to_string(),
+        "cargo test -p orbitdock-server".to_string(),
+      ]),
+      "cargo test -p orbitdock-server"
+    );
+    assert_eq!(
+      display_command_from_exec_tokens(&[
+        "pwsh".to_string(),
+        "-NoProfile".to_string(),
+        "-Command".to_string(),
+        "Get-Item .".to_string(),
+      ]),
+      "Get-Item ."
+    );
+  }
+
+  #[test]
+  fn display_command_from_exec_tokens_preserves_non_shell_commands() {
+    assert_eq!(
+      display_command_from_exec_tokens(&["swiftc".to_string(), "-print-target-info".to_string(),]),
+      "swiftc -print-target-info"
+    );
+    assert_eq!(
+      display_command_from_exec_tokens(&[
+        "python3".to_string(),
+        "-m".to_string(),
+        "pip".to_string()
+      ]),
+      "python3 -m pip"
+    );
+  }
+
+  #[tokio::test]
+  async fn exec_command_begin_strips_shell_launcher_in_row_command() {
+    let events = handle_exec_command_begin(
+      ExecCommandBeginEvent {
+        call_id: "cmd-shell-wrap-1".to_string(),
+        process_id: Some("pty-shell-wrap-1".to_string()),
+        turn_id: "turn-shell-wrap-1".to_string(),
+        command: vec![
+          "/bin/zsh".to_string(),
+          "-lc".to_string(),
+          "swiftc -print-target-info".to_string(),
+        ],
+        cwd: PathBuf::from("/tmp/project"),
+        parsed_cmd: vec![ParsedCommand::Unknown {
+          cmd: "/bin/zsh -lc swiftc -print-target-info".to_string(),
+        }],
+        source: ExecCommandSource::Agent,
+        interaction_input: None,
+      },
+      &shared_output_buffers(),
+      &shared_env_tracker(),
+    )
+    .await;
+
+    let created = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
+      _ => None,
+    });
+
+    let entry = created.expect("command execution row");
+    let ConversationRow::CommandExecution(row) = entry.row else {
+      panic!("expected command execution row");
+    };
+    assert_eq!(row.command, "swiftc -print-target-info");
+  }
+
+  #[test]
+  fn dynamic_tool_request_maps_file_write_to_native_write_kind() {
+    let events = handle_dynamic_tool_call_request(DynamicToolCallRequest {
+      call_id: "call-dynamic-write-1".to_string(),
+      turn_id: "turn-dynamic-write-1".to_string(),
+      tool: "file_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "README.md",
+        "content": "hello"
+      }),
+    });
+    let created = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
+      _ => None,
+    });
+    let entry = created.expect("tool row created");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(tool.title, "Write");
+  }
+
+  #[test]
+  fn dynamic_tool_response_infers_native_read_kind_from_payload() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-read-1".to_string(),
+      turn_id: "turn-dynamic-read-1".to_string(),
+      tool: "file_read".to_string(),
+      arguments: serde_json::json!({
+        "path": "/tmp/readme.md"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "{\"content\":\"hello\",\"path\":\"/tmp/readme.md\",\"truncated\":false}".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(11),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileRead);
+    assert_eq!(tool.kind, ToolKind::Read);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Read");
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["path"], "/tmp/readme.md");
+    assert_eq!(result["output"], "hello");
+    assert_eq!(result["truncated"], false);
+  }
+
+  #[test]
+  fn dynamic_tool_response_falls_back_to_tool_name_for_native_kind() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-write-2".to_string(),
+      turn_id: "turn-dynamic-write-2".to_string(),
+      tool: "file_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "/tmp/readme.md",
+        "content": "hello"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "ok".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(7),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Write");
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["output"], "ok");
+  }
+
+  #[test]
+  fn dynamic_tool_response_infers_native_write_kind_from_payload() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-write-3".to_string(),
+      turn_id: "turn-dynamic-write-3".to_string(),
+      tool: "file_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "/tmp/readme.md",
+        "content": "hello"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "{\"path\":\"/tmp/readme.md\",\"bytes_written\":5}".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(5),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Write");
+    assert_eq!(
+      tool.summary.as_deref(),
+      Some("Wrote 5 bytes to /tmp/readme.md")
+    );
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["path"], "/tmp/readme.md");
+    assert_eq!(result["bytes_written"], 5);
+    assert_eq!(result["output"], "Wrote 5 bytes to /tmp/readme.md");
+  }
+
+  #[test]
+  fn dynamic_tool_response_infers_native_edit_kind_from_payload() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-edit-1".to_string(),
+      turn_id: "turn-dynamic-edit-1".to_string(),
+      tool: "file_edit".to_string(),
+      arguments: serde_json::json!({
+        "path": "/tmp/readme.md",
+        "old_string": "hello",
+        "new_string": "hi"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "{\"path\":\"/tmp/readme.md\",\"replacements\":2}".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(8),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Edit);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Edit");
+    assert_eq!(
+      tool.summary.as_deref(),
+      Some("Applied 2 replacement(s) in /tmp/readme.md")
+    );
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["path"], "/tmp/readme.md");
+    assert_eq!(result["replacements"], 2);
+    assert_eq!(
+      result["output"],
+      "Applied 2 replacement(s) in /tmp/readme.md"
+    );
+  }
+
+  #[test]
+  fn dynamic_tool_response_unwraps_json_encoded_string_payload_for_compact_summary() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-edit-encoded-json-1".to_string(),
+      turn_id: "turn-dynamic-edit-encoded-json-1".to_string(),
+      tool: "file_edit".to_string(),
+      arguments: serde_json::json!({
+        "path": "/tmp/readme.md",
+        "old_string": "hello",
+        "new_string": "hi"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "\"{\\\"path\\\":\\\"/tmp/readme.md\\\",\\\"replacements\\\":1}\"".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(6),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Edit);
+    assert_eq!(
+      tool.summary.as_deref(),
+      Some("Applied 1 replacement(s) in /tmp/readme.md")
+    );
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["path"], "/tmp/readme.md");
+    assert_eq!(result["replacements"], 1);
+    assert_eq!(
+      result["output"],
+      "Applied 1 replacement(s) in /tmp/readme.md"
+    );
   }
 }
