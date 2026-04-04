@@ -15,6 +15,9 @@ use orbitdock_protocol::{
   StateChanges, TokenUsage, WorkStatus,
 };
 
+use orbitdock_protocol::ServerMessage;
+
+use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
   load_messages_for_session, load_messages_from_transcript_path,
   load_token_usage_from_transcript_path, PersistCommand,
@@ -418,6 +421,64 @@ pub(crate) async fn mark_direct_session_connector_detached(
       }),
     })
     .await;
+
+  state.publish_dashboard_snapshot();
+}
+
+/// Apply connector-detached state directly on a `SessionHandle` owned by the
+/// caller. This is used by the connector event loop cleanup where the actor
+/// command channel is part of the same select loop and can no longer process
+/// commands after the loop breaks.
+pub(crate) async fn apply_connector_detached_directly(
+  handle: &mut SessionHandle,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  provider: Provider,
+) {
+  let snap = handle.to_snapshot();
+  if snap.status != SessionStatus::Active
+    || snap.control_mode != orbitdock_protocol::SessionControlMode::Direct
+    || snap.lifecycle_state != SessionLifecycleState::Open
+  {
+    return;
+  }
+
+  let mut changes = StateChanges {
+    lifecycle_state: Some(SessionLifecycleState::Resumable),
+    work_status: Some(WorkStatus::Waiting),
+    steerable: Some(false),
+    ..Default::default()
+  };
+
+  match provider {
+    Provider::Codex => {
+      changes.codex_integration_mode = Some(Some(CodexIntegrationMode::Direct));
+    }
+    Provider::Claude => {
+      changes.claude_integration_mode = Some(Some(ClaudeIntegrationMode::Direct));
+    }
+  }
+
+  handle.apply_changes(&changes);
+  handle.refresh_snapshot();
+
+  let _ = persist_tx
+    .send(PersistCommand::SessionUpdate {
+      id: session_id.to_string(),
+      status: None,
+      work_status: Some(WorkStatus::Waiting),
+      control_mode: None,
+      lifecycle_state: Some(SessionLifecycleState::Resumable),
+      last_activity_at: None,
+      last_progress_at: None,
+    })
+    .await;
+
+  handle.broadcast(ServerMessage::SessionDelta {
+    session_id: session_id.to_string(),
+    changes: Box::new(changes),
+  });
 
   state.publish_dashboard_snapshot();
 }

@@ -575,7 +575,12 @@ pub fn start_event_loop(
     if let Some(h) = interrupt_watchdog.take() {
       h.abort();
     }
-    crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+    // Apply detach state directly on the handle we own — the actor command
+    // channel is part of THIS task's select loop which has already broken, so
+    // sending via `actor.send()` would buffer the command but never process it.
+    crate::runtime::session_runtime_helpers::apply_connector_detached_directly(
+      &mut session_handle,
+      &persist,
       &state,
       &session_id,
       orbitdock_protocol::Provider::Codex,
