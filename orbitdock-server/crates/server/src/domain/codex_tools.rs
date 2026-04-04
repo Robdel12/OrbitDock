@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use serde_json::{json, Value};
@@ -92,6 +92,29 @@ pub fn codex_workspace_tool_definitions() -> Vec<CodexWorkspaceToolDef> {
         "additionalProperties": false
       }),
     },
+    CodexWorkspaceToolDef {
+      name: "plan_write".to_string(),
+      description: "Write markdown plan content to a file under plans/.".to_string(),
+      input_schema: json!({
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path under plans/, or absolute path within plans/."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full markdown content for the plan document."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "When true, overwrite an existing file. Defaults to false."
+          }
+        },
+        "additionalProperties": false
+      }),
+    },
   ]
 }
 
@@ -157,6 +180,7 @@ pub fn execute_codex_workspace_tool(
     "file_read" => exec_file_read(ctx, &arguments),
     "file_write" => exec_file_write(ctx, &arguments),
     "file_edit" => exec_file_edit(ctx, &arguments),
+    "plan_write" => exec_plan_write(ctx, &arguments),
     _ => return None,
   };
 
@@ -297,6 +321,42 @@ fn exec_file_edit(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspa
   }))
 }
 
+fn exec_plan_write(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorkspaceToolResult {
+  let path = match required_string(args, "path") {
+    Ok(path) => path,
+    Err(error) => return tool_error(error),
+  };
+  let content = match required_string(args, "content") {
+    Ok(content) => content,
+    Err(error) => return tool_error(error),
+  };
+  let overwrite = args
+    .get("overwrite")
+    .and_then(Value::as_bool)
+    .unwrap_or(false);
+
+  let resolved = match resolve_plan_write_path(ctx, path) {
+    Ok(path) => path,
+    Err(error) => return tool_error(error),
+  };
+
+  if resolved.is_dir() {
+    return tool_error("target path is a directory".to_string());
+  }
+  if resolved.exists() && !overwrite {
+    return tool_error("target file already exists; set overwrite=true to replace it".to_string());
+  }
+  if let Err(error) = fs::write(&resolved, content) {
+    return tool_error(format!("failed to write plan file: {error}"));
+  }
+
+  tool_ok(json!({
+    "path": resolved.to_string_lossy(),
+    "bytes_written": content.len(),
+    "plan_written": true
+  }))
+}
+
 fn required_string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
   args
     .get(key)
@@ -343,6 +403,58 @@ fn resolve_write_path(
   Ok(canonical_parent.join(file_name))
 }
 
+fn resolve_plan_write_path(
+  ctx: &CodexWorkspaceToolContext,
+  input_path: &str,
+) -> Result<PathBuf, String> {
+  let canonical_project_root = fs::canonicalize(&ctx.project_path)
+    .map_err(|error| format!("failed to resolve project root: {error}"))?;
+  let plans_root = canonical_project_root.join("plans");
+  fs::create_dir_all(&plans_root)
+    .map_err(|error| format!("failed to create plans directory: {error}"))?;
+  let canonical_plans_root = fs::canonicalize(&plans_root)
+    .map_err(|error| format!("failed to resolve plans root: {error}"))?;
+
+  let parsed_input = PathBuf::from(input_path);
+  if parsed_input.as_os_str().is_empty() {
+    return Err("path must not be empty".to_string());
+  }
+  if has_parent_dir_component(&parsed_input) {
+    return Err("path must not contain '..' segments".to_string());
+  }
+
+  let candidate = if parsed_input.is_absolute() {
+    parsed_input
+  } else {
+    canonical_plans_root.join(parsed_input)
+  };
+  if candidate.file_name().is_none() {
+    return Err("path must include a file name".to_string());
+  }
+  ensure_path_within_root(&candidate, &canonical_plans_root, "plans")?;
+
+  if candidate.exists() {
+    let canonical_candidate =
+      fs::canonicalize(&candidate).map_err(|error| format!("failed to resolve path: {error}"))?;
+    ensure_path_within_root(&canonical_candidate, &canonical_plans_root, "plans")?;
+    return Ok(canonical_candidate);
+  }
+
+  let file_name = candidate
+    .file_name()
+    .ok_or_else(|| "path must include a file name".to_string())?
+    .to_owned();
+  let parent = candidate
+    .parent()
+    .ok_or_else(|| "path must have a parent directory".to_string())?;
+  fs::create_dir_all(parent)
+    .map_err(|error| format!("failed to create parent directory: {error}"))?;
+  let canonical_parent = fs::canonicalize(parent)
+    .map_err(|error| format!("failed to resolve parent directory: {error}"))?;
+  ensure_path_within_root(&canonical_parent, &canonical_plans_root, "plans")?;
+  Ok(canonical_parent.join(file_name))
+}
+
 fn resolve_unscoped_path(ctx: &CodexWorkspaceToolContext, input_path: &str) -> PathBuf {
   let candidate = PathBuf::from(input_path);
   if candidate.is_absolute() {
@@ -351,6 +463,22 @@ fn resolve_unscoped_path(ctx: &CodexWorkspaceToolContext, input_path: &str) -> P
 
   let base = ctx.current_cwd.as_deref().unwrap_or(&ctx.project_path);
   Path::new(base).join(candidate)
+}
+
+fn has_parent_dir_component(path: &Path) -> bool {
+  path
+    .components()
+    .any(|component| matches!(component, Component::ParentDir))
+}
+
+fn ensure_path_within_root(candidate: &Path, root: &Path, root_name: &str) -> Result<(), String> {
+  if candidate.starts_with(root) {
+    return Ok(());
+  }
+  Err(format!(
+    "path escapes {root_name} directory: {}",
+    root.to_string_lossy()
+  ))
 }
 
 fn ensure_path_within_project(
@@ -394,28 +522,37 @@ mod tests {
   }
 
   #[test]
-  fn dynamic_tool_specs_include_three_workspace_tools() {
+  fn dynamic_tool_specs_include_workspace_tools() {
     let specs = codex_workspace_dynamic_tool_specs();
     let names: Vec<String> = specs.into_iter().map(|spec| spec.name).collect();
-    assert_eq!(names, vec!["file_read", "file_write", "file_edit"]);
+    assert_eq!(
+      names,
+      vec!["file_read", "file_write", "file_edit", "plan_write"]
+    );
   }
 
   #[test]
   fn default_workspace_tools_are_appended_when_missing() {
     let merged = with_default_codex_workspace_tools(Vec::new());
     let names: Vec<String> = merged.into_iter().map(|spec| spec.name).collect();
-    assert_eq!(names, vec!["file_read", "file_write", "file_edit"]);
+    assert_eq!(
+      names,
+      vec!["file_read", "file_write", "file_edit", "plan_write"]
+    );
   }
 
   #[test]
-  fn default_workspace_tools_json_contains_all_three_tools() {
+  fn default_workspace_tools_json_contains_all_workspace_tools() {
     let tools = default_codex_dynamic_tools_json(false);
     let names: Vec<String> = tools
       .iter()
       .filter_map(|tool| tool.get("name").and_then(Value::as_str))
       .map(ToOwned::to_owned)
       .collect();
-    assert_eq!(names, vec!["file_read", "file_write", "file_edit"]);
+    assert_eq!(
+      names,
+      vec!["file_read", "file_write", "file_edit", "plan_write"]
+    );
   }
 
   #[test]
@@ -454,7 +591,10 @@ mod tests {
       defer_loading: false,
     }]);
     let names: Vec<&str> = merged.iter().map(|tool| tool.name.as_str()).collect();
-    assert_eq!(names, vec!["file_read", "file_write", "file_edit"]);
+    assert_eq!(
+      names,
+      vec!["file_read", "file_write", "file_edit", "plan_write"]
+    );
     assert_eq!(merged[0].description, "custom read");
   }
 
@@ -540,6 +680,82 @@ mod tests {
     .expect("file_read tool result");
     assert!(!read.success);
     assert!(read.output.contains("escapes project root"));
+  }
+
+  #[test]
+  fn plan_write_writes_markdown_within_plans_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ctx = test_context(temp.path());
+    let result = execute_codex_workspace_tool(
+      &ctx,
+      "plan_write",
+      json!({
+        "path": "roadmaps/plan-write.md",
+        "content": "# Plan Write\n\n- [ ] Implement tool\n"
+      }),
+    )
+    .expect("plan_write tool result");
+    assert!(result.success);
+
+    let payload: Value = serde_json::from_str(&result.output).expect("plan output json");
+    assert_eq!(payload["plan_written"], true);
+    let path = payload["path"].as_str().expect("plan path");
+    assert!(path.ends_with("plans/roadmaps/plan-write.md"));
+    let written = fs::read_to_string(path).expect("read plan file");
+    assert!(written.contains("# Plan Write"));
+  }
+
+  #[test]
+  fn plan_write_rejects_paths_outside_plans_directory() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ctx = test_context(temp.path());
+    let result = execute_codex_workspace_tool(
+      &ctx,
+      "plan_write",
+      json!({
+        "path": "../outside.md",
+        "content": "oops"
+      }),
+    )
+    .expect("plan_write tool result");
+    assert!(!result.success);
+    assert!(result.output.contains("must not contain '..'"));
+  }
+
+  #[test]
+  fn plan_write_requires_overwrite_to_replace_existing_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let ctx = test_context(temp.path());
+    let plans = temp.path().join("plans");
+    fs::create_dir_all(&plans).expect("create plans");
+    let target = plans.join("existing.md");
+    fs::write(&target, "initial").expect("seed existing plan");
+
+    let denied = execute_codex_workspace_tool(
+      &ctx,
+      "plan_write",
+      json!({
+        "path": "existing.md",
+        "content": "next"
+      }),
+    )
+    .expect("plan_write tool result");
+    assert!(!denied.success);
+    assert!(denied.output.contains("overwrite=true"));
+
+    let allowed = execute_codex_workspace_tool(
+      &ctx,
+      "plan_write",
+      json!({
+        "path": "existing.md",
+        "content": "next",
+        "overwrite": true
+      }),
+    )
+    .expect("plan_write overwrite result");
+    assert!(allowed.success);
+    let final_content = fs::read_to_string(target).expect("read overwritten plan");
+    assert_eq!(final_content, "next");
   }
 
   #[test]

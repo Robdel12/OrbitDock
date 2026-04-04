@@ -253,6 +253,7 @@ fn dynamic_tool_identity_from_name(
     "file_read" => Some((ToolFamily::FileRead, ToolKind::Read, "Read")),
     "file_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
     "file_edit" => Some((ToolFamily::FileChange, ToolKind::Edit, "Edit")),
+    "plan_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
     _ => None,
   }
 }
@@ -1538,6 +1539,31 @@ mod tests {
   }
 
   #[test]
+  fn dynamic_tool_request_maps_plan_write_to_native_write_kind() {
+    let events = handle_dynamic_tool_call_request(DynamicToolCallRequest {
+      call_id: "call-dynamic-plan-write-1".to_string(),
+      turn_id: "turn-dynamic-plan-write-1".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+    });
+    let created = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
+      _ => None,
+    });
+    let entry = created.expect("tool row created");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(tool.title, "Write");
+  }
+
+  #[test]
   fn dynamic_tool_response_infers_native_read_kind_from_payload() {
     let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
       call_id: "call-dynamic-read-1".to_string(),
@@ -1587,6 +1613,39 @@ mod tests {
       }],
       error: None,
       duration: Duration::from_millis(7),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Write");
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["output"], "ok");
+  }
+
+  #[test]
+  fn dynamic_tool_response_falls_back_to_tool_name_for_plan_write() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-plan-write-2".to_string(),
+      turn_id: "turn-dynamic-plan-write-2".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "ok".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(6),
     });
     let updated = events.into_iter().find_map(|event| match event {
       ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
