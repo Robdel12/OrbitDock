@@ -147,7 +147,7 @@ struct SessionDetailView: View {
     }
     // Diff-available banner trigger
     .onChange(of: viewModel.reviewState.turnCount) { oldCount, newCount in
-      _ = viewModel.handleReviewTurnCountChange(oldCount: oldCount, newCount: newCount)
+      handleReviewTurnCountChange(oldCount: oldCount, newCount: newCount)
     }
   }
 

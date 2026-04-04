@@ -120,6 +120,33 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         .and_then(CodexApprovalPolicy::from_storage_text)
     });
 
+  let turn_diffs: Vec<TurnDiff> = restored
+    .turn_diffs
+    .into_iter()
+    .map(
+      |(
+        turn_id,
+        diff,
+        input_tokens,
+        output_tokens,
+        cached_tokens,
+        context_window,
+        snapshot_kind,
+      )| TurnDiff {
+        turn_id,
+        diff,
+        token_usage: Some(TokenUsage {
+          input_tokens: input_tokens as u64,
+          output_tokens: output_tokens as u64,
+          cached_tokens: cached_tokens as u64,
+          context_window: context_window as u64,
+        }),
+        snapshot_kind: Some(snapshot_kind),
+      },
+    )
+    .collect();
+  let turn_count = turn_diffs.len() as u64;
+
   SessionState {
     id: restored.id,
     provider,
@@ -181,32 +208,8 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     forked_from_session_id: restored.forked_from_session_id,
     revision: Some(0),
     current_turn_id: None,
-    turn_count: 0,
-    turn_diffs: restored
-      .turn_diffs
-      .into_iter()
-      .map(
-        |(
-          turn_id,
-          diff,
-          input_tokens,
-          output_tokens,
-          cached_tokens,
-          context_window,
-          snapshot_kind,
-        )| TurnDiff {
-          turn_id,
-          diff,
-          token_usage: Some(TokenUsage {
-            input_tokens: input_tokens as u64,
-            output_tokens: output_tokens as u64,
-            cached_tokens: cached_tokens as u64,
-            context_window: context_window as u64,
-          }),
-          snapshot_kind: Some(snapshot_kind),
-        },
-      )
-      .collect(),
+    turn_count,
+    turn_diffs,
     git_branch: restored.git_branch,
     git_sha: restored.git_sha,
     current_cwd: restored.current_cwd,
@@ -447,6 +450,7 @@ fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrat
 #[cfg(test)]
 mod tests {
   use super::*;
+  use orbitdock_protocol::{SessionControlMode, SessionLifecycleState, TokenUsageSnapshotKind};
 
   #[test]
   fn parse_provider_valid_lowercase() {
@@ -468,5 +472,99 @@ mod tests {
     assert_eq!(parse_provider("gpt4"), Provider::Claude);
     assert_eq!(parse_provider("unknown"), Provider::Claude);
     assert_eq!(parse_provider("  codex  "), Provider::Claude);
+  }
+
+  #[test]
+  fn restored_state_sets_turn_count_from_persisted_turn_diffs() {
+    let mut restored = fixture_restored_session();
+    restored.turn_diffs = vec![
+      (
+        "turn-1".to_string(),
+        "diff 1".to_string(),
+        1,
+        2,
+        3,
+        4,
+        TokenUsageSnapshotKind::ContextTurn,
+      ),
+      (
+        "turn-2".to_string(),
+        "diff 2".to_string(),
+        5,
+        6,
+        7,
+        8,
+        TokenUsageSnapshotKind::LifetimeTotals,
+      ),
+    ];
+
+    let state = restored_session_to_state(restored);
+    assert_eq!(state.turn_count, 2);
+    assert_eq!(state.turn_diffs.len(), 2);
+  }
+
+  fn fixture_restored_session() -> RestoredSession {
+    RestoredSession {
+      id: "session-1".to_string(),
+      provider: "codex".to_string(),
+      status: "active".to_string(),
+      work_status: "waiting".to_string(),
+      control_mode: SessionControlMode::Direct,
+      lifecycle_state: SessionLifecycleState::Open,
+      project_path: "/tmp/project".to_string(),
+      transcript_path: None,
+      project_name: None,
+      model: None,
+      custom_name: None,
+      summary: None,
+      codex_integration_mode: None,
+      claude_integration_mode: None,
+      codex_thread_id: None,
+      claude_sdk_session_id: None,
+      started_at: None,
+      last_activity_at: None,
+      last_progress_at: None,
+      approval_policy: None,
+      sandbox_mode: None,
+      permission_mode: None,
+      collaboration_mode: None,
+      multi_agent: None,
+      personality: None,
+      service_tier: None,
+      developer_instructions: None,
+      codex_config_mode: None,
+      codex_config_profile: None,
+      codex_model_provider: None,
+      codex_config_source: None,
+      codex_config_overrides: None,
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      context_window: 0,
+      token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
+      pending_tool_name: None,
+      pending_tool_input: None,
+      pending_question: None,
+      pending_approval_id: None,
+      rows: Vec::new(),
+      forked_from_session_id: None,
+      current_diff: None,
+      current_plan: None,
+      turn_diffs: Vec::new(),
+      git_branch: None,
+      git_sha: None,
+      current_cwd: None,
+      first_prompt: None,
+      last_message: None,
+      end_reason: None,
+      effort: None,
+      terminal_session_id: None,
+      terminal_app: None,
+      approval_version: 0,
+      unread_count: 0,
+      mission_id: None,
+      issue_identifier: None,
+      allow_bypass_permissions: false,
+    }
   }
 }
