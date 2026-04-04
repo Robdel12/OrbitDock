@@ -406,14 +406,17 @@ pub async fn create_session(
     DirectSessionRequest {
       provider: body.provider,
       cwd: body.cwd.clone(),
-      model: resolved_codex
-        .as_ref()
-        .and_then(|resolved| resolved.effective_settings.model.clone())
-        .or_else(|| {
-          normalized_codex_selection
-            .as_ref()
-            .and_then(|selection| selection.overrides.model.clone())
-        }),
+      model: match body.provider {
+        Provider::Claude => body.model.clone(),
+        Provider::Codex => resolved_codex
+          .as_ref()
+          .and_then(|resolved| resolved.effective_settings.model.clone())
+          .or_else(|| {
+            normalized_codex_selection
+              .as_ref()
+              .and_then(|selection| selection.overrides.model.clone())
+          }),
+      },
       approval_policy: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.approval_policy.clone())
@@ -433,14 +436,17 @@ pub async fn create_session(
       permission_mode: body.permission_mode.clone(),
       allowed_tools: body.allowed_tools.clone(),
       disallowed_tools: body.disallowed_tools.clone(),
-      effort: resolved_codex
-        .as_ref()
-        .and_then(|resolved| resolved.effective_settings.effort.clone())
-        .or_else(|| {
-          normalized_codex_selection
-            .as_ref()
-            .and_then(|selection| selection.overrides.effort.clone())
-        }),
+      effort: match body.provider {
+        Provider::Claude => body.effort.clone(),
+        Provider::Codex => resolved_codex
+          .as_ref()
+          .and_then(|resolved| resolved.effective_settings.effort.clone())
+          .or_else(|| {
+            normalized_codex_selection
+              .as_ref()
+              .and_then(|selection| selection.overrides.effort.clone())
+          }),
+      },
       collaboration_mode: resolved_codex
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.collaboration_mode.clone())

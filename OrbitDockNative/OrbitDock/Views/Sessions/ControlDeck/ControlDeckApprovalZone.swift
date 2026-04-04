@@ -23,7 +23,11 @@ struct ControlDeckApprovalZone: View {
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       header
-      content
+
+      ScrollView(.vertical, showsIndicators: true) {
+        content
+      }
+      .frame(maxHeight: 240)
     }
     .padding(.horizontal, Spacing.md)
     .padding(.vertical, Spacing.sm_)
@@ -190,7 +194,7 @@ struct ControlDeckApprovalZone: View {
     Text(command)
       .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
       .foregroundStyle(Color.textPrimary)
-      .lineLimit(6)
+      .fixedSize(horizontal: false, vertical: true)
       .textSelection(.enabled)
       .padding(.horizontal, Spacing.sm)
       .padding(.vertical, Spacing.sm_)
