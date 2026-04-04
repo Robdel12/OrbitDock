@@ -32,8 +32,10 @@ enum MarkdownSystemParser {
 
   #if os(iOS)
     private nonisolated static let maxCacheSize = 160
+    private nonisolated static let maxCacheableMarkdownCharacters = 3_000
   #else
     private nonisolated static let maxCacheSize = 500
+    private nonisolated static let maxCacheableMarkdownCharacters = 8_000
   #endif
   private nonisolated static let evictionBatchSize = 64
 
@@ -43,6 +45,12 @@ enum MarkdownSystemParser {
   // MARK: - Public API
 
   static func parse(_ markdown: String, style: ContentStyle = .standard) -> [MarkdownBlock] {
+    // Large chat rows are expensive to keep in parser cache and can dominate
+    // conversation RAM. Parse them on demand without storing cache entries.
+    if markdown.count > maxCacheableMarkdownCharacters {
+      return parseUncached(markdown, style: style)
+    }
+
     let key = CacheKey(markdown: markdown, style: style)
 
     if let cached = cache.withLock({ state -> [MarkdownBlock]? in

@@ -5,6 +5,11 @@ import Observation
 @Observable
 final class ConversationTimelineViewModel {
   private let fetchedRowContentLimit = 24
+  #if os(iOS)
+    private let fetchedRowContentTotalCostLimit = 1_500_000
+  #else
+    private let fetchedRowContentTotalCostLimit = 4_000_000
+  #endif
   private var currentSessionId: String?
   private var currentViewMode: ChatViewMode = .focused
   private var projection = TimelineDataSource.Projection.make(entries: [], viewMode: .focused)
@@ -13,6 +18,8 @@ final class ConversationTimelineViewModel {
 
   private var expandedRowIDs: Set<String> = []
   private var fetchedRowContent: [String: ServerRowContent] = [:]
+  private var fetchedRowContentCostByRowID: [String: Int] = [:]
+  private var fetchedRowContentTotalCost = 0
   private var fetchedRowContentOrder: [String] = []
   private var rowContentFetchInFlight: Set<String> = []
 
@@ -107,6 +114,8 @@ final class ConversationTimelineViewModel {
     projection = TimelineDataSource.Projection.make(entries: [], viewMode: currentViewMode)
     expandedRowIDs.removeAll()
     fetchedRowContent.removeAll()
+    fetchedRowContentCostByRowID.removeAll()
+    fetchedRowContentTotalCost = 0
     fetchedRowContentOrder.removeAll()
     rowContentFetchInFlight.removeAll()
     lastStructureRevision = 0
@@ -114,19 +123,55 @@ final class ConversationTimelineViewModel {
   }
 
   private func cacheRowContent(_ content: ServerRowContent, for rowId: String) {
+    let estimatedCost = estimatedCost(for: content)
+    if let existingCost = fetchedRowContentCostByRowID[rowId] {
+      fetchedRowContentTotalCost -= existingCost
+    }
     fetchedRowContent[rowId] = content
+    fetchedRowContentCostByRowID[rowId] = estimatedCost
+    fetchedRowContentTotalCost += estimatedCost
     fetchedRowContentOrder.removeAll { $0 == rowId }
     fetchedRowContentOrder.append(rowId)
-    while fetchedRowContentOrder.count > fetchedRowContentLimit {
+
+    while fetchedRowContentOrder.count > fetchedRowContentLimit
+      || fetchedRowContentTotalCost > fetchedRowContentTotalCostLimit
+    {
+      if fetchedRowContentOrder.count == 1 {
+        break
+      }
       let evicted = fetchedRowContentOrder.removeFirst()
-      fetchedRowContent.removeValue(forKey: evicted)
+      removeCachedContent(for: evicted)
     }
   }
 
   private func pruneCaches(validRowIDs: Set<String>) {
     expandedRowIDs = expandedRowIDs.filter { validRowIDs.contains($0) }
-    fetchedRowContent = fetchedRowContent.filter { validRowIDs.contains($0.key) }
+    let staleContentRowIDs = Set(fetchedRowContent.keys).subtracting(validRowIDs)
+    for rowId in staleContentRowIDs {
+      removeCachedContent(for: rowId)
+    }
     fetchedRowContentOrder = fetchedRowContentOrder.filter { validRowIDs.contains($0) }
     rowContentFetchInFlight = rowContentFetchInFlight.filter { validRowIDs.contains($0) }
+  }
+
+  private func removeCachedContent(for rowId: String) {
+    fetchedRowContent.removeValue(forKey: rowId)
+    if let removedCost = fetchedRowContentCostByRowID.removeValue(forKey: rowId) {
+      fetchedRowContentTotalCost = max(fetchedRowContentTotalCost - removedCost, 0)
+    }
+    fetchedRowContentOrder.removeAll { $0 == rowId }
+  }
+
+  private func estimatedCost(for content: ServerRowContent) -> Int {
+    var total = 256
+    total += content.inputDisplay?.utf8.count ?? 0
+    total += content.outputDisplay?.utf8.count ?? 0
+    total += content.language?.utf8.count ?? 0
+    if let diffDisplay = content.diffDisplay {
+      for line in diffDisplay {
+        total += line.content.utf8.count + 24
+      }
+    }
+    return max(total, 1)
   }
 }
