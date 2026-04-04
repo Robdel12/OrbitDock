@@ -784,15 +784,20 @@ pub async fn handle_hook_message_with_options(
 mod tests {
   use super::{handle_hook_message, CodexHookHandlingOptions};
   use crate::domain::sessions::session::SessionHandle;
+  use crate::infrastructure::migration_runner;
+  use crate::infrastructure::paths;
   use crate::infrastructure::persistence::PersistCommand;
   use crate::runtime::session_registry::SessionRegistry;
-  use crate::support::test_support::ensure_server_test_data_dir;
+  use crate::support::test_support::{ensure_server_test_data_dir, test_env_lock};
   use orbitdock_protocol::{
     ClientMessage, CodexIntegrationMode, Provider, SessionControlMode, WorkStatus,
   };
+  use rusqlite::Connection;
   use serde_json::json;
-  use std::sync::Arc;
+  use std::sync::{Arc, Once};
   use tokio::sync::mpsc;
+
+  static INIT_TEST_DB: Once = Once::new();
 
   fn collect_persist_commands(rx: &mut mpsc::Receiver<PersistCommand>) -> Vec<PersistCommand> {
     let mut commands = Vec::new();
@@ -802,9 +807,18 @@ mod tests {
     commands
   }
 
+  fn prepare_test_db() {
+    INIT_TEST_DB.call_once(|| {
+      let mut conn = Connection::open(paths::db_path()).expect("open test db");
+      migration_runner::run_migrations(&mut conn).expect("run test migrations");
+    });
+  }
+
   #[tokio::test]
   async fn user_prompt_materializes_passive_codex_session_and_persists_metadata() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
     let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
 
@@ -889,7 +903,9 @@ mod tests {
 
   #[tokio::test]
   async fn direct_codex_hook_traffic_updates_owner_without_materializing_shadow() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
     let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
 
@@ -918,7 +934,9 @@ mod tests {
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
 
-    assert!(state.get_session("codex-thread-direct").is_none());
+    assert!(!state
+      .iter_sessions()
+      .any(|entry| entry.key() == "codex-thread-direct"));
     let owner = state
       .get_session("od-direct-codex")
       .expect("direct owner should still exist");
@@ -953,7 +971,9 @@ mod tests {
 
   #[tokio::test]
   async fn passive_pre_tool_use_sets_pending_attention_and_persists_it() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
     let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
 
@@ -1022,7 +1042,9 @@ mod tests {
 
   #[tokio::test]
   async fn passive_post_tool_use_clears_pending_attention_and_increments_tool_count() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
     let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
 
@@ -1101,7 +1123,9 @@ mod tests {
 
   #[tokio::test]
   async fn direct_pre_tool_use_updates_owner_without_materializing_shadow() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
     let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
 
@@ -1134,7 +1158,9 @@ mod tests {
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
 
-    assert!(state.get_session("codex-thread-direct-tool").is_none());
+    assert!(!state
+      .iter_sessions()
+      .any(|entry| entry.key() == "codex-thread-direct-tool"));
     let owner = state
       .get_session("od-direct-tool-owner")
       .expect("direct owner should still exist");

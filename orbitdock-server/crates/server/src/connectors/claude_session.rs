@@ -94,6 +94,12 @@ pub fn start_event_loop(
                           hook_session_id = %hook_sid,
                           "Registering hook session ID as managed thread"
                       );
+                      let _ = persist
+                          .send(PersistCommand::SetClaudeSdkSessionId {
+                              session_id: session_id.clone(),
+                              claude_sdk_session_id: hook_sid.clone(),
+                          })
+                          .await;
                       state.register_claude_thread(&session_id, hook_sid);
                       let _ = persist
                           .send(PersistCommand::CleanupClaudeShadowSession {
