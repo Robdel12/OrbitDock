@@ -125,6 +125,11 @@ struct ControlDeckScreen: View {
         await viewModel.refresh()
       }
     }
+    .onChange(of: viewModel.pendingApproval) { old, new in
+      if old == nil, new != nil {
+        Platform.services.playHaptic(.warning)
+      }
+    }
     .onChange(of: dictationController.liveTranscript) { _, transcript in
       guard dictationController.isRecording else { return }
       updateDictationLivePreview(transcript)
@@ -471,6 +476,9 @@ struct ControlDeckScreen: View {
         await viewModel.refresh()
       } catch {
         viewModel.lastError = String(describing: error)
+        // Refresh to pick up server-side state changes (e.g. session moved
+        // to Resumable after connector detached) so the UI reflects reality.
+        await viewModel.refresh()
       }
     }
   }
