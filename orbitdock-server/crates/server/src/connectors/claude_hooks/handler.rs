@@ -196,15 +196,18 @@ pub async fn handle_hook_message_with_options(
 
       // If there's a direct Claude session awaiting SDK ID registration, claim it eagerly.
       if let Some(owning_id) = state.find_unregistered_direct_claude_session(&cwd) {
-        state.register_claude_thread(&owning_id, &session_id);
-        let _ = state
+        let registered = state.register_claude_thread(&owning_id, &session_id);
+        let persisted = state
           .persist()
           .send(PersistCommand::SetClaudeSdkSessionId {
             session_id: owning_id,
-            claude_sdk_session_id: session_id,
+            claude_sdk_session_id: session_id.clone(),
           })
-          .await;
-        return;
+          .await
+          .is_ok();
+        if registered || persisted {
+          return;
+        }
       }
 
       // If session already exists (e.g. restored from DB), update it directly

@@ -206,13 +206,24 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
   thread_id: &str,
   cleanup_reason: &str,
 ) {
-  let _ = persist_tx
+  let persisted = persist_tx
     .send(PersistCommand::SetThreadId {
       session_id: session_id.to_string(),
       thread_id: thread_id.to_string(),
     })
-    .await;
-  state.register_codex_thread(session_id, thread_id);
+    .await
+    .is_ok();
+  let registered = state.register_codex_thread(session_id, thread_id);
+
+  if !registered && !persisted {
+    tracing::warn!(
+      component = "session",
+      event = "session.direct.codex_thread_claim_failed",
+      session_id = %session_id,
+      thread_id = %thread_id,
+      "Failed to persist direct Codex thread ownership mapping"
+    );
+  }
 
   if thread_id != session_id && state.remove_session(thread_id).is_some() {
     state.publish_dashboard_snapshot();

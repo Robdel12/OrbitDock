@@ -277,15 +277,17 @@ async fn maybe_claim_direct_codex_session(
     return false;
   };
 
-  state.register_codex_thread(&owning_id, thread_id);
-  let _ = state
+  let registered = state.register_codex_thread(&owning_id, thread_id);
+  let persist_sent = state
     .persist()
     .send(PersistCommand::SetThreadId {
       session_id: owning_id,
       thread_id: thread_id.to_string(),
     })
-    .await;
-  true
+    .await
+    .is_ok();
+
+  registered || persist_sent
 }
 
 async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {
