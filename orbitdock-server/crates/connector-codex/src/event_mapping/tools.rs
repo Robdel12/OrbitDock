@@ -253,7 +253,7 @@ fn dynamic_tool_identity_from_name(
     "file_read" => Some((ToolFamily::FileRead, ToolKind::Read, "Read")),
     "file_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
     "file_edit" => Some((ToolFamily::FileChange, ToolKind::Edit, "Edit")),
-    "plan_write" => Some((ToolFamily::FileChange, ToolKind::Write, "Write")),
+    "plan_write" => Some((ToolFamily::Plan, ToolKind::Write, "Plan")),
     _ => None,
   }
 }
@@ -316,10 +316,17 @@ fn dynamic_tool_result_payload(
     ToolKind::Read => read_content.clone(),
     ToolKind::Write => bytes_written
       .map(|count| {
-        path
-          .as_deref()
-          .map(|value| format!("Wrote {count} bytes to {value}"))
-          .unwrap_or_else(|| format!("Wrote {count} bytes"))
+        if tool_name == "plan_write" {
+          path
+            .as_deref()
+            .map(|value| format!("Saved plan ({count} bytes) to {value}"))
+            .unwrap_or_else(|| format!("Saved plan ({count} bytes)"))
+        } else {
+          path
+            .as_deref()
+            .map(|value| format!("Wrote {count} bytes to {value}"))
+            .unwrap_or_else(|| format!("Wrote {count} bytes"))
+        }
       })
       .or_else(|| output.cloned()),
     ToolKind::Edit => replacements
@@ -917,13 +924,21 @@ pub(crate) fn handle_dynamic_tool_call_response(
     ToolStatus::Failed
   };
 
-  let (family, kind, title) = dynamic_tool_identity_from_output(output.as_ref())
-    .or_else(|| dynamic_tool_identity_from_name(&tool_name))
-    .unwrap_or((
+  let (family, kind, title) = if tool_name == "plan_write" {
+    dynamic_tool_identity_from_name(&tool_name).unwrap_or((
       ToolFamily::Generic,
       ToolKind::DynamicToolCall,
       tool_name.as_str(),
-    ));
+    ))
+  } else {
+    dynamic_tool_identity_from_output(output.as_ref())
+      .or_else(|| dynamic_tool_identity_from_name(&tool_name))
+      .unwrap_or((
+        ToolFamily::Generic,
+        ToolKind::DynamicToolCall,
+        tool_name.as_str(),
+      ))
+  };
   let (summary, result) =
     dynamic_tool_result_payload(tool_name.as_str(), kind, &arguments, output.as_ref());
 
@@ -1557,10 +1572,10 @@ mod tests {
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
     };
-    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.family, ToolFamily::Plan);
     assert_eq!(tool.kind, ToolKind::Write);
     assert_eq!(tool.status, ToolStatus::Running);
-    assert_eq!(tool.title, "Write");
+    assert_eq!(tool.title, "Plan");
   }
 
   #[test]
@@ -1655,12 +1670,47 @@ mod tests {
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
     };
-    assert_eq!(tool.family, ToolFamily::FileChange);
+    assert_eq!(tool.family, ToolFamily::Plan);
     assert_eq!(tool.kind, ToolKind::Write);
     assert_eq!(tool.status, ToolStatus::Completed);
-    assert_eq!(tool.title, "Write");
+    assert_eq!(tool.title, "Plan");
     let result = tool.result.expect("tool result");
     assert_eq!(result["output"], "ok");
+  }
+
+  #[test]
+  fn dynamic_tool_response_prefers_plan_identity_over_write_payload_shape() {
+    let events = handle_dynamic_tool_call_response(DynamicToolCallResponseEvent {
+      call_id: "call-dynamic-plan-write-3".to_string(),
+      turn_id: "turn-dynamic-plan-write-3".to_string(),
+      tool: "plan_write".to_string(),
+      arguments: serde_json::json!({
+        "path": "tooling/plan.md",
+        "content": "# Plan\n"
+      }),
+      success: true,
+      content_items: vec![DynamicToolCallOutputContentItem::InputText {
+        text: "{\"path\":\"/tmp/plan.md\",\"bytes_written\":42}".to_string(),
+      }],
+      error: None,
+      duration: Duration::from_millis(5),
+    });
+    let updated = events.into_iter().find_map(|event| match event {
+      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
+      _ => None,
+    });
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.family, ToolFamily::Plan);
+    assert_eq!(tool.kind, ToolKind::Write);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.title, "Plan");
+    assert_eq!(
+      tool.summary.as_deref(),
+      Some("Saved plan (42 bytes) to /tmp/plan.md")
+    );
   }
 
   #[test]

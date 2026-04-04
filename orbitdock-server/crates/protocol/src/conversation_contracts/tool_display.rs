@@ -338,7 +338,13 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
     ToolKind::Bash => ("terminal".into(), "toolBash".into()),
     ToolKind::Read => ("doc.plaintext".into(), "toolRead".into()),
     ToolKind::Edit => ("pencil.line".into(), "toolWrite".into()),
-    ToolKind::Write => ("pencil.line".into(), "toolWrite".into()),
+    ToolKind::Write => {
+      if family == ToolFamily::Plan {
+        ("map".into(), "toolPlan".into())
+      } else {
+        ("pencil.line".into(), "toolWrite".into())
+      }
+    }
     ToolKind::NotebookEdit => ("pencil.line".into(), "toolWrite".into()),
     ToolKind::Glob | ToolKind::Grep | ToolKind::ToolSearch => {
       ("magnifyingglass".into(), "toolSearch".into())
@@ -434,7 +440,10 @@ fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
 // Tool type string (dispatch tag for cell rendering)
 // ---------------------------------------------------------------------------
 
-fn tool_type_string(kind: ToolKind, _family: ToolFamily) -> String {
+fn tool_type_string(kind: ToolKind, family: ToolFamily) -> String {
+  if family == ToolFamily::Plan && kind == ToolKind::Write {
+    return "plan".to_string();
+  }
   match kind {
     ToolKind::Bash => "bash",
     ToolKind::Read => "read",
@@ -1734,5 +1743,31 @@ mod tests {
     assert_eq!(display.tool_type, "dynamicTool");
     assert_eq!(display.glyph_symbol, "wrench.and.screwdriver");
     assert_eq!(display.glyph_color, "toolTask");
+  }
+
+  #[test]
+  fn plan_family_write_uses_plan_tool_card_semantics() {
+    let invocation = serde_json::json!({
+      "raw_input": {
+        "path": "plans/new-plan.md",
+        "content": "# Plan"
+      }
+    });
+    let display = compute_tool_display(ToolDisplayInput {
+      kind: ToolKind::Write,
+      family: ToolFamily::Plan,
+      status: ToolStatus::Completed,
+      title: "Plan",
+      subtitle: None,
+      summary: Some("Saved plan (42 bytes) to plans/new-plan.md"),
+      duration_ms: Some(4),
+      invocation_input: Some(&invocation),
+      result_output: Some("{\"path\":\"plans/new-plan.md\",\"bytes_written\":42}"),
+    });
+
+    assert_eq!(display.tool_type, "plan");
+    assert_eq!(display.glyph_symbol, "map");
+    assert_eq!(display.glyph_color, "toolPlan");
+    assert_eq!(display.display_tier, "standard");
   }
 }
