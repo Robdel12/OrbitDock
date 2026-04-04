@@ -173,7 +173,7 @@ struct SessionStateProjectionTests {
     #expect(observable.subagents.first?.status == .interrupted)
   }
 
-  @Test func sessionObservableApplyServerSnapshotHydratesDiffPlanTurnAndSubagentFields() throws {
+  @Test func sessionObservableApplyServerSnapshotDropsDiffPayloadsButKeepsMetadata() throws {
     let observable = SessionObservable(id: "session-1")
 
     let state = try decodeServerSessionState(
@@ -230,12 +230,10 @@ struct SessionStateProjectionTests {
 
     observable.applyServerSnapshot(state)
 
-    #expect(observable.diff == "diff --git a/file.swift")
-    #expect(observable.cumulativeDiff == "cumulative diff content")
+    #expect(observable.diff == nil)
+    #expect(observable.cumulativeDiff == nil)
     #expect(observable.plan == #"[{"step":"Refactor","status":"inProgress"}]"#)
-    #expect(observable.turnDiffs.count == 1)
-    #expect(observable.turnDiffs.first?.turnId == "turn-42")
-    #expect(observable.turnDiffs.first?.diff == "diff --git a/file.swift b/file.swift")
+    #expect(observable.turnDiffs.isEmpty)
     #expect(observable.currentTurnId == "turn-42")
     #expect(observable.turnCount == 3)
     #expect(observable.subagents.count == 1)
@@ -347,7 +345,7 @@ struct SessionStateProjectionTests {
     #expect(observable.attentionReason == .none)
     #expect(observable.totalTokens == 165)
     #expect(observable.tokenUsageSnapshotKind == .contextTurn)
-    #expect(observable.diff == "diff --git a/file.swift b/file.swift")
+    #expect(observable.diff == nil)
     #expect(observable.plan == #"[{"step":"Refactor","status":"inProgress"}]"#)
     #expect(observable.customName == "Pinned Session")
     #expect(observable.turnCount == 8)
