@@ -424,6 +424,26 @@ pub(crate) async fn update_session_config(
     }
   }
 
+  if let Some(entry) = maybe_build_plan_reentry_notice_row(
+    session_id,
+    current_summary.collaboration_mode.as_deref(),
+    updated_summary.collaboration_mode.as_deref(),
+    updated_snapshot.as_ref(),
+  ) {
+    let row_id = entry.id().to_string();
+    actor
+      .send_checked(SessionCommand::AddRowAndBroadcast { entry })
+      .await
+      .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+    tracing::info!(
+      component = "session",
+      event = "session.plan_context.restored",
+      session_id = %session_id,
+      row_id = %row_id,
+      "Emitted plan re-entry reminder row"
+    );
+  }
+
   state.publish_dashboard_snapshot();
 
   if let Some(Some(ref mode)) = permission_mode {
@@ -492,8 +512,35 @@ fn maybe_save_plan_on_collaboration_mode_exit(
   )
 }
 
+fn maybe_build_plan_reentry_notice_row(
+  session_id: &str,
+  before_mode: Option<&str>,
+  after_mode: Option<&str>,
+  updated_snapshot: &SessionSnapshot,
+) -> Option<ConversationRowEntry> {
+  if !did_enter_plan_mode(before_mode, after_mode) {
+    return None;
+  }
+
+  let has_non_empty_plan = updated_snapshot
+    .current_plan
+    .as_deref()
+    .map(str::trim)
+    .is_some_and(|value| !value.is_empty());
+  if !has_non_empty_plan {
+    return None;
+  }
+
+  let relative_path = format!("plans/{}", plan_snapshot_relative_path(session_id));
+  Some(build_plan_reentry_notice_row(session_id, &relative_path))
+}
+
 fn did_exit_plan_mode(before_mode: Option<&str>, after_mode: Option<&str>) -> bool {
   is_plan_mode(before_mode) && !is_plan_mode(after_mode)
+}
+
+fn did_enter_plan_mode(before_mode: Option<&str>, after_mode: Option<&str>) -> bool {
+  !is_plan_mode(before_mode) && is_plan_mode(after_mode)
 }
 
 fn is_plan_mode(mode: Option<&str>) -> bool {
@@ -564,6 +611,26 @@ fn build_plan_snapshot_failed_notice_row(session_id: &str, error: &str) -> Conve
       title: "Plan snapshot failed".to_string(),
       summary: Some("Could not save latest plan to plans/".to_string()),
       body: Some(error.to_string()),
+      render_hints: Default::default(),
+    }),
+  }
+}
+
+fn build_plan_reentry_notice_row(session_id: &str, relative_path: &str) -> ConversationRowEntry {
+  ConversationRowEntry {
+    session_id: session_id.to_string(),
+    sequence: 0,
+    turn_id: None,
+    turn_status: TurnStatus::Active,
+    row: ConversationRow::Notice(NoticeRow {
+      id: orbitdock_protocol::new_id(),
+      kind: NoticeRowKind::Generic,
+      severity: NoticeRowSeverity::Info,
+      title: "Plan context restored".to_string(),
+      summary: Some(format!(
+        "Existing plan loaded. Auto-save path: {relative_path}"
+      )),
+      body: Some("Use `plan_write` to persist named plan markdown in `plans/`.".to_string()),
       render_hints: Default::default(),
     }),
   }
@@ -863,6 +930,20 @@ mod tests {
         matches!(
           &entry.row,
           ConversationRow::Notice(notice) if notice.title == "Plan snapshot saved"
+        )
+      })
+      .count()
+  }
+
+  fn count_plan_context_restored_notice_rows(
+    rows: &[orbitdock_protocol::conversation_contracts::ConversationRowEntry],
+  ) -> usize {
+    rows
+      .iter()
+      .filter(|entry| {
+        matches!(
+          &entry.row,
+          ConversationRow::Notice(notice) if notice.title == "Plan context restored"
         )
       })
       .count()
@@ -1198,6 +1279,111 @@ mod tests {
       count_plan_snapshot_notice_rows(&page.rows),
       0,
       "no plan snapshot notice row should be emitted without a plan"
+    );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_emits_plan_context_restored_notice_on_plan_reentry() {
+    let state = new_test_session_registry(true);
+    let temp = tempfile::tempdir().expect("tempdir");
+    let session_id = "plan-context-restored";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      temp.path().to_string_lossy().to_string(),
+    ));
+
+    let actor = state
+      .get_session(session_id)
+      .expect("session should exist before update");
+    actor
+      .send(SessionCommand::ApplyDelta {
+        changes: Box::new(StateChanges {
+          current_plan: Some(Some(
+            "## Existing Plan\n- [ ] Keep iterating in plan mode\n".to_string(),
+          )),
+          ..Default::default()
+        }),
+        persist_op: None,
+      })
+      .await;
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("plan".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should enter plan mode");
+
+    let page = state
+      .get_session(session_id)
+      .expect("session should exist")
+      .conversation_page(None, 100)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_plan_context_restored_notice_rows(&page.rows),
+      1,
+      "entering plan mode with an existing plan should emit a re-entry reminder row"
+    );
+
+    let restored_notice = page
+      .rows
+      .iter()
+      .find_map(|entry| match &entry.row {
+        ConversationRow::Notice(notice) if notice.title == "Plan context restored" => Some(notice),
+        _ => None,
+      })
+      .expect("plan context restored notice should exist");
+    assert!(
+      restored_notice
+        .summary
+        .as_deref()
+        .is_some_and(|summary| summary.contains("plans/auto/plan-context-restored.md")),
+      "re-entry notice should include the auto-save path"
+    );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_skips_plan_context_restored_notice_without_existing_plan() {
+    let state = new_test_session_registry(true);
+    let temp = tempfile::tempdir().expect("tempdir");
+    let session_id = "plan-context-no-existing-plan";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      temp.path().to_string_lossy().to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("plan".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should enter plan mode");
+
+    let page = state
+      .get_session(session_id)
+      .expect("session should exist")
+      .conversation_page(None, 100)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_plan_context_restored_notice_rows(&page.rows),
+      0,
+      "entering plan mode without a prior plan should not emit a re-entry reminder row"
     );
   }
 }

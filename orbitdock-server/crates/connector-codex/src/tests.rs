@@ -78,10 +78,54 @@ fn collaboration_mode_preserves_explicit_developer_instructions() {
   .expect("expected mode");
 
   assert_eq!(result.mode, ModeKind::Plan);
-  assert_eq!(
-    result.settings.developer_instructions.as_deref(),
-    Some("Keep updates crisp.")
-  );
+  let instructions = result
+    .settings
+    .developer_instructions
+    .as_deref()
+    .expect("plan mode should include developer instructions");
+  assert!(instructions.contains("Keep updates crisp."));
+  assert!(instructions.contains("[orbitdock-plan-shape-v1]"));
+  assert!(instructions.contains("call `plan_write`"));
+}
+
+#[test]
+fn collaboration_mode_plan_instructions_do_not_duplicate_shape_hint() {
+  let result = collaboration_mode_from_name_or_mode(
+    Vec::new(),
+    "plan",
+    "openai/gpt-5.3-codex".to_string(),
+    Some(ReasoningEffort::High),
+    Some("[orbitdock-plan-shape-v1]\nExisting guidance."),
+  )
+  .expect("expected mode");
+
+  let instructions = result
+    .settings
+    .developer_instructions
+    .as_deref()
+    .expect("plan mode should keep developer instructions");
+  assert_eq!(instructions.matches("[orbitdock-plan-shape-v1]").count(), 1);
+}
+
+#[test]
+fn collaboration_mode_plan_without_explicit_instructions_adds_shape_hint() {
+  let result = collaboration_mode_from_name_or_mode(
+    Vec::new(),
+    "plan",
+    "openai/gpt-5.3-codex".to_string(),
+    Some(ReasoningEffort::Medium),
+    None,
+  )
+  .expect("expected synthesized mode");
+
+  assert_eq!(result.mode, ModeKind::Plan);
+  let instructions = result
+    .settings
+    .developer_instructions
+    .as_deref()
+    .expect("plan mode should include default shape guidance");
+  assert!(instructions.contains("[orbitdock-plan-shape-v1]"));
+  assert!(instructions.contains("implementation phases"));
 }
 
 #[test]

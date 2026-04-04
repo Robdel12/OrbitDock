@@ -40,6 +40,15 @@ const ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE: &str =
   "You optimize for team morale and being a supportive teammate as much as code quality.";
 const ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE: &str =
   "You are a deeply pragmatic, effective software engineer.";
+const ORBITDOCK_PLAN_SHAPE_HINT_MARKER: &str = "[orbitdock-plan-shape-v1]";
+const ORBITDOCK_PLAN_SHAPE_HINT: &str = r#"[orbitdock-plan-shape-v1]
+Plan mode guidance:
+1. Start with the desired outcome and constraints in 1-2 bullets.
+2. Propose 2-5 implementation phases with checkbox steps and clear deliverables.
+3. Close with verification steps and notable risks/unknowns.
+
+When a plan is ready to persist, call `plan_write` and save Markdown under `plans/`.
+"#;
 
 struct ProviderRouteDebugInfo {
   provider_id: String,
@@ -1155,7 +1164,11 @@ pub(crate) fn collaboration_mode_from_name_or_mode(
   let resolved = matched_mask
     .map(|mask| base.apply_mask(&mask))
     .unwrap_or(base);
-  let developer_override = developer_instructions.map(|value| Some(value.to_string()));
+  let developer_override = developer_instructions_override(
+    parsed_mode,
+    developer_instructions,
+    resolved.settings.developer_instructions.as_deref(),
+  );
   Some(resolved.with_updates(None, None, developer_override))
 }
 
@@ -1173,6 +1186,35 @@ fn build_collaboration_mode(
       developer_instructions: developer_instructions.into(),
     },
   }
+}
+
+fn developer_instructions_override(
+  mode: ModeKind,
+  explicit: Option<&str>,
+  resolved: Option<&str>,
+) -> Option<Option<String>> {
+  match mode {
+    ModeKind::Plan => Some(Some(with_plan_shape_hint(explicit.or(resolved)))),
+    ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => {
+      explicit.map(|value| Some(value.to_string()))
+    }
+  }
+}
+
+fn with_plan_shape_hint(instructions: Option<&str>) -> String {
+  let hint = ORBITDOCK_PLAN_SHAPE_HINT.trim();
+
+  let Some(instructions) = instructions else {
+    return hint.to_string();
+  };
+  if instructions.trim().is_empty() {
+    return hint.to_string();
+  }
+  if instructions.contains(ORBITDOCK_PLAN_SHAPE_HINT_MARKER) {
+    return instructions.to_string();
+  }
+
+  format!("{}\n\n{hint}", instructions.trim_end())
 }
 
 fn mode_kind_name(mode: ModeKind) -> &'static str {
