@@ -2,10 +2,6 @@ import Foundation
 
 @MainActor
 extension SessionStore {
-  // Legacy fan-out boundary:
-  // keep this as routing glue and avoid adding feature/business logic directly
-  // inside this switch. New behavior should live in feature-owned reducers or
-  // projection helpers, then be invoked from here.
   func routeEvent(_ event: ServerEvent) {
     if routeCodexAccountEvent(event) || routeCapabilitiesEvent(event) || routeWorktreeEvent(event)
       || routeMissionEvent(event)
@@ -15,96 +11,64 @@ extension SessionStore {
     switch event {
       case .hello, .dashboardInvalidated, .missionsInvalidated:
         break
-      case let .sessionDelta(sessionId, changes):
-        handleSessionDelta(sessionId, changes)
-      case let .sessionEnded(sessionId, reason):
-        handleSessionEnded(sessionId, reason)
-      case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
-        handleConversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount)
-      case let .approvalRequested(sessionId, request, version):
-        handleApprovalRequested(sessionId, request, version)
-      case let .approvalDecisionResult(sessionId, requestId, outcome, activeId, version):
-        handleApprovalDecisionResult(sessionId, requestId, outcome, activeId, version)
-      case let .approvalsList(sessionId, approvals):
-        handleApprovalsList(sessionId, approvals)
-      case let .approvalDeleted(approvalId):
-        handleApprovalDeleted(approvalId)
-      case let .tokensUpdated(sessionId, usage, kind):
-        let obs = session(sessionId)
-        obs.applyTokenUsage(usage, snapshotKind: kind)
+      case let .sessionDelta(sessionId, _):
+        notifySessionChanged(sessionId)
+      case let .sessionEnded(sessionId, _):
+        notifySessionChanged(sessionId)
+      case let .conversationRowsChanged(sessionId, upserted, removedRowIds, _):
+        notifyConversationRowDelta(sessionId, ConversationRowDelta(
+          upserted: upserted,
+          removedIds: removedRowIds
+        ))
+      case let .approvalRequested(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case let .approvalDecisionResult(sessionId, requestId, _, _, _):
+        inFlightApprovalDispatches.remove(requestId)
+        notifySessionChanged(sessionId)
+      case .approvalsList, .approvalDeleted:
+        break
+      case let .tokensUpdated(sessionId, _, _):
         notifySessionChanged(sessionId)
       case let .modelsList(models):
         codexModels = models
       case .claudeModelsList:
         break
       case let .contextCompacted(sessionId):
-        let obs = session(sessionId)
-        obs.compactInProgress = false
-        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
-      case let .undoStarted(sessionId, message):
-        let obs = session(sessionId)
-        obs.undoInProgress = true
-        if let message {
-          netLog(.info, cat: .store, "Undo started", sid: sessionId, data: ["message": message])
-        }
-      case let .undoCompleted(sessionId, success, _):
-        let obs = session(sessionId)
-        obs.undoInProgress = false
-        if success {
-          Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
-        }
-      case let .threadRolledBack(sessionId, _):
-        session(sessionId).rollbackInProgress = false
-        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
-      case let .sessionForked(sourceSessionId, newSessionId, _):
-        let obs = session(sourceSessionId)
-        obs.forkInProgress = false
-        session(newSessionId).forkedFrom = sourceSessionId
-        requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
-      case let .turnDiffSnapshot(sessionId, turnId, diff, input, output, cached, window, kind):
-        let obs = session(sessionId)
-        let projection = SessionTurnDiffSnapshotProjection.fromTurnDiffSnapshot(
-          turnId: turnId,
-          diff: diff,
-          inputTokens: input,
-          outputTokens: output,
-          cachedTokens: cached,
-          contextWindow: window,
-          snapshotKind: kind
-        )
-        if let usage = projection.usage {
-          obs.applyTokenUsage(usage, snapshotKind: projection.snapshotKind)
-        } else {
-          obs.tokenUsageSnapshotKind = projection.snapshotKind
-        }
-      case let .reviewCommentCreated(sessionId, _, comment):
-        session(sessionId).reviewComments.append(comment)
-      case let .reviewCommentUpdated(sessionId, _, comment):
-        let obs = session(sessionId)
-        if let idx = obs.reviewComments.firstIndex(where: { $0.id == comment.id }) {
-          obs.reviewComments[idx] = comment
-        }
-      case let .reviewCommentDeleted(sessionId, _, commentId):
-        session(sessionId).reviewComments.removeAll { $0.id == commentId }
-      case let .reviewCommentsList(sessionId, _, comments):
-        session(sessionId).reviewComments = comments
-      case let .subagentToolsList(sessionId, subagentId, tools):
-        session(sessionId).subagentTools[subagentId] = tools
-      case .shellStarted:
+        notifySessionChanged(sessionId)
+      case let .undoCompleted(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case .undoStarted:
         break
-      case let .shellOutput(sessionId, _, _, _, _, _, _):
-        _ = session(sessionId)
-      case let .rateLimitEvent(sessionId, info):
-        session(sessionId).rateLimitInfo = info
-      case let .promptSuggestion(sessionId, suggestion):
-        session(sessionId).promptSuggestions.append(suggestion)
+      case let .threadRolledBack(sessionId, _):
+        notifySessionChanged(sessionId)
+      case let .sessionForked(sourceSessionId, newSessionId, _):
+        notifySessionChanged(sourceSessionId)
+        requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
+      case let .turnDiffSnapshot(sessionId, _, _, _, _, _, _, _):
+        notifySessionChanged(sessionId)
+      case let .reviewCommentCreated(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case let .reviewCommentUpdated(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case let .reviewCommentDeleted(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case let .reviewCommentsList(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case let .subagentToolsList(sessionId, _, _):
+        notifySessionChanged(sessionId)
+      case .shellStarted, .shellOutput:
+        break
+      case let .rateLimitEvent(sessionId, _):
+        notifySessionChanged(sessionId)
+      case let .promptSuggestion(sessionId, _):
+        notifySessionChanged(sessionId)
       case let .filesPersisted(sessionId, _):
-        session(sessionId).lastFilesPersistedAt = Date()
+        notifySessionChanged(sessionId)
       case let .serverInfo(isPrimary, claims):
         serverIsPrimary = isPrimary
         serverPrimaryClaims = claims
-      case let .permissionRules(sessionId, rules):
-        session(sessionId).permissionRules = rules
+      case let .permissionRules(sessionId, _):
+        notifySessionChanged(sessionId)
       case let .error(code, message, sessionId):
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
@@ -136,22 +100,6 @@ extension SessionStore {
     }
   }
 
-  func handleSessionEnded(_ sessionId: String, _ reason: String) {
-    let obs = session(sessionId)
-    obs.status = .ended
-    obs.workStatus = .ended
-    obs.lifecycleState = .ended
-    obs.acceptsUserInput = false
-    obs.steerable = false
-    obs.attentionReason = .none
-    obs.endReason = reason
-    obs.endedAt = Date()
-    obs.pendingApproval = nil
-    obs.clearTransientState()
-    controlStates.removeValue(forKey: sessionId)
-    notifySessionChanged(sessionId)
-  }
-
   func handleConversationBootstrap(_ state: ServerSessionState, _ conversation: ServerConversationHistoryPage) {
     netLog(.info, cat: .store, "Received bootstrap", sid: state.id, data: ["rowCount": conversation.rows.count])
 
@@ -165,116 +113,23 @@ extension SessionStore {
     subscribedSessions.insert(state.id)
     lastOlderMessagesRequestBeforeSequence.removeValue(forKey: state.id)
 
-    let obs = self.session(state.id)
-    obs.applyConversationPage(
-      rows: conversation.rows,
-      hasMoreBefore: conversation.hasMoreBefore,
-      oldestSequence: conversation.oldestSequence,
-      isBootstrap: true
-    )
-    obs.applyServerSnapshot(state)
-    let transition = SessionControlStateReducer.snapshotTransition(
-      current: controlState(sessionId: state.id, observable: obs),
-      snapshot: state,
-      supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
-    )
-    applyControlTransition(transition, sessionId: state.id, observable: obs)
+    // Deliver bootstrap rows through the conversation row stream so the
+    // ConversationViewModel picks them up via its AsyncStream subscription.
+    notifyConversationRowDelta(state.id, ConversationRowDelta(
+      upserted: conversation.rows,
+      removedIds: []
+    ))
+    notifySessionChanged(state.id)
   }
 
   func handleSessionDetailSnapshot(_ snapshot: ServerSessionDetailSnapshotPayload) {
     lastSurfaceRevision[snapshot.session.id, default: [:]][.detail] = snapshot.revision
-    handleSessionSnapshot(snapshot.session)
+    notifySessionChanged(snapshot.session.id)
   }
 
   func handleSessionComposerSnapshot(_ snapshot: ServerSessionComposerSnapshotPayload) {
     lastSurfaceRevision[snapshot.session.id, default: [:]][.composer] = snapshot.revision
-    handleSessionSnapshot(snapshot.session)
-  }
-
-  func handleSessionSnapshot(_ state: ServerSessionState) {
-    if let rev = state.revision {
-      lastRevision[state.id] = rev
-    }
-
-    subscribedSessions.insert(state.id)
-    let obs = self.session(state.id)
-    obs.applyServerSnapshot(state)
-    let transition = SessionControlStateReducer.snapshotTransition(
-      current: controlState(sessionId: state.id, observable: obs),
-      snapshot: state,
-      supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
-    )
-    applyControlTransition(transition, sessionId: state.id, observable: obs)
-    notifySessionChanged(state.id)
-  }
-
-  func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
-    let obs = session(sessionId)
-    obs.applyServerDelta(changes)
-
-    let summaryStillBlocked = obs.attentionReason == .awaitingPermission || obs.attentionReason == .awaitingQuestion
-    let transition = SessionControlStateReducer.deltaTransition(
-      current: controlState(sessionId: sessionId, observable: obs),
-      changes: changes,
-      summaryStillBlocked: summaryStillBlocked
-    )
-    applyControlTransition(transition, sessionId: sessionId, observable: obs)
-    notifySessionChanged(sessionId)
-  }
-
-  func handleConversationRowsChanged(
-    _ sessionId: String,
-    _ upserted: [ServerConversationRowEntry],
-    _ removedRowIds: [String],
-    _ totalRowCount: UInt64?
-  ) {
-    let obs = session(sessionId)
-    obs.applyRowsChanged(upserted: upserted, removedIds: removedRowIds)
-  }
-
-  func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest, _ version: UInt64?) {
-    let obs = session(sessionId)
-    guard let transition = SessionControlStateReducer.approvalRequestedTransition(
-      current: controlState(sessionId: sessionId, observable: obs),
-      request: request,
-      version: version
-    ) else {
-      return
-    }
-    applyControlTransition(transition, sessionId: sessionId, observable: obs)
-    notifySessionChanged(sessionId)
-  }
-
-  func handleApprovalDecisionResult(
-    _ sessionId: String,
-    _ requestId: String,
-    _ outcome: String,
-    _ activeRequestId: String?,
-    _ version: UInt64
-  ) {
-    let obs = session(sessionId)
-    let transition = SessionControlStateReducer.approvalDecisionTransition(
-      current: controlState(sessionId: sessionId, observable: obs),
-      requestId: requestId,
-      activeRequestId: activeRequestId,
-      version: version
-    )
-    applyControlTransition(transition, sessionId: sessionId, observable: obs)
-
-    inFlightApprovalDispatches.remove(requestId)
-    notifySessionChanged(sessionId)
-  }
-
-  func handleApprovalsList(_ sessionId: String?, _ approvals: [ServerApprovalHistoryItem]) {
-    if let sessionId {
-      session(sessionId).approvalHistory = approvals
-    }
-  }
-
-  func handleApprovalDeleted(_ approvalId: Int64) {
-    for (_, obs) in _sessionObservables {
-      obs.approvalHistory.removeAll { $0.id == approvalId }
-    }
+    notifySessionChanged(snapshot.session.id)
   }
 
   func handleError(_ code: String, _ message: String, _ sessionId: String?) {
@@ -287,8 +142,7 @@ extension SessionStore {
       || code == "conversation_resync_required"
     {
       if let sessionId {
-        // Session-level lag: re-bootstrap that session
-        Task { await self.hydrateSessionFromHTTPBootstrap(sessionId: sessionId) }
+        notifySessionChanged(sessionId)
       }
       return
     }
@@ -311,14 +165,9 @@ extension SessionStore {
       "subscribedSessionCount": subscribedSessions.count,
     ])
 
-    // Clear stale revision state from previous connection — the HTTP bootstrap
-    // will set fresh revisions. Without this, sinceRevision from a dead
-    // connection can cause replay_oversized or missed events.
     lastRevision.removeAll()
     lastSurfaceRevision.removeAll()
 
-    // Cancel any in-flight reconnect work from a previous connection cycle.
-    // Without this, a flapping connection spawns parallel reconnect Tasks.
     connectionRecoveryTask?.task.cancel()
     connectionRecoveryTask = nil
 
@@ -330,55 +179,5 @@ extension SessionStore {
       }
     }
     connectionRecoveryTask = GenerationTask(generation: generation, task: task)
-  }
-
-  func controlState(sessionId: String, observable: SessionObservable) -> SessionControlState {
-    controlStates[sessionId] ?? SessionControlState(
-      approvalVersion: observable.approvalVersion,
-      approvalPolicy: nil,
-      sandboxMode: nil,
-      permissionModeRaw: observable.permissionMode.rawValue,
-      autonomy: observable.autonomy,
-      autonomyConfiguredOnServer: observable.autonomyConfiguredOnServer,
-      pendingApprovalId: observable.pendingApproval?.id ?? observable.pendingApprovalId
-    )
-  }
-
-  func applyControlTransition(
-    _ transition: SessionControlTransition,
-    sessionId: String,
-    observable: SessionObservable
-  ) {
-    controlStates[sessionId] = transition.nextState
-    observable.approvalVersion = transition.nextState.approvalVersion
-    observable.autonomy = transition.nextState.autonomy
-    observable.autonomyConfiguredOnServer = transition.nextState.autonomyConfiguredOnServer
-    observable.permissionMode = transition.nextState.permissionMode
-
-    applyPendingApprovalChange(transition.approvalChange, to: observable)
-  }
-
-  func applyLocalPermissionMode(_ mode: ClaudePermissionMode, sessionId: String) {
-    let observable = session(sessionId)
-    let transition = SessionControlStateReducer.optimisticPermissionModeTransition(
-      current: controlState(sessionId: sessionId, observable: observable),
-      mode: mode
-    )
-    applyControlTransition(transition, sessionId: sessionId, observable: observable)
-  }
-
-  private func applyPendingApprovalChange(_ change: SessionPendingApprovalChange, to observable: SessionObservable) {
-    switch change {
-      case .none:
-        break
-      case let .set(request):
-        observable.applyPendingApproval(request)
-      case let .clear(resetAttention):
-        observable.clearPendingApprovalDetails(resetAttention: resetAttention)
-    }
-  }
-
-  func trimInactiveSessionPayload(_ sessionId: String) {
-    session(sessionId).trimInactiveDetailPayloads()
   }
 }

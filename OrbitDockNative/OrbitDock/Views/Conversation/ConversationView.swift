@@ -77,6 +77,7 @@ struct ConversationView: View {
     .task(id: bindingIdentity) {
       localFollowState = .initial
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
+      await viewModel.startStreaming()
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in

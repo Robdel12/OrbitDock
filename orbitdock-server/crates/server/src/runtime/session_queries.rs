@@ -854,9 +854,7 @@ pub(crate) async fn load_conversation_bootstrap(
         strip_diff_payloads(&mut session);
       }
       apply_page_to_session(&mut session, &page);
-      if let Some(actor) = state.get_session(session_id) {
-        session.revision = Some(actor.snapshot().revision);
-      }
+      hydrate_ephemeral_state(&mut session, state, session_id).await;
       hydrate_subagents(&mut session, session_id).await;
 
       Ok(ConversationBootstrap {
@@ -899,14 +897,32 @@ pub(crate) async fn load_full_session_state(
         snapshot.oldest_sequence = None;
         snapshot.newest_sequence = None;
       }
-      if let Some(actor) = state.get_session(session_id) {
-        snapshot.revision = Some(actor.snapshot().revision);
-      }
+      hydrate_ephemeral_state(&mut snapshot, state, session_id).await;
       hydrate_subagents(&mut snapshot, session_id).await;
       Ok(snapshot)
     }
     Ok(None) => Err(SessionLoadError::NotFound),
     Err(err) => Err(SessionLoadError::Db(err.to_string())),
+  }
+}
+
+/// Hydrate ephemeral runtime state from the live session actor.
+/// The DB may lag (batched writes) so the actor is the real-time source of truth
+/// for pending approvals, git branch, cwd, and token usage.
+async fn hydrate_ephemeral_state(
+  session: &mut SessionState,
+  registry: &Arc<SessionRegistry>,
+  session_id: &str,
+) {
+  if let Some(actor) = registry.get_session(session_id) {
+    session.revision = Some(actor.snapshot().revision);
+    if let Ok(live) = actor.retained_state().await {
+      session.pending_approval = live.pending_approval;
+      session.git_branch = live.git_branch;
+      session.current_cwd = live.current_cwd;
+      session.token_usage = live.token_usage;
+      session.token_usage_snapshot_kind = live.token_usage_snapshot_kind;
+    }
   }
 }
 

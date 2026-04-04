@@ -180,6 +180,13 @@ struct McpServersTab: View {
     }
     .task(id: bindingIdentity) {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+      await viewModel.refresh()
+    }
+    .task(id: bindingIdentity + ":ws") {
+      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      for await _ in stream {
+        await viewModel.refresh()
+      }
     }
     .background(Color.backgroundPrimary)
   }

@@ -14,35 +14,76 @@ final class ConversationViewModel {
   var loadState: ConversationLoadState = .empty
   var forkOrigin: ConversationForkOriginPresentation?
 
-  @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
-  @ObservationIgnored private var lastStructureRevision = 0
-  @ObservationIgnored private var lastContentRevision = 0
+  // Owned row state — no SessionObservable dependency.
+  @ObservationIgnored private var rowEntries: [ServerConversationRowEntry] = []
+  @ObservationIgnored private var structureRevision: Int = 0
+  @ObservationIgnored private var contentRevision: Int = 0
   @ObservationIgnored private var lastNewestSequence: UInt64 = 0
+  @ObservationIgnored private var conversationLoaded = false
 
   private let pageSize = 50
 
   func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
+    let didChange = currentSessionId != sessionId
     currentSessionId = sessionId
     currentSessionStore = sessionStore
     currentViewMode = viewMode
     timelineViewModel.bind(sessionId: sessionId)
-    sessionObservationGeneration &+= 1
-    startObservation(generation: sessionObservationGeneration)
+
+    if didChange {
+      rowEntries = []
+      structureRevision = 0
+      contentRevision = 0
+      lastNewestSequence = 0
+      conversationLoaded = false
+      rebuildPresentation(changedEntries: [])
+    }
+  }
+
+  /// Called from ConversationView's .task — bootstraps from HTTP then consumes WS row deltas.
+  func startStreaming() async {
+    guard let sessionId = currentSessionId else { return }
+    let store = currentSessionStore
+
+    // 1. Bootstrap: fetch initial conversation page via HTTP
+    do {
+      let bootstrap = try await store.clients.conversation.fetchConversationBootstrap(
+        sessionId,
+        limit: pageSize
+      )
+      rowEntries = bootstrap.rows
+      conversationLoaded = true
+      structureRevision += 1
+      contentRevision += 1
+      rebuildPresentation(changedEntries: bootstrap.rows)
+
+      if let sourceId = bootstrap.session.forkedFromSessionId {
+        forkOrigin = ConversationForkOriginPresentation(
+          sourceSessionId: sourceId,
+          sourceEndpointId: store.endpointId,
+          sourceName: nil
+        )
+      }
+    } catch {
+      netLog(.error, cat: .store, "Conversation bootstrap failed", sid: sessionId, data: [
+        "error": String(describing: error),
+      ])
+      conversationLoaded = true
+      rebuildPresentation(changedEntries: [])
+      return
+    }
+
+    // 2. Stream: consume WS row deltas
+    let (stream, _) = store.conversationRowChanges(for: sessionId)
+    for await delta in stream {
+      guard currentSessionId == sessionId else { break }
+      applyDelta(delta)
+    }
   }
 
   func handleTimelineViewModeChange(_ viewMode: ChatViewMode) {
     currentViewMode = viewMode
-    guard let currentSessionId else { return }
-    let session = currentSessionStore.session(currentSessionId)
-    timelineViewModel.apply(
-      presentation: ConversationTimelinePresentation(
-        entries: session.rowEntries,
-        contentRevision: session.rowEntriesContentRevision,
-        structureRevision: session.rowEntriesStructureRevision,
-        changedEntries: session.lastChangedRowEntries
-      ),
-      viewMode: viewMode
-    )
+    rebuildPresentation(changedEntries: [])
   }
 
   func handleLoadStateChange(_ newState: ConversationLoadState) {
@@ -56,111 +97,78 @@ final class ConversationViewModel {
     currentSessionStore.loadOlderMessages(sessionId: currentSessionId, limit: pageSize)
   }
 
-  private func startObservation(generation: UInt64) {
-    guard let currentSessionId else {
-      apply(snapshot: .empty)
-      return
+  // MARK: - Private
+
+  private func applyDelta(_ delta: SessionStore.ConversationRowDelta) {
+    var changed: [ServerConversationRowEntry] = []
+    var structureChanged = false
+
+    // Remove
+    if !delta.removedIds.isEmpty {
+      let removedSet = Set(delta.removedIds)
+      rowEntries.removeAll { removedSet.contains($0.id) }
+      structureChanged = true
     }
 
-    let sessionStore = currentSessionStore
-
-    // Read the snapshot inside the tracking block so observation is registered
-    // for changes to the authoritative SessionObservable. Apply it OUTSIDE so
-    // that writes to self-properties (timeline, loadState, etc.) don't consume
-    // the one-shot onChange before the tracked property can trigger it.
-    let snapshot = withObservationTracking {
-      Self.buildSnapshot(session: sessionStore.session(currentSessionId), sessionStore: sessionStore)
-    } onChange: { [weak self] in
-      Task { @MainActor [weak self] in
-        guard let self, self.sessionObservationGeneration == generation else { return }
-        self.startObservation(generation: generation)
+    // Upsert
+    for entry in delta.upserted {
+      if let idx = rowEntries.firstIndex(where: { $0.id == entry.id }) {
+        rowEntries[idx] = entry
+        changed.append(entry)
+      } else {
+        rowEntries.append(entry)
+        changed.append(entry)
+        structureChanged = true
       }
     }
 
-    apply(snapshot: snapshot)
+    if structureChanged {
+      structureRevision += 1
+    }
+    contentRevision += 1
+    rebuildPresentation(changedEntries: changed)
   }
 
-  private func apply(snapshot: ConversationSnapshot) {
-    let previousStructureRevision = lastStructureRevision
-    let previousNewestSequence = lastNewestSequence
-    let nextLoadState: ConversationLoadState = if let timeline = snapshot.timeline, !timeline.entries.isEmpty {
+  private func rebuildPresentation(changedEntries: [ServerConversationRowEntry]) {
+    let previousNewest = lastNewestSequence
+    let timeline = ConversationTimelinePresentation(
+      entries: rowEntries,
+      contentRevision: contentRevision,
+      structureRevision: structureRevision,
+      changedEntries: changedEntries
+    )
+
+    let nextLoadState: ConversationLoadState = if !rowEntries.isEmpty {
       .ready
-    } else if hasShownContent || snapshot.conversationLoaded {
+    } else if hasShownContent || conversationLoaded {
       .empty
     } else {
       .loading
     }
 
-    let incomingStructureRevision = snapshot.timeline?.structureRevision ?? 0
-    let incomingContentRevision = snapshot.timeline?.contentRevision ?? 0
-    let incomingHasTimeline = snapshot.timeline != nil
-
-    // Full skip — nothing changed at all (same revisions, same load state).
-    if hasTimeline == incomingHasTimeline,
-       lastStructureRevision == incomingStructureRevision,
-       lastContentRevision == incomingContentRevision,
-       loadState == nextLoadState
-    {
-      return
-    }
-
+    let incomingHasTimeline = !rowEntries.isEmpty
     hasTimeline = incomingHasTimeline
-    if let timeline = snapshot.timeline {
-      // Always apply so content-only changes (streaming) reach the view.
+
+    if incomingHasTimeline {
       timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
 
-      // Only check for appended entries on structural changes — content-only
-      // updates (streaming text) don't add rows.
-      if previousStructureRevision != timeline.structureRevision {
-        let appendedCount = timeline.changedEntries.filter { $0.sequence > previousNewestSequence }.count
-        if appendedCount > 0 {
-          latestAppendEvent = ConversationLatestAppendEvent(
-            count: appendedCount,
-            nonce: (latestAppendEvent?.nonce ?? 0) + 1
-          )
-        }
+      // Detect appended entries for auto-scroll
+      let appendedCount = changedEntries.filter { $0.sequence > previousNewest }.count
+      if appendedCount > 0, previousNewest > 0 {
+        latestAppendEvent = ConversationLatestAppendEvent(
+          count: appendedCount,
+          nonce: (latestAppendEvent?.nonce ?? 0) + 1
+        )
       }
-      lastStructureRevision = timeline.structureRevision
-      lastContentRevision = timeline.contentRevision
-      lastNewestSequence = timeline.entries.last?.sequence ?? 0
+      lastNewestSequence = rowEntries.last?.sequence ?? 0
     } else {
       timelineViewModel.clearSession()
-      lastStructureRevision = 0
-      lastContentRevision = 0
       lastNewestSequence = 0
     }
+
     if loadState != nextLoadState {
       loadState = nextLoadState
     }
-    forkOrigin = snapshot.forkOrigin
-  }
-
-  private static func buildSnapshot(
-    session: SessionObservable,
-    sessionStore: SessionStore
-  ) -> ConversationSnapshot {
-    let timeline = ConversationTimelinePresentation(
-      entries: session.rowEntries,
-      contentRevision: session.rowEntriesContentRevision,
-      structureRevision: session.rowEntriesStructureRevision,
-      changedEntries: session.lastChangedRowEntries
-    )
-
-    let forkOrigin: ConversationForkOriginPresentation? = if let sourceId = session.forkedFrom {
-      ConversationForkOriginPresentation(
-        sourceSessionId: sourceId,
-        sourceEndpointId: sessionStore.endpointId,
-        sourceName: sessionStore.session(sourceId).displayName
-      )
-    } else {
-      nil
-    }
-
-    return ConversationSnapshot(
-      timeline: timeline,
-      conversationLoaded: session.conversationLoaded,
-      forkOrigin: forkOrigin
-    )
   }
 }
 

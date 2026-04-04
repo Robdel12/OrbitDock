@@ -34,6 +34,13 @@ struct ConversationClient: Sendable {
     self.requestBuilder = requestBuilder
   }
 
+  func fetchSessionDetail(_ sessionId: String) async throws -> ServerSessionDetailSnapshotPayload {
+    try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/detail",
+      query: [URLQueryItem(name: "include_diffs", value: "true")]
+    )
+  }
+
   func fetchConversationBootstrap(
     _ sessionId: String,
     limit: Int = 200

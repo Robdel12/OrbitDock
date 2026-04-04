@@ -88,8 +88,6 @@ final class SessionStore {
 
   // MARK: - Per-session registries (not @Observable tracked)
 
-  @ObservationIgnored var _sessionObservables: [String: SessionObservable] = [:]
-
   // MARK: - Per-session surface refresh signals
 
   @ObservationIgnored private var _sessionChangeContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
@@ -117,11 +115,42 @@ final class SessionStore {
     _sessionChangeContinuations[sessionId]?.values.forEach { $0.yield() }
   }
 
+  // MARK: - Per-session conversation row delta stream
+
+  struct ConversationRowDelta: Sendable {
+    let upserted: [ServerConversationRowEntry]
+    let removedIds: [String]
+  }
+
+  @ObservationIgnored private var _rowDeltaContinuations: [String: [UUID: AsyncStream<ConversationRowDelta>.Continuation]] = [:]
+
+  /// Returns an AsyncStream that yields conversation row deltas as they arrive via WS.
+  /// The conversation surface consumes this directly — rows are the one exception
+  /// where WS carries data (small incremental deltas), not just a refresh signal.
+  func conversationRowChanges(for sessionId: String) -> (stream: AsyncStream<ConversationRowDelta>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<ConversationRowDelta> { continuation in
+      if _rowDeltaContinuations[sessionId] == nil {
+        _rowDeltaContinuations[sessionId] = [:]
+      }
+      _rowDeltaContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._rowDeltaContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifyConversationRowDelta(_ sessionId: String, _ delta: ConversationRowDelta) {
+    _rowDeltaContinuations[sessionId]?.values.forEach { $0.yield(delta) }
+  }
+
   // MARK: - Private tracking
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
   @ObservationIgnored var lastSurfaceRevision: [String: [ServerSessionSurface: UInt64]] = [:]
-  @ObservationIgnored var controlStates: [String: SessionControlState] = [:]
   @ObservationIgnored var subscribedSessions: Set<String> = []
   @ObservationIgnored var subscribedSessionSurfaces: [String: SessionSurfaceSet] = [:]
   @ObservationIgnored var inFlightApprovalDispatches: Set<String> = []
@@ -172,13 +201,6 @@ final class SessionStore {
   }
 
   // MARK: - Per-session accessors
-
-  func session(_ id: String) -> SessionObservable {
-    if let existing = _sessionObservables[id] { return existing }
-    let obs = SessionObservable(id: id)
-    _sessionObservables[id] = obs
-    return obs
-  }
 
   func mission(_ id: String) -> MissionObservable {
     if let existing = _missionObservables[id] { return existing }
@@ -256,8 +278,8 @@ final class SessionStore {
     if inserted {
       Task {
         do {
-          let response = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
-          session(sessionId).approvalHistory = response.approvals
+          _ = try await clients.approvals.listApprovals(sessionId: sessionId, limit: 200)
+          notifySessionChanged(sessionId)
         } catch {
           netLog(
             .error,
@@ -325,8 +347,8 @@ final class SessionStore {
       clearRecoveredSessionRecoveryState(sessionId: sessionId)
       lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
       cancelInFlightSessionTasks(sessionId)
-      trimInactiveSessionPayload(sessionId)
       _sessionChangeContinuations.removeValue(forKey: sessionId)
+      _rowDeltaContinuations.removeValue(forKey: sessionId)
     } else {
       removeRecoveredSurfaces(sessionId: sessionId, surfaces: targetSurfaces)
     }

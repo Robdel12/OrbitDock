@@ -1,57 +1,41 @@
 # Client Design Principles
 
-These are the practical rules for OrbitDock’s Swift client.
+These are the practical rules for OrbitDock's Swift client.
 
 ## Source Of Truth
 
-- Durable session truth lives on the server.
-- The client should render and reconcile, not invent new business state.
-- If the client needs new durable truth, the contract should change at the server boundary.
-- HTTP snapshots are the authoritative state for UI. WebSocket events signal that something changed — the client re-fetches the relevant snapshot rather than assembling state from WS payloads. Never maintain a parallel view model state tree built from WS events alongside the HTTP snapshot state.
+- The server owns all business state.
+- Each view model owns its screen state via HTTP snapshots.
+- WebSocket events are signals that trigger a re-fetch, not data to be bridged into state.
+- There is no shared mutable session object. Each surface fetches and owns its own data.
+
+## One Pattern
+
+Every surface follows the same flow:
+
+1. View appears → view model fetches HTTP snapshot → owns it.
+2. WS subscription activates → events trigger `refresh()` → re-fetch HTTP snapshot.
+3. View disappears → subscription tears down. No background state accumulation.
 
 ## Ownership
 
-- `SessionStore` is a transport and recovery shell.
-- feature services own reusable behavior.
-- view models own screen-specific behavior and state.
-- views should not accumulate orchestration logic.
+- `SessionStore` is a transport shell. It manages the WS connection and exposes change streams. It does not hold session state.
+- View models own screen-specific state and orchestration.
+- Views stay declarative — render state, forward gestures.
 
-That means new behavior should land in the feature that owns it, not in a store-wide shim.
+## What NOT To Build
 
-## Store Boundaries
-
-`SessionStore` may handle:
-
-- subscriptions
-- bootstrap hydration
-- websocket reconciliation
-- applying server responses to observables
-- compatibility forwarding that existing callers still need
-
-`SessionStore` should not become the default place for:
-
-- new commands
-- feature-specific mutation flows
-- screen-specific heuristics
-- business logic that belongs to a service or view model
-
-## Compatibility Discipline
-
-Legacy shims are allowed only while a migration is still in flight.
-
-When one stays around:
-
-- keep it thin and explicit
-- annotate it so new code is discouraged from using it
-- do not add new behavior underneath it
-- delete it once the last caller moves
+- No shared mutable session objects (no god objects).
+- No `withObservationTracking` on shared state stores.
+- No WS event payloads bridged directly into view model properties.
+- No feature services that wrap HTTP clients just to mutate a shared observable — view models call HTTP clients directly.
+- No global event processing for surfaces that aren't on screen.
 
 ## Practical Default
 
-If you are unsure where something belongs, prefer this split:
+If you are unsure where something belongs:
 
-- transport or recovery concern -> `SessionStore`
-- reusable feature behavior -> feature service
-- UI orchestration or screen state -> view model
-- rendering -> view
-
+- Transport or recovery → `SessionStore`
+- Screen state and orchestration → view model
+- HTTP calls → typed client via `store.clients`
+- Rendering → view

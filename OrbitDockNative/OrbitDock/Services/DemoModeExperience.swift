@@ -254,18 +254,7 @@ struct DemoModeExperience {
       "demo-comms-array": { id in commsArrayConversation(sessionId: id) },
     ]
 
-    for session in sessions {
-      let observable = sessionStore.session(session.id)
-      observable.populateFromPreviewSession(session)
-      if let generator = conversationGenerators[session.id] {
-        observable.applyConversationPage(
-          rows: generator(session.id),
-          hasMoreBefore: false,
-          oldestSequence: 1,
-          isBootstrap: true
-        )
-      }
-    }
+    // Demo sessions are seeded through the dashboard snapshot
 
     sessionStore.codexModels = [
       ServerCodexModelOption(

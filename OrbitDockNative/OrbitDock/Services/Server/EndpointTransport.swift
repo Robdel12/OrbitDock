@@ -36,8 +36,8 @@ actor EndpointTransport: ServerConnectionTransport {
   private var currentGeneration: UInt64?
   private var eventHandler: EventHandler?
 
-  private static let maxInboundBytes = 8 * 1_024 * 1_024
-  private static let keepAliveInterval: TimeInterval = 30
+  private nonisolated static let maxInboundBytes = 8 * 1_024 * 1_024
+  private nonisolated static let keepAliveInterval: TimeInterval = 30
 
   init(authToken: String?) {
     self.authToken = authToken

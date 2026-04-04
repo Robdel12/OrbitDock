@@ -7,29 +7,18 @@ final class McpServersTabViewModel {
   var currentSessionStore: SessionStore?
   var expandedServers: Set<String> = []
 
-  var startupState: McpStartupState? {
-    currentSession?.mcpStartupState
-  }
+  // Snapshot state — owned by this VM, populated via HTTP
+  private var _tools: [String: ServerMcpTool] = [:]
+  private var _resources: [String: [ServerMcpResource]] = [:]
+  private var _resourceTemplates: [String: [ServerMcpResourceTemplate]] = [:]
+  private var _authStatuses: [String: ServerMcpAuthStatus] = [:]
+  private var _provider: Provider?
 
-  var tools: [String: ServerMcpTool] {
-    currentSession?.mcpTools ?? [:]
-  }
-
-  var authStatuses: [String: ServerMcpAuthStatus] {
-    currentSession?.mcpAuthStatuses ?? [:]
-  }
-
-  var resources: [String: [ServerMcpResource]] {
-    currentSession?.mcpResources ?? [:]
-  }
-
-  var resourceTemplates: [String: [ServerMcpResourceTemplate]] {
-    currentSession?.mcpResourceTemplates ?? [:]
-  }
-
-  var provider: Provider? {
-    currentSession?.provider
-  }
+  var tools: [String: ServerMcpTool] { _tools }
+  var authStatuses: [String: ServerMcpAuthStatus] { _authStatuses }
+  var resources: [String: [ServerMcpResource]] { _resources }
+  var resourceTemplates: [String: [ServerMcpResourceTemplate]] { _resourceTemplates }
+  var provider: Provider? { _provider }
 
   var capabilityNotice: McpCapabilityNotice? {
     guard let provider, let currentSessionStore else { return nil }
@@ -41,13 +30,6 @@ final class McpServersTabViewModel {
 
   var serverEntries: [ServerEntry] {
     var names = Set<String>()
-
-    if let state = startupState {
-      names.formUnion(state.serverStatuses.keys)
-      names.formUnion(state.readyServers)
-      names.formUnion(state.failedServers.map(\.server))
-      names.formUnion(state.cancelledServers)
-    }
 
     for key in tools.keys {
       if let server = extractServerName(from: key) {
@@ -65,7 +47,7 @@ final class McpServersTabViewModel {
         resources: resourcesForServer(name),
         resourceTemplates: resourceTemplatesForServer(name),
         authStatus: authStatuses[name],
-        error: errorForServer(name)
+        error: nil
       )
     }
     .sorted { lhs, rhs in
@@ -73,15 +55,38 @@ final class McpServersTabViewModel {
     }
   }
 
-  func bind(sessionId: String, sessionStore: SessionStore) {
+  func bind(sessionId: String, sessionStore: SessionStore, provider: Provider? = nil) {
     currentSessionId = sessionId
     currentSessionStore = sessionStore
+    if let provider { _provider = provider }
+  }
+
+  @ObservationIgnored private var isRefreshing = false
+  @ObservationIgnored private var refreshQueued = false
+
+  func refresh() async {
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    if isRefreshing { refreshQueued = true; return }
+    isRefreshing = true
+    defer {
+      isRefreshing = false
+      if refreshQueued { refreshQueued = false; Task { await refresh() } }
+    }
+    do {
+      let response = try await store.clients.mcp.listTools(sessionId: sessionId)
+      _tools = response.tools
+      _resources = response.resources
+      _resourceTemplates = response.resourceTemplates
+      _authStatuses = response.authStatuses
+    } catch {
+      // Non-fatal
+    }
   }
 
   func refreshMcpServers() async {
-    guard let currentSessionId, let currentSessionStore else { return }
-    let capabilities = CapabilitiesService(sessionStore: currentSessionStore)
-    try? await capabilities.refreshMcpServers(sessionId: currentSessionId)
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    try? await store.clients.mcp.refreshServers(sessionId: sessionId)
+    await refresh()
   }
 
   func toggleServerExpansion(_ serverName: String) {
@@ -94,11 +99,6 @@ final class McpServersTabViewModel {
 
   func isServerExpanded(_ serverName: String) -> Bool {
     expandedServers.contains(serverName)
-  }
-
-  private var currentSession: SessionObservable? {
-    guard let currentSessionId, let currentSessionStore else { return nil }
-    return currentSessionStore.session(currentSessionId)
   }
 
   private func extractServerName(from toolKey: String) -> String? {
@@ -129,38 +129,10 @@ final class McpServersTabViewModel {
   }
 
   private func serverStatus(for name: String) -> ServerEntryStatus {
-    if let state = startupState {
-      if let status = state.serverStatuses[name] {
-        switch status {
-          case .ready: return .ready
-          case .starting: return .starting
-          case .connecting: return .connecting
-          case .needsAuth: return .needsAuth
-          case .failed: return .failed
-          case .cancelled: return .cancelled
-        }
-      }
-      if state.readyServers.contains(name) { return .ready }
-      if state.failedServers.contains(where: { $0.server == name }) { return .failed }
-      if state.cancelledServers.contains(name) { return .cancelled }
-    }
-
     if !toolsForServer(name).isEmpty || !resourcesForServer(name).isEmpty || !resourceTemplatesForServer(name).isEmpty {
       return .ready
     }
     return .starting
-  }
-
-  private func errorForServer(_ name: String) -> String? {
-    if let state = startupState {
-      if case let .failed(error) = state.serverStatuses[name] {
-        return error
-      }
-      if let failure = state.failedServers.first(where: { $0.server == name }) {
-        return failure.error
-      }
-    }
-    return nil
   }
 }
 

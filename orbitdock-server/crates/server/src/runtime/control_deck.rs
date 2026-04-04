@@ -85,20 +85,7 @@ pub(crate) async fn load_control_deck_snapshot(
   session_id: &str,
 ) -> Result<ControlDeckSnapshot, ControlDeckSnapshotLoadError> {
   match load_full_session_state(state, session_id, false, false).await {
-    Ok(mut session) => {
-      // Hydrate ephemeral runtime state from the live actor. The DB may lag
-      // (batched writes) so the actor is the real-time source of truth for
-      // these fields. Durable config (model, effort, etc.) stays from the DB.
-      if let Some(actor) = state.get_session(session_id) {
-        if let Ok(live) = actor.retained_state().await {
-          session.pending_approval = live.pending_approval;
-          session.git_branch = live.git_branch;
-          session.current_cwd = live.current_cwd;
-          session.token_usage = live.token_usage;
-          session.token_usage_snapshot_kind = live.token_usage_snapshot_kind;
-        }
-      }
-
+    Ok(session) => {
       let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
       let snapshot =
         build_control_deck_snapshot(&session, load_control_deck_preferences(), effort_options);

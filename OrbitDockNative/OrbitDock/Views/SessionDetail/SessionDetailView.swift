@@ -70,7 +70,15 @@ struct SessionDetailView: View {
       } takeOverBar: {
         TakeOverInputBar(
           onTakeOver: {
-            Task { try? await scopedServerState.takeoverSession(sessionId) }
+            Task {
+              try? await scopedServerState.takeoverSession(
+                sessionId,
+                model: nil, approvalPolicy: nil, approvalPolicyDetails: nil,
+                sandboxMode: nil, permissionMode: nil, collaborationMode: nil,
+                multiAgent: nil, personality: nil, serviceTier: nil,
+                developerInstructions: nil
+              )
+            }
           },
           statusContent: {
             if isCompactLayout {
@@ -91,6 +99,7 @@ struct SessionDetailView: View {
         fallbackStore: sessionStore,
         modelPricingService: modelPricingService
       )
+      await viewModel.refresh()
       // Restore terminal if one already exists in the registry for this session
       if viewModel.activeTerminalId == nil {
         let prefix = "term-\(sessionId)-"
@@ -101,6 +110,13 @@ struct SessionDetailView: View {
       }
       if showWorkerPanel {
         viewModel.loadSelectedWorkerTools()
+      }
+    }
+    .task(id: bindingIdentity + ":ws") {
+      let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: sessionStore)
+      let (stream, _) = resolvedStore.sessionChanges(for: sessionId)
+      for await _ in stream {
+        await viewModel.refresh()
       }
     }
     #if os(iOS)

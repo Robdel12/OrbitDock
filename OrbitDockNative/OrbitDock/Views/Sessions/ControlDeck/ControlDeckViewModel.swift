@@ -53,7 +53,6 @@ final class ControlDeckViewModel {
       return
     }
 
-    print("[ResumeTrace] VM refresh start sid=\(sessionId)")
     netLog(.debug, cat: .store, "ControlDeck refresh started", sid: sessionId)
 
     isLoading = true
@@ -75,12 +74,10 @@ final class ControlDeckViewModel {
       applySnapshotPayload(serverSnapshot, source: "refresh")
       await loadCodexModelsIfNeeded(for: serverSnapshot.state.provider, binding: binding)
       guard isCurrent(binding) else { return }
-      print("[ResumeTrace] VM refresh finish sid=\(sessionId)")
       netLog(.debug, cat: .store, "ControlDeck refresh finished", sid: sessionId)
     } catch {
       guard isCurrent(binding) else { return }
       lastError = String(describing: error)
-      print("[ResumeTrace] VM refresh failed sid=\(sessionId) error=\(String(describing: error))")
       netLog(.error, cat: .store, "ControlDeck refresh failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
@@ -155,9 +152,6 @@ final class ControlDeckViewModel {
     let store = binding.store
     guard !isResuming else { return }
     isResuming = true
-    print(
-      "[ResumeTrace] VM resume start sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable)"
-    )
     netLog(.info, cat: .store, "ControlDeck resume started", sid: sessionId, data: [
       "lifecycle": lifecycle.rawValue,
       "controlMode": controlMode.rawValue,
@@ -173,9 +167,6 @@ final class ControlDeckViewModel {
       try await store.resumeSession(sessionId)
       guard isCurrent(binding) else { return }
       await refresh()
-      print(
-        "[ResumeTrace] VM resume sync sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) mode=\(presentation?.mode.debugLabel ?? "nil")"
-      )
       netLog(.info, cat: .store, "ControlDeck resume sync complete", sid: sessionId, data: [
         "lifecycle": lifecycle.rawValue,
         "controlMode": controlMode.rawValue,
@@ -185,7 +176,6 @@ final class ControlDeckViewModel {
       ])
     } catch {
       lastError = String(describing: error)
-      print("[ResumeTrace] VM resume failed sid=\(sessionId) error=\(String(describing: error))")
       netLog(.error, cat: .store, "ControlDeck resume failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
@@ -297,15 +287,9 @@ final class ControlDeckViewModel {
     var request = ServerControlDeckConfigUpdateRequest()
     configure(&request)
     let requestData = configUpdateLogData(request: request)
-    print(
-      "[ControlDeckTrace] config update request sid=\(sessionId) fields=\((requestData["changedFields"] as? [String]) ?? []) model=\(request.model ?? "") effort=\(request.effort ?? "") approval=\(request.approvalPolicy ?? "") permission=\(request.permissionMode ?? "") collaboration=\(request.collaborationMode ?? "") reviewer=\(request.approvalsReviewer?.rawValue ?? "")"
-    )
     netLog(.info, cat: .store, "ControlDeck config update requested", sid: sessionId, data: requestData)
     do {
       let updated = try await store.clients.controlDeck.updateConfig(sessionId, request: request)
-      print(
-        "[ControlDeckTrace] config update response sid=\(sessionId) revision=\(updated.revision) model=\(updated.state.config.model ?? "") effort=\(updated.state.config.effort ?? "") approval=\(updated.state.config.approvalPolicy ?? "") permission=\(updated.state.config.permissionMode ?? "") collaboration=\(updated.state.config.collaborationMode ?? "") reviewer=\(updated.state.config.approvalsReviewer?.rawValue ?? "")"
-      )
       netLog(
         .info,
         cat: .store,
@@ -317,7 +301,6 @@ final class ControlDeckViewModel {
     } catch {
       var errorData = requestData
       errorData["error"] = String(describing: error)
-      print("[ControlDeckTrace] config update failed sid=\(sessionId) error=\(String(describing: error))")
       netLog(.error, cat: .store, "ControlDeck config update failed", sid: sessionId, data: errorData)
       throw error
     }
@@ -328,17 +311,10 @@ final class ControlDeckViewModel {
     value: String,
     configure: (inout ServerControlDeckConfigUpdateRequest) -> Void
   ) async {
-    print(
-      "[ControlDeckTrace] \(action) called value=\(value) hasSessionId=\(currentSessionId != nil) hasStore=\(currentSessionStore != nil)"
-    )
-    guard let sessionId = currentSessionId, let store = currentSessionStore else {
-      print("[ControlDeckTrace] \(action) skipped missing binding")
-      return
-    }
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
     do {
       try await updateConfig(sessionId: sessionId, store: store, configure: configure)
     } catch {
-      print("[ControlDeckTrace] \(action) failed error=\(String(describing: error))")
       lastError = String(describing: error)
     }
   }
@@ -381,7 +357,6 @@ final class ControlDeckViewModel {
 
   func updateAutoReview(_ value: String) async {
     guard let option = snapshot?.capabilities.autoReviewOptions.first(where: { $0.value == value }) else {
-      print("[ControlDeckTrace] updateAutoReview skipped missing binding or option")
       return
     }
     await applyConfigUpdate(action: "updateAutoReview", value: value) { request in
@@ -415,9 +390,9 @@ final class ControlDeckViewModel {
   }
 
   private func fetchEnabledSkills(sessionId: String, store: SessionStore) async throws -> [ControlDeckSkill] {
-    let capabilities = CapabilitiesService(sessionStore: store)
-    let skills = try await capabilities.listSkills(sessionId: sessionId)
-    return skills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
+    let response = try await store.clients.skills.listSkills(sessionId: sessionId)
+    let allSkills = response.skills.flatMap(\.skills)
+    return allSkills.filter(\.enabled).map(ControlDeckSnapshotMapper.mapSkill)
   }
 
   private func resolveSkillsForSubmit(
@@ -452,9 +427,6 @@ final class ControlDeckViewModel {
     }
 
     lastError = nil
-    print(
-      "[ControlDeckTrace] apply snapshot sid=\(payload.sessionId) source=\(source) revision=\(payload.revision) model=\(payload.state.config.model ?? "") effort=\(payload.state.config.effort ?? "") approval=\(payload.state.config.approvalPolicy ?? "") permission=\(payload.state.config.permissionMode ?? "") collaboration=\(payload.state.config.collaborationMode ?? "") reviewer=\(payload.state.config.approvalsReviewer?.rawValue ?? "") codexMode=\(payload.state.config.codexConfigMode?.rawValue ?? "") codexProfile=\(payload.state.config.codexConfigProfile ?? "") codexProvider=\(payload.state.config.codexModelProvider ?? "") pendingApproval=\(payload.pendingApproval?.id ?? "nil")"
-    )
     netLog(
       .info,
       cat: .store,
@@ -497,11 +469,6 @@ final class ControlDeckViewModel {
       "pendingApprovalId": pendingApproval?.requestId ?? "",
       "presentationMode": presentation?.mode.debugLabel ?? "nil",
     ])
-    if let sid = currentSessionId {
-      print(
-        "[ResumeTrace] VM state sid=\(sid) source=\(source) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) approval=\(pendingApproval?.requestId ?? "-") mode=\(presentation?.mode.debugLabel ?? "nil")"
-      )
-    }
   }
 
   private var currentBindingContext: BindingContext? {

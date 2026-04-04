@@ -38,8 +38,10 @@ final class SessionDetailViewModel {
   var showInlineTerminal = false
 
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
-  @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
   @ObservationIgnored private var conversationScrollCommandNonce = 0
+  @ObservationIgnored private var isRefreshing = false
+  @ObservationIgnored private var refreshQueued = false
+  @ObservationIgnored private var lastRevision: UInt64 = 0
 
   var screenPresentation = SessionDetailScreenPresentation.empty
   var usageSource = SessionDetailUsageSource.empty
@@ -65,26 +67,18 @@ final class SessionDetailViewModel {
     self.modelPricingService = modelPricingService
 
     let didSessionChange = currentSessionId != sessionId || currentEndpointId != endpointId
-    let didStoreChange = ObjectIdentifier(currentSessionStore) != ObjectIdentifier(resolvedStore)
 
     currentSessionId = sessionId
     currentEndpointId = endpointId
     currentSessionStore = resolvedStore
-
-    guard didSessionChange || didStoreChange else {
-      refreshFromSession()
-      return
-    }
 
     if didSessionChange {
       conversationFollowState = .initial
       conversationScrollCommand = nil
       conversationScrollCommandNonce = 0
       pendingApprovalPanelOpenSignal = 0
+      lastRevision = 0
     }
-
-    sessionObservationGeneration &+= 1
-    startSessionObservation(generation: sessionObservationGeneration)
   }
 
   var sessionId: String {
@@ -169,19 +163,35 @@ final class SessionDetailViewModel {
     !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  func refreshFromSession() {
+  func refresh() async {
     guard shouldSubscribeToServerSession else {
       apply(snapshot: .empty(endpointId: endpointId, sessionId: sessionId))
       return
     }
 
-    apply(
-      snapshot: Self.buildSnapshot(
-        session: sessionStore.session(sessionId),
-        endpointId: endpointId,
-        sessionId: sessionId
-      )
-    )
+    if isRefreshing {
+      refreshQueued = true
+      return
+    }
+
+    isRefreshing = true
+    refreshQueued = false
+    defer {
+      isRefreshing = false
+      if refreshQueued {
+        refreshQueued = false
+        Task { await refresh() }
+      }
+    }
+
+    do {
+      let payload = try await sessionStore.clients.conversation.fetchSessionDetail(sessionId)
+      guard payload.revision >= lastRevision else { return }
+      lastRevision = payload.revision
+      apply(snapshot: Self.buildSnapshot(payload: payload, endpointId: endpointId))
+    } catch {
+      // Non-fatal: the view keeps showing the last snapshot
+    }
   }
 
   // MARK: - Follow State (mirrored from TimelineScrollView)
@@ -279,8 +289,13 @@ final class SessionDetailViewModel {
 
   func loadSelectedWorkerTools(for workerId: String? = nil) {
     guard let workerId = workerId ?? selectedWorkerId else { return }
-    sessionStore.getSubagentTools(sessionId: sessionId, subagentId: workerId)
-    sessionStore.getSubagentMessages(sessionId: sessionId, subagentId: workerId)
+    Task {
+      let tools = try? await sessionStore.clients.sessions.getSubagentTools(sessionId: sessionId, subagentId: workerId)
+      let messages = try? await sessionStore.clients.sessions.getSubagentMessages(sessionId: sessionId, subagentId: workerId)
+      workerState.subagentTools[workerId] = tools ?? []
+      workerState.subagentMessages[workerId] = messages ?? []
+      syncWorkerDetailPresentation()
+    }
   }
 
   func selectWorkerInPanel(_ workerId: String) {
@@ -365,28 +380,6 @@ final class SessionDetailViewModel {
     selectedCommentIds.removeAll()
   }
 
-  private func startSessionObservation(generation: UInt64) {
-    guard shouldSubscribeToServerSession else {
-      apply(snapshot: .empty(endpointId: endpointId, sessionId: sessionId))
-      return
-    }
-
-    let snapshot = withObservationTracking {
-      Self.buildSnapshot(
-        session: sessionStore.session(sessionId),
-        endpointId: endpointId,
-        sessionId: sessionId
-      )
-    } onChange: { [weak self] in
-      Task { @MainActor [weak self] in
-        guard let self, self.sessionObservationGeneration == generation else { return }
-        self.startSessionObservation(generation: generation)
-      }
-    }
-
-    apply(snapshot: snapshot)
-  }
-
   private func apply(snapshot: SessionDetailSnapshot) {
     screenPresentation = snapshot.screenPresentation
     usageSource = snapshot.usageSource
@@ -421,7 +414,7 @@ final class SessionDetailViewModel {
       selectedWorkerID: selectedWorkerId,
       toolsByWorker: workerState.subagentTools,
       messagesByWorker: workerState.subagentMessages,
-      timelineEntries: sessionStore.session(sessionId).rowEntries
+      timelineEntries: []
     )
   }
 
@@ -444,82 +437,124 @@ final class SessionDetailViewModel {
   }
 
   private static func buildSnapshot(
-    session: SessionObservable,
-    endpointId: UUID,
-    sessionId: String
+    payload: ServerSessionDetailSnapshotPayload,
+    endpointId: UUID
   ) -> SessionDetailSnapshot {
-    SessionDetailSnapshot(
+    let s = payload.session
+    let sessionId = s.id
+    let isDirect = s.controlMode == .direct
+    let isActive = s.lifecycleState != .ended
+    let provider: Provider = s.provider == .codex ? .codex : .claude
+    let displayName = resolveDisplayName(s)
+    let displayStatus = resolveDisplayStatus(s, isActive: isActive)
+    let workStatus = s.workStatus.toSessionWorkStatus()
+    let hasGitRepository = s.gitBranch != nil || s.currentCwd != nil || s.isWorktree
+
+    return SessionDetailSnapshot(
       screenPresentation: SessionDetailScreenPresentation(
-        displayName: session.displayName,
-        isDirect: session.isDirect,
-        isActive: session.isActive,
-        displayStatus: session.displayStatus,
-        workStatus: session.workStatus,
-        provider: session.provider,
-        model: session.model,
-        effort: session.effort,
-        endpointName: session.endpointName,
-        projectPath: session.projectPath,
-        issueIdentifier: session.issueIdentifier,
-        missionId: session.missionId,
-        capabilities: session.isDirect ? [.direct] : (session.provider == .codex ? [.passive] : []),
+        displayName: displayName,
+        isDirect: isDirect,
+        isActive: isActive,
+        displayStatus: displayStatus,
+        workStatus: workStatus,
+        provider: provider,
+        model: s.model,
+        effort: s.effort,
+        endpointName: nil,
+        projectPath: s.projectPath,
+        issueIdentifier: s.issueIdentifier,
+        missionId: s.missionId,
+        capabilities: isDirect ? [.direct] : (provider == .codex ? [.passive] : []),
         continuation: SessionContinuation(
           endpointId: endpointId,
           sessionId: sessionId,
-          provider: session.provider,
-          displayName: session.displayName,
-          projectPath: session.projectPath,
-          model: session.model,
-          hasGitRepository: session.branch != nil || session.repositoryRoot != nil
-            || session.isWorktree
+          provider: provider,
+          displayName: displayName,
+          projectPath: s.projectPath,
+          model: s.model,
+          hasGitRepository: hasGitRepository
         ),
         debugContext: SessionDetailDebugContext(
           sessionId: sessionId,
-          threadId: session.codexThreadId,
-          projectPath: session.projectPath,
-          provider: session.provider,
-          codexIntegrationMode: session.codexIntegrationMode.map { String(describing: $0) },
-          claudeIntegrationMode: session.claudeIntegrationMode.map { String(describing: $0) }
+          threadId: nil,
+          projectPath: s.projectPath,
+          provider: provider,
+          codexIntegrationMode: s.codexIntegrationMode.map { String(describing: $0) },
+          claudeIntegrationMode: s.claudeIntegrationMode.map { String(describing: $0) }
         )
       ),
       usageSource: SessionDetailUsageSource(
-        model: session.model,
-        inputTokens: session.inputTokens,
-        outputTokens: session.outputTokens,
-        cachedTokens: session.cachedTokens,
-        contextUsed: session.effectiveContextInputTokens,
-        totalTokens: session.totalTokens
+        model: s.model,
+        inputTokens: Int(s.tokenUsage.inputTokens),
+        outputTokens: Int(s.tokenUsage.outputTokens),
+        cachedTokens: Int(s.tokenUsage.cachedTokens),
+        contextUsed: Int(s.tokenUsage.inputTokens),
+        totalTokens: Int(s.tokenUsage.inputTokens + s.tokenUsage.outputTokens)
       ),
       worktreeState: SessionDetailWorktreeState(
-        status: session.status,
-        isWorktree: session.isWorktree,
-        branch: session.branch,
-        worktreeId: session.worktreeId,
-        projectPath: session.projectPath
+        status: mapSessionStatus(s.status),
+        isWorktree: s.isWorktree,
+        branch: s.gitBranch,
+        worktreeId: s.worktreeId,
+        projectPath: s.projectPath
       ),
       reviewState: SessionDetailReviewState(
-        diff: session.diff,
-        cumulativeDiff: session.cumulativeDiff,
-        turnDiffs: session.turnDiffs,
-        reviewComments: session.reviewComments,
-        isDirect: session.isDirect,
-        turnCount: session.turnCount
+        diff: s.currentDiff,
+        cumulativeDiff: s.cumulativeDiff,
+        turnDiffs: s.turnDiffs,
+        reviewComments: [],
+        isDirect: isDirect,
+        turnCount: s.turnCount
       ),
       workerState: SessionDetailWorkerState(
-        subagents: session.subagents,
-        subagentTools: session.subagentTools,
-        subagentMessages: session.subagentMessages,
-        timelineRevision: session.rowEntriesRevision
+        subagents: s.subagents,
+        subagentTools: [:],
+        subagentMessages: [:],
+        timelineRevision: 0
       ),
-      currentTool: session.lastTool,
-      lastActivityAt: session.lastActivityAt,
+      currentTool: s.pendingToolName,
+      lastActivityAt: parseServerTimestamp(s.lastActivityAt),
       footerMode: SessionDetailFooterPlanner.mode(
-        controlMode: session.controlMode,
-        lifecycleState: session.lifecycleState
+        controlMode: isDirect ? .direct : .passive,
+        lifecycleState: s.lifecycleState
       ),
       sessionStoreEndpointId: endpointId,
       sessionId: sessionId
     )
+  }
+
+  private static func resolveDisplayName(_ s: ServerSessionState) -> String {
+    SessionSemantics.displayName(
+      customName: s.customName,
+      summary: s.summary,
+      firstPrompt: s.firstPrompt,
+      projectName: s.projectName,
+      projectPath: s.projectPath
+    )
+  }
+
+  private static func resolveDisplayStatus(_ s: ServerSessionState, isActive: Bool) -> SessionDisplayStatus {
+    guard isActive else { return .ended }
+    if s.pendingApproval != nil {
+      switch s.pendingApproval?.type {
+        case .permissions: return .permission
+        case .question: return .question
+        default: return .permission
+      }
+    }
+    switch s.workStatus {
+      case .working: return .working
+      case .permission: return .permission
+      case .question: return .question
+      case .waiting, .reply, .ended: return .reply
+    }
+  }
+
+  private static func mapSessionStatus(_ status: ServerSessionStatus) -> Session.SessionStatus {
+    switch status {
+      case .active: .active
+      case .ended: .ended
+    }
   }
 }
 
@@ -722,8 +757,8 @@ struct SessionDetailReviewState {
 
 struct SessionDetailWorkerState {
   let subagents: [ServerSubagentInfo]
-  let subagentTools: [String: [ServerSubagentTool]]
-  let subagentMessages: [String: [ServerConversationRowEntry]]
+  var subagentTools: [String: [ServerSubagentTool]]
+  var subagentMessages: [String: [ServerConversationRowEntry]]
   let timelineRevision: Int
 
   static let empty = SessionDetailWorkerState(

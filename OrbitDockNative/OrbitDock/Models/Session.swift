@@ -600,36 +600,3 @@ struct Session: Identifiable, Hashable, Sendable {
     )
   }
 }
-
-extension Session {
-  mutating func applyPendingApprovalSummary(_ request: ServerApprovalRequest) {
-    let projection = SessionPendingApprovalProjection(request: request)
-    pendingApprovalId = projection.id
-    pendingToolName = projection.toolName
-    pendingToolInput = projection.toolInput
-    pendingPermissionDetail = projection.permissionDetail
-    pendingQuestion = projection.question
-    attentionReason = projection.attentionReason
-    workStatus = projection.workStatus
-  }
-
-  mutating func clearPendingApprovalSummary(resetAttention: Bool) {
-    pendingApprovalId = nil
-    pendingToolName = nil
-    pendingToolInput = nil
-    pendingPermissionDetail = nil
-    pendingQuestion = nil
-
-    guard resetAttention else { return }
-
-    if attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion {
-      attentionReason = .none
-    }
-    switch workStatus {
-      case .permission, .question:
-        workStatus = .working
-      case .working, .waiting, .reply, .ended, .unknown:
-        break
-    }
-  }
-}

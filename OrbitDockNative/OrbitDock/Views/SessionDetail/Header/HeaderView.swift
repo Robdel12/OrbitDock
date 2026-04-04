@@ -375,38 +375,36 @@ struct HeaderView: View {
 }
 
 #Preview {
-  let store = SessionStore.preview()
-  let session = store.session("test-123")
   let headerPresentation = SessionDetailScreenPresentation(
-    displayName: session.displayName,
-    isDirect: session.isDirect,
-    isActive: session.isActive,
-    displayStatus: session.displayStatus,
-    workStatus: session.workStatus,
-    provider: session.provider,
-    model: session.model,
-    effort: session.effort,
-    endpointName: session.endpointName,
-    projectPath: session.projectPath,
-    issueIdentifier: session.issueIdentifier,
-    missionId: session.missionId,
-    capabilities: session.isDirect ? [.direct] : (session.provider == .codex ? [.passive] : []),
+    displayName: "Preview Session",
+    isDirect: true,
+    isActive: true,
+    displayStatus: .working,
+    workStatus: .working,
+    provider: .claude,
+    model: "claude-opus-4-6",
+    effort: "high",
+    endpointName: nil,
+    projectPath: "/Users/preview/project",
+    issueIdentifier: nil,
+    missionId: nil,
+    capabilities: [.direct],
     continuation: SessionContinuation(
       endpointId: UUID(),
       sessionId: "test-123",
-      provider: session.provider,
-      displayName: session.displayName,
-      projectPath: session.projectPath,
-      model: session.model,
-      hasGitRepository: session.branch != nil || session.repositoryRoot != nil || session.isWorktree
+      provider: .claude,
+      displayName: "Preview Session",
+      projectPath: "/Users/preview/project",
+      model: "claude-opus-4-6",
+      hasGitRepository: true
     ),
     debugContext: SessionDetailDebugContext(
       sessionId: "test-123",
-      threadId: session.codexThreadId,
-      projectPath: session.projectPath,
-      provider: session.provider,
-      codexIntegrationMode: session.codexIntegrationMode.map { String(describing: $0) },
-      claudeIntegrationMode: session.claudeIntegrationMode.map { String(describing: $0) }
+      threadId: nil,
+      projectPath: "/Users/preview/project",
+      provider: .claude,
+      codexIntegrationMode: nil,
+      claudeIntegrationMode: "direct"
     )
   )
 

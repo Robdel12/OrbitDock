@@ -8,12 +8,16 @@ final class SkillsTabViewModel {
   var currentSessionId: String?
   var currentSessionStore: SessionStore?
 
+  // Snapshot state — owned by this VM, populated via HTTP
+  private var _skills: [ServerSkillMetadata] = []
+  private var _claudeSkillNames: [String] = []
+
   var skills: [ServerSkillMetadata] {
-    currentSession.flatMap { $0.skills.filter(\.enabled) } ?? []
+    _skills.filter(\.enabled)
   }
 
   var claudeSkillNames: [String] {
-    (currentSession?.claudeSkillNames ?? []).sorted()
+    _claudeSkillNames.sorted()
   }
 
   var groupedSkills: [(scope: ServerSkillScope, skills: [ServerSkillMetadata])] {
@@ -29,10 +33,29 @@ final class SkillsTabViewModel {
     currentSessionStore = sessionStore
   }
 
+  @ObservationIgnored private var isRefreshing = false
+  @ObservationIgnored private var refreshQueued = false
+
+  func refresh() async {
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    if isRefreshing { refreshQueued = true; return }
+    isRefreshing = true
+    defer {
+      isRefreshing = false
+      if refreshQueued { refreshQueued = false; Task { await refresh() } }
+    }
+    do {
+      let response = try await store.clients.skills.listSkills(sessionId: sessionId)
+      _skills = response.skills.flatMap(\.skills)
+    } catch {
+      // Non-fatal
+    }
+  }
+
   func refreshSkills() async {
-    guard let currentSessionId, let currentSessionStore else { return }
-    let capabilities = CapabilitiesService(sessionStore: currentSessionStore)
-    try? await capabilities.listSkills(sessionId: currentSessionId)
+    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    _ = try? await store.clients.skills.listSkills(sessionId: sessionId, forceReload: true)
+    await refresh()
   }
 
   func toggleSkillSelection(_ skillPath: String, selectedSkills: Set<String>) -> Set<String> {
@@ -43,10 +66,5 @@ final class SkillsTabViewModel {
       updated.insert(skillPath)
     }
     return updated
-  }
-
-  private var currentSession: SessionObservable? {
-    guard let currentSessionId, let currentSessionStore else { return nil }
-    return currentSessionStore.session(currentSessionId)
   }
 }

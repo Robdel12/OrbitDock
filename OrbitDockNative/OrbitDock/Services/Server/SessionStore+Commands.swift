@@ -2,11 +2,6 @@ import Foundation
 
 @MainActor
 extension SessionStore {
-  // Compatibility-only command bridge.
-  // Legacy/dead-end surface: do not route new feature work through this file.
-  // Do not add new feature commands here.
-  // New behavior belongs in feature-owned services/view models; keep this file
-  // limited to forwarding that existing callers still depend on.
   func fetchControlDeckSnapshot(sessionId: String) async throws -> ServerControlDeckSnapshotPayload {
     try await clients.controlDeck.fetchSnapshot(sessionId)
   }
@@ -36,21 +31,13 @@ extension SessionStore {
         "skills": request.skills.count,
       ]
     )
-    do {
-      let response = try await clients.controlDeck.submitTurn(sessionId, request: request)
-      session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
-      triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: request.text)
-      await reconcileConversationState(sessionId: sessionId)
-    } catch {
-      netLog(
-        .error,
-        cat: .store,
-        "Submit Control Deck turn failed",
-        sid: sessionId,
-        data: ["error": String(describing: error)]
-      )
-      throw error
-    }
+    let response = try await clients.controlDeck.submitTurn(sessionId, request: request)
+    notifyConversationRowDelta(sessionId, ConversationRowDelta(
+      upserted: [response.row],
+      removedIds: []
+    ))
+    triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: request.text)
+    notifySessionChanged(sessionId)
   }
 
   func sendMessage(
@@ -82,21 +69,12 @@ extension SessionStore {
     request.skills = skills
     request.images = images
     request.mentions = mentions
-    do {
-      let response = try await clients.conversation.sendMessage(sessionId, request: request)
-      session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
-      await reconcileConversationState(sessionId: sessionId)
-    } catch {
-      netLog(
-        .error,
-        cat: .store,
-        "Send message failed",
-        sid: sessionId,
-        data: ["error": String(describing: error)]
-      )
-      throw error
-    }
-
+    let response = try await clients.conversation.sendMessage(sessionId, request: request)
+    notifyConversationRowDelta(sessionId, ConversationRowDelta(
+      upserted: [response.row],
+      removedIds: []
+    ))
+    notifySessionChanged(sessionId)
     triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: content)
   }
 
@@ -110,8 +88,11 @@ extension SessionStore {
     request.images = images
     request.mentions = mentions
     let response = try await clients.conversation.steerTurn(sessionId, request: request)
-    session(sessionId).applyRowsChanged(upserted: [response.row], removedIds: [])
-    await reconcileConversationState(sessionId: sessionId)
+    notifyConversationRowDelta(sessionId, ConversationRowDelta(
+      upserted: [response.row],
+      removedIds: []
+    ))
+    notifySessionChanged(sessionId)
   }
 
   func approveTool(
@@ -152,7 +133,8 @@ extension SessionStore {
     sessionId: String,
     requestId: String,
     scope: ServerPermissionGrantScope,
-    grantRequestedPermissions: Bool
+    grantRequestedPermissions: Bool,
+    requestedPermissions: [ServerPermissionDescriptor]? = nil
   ) async throws {
     netLog(
       .info,
@@ -161,17 +143,8 @@ extension SessionStore {
       sid: sessionId,
       data: ["requestId": requestId, "scope": scope.rawValue]
     )
-    let permissionsPayload: [ServerPermissionDescriptor]? = if grantRequestedPermissions,
-                                                               let approval = session(sessionId).pendingApproval,
-                                                               approval.id == requestId
-    {
-      approval.requestedPermissions
-    } else {
-      nil
-    }
-
     var request = ApprovalsClient.RespondToPermissionRequestRequest(requestId: requestId)
-    request.permissions = permissionsPayload
+    request.permissions = grantRequestedPermissions ? requestedPermissions : nil
     request.scope = scope
     _ = try await clients.approvals.respondToPermissionRequest(sessionId, request: request)
   }
@@ -194,22 +167,8 @@ extension SessionStore {
       "acceptsUserInput": response.session.acceptsUserInput,
       "steerable": response.session.steerable,
     ])
-    let obs = session(sessionId)
-    obs.applyResumeSummary(response.session)
-    netLog(.info, cat: .store, "Resume summary applied to observable", sid: sessionId, data: [
-      "status": obs.status.rawValue,
-      "workStatus": obs.workStatus.rawValue,
-      "controlMode": obs.controlMode.rawValue,
-      "lifecycleState": obs.lifecycleState.rawValue,
-      "acceptsUserInput": obs.acceptsUserInput,
-      "steerable": obs.steerable,
-    ])
-    // Resume can coincide with transient WS disconnects. Reassert subscription
-    // so the active screen gets fresh bootstrap/state without requiring
-    // dashboard navigation.
+    notifySessionChanged(sessionId)
     subscribeToSession(sessionId, forceRecovery: true)
-    await reconcileConversationState(sessionId: sessionId)
-    netLog(.info, cat: .store, "Resume triggered session resubscribe", sid: sessionId)
   }
 
   func endSession(_ sessionId: String) async throws {
@@ -222,34 +181,30 @@ extension SessionStore {
     try await clients.conversation.interruptSession(sessionId)
   }
 
-  func takeoverSession(_ sessionId: String) async throws {
-    let observable = session(sessionId)
-    let currentRules = observable.permissionRules
-
-    let approvalPolicy: String?
-    let approvalPolicyDetails: ServerCodexApprovalPolicy?
-    let sandboxMode: String?
-    if case let .codex(currentApprovalPolicy, currentApprovalPolicyDetails, currentSandboxMode) = currentRules {
-      approvalPolicy = currentApprovalPolicy
-      approvalPolicyDetails = currentApprovalPolicyDetails
-      sandboxMode = currentSandboxMode
-    } else {
-      approvalPolicy = nil
-      approvalPolicyDetails = nil
-      sandboxMode = nil
-    }
-
+  func takeoverSession(
+    _ sessionId: String,
+    model: String?,
+    approvalPolicy: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?,
+    sandboxMode: String?,
+    permissionMode: String?,
+    collaborationMode: String?,
+    multiAgent: Bool?,
+    personality: String?,
+    serviceTier: String?,
+    developerInstructions: String?
+  ) async throws {
     let request = SessionsClient.TakeoverRequest(
-      model: observable.model,
+      model: model,
       approvalPolicy: approvalPolicy,
       approvalPolicyDetails: approvalPolicyDetails,
       sandboxMode: sandboxMode,
-      permissionMode: observable.provider == .claude ? observable.permissionMode.rawValue : nil,
-      collaborationMode: observable.collaborationMode,
-      multiAgent: observable.multiAgent,
-      personality: observable.personality,
-      serviceTier: observable.serviceTier,
-      developerInstructions: observable.developerInstructions
+      permissionMode: permissionMode,
+      collaborationMode: collaborationMode,
+      multiAgent: multiAgent,
+      personality: personality,
+      serviceTier: serviceTier,
+      developerInstructions: developerInstructions
     )
     _ = try await clients.sessions.takeoverSession(sessionId, request: request)
   }
@@ -315,15 +270,9 @@ extension SessionStore {
   }
 
   func forkSession(sessionId: String, nthUserMessage: UInt32?) async throws {
-    session(sessionId).forkInProgress = true
-    do {
-      var request = SessionsClient.ForkRequest()
-      request.nthUserMessage = nthUserMessage
-      _ = try await clients.sessions.forkSession(sessionId, request: request)
-    } catch {
-      session(sessionId).forkInProgress = false
-      throw error
-    }
+    var request = SessionsClient.ForkRequest()
+    request.nthUserMessage = nthUserMessage
+    _ = try await clients.sessions.forkSession(sessionId, request: request)
   }
 
   func forkSessionToWorktree(
@@ -332,16 +281,10 @@ extension SessionStore {
     baseBranch: String?,
     nthUserMessage: UInt32?
   ) async throws {
-    session(sessionId).forkInProgress = true
-    do {
-      var request = SessionsClient.ForkToWorktreeRequest(branchName: branchName)
-      request.baseBranch = baseBranch
-      request.nthUserMessage = nthUserMessage
-      _ = try await clients.sessions.forkSessionToWorktree(sessionId, request: request)
-    } catch {
-      session(sessionId).forkInProgress = false
-      throw error
-    }
+    var request = SessionsClient.ForkToWorktreeRequest(branchName: branchName)
+    request.baseBranch = baseBranch
+    request.nthUserMessage = nthUserMessage
+    _ = try await clients.sessions.forkSessionToWorktree(sessionId, request: request)
   }
 
   func forkSessionToExistingWorktree(
@@ -349,44 +292,20 @@ extension SessionStore {
     worktreeId: String,
     nthUserMessage: UInt32?
   ) async throws {
-    session(sessionId).forkInProgress = true
-    do {
-      let request = SessionsClient.ForkToExistingWorktreeRequest(worktreeId: worktreeId, nthUserMessage: nthUserMessage)
-      _ = try await clients.sessions.forkSessionToExistingWorktree(sessionId, request: request)
-    } catch {
-      session(sessionId).forkInProgress = false
-      throw error
-    }
+    let request = SessionsClient.ForkToExistingWorktreeRequest(worktreeId: worktreeId, nthUserMessage: nthUserMessage)
+    _ = try await clients.sessions.forkSessionToExistingWorktree(sessionId, request: request)
   }
 
   func compactContext(_ sessionId: String) async throws {
-    session(sessionId).compactInProgress = true
-    do {
-      try await clients.conversation.compactContext(sessionId)
-    } catch {
-      session(sessionId).compactInProgress = false
-      throw error
-    }
+    try await clients.conversation.compactContext(sessionId)
   }
 
   func undoLastTurn(_ sessionId: String) async throws {
-    session(sessionId).undoInProgress = true
-    do {
-      try await clients.conversation.undoLastTurn(sessionId)
-    } catch {
-      session(sessionId).undoInProgress = false
-      throw error
-    }
+    try await clients.conversation.undoLastTurn(sessionId)
   }
 
   func rollbackTurns(_ sessionId: String, numTurns: UInt32) async throws {
-    session(sessionId).rollbackInProgress = true
-    do {
-      try await clients.conversation.rollbackTurns(sessionId, numTurns: numTurns)
-    } catch {
-      session(sessionId).rollbackInProgress = false
-      throw error
-    }
+    try await clients.conversation.rollbackTurns(sessionId, numTurns: numTurns)
   }
 
   func rewindFiles(_ sessionId: String, userMessageId: String) async throws {
@@ -406,47 +325,8 @@ extension SessionStore {
   }
 
   func loadOlderMessages(sessionId: String, limit: Int = 50) {
-    let obs = session(sessionId)
-    guard !obs.isLoadingOlderMessages, obs.hasMoreHistoryBefore,
-          let before = obs.oldestLoadedSequence
-    else { return }
-    guard lastOlderMessagesRequestBeforeSequence[sessionId] != before else {
-      netLog(
-        .debug,
-        cat: .conv,
-        "Skipping duplicate older-messages request",
-        sid: sessionId,
-        data: ["beforeSeq": before]
-      )
-      return
-    }
-
-    obs.isLoadingOlderMessages = true
-    lastOlderMessagesRequestBeforeSequence[sessionId] = before
-    netLog(.info, cat: .conv, "Loading older messages", sid: sessionId, data: ["beforeSeq": before])
-
-    Task {
-      defer { obs.isLoadingOlderMessages = false }
-      do {
-        let page = try await clients.conversation.fetchConversationHistory(
-          sessionId, beforeSequence: before, limit: limit
-        )
-        obs.applyConversationPage(
-          rows: page.rows,
-          hasMoreBefore: page.hasMoreBefore,
-          oldestSequence: page.oldestSequence
-        )
-      } catch {
-        lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
-        netLog(
-          .error,
-          cat: .conv,
-          "Load older messages failed",
-          sid: sessionId,
-          data: ["error": error.localizedDescription]
-        )
-      }
-    }
+    // TODO: Move pagination state into ConversationViewModel
+    netLog(.info, cat: .conv, "Load older messages requested", sid: sessionId)
   }
 
   func uploadControlDeckImageAttachment(
@@ -485,15 +365,8 @@ extension SessionStore {
     )
   }
 
-  func loadPermissionRules(sessionId: String, forceRefresh: Bool = false) async throws -> ServerSessionPermissionRules {
-    let obs = session(sessionId)
-    if !forceRefresh, let cached = obs.permissionRules {
-      return cached
-    }
-    obs.permissionRulesLoading = true
-    defer { obs.permissionRulesLoading = false }
+  func loadPermissionRules(sessionId: String) async throws -> ServerSessionPermissionRules {
     let response = try await clients.approvals.fetchPermissionRules(sessionId)
-    obs.permissionRules = response.rules
     return response.rules
   }
 
@@ -504,7 +377,6 @@ extension SessionStore {
       behavior: behavior,
       scope: scope
     )
-    _ = try await loadPermissionRules(sessionId: sessionId, forceRefresh: true)
   }
 
   func removePermissionRule(sessionId: String, pattern: String, behavior: String, scope: String) async throws {
@@ -514,41 +386,10 @@ extension SessionStore {
       behavior: behavior,
       scope: scope
     )
-    _ = try await loadPermissionRules(sessionId: sessionId, forceRefresh: true)
   }
 
   func updateClaudePermissionMode(_ sessionId: String, mode: ClaudePermissionMode) async throws {
     try await updateSessionConfig(sessionId, permissionMode: mode.rawValue)
-    applyLocalPermissionMode(mode, sessionId: sessionId)
-  }
-
-  func getSubagentTools(sessionId: String, subagentId: String) {
-    Task {
-      let tools = try await clients.sessions.getSubagentTools(sessionId: sessionId, subagentId: subagentId)
-      session(sessionId).subagentTools[subagentId] = tools
-    }
-  }
-
-  func getSubagentMessages(sessionId: String, subagentId: String) {
-    Task {
-      let messages = try await clients.sessions.getSubagentMessages(sessionId: sessionId, subagentId: subagentId)
-      session(sessionId).subagentMessages[subagentId] = messages
-    }
-  }
-
-  func nextPendingApprovalRequestId(sessionId: String) -> String? {
-    session(sessionId).pendingApproval?.id
-  }
-
-  func pendingApprovalType(sessionId: String, requestId: String) -> ServerApprovalType? {
-    guard let approval = session(sessionId).pendingApproval,
-          approval.id == requestId else { return nil }
-    return approval.type
-  }
-
-  func listReviewComments(sessionId: String, turnId: String?) async throws {
-    let response = try await clients.approvals.listReviewComments(sessionId: sessionId, turnId: turnId)
-    session(sessionId).reviewComments = response.comments
   }
 
   func worktrees(for repoRoot: String) -> [ServerWorktreeSummary] {
@@ -564,22 +405,13 @@ extension SessionStore {
   }
 
   func handleMemoryPressure() {
-    for (_, observable) in _sessionObservables where !subscribedSessions.contains(observable.id) {
-      observable.trimInactiveDetailPayloads()
-    }
-  }
-
-  private func reconcileConversationState(sessionId: String) async {
-    _ = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId)
+    // No-op: session state is now owned by per-surface view models
   }
 
   // MARK: - Local Conversation Naming
 
   private func triggerLocalNamingIfNeeded(sessionId: String, prompt: String) {
     guard LocalNamingAvailabilityResolver.current == .available else { return }
-
-    let obs = session(sessionId)
-    guard obs.customName == nil, obs.summary == nil else { return }
     guard _localNamingClaimedSessions.insert(sessionId).inserted else { return }
 
     Task {

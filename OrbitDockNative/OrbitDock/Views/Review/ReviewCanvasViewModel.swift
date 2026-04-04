@@ -11,10 +11,9 @@ final class ReviewCanvasViewModel {
   var cumulativeDiff: String?
   var reviewComments: [ServerReviewComment] = []
 
-  @ObservationIgnored private var sessionObservationGeneration: UInt64 = 0
-  @ObservationIgnored private var hydratedTurnCount: UInt64 = 0
-  @ObservationIgnored private var pendingHydrationTurnCount: UInt64 = 0
   @ObservationIgnored private var isHydratingDiffs = false
+  @ObservationIgnored private var isRefreshing = false
+  @ObservationIgnored private var refreshQueued = false
 
   func bind(sessionId: String, sessionStore: SessionStore) {
     if currentSessionId != sessionId || ObjectIdentifier(currentSessionStore) != ObjectIdentifier(sessionStore) {
@@ -22,8 +21,41 @@ final class ReviewCanvasViewModel {
     }
     currentSessionId = sessionId
     currentSessionStore = sessionStore
-    sessionObservationGeneration &+= 1
-    startObservation(generation: sessionObservationGeneration)
+  }
+
+  func refresh() async {
+    guard !currentSessionId.isEmpty else {
+      resetDiffState()
+      return
+    }
+
+    if isRefreshing {
+      refreshQueued = true
+      return
+    }
+
+    isRefreshing = true
+    refreshQueued = false
+    defer {
+      isRefreshing = false
+      if refreshQueued {
+        refreshQueued = false
+        Task { await refresh() }
+      }
+    }
+
+    // Load review comments via HTTP
+    do {
+      let response = try await currentSessionStore.clients.approvals.listReviewComments(
+        sessionId: currentSessionId, turnId: nil
+      )
+      reviewComments = response.comments
+    } catch {
+      // Non-fatal
+    }
+
+    // Hydrate diffs if the session has new turns
+    hydrateDiffsIfNeeded()
   }
 
   func rawDiff(selectedTurnDiffId: String?) -> String? {
@@ -37,16 +69,10 @@ final class ReviewCanvasViewModel {
 
   func loadReviewCommentsIfNeeded() {
     guard ReviewCanvasStatePlanner.shouldLoadReviewComments(existingComments: reviewComments) else { return }
-    Task {
-      try? await currentSessionStore.listReviewComments(sessionId: currentSessionId, turnId: nil)
-    }
+    Task { await refresh() }
   }
 
   func loadDiffsIfNeeded() {
-    guard !currentSessionId.isEmpty else { return }
-    let session = currentSessionStore.session(currentSessionId)
-    pendingHydrationTurnCount = max(pendingHydrationTurnCount, session.turnCount)
-    guard session.workStatus != .working else { return }
     hydrateDiffsIfNeeded()
   }
 
@@ -127,53 +153,10 @@ final class ReviewCanvasViewModel {
     return nil
   }
 
-  private func startObservation(generation: UInt64) {
-    guard !currentSessionId.isEmpty else {
-      apply(snapshot: .empty)
-      return
-    }
-
-    let sessionId = currentSessionId
-    let sessionStore = currentSessionStore
-
-    withObservationTracking {
-      let session = sessionStore.session(sessionId)
-      let snapshot = ReviewCanvasSnapshot(
-        turnCount: session.turnCount,
-        isWorking: session.workStatus == .working,
-        reviewComments: session.reviewComments
-      )
-      apply(snapshot: snapshot)
-    } onChange: { [weak self] in
-      Task { @MainActor [weak self] in
-        guard let self, self.sessionObservationGeneration == generation else { return }
-        self.startObservation(generation: generation)
-      }
-    }
-  }
-
-  private func apply(snapshot: ReviewCanvasSnapshot) {
-    reviewComments = snapshot.reviewComments
-
-    if snapshot.turnCount == 0 {
-      resetDiffState()
-      return
-    }
-
-    if snapshot.turnCount > hydratedTurnCount {
-      pendingHydrationTurnCount = max(pendingHydrationTurnCount, snapshot.turnCount)
-    }
-
-    guard !snapshot.isWorking else { return }
-    hydrateDiffsIfNeeded()
-  }
-
   private func hydrateDiffsIfNeeded() {
     guard !currentSessionId.isEmpty else { return }
-    guard pendingHydrationTurnCount > hydratedTurnCount else { return }
     guard !isHydratingDiffs else { return }
 
-    let targetTurnCount = pendingHydrationTurnCount
     let sessionId = currentSessionId
     let sessionStore = currentSessionStore
     isHydratingDiffs = true
@@ -190,13 +173,8 @@ final class ReviewCanvasViewModel {
         self.turnDiffs = payload.turnDiffs
         self.currentDiff = payload.currentDiff
         self.cumulativeDiff = payload.cumulativeDiff
-        self.hydratedTurnCount = max(self.hydratedTurnCount, targetTurnCount)
       } catch {
         return
-      }
-
-      if self.pendingHydrationTurnCount > self.hydratedTurnCount {
-        self.hydrateDiffsIfNeeded()
       }
     }
   }
@@ -205,20 +183,7 @@ final class ReviewCanvasViewModel {
     turnDiffs = []
     currentDiff = nil
     cumulativeDiff = nil
-    hydratedTurnCount = 0
-    pendingHydrationTurnCount = 0
+    reviewComments = []
     isHydratingDiffs = false
   }
-}
-
-private struct ReviewCanvasSnapshot {
-  let turnCount: UInt64
-  let isWorking: Bool
-  let reviewComments: [ServerReviewComment]
-
-  static let empty = ReviewCanvasSnapshot(
-    turnCount: 0,
-    isWorking: false,
-    reviewComments: []
-  )
 }

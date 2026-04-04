@@ -50,7 +50,8 @@ final class WorktreeService {
   }
 
   func refreshWorktreesForActiveSessions() {
-    let roots = Set(sessionStore._sessionObservables.values.filter(\.isActive).map(\.groupingPath))
+    // TODO: Pass repo roots from the calling view model instead of reading from a shared object
+    let roots = Set<String>()
     for repoRoot in roots {
       Task {
         do {

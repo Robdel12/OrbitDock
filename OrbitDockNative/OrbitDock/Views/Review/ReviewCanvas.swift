@@ -139,6 +139,13 @@ struct ReviewCanvas: View {
     .background(Color.backgroundPrimary)
     .task(id: bindingIdentity) {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
+      await viewModel.refresh()
+    }
+    .task(id: bindingIdentity + ":ws") {
+      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      for await _ in stream {
+        await viewModel.refresh()
+      }
     }
     .onChange(of: rawDiff) { _, _ in
       guard let model = diffModel else { return }

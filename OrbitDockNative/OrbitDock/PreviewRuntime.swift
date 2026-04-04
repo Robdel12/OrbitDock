@@ -40,9 +40,7 @@ struct PreviewRuntime {
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
-    for session in Self.previewSessions(endpoint: endpoint) {
-      sessionStore.session(session.id).populateFromPreviewSession(session)
-    }
+    // Preview sessions are seeded through the dashboard snapshot below
     sessionStore.codexModels = Self.previewCodexModels()
     sessionStore.codexAccountStatus = ServerCodexAccountStatus(
       authMode: .chatgpt,
