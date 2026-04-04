@@ -74,92 +74,49 @@ struct ControlDeckView: View {
     isCompactIOS ? Spacing.sm : Spacing.md
   }
 
-  // MARK: - Approval Cluster Support
-
-  private var approvalClusterMode: ControlDeckStatusBar.ApprovalClusterMode {
-    guard isApprovalMode, let approval = pendingApproval else { return .none }
-    switch approval.kind {
-      case .tool: return .tool
-      case .patch: return .patch
-      case .permission: return .permission
-      case .question: return .none  // Questions have inline answers, not approve/deny
-    }
-  }
-
-  private var resolvedApproveAction: (() -> Void)? {
-    guard isApprovalMode, let approval = pendingApproval else { return nil }
-    switch approval.kind {
-      case .tool, .patch: return onApprove
-      case .permission: return onGrantPermission
-      case .question: return nil
-    }
-  }
-
-  private var resolvedApproveForSessionAction: (() -> Void)? {
-    guard isApprovalMode, let approval = pendingApproval else { return nil }
-    switch approval.kind {
-      case .tool, .patch: return onApproveForSession
-      case .permission: return onGrantPermissionForSession
-      case .question: return nil
-    }
-  }
-
-  private var resolvedDenyAction: (() -> Void)? {
-    guard isApprovalMode, let approval = pendingApproval else { return nil }
-    switch approval.kind {
-      case .tool, .patch: return onDeny
-      case .permission: return onDenyPermission
-      case .question: return nil
-    }
-  }
-
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       if isApprovalMode, let approval = pendingApproval {
-        // Approval zone replaces the editor + submit bar
-        ControlDeckApprovalZone(
+        // Approval takeover replaces the entire control deck surface
+        ControlDeckApprovalTakeover(
           approval: approval,
-          onApprove: { onApprove?() },
-          onApproveForSession: { onApproveForSession?() },
-          onDeny: { onDeny?() },
+          onApprove: onApprove,
+          onApproveForSession: onApproveForSession,
+          onDeny: onDeny,
           onAnswer: { answer, promptId in onAnswer?(answer, promptId) },
-          onGrantPermission: { onGrantPermission?() },
-          onGrantPermissionForSession: { onGrantPermissionForSession?() },
-          onDenyPermission: { onDenyPermission?() }
+          onGrantPermission: onGrantPermission,
+          onGrantPermissionForSession: onGrantPermissionForSession,
+          onDenyPermission: onDenyPermission
         )
       } else {
         composeContent
-      }
 
-      // Unified action + status bar — always visible (anchors across mode shifts)
-      if let presentation {
-        ControlDeckStatusBar(
-          modules: presentation.statusModules,
-          onModuleAction: onModuleAction,
-          onApprovalReviewerAction: onApprovalReviewerAction,
-          supportsImages: !isApprovalMode && isInputEnabled && presentation.supportsImages,
-          canPasteImage: !isApprovalMode && isInputEnabled && canPasteImage(),
-          canSubmit: !isApprovalMode && canSubmit,
-          canResume: !isApprovalMode && (presentation.canResume),
-          isSubmitting: isSubmitting,
-          isResuming: isResuming,
-          sendTint: presentation.sendTint,
-          onAddImage: onAddImage,
-          onPasteImage: { _ = onPasteImage() },
-          onSubmit: onSubmit,
-          onResume: onResume,
-          isDictating: isDictating,
-          isSessionWorking: isSessionWorking,
-          onDictation: onDictation,
-          onInterrupt: onInterrupt,
-          approvalMode: approvalClusterMode,
-          onApprove: resolvedApproveAction,
-          onApproveForSession: resolvedApproveForSessionAction,
-          onDeny: resolvedDenyAction
-        )
-        .padding(.horizontal, horizontalContentPadding)
-        .padding(.bottom, Spacing.sm)
-        .padding(.top, Spacing.xs)
+        // Status bar only visible in compose/steer/disabled
+        if let presentation {
+          ControlDeckStatusBar(
+            modules: presentation.statusModules,
+            onModuleAction: onModuleAction,
+            onApprovalReviewerAction: onApprovalReviewerAction,
+            supportsImages: isInputEnabled && presentation.supportsImages,
+            canPasteImage: isInputEnabled && canPasteImage(),
+            canSubmit: canSubmit,
+            canResume: presentation.canResume,
+            isSubmitting: isSubmitting,
+            isResuming: isResuming,
+            sendTint: presentation.sendTint,
+            onAddImage: onAddImage,
+            onPasteImage: { _ = onPasteImage() },
+            onSubmit: onSubmit,
+            onResume: onResume,
+            isDictating: isDictating,
+            isSessionWorking: isSessionWorking,
+            onDictation: onDictation,
+            onInterrupt: onInterrupt
+          )
+          .padding(.horizontal, horizontalContentPadding)
+          .padding(.bottom, Spacing.sm)
+          .padding(.top, Spacing.xs)
+        }
       }
     }
     .background(containerBackground)

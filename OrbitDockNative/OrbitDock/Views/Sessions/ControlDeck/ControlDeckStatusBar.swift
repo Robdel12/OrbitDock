@@ -22,19 +22,6 @@ struct ControlDeckStatusBar: View {
   var onDictation: (() -> Void)?
   var onInterrupt: (() -> Void)?
 
-  // Approval mode
-  var approvalMode: ApprovalClusterMode = .none
-  var onApprove: (() -> Void)?
-  var onApproveForSession: (() -> Void)?
-  var onDeny: (() -> Void)?
-
-  enum ApprovalClusterMode: Equatable {
-    case none
-    case tool  // Approve / Deny for tool execution
-    case patch // Approve / Deny for file edits
-    case permission // Grant / Deny for permissions
-  }
-
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var isCompactIOS: Bool {
@@ -127,73 +114,9 @@ struct ControlDeckStatusBar: View {
 
   // MARK: - Send Cluster
 
-  @ViewBuilder
   private var sendCluster: some View {
-    if approvalMode != .none {
-      approvalCluster
-    } else {
-      HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm_) {
-        sendButton
-      }
-    }
-  }
-
-  // MARK: - Approval Cluster
-
-  private var approvalCluster: some View {
-    HStack(spacing: Spacing.sm_) {
-      // Deny button
-      Button(action: { onDeny?() }) {
-        Text("Deny")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-          .padding(.horizontal, Spacing.sm)
-          .frame(height: approvalButtonHeight)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-      }
-      .buttonStyle(.plain)
-
-      // Approve button with dropdown
-      HStack(spacing: 0) {
-        Button(action: { onApprove?() }) {
-          HStack(spacing: Spacing.xxs) {
-            Image(systemName: "checkmark")
-              .font(.system(size: 9, weight: .bold))
-            Text(approvalActionLabel)
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-          }
-          .foregroundStyle(Color.backgroundPrimary)
-          .padding(.horizontal, Spacing.sm)
-          .frame(height: approvalButtonHeight)
-        }
-        .buttonStyle(.plain)
-
-        Menu {
-          Button("\(approvalActionLabel) for Session") { onApproveForSession?() }
-        } label: {
-          Image(systemName: "chevron.down")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(Color.backgroundPrimary.opacity(0.7))
-            .frame(width: 24, height: approvalButtonHeight)
-        }
-        .buttonStyle(.plain)
-      }
-      .background(Color.feedbackPositive, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-    }
-  }
-
-  private var approvalButtonHeight: CGFloat {
-    #if os(iOS)
-      isCompactIOS ? 32 : 34
-    #else
-      26
-    #endif
-  }
-
-  private var approvalActionLabel: String {
-    switch approvalMode {
-      case .permission: "Grant"
-      default: "Approve"
+    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm_) {
+      sendButton
     }
   }
 

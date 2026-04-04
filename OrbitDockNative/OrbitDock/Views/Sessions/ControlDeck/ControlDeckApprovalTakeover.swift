@@ -1,43 +1,114 @@
 import SwiftUI
 
-struct ControlDeckApprovalZone: View {
+/// Full-surface approval UI that replaces the entire control deck during approval mode.
+/// Header, scrollable content, and a prominent responsive action bar — all in one unit.
+struct ControlDeckApprovalTakeover: View {
   let approval: ControlDeckApproval
-  let onApprove: () -> Void
-  let onApproveForSession: () -> Void
-  let onDeny: () -> Void
-  let onAnswer: (String, String?) -> Void
-  let onGrantPermission: () -> Void
-  let onGrantPermissionForSession: () -> Void
-  let onDenyPermission: () -> Void
 
+  // Action callbacks — routed by approval kind internally
+  var onApprove: (() -> Void)?
+  var onApproveForSession: (() -> Void)?
+  var onDeny: (() -> Void)?
+  var onAnswer: ((String, String?) -> Void)?
+  var onGrantPermission: (() -> Void)?
+  var onGrantPermissionForSession: (() -> Void)?
+  var onDenyPermission: (() -> Void)?
+
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var answerDrafts: [String: String] = [:]
 
-  /// Whether actions are shown in the status bar (not inline)
-  private var actionsInStatusBar: Bool {
+  // MARK: - Layout Constants
+
+  private var isCompactIOS: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
+
+  private var contentPadding: CGFloat {
+    isCompactIOS ? Spacing.sm : Spacing.md
+  }
+
+  private var maxContentHeight: CGFloat {
+    #if os(iOS)
+      isCompactIOS ? 220 : 320
+    #else
+      320
+    #endif
+  }
+
+  // MARK: - Action Routing
+
+  private var showsActionBar: Bool {
     switch approval.kind {
       case .tool, .patch, .permission: true
       case .question: false
     }
   }
 
-  var body: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm_) {
-      header
-
-      ScrollView(.vertical, showsIndicators: true) {
-        content
-      }
-      .frame(maxHeight: 240)
+  private var primaryAction: (() -> Void)? {
+    switch approval.kind {
+      case .tool, .patch: onApprove
+      case .permission: onGrantPermission
+      case .question: nil
     }
-    .padding(.horizontal, Spacing.md)
-    .padding(.vertical, Spacing.sm_)
+  }
+
+  private var primaryForSessionAction: (() -> Void)? {
+    switch approval.kind {
+      case .tool, .patch: onApproveForSession
+      case .permission: onGrantPermissionForSession
+      case .question: nil
+    }
+  }
+
+  private var denyAction: (() -> Void)? {
+    switch approval.kind {
+      case .tool, .patch: onDeny
+      case .permission: onDenyPermission
+      case .question: nil
+    }
+  }
+
+  private var primaryLabel: String {
+    switch approval.kind {
+      case .permission: "Grant"
+      default: "Approve"
+    }
+  }
+
+  // MARK: - Body
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      header
+        .padding(.horizontal, contentPadding)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.sm_)
+
+      ScrollView(.vertical) {
+        content
+          .padding(.horizontal, contentPadding)
+      }
+      .scrollBounceBehavior(.basedOnSize)
+      .frame(maxHeight: maxContentHeight)
+      .fixedSize(horizontal: false, vertical: true)
+
+      if showsActionBar {
+        actionBar
+          .padding(.horizontal, contentPadding)
+          .padding(.top, Spacing.sm)
+          .padding(.bottom, Spacing.sm)
+      }
+    }
   }
 
   // MARK: - Header
 
   private var header: some View {
     HStack(spacing: Spacing.sm) {
-      // Badge + Title inline
       statusBadge(
         title: kindBadgeTitle,
         icon: headerIcon,
@@ -53,7 +124,6 @@ struct ControlDeckApprovalZone: View {
 
       Spacer(minLength: 0)
 
-      // Risk indicator (if elevated)
       if approval.riskLevel.isElevated {
         riskBadge
       }
@@ -82,19 +152,17 @@ struct ControlDeckApprovalZone: View {
   }
 
   private var headerColor: Color {
-    // Use risk level to tint tool/patch approvals
     if case .tool = approval.kind, approval.riskLevel == .high {
       return Color.statusError
     }
     if case .patch = approval.kind, approval.riskLevel == .high {
       return Color.statusError
     }
-
-    switch approval.kind {
-      case .tool: return Color.feedbackCaution
-      case .patch: return Color.toolWrite
-      case .question: return Color.statusQuestion
-      case .permission: return Color.statusPermission
+    return switch approval.kind {
+      case .tool: Color.feedbackCaution
+      case .patch: Color.toolWrite
+      case .question: Color.statusQuestion
+      case .permission: Color.statusPermission
     }
   }
 
@@ -124,12 +192,10 @@ struct ControlDeckApprovalZone: View {
   @ViewBuilder
   private var content: some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      // Risk findings (only if there are specific findings to show)
       if !approval.riskFindings.isEmpty {
         riskFindings
       }
 
-      // Main content by type
       switch approval.kind {
         case let .tool(toolApproval):
           toolContent(toolApproval)
@@ -166,14 +232,12 @@ struct ControlDeckApprovalZone: View {
 
   private func toolContent(_ tool: ControlDeckApproval.ToolApproval) -> some View {
     VStack(alignment: .leading, spacing: Spacing.xs) {
-      // Command chain (multi-step) or single command
       if tool.commandChain.count > 1 {
         commandChainCard(tool.commandChain)
       } else if let command = tool.command, !command.isEmpty {
         commandBlock(command)
       }
 
-      // File path context (compact)
       if let filePath = tool.filePath, !filePath.isEmpty {
         HStack(spacing: Spacing.xs) {
           Image(systemName: "folder")
@@ -189,7 +253,6 @@ struct ControlDeckApprovalZone: View {
     }
   }
 
-  /// Standalone command block - no card wrapper for simple readability
   private func commandBlock(_ command: String) -> some View {
     Text(command)
       .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
@@ -248,7 +311,6 @@ struct ControlDeckApprovalZone: View {
 
   @ViewBuilder
   private func patchContent(_ patch: ControlDeckApproval.PatchApproval) -> some View {
-    // Just show the diff - file name is already in the title
     if let diff = patch.diff, !diff.isEmpty {
       ControlDeckApprovalDiffPreview(diffString: diff)
     }
@@ -266,7 +328,6 @@ struct ControlDeckApprovalZone: View {
 
   private func questionPromptView(_ prompt: ControlDeckApproval.Prompt, index: Int, total: Int) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      // Header for multi-prompt or when explicitly provided
       if total > 1 || prompt.header != nil {
         HStack(spacing: Spacing.xs) {
           if let header = prompt.header {
@@ -282,14 +343,12 @@ struct ControlDeckApprovalZone: View {
         }
       }
 
-      // Question text
       Text(prompt.question)
         .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(Color.textPrimary)
         .lineLimit(6)
         .fixedSize(horizontal: false, vertical: true)
 
-      // Answer input
       if prompt.isFreeForm {
         answerField(prompt: prompt)
       } else {
@@ -302,14 +361,14 @@ struct ControlDeckApprovalZone: View {
   }
 
   private func questionOptions(_ prompt: ControlDeckApproval.Prompt) -> some View {
-    VStack(spacing: Spacing.xxs) {
+    VStack(spacing: Spacing.xs) {
       ForEach(prompt.options) { option in
         Button {
-          onAnswer(option.label, prompt.id)
+          onAnswer?(option.label, prompt.id)
         } label: {
-          HStack(spacing: Spacing.xs) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: prompt.allowsMultipleSelection ? "square" : "circle")
-              .font(.system(size: 9, weight: .medium))
+              .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.statusQuestion.opacity(0.6))
 
             VStack(alignment: .leading, spacing: 1) {
@@ -328,12 +387,21 @@ struct ControlDeckApprovalZone: View {
             .frame(maxWidth: .infinity, alignment: .leading)
           }
           .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+          .padding(.vertical, optionVerticalPadding)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+          .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
         .buttonStyle(.plain)
       }
     }
+  }
+
+  private var optionVerticalPadding: CGFloat {
+    #if os(iOS)
+      Spacing.sm
+    #else
+      Spacing.sm_
+    #endif
   }
 
   private func answerField(prompt: ControlDeckApproval.Prompt, placeholder: String = "Type your answer") -> some View {
@@ -356,31 +424,39 @@ struct ControlDeckApprovalZone: View {
       Button {
         let answer = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !answer.isEmpty else { return }
-        onAnswer(answer, prompt.id)
+        onAnswer?(answer, prompt.id)
         answerDrafts[prompt.id] = ""
       } label: {
         Image(systemName: "arrow.up")
           .font(.system(size: 10, weight: .bold))
           .foregroundStyle(submissionText(prompt.id).isEmpty ? Color.textQuaternary : Color.backgroundPrimary)
-          .frame(width: 24, height: 24)
+          .frame(width: answerSubmitSize, height: answerSubmitSize)
           .background(
             submissionText(prompt.id).isEmpty ? Color.backgroundTertiary : Color.statusQuestion,
             in: Circle()
           )
+          .contentShape(Circle())
       }
       .buttonStyle(.plain)
       .disabled(submissionText(prompt.id).isEmpty)
     }
     .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, Spacing.xs)
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+  }
+
+  private var answerSubmitSize: CGFloat {
+    #if os(iOS)
+      28
+    #else
+      24
+    #endif
   }
 
   // MARK: - Permission Content
 
   private func permissionContent(_ permission: ControlDeckApproval.PermissionApproval) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
-      // Reason text (if provided)
       if let reason = permission.reason, !reason.isEmpty {
         Text(reason)
           .font(.system(size: TypeScale.caption, weight: .medium))
@@ -388,7 +464,6 @@ struct ControlDeckApprovalZone: View {
           .lineLimit(3)
       }
 
-      // Permission groups
       ForEach(permission.groups) { group in
         permissionGroupView(group)
       }
@@ -428,13 +503,133 @@ struct ControlDeckApprovalZone: View {
     }
   }
 
+  // MARK: - Action Bar
+
+  @ViewBuilder
+  private var actionBar: some View {
+    if isCompactIOS {
+      compactActionBar
+    } else {
+      regularActionBar
+    }
+  }
+
+  /// iOS compact: full-width stacked buttons
+  private var compactActionBar: some View {
+    VStack(spacing: Spacing.sm_) {
+      // Primary approve/grant — split button
+      HStack(spacing: 0) {
+        Button(action: { primaryAction?() }) {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "checkmark")
+              .font(.system(size: 12, weight: .black))
+            Text(primaryLabel)
+              .font(.system(size: TypeScale.subhead, weight: .semibold))
+          }
+          .foregroundStyle(Color.backgroundPrimary)
+          .frame(maxWidth: .infinity)
+          .frame(height: 44)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+
+        Color.backgroundPrimary.opacity(0.18)
+          .frame(width: 1, height: 22)
+
+        Menu {
+          Button("\(primaryLabel) for Session") { primaryForSessionAction?() }
+        } label: {
+          Image(systemName: "chevron.down")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(Color.backgroundPrimary.opacity(0.7))
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      .background(Color.feedbackPositive, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+
+      // Deny — secondary
+      Button(action: { denyAction?() }) {
+        Text("Deny")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+          .frame(maxWidth: .infinity)
+          .frame(height: 40)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+    }
+  }
+
+  /// iPad / macOS: side-by-side compact buttons grouped right
+  private var regularActionBar: some View {
+    HStack(spacing: Spacing.sm_) {
+      Spacer()
+
+      // Deny — secondary, content-hugging
+      Button(action: { denyAction?() }) {
+        Text("Deny")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+          .padding(.horizontal, Spacing.lg)
+          .frame(height: regularButtonHeight)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+      .contentShape(RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+
+      // Approve — split button, content-hugging
+      HStack(spacing: 0) {
+        Button(action: { primaryAction?() }) {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "checkmark")
+              .font(.system(size: 9, weight: .black))
+            Text(primaryLabel)
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(Color.backgroundPrimary)
+          .padding(.horizontal, Spacing.md)
+          .frame(height: regularButtonHeight)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+
+        Color.backgroundPrimary.opacity(0.18)
+          .frame(width: 1, height: regularButtonHeight * 0.5)
+
+        Menu {
+          Button("\(primaryLabel) for Session") { primaryForSessionAction?() }
+        } label: {
+          Image(systemName: "chevron.down")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.backgroundPrimary.opacity(0.7))
+            .frame(width: 28, height: regularButtonHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      .background(Color.feedbackPositive, in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+    }
+  }
+
+  private var regularButtonHeight: CGFloat {
+    #if os(iOS)
+      34
+    #else
+      28
+    #endif
+  }
+
   // MARK: - Helpers
 
   private func statusBadge(title: String, icon: String, tint: Color) -> some View {
     HStack(spacing: Spacing.gap) {
       Image(systemName: icon)
         .font(.system(size: TypeScale.mini, weight: .semibold))
-
       Text(title.uppercased())
         .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
     }
