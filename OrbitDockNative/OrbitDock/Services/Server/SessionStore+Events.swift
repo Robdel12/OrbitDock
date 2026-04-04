@@ -32,6 +32,7 @@ extension SessionStore {
       case let .tokensUpdated(sessionId, usage, kind):
         let obs = session(sessionId)
         obs.applyTokenUsage(usage, snapshotKind: kind)
+        notifySessionChanged(sessionId)
       case let .modelsList(models):
         codexModels = models
       case .claudeModelsList:
