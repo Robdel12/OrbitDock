@@ -214,7 +214,7 @@ pub fn compute_tool_display(input: ToolDisplayInput<'_>) -> ToolDisplay {
   let display_tier = display_tier_string(kind, family, status);
   let summary_font = summary_font_string(kind, family);
 
-  let display_name = display_name_for_kind(kind, title);
+  let display_name = display_name_for_kind(kind, family, title);
 
   // Build subtitle from invocation input if not already provided
   let computed_subtitle = subtitle
@@ -390,12 +390,18 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
 // Display name
 // ---------------------------------------------------------------------------
 
-fn display_name_for_kind(kind: ToolKind, title: &str) -> String {
+fn display_name_for_kind(kind: ToolKind, family: ToolFamily, title: &str) -> String {
   match kind {
     ToolKind::Bash => "Bash".into(),
     ToolKind::Read => "Read".into(),
     ToolKind::Edit => "Edit".into(),
-    ToolKind::Write => "Write".into(),
+    ToolKind::Write => {
+      if family == ToolFamily::Plan {
+        "Plan".into()
+      } else {
+        "Write".into()
+      }
+    }
     ToolKind::NotebookEdit => "Notebook Edit".into(),
     ToolKind::Glob => "Glob".into(),
     ToolKind::Grep => "Grep".into(),
@@ -1769,5 +1775,29 @@ mod tests {
     assert_eq!(display.glyph_symbol, "map");
     assert_eq!(display.glyph_color, "toolPlan");
     assert_eq!(display.display_tier, "standard");
+  }
+
+  #[test]
+  fn plan_family_write_defaults_summary_to_plan() {
+    let invocation = serde_json::json!({
+      "raw_input": {
+        "path": "plans/new-plan.md",
+        "content": "# Plan"
+      }
+    });
+    let display = compute_tool_display(ToolDisplayInput {
+      kind: ToolKind::Write,
+      family: ToolFamily::Plan,
+      status: ToolStatus::Running,
+      title: "Plan",
+      subtitle: None,
+      summary: None,
+      duration_ms: None,
+      invocation_input: Some(&invocation),
+      result_output: None,
+    });
+
+    assert_eq!(display.summary, "Plan");
+    assert_eq!(display.tool_type, "plan");
   }
 }

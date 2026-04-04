@@ -924,21 +924,17 @@ pub(crate) fn handle_dynamic_tool_call_response(
     ToolStatus::Failed
   };
 
-  let (family, kind, title) = if tool_name == "plan_write" {
-    dynamic_tool_identity_from_name(&tool_name).unwrap_or((
-      ToolFamily::Generic,
-      ToolKind::DynamicToolCall,
-      tool_name.as_str(),
-    ))
+  let identity_from_name = dynamic_tool_identity_from_name(&tool_name);
+  let resolved_identity = if tool_name == "plan_write" {
+    identity_from_name
   } else {
-    dynamic_tool_identity_from_output(output.as_ref())
-      .or_else(|| dynamic_tool_identity_from_name(&tool_name))
-      .unwrap_or((
-        ToolFamily::Generic,
-        ToolKind::DynamicToolCall,
-        tool_name.as_str(),
-      ))
+    dynamic_tool_identity_from_output(output.as_ref()).or(identity_from_name)
   };
+  let (family, kind, title) = resolved_identity.unwrap_or((
+    ToolFamily::Generic,
+    ToolKind::DynamicToolCall,
+    tool_name.as_str(),
+  ));
   let (summary, result) =
     dynamic_tool_result_payload(tool_name.as_str(), kind, &arguments, output.as_ref());
 
@@ -1576,6 +1572,9 @@ mod tests {
     assert_eq!(tool.kind, ToolKind::Write);
     assert_eq!(tool.status, ToolStatus::Running);
     assert_eq!(tool.title, "Plan");
+    let display = tool.tool_display.expect("plan write request tool display");
+    assert_eq!(display.summary, "Plan");
+    assert_eq!(display.tool_type, "plan");
   }
 
   #[test]

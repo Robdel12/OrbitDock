@@ -421,6 +421,9 @@ fn resolve_plan_write_path(
     .map_err(|error| format!("failed to create plans directory: {error}"))?;
   let canonical_plans_root = fs::canonicalize(&plans_root)
     .map_err(|error| format!("failed to resolve plans root: {error}"))?;
+  if !canonical_plans_root.starts_with(&canonical_project_root) {
+    return Err("plans directory must resolve within project root".to_string());
+  }
 
   let parsed_input = PathBuf::from(input_path);
   if parsed_input.as_os_str().is_empty() {
@@ -763,6 +766,37 @@ mod tests {
     assert!(allowed.success);
     let final_content = fs::read_to_string(target).expect("read overwritten plan");
     assert_eq!(final_content, "next");
+  }
+
+  #[cfg(unix)]
+  #[test]
+  fn plan_write_rejects_symlinked_plans_root_outside_project() {
+    use std::os::unix::fs::symlink;
+
+    let project = tempfile::tempdir().expect("tempdir");
+    let outside = tempfile::tempdir().expect("outside");
+    let linked_plans_root = project.path().join("plans");
+    symlink(outside.path(), &linked_plans_root).expect("create plans symlink");
+
+    let ctx = test_context(project.path());
+    let result = execute_codex_workspace_tool(
+      &ctx,
+      "plan_write",
+      json!({
+        "path": "escaped.md",
+        "content": "# Escaped"
+      }),
+    )
+    .expect("plan_write tool result");
+
+    assert!(!result.success);
+    assert!(result
+      .output
+      .contains("plans directory must resolve within project root"));
+    assert!(
+      !outside.path().join("escaped.md").exists(),
+      "plan file must not be written outside the project root"
+    );
   }
 
   #[test]
