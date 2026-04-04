@@ -1168,7 +1168,7 @@ mod tests {
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
-      Provider::Codex,
+      Provider::Claude,
       temp.path().to_string_lossy().to_string(),
     ));
 
@@ -1237,7 +1237,7 @@ mod tests {
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
-      Provider::Codex,
+      Provider::Claude,
       temp.path().to_string_lossy().to_string(),
     ));
 
@@ -1290,7 +1290,7 @@ mod tests {
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
-      Provider::Codex,
+      Provider::Claude,
       temp.path().to_string_lossy().to_string(),
     ));
 
@@ -1358,7 +1358,7 @@ mod tests {
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
-      Provider::Codex,
+      Provider::Claude,
       temp.path().to_string_lossy().to_string(),
     ));
 
