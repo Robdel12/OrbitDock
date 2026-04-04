@@ -335,26 +335,33 @@ fn exec_plan_write(ctx: &CodexWorkspaceToolContext, args: &Value) -> CodexWorksp
     .and_then(Value::as_bool)
     .unwrap_or(false);
 
-  let resolved = match resolve_plan_write_path(ctx, path) {
+  let resolved = match write_plan_markdown(ctx, path, content, overwrite) {
     Ok(path) => path,
     Err(error) => return tool_error(error),
   };
-
-  if resolved.is_dir() {
-    return tool_error("target path is a directory".to_string());
-  }
-  if resolved.exists() && !overwrite {
-    return tool_error("target file already exists; set overwrite=true to replace it".to_string());
-  }
-  if let Err(error) = fs::write(&resolved, content) {
-    return tool_error(format!("failed to write plan file: {error}"));
-  }
 
   tool_ok(json!({
     "path": resolved.to_string_lossy(),
     "bytes_written": content.len(),
     "plan_written": true
   }))
+}
+
+pub(crate) fn write_plan_markdown(
+  ctx: &CodexWorkspaceToolContext,
+  path: &str,
+  content: &str,
+  overwrite: bool,
+) -> Result<PathBuf, String> {
+  let resolved = resolve_plan_write_path(ctx, path)?;
+  if resolved.is_dir() {
+    return Err("target path is a directory".to_string());
+  }
+  if resolved.exists() && !overwrite {
+    return Err("target file already exists; set overwrite=true to replace it".to_string());
+  }
+  fs::write(&resolved, content).map_err(|error| format!("failed to write plan file: {error}"))?;
+  Ok(resolved)
 }
 
 fn required_string<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {

@@ -11,6 +11,8 @@ use orbitdock_protocol::StateChanges;
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
+use crate::domain::codex_tools::{write_plan_markdown, CodexWorkspaceToolContext};
+use crate::domain::sessions::session::SessionSnapshot;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::codex_config::{
   resolve_codex_settings, serialize_codex_overrides, CodexConfigSelection,
@@ -357,6 +359,7 @@ pub(crate) async fn update_session_config(
     return Err(SessionMutationError::NotFound(session_id.to_string()));
   }
 
+  let updated_snapshot = actor.snapshot();
   let updated_summary = actor
     .summary()
     .await
@@ -377,6 +380,48 @@ pub(crate) async fn update_session_config(
       row_id = %row_id,
       "Emitted session-config notice row"
     );
+  }
+
+  if let Some(result) = maybe_save_plan_on_collaboration_mode_exit(
+    session_id,
+    current_summary.collaboration_mode.as_deref(),
+    updated_summary.collaboration_mode.as_deref(),
+    updated_snapshot.as_ref(),
+  ) {
+    match result {
+      Ok(saved) => {
+        let entry = build_plan_snapshot_saved_notice_row(session_id, &saved.relative_path);
+        let row_id = entry.id().to_string();
+        actor
+          .send_checked(SessionCommand::AddRowAndBroadcast { entry })
+          .await
+          .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+        tracing::info!(
+          component = "session",
+          event = "session.plan_snapshot.saved",
+          session_id = %session_id,
+          row_id = %row_id,
+          path = %saved.path,
+          "Saved latest plan snapshot after collaboration mode exit"
+        );
+      }
+      Err(error) => {
+        let entry = build_plan_snapshot_failed_notice_row(session_id, &error);
+        let row_id = entry.id().to_string();
+        actor
+          .send_checked(SessionCommand::AddRowAndBroadcast { entry })
+          .await
+          .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
+        tracing::warn!(
+          component = "session",
+          event = "session.plan_snapshot.save_failed",
+          session_id = %session_id,
+          row_id = %row_id,
+          error = %error,
+          "Failed to save latest plan snapshot after collaboration mode exit"
+        );
+      }
+    }
   }
 
   state.publish_dashboard_snapshot();
@@ -410,6 +455,118 @@ pub(crate) async fn update_session_config(
   }
 
   Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct SavedPlanSnapshot {
+  path: String,
+  relative_path: String,
+}
+
+fn maybe_save_plan_on_collaboration_mode_exit(
+  session_id: &str,
+  before_mode: Option<&str>,
+  after_mode: Option<&str>,
+  updated_snapshot: &SessionSnapshot,
+) -> Option<Result<SavedPlanSnapshot, String>> {
+  if !did_exit_plan_mode(before_mode, after_mode) {
+    return None;
+  }
+
+  let plan = updated_snapshot
+    .current_plan
+    .as_deref()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())?;
+  let relative_path = plan_snapshot_relative_path(session_id);
+  let markdown = render_plan_snapshot_markdown(session_id, plan, after_mode);
+  let context = CodexWorkspaceToolContext {
+    project_path: updated_snapshot.project_path.clone(),
+    current_cwd: updated_snapshot.current_cwd.clone(),
+  };
+  Some(
+    write_plan_markdown(&context, &relative_path, &markdown, true).map(|path| SavedPlanSnapshot {
+      path: path.to_string_lossy().to_string(),
+      relative_path: format!("plans/{relative_path}"),
+    }),
+  )
+}
+
+fn did_exit_plan_mode(before_mode: Option<&str>, after_mode: Option<&str>) -> bool {
+  is_plan_mode(before_mode) && !is_plan_mode(after_mode)
+}
+
+fn is_plan_mode(mode: Option<&str>) -> bool {
+  mode.is_some_and(|value| value.trim().eq_ignore_ascii_case("plan"))
+}
+
+fn plan_snapshot_relative_path(session_id: &str) -> String {
+  format!("auto/{}.md", sanitize_plan_snapshot_stem(session_id))
+}
+
+fn sanitize_plan_snapshot_stem(input: &str) -> String {
+  let mut stem = String::with_capacity(input.len());
+  for ch in input.chars() {
+    if ch.is_ascii_alphanumeric() {
+      stem.push(ch.to_ascii_lowercase());
+    } else if matches!(ch, '-' | '_') {
+      stem.push(ch);
+    } else {
+      stem.push('-');
+    }
+  }
+  let sanitized = stem.trim_matches('-');
+  if sanitized.is_empty() {
+    return "session".to_string();
+  }
+  sanitized.to_string()
+}
+
+fn render_plan_snapshot_markdown(session_id: &str, plan: &str, next_mode: Option<&str>) -> String {
+  let saved_at = chrono::Utc::now().to_rfc3339();
+  let next_mode = next_mode.unwrap_or("default");
+  format!(
+    "# Plan Snapshot\n\n- Session: `{session_id}`\n- Saved at: `{saved_at}`\n- Trigger: collaboration mode exit (`plan` -> `{next_mode}`)\n\n## Latest Plan\n\n{plan}\n"
+  )
+}
+
+fn build_plan_snapshot_saved_notice_row(
+  session_id: &str,
+  relative_path: &str,
+) -> ConversationRowEntry {
+  ConversationRowEntry {
+    session_id: session_id.to_string(),
+    sequence: 0,
+    turn_id: None,
+    turn_status: TurnStatus::Active,
+    row: ConversationRow::Notice(NoticeRow {
+      id: orbitdock_protocol::new_id(),
+      kind: NoticeRowKind::Generic,
+      severity: NoticeRowSeverity::Info,
+      title: "Plan snapshot saved".to_string(),
+      summary: Some(format!("Saved latest plan to {relative_path}")),
+      body: None,
+      render_hints: Default::default(),
+    }),
+  }
+}
+
+fn build_plan_snapshot_failed_notice_row(session_id: &str, error: &str) -> ConversationRowEntry {
+  ConversationRowEntry {
+    session_id: session_id.to_string(),
+    sequence: 0,
+    turn_id: None,
+    turn_status: TurnStatus::Active,
+    row: ConversationRow::Notice(NoticeRow {
+      id: orbitdock_protocol::new_id(),
+      kind: NoticeRowKind::Generic,
+      severity: NoticeRowSeverity::Warning,
+      title: "Plan snapshot failed".to_string(),
+      summary: Some("Could not save latest plan to plans/".to_string()),
+      body: Some(error.to_string()),
+      render_hints: Default::default(),
+    }),
+  }
 }
 
 fn build_session_config_change_notice_row(
@@ -667,11 +824,12 @@ pub(crate) async fn end_failed_direct_session(state: &Arc<SessionRegistry>, sess
 
 #[cfg(test)]
 mod tests {
+  use std::fs;
   use std::sync::Arc;
 
   use orbitdock_protocol::{
     conversation_contracts::ConversationRow, CodexIntegrationMode, Provider, ServerMessage,
-    SessionStatus, WorkStatus,
+    SessionStatus, StateChanges, WorkStatus,
   };
   use tokio::sync::{mpsc, oneshot};
   use tokio::time::{timeout, Duration};
@@ -691,6 +849,20 @@ mod tests {
         matches!(
           &entry.row,
           ConversationRow::Notice(notice) if notice.title == "Session settings updated"
+        )
+      })
+      .count()
+  }
+
+  fn count_plan_snapshot_notice_rows(
+    rows: &[orbitdock_protocol::conversation_contracts::ConversationRowEntry],
+  ) -> usize {
+    rows
+      .iter()
+      .filter(|entry| {
+        matches!(
+          &entry.row,
+          ConversationRow::Notice(notice) if notice.title == "Plan snapshot saved"
         )
       })
       .count()
@@ -904,6 +1076,128 @@ mod tests {
       count_settings_notice_rows(&page.rows),
       1,
       "no-op config update should not append an extra settings notice row"
+    );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_saves_plan_snapshot_on_plan_mode_exit() {
+    let state = new_test_session_registry(true);
+    let temp = tempfile::tempdir().expect("tempdir");
+    let session_id = "plan-exit-snapshot";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      temp.path().to_string_lossy().to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("plan".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should enter plan mode");
+
+    let actor = state
+      .get_session(session_id)
+      .expect("session should exist after entering plan mode");
+    actor
+      .send(SessionCommand::ApplyDelta {
+        changes: Box::new(StateChanges {
+          current_plan: Some(Some(
+            "## Implementation Plan\n- [ ] Add a plan_write integration\n".to_string(),
+          )),
+          ..Default::default()
+        }),
+        persist_op: None,
+      })
+      .await;
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("default".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should exit plan mode");
+
+    let plan_path = temp.path().join("plans/auto/plan-exit-snapshot.md");
+    let content = fs::read_to_string(&plan_path).expect("plan snapshot should be written");
+    assert!(content.contains("# Plan Snapshot"));
+    assert!(content.contains("## Implementation Plan"));
+    assert!(content.contains("collaboration mode exit"));
+
+    let page = state
+      .get_session(session_id)
+      .expect("session should exist")
+      .conversation_page(None, 100)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_plan_snapshot_notice_rows(&page.rows),
+      1,
+      "plan mode exit should emit exactly one plan snapshot notice row"
+    );
+  }
+
+  #[tokio::test]
+  async fn update_session_config_skips_plan_snapshot_on_plan_exit_without_plan() {
+    let state = new_test_session_registry(true);
+    let temp = tempfile::tempdir().expect("tempdir");
+    let session_id = "plan-exit-no-plan";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      temp.path().to_string_lossy().to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("plan".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should enter plan mode");
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        collaboration_mode: Some(Some("default".to_string())),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("should exit plan mode");
+
+    assert!(
+      !temp.path().join("plans/auto/plan-exit-no-plan.md").exists(),
+      "no plan snapshot should be written when there is no current plan"
+    );
+
+    let page = state
+      .get_session(session_id)
+      .expect("session should exist")
+      .conversation_page(None, 100)
+      .await
+      .expect("conversation page should be available");
+
+    assert_eq!(
+      count_plan_snapshot_notice_rows(&page.rows),
+      0,
+      "no plan snapshot notice row should be emitted without a plan"
     );
   }
 }
