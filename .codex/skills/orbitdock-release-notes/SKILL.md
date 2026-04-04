@@ -1,6 +1,6 @@
 ---
 name: orbitdock-release-notes
-description: "Standardize OrbitDock changelogs using two modes: (1) GitHub tag release notes with the stable long-form template (`Quick start`, `OrbitDock vX`, `Highlights`, `Important release notes`, `Full changelog`) and (2) TestFlight build-train changelogs based on emoji build-marker commits like `🔖 v0.7.0-b7` to `🔖 v0.7.0-b8` that are not tags. Use when editing releases with `gh`, generating TestFlight notes, or producing platform-specific diffs (iOS/iPadOS vs macOS)."
+description: "Standardize OrbitDock changelogs using two modes: (1) GitHub tag release notes with the stable long-form template (`Quick start`, `OrbitDock vX`, `Highlights`, `Important release notes`, `Full changelog`) and (2) TestFlight build-train changelogs based on build-marker commits like `🔖 v0.7.0-b7` to `🔖 v0.7.0-b8` that are not tags. Use when editing releases with `gh`, generating TestFlight notes, or producing platform-specific diffs (iOS/iPadOS vs macOS)."
 ---
 
 # OrbitDock Release Notes
@@ -65,6 +65,7 @@ Follow [references/release-template.md](references/release-template.md).
 
 Follow [references/testflight-template.md](references/testflight-template.md).
 Keep this concise and outcome-focused; TestFlight notes should be easy to skim in-app.
+Output must be plain text only for TestFlight.
 
 Rules:
 
@@ -75,6 +76,8 @@ Rules:
 - Use a full compare URL in `## Full changelog`.
 - For build-train notes, always include the marker range (`🔖 ... -> 🔖 ...`) and avoid tag language unless tags are truly involved.
 - For platform notes, explicitly separate shared/native changes from iOS/iPadOS-only and macOS-only changes when possible.
+- For TestFlight output, remove markdown syntax (no `#`, `##`, `###`, `-`, or backticks in final copy).
+- For TestFlight output, remove emoji from user-facing text. If marker commits include an emoji prefix, strip it in the changelog text (for example, `🔖 v0.7.0-b8` -> `v0.7.0-b8`).
 
 ## Publish and Verify
 
@@ -88,7 +91,7 @@ Rules:
 TestFlight mode:
 
 1. Resolve marker SHAs and verify both exist.
-2. Generate a copy/paste markdown note from the template.
+2. Generate a copy/paste plain-text note from the template.
 3. Keep a short "Platform breakdown" section when platform-specific changes are non-trivial.
 
 ## Guardrails
@@ -100,6 +103,8 @@ TestFlight mode:
 - Keep release channel notes accurate (`stable` vs `nightly`).
 - Do not assume build markers are tags; treat them as commit anchors unless verified otherwise.
 - Do not claim iOS-only or macOS-only changes without file or compile-guard evidence.
+- Do not include markdown formatting in final TestFlight text.
+- Do not include emojis in final TestFlight text.
 
 ## References
 
