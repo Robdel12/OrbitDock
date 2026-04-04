@@ -263,6 +263,7 @@ pub(crate) fn build_control_deck_snapshot(
       &session.token_usage,
       session.token_usage_snapshot_kind,
     ),
+    pending_approval: session.pending_approval.clone(),
   }
 }
 

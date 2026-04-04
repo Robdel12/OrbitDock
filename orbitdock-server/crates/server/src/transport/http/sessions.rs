@@ -8,13 +8,15 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::{
-  ConversationSnapshotPage, DashboardSnapshot, SessionComposerSnapshot, SessionDetailSnapshot,
-  TurnDiff,
+  ConversationSnapshotPage, DashboardSnapshot, LibrarySnapshot, SessionComposerSnapshot,
+  SessionDetailSnapshot, TurnDiff,
 };
 use std::collections::BTreeMap;
 
 const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
 const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
+const DEFAULT_LIBRARY_PAGE_SIZE: usize = 200;
+const MAX_LIBRARY_PAGE_SIZE: usize = 500;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ConversationPageQuery {
@@ -32,6 +34,14 @@ pub struct SessionSnapshotQuery {
   pub include_messages: bool,
   #[serde(default)]
   pub include_diffs: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct LibrarySnapshotQuery {
+  #[serde(default)]
+  pub limit: Option<usize>,
+  #[serde(default)]
+  pub offset: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +89,12 @@ fn clamp_conversation_limit(limit: Option<usize>) -> usize {
   limit
     .unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE)
     .clamp(1, MAX_CONVERSATION_PAGE_SIZE)
+}
+
+fn clamp_library_limit(limit: Option<usize>) -> usize {
+  limit
+    .unwrap_or(DEFAULT_LIBRARY_PAGE_SIZE)
+    .clamp(1, MAX_LIBRARY_PAGE_SIZE)
 }
 
 fn enum_wire_name<T: serde::Serialize>(value: T) -> Option<String> {
@@ -160,6 +176,38 @@ pub async fn get_dashboard_snapshot(
         ready: 0,
         direct: 0,
       },
+    })),
+  }
+}
+
+pub async fn get_library_snapshot(
+  Query(query): Query<LibrarySnapshotQuery>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<LibrarySnapshot> {
+  let limit = clamp_library_limit(query.limit);
+  let offset = query.offset.unwrap_or(0);
+
+  match load_library_snapshot(&state, limit, offset).await {
+    Ok(snapshot) => Ok(Json(snapshot)),
+    Err(SessionLoadError::Db(err)) => Err((
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(ApiErrorResponse {
+        code: "db_error",
+        error: err,
+      }),
+    )),
+    Err(SessionLoadError::Runtime(err)) => Err((
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(ApiErrorResponse {
+        code: "runtime_error",
+        error: err,
+      }),
+    )),
+    Err(SessionLoadError::NotFound) => Ok(Json(LibrarySnapshot {
+      revision: state.current_dashboard_revision(),
+      sessions: Vec::new(),
+      next_offset: None,
+      total_count: 0,
     })),
   }
 }
@@ -782,6 +830,25 @@ mod tests {
     }
   }
 
+  #[test]
+  fn library_snapshot_limit_clamps_to_safe_bounds() {
+    assert_eq!(
+      clamp_library_limit(None),
+      DEFAULT_LIBRARY_PAGE_SIZE,
+      "missing limit should use default page size"
+    );
+    assert_eq!(
+      clamp_library_limit(Some(0)),
+      1,
+      "zero limit should clamp to minimum page size"
+    );
+    assert_eq!(
+      clamp_library_limit(Some(MAX_LIBRARY_PAGE_SIZE + 1)),
+      MAX_LIBRARY_PAGE_SIZE,
+      "oversized limit should clamp to max page size"
+    );
+  }
+
   #[tokio::test]
   async fn search_conversation_rows_filters_by_query_and_tool_metadata() {
     let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
@@ -880,6 +947,92 @@ mod tests {
     assert_eq!(snapshot.counts.running, 0);
     assert_eq!(snapshot.counts.ready, 1);
     assert_eq!(snapshot.counts.direct, 0);
+  }
+
+  #[tokio::test]
+  async fn library_snapshot_reads_persisted_sessions() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_session_fixture(&db_path, &session_id, "/tmp/orbitdock-library-test", vec![]);
+
+    let Json(snapshot) = get_library_snapshot(Query(LibrarySnapshotQuery::default()), State(state))
+      .await
+      .expect("library snapshot should succeed");
+
+    assert_eq!(snapshot.sessions.len(), 1);
+  }
+
+  #[tokio::test]
+  async fn library_snapshot_paginates_with_offset_and_next_offset() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id_one = orbitdock_protocol::new_session_id();
+    let session_id_two = orbitdock_protocol::new_session_id();
+    persist_session_fixture(
+      &db_path,
+      &session_id_one,
+      "/tmp/orbitdock-library-pagination-one",
+      vec![],
+    );
+    persist_session_fixture(
+      &db_path,
+      &session_id_two,
+      "/tmp/orbitdock-library-pagination-two",
+      vec![],
+    );
+
+    let Json(first_page) = get_library_snapshot(
+      Query(LibrarySnapshotQuery {
+        limit: Some(1),
+        offset: Some(0),
+      }),
+      State(state.clone()),
+    )
+    .await
+    .expect("first library page should succeed");
+
+    assert_eq!(first_page.sessions.len(), 1);
+    assert_eq!(first_page.total_count, 2);
+    assert_eq!(first_page.next_offset, Some(1));
+
+    let Json(second_page) = get_library_snapshot(
+      Query(LibrarySnapshotQuery {
+        limit: Some(1),
+        offset: Some(1),
+      }),
+      State(state),
+    )
+    .await
+    .expect("second library page should succeed");
+
+    assert_eq!(second_page.sessions.len(), 1);
+    assert_eq!(second_page.total_count, 2);
+    assert_eq!(second_page.next_offset, None);
+  }
+
+  #[tokio::test]
+  async fn library_snapshot_offset_past_end_returns_empty_page() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_session_fixture(
+      &db_path,
+      &session_id,
+      "/tmp/orbitdock-library-pagination-offset",
+      vec![],
+    );
+
+    let Json(page) = get_library_snapshot(
+      Query(LibrarySnapshotQuery {
+        limit: Some(50),
+        offset: Some(5),
+      }),
+      State(state),
+    )
+    .await
+    .expect("library snapshot with offset past end should succeed");
+
+    assert!(page.sessions.is_empty());
+    assert_eq!(page.total_count, 1);
+    assert_eq!(page.next_offset, None);
   }
 
   #[tokio::test]

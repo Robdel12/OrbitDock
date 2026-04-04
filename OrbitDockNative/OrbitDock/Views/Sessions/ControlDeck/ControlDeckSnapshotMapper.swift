@@ -10,7 +10,8 @@ nonisolated enum ControlDeckSnapshotMapper {
       preferences: mapPreferences(payload.preferences),
       tokenUsage: mapTokenUsage(payload.tokenUsage),
       tokenUsageSnapshotKind: mapSnapshotKind(payload.tokenUsageSnapshotKind),
-      tokenStatus: mapTokenStatus(payload.tokenStatus)
+      tokenStatus: mapTokenStatus(payload.tokenStatus),
+      pendingApproval: payload.pendingApproval.map(mapApproval)
     )
   }
 

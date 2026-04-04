@@ -391,6 +391,11 @@ pub enum PersistCommand {
     row_ids: Vec<String>,
     status: TurnStatus,
   },
+
+  /// Barrier command: the writer signals `ack` after all preceding commands in the
+  /// batch have been flushed to SQLite. Callers await the ack to guarantee
+  /// preceding writes are durable before reading back.
+  Flush { ack: oneshot::Sender<()> },
 }
 
 impl PersistCommand {
@@ -447,6 +452,7 @@ impl PersistCommand {
       PersistCommand::MissionIssueUpdateState { .. } => "MissionIssueUpdateState",
       PersistCommand::MissionIssueSetPrUrl { .. } => "MissionIssueSetPrUrl",
       PersistCommand::RowsTurnStatusUpdate { .. } => "RowsTurnStatusUpdate",
+      PersistCommand::Flush { .. } => "Flush",
     }
   }
 
@@ -461,7 +467,7 @@ impl PersistCommand {
       } | PersistCommand::RowUpsert {
         sequence_tx: Some(_),
         ..
-      }
+      } | PersistCommand::Flush { .. }
     )
   }
 }

@@ -11,6 +11,24 @@ struct ControlDeckSnapshot: Sendable {
   let tokenUsage: ControlDeckTokenUsage
   let tokenUsageSnapshotKind: ControlDeckTokenUsageSnapshotKind
   let tokenStatus: ControlDeckTokenStatus
+  let pendingApproval: ControlDeckApproval?
+
+  func replacing(
+    preferences: ControlDeckPreferences? = nil,
+    pendingApproval: ControlDeckApproval?? = nil
+  ) -> ControlDeckSnapshot {
+    ControlDeckSnapshot(
+      revision: revision,
+      sessionId: sessionId,
+      state: state,
+      capabilities: capabilities,
+      preferences: preferences ?? self.preferences,
+      tokenUsage: tokenUsage,
+      tokenUsageSnapshotKind: tokenUsageSnapshotKind,
+      tokenStatus: tokenStatus,
+      pendingApproval: pendingApproval ?? self.pendingApproval
+    )
+  }
 }
 
 // MARK: - Session State

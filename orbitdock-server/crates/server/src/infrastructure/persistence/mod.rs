@@ -1905,6 +1905,9 @@ pub(super) fn execute_command(
         )?;
       }
     }
+    PersistCommand::Flush { ack } => {
+      let _ = ack.send(());
+    }
   }
 
   Ok(())

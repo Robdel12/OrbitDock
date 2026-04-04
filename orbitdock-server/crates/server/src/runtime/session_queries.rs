@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexIntegrationMode, DashboardConversationItem, DashboardCounts,
-  DashboardDiffPreview, DashboardSnapshot, Provider, SessionControlMode, SessionLifecycleState,
-  SessionListItem, SessionListStatus, SessionState, SessionStatus, SessionSummary, TokenUsage,
-  WorkStatus,
+  DashboardDiffPreview, DashboardSnapshot, LibrarySnapshot, Provider, SessionControlMode,
+  SessionLifecycleState, SessionListItem, SessionListStatus, SessionState, SessionStatus,
+  SessionSummary, TokenUsage, WorkStatus,
 };
 use rusqlite::Connection;
 use tracing::warn;
@@ -517,84 +517,82 @@ fn apply_page_to_session(session: &mut SessionState, page: &ConversationPage) {
   session.newest_sequence = page.newest_sequence;
 }
 
-pub(crate) async fn load_dashboard_snapshot(
-  state: &Arc<SessionRegistry>,
-) -> Result<DashboardSnapshot, SessionLoadError> {
-  let projections = load_persisted_dashboard_projections(state.db_path().clone()).await?;
+fn session_summary_from_projection(projection: &PersistedDashboardProjection) -> SessionSummary {
+  let (display_title, context_line) = projection_display_context(projection);
+  let list_status = projection_list_status(projection);
 
+  SessionSummary {
+    id: projection.id.clone(),
+    provider: projection.provider,
+    project_path: projection.project_path.clone(),
+    transcript_path: None,
+    project_name: projection.project_name.clone(),
+    model: projection.model.clone(),
+    custom_name: projection.custom_name.clone(),
+    summary: projection.summary.clone(),
+    first_prompt: projection.first_prompt.clone(),
+    last_message: projection.last_message.clone(),
+    status: projection.status,
+    work_status: projection.work_status,
+    control_mode: projection.control_mode,
+    lifecycle_state: projection.lifecycle_state,
+    accepts_user_input: projection.status == SessionStatus::Active
+      && projection.control_mode == SessionControlMode::Direct
+      && projection.lifecycle_state == SessionLifecycleState::Open,
+    steerable: projection.work_status == WorkStatus::Working,
+    token_usage: projection.token_usage.clone(),
+    token_usage_snapshot_kind: projection.token_usage_snapshot_kind,
+    has_pending_approval: projection.pending_approval_id.is_some(),
+    codex_integration_mode: projection.codex_integration_mode,
+    claude_integration_mode: projection.claude_integration_mode,
+    approval_policy: projection.approval_policy.clone(),
+    approval_policy_details: None,
+    sandbox_mode: projection.sandbox_mode.clone(),
+    permission_mode: projection.permission_mode.clone(),
+    allow_bypass_permissions: projection.allow_bypass_permissions,
+    collaboration_mode: projection.collaboration_mode.clone(),
+    multi_agent: projection.multi_agent,
+    personality: projection.personality.clone(),
+    service_tier: projection.service_tier.clone(),
+    developer_instructions: projection.developer_instructions.clone(),
+    codex_config_mode: None,
+    codex_config_profile: None,
+    codex_model_provider: None,
+    codex_config_source: None,
+    codex_config_overrides: None,
+    pending_tool_name: projection.pending_tool_name.clone(),
+    pending_tool_input: projection.pending_tool_input.clone(),
+    pending_question: projection.pending_question.clone(),
+    pending_approval_id: projection.pending_approval_id.clone(),
+    started_at: projection.started_at.clone(),
+    last_activity_at: projection.last_activity_at.clone(),
+    last_progress_at: None,
+    git_branch: projection.git_branch.clone(),
+    git_sha: None,
+    current_cwd: None,
+    effort: projection.effort.clone(),
+    approval_version: Some(projection.approval_version),
+    summary_revision: 0,
+    repository_root: projection.repository_root.clone(),
+    is_worktree: projection.is_worktree,
+    worktree_id: projection.worktree_id.clone(),
+    unread_count: projection.unread_count,
+    has_turn_diff: has_turn_diff(projection.current_diff.as_deref()),
+    display_title,
+    context_line,
+    list_status,
+    active_worker_count: projection.active_worker_count,
+    pending_tool_family: None,
+    forked_from_session_id: projection.forked_from_session_id.clone(),
+    mission_id: projection.mission_id.clone(),
+    issue_identifier: projection.issue_identifier.clone(),
+  }
+}
+
+fn sorted_session_summaries(projections: &[PersistedDashboardProjection]) -> Vec<SessionSummary> {
   let mut sessions: Vec<SessionSummary> = projections
     .iter()
-    .map(|projection| {
-      let (display_title, context_line) = projection_display_context(projection);
-      let list_status = projection_list_status(projection);
-
-      SessionSummary {
-        id: projection.id.clone(),
-        provider: projection.provider,
-        project_path: projection.project_path.clone(),
-        transcript_path: None,
-        project_name: projection.project_name.clone(),
-        model: projection.model.clone(),
-        custom_name: projection.custom_name.clone(),
-        summary: projection.summary.clone(),
-        first_prompt: projection.first_prompt.clone(),
-        last_message: projection.last_message.clone(),
-        status: projection.status,
-        work_status: projection.work_status,
-        control_mode: projection.control_mode,
-        lifecycle_state: projection.lifecycle_state,
-        accepts_user_input: projection.status == SessionStatus::Active
-          && projection.control_mode == SessionControlMode::Direct
-          && projection.lifecycle_state == SessionLifecycleState::Open,
-        steerable: projection.work_status == WorkStatus::Working,
-        token_usage: projection.token_usage.clone(),
-        token_usage_snapshot_kind: projection.token_usage_snapshot_kind,
-        has_pending_approval: projection.pending_approval_id.is_some(),
-        codex_integration_mode: projection.codex_integration_mode,
-        claude_integration_mode: projection.claude_integration_mode,
-        approval_policy: projection.approval_policy.clone(),
-        approval_policy_details: None,
-        sandbox_mode: projection.sandbox_mode.clone(),
-        permission_mode: projection.permission_mode.clone(),
-        allow_bypass_permissions: projection.allow_bypass_permissions,
-        collaboration_mode: projection.collaboration_mode.clone(),
-        multi_agent: projection.multi_agent,
-        personality: projection.personality.clone(),
-        service_tier: projection.service_tier.clone(),
-        developer_instructions: projection.developer_instructions.clone(),
-        codex_config_mode: None,
-        codex_config_profile: None,
-        codex_model_provider: None,
-        codex_config_source: None,
-        codex_config_overrides: None,
-        pending_tool_name: projection.pending_tool_name.clone(),
-        pending_tool_input: projection.pending_tool_input.clone(),
-        pending_question: projection.pending_question.clone(),
-        pending_approval_id: projection.pending_approval_id.clone(),
-        started_at: projection.started_at.clone(),
-        last_activity_at: projection.last_activity_at.clone(),
-        last_progress_at: None,
-        git_branch: projection.git_branch.clone(),
-        git_sha: None,
-        current_cwd: None,
-        effort: projection.effort.clone(),
-        approval_version: Some(projection.approval_version),
-        summary_revision: 0,
-        repository_root: projection.repository_root.clone(),
-        is_worktree: projection.is_worktree,
-        worktree_id: projection.worktree_id.clone(),
-        unread_count: projection.unread_count,
-        has_turn_diff: has_turn_diff(projection.current_diff.as_deref()),
-        display_title,
-        context_line,
-        list_status,
-        active_worker_count: projection.active_worker_count,
-        pending_tool_family: None,
-        forked_from_session_id: projection.forked_from_session_id.clone(),
-        mission_id: projection.mission_id.clone(),
-        issue_identifier: projection.issue_identifier.clone(),
-      }
-    })
+    .map(session_summary_from_projection)
     .collect();
 
   sessions.sort_by(|lhs, rhs| {
@@ -603,6 +601,44 @@ pub(crate) async fn load_dashboard_snapshot(
       .cmp(&lhs.last_activity_at)
       .then_with(|| lhs.display_title.cmp(&rhs.display_title))
   });
+
+  sessions
+}
+
+pub(crate) async fn load_library_snapshot(
+  state: &Arc<SessionRegistry>,
+  limit: usize,
+  offset: usize,
+) -> Result<LibrarySnapshot, SessionLoadError> {
+  let projections = load_persisted_dashboard_projections(state.db_path().clone()).await?;
+  let sessions = sorted_session_summaries(&projections);
+  let total_count = sessions.len() as u64;
+
+  let paged_summaries: Vec<SessionSummary> =
+    sessions.into_iter().skip(offset).take(limit).collect();
+  let page_count = paged_summaries.len();
+  let next_offset = if offset.saturating_add(page_count) < total_count as usize {
+    Some((offset + page_count) as u64)
+  } else {
+    None
+  };
+
+  Ok(LibrarySnapshot {
+    revision: state.current_dashboard_revision(),
+    sessions: paged_summaries
+      .iter()
+      .map(SessionListItem::from_summary)
+      .collect(),
+    next_offset,
+    total_count,
+  })
+}
+
+pub(crate) async fn load_dashboard_snapshot(
+  state: &Arc<SessionRegistry>,
+) -> Result<DashboardSnapshot, SessionLoadError> {
+  let projections = load_persisted_dashboard_projections(state.db_path().clone()).await?;
+  let sessions = sorted_session_summaries(&projections);
 
   let mut conversations: Vec<DashboardConversationItem> = projections
     .iter()

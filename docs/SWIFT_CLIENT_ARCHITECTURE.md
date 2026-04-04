@@ -67,9 +67,19 @@ Preferred flow:
 2. The view model calls a feature service or a narrow store entry point.
 3. The service or store calls the typed server client.
 4. The authoritative response is applied to local observable state.
-5. websocket events reconcile any remaining drift.
+5. WebSocket events reconcile any remaining drift.
 
 This keeps server truth authoritative while avoiding store bloat.
+
+## Realtime Update Flow
+
+When a WebSocket event arrives (approval requested, config changed, session status update):
+
+1. The WS event signals **what changed** (e.g. "approval arrived for session X").
+2. The client re-fetches the owning HTTP snapshot (e.g. control deck snapshot, session bootstrap).
+3. The snapshot response is applied as the single source of truth.
+
+Do **not** bridge WS event payloads directly into view model state. That creates a second state tree that drifts from the server. The only exception is conversation row deltas, which carry server-assigned sequences and are applied incrementally by design.
 
 ## Compatibility Rule
 

@@ -68,6 +68,10 @@ struct DashboardView: View {
           case .library:
             LibraryView(
               sessions: viewModel.librarySessions,
+              hasMoreSessions: viewModel.libraryHasMoreSessions,
+              onLoadMoreSessions: {
+                await viewModel.loadMoreLibrarySessions()
+              },
               containerWidth: containerWidth
             )
         }

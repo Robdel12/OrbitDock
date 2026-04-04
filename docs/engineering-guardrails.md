@@ -22,6 +22,14 @@ Use WebSocket for:
 
 If a REST mutation needs to notify other clients, let the server broadcast the result afterward. Do not send the mutation itself over WebSocket just because a broadcast follows.
 
+### WS Events Are Triggers, Not State
+
+WebSocket events tell the client **something changed**. They are not a data pipeline for view model state.
+
+When a WS event arrives (approval requested, config changed, session status), the client should re-fetch the owning HTTP snapshot and apply it as the single source of truth. Do not bridge WS event payloads directly into view model properties — that creates a parallel state tree that drifts from the server and causes bugs where the UI shows stale or missing state until the user navigates away and back.
+
+The only exception is conversation row deltas, which carry server-assigned sequence numbers and are applied incrementally by design.
+
 ## Typed Protocol Boundaries
 
 Keep the Swift side strongly typed to match Rust serde models.
@@ -33,7 +41,6 @@ Keep the Swift side strongly typed to match Rust serde models.
 When in doubt, read:
 
 - [data-flow.md](data-flow.md)
-- [client-networking.md](client-networking.md)
 - [SWIFT_CLIENT_ARCHITECTURE.md](SWIFT_CLIENT_ARCHITECTURE.md)
 
 ## SQLite Ownership
@@ -73,7 +80,7 @@ Important constraints:
 
 For broader UI rules, read:
 
-- [UI_CROSS_PLATFORM_GUIDELINES.md](UI_CROSS_PLATFORM_GUIDELINES.md)
+- [design-system.md](design-system.md)
 - [typography.md](typography.md)
 
 ## Rust Clippy Policy

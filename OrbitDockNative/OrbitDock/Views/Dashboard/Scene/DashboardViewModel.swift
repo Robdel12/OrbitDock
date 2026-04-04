@@ -180,6 +180,15 @@ final class DashboardViewModel {
     rootSessions
   }
 
+  var libraryHasMoreSessions: Bool {
+    dashboardProjectionStore?.runtimeRegistry?.hasMoreLibrarySessions ?? false
+  }
+
+  func loadMoreLibrarySessions() async {
+    guard let runtimeRegistry = dashboardProjectionStore?.runtimeRegistry else { return }
+    await runtimeRegistry.loadMoreLibrarySessions()
+  }
+
   var dashboardConversations: [DashboardConversationRecord] {
     dashboardProjectionStore?.dashboardConversations ?? []
   }

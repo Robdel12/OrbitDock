@@ -34,6 +34,7 @@ fn hook_routes() -> Router<Arc<SessionRegistry>> {
 fn session_read_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route("/api/dashboard", get(super::get_dashboard_snapshot))
+    .route("/api/library", get(super::get_library_snapshot))
     .route(
       "/api/sessions/{session_id}/detail",
       get(super::get_session_detail),

@@ -90,6 +90,33 @@ final class SessionStore {
 
   @ObservationIgnored var _sessionObservables: [String: SessionObservable] = [:]
 
+  // MARK: - Per-session surface refresh signals
+
+  @ObservationIgnored private var _sessionChangeContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+
+  /// Returns an AsyncStream that yields a value whenever a WS event arrives for this session.
+  /// The stream ends when the returned task is cancelled or the caller stops iterating.
+  func sessionChanges(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _sessionChangeContinuations[sessionId] == nil {
+        _sessionChangeContinuations[sessionId] = [:]
+      }
+      _sessionChangeContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._sessionChangeContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  /// Notify all surfaces listening for changes on this session. Called by WS event handlers.
+  func notifySessionChanged(_ sessionId: String) {
+    _sessionChangeContinuations[sessionId]?.values.forEach { $0.yield() }
+  }
+
   // MARK: - Private tracking
 
   @ObservationIgnored var lastRevision: [String: UInt64] = [:]
@@ -299,6 +326,7 @@ final class SessionStore {
       lastOlderMessagesRequestBeforeSequence.removeValue(forKey: sessionId)
       cancelInFlightSessionTasks(sessionId)
       trimInactiveSessionPayload(sessionId)
+      _sessionChangeContinuations.removeValue(forKey: sessionId)
     } else {
       removeRecoveredSurfaces(sessionId: sessionId, surfaces: targetSurfaces)
     }

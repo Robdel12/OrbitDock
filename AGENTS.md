@@ -39,9 +39,7 @@ The repo rules are simple:
 - [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — server-authoritative rules, protocol guidance, UI constraints
 - [docs/CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — short Swift client guardrails
 - [docs/SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — durable client architecture rules
-- [docs/client-networking.md](docs/client-networking.md) — networking lifecycle and readiness rules
-- [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract
-- [docs/UI_CROSS_PLATFORM_GUIDELINES.md](docs/UI_CROSS_PLATFORM_GUIDELINES.md) — shared cross-platform UI rules
+- [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract and surface model
 - [docs/design-system.md](docs/design-system.md) — unified design system (Cosmic Harbor)
 - [docs/typography.md](docs/typography.md) — typography system
 - [docs/local-development.md](docs/local-development.md) — setup flow, file locations, CLI basics
@@ -50,6 +48,5 @@ The repo rules are simple:
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deployment and install flows
 - [docs/FEATURES.md](docs/FEATURES.md) — product capability overview
 - [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — product direction
-- [docs/sample-mission.md](docs/sample-mission.md) — example `MISSION.md`
 
 If a section starts turning into a handbook, move it into `docs/` and link it here.

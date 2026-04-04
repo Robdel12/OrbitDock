@@ -45,11 +45,6 @@ struct SessionDetailView: View {
     VStack(spacing: 0) {
       topChrome
 
-      // Diff-available banner
-      if viewModel.showDiffBanner, viewModel.layoutConfig == .conversationOnly {
-        diffAvailableBanner
-      }
-
       // Worktree cleanup banner
       if showWorktreeCleanupBanner {
         worktreeCleanupBanner

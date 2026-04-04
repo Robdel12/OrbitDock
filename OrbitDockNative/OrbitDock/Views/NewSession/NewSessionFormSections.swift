@@ -11,27 +11,28 @@ struct NewSessionProviderPicker: View {
         Button {
           onSelect(option)
         } label: {
-          HStack(spacing: Spacing.sm) {
+          HStack(spacing: Spacing.sm_) {
             Image(systemName: option.icon)
-              .font(.system(size: 12, weight: .semibold))
+              .font(.system(size: 11, weight: .semibold))
             Text(option.displayName)
               .font(.system(size: TypeScale.body, weight: .semibold))
           }
           .foregroundStyle(isSelected ? Color.backgroundPrimary : option.color)
           .padding(.horizontal, Spacing.md)
-          .padding(.vertical, Spacing.sm)
-          .frame(maxWidth: .infinity)
+          .padding(.vertical, Spacing.sm_)
           .background(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            Capsule()
               .fill(isSelected ? option.color : option.color.opacity(OpacityTier.light))
           )
           .overlay(
-            RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+            Capsule()
               .stroke(option.color.opacity(isSelected ? 0 : OpacityTier.light), lineWidth: 1)
           )
         }
         .buttonStyle(.plain)
       }
+
+      Spacer()
     }
   }
 }

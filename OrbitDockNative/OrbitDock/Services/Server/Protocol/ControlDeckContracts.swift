@@ -182,6 +182,7 @@ struct ServerControlDeckSnapshotPayload: Codable, Sendable {
   let tokenUsage: ServerTokenUsage
   let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
   let tokenStatus: ServerControlDeckTokenStatus
+  let pendingApproval: ServerApprovalRequest?
 
   enum CodingKeys: String, CodingKey {
     case revision
@@ -192,6 +193,7 @@ struct ServerControlDeckSnapshotPayload: Codable, Sendable {
     case tokenUsage = "token_usage"
     case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case tokenStatus = "token_status"
+    case pendingApproval = "pending_approval"
   }
 }
 

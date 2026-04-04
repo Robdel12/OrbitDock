@@ -4,11 +4,10 @@ enum ControlDeckPresentationBuilder {
   static func build(
     snapshot: ControlDeckSnapshot,
     isLoading: Bool,
-    hasPendingApproval: Bool = false,
     availableModels: [String] = []
   ) -> ControlDeckPresentation {
     let state = snapshot.state
-    let mode = resolveMode(state: state, hasPendingApproval: hasPendingApproval)
+    let mode = resolveMode(state: state, hasPendingApproval: snapshot.pendingApproval != nil)
 
     return ControlDeckPresentation(
       mode: mode,

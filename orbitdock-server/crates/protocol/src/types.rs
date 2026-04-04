@@ -1824,6 +1824,15 @@ pub struct DashboardSnapshot {
   pub counts: DashboardCounts,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibrarySnapshot {
+  pub revision: u64,
+  pub sessions: Vec<SessionListItem>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub next_offset: Option<u64>,
+  pub total_count: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UsageSummaryModelCost {
   pub model: String,

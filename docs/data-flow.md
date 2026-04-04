@@ -86,6 +86,10 @@ stateDiagram-v2
    `control_mode`, `lifecycle_state`, and `accepts_user_input` are server-owned fields.
 4. Mutation responses are authoritative.
    Successful `POST`/`PATCH`/`PUT` responses are applied immediately by the client. WS reconciles afterward.
+5. WebSocket events are signals, not state.
+   A WS event tells the client **something changed**. The client should re-fetch the relevant HTTP snapshot to get the authoritative state. Never bridge WS event payloads directly into view model state as the primary data path — that creates a second source of truth that drifts from the server.
+   - Conversation row deltas are the one exception: they carry server-assigned sequence numbers and are applied incrementally by design.
+   - For everything else (approvals, config changes, session status), the WS event is a trigger to refresh, not a replacement for the HTTP snapshot.
 
 ## Boundary Rules
 

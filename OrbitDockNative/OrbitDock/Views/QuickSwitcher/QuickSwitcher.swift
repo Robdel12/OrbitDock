@@ -27,7 +27,7 @@ struct QuickSwitcher: View {
   @FocusState private var isSearchFocused: Bool
 
   /// The session currently being viewed (for commands to act on)
-  private var viewState: QuickSwitcherViewState {
+  private func makeViewState() -> QuickSwitcherViewState {
     QuickSwitcherViewState.make(
       sessions: appStore.records(),
       state: quickSwitcherState,
@@ -51,15 +51,17 @@ struct QuickSwitcher: View {
   }
 
   var body: some View {
-    mainContent
+    let viewState = makeViewState()
+
+    return mainContent(viewState: viewState)
       .onAppear {
         quickSwitcherState.resetSelection()
         focusSearchField()
       }
       .modifier(KeyboardNavigationModifier(
         isEnabled: isQuickSwitcherVisible,
-        onMoveUp: { moveSelection(by: -1) },
-        onMoveDown: { moveSelection(by: 1) },
+        onMoveUp: { moveSelection(by: -1, viewState: viewState) },
+        onMoveDown: { moveSelection(by: 1, viewState: viewState) },
         onMoveToFirst: {
           quickSwitcherState.selectedIndex = QuickSwitcherNavigationModel.moveToFirst(
             currentIndex: quickSwitcherState.selectedIndex,
@@ -72,16 +74,16 @@ struct QuickSwitcher: View {
             totalItems: viewState.totalItems
           )
         },
-        onSelect: { selectCurrent() },
-        onRename: { renameCurrentSelection() },
-        onShiftSelect: viewState.isQuickLaunchMode ? { openFullSheet() } : nil
+        onSelect: { selectCurrent(viewState: viewState) },
+        onRename: { renameCurrentSelection(viewState: viewState) },
+        onShiftSelect: viewState.isQuickLaunchMode ? { openFullSheet(viewState: viewState) } : nil
       ))
       .onChange(of: quickSwitcherState.searchText) { oldValue, newValue in
         let transition = QuickSwitcherSearchTransitionPlanner.transition(
           oldSearchText: oldValue,
           newSearchText: newValue,
           previousMode: quickSwitcherState.quickLaunchMode.map { .quickLaunch($0.intent) } ?? .standard,
-          selectedKind: selectedKind,
+          selectedKind: selectedKind(viewState: viewState),
           visibleSessions: viewState.allVisibleSessions
         )
         quickSwitcherState.applySearchTransition(transition)
@@ -106,18 +108,22 @@ struct QuickSwitcher: View {
       }
   }
 
-  private var mainContent: some View {
+  private func mainContent(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherShell(
       isCompactLayout: viewState.isCompactLayout,
       isEmptyState: viewState.isEmptyState,
-      searchBar: { searchBar },
-      content: { resultsView },
-      emptyState: { emptyState },
-      footer: { footerHint }
+      searchBar: { searchBar(viewState: viewState) },
+      content: { resultsView(viewState: viewState) },
+      emptyState: { emptyState(viewState: viewState) },
+      footer: { footerHint(viewState: viewState) }
     )
   }
 
-  private func commandRow(command: QuickSwitcherCommand, index: Int) -> some View {
+  private func commandRow(
+    command: QuickSwitcherCommand,
+    index: Int,
+    viewState: QuickSwitcherViewState
+  ) -> some View {
     QuickSwitcherCommandRow(
       command: command,
       isCompactLayout: viewState.isCompactLayout,
@@ -127,12 +133,12 @@ struct QuickSwitcher: View {
         quickSwitcherState.hoveredIndex = isHovered ? index : nil
       },
       onRun: {
-        runCommand(command)
+        runCommand(command, viewState: viewState)
       }
     )
   }
 
-  private func runCommand(_ command: QuickSwitcherCommand) {
+  private func runCommand(_ command: QuickSwitcherCommand, viewState: QuickSwitcherViewState) {
     guard isQuickSwitcherVisible else { return }
     guard let plan = QuickSwitcherActionPlanner.commandPlan(
       command: command,
@@ -173,7 +179,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Search Bar
 
-  private var searchBar: some View {
+  private func searchBar(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherSearchBar(
       isCompactLayout: viewState.isCompactLayout,
       searchText: $quickSwitcherState.searchText,
@@ -185,27 +191,27 @@ struct QuickSwitcher: View {
 
   // MARK: - Results View
 
-  private var resultsView: some View {
+  private func resultsView(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherResultsShell(
       isCompactLayout: viewState.isCompactLayout,
       selectedIndex: quickSwitcherState.selectedIndex
     ) {
       if viewState.isQuickLaunchMode {
-        quickLaunchSection
+        quickLaunchSection(viewState: viewState)
       } else {
         if !viewState.filteredCommands.isEmpty {
-          commandsSection
+          commandsSection(viewState: viewState)
         }
 
-        dashboardRow
+        dashboardRow(viewState: viewState)
           .id("row-\(viewState.dashboardIndex)")
 
         if !viewState.activeSessions.isEmpty {
-          activeSessionsSection
+          activeSessionsSection(viewState: viewState)
         }
 
         if !viewState.recentSessions.isEmpty {
-          recentSessionsSection
+          recentSessionsSection(viewState: viewState)
         }
       }
     }
@@ -213,7 +219,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Quick Launch Section
 
-  private var quickLaunchSection: some View {
+  private func quickLaunchSection(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherQuickLaunchSection(
       provider: viewState.quickLaunchMode!,
       isCompactLayout: viewState.isCompactLayout,
@@ -221,30 +227,30 @@ struct QuickSwitcher: View {
       recentProjects: viewState.recentProjects,
       selectedIndex: quickSwitcherState.selectedIndex,
       hoveredIndex: quickSwitcherState.hoveredIndex,
-      onOpenFullSheet: openFullSheet,
+      onOpenFullSheet: { openFullSheet(viewState: viewState) },
       onHoverChanged: { index, hovered in
         quickSwitcherState.hoveredIndex = hovered ? index : nil
       },
       onOpenProject: { path in
-        quickLaunchSession(path: path)
+        quickLaunchSession(path: path, viewState: viewState)
       }
     )
   }
 
   // MARK: - Active Sessions Section
 
-  private var activeSessionsSection: some View {
+  private func activeSessionsSection(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherActiveSessionsSection(
       sessions: viewState.activeSessions,
       isCompactLayout: viewState.isCompactLayout,
       sessionStartIndex: viewState.sessionStartIndex,
-      row: { session, index in switcherRow(session: session, index: index) }
+      row: { session, index in switcherRow(session: session, index: index, viewState: viewState) }
     )
   }
 
   // MARK: - Recent Sessions Section
 
-  private var recentSessionsSection: some View {
+  private func recentSessionsSection(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherRecentSessionsSection(
       sessions: viewState.recentSessions,
       isCompactLayout: viewState.isCompactLayout,
@@ -258,25 +264,25 @@ struct QuickSwitcher: View {
           quickSwitcherState.isRecentExpanded.toggle()
         }
       },
-      row: { session, index in switcherRow(session: session, index: index) }
+      row: { session, index in switcherRow(session: session, index: index, viewState: viewState) }
     )
   }
 
   // MARK: - Commands Section
 
-  private var commandsSection: some View {
+  private func commandsSection(viewState: QuickSwitcherViewState) -> some View {
     let activeSession = viewState.targetSession ?? viewState.allVisibleSessions.first
 
     return QuickSwitcherCommandsSection(
       commands: viewState.filteredCommands,
       activeSession: activeSession,
       isCompactLayout: viewState.isCompactLayout,
-      row: { command, index in commandRow(command: command, index: index) }
+      row: { command, index in commandRow(command: command, index: index, viewState: viewState) }
     )
   }
 
   /// Dashboard row
-  private var dashboardRow: some View {
+  private func dashboardRow(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherDashboardRow(
       isCompactLayout: viewState.isCompactLayout,
       isSelected: quickSwitcherState.selectedIndex == viewState.dashboardIndex,
@@ -293,7 +299,11 @@ struct QuickSwitcher: View {
 
   // MARK: - Switcher Row
 
-  private func switcherRow(session: RootSessionNode, index: Int) -> some View {
+  private func switcherRow(
+    session: RootSessionNode,
+    index: Int,
+    viewState: QuickSwitcherViewState
+  ) -> some View {
     QuickSwitcherSessionRow(
       session: session,
       index: index,
@@ -324,7 +334,7 @@ struct QuickSwitcher: View {
 
   // MARK: - Empty State
 
-  private var emptyState: some View {
+  private func emptyState(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherEmptyState(
       isCompactLayout: viewState.isCompactLayout,
       searchText: quickSwitcherState.searchText
@@ -333,13 +343,13 @@ struct QuickSwitcher: View {
 
   // MARK: - Footer
 
-  private var footerHint: some View {
+  private func footerHint(viewState: QuickSwitcherViewState) -> some View {
     QuickSwitcherFooterHint(isQuickLaunchMode: viewState.isQuickLaunchMode)
   }
 
   // MARK: - Helpers
 
-  private func moveSelection(by delta: Int) {
+  private func moveSelection(by delta: Int, viewState: QuickSwitcherViewState) {
     quickSwitcherState.selectedIndex = QuickSwitcherNavigationModel.moveSelection(
       currentIndex: quickSwitcherState.selectedIndex,
       delta: delta,
@@ -347,7 +357,7 @@ struct QuickSwitcher: View {
     )
   }
 
-  private var selectedKind: QuickSwitcherSelectionKind {
+  private func selectedKind(viewState: QuickSwitcherViewState) -> QuickSwitcherSelectionKind {
     QuickSwitcherSelectionResolver.selectedKind(
       selectedIndex: quickSwitcherState.selectedIndex,
       isQuickLaunchMode: viewState.isQuickLaunchMode,
@@ -359,8 +369,9 @@ struct QuickSwitcher: View {
     )
   }
 
-  private func selectCurrent() {
+  private func selectCurrent(viewState: QuickSwitcherViewState) {
     guard isQuickSwitcherVisible else { return }
+    let selectedKind = selectedKind(viewState: viewState)
 
     switch QuickSwitcherActionPlanner.selectionPlan(
       selectedKind: selectedKind,
@@ -373,7 +384,7 @@ struct QuickSwitcher: View {
       case .none:
         return
       case let .quickLaunch(path):
-        quickLaunchSession(path: path)
+        quickLaunchSession(path: path, viewState: viewState)
       case let .command(plan):
         Platform.services.playHaptic(.action)
         performCommandPlan(plan)
@@ -386,7 +397,8 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func renameCurrentSelection() {
+  private func renameCurrentSelection(viewState: QuickSwitcherViewState) {
+    let selectedKind = selectedKind(viewState: viewState)
     guard let session = QuickSwitcherActionPlanner.renameTargetSession(
       selectedKind: selectedKind,
       visibleSessions: viewState.allVisibleSessions
@@ -442,7 +454,7 @@ struct QuickSwitcher: View {
     runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
   }
 
-  private func quickLaunchSession(path: String) {
+  private func quickLaunchSession(path: String, viewState: QuickSwitcherViewState) {
     guard isQuickSwitcherVisible else { return }
     guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.action)
@@ -455,7 +467,7 @@ struct QuickSwitcher: View {
     closeQuickSwitcherIfVisible()
   }
 
-  private func openFullSheet() {
+  private func openFullSheet(viewState: QuickSwitcherViewState) {
     guard isQuickSwitcherVisible else { return }
     guard let provider = viewState.quickLaunchMode else { return }
     Platform.services.playHaptic(.selection)

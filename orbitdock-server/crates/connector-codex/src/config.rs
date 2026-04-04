@@ -491,6 +491,7 @@ impl CodexConnector {
 
     let build_harness_overrides = || ConfigOverrides {
       cwd: Some(std::path::PathBuf::from(cwd)),
+      model: model.map(str::to_string),
       model_provider: config_overrides.model_provider.clone(),
       service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
       config_profile: config_overrides.config_profile.clone(),
@@ -500,12 +501,26 @@ impl CodexConnector {
       ..Default::default()
     };
 
-    let mut config = Config::load_with_cli_overrides_and_harness_overrides(
-      cli_overrides.clone(),
-      build_harness_overrides(),
-    )
-    .await
-    .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    let harness = build_harness_overrides();
+    tracing::debug!(
+      component = "codex_config",
+      event = "build_config.inputs",
+      harness_model = ?harness.model,
+      cli_model_override = ?model,
+      profile = ?harness.config_profile,
+      "Building effective codex config"
+    );
+    let mut config =
+      Config::load_with_cli_overrides_and_harness_overrides(cli_overrides.clone(), harness)
+        .await
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    tracing::debug!(
+      component = "codex_config",
+      event = "build_config.resolved",
+      resolved_model = ?config.model,
+      active_profile = ?config.active_profile,
+      "Config resolved after load"
+    );
     apply_orbitdock_provider_defaults(&mut config);
     apply_orbitdock_external_model_defaults(&mut config);
     let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);

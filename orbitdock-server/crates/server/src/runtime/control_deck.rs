@@ -85,7 +85,20 @@ pub(crate) async fn load_control_deck_snapshot(
   session_id: &str,
 ) -> Result<ControlDeckSnapshot, ControlDeckSnapshotLoadError> {
   match load_full_session_state(state, session_id, false, false).await {
-    Ok(session) => {
+    Ok(mut session) => {
+      // Hydrate ephemeral runtime state from the live actor. The DB may lag
+      // (batched writes) so the actor is the real-time source of truth for
+      // these fields. Durable config (model, effort, etc.) stays from the DB.
+      if let Some(actor) = state.get_session(session_id) {
+        if let Ok(live) = actor.retained_state().await {
+          session.pending_approval = live.pending_approval;
+          session.git_branch = live.git_branch;
+          session.current_cwd = live.current_cwd;
+          session.token_usage = live.token_usage;
+          session.token_usage_snapshot_kind = live.token_usage_snapshot_kind;
+        }
+      }
+
       let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
       let snapshot =
         build_control_deck_snapshot(&session, load_control_deck_preferences(), effort_options);
@@ -98,6 +111,7 @@ pub(crate) async fn load_control_deck_snapshot(
         model = ?snapshot.state.config.model,
         effort = ?snapshot.state.config.effort,
         effort_options = snapshot.capabilities.effort_options.len(),
+        pending_approval = snapshot.pending_approval.is_some(),
         "Loaded control deck snapshot"
       );
       Ok(snapshot)
@@ -251,8 +265,18 @@ pub(crate) async fn update_control_deck_config(
     component = "control_deck",
     event = "config_update.runtime.applied",
     session_id = %session_id,
-    "Applied control deck config update; reloading snapshot"
+    "Applied control deck config update; awaiting persistence flush"
   );
+
+  // The config update is persisted asynchronously through the batched writer.
+  // Send a Flush barrier and await its ack so the DB has the updated values
+  // before we reload the snapshot.
+  let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+  let _ = state
+    .persist()
+    .send(PersistCommand::Flush { ack: ack_tx })
+    .await;
+  let _ = ack_rx.await;
 
   match load_control_deck_snapshot(state, session_id).await {
     Ok(snapshot) => {

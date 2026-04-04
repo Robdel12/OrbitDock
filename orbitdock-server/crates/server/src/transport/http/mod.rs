@@ -39,7 +39,7 @@ use tracing::{error, info};
 use crate::infrastructure::persistence::{delete_approval, list_approvals, PersistCommand};
 use crate::runtime::session_queries::{
   load_conversation_bootstrap, load_conversation_page, load_dashboard_snapshot,
-  load_full_session_state, SessionLoadError,
+  load_full_session_state, load_library_snapshot, SessionLoadError,
 };
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -103,9 +103,9 @@ pub use session_lifecycle::{
   write_codex_config_value,
 };
 pub use sessions::{
-  get_conversation_history, get_conversation_snapshot, get_dashboard_snapshot, get_row_content,
-  get_session_composer, get_session_detail, get_session_diffs, get_session_stats,
-  mark_session_read, search_conversation_rows,
+  get_conversation_history, get_conversation_snapshot, get_dashboard_snapshot,
+  get_library_snapshot, get_row_content, get_session_composer, get_session_detail,
+  get_session_diffs, get_session_stats, mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;

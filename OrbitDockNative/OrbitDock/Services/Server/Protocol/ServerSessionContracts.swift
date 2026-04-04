@@ -411,6 +411,40 @@ struct ServerDashboardSnapshotPayload: Codable, Sendable {
   let counts: ServerDashboardCounts
 }
 
+struct ServerLibrarySnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let sessions: [ServerSessionListItem]
+  let nextOffset: UInt64?
+  let totalCount: UInt64
+
+  init(
+    revision: UInt64,
+    sessions: [ServerSessionListItem],
+    nextOffset: UInt64?,
+    totalCount: UInt64
+  ) {
+    self.revision = revision
+    self.sessions = sessions
+    self.nextOffset = nextOffset
+    self.totalCount = totalCount
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case revision
+    case sessions
+    case nextOffset = "next_offset"
+    case totalCount = "total_count"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    revision = try container.decode(UInt64.self, forKey: .revision)
+    sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
+    nextOffset = try container.decodeIfPresent(UInt64.self, forKey: .nextOffset)
+    totalCount = try container.decodeIfPresent(UInt64.self, forKey: .totalCount) ?? UInt64(sessions.count)
+  }
+}
+
 struct ServerMissionSnapshotPayload: Codable, Sendable {
   let revision: UInt64
   let missions: [MissionSummary]

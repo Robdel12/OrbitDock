@@ -12,16 +12,22 @@ final class ControlDeckViewModel {
 
   private(set) var snapshot: ControlDeckSnapshot?
   private(set) var presentation: ControlDeckPresentation?
-  private(set) var pendingApproval: ControlDeckApproval?
   private(set) var skills: [ControlDeckSkill] = []
   private(set) var isLoadingSkills = false
   private(set) var isLoading = false
   private(set) var isResuming = false
-  private(set) var controlMode: ControlDeckControlMode = .passive
-  private(set) var lifecycle: ControlDeckLifecycle = .ended
-  private(set) var acceptsUserInput = false
-  private(set) var steerable = false
   var lastError: String?
+
+  // Computed accessors — single source of truth is the snapshot.
+  var pendingApproval: ControlDeckApproval? { snapshot?.pendingApproval }
+  var controlMode: ControlDeckControlMode { snapshot?.state.controlMode ?? .passive }
+  var lifecycle: ControlDeckLifecycle { snapshot?.state.lifecycle ?? .ended }
+  var acceptsUserInput: Bool { snapshot?.state.acceptsUserInput ?? false }
+  var steerable: Bool { snapshot?.state.steerable ?? false }
+
+  // MARK: - Refresh coalescing
+
+  @ObservationIgnored private var refreshQueued = false
 
   // MARK: - Binding
 
@@ -40,6 +46,13 @@ final class ControlDeckViewModel {
     guard let binding = currentBindingContext else { return }
     let sessionId = binding.sessionId
     let store = binding.store
+
+    // Coalesce: if already refreshing, queue one more and return.
+    if isLoading {
+      refreshQueued = true
+      return
+    }
+
     print("[ResumeTrace] VM refresh start sid=\(sessionId)")
     netLog(.debug, cat: .store, "ControlDeck refresh started", sid: sessionId)
 
@@ -48,6 +61,11 @@ final class ControlDeckViewModel {
     defer {
       if isCurrent(binding) {
         isLoading = false
+        // If events arrived during fetch, do one more.
+        if refreshQueued {
+          refreshQueued = false
+          Task { await refresh() }
+        }
       }
     }
 
@@ -154,7 +172,7 @@ final class ControlDeckViewModel {
     do {
       try await store.resumeSession(sessionId)
       guard isCurrent(binding) else { return }
-      syncApproval()
+      await refresh()
       print(
         "[ResumeTrace] VM resume sync sid=\(sessionId) lifecycle=\(lifecycle.rawValue) control=\(controlMode.rawValue) accepts=\(acceptsUserInput) steerable=\(steerable) mode=\(presentation?.mode.debugLabel ?? "nil")"
       )
@@ -165,9 +183,6 @@ final class ControlDeckViewModel {
         "steerable": steerable,
         "mode": presentation?.mode.debugLabel ?? "nil",
       ])
-      // Keep UI responsive: the resume response already contains enough state
-      // to unlock the deck; fetch snapshot details in the background.
-      Task { await refresh() }
     } catch {
       lastError = String(describing: error)
       print("[ResumeTrace] VM resume failed sid=\(sessionId) error=\(String(describing: error))")
@@ -210,87 +225,10 @@ final class ControlDeckViewModel {
     let serverPrefs = ControlDeckPreferencesEncoder.encode(preferences)
     let updated = try await store.updateControlDeckPreferences(serverPrefs)
 
-    if var current = snapshot {
-      current = ControlDeckSnapshot(
-        revision: current.revision,
-        sessionId: current.sessionId,
-        state: current.state,
-        capabilities: current.capabilities,
-        preferences: ControlDeckSnapshotMapper.mapPreferences(updated),
-        tokenUsage: current.tokenUsage,
-        tokenUsageSnapshotKind: current.tokenUsageSnapshotKind,
-        tokenStatus: current.tokenStatus
-      )
-      snapshot = current
-      presentation = ControlDeckPresentationBuilder.build(
-        snapshot: current,
-        isLoading: false,
-        hasPendingApproval: pendingApproval != nil,
-        availableModels: availableModels
-      )
+    if let current = snapshot {
+      snapshot = current.replacing(preferences: ControlDeckSnapshotMapper.mapPreferences(updated))
+      rebuildPresentation()
     }
-  }
-
-  // MARK: - Approval Sync
-
-  /// Call from a task that observes session changes to keep approval in sync.
-  func syncApproval() {
-    syncApproval(mergeSessionState: true)
-  }
-
-  func syncApproval(mergeSessionState: Bool) {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else {
-      pendingApproval = nil
-      controlMode = .passive
-      lifecycle = .ended
-      acceptsUserInput = false
-      steerable = false
-      return
-    }
-    let session = store.session(sessionId)
-    controlMode = mapControlMode(session.controlMode)
-    lifecycle = mapLifecycle(session.lifecycleState)
-    acceptsUserInput = session.acceptsUserInput
-    steerable = session.steerable
-
-    if let serverApproval = session.pendingApproval {
-      pendingApproval = ControlDeckSnapshotMapper.mapApproval(serverApproval)
-    } else {
-      pendingApproval = nil
-    }
-
-    if mergeSessionState, let snap = snapshot {
-      let resolvedProjectPath = session.projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
-      let projectPath = resolvedProjectPath.isEmpty ? snap.state.projectPath : resolvedProjectPath
-      let currentCwd = nonEmpty(session.currentCwd) ?? snap.state.currentCwd
-      let gitBranch = nonEmpty(session.branch) ?? snap.state.gitBranch
-
-      let updatedState = ControlDeckSessionState(
-        provider: snap.state.provider,
-        controlMode: controlMode,
-        lifecycle: lifecycle,
-        acceptsUserInput: acceptsUserInput,
-        steerable: steerable,
-        projectPath: projectPath,
-        currentCwd: currentCwd,
-        gitBranch: gitBranch,
-        config: snap.state.config
-      )
-      let updatedSnap = ControlDeckSnapshot(
-        revision: snap.revision,
-        sessionId: snap.sessionId,
-        state: updatedState,
-        capabilities: snap.capabilities,
-        preferences: snap.preferences,
-        tokenUsage: snap.tokenUsage,
-        tokenUsageSnapshotKind: snap.tokenUsageSnapshotKind,
-        tokenStatus: snap.tokenStatus
-      )
-      snapshot = updatedSnap
-    }
-
-    rebuildPresentation()
-    logSessionStateIfChanged(source: "syncApproval")
   }
 
   // MARK: - Approval Actions
@@ -306,7 +244,8 @@ final class ControlDeckViewModel {
         decision: decision,
         message: message
       )
-      syncApproval()
+      clearPendingApprovalOptimistically()
+      await refresh()
     } catch {
       lastError = String(describing: error)
     }
@@ -323,7 +262,8 @@ final class ControlDeckViewModel {
         answer: answer,
         questionId: questionId
       )
-      syncApproval()
+      clearPendingApprovalOptimistically()
+      await refresh()
     } catch {
       lastError = String(describing: error)
     }
@@ -340,7 +280,8 @@ final class ControlDeckViewModel {
         scope: scope,
         grantRequestedPermissions: grant
       )
-      syncApproval()
+      clearPendingApprovalOptimistically()
+      await refresh()
     } catch {
       lastError = String(describing: error)
     }
@@ -365,7 +306,6 @@ final class ControlDeckViewModel {
       print(
         "[ControlDeckTrace] config update response sid=\(sessionId) revision=\(updated.revision) model=\(updated.state.config.model ?? "") effort=\(updated.state.config.effort ?? "") approval=\(updated.state.config.approvalPolicy ?? "") permission=\(updated.state.config.permissionMode ?? "") collaboration=\(updated.state.config.collaborationMode ?? "") reviewer=\(updated.state.config.approvalsReviewer?.rawValue ?? "")"
       )
-      applySnapshotToSessionState(updated, sessionId: sessionId, store: store)
       netLog(
         .info,
         cat: .store,
@@ -474,15 +414,6 @@ final class ControlDeckViewModel {
     }
   }
 
-  private func nonEmpty(_ value: String?) -> String? {
-    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-          !trimmed.isEmpty
-    else {
-      return nil
-    }
-    return trimmed
-  }
-
   private func fetchEnabledSkills(sessionId: String, store: SessionStore) async throws -> [ControlDeckSkill] {
     let capabilities = CapabilitiesService(sessionStore: store)
     let skills = try await capabilities.listSkills(sessionId: sessionId)
@@ -510,9 +441,19 @@ final class ControlDeckViewModel {
     _ payload: ServerControlDeckSnapshotPayload,
     source: String
   ) {
+    // Never regress to an older revision.
+    if let current = snapshot?.revision, payload.revision < current {
+      netLog(.debug, cat: .store, "Skipping stale snapshot", sid: payload.sessionId, data: [
+        "source": source,
+        "currentRevision": current,
+        "incomingRevision": payload.revision,
+      ])
+      return
+    }
+
     lastError = nil
     print(
-      "[ControlDeckTrace] apply snapshot sid=\(payload.sessionId) source=\(source) revision=\(payload.revision) model=\(payload.state.config.model ?? "") effort=\(payload.state.config.effort ?? "") approval=\(payload.state.config.approvalPolicy ?? "") permission=\(payload.state.config.permissionMode ?? "") collaboration=\(payload.state.config.collaborationMode ?? "") reviewer=\(payload.state.config.approvalsReviewer?.rawValue ?? "") codexMode=\(payload.state.config.codexConfigMode?.rawValue ?? "") codexProfile=\(payload.state.config.codexConfigProfile ?? "") codexProvider=\(payload.state.config.codexModelProvider ?? "")"
+      "[ControlDeckTrace] apply snapshot sid=\(payload.sessionId) source=\(source) revision=\(payload.revision) model=\(payload.state.config.model ?? "") effort=\(payload.state.config.effort ?? "") approval=\(payload.state.config.approvalPolicy ?? "") permission=\(payload.state.config.permissionMode ?? "") collaboration=\(payload.state.config.collaborationMode ?? "") reviewer=\(payload.state.config.approvalsReviewer?.rawValue ?? "") codexMode=\(payload.state.config.codexConfigMode?.rawValue ?? "") codexProfile=\(payload.state.config.codexConfigProfile ?? "") codexProvider=\(payload.state.config.codexModelProvider ?? "") pendingApproval=\(payload.pendingApproval?.id ?? "nil")"
     )
     netLog(
       .info,
@@ -521,13 +462,17 @@ final class ControlDeckViewModel {
       sid: payload.sessionId,
       data: snapshotLogData(snapshot: payload, source: source)
     )
-    let mapped = ControlDeckSnapshotMapper.map(payload)
-    snapshot = mapped
-    controlMode = mapped.state.controlMode
-    lifecycle = mapped.state.lifecycle
-    acceptsUserInput = mapped.state.acceptsUserInput
-    steerable = mapped.state.steerable
-    syncApproval(mergeSessionState: false)
+    snapshot = ControlDeckSnapshotMapper.map(payload)
+    rebuildPresentation()
+    logSessionStateIfChanged(source: "applySnapshot(\(source))")
+  }
+
+  /// Optimistically clear the pending approval after the user acts on it.
+  /// The next `refresh()` will reconcile with server truth.
+  private func clearPendingApprovalOptimistically() {
+    guard let current = snapshot else { return }
+    snapshot = current.replacing(pendingApproval: .some(nil))
+    rebuildPresentation()
   }
 
   private func logSessionStateIfChanged(source: String) {
@@ -601,7 +546,6 @@ final class ControlDeckViewModel {
     presentation = ControlDeckPresentationBuilder.build(
       snapshot: snapshot,
       isLoading: isLoading,
-      hasPendingApproval: pendingApproval != nil,
       availableModels: availableModels
     )
   }
@@ -658,48 +602,10 @@ final class ControlDeckViewModel {
       "permissionModeOptions": snapshot.capabilities.permissionModeOptions.map(\.value),
       "collaborationModeOptions": snapshot.capabilities.collaborationModeOptions.map(\.value),
       "autoReviewOptions": snapshot.capabilities.autoReviewOptions.map(\.value),
+      "pendingApproval": snapshot.pendingApproval?.id ?? "",
     ]
   }
 
-  private func applySnapshotToSessionState(
-    _ snapshot: ServerControlDeckSnapshotPayload,
-    sessionId: String,
-    store: SessionStore
-  ) {
-    let config = snapshot.state.config
-    let changes = ServerStateChanges(
-      approvalPolicy: .some(config.approvalPolicy),
-      approvalPolicyDetails: .some(config.approvalPolicyDetails),
-      sandboxMode: .some(config.sandboxMode),
-      approvalsReviewer: .some(config.approvalsReviewer),
-      collaborationMode: .some(config.collaborationMode),
-      codexConfigMode: .some(config.codexConfigMode),
-      codexConfigProfile: .some(config.codexConfigProfile),
-      codexModelProvider: .some(config.codexModelProvider),
-      model: .some(config.model),
-      effort: .some(config.effort),
-      permissionMode: .some(config.permissionMode)
-    )
-    store.handleSessionDelta(sessionId, changes)
-    print(
-      "[ControlDeckTrace] applied snapshot to shared session state sid=\(sessionId) model=\(config.model ?? "") effort=\(config.effort ?? "") permission=\(config.permissionMode ?? "") collaboration=\(config.collaborationMode ?? "")"
-    )
-  }
-
-  private func mapControlMode(_ mode: ServerSessionControlMode) -> ControlDeckControlMode {
-    switch mode {
-      case .direct: .direct
-      case .passive: .passive
-    }
-  }
-
-  private func mapLifecycle(_ lifecycle: ServerSessionLifecycleState) -> ControlDeckLifecycle {
-    switch lifecycle {
-      case .open: .open
-      case .resumable: .resumable
-      case .ended: .ended
-    }
-  }
 }
 
 private extension ControlDeckMode {

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, Provider, SessionControlMode,
-  SessionLifecycleState, TokenUsage, TokenUsageSnapshotKind,
+  ApprovalRequest, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, Provider,
+  SessionControlMode, SessionLifecycleState, TokenUsage, TokenUsageSnapshotKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +158,8 @@ pub struct ControlDeckSnapshot {
   pub token_usage: TokenUsage,
   pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
   pub token_status: ControlDeckTokenStatus,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pending_approval: Option<ApprovalRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

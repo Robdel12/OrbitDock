@@ -148,6 +148,7 @@ extension SessionStore {
     obs.pendingApproval = nil
     obs.clearTransientState()
     controlStates.removeValue(forKey: sessionId)
+    notifySessionChanged(sessionId)
   }
 
   func handleConversationBootstrap(_ state: ServerSessionState, _ conversation: ServerConversationHistoryPage) {
@@ -203,6 +204,7 @@ extension SessionStore {
       supportsServerControlConfiguration: state.provider == .codex || state.claudeIntegrationMode == .direct
     )
     applyControlTransition(transition, sessionId: state.id, observable: obs)
+    notifySessionChanged(state.id)
   }
 
   func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -216,6 +218,7 @@ extension SessionStore {
       summaryStillBlocked: summaryStillBlocked
     )
     applyControlTransition(transition, sessionId: sessionId, observable: obs)
+    notifySessionChanged(sessionId)
   }
 
   func handleConversationRowsChanged(
@@ -238,6 +241,7 @@ extension SessionStore {
       return
     }
     applyControlTransition(transition, sessionId: sessionId, observable: obs)
+    notifySessionChanged(sessionId)
   }
 
   func handleApprovalDecisionResult(
@@ -257,6 +261,7 @@ extension SessionStore {
     applyControlTransition(transition, sessionId: sessionId, observable: obs)
 
     inFlightApprovalDispatches.remove(requestId)
+    notifySessionChanged(sessionId)
   }
 
   func handleApprovalsList(_ sessionId: String?, _ approvals: [ServerApprovalHistoryItem]) {

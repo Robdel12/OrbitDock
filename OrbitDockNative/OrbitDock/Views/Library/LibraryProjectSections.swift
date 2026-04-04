@@ -27,7 +27,7 @@ struct LibraryProjectSection: View {
 
       if !isCollapsed {
         let allSessions = group.liveSessions + group.archivedSessions
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
+        LazyVStack(alignment: .leading, spacing: Spacing.xxs) {
           ForEach(allSessions, id: \.scopedID) { session in
             FlatSessionRow(
               session: session,

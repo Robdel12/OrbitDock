@@ -7,6 +7,7 @@ These are the practical rules for OrbitDock’s Swift client.
 - Durable session truth lives on the server.
 - The client should render and reconcile, not invent new business state.
 - If the client needs new durable truth, the contract should change at the server boundary.
+- HTTP snapshots are the authoritative state for UI. WebSocket events signal that something changed — the client re-fetches the relevant snapshot rather than assembling state from WS payloads. Never maintain a parallel view model state tree built from WS events alongside the HTTP snapshot state.
 
 ## Ownership
 

@@ -60,6 +60,15 @@ private actor RegistryAggregationWorker {
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
+  private struct LibraryPaginationState: Sendable {
+    let nextOffset: Int?
+    let totalCount: Int
+
+    var hasMore: Bool {
+      nextOffset != nil
+    }
+  }
+
   private enum BootstrapRefreshDecision: Equatable {
     case success
     case retry
@@ -116,7 +125,9 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private var bootstrapRetryTasksByEndpointId: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var bootstrapRetryAttemptsByEndpointId: [UUID: Int] = [:]
   @ObservationIgnored private var dashboardBootstrapInFlightEndpointIds: Set<UUID> = []
+  @ObservationIgnored private var libraryPageInFlightEndpointIds: Set<UUID> = []
   @ObservationIgnored private var missionsBootstrapInFlightEndpointIds: Set<UUID> = []
+  @ObservationIgnored private var libraryPaginationByEndpoint: [UUID: LibraryPaginationState] = [:]
   @ObservationIgnored private var suspendedForBackground = false
   @ObservationIgnored private let aggregationWorker = RegistryAggregationWorker()
   @ObservationIgnored private var aggregationRefreshTask: Task<Void, Never>?
@@ -127,6 +138,7 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private var sessionsAggregationGeneration: UInt64 = 0
   @ObservationIgnored private var dashboardAggregationGeneration: UInt64 = 0
   @ObservationIgnored private var missionsAggregationGeneration: UInt64 = 0
+  @ObservationIgnored private let libraryPageSize = 200
 
   private static func resolvedDeviceName() -> String {
     #if canImport(UIKit)
@@ -373,6 +385,8 @@ final class ServerRuntimeRegistry {
       sessionsByEndpoint[id] = nil
       dashboardConversationsByEndpoint[id] = nil
       missionsByEndpoint[id] = nil
+      libraryPaginationByEndpoint[id] = nil
+      libraryPageInFlightEndpointIds.remove(id)
       readinessContinuation.yield(())
     }
     setSessionsAggregationDirty()
@@ -392,6 +406,8 @@ final class ServerRuntimeRegistry {
           sessionsByEndpoint[endpoint.id] = nil
           dashboardConversationsByEndpoint[endpoint.id] = nil
           missionsByEndpoint[endpoint.id] = nil
+          libraryPaginationByEndpoint[endpoint.id] = nil
+          libraryPageInFlightEndpointIds.remove(endpoint.id)
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -495,6 +511,23 @@ final class ServerRuntimeRegistry {
 
     for runtime in runtimes where runtime.endpoint.isEnabled {
       _ = await refreshDashboardConversations(for: runtime)
+    }
+  }
+
+  var hasMoreLibrarySessions: Bool {
+    for runtime in runtimes where runtime.endpoint.isEnabled {
+      if libraryPaginationByEndpoint[runtime.endpoint.id]?.hasMore == true {
+        return true
+      }
+    }
+    return false
+  }
+
+  func loadMoreLibrarySessions() async {
+    ensureInitialized()
+
+    for runtime in runtimes where runtime.endpoint.isEnabled {
+      _ = await refreshLibraryPage(for: runtime)
     }
   }
 
@@ -794,6 +827,8 @@ final class ServerRuntimeRegistry {
     runtimeObservationTasks[endpointId] = nil
     cancelBootstrapRetry(for: endpointId)
     bootstrapRetryAttemptsByEndpointId[endpointId] = nil
+    libraryPaginationByEndpoint[endpointId] = nil
+    libraryPageInFlightEndpointIds.remove(endpointId)
   }
 
   private func setSessionsAggregationDirty() {
@@ -926,7 +961,41 @@ final class ServerRuntimeRegistry {
     guard runtime.connection.requiresManualReconnect == false else { return .stop }
 
     do {
-      let snapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
+      async let dashboardSnapshotTask = runtime.clients.dashboard.fetchDashboardSnapshot()
+      async let librarySnapshotTask = runtime.clients.dashboard.fetchLibrarySnapshot(
+        limit: libraryPageSize,
+        offset: 0
+      )
+      let dashboardSnapshot = try await dashboardSnapshotTask
+
+      let librarySnapshot: ServerLibrarySnapshotPayload
+      do {
+        librarySnapshot = try await librarySnapshotTask
+      } catch {
+        // Backward compatibility: older servers may not expose /api/library yet.
+        if let requestError = error as? ServerRequestError, requestError.statusCode == 404 {
+          librarySnapshot = ServerLibrarySnapshotPayload(
+            revision: dashboardSnapshot.revision,
+            sessions: dashboardSnapshot.sessions,
+            nextOffset: nil,
+            totalCount: UInt64(dashboardSnapshot.sessions.count)
+          )
+        } else {
+          throw error
+        }
+      }
+
+      libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
+        nextOffset: librarySnapshot.nextOffset.map(Int.init),
+        totalCount: Int(librarySnapshot.totalCount)
+      )
+
+      let snapshot = ServerDashboardSnapshotPayload(
+        revision: dashboardSnapshot.revision,
+        sessions: librarySnapshot.sessions,
+        conversations: dashboardSnapshot.conversations,
+        counts: dashboardSnapshot.counts
+      )
       runtime.connection.applyDashboardSnapshot(snapshot)
       if runtime.connection.connectionStatus == .connected {
         runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
@@ -953,6 +1022,64 @@ final class ServerRuntimeRegistry {
         ]
       )
       return shouldRetryBootstrap(after: error) ? .retry : .stop
+    }
+  }
+
+  private func refreshLibraryPage(for runtime: ServerRuntime) async -> Bool {
+    let endpointId = runtime.endpoint.id
+    guard runtime.endpoint.isEnabled else { return false }
+    guard let pagination = libraryPaginationByEndpoint[endpointId] else { return false }
+    guard let offset = pagination.nextOffset else { return false }
+    guard libraryPageInFlightEndpointIds.insert(endpointId).inserted else { return false }
+    defer { libraryPageInFlightEndpointIds.remove(endpointId) }
+
+    do {
+      let snapshot = try await runtime.clients.dashboard.fetchLibrarySnapshot(
+        limit: libraryPageSize,
+        offset: offset
+      )
+
+      libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
+        nextOffset: snapshot.nextOffset.map(Int.init),
+        totalCount: Int(snapshot.totalCount)
+      )
+
+      guard !snapshot.sessions.isEmpty else { return false }
+
+      let endpointName = runtime.endpoint.name
+      var index = sessionsByEndpoint[endpointId] ?? [:]
+      for item in snapshot.sessions {
+        let node = RootSessionNode(
+          session: item,
+          endpointId: endpointId,
+          endpointName: endpointName,
+          connectionStatus: runtime.connection.connectionStatus
+        )
+        index[node.sessionId] = node
+      }
+      sessionsByEndpoint[endpointId] = index
+      setSessionsAggregationDirty()
+      return true
+    } catch {
+      if let requestError = error as? ServerRequestError, requestError.statusCode == 404 {
+        libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
+          nextOffset: nil,
+          totalCount: pagination.totalCount
+        )
+        return false
+      }
+      netLog(
+        .error,
+        cat: .api,
+        "Library page fetch failed",
+        data: [
+          "endpointId": endpointId.uuidString,
+          "endpointName": runtime.endpoint.name,
+          "offset": "\(offset)",
+          "error": String(describing: error),
+        ]
+      )
+      return false
     }
   }
 

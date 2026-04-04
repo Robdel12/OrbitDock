@@ -34,6 +34,7 @@ struct NewSessionSheet: View {
   @State private var codexScopedModelsLoading = false
   @State private var codexScopedModelsError: String?
   @State private var codexScopedModelsRequestID = 0
+  @State private var showOptions = false
 
   @MainActor
   init(
@@ -154,12 +155,19 @@ struct NewSessionSheet: View {
     selectableEndpoints.count > 1 || !isEndpointConnected
   }
 
-  private var formSectionSpacing: CGFloat {
-    #if os(iOS)
-      Spacing.lg
-    #else
-      Spacing.lg
-    #endif
+  private var optionsSummary: String {
+    switch model.provider {
+      case .claude:
+        let modelName = model.claudeModelId.isEmpty ? "Default" : model.claudeModelId
+        let permName = model.selectedPermissionMode.displayName
+        return "\(modelName), \(permName)"
+      case .codex:
+        switch model.codexConfigMode {
+          case .inherit: return "Inherited config"
+          case .profile: return model.codexConfigProfile.isEmpty ? "Saved profile" : model.codexConfigProfile
+          case .custom: return "Custom session"
+        }
+    }
   }
 
   // MARK: - Body
@@ -210,6 +218,9 @@ struct NewSessionSheet: View {
           continuationDefaults: continuationDefaults
         )
       )
+      if continuation != nil {
+        showOptions = true
+      }
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
@@ -267,41 +278,47 @@ struct NewSessionSheet: View {
   }
 
   private var formSections: some View {
-    NewSessionFormSections(
-      formSectionSpacing: formSectionSpacing,
+    NewSessionQuickForm(
+      showOptions: showOptions,
+      onToggleOptions: { showOptions.toggle() },
       shouldShowEndpointSection: shouldShowEndpointSection,
       continuation: continuation,
       isCodexProvider: model.provider == .codex,
-      isClaudeProvider: model.provider == .claude,
       shouldShowAuthGate: requiresCodexLogin,
       shouldShowCodexCapabilityNotice: codexCapabilityNotice != nil,
-      hasSelectedPath: !model.selectedPath.isEmpty,
       hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
-      providerPicker: { providerPicker },
+      provider: model.provider,
+      optionsSummary: optionsSummary,
+      providerToggle: { providerPicker },
       endpointSection: { endpointSection },
       continuationSection: { continuationSection($0) },
       authGateSection: { authGateSection },
-      codexCapabilityNoticeSection: { codexCapabilityNoticeSection },
+      codexCapabilityNotice: { codexCapabilityNoticeSection },
       directorySection: { directorySection },
-      worktreeSection: {
-        WorktreeFormSection(
-          useWorktree: $model.useWorktree,
-          worktreeBranch: $model.worktreeBranch,
-          worktreeBaseBranch: $model.worktreeBaseBranch,
-          worktreeError: $model.worktreeError,
-          selectedPath: model.selectedPath,
-          selectedPathIsGit: model.selectedPathIsGit,
-          style: .embedded,
-          onGitInit: { initGitAndEnableWorktree() }
-        )
-      },
-      configurationCard: { configurationCard },
-      toolRestrictionsCard: { toolRestrictionsCard },
+      optionsPanel: { optionsPanel },
       errorBanner: {
         if let error = model.codexErrorMessage {
           errorBanner(error)
         }
       }
+    )
+  }
+
+  // MARK: - Options Panel
+
+  private var optionsPanel: some View {
+    NewSessionOptionsPanel(
+      provider: model.provider,
+      hasSelectedPath: !model.selectedPath.isEmpty,
+      useWorktree: $model.useWorktree,
+      worktreeBranch: $model.worktreeBranch,
+      worktreeBaseBranch: $model.worktreeBaseBranch,
+      worktreeError: $model.worktreeError,
+      selectedPath: model.selectedPath,
+      selectedPathIsGit: model.selectedPathIsGit,
+      onGitInit: { initGitAndEnableWorktree() },
+      configurationContent: { embeddedConfigurationCard },
+      toolRestrictionsContent: { toolRestrictionsCard }
     )
   }
 
@@ -462,8 +479,9 @@ struct NewSessionSheet: View {
 
   // MARK: - Configuration Card
 
-  private var configurationCard: some View {
+  private var embeddedConfigurationCard: some View {
     NewSessionConfigurationCard(
+      style: .embedded,
       provider: model.provider,
       claudeModels: claudeModels,
       codexModels: codexModels,

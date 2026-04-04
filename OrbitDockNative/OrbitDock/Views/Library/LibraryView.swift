@@ -12,6 +12,8 @@ struct LibraryView: View {
   @Environment(AppRouter.self) private var router
 
   let sessions: [RootSessionNode]
+  let hasMoreSessions: Bool
+  let onLoadMoreSessions: () async -> Void
   var containerWidth: CGFloat?
 
   @State private var searchText = ""
@@ -20,6 +22,7 @@ struct LibraryView: View {
   @State private var selectedEndpointId: UUID?
   @State private var collapsedGroups: Set<String> = []
   @State private var showFilterSheet = false
+  @State private var isLoadingMore = false
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(
@@ -28,44 +31,27 @@ struct LibraryView: View {
     )
   }
 
-  private var archiveState: LibraryArchiveState {
-    LibraryArchivePlanner.state(
+  private var hasActiveFilters: Bool {
+    !searchText.isEmpty || providerFilter != .all || selectedEndpointId != nil
+  }
+
+  var body: some View {
+    let archiveState = LibraryArchivePlanner.state(
       sessions: sessions,
       searchText: searchText,
       providerFilter: providerFilter,
       selectedEndpointId: selectedEndpointId,
       sort: sort
     )
-  }
+    let projectGroups = archiveState.projectGroups
 
-  private var providerScopedSessions: [RootSessionNode] {
-    archiveState.providerScopedSessions
-  }
-
-  private var endpointFacets: [LibraryEndpointFacet] {
-    archiveState.endpointFacets
-  }
-
-  private var summary: LibraryArchiveSummary {
-    archiveState.summary
-  }
-
-  private var hasActiveFilters: Bool {
-    !searchText.isEmpty || providerFilter != .all || selectedEndpointId != nil
-  }
-
-  private var projectGroups: [LibraryProjectGroup] {
-    archiveState.projectGroups
-  }
-
-  var body: some View {
     VStack(spacing: 0) {
       LibraryToolbar(
         layoutMode: layoutMode,
         hasActiveFilters: hasActiveFilters,
-        summary: summary,
-        endpointFacets: endpointFacets,
-        providerScopedSessionCount: providerScopedSessions.count,
+        summary: archiveState.summary,
+        endpointFacets: archiveState.endpointFacets,
+        providerScopedSessionCount: archiveState.providerScopedSessions.count,
         searchText: $searchText,
         sort: $sort,
         providerFilter: $providerFilter,
@@ -78,7 +64,10 @@ struct LibraryView: View {
       } else {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: layoutMode.isPhoneCompact ? Spacing.xs : Spacing.lg) {
-            resultSummaryLine
+            resultSummaryLine(
+              summary: archiveState.summary,
+              loadedSessionCount: archiveState.summary.sessionCount
+            )
 
             if layoutMode.isPhoneCompact {
               LibraryFlatList(
@@ -104,6 +93,15 @@ struct LibraryView: View {
                 )
               }
             }
+
+            if hasMoreSessions {
+              paginationFooter(loadedSessionCount: archiveState.summary.sessionCount)
+              .onAppear {
+                Task {
+                  await loadMoreSessionsIfNeeded()
+                }
+              }
+            }
           }
           .padding(layoutMode.contentPadding)
         }
@@ -114,8 +112,8 @@ struct LibraryView: View {
       LibraryFilterSheet(
         providerFilter: $providerFilter,
         selectedEndpointId: $selectedEndpointId,
-        endpointFacets: endpointFacets,
-        providerScopedSessionCount: providerScopedSessions.count,
+        endpointFacets: archiveState.endpointFacets,
+        providerScopedSessionCount: archiveState.providerScopedSessions.count,
         onReset: resetFilters
       )
       .presentationDetents([.height(320), .medium])
@@ -125,9 +123,12 @@ struct LibraryView: View {
 
   // MARK: - Result Summary
 
-  private var resultSummaryLine: some View {
+  private func resultSummaryLine(
+    summary: LibraryArchiveSummary,
+    loadedSessionCount: Int
+  ) -> some View {
     HStack(spacing: Spacing.xs) {
-      Text("\(summary.sessionCount) sessions")
+      Text("\(loadedSessionCount) sessions loaded")
         .font(.system(size: TypeScale.caption, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
 
@@ -145,8 +146,37 @@ struct LibraryView: View {
           .padding(.vertical, 2)
           .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
       }
+
+      if hasMoreSessions {
+        Text("more available")
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.statusPermission)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(Color.statusPermission.opacity(OpacityTier.light), in: Capsule())
+      }
     }
     .padding(.horizontal, layoutMode.isPhoneCompact ? Spacing.sm : Spacing.md)
+  }
+
+  private func paginationFooter(loadedSessionCount: Int) -> some View {
+    HStack(spacing: Spacing.xs) {
+      if isLoadingMore {
+        ProgressView()
+          .scaleEffect(0.8)
+      } else {
+        Image(systemName: "arrow.down.circle")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+      }
+      Text(isLoadingMore ? "Loading more sessions…" : "Loaded \(loadedSessionCount) sessions. Fetching more…")
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, layoutMode.isPhoneCompact ? Spacing.sm : Spacing.md)
+    .padding(.top, Spacing.sm)
+    .padding(.bottom, Spacing.lg)
   }
 
   // MARK: - Actions
@@ -160,5 +190,13 @@ struct LibraryView: View {
   private func resetFilters() {
     providerFilter = .all
     selectedEndpointId = nil
+  }
+
+  private func loadMoreSessionsIfNeeded() async {
+    guard hasMoreSessions else { return }
+    guard !isLoadingMore else { return }
+    isLoadingMore = true
+    defer { isLoadingMore = false }
+    await onLoadMoreSessions()
   }
 }

@@ -1,8 +1,14 @@
 import SwiftUI
 
 struct NewSessionConfigurationCard: View {
+  enum Style {
+    case card
+    case embedded
+  }
+
   @State private var showCodexAdvancedSettings = false
 
+  let style: Style
   let provider: SessionProvider
   let claudeModels: [ServerClaudeModelOption]
   let codexModels: [ServerCodexModelOption]
@@ -154,75 +160,56 @@ struct NewSessionConfigurationCard: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
+    let content = VStack(alignment: .leading, spacing: style == .embedded ? Spacing.md : 0) {
       switch provider {
         case .claude:
-          configurationHeader
+          if style == .card {
+            configurationHeader
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+            Divider()
+              .padding(.horizontal, Spacing.lg)
+          }
 
           modelRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
-
-          claudePermissionRow
+          claudeControlsCluster
 
           claudeBypassRow
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
-
-          claudeEffortRow
-
         case .codex:
-          configurationHeader
+          if style == .card {
+            configurationHeader
 
-          Divider()
-            .padding(.horizontal, Spacing.lg)
+            Divider()
+              .padding(.horizontal, Spacing.lg)
+          }
 
           codexConfigurationModeRow
 
           if usesCustomCodexConfig {
-            Divider()
-              .padding(.horizontal, Spacing.lg)
-
             codexCustomIdentitySection
 
-            Divider()
-              .padding(.horizontal, Spacing.lg)
-
-            codexAutonomyRow
-
-            Divider()
-              .padding(.horizontal, Spacing.lg)
-
-            codexCollaborationRow
-
-            Divider()
-              .padding(.horizontal, Spacing.lg)
-
-            codexMultiAgentRow
-
-            Divider()
-              .padding(.horizontal, Spacing.lg)
+            codexBehaviorCluster
 
             codexAdvancedSettingsSection
           } else {
-            Divider()
-              .padding(.horizontal, Spacing.lg)
-
             codexResolvedValuesSection
           }
       }
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
-    )
-    .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
+
+    switch style {
+      case .card:
+        content
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+              .stroke(Color.surfaceBorder, lineWidth: 1)
+          )
+          .shadow(color: .black.opacity(0.16), radius: 10, y: 4)
+      case .embedded:
+        content
+    }
   }
 
   private var configurationHeader: some View {
@@ -330,46 +317,27 @@ struct NewSessionConfigurationCard: View {
 
   private var codexConfigurationModeRow: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "point.3.connected.trianglepath.dotted")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color.providerCodex)
-          Text("Launch Source")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-        }
-
-        Text(
-          "Decide whether this session should follow the folder's resolved Codex setup, one of your saved profiles, or a one-off custom configuration."
-        )
-        .font(.system(size: TypeScale.caption))
-        .foregroundStyle(Color.textSecondary)
-        .fixedSize(horizontal: false, vertical: true)
-      }
-
       codexModeSelector
 
       if codexConfigMode == .profile {
-        Picker("Saved profile", selection: $codexConfigProfile) {
-          Text(profileOptions.isEmpty ? "No profiles found" : "Select a profile").tag("")
-          ForEach(profileOptions) { profile in
-            Text(profile.name).tag(profile.name)
+        HStack(spacing: Spacing.sm) {
+          Picker("Profile", selection: $codexConfigProfile) {
+            Text(profileOptions.isEmpty ? "No profiles found" : "Select a profile").tag("")
+            ForEach(profileOptions) { profile in
+              Text(profile.name).tag(profile.name)
+            }
           }
-        }
-        .pickerStyle(.menu)
-        .disabled(profileOptions.isEmpty)
-      }
+          .pickerStyle(.menu)
+          .disabled(profileOptions.isEmpty)
 
-      codexModeSummaryCard(
-        title: codexConfigModeSummaryTitle,
-        detail: codexConfigModeSummaryDetail
-      )
+          Spacer()
+        }
+      }
 
       if provider == .codex, !hasSelectedPath, codexConfigMode == .inherit {
         codexLaunchHintCard(
-          title: "Folder mode needs a project",
-          detail: "Saved profiles and providers are available now, but OrbitDock needs a folder before it can resolve the effective Codex setup for that project.",
+          title: "Choose a workspace first",
+          detail: "OrbitDock needs a folder to resolve Codex defaults for that project.",
           tint: .statusQuestion,
           icon: "folder.badge.questionmark"
         )
@@ -377,8 +345,8 @@ struct NewSessionConfigurationCard: View {
 
       if provider == .codex, !hasSelectedPath, codexCatalogRequiresProjectPath {
         codexLaunchHintCard(
-          title: "Older server still needs a folder",
-          detail: "This OrbitDock server is still using the older Codex catalog behavior, so saved profiles will appear after you choose a project. Restart the server to enable global profile browsing.",
+          title: "Older server needs a folder",
+          detail: "Restart the server to enable global profile browsing.",
           tint: .feedbackCaution,
           icon: "arrow.triangle.2.circlepath"
         )
@@ -393,47 +361,13 @@ struct NewSessionConfigurationCard: View {
         HStack(spacing: Spacing.sm) {
           ProgressView()
             .controlSize(.small)
-          Text("Loading Codex profiles and providers…")
+          Text("Loading profiles…")
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textTertiary)
         }
       }
 
-      HStack(spacing: Spacing.md) {
-        if let onManageCodexConfig {
-          Button("Manage Profiles & Providers") {
-            onManageCodexConfig()
-          }
-          .buttonStyle(.plain)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.sm_)
-          .background(Color.backgroundSecondary, in: Capsule())
-          .overlay(
-            Capsule()
-              .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
-          )
-        }
-
-        if let onInspectCodexConfig {
-          Button("Inspect Codex Config") {
-            onInspectCodexConfig()
-          }
-          .buttonStyle(.plain)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.accent)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.sm_)
-          .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
-          .overlay(
-            Capsule()
-              .stroke(Color.accent.opacity(OpacityTier.light), lineWidth: 1)
-          )
-        }
-
-        Spacer()
-      }
+      codexActionLinks
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.md)
@@ -461,6 +395,44 @@ struct NewSessionConfigurationCard: View {
             codexModelProvider = providerOptions.first?.id ?? ""
           }
       }
+    }
+  }
+
+  private var codexActionLinks: some View {
+    HStack(spacing: Spacing.lg) {
+      if let onManageCodexConfig {
+        Button {
+          onManageCodexConfig()
+        } label: {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "folder.badge.gearshape")
+              .font(.system(size: 10, weight: .medium))
+            Text("Manage")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+          }
+          .foregroundStyle(Color.textTertiary)
+        }
+        .buttonStyle(.plain)
+        .platformCursorOnHover()
+      }
+
+      if let onInspectCodexConfig {
+        Button {
+          onInspectCodexConfig()
+        } label: {
+          HStack(spacing: Spacing.xs) {
+            Image(systemName: "doc.text.magnifyingglass")
+              .font(.system(size: 10, weight: .medium))
+            Text("Inspect")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+          }
+          .foregroundStyle(Color.accent)
+        }
+        .buttonStyle(.plain)
+        .platformCursorOnHover()
+      }
+
+      Spacer()
     }
   }
 
@@ -496,36 +468,6 @@ struct NewSessionConfigurationCard: View {
     .buttonStyle(.plain)
   }
 
-  private var codexConfigModeSummaryTitle: String {
-    switch codexConfigMode {
-      case .inherit:
-        hasSelectedPath ? "Use the folder's effective Codex config" : "Choose a folder for project defaults"
-      case .profile:
-        selectedProfileSummary.map { "Use profile \($0.name)" } ?? "Choose a saved Codex profile"
-      case .custom:
-        "Build a custom session configuration"
-    }
-  }
-
-  private var codexConfigModeSummaryDetail: String {
-    switch codexConfigMode {
-      case .inherit:
-        hasSelectedPath
-          ? "OrbitDock will inherit the effective profile, provider, and model Codex resolves for this folder."
-          : "Pick a project folder to resolve its Codex defaults. Saved profiles and custom providers can still be selected before that."
-      case .profile:
-        selectedProfileSummary.map {
-          [
-            $0.modelProvider.map { "Provider: \($0)" },
-            $0.model.map { "Model: \($0)" },
-          ]
-          .compactMap { $0 }
-          .joined(separator: " • ")
-        } ?? profileModePlaceholder
-      case .custom:
-        "Override the provider, model, and launch-time behavior just for this session."
-    }
-  }
 
   private var modelRow: some View {
     HStack {
@@ -615,101 +557,84 @@ struct NewSessionConfigurationCard: View {
     }
   }
 
-  private var claudePermissionRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: selectedPermissionMode.icon)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(selectedPermissionMode.color)
-          Text("Permission")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
+  // MARK: - Claude Controls Cluster (Permission + Effort side by side)
 
-        Spacer()
-
-        CompactClaudePermissionSelector(selection: $selectedPermissionMode)
-      }
-
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Capsule()
-          .fill(selectedPermissionMode.color.opacity(0.4))
-          .frame(width: 2, height: 20)
-          .padding(.top, Spacing.xxs)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          HStack(spacing: Spacing.sm) {
-            Text(selectedPermissionMode.displayName)
-              .font(.system(size: TypeScale.body, weight: .semibold))
-              .foregroundStyle(selectedPermissionMode.color)
-
-            if selectedPermissionMode.isDefault {
-              Text("DEFAULT")
-                .font(.system(size: 7, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1.5)
-                .background(Color.textSecondary.opacity(OpacityTier.light), in: Capsule())
-            }
-          }
-
-          Text(selectedPermissionMode.description)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .padding(.leading, Spacing.lg)
-      .animation(Motion.bouncy, value: selectedPermissionMode)
+  private var claudeControlsCluster: some View {
+    HStack(alignment: .top, spacing: Spacing.md) {
+      claudePermissionCluster
+      claudeEffortCluster
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
   }
 
-  private var profileModePlaceholder: String {
-    if profileOptions.isEmpty {
-      if codexCatalogLoading {
-        return "Loading your saved Codex profiles."
+  private var claudePermissionCluster: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("PERMISSIONS")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+        .textCase(.uppercase)
+        .tracking(0.5)
+
+      CompactClaudePermissionSelector(selection: $selectedPermissionMode)
+
+      HStack(spacing: Spacing.sm_) {
+        Capsule()
+          .fill(selectedPermissionMode.color)
+          .frame(width: EdgeBar.width, height: 14)
+
+        Text(selectedPermissionMode.displayName)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(selectedPermissionMode.color)
       }
-      return "No saved Codex profiles were returned yet."
+      .animation(Motion.bouncy, value: selectedPermissionMode)
     }
-    if hasSelectedPath {
-      return "Pick one of your saved Codex profiles to use it for this session."
-    }
-    return "Pick one of your saved Codex profiles now, then choose a folder when you're ready to launch."
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(Spacing.md)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
   }
 
-  private func codexModeSummary(title: String, detail: String) -> some View {
-    HStack(alignment: .top, spacing: Spacing.sm) {
-      Capsule()
-        .fill(Color.providerCodex.opacity(0.35))
-        .frame(width: 2, height: 26)
-        .padding(.top, Spacing.xxs)
+  private var claudeEffortCluster: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("EFFORT")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+        .textCase(.uppercase)
+        .tracking(0.5)
 
-      VStack(alignment: .leading, spacing: Spacing.xxs) {
-        Text(title)
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-        Text(detail)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .fixedSize(horizontal: false, vertical: true)
+      Picker("Effort", selection: $selectedEffort) {
+        ForEach(ClaudeEffortLevel.allCases) { level in
+          Text(level.displayName).tag(level)
+        }
       }
+      .pickerStyle(.menu)
+      .labelsHidden()
       .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: Spacing.sm_) {
+        Capsule()
+          .fill(selectedEffort.color)
+          .frame(width: EdgeBar.width, height: 14)
+
+        Text(selectedEffort.displayName)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(selectedEffort.color)
+      }
+      .animation(Motion.bouncy, value: selectedEffort)
     }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(Spacing.md)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
   }
 
-  private func codexModeSummaryCard(title: String, detail: String) -> some View {
-    codexModeSummary(title: title, detail: detail)
-      .padding(Spacing.md)
-      .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
-      )
-  }
 
   private func codexLaunchHintCard(title: String, detail: String, tint: Color, icon: String) -> some View {
     HStack(alignment: .top, spacing: Spacing.sm) {
@@ -738,28 +663,17 @@ struct NewSessionConfigurationCard: View {
   }
 
   private var codexResolvedValuesSection: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Resolved Values")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-        Text("This is the launch configuration Codex will use unless you switch to Custom.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
+    ViewThatFits(in: .horizontal) {
+      HStack(alignment: .top, spacing: Spacing.sm) {
+        codexResolvedValueCard(title: "Source", value: codexResolvedProfileLabel, tint: Color.providerCodex)
+        codexResolvedValueCard(title: "Provider", value: codexResolvedProviderLabel, tint: Color.textSecondary)
+        codexResolvedValueCard(title: "Model", value: codexResolvedModelLabel, tint: Color.accent)
       }
 
-      ViewThatFits(in: .horizontal) {
-        HStack(alignment: .top, spacing: Spacing.md) {
-          codexResolvedValueCard(title: "Source", value: codexResolvedProfileLabel, tint: Color.providerCodex)
-          codexResolvedValueCard(title: "Provider", value: codexResolvedProviderLabel, tint: Color.textSecondary)
-          codexResolvedValueCard(title: "Model", value: codexResolvedModelLabel, tint: Color.accent)
-        }
-
-        VStack(alignment: .leading, spacing: Spacing.md) {
-          codexResolvedValueCard(title: "Source", value: codexResolvedProfileLabel, tint: Color.providerCodex)
-          codexResolvedValueCard(title: "Provider", value: codexResolvedProviderLabel, tint: Color.textSecondary)
-          codexResolvedValueCard(title: "Model", value: codexResolvedModelLabel, tint: Color.accent)
-        }
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        codexResolvedValueCard(title: "Source", value: codexResolvedProfileLabel, tint: Color.providerCodex)
+        codexResolvedValueCard(title: "Provider", value: codexResolvedProviderLabel, tint: Color.textSecondary)
+        codexResolvedValueCard(title: "Model", value: codexResolvedModelLabel, tint: Color.accent)
       }
     }
     .padding(.horizontal, Spacing.lg)
@@ -781,7 +695,7 @@ struct NewSessionConfigurationCard: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(Spacing.md)
-    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
@@ -789,151 +703,72 @@ struct NewSessionConfigurationCard: View {
   }
 
   private var codexCustomIdentitySection: some View {
-    VStack(alignment: .leading, spacing: Spacing.md) {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Custom Identity")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-        Text("Choose the provider and model for this one launch, then tune the runtime behavior below.")
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-      }
-
-      ViewThatFits(in: .horizontal) {
-        HStack(alignment: .top, spacing: Spacing.md) {
-          codexPickerCard(
-            title: "Provider",
-            icon: "network",
-            tint: Color.providerCodex
-          ) {
-            Picker("Provider", selection: $codexModelProvider) {
-              Text(providerOptions.isEmpty ? "No providers found" : "Select a provider").tag("")
-              ForEach(providerOptions) { provider in
-                Text(provider.displayName ?? provider.id).tag(provider.id)
-              }
-            }
-            .pickerStyle(.menu)
-            .disabled(providerOptions.isEmpty)
-          } description: {
-            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?
-              .id ?? "Choose from the providers Codex reports for this environment.")
-          }
-
-          codexPickerCard(
-            title: "Model",
-            icon: "cpu",
-            tint: Color.accent
-          ) {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-              TextField("qwen/qwen3-coder-next", text: $codexModel)
-                .textFieldStyle(.roundedBorder)
-
-              if !codexModels.isEmpty {
-                Picker("Suggested model", selection: $codexModel) {
-                  Text("Suggested models").tag("")
-                  ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
-                    Text(model.displayName).tag(model.model)
-                  }
-                }
-                .pickerStyle(.menu)
-              }
-            }
-          } description: {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-              Text(currentCodexModelOption?
-                .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
-
-              if let codexScopedModelNotice {
-                codexScopedModelNoticeView(codexScopedModelNotice)
-              }
-            }
-          }
-        }
-
-        VStack(alignment: .leading, spacing: Spacing.md) {
-          codexPickerCard(
-            title: "Provider",
-            icon: "network",
-            tint: Color.providerCodex
-          ) {
-            Picker("Provider", selection: $codexModelProvider) {
-              Text(providerOptions.isEmpty ? "No providers found" : "Select a provider").tag("")
-              ForEach(providerOptions) { provider in
-                Text(provider.displayName ?? provider.id).tag(provider.id)
-              }
-            }
-            .pickerStyle(.menu)
-            .disabled(providerOptions.isEmpty)
-          } description: {
-            Text(selectedProviderSummary?.displayName ?? selectedProviderSummary?
-              .id ?? "Choose from the providers Codex reports for this environment.")
-          }
-
-          codexPickerCard(
-            title: "Model",
-            icon: "cpu",
-            tint: Color.accent
-          ) {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-              TextField("qwen/qwen3-coder-next", text: $codexModel)
-                .textFieldStyle(.roundedBorder)
-
-              if !codexModels.isEmpty {
-                Picker("Suggested model", selection: $codexModel) {
-                  Text("Suggested models").tag("")
-                  ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
-                    Text(model.displayName).tag(model.model)
-                  }
-                }
-                .pickerStyle(.menu)
-              }
-            }
-          } description: {
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-              Text(currentCodexModelOption?
-                .description ?? "Enter any Codex model ID, or pick one of the discovered suggestions.")
-
-              if let codexScopedModelNotice {
-                codexScopedModelNoticeView(codexScopedModelNotice)
-              }
-            }
-          }
-        }
-      }
+    HStack(alignment: .top, spacing: Spacing.md) {
+      codexProviderCluster
+      codexModelCluster
     }
     .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
+    .padding(.vertical, Spacing.sm)
   }
 
-  private func codexPickerCard(
-    title: String,
-    icon: String,
-    tint: Color,
-    @ViewBuilder control: () -> some View,
-    @ViewBuilder description: () -> some View
-  ) -> some View {
+  private var codexProviderCluster: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: icon)
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(tint)
-        Text(title)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-      }
-
-      control()
-        .labelsHidden()
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-      description()
-        .font(.system(size: TypeScale.micro))
+      Text("PROVIDER")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(Color.textTertiary)
-        .fixedSize(horizontal: false, vertical: true)
+        .textCase(.uppercase)
+        .tracking(0.5)
+
+      Picker("Provider", selection: $codexModelProvider) {
+        Text(providerOptions.isEmpty ? "None found" : "Select").tag("")
+        ForEach(providerOptions) { provider in
+          Text(provider.displayName ?? provider.id).tag(provider.id)
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(Spacing.md)
-    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
+  }
+
+  private var codexModelCluster: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Text("MODEL")
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+        .textCase(.uppercase)
+        .tracking(0.5)
+
+      TextField("model-id", text: $codexModel)
+        .textFieldStyle(.roundedBorder)
+        .font(.system(size: TypeScale.caption, design: .monospaced))
+
+      if !codexModels.isEmpty {
+        Picker("Suggested", selection: $codexModel) {
+          Text("Suggested").tag("")
+          ForEach(codexModels.filter { !$0.model.isEmpty }, id: \.id) { model in
+            Text(model.displayName).tag(model.model)
+          }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
+
+      if let codexScopedModelNotice {
+        codexScopedModelNoticeView(codexScopedModelNotice)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(Spacing.md)
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
@@ -958,46 +793,6 @@ struct NewSessionConfigurationCard: View {
     }
   }
 
-  private var customProviderRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: "network")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color.providerCodex)
-          Text("Provider")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
-
-        Spacer()
-
-        Picker("Provider", selection: $codexModelProvider) {
-          Text(providerOptions.isEmpty ? "No providers found" : "Select a provider").tag("")
-          ForEach(providerOptions) { provider in
-            Text(provider.displayName ?? provider.id).tag(provider.id)
-          }
-        }
-        .pickerStyle(.menu)
-        .disabled(providerOptions.isEmpty)
-      }
-
-      codexModeSummary(
-        title: selectedProviderSummary?.displayName ?? selectedProviderSummary?.id ?? "Custom provider",
-        detail: selectedProviderSummary.map {
-          [
-            $0.wireAPI.map { "API: \($0)" },
-            $0.baseURL.map { "Base URL: \($0)" },
-            $0.envKey.map { "Key: \($0)" },
-          ]
-          .compactMap { $0 }
-          .joined(separator: " • ")
-        } ?? "Choose from the providers Codex reports for this environment."
-      )
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
-  }
 
   private var claudeBypassRow: some View {
     HStack(alignment: .top, spacing: Spacing.md) {
@@ -1027,100 +822,38 @@ struct NewSessionConfigurationCard: View {
     .padding(.vertical, Spacing.sm)
   }
 
-  private var claudeEffortRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: selectedEffort.icon)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(selectedEffort.color)
-          Text("Effort")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
 
-        Spacer()
+  // MARK: - Codex Behavior Cluster (Autonomy + Collaboration + Workers)
 
-        Picker("Effort", selection: $selectedEffort) {
-          ForEach(ClaudeEffortLevel.allCases) { level in
-            Text(level.displayName).tag(level)
-          }
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .fixedSize()
-      }
-
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Capsule()
-          .fill(selectedEffort.color.opacity(0.4))
-          .frame(width: 2, height: 20)
-          .padding(.top, Spacing.xxs)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(selectedEffort.displayName)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(selectedEffort.color)
-
-          Text(selectedEffort.description)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .padding(.leading, Spacing.lg)
-      .animation(Motion.bouncy, value: selectedEffort)
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
-  }
-
-  private var codexAutonomyRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: selectedAutonomy.icon)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(selectedAutonomy.color)
-          Text("Autonomy")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
-
-        Spacer()
-
-        CompactAutonomySelector(selection: $selectedAutonomy)
-      }
-
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Capsule()
-          .fill(selectedAutonomy.color.opacity(0.4))
-          .frame(width: 2, height: 20)
-          .padding(.top, Spacing.xxs)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
+  private var codexBehaviorCluster: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Autonomy
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        HStack {
           HStack(spacing: Spacing.sm) {
-            Text(selectedAutonomy.displayName)
-              .font(.system(size: TypeScale.body, weight: .semibold))
+            Image(systemName: selectedAutonomy.icon)
+              .font(.system(size: 11, weight: .semibold))
               .foregroundStyle(selectedAutonomy.color)
-
-            if selectedAutonomy.isDefault {
-              Text("DEFAULT")
-                .font(.system(size: 7, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.textSecondary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 1.5)
-                .background(Color.textSecondary.opacity(OpacityTier.light), in: Capsule())
-            }
+            Text("Autonomy")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
           }
 
-          Text(selectedAutonomy.description)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
+          Spacer()
 
-          HStack(spacing: Spacing.sm) {
+          CompactAutonomySelector(selection: $selectedAutonomy)
+        }
+
+        HStack(spacing: Spacing.sm) {
+          Capsule()
+            .fill(selectedAutonomy.color)
+            .frame(width: EdgeBar.width, height: 14)
+
+          Text(selectedAutonomy.displayName)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(selectedAutonomy.color)
+
+          HStack(spacing: Spacing.xs) {
             HStack(spacing: Spacing.xxs) {
               Image(
                 systemName: selectedAutonomy.approvalBehavior
@@ -1130,6 +863,9 @@ struct NewSessionConfigurationCard: View {
               Text(selectedAutonomy.approvalBehavior)
                 .font(.system(size: TypeScale.micro, weight: .medium))
             }
+
+            Text("·")
+              .foregroundStyle(Color.textQuaternary)
 
             HStack(spacing: Spacing.xxs) {
               Image(systemName: selectedAutonomy.isSandboxed ? "shield.fill" : "shield.slash")
@@ -1142,19 +878,17 @@ struct NewSessionConfigurationCard: View {
             )
           }
           .foregroundStyle(Color.textQuaternary)
-          .padding(.top, Spacing.xxs)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Motion.bouncy, value: selectedAutonomy)
       }
-      .padding(.leading, Spacing.lg)
-      .animation(Motion.bouncy, value: selectedAutonomy)
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
-  }
+      .padding(Spacing.md)
 
-  private var codexCollaborationRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
+      Rectangle()
+        .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+        .frame(height: 1)
+        .padding(.horizontal, Spacing.sm)
+
+      // Collaboration
       HStack {
         HStack(spacing: Spacing.sm) {
           Image(systemName: codexCollaborationMode.icon)
@@ -1163,7 +897,16 @@ struct NewSessionConfigurationCard: View {
           Text("Collaboration")
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textSecondary)
+
+          Capsule()
+            .fill(codexCollaborationMode.color)
+            .frame(width: EdgeBar.width, height: 14)
+
+          Text(codexCollaborationMode.displayName)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(codexCollaborationMode.color)
         }
+        .animation(Motion.bouncy, value: codexCollaborationMode)
 
         Spacer()
 
@@ -1176,35 +919,15 @@ struct NewSessionConfigurationCard: View {
         .labelsHidden()
         .fixedSize()
       }
+      .padding(Spacing.md)
 
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Capsule()
-          .fill(codexCollaborationMode.color.opacity(0.4))
-          .frame(width: 2, height: 20)
-          .padding(.top, Spacing.xxs)
+      Rectangle()
+        .fill(Color.surfaceBorder.opacity(OpacityTier.light))
+        .frame(height: 1)
+        .padding(.horizontal, Spacing.sm)
 
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(codexCollaborationMode.displayName)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(codexCollaborationMode.color)
-
-          Text(codexCollaborationMode.description)
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .padding(.leading, Spacing.lg)
-      .animation(Motion.bouncy, value: codexCollaborationMode)
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
-  }
-
-  private var codexMultiAgentRow: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(alignment: .top, spacing: Spacing.md) {
+      // Workers
+      HStack(alignment: .center, spacing: Spacing.md) {
         HStack(spacing: Spacing.sm) {
           Image(systemName: codexMultiAgentEnabled ? "person.3.fill" : "person.3")
             .font(.system(size: 11, weight: .semibold))
@@ -1214,13 +937,17 @@ struct NewSessionConfigurationCard: View {
             .foregroundStyle(Color.textSecondary)
 
           if codexMultiAgentIsExperimental {
-            Text("EXPERIMENTAL")
+            Text("BETA")
               .font(.system(size: 7, weight: .bold, design: .rounded))
               .foregroundStyle(Color.feedbackCaution)
               .padding(.horizontal, 5)
               .padding(.vertical, 1.5)
               .background(Color.feedbackCaution.opacity(OpacityTier.light), in: Capsule())
           }
+
+          Text(codexMultiAgentEnabled ? "Enabled" : "Off")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(codexMultiAgentEnabled ? Color.providerCodex : Color.textQuaternary)
         }
 
         Spacer()
@@ -1230,43 +957,13 @@ struct NewSessionConfigurationCard: View {
           .toggleStyle(.switch)
           .disabled(!codexSupportsMultiAgent)
       }
-
-      HStack(alignment: .top, spacing: Spacing.sm) {
-        Capsule()
-          .fill((codexMultiAgentEnabled ? Color.providerCodex : Color.textQuaternary).opacity(0.35))
-          .frame(width: 2, height: 20)
-          .padding(.top, Spacing.xxs)
-
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(codexSupportsMultiAgent
-            ? (codexMultiAgentEnabled ? "Worker spawning enabled" : "Single-agent session")
-            : "Workers unavailable"
-          )
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(
-            codexSupportsMultiAgent
-              ? (codexMultiAgentEnabled ? Color.providerCodex : Color.textSecondary)
-              : Color.textSecondary
-          )
-
-          Text(
-            codexSupportsMultiAgent
-              ? (
-                codexMultiAgentEnabled
-                  ? "Let Codex spin up helper workers for parallel research, planning, and follow-up tasks in this session."
-                  : "Keep Codex focused in one thread. You can still change this later from the session controls."
-              )
-              : "This model does not currently advertise worker spawning support to OrbitDock."
-          )
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
-          .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .padding(.leading, Spacing.lg)
-      .animation(Motion.bouncy, value: codexMultiAgentEnabled)
+      .padding(Spacing.md)
     }
+    .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+    )
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
   }
@@ -1283,33 +980,40 @@ struct NewSessionConfigurationCard: View {
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(Color.providerCodex)
 
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Codex Advanced")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-              .foregroundStyle(Color.textPrimary)
+          Text("Advanced")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+
+          if !showCodexAdvancedSettings, !codexAdvancedSummary.isEmpty {
             Text(codexAdvancedSummary)
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
-              .lineLimit(2)
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textQuaternary)
+              .lineLimit(1)
           }
 
           Spacer()
 
-          Image(systemName: showCodexAdvancedSettings ? "chevron.up" : "chevron.down")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
+          Image(systemName: "chevron.right")
+            .font(.system(size: 9, weight: .semibold))
             .foregroundStyle(Color.textQuaternary)
+            .rotationEffect(.degrees(showCodexAdvancedSettings ? 90 : 0))
+            .animation(Motion.snappy, value: showCodexAdvancedSettings)
         }
       }
       .buttonStyle(.plain)
+      .platformCursorOnHover()
 
       if showCodexAdvancedSettings {
         VStack(alignment: .leading, spacing: Spacing.md) {
           HStack(alignment: .top, spacing: Spacing.md) {
-            codexAdvancedPickerCard(
-              title: "Personality",
-              icon: codexPersonality.icon,
-              tint: codexPersonality.color
-            ) {
+            // Personality cluster
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              Text("PERSONALITY")
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+
               if codexSupportsPersonality {
                 Picker("Personality", selection: $codexPersonality) {
                   ForEach(CodexPersonalityPreset.allCases) { preset in
@@ -1318,24 +1022,29 @@ struct NewSessionConfigurationCard: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
+                .frame(maxWidth: .infinity, alignment: .leading)
               } else {
                 Text("Unavailable")
-                  .font(.system(size: TypeScale.body, weight: .semibold))
+                  .font(.system(size: TypeScale.caption, weight: .medium))
                   .foregroundStyle(Color.textQuaternary)
               }
-            } description: {
-              Text(
-                codexSupportsPersonality
-                  ? codexPersonality.description
-                  : "This model does not currently expose personality overrides through OrbitDock."
-              )
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Spacing.md)
+            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+            )
 
-            codexAdvancedPickerCard(
-              title: "Service Tier",
-              icon: codexServiceTier.icon,
-              tint: codexServiceTier.color
-            ) {
+            // Service Tier cluster
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+              Text("SERVICE TIER")
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .textCase(.uppercase)
+                .tracking(0.5)
+
               Picker("Service Tier", selection: $codexServiceTier) {
                 ForEach(availableCodexServiceTiers) { preset in
                   Text(preset.displayName).tag(preset)
@@ -1343,32 +1052,36 @@ struct NewSessionConfigurationCard: View {
               }
               .pickerStyle(.menu)
               .labelsHidden()
-            } description: {
-              Text(codexServiceTier.description)
+              .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Spacing.md)
+            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+            .overlay(
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
+            )
           }
 
+          // Instructions
           VStack(alignment: .leading, spacing: Spacing.sm) {
-            HStack(spacing: Spacing.sm) {
-              Image(systemName: "text.append")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.accent)
-              Text("Durable Instructions")
-                .font(.system(size: TypeScale.body, weight: .semibold))
-                .foregroundStyle(Color.textPrimary)
-            }
+            Text("INSTRUCTIONS")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .textCase(.uppercase)
+              .tracking(0.5)
 
             if codexSupportsDeveloperInstructions {
               ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                  .fill(Color.backgroundSecondary)
+                  .fill(Color.backgroundCode)
                   .overlay(
                     RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                      .stroke(Color.surfaceBorder, lineWidth: 1)
+                      .stroke(Color.surfaceBorder.opacity(OpacityTier.light), lineWidth: 1)
                   )
 
                 if codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                  Text("Persistent guidance for the whole session, like house rules, code style, or team tone.")
+                  Text("House rules, code style, team tone…")
                     .font(.system(size: TypeScale.caption))
                     .foregroundStyle(Color.textQuaternary)
                     .padding(.horizontal, Spacing.md)
@@ -1379,39 +1092,22 @@ struct NewSessionConfigurationCard: View {
                   .font(.system(size: TypeScale.body))
                   .foregroundStyle(Color.textPrimary)
                   .scrollContentBackground(.hidden)
-                  .frame(minHeight: 92, maxHeight: 120)
+                  .frame(minHeight: 72, maxHeight: 100)
                   .padding(.horizontal, Spacing.sm)
                   .padding(.vertical, Spacing.xs)
               }
             } else {
-              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Color.backgroundSecondary)
-                .frame(minHeight: 72)
-                .overlay(alignment: .leading) {
-                  Text("This model does not currently expose durable session instructions through OrbitDock.")
-                    .font(.system(size: TypeScale.caption))
-                    .foregroundStyle(Color.textQuaternary)
-                    .padding(.horizontal, Spacing.md)
-                }
-                .overlay(
-                  RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .stroke(Color.surfaceBorder, lineWidth: 1)
-                )
+              Text("Not available for this model.")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textQuaternary)
             }
-
-            Text(
-              "Use this for durable session behavior. For one-off guidance later, steer the active turn from the composer."
-            )
-            .font(.system(size: TypeScale.caption))
-            .foregroundStyle(Color.textTertiary)
-            .fixedSize(horizontal: false, vertical: true)
           }
         }
         .transition(.move(edge: .top).combined(with: .opacity))
       }
     }
     .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
+    .padding(.vertical, Spacing.sm)
   }
 
   private var codexAdvancedSummary: String {
@@ -1423,51 +1119,10 @@ struct NewSessionConfigurationCard: View {
     if codexServiceTier != .automatic {
       summary.append(codexServiceTier.displayName)
     }
-    if codexMultiAgentEnabled {
-      summary.append("Workers on")
-    }
     if !codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      summary.append("Instructions ready")
+      summary.append("Instructions set")
     }
 
-    if summary.isEmpty {
-      return "Personality, service tier, and session instructions"
-    }
-
-    return summary.joined(separator: " • ")
-  }
-
-  private func codexAdvancedPickerCard(
-    title: String,
-    icon: String,
-    tint: Color,
-    @ViewBuilder control: () -> some View,
-    @ViewBuilder description: () -> some View
-  ) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      HStack(spacing: Spacing.sm) {
-        Image(systemName: icon)
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(tint)
-        Text(title)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textSecondary)
-      }
-
-      control()
-        .frame(maxWidth: .infinity, alignment: .leading)
-
-      description()
-        .font(.system(size: TypeScale.micro))
-        .foregroundStyle(Color.textTertiary)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(Spacing.md)
-    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .stroke(Color.surfaceBorder, lineWidth: 1)
-    )
+    return summary.joined(separator: " · ")
   }
 }

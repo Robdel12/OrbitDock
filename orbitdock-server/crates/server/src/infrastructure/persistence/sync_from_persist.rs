@@ -46,9 +46,9 @@ impl PersistCommand {
 impl From<&PersistCommand> for Option<SyncCommand> {
   fn from(value: &PersistCommand) -> Self {
     match value {
-      PersistCommand::SetTranscriptPath { .. } | PersistCommand::SessionAttentionUpdate { .. } => {
-        None
-      }
+      PersistCommand::SetTranscriptPath { .. }
+      | PersistCommand::SessionAttentionUpdate { .. }
+      | PersistCommand::Flush { .. } => None,
       _ => Some(match value {
         PersistCommand::SessionCreate(params) => {
           SyncCommand::SessionCreate(Box::new(SyncSessionCreateParams::from(params.as_ref())))
@@ -483,10 +483,9 @@ impl From<&PersistCommand> for Option<SyncCommand> {
           status: *status,
         },
         PersistCommand::SetTranscriptPath { .. }
-        | PersistCommand::SessionAttentionUpdate { .. } => {
-          unreachable!(
-            "these hook-only persistence commands are intentionally excluded from sync replay"
-          )
+        | PersistCommand::SessionAttentionUpdate { .. }
+        | PersistCommand::Flush { .. } => {
+          unreachable!("these persistence commands are intentionally excluded from sync replay")
         }
       }),
     }

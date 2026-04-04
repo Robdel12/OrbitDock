@@ -50,17 +50,21 @@ struct QuickSwitcherProjection: Equatable, Sendable {
   }
 
   private static func filterSessions(_ sessions: [RootSessionNode], normalizedQuery: String) -> [RootSessionNode] {
-    guard !normalizedQuery.isEmpty else { return sessions }
+    let foldedQuery = normalized(normalizedQuery)
+    guard !foldedQuery.isEmpty else { return sessions }
 
     return sessions.filter { session in
-      matches(session.id, query: normalizedQuery)
-        || matches(session.displaySearchText, query: normalizedQuery)
+      matches(session.id, query: foldedQuery)
+        || matches(session.displaySearchText, query: foldedQuery)
     }
   }
 
   private static func matches(_ value: String?, query: String) -> Bool {
     guard let value else { return false }
-    return normalized(value).contains(normalized(query))
+    if value.contains(query) {
+      return true
+    }
+    return normalized(value).contains(query)
   }
 
   private static func normalized(_ value: String) -> String {
