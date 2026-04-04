@@ -375,6 +375,30 @@ struct CodexModePill: View {
           }
           .buttonStyle(.plain)
         }
+
+        if supportedModes.contains(.plan) {
+          HStack(alignment: .top, spacing: Spacing.xs) {
+            Image(systemName: "map.fill")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+              .foregroundStyle(Color.statusQuestion)
+              .padding(.top, 1)
+
+            Text("When you exit Plan mode, OrbitDock auto-saves the latest plan to `plans/auto/<session>.md`.")
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(Color.statusQuestion.opacity(OpacityTier.light))
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .stroke(Color.statusQuestion.opacity(OpacityTier.medium), lineWidth: 0.75)
+          )
+        }
       }
       .padding(Spacing.lg)
       #if os(iOS)
