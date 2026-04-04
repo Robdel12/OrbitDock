@@ -1195,7 +1195,9 @@ async fn wait_for_startup_resume_ready(
 #[cfg(test)]
 mod tests {
   use super::{drain_spool, resolve_workspace_provider_kind, wait_for_startup_resume_ready};
-  use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+  use crate::support::test_support::{
+    ensure_server_test_data_dir, new_test_session_registry, test_env_lock,
+  };
   use orbitdock_protocol::{ClientMessage, Provider, WorkspaceProviderKind};
   use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -1224,7 +1226,15 @@ mod tests {
 
   #[tokio::test]
   async fn drain_spool_dispatches_mixed_provider_hook_messages() {
+    let _guard = test_env_lock().lock().await;
     ensure_server_test_data_dir();
+    let db_path = crate::infrastructure::paths::db_path();
+    let _ = std::fs::remove_file(&db_path);
+    let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+    let mut conn = rusqlite::Connection::open(&db_path).expect("open test db");
+    crate::infrastructure::migration_runner::run_migrations(&mut conn)
+      .expect("run test migrations");
     crate::infrastructure::paths::ensure_dirs().expect("create spool dirs");
     let spool_dir = crate::infrastructure::paths::spool_dir();
     let _ = std::fs::remove_dir_all(&spool_dir);
