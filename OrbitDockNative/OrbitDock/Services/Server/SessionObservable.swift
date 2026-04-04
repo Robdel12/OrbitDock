@@ -510,6 +510,7 @@ final class SessionObservable {
   func trimInactiveDetailPayloads() {
     turnDiffs = []
     diff = nil
+    cumulativeDiff = nil
     plan = nil
     currentTurnId = nil
     pendingShellContext = []

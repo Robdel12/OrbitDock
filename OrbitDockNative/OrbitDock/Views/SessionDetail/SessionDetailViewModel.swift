@@ -142,11 +142,15 @@ final class SessionDetailViewModel {
   }
 
   var diffFileCount: Int {
-    SessionDetailDiffPlanner.fileCount(
+    let parsedCount = SessionDetailDiffPlanner.fileCount(
       turnDiffs: reviewState.turnDiffs,
       currentDiff: reviewState.diff,
       cumulativeDiff: reviewState.cumulativeDiff
     )
+    if parsedCount > 0 {
+      return parsedCount
+    }
+    return reviewState.turnCount > 0 ? 1 : 0
   }
 
   var showWorktreeCleanupBanner: Bool {
@@ -248,6 +252,14 @@ final class SessionDetailViewModel {
 
   func handleDiffChange(oldDiff: String?, newDiff: String?) -> Bool {
     guard reviewState.isDirect, oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly else {
+      return false
+    }
+    showDiffBanner = true
+    return true
+  }
+
+  func handleReviewTurnCountChange(oldCount: UInt64, newCount: UInt64) -> Bool {
+    guard reviewState.isDirect, newCount > oldCount, layoutConfig == .conversationOnly else {
       return false
     }
     showDiffBanner = true
@@ -490,7 +502,8 @@ final class SessionDetailViewModel {
         cumulativeDiff: session.cumulativeDiff,
         turnDiffs: session.turnDiffs,
         reviewComments: session.reviewComments,
-        isDirect: session.isDirect
+        isDirect: session.isDirect,
+        turnCount: session.turnCount
       ),
       workerState: SessionDetailWorkerState(
         subagents: session.subagents,
@@ -695,13 +708,15 @@ struct SessionDetailReviewState {
   let turnDiffs: [ServerTurnDiff]
   let reviewComments: [ServerReviewComment]
   let isDirect: Bool
+  let turnCount: UInt64
 
   static let empty = SessionDetailReviewState(
     diff: nil,
     cumulativeDiff: nil,
     turnDiffs: [],
     reviewComments: [],
-    isDirect: false
+    isDirect: false,
+    turnCount: 0
   )
 }
 

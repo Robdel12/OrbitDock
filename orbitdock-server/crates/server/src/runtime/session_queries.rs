@@ -807,12 +807,16 @@ pub(crate) async fn load_conversation_bootstrap(
   state: &Arc<SessionRegistry>,
   session_id: &str,
   limit: usize,
+  include_diffs: bool,
 ) -> Result<ConversationBootstrap, SessionLoadError> {
   match load_session_metadata_by_id(session_id).await {
     Ok(Some(restored)) => {
       let page = load_conversation_page(session_id, None, limit).await?;
 
       let mut session = restored_session_to_state(restored);
+      if !include_diffs {
+        strip_diff_payloads(&mut session);
+      }
       apply_page_to_session(&mut session, &page);
       if let Some(actor) = state.get_session(session_id) {
         session.revision = Some(actor.snapshot().revision);
@@ -836,6 +840,7 @@ pub(crate) async fn load_full_session_state(
   state: &Arc<SessionRegistry>,
   session_id: &str,
   include_messages: bool,
+  include_diffs: bool,
 ) -> Result<SessionState, SessionLoadError> {
   let restored_result = if include_messages {
     load_session_by_id(session_id).await
@@ -850,6 +855,9 @@ pub(crate) async fn load_full_session_state(
       }
 
       let mut snapshot = restored_session_to_state(restored);
+      if !include_diffs {
+        strip_diff_payloads(&mut snapshot);
+      }
       if !include_messages {
         snapshot.rows.clear();
         snapshot.oldest_sequence = None;
@@ -864,6 +872,12 @@ pub(crate) async fn load_full_session_state(
     Ok(None) => Err(SessionLoadError::NotFound),
     Err(err) => Err(SessionLoadError::Db(err.to_string())),
   }
+}
+
+fn strip_diff_payloads(state: &mut SessionState) {
+  state.current_diff = None;
+  state.cumulative_diff = None;
+  state.turn_diffs.clear();
 }
 
 async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {

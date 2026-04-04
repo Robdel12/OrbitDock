@@ -84,7 +84,7 @@ pub(crate) async fn load_control_deck_snapshot(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<ControlDeckSnapshot, ControlDeckSnapshotLoadError> {
-  match load_full_session_state(state, session_id, false).await {
+  match load_full_session_state(state, session_id, false, false).await {
     Ok(session) => {
       let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
       let snapshot =

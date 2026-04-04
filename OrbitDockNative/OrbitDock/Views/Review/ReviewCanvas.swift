@@ -166,6 +166,7 @@ struct ReviewCanvas: View {
       isCanvasFocused = true
       handlePendingNavigation()
       viewModel.loadReviewCommentsIfNeeded()
+      viewModel.loadDiffsIfNeeded()
     }
   }
 

@@ -71,7 +71,11 @@ extension SessionStore {
           contextWindow: window,
           snapshotKind: kind
         )
-        obs.applyTurnDiffSnapshot(projection)
+        if let usage = projection.usage {
+          obs.applyTokenUsage(usage, snapshotKind: projection.snapshotKind)
+        } else {
+          obs.tokenUsageSnapshotKind = projection.snapshotKind
+        }
       case let .reviewCommentCreated(sessionId, _, comment):
         session(sessionId).reviewComments.append(comment)
       case let .reviewCommentUpdated(sessionId, _, comment):

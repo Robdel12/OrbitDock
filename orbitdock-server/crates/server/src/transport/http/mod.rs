@@ -104,8 +104,8 @@ pub use session_lifecycle::{
 };
 pub use sessions::{
   get_conversation_history, get_conversation_snapshot, get_dashboard_snapshot, get_row_content,
-  get_session_composer, get_session_detail, get_session_stats, mark_session_read,
-  search_conversation_rows,
+  get_session_composer, get_session_detail, get_session_diffs, get_session_stats,
+  mark_session_read, search_conversation_rows,
 };
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;

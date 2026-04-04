@@ -615,6 +615,22 @@ struct ServerSessionSummary: Codable, Identifiable {
 
 // MARK: - Turn Diffs
 
+struct ServerSessionDiffsPayload: Codable {
+  let sessionId: String
+  let revision: UInt64
+  let currentDiff: String?
+  let cumulativeDiff: String?
+  let turnDiffs: [ServerTurnDiff]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case revision
+    case currentDiff = "current_diff"
+    case cumulativeDiff = "cumulative_diff"
+    case turnDiffs = "turn_diffs"
+  }
+}
+
 struct ServerTurnDiff: Codable {
   let turnId: String
   let diff: String

@@ -43,7 +43,16 @@ struct ConversationClient: Sendable {
     NSLog("[OrbitDock][ConversationClient] %@", message)
     return try await http.get(
       path,
-      query: [URLQueryItem(name: "limit", value: "\(limit)")]
+      query: [
+        URLQueryItem(name: "limit", value: "\(limit)"),
+        URLQueryItem(name: "include_diffs", value: "false"),
+      ]
+    )
+  }
+
+  func fetchSessionDiffs(_ sessionId: String) async throws -> ServerSessionDiffsPayload {
+    try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/diffs"
     )
   }
 

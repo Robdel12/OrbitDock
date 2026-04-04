@@ -116,7 +116,7 @@ pub async fn get_session_instructions(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionInstructionsResponse> {
-  let session = load_full_session_state(&state, &session_id, false)
+  let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| {
       (
@@ -227,7 +227,7 @@ pub async fn list_plugins_endpoint(
   State(state): State<Arc<SessionRegistry>>,
   Query(query): Query<PluginsQuery>,
 ) -> ApiResult<PluginListResponse> {
-  let session = load_full_session_state(&state, &session_id, false)
+  let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
   let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
@@ -281,7 +281,7 @@ pub async fn install_plugin(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<PluginInstallParams>,
 ) -> ApiResult<PluginInstallResponse> {
-  let session = load_full_session_state(&state, &session_id, false)
+  let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
   let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
@@ -309,7 +309,7 @@ pub async fn uninstall_plugin(
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<PluginUninstallParams>,
 ) -> ApiResult<PluginUninstallResponse> {
-  let session = load_full_session_state(&state, &session_id, false)
+  let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| super::connector_actions::session_not_found_error(&session_id))?;
   let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);

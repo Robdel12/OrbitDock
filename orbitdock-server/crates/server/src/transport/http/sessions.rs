@@ -9,6 +9,7 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::{
   ConversationSnapshotPage, DashboardSnapshot, SessionComposerSnapshot, SessionDetailSnapshot,
+  TurnDiff,
 };
 use std::collections::BTreeMap;
 
@@ -21,12 +22,25 @@ pub struct ConversationPageQuery {
   pub limit: Option<usize>,
   #[serde(default)]
   pub before_sequence: Option<u64>,
+  #[serde(default)]
+  pub include_diffs: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SessionSnapshotQuery {
   #[serde(default)]
   pub include_messages: bool,
+  #[serde(default)]
+  pub include_diffs: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionDiffsResponse {
+  pub session_id: String,
+  pub revision: u64,
+  pub current_diff: Option<String>,
+  pub cumulative_diff: Option<String>,
+  pub turn_diffs: Vec<TurnDiff>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,7 +169,14 @@ pub async fn get_session_detail(
   Query(query): Query<SessionSnapshotQuery>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionDetailSnapshot> {
-  match load_full_session_state(&state, &session_id, query.include_messages).await {
+  match load_full_session_state(
+    &state,
+    &session_id,
+    query.include_messages,
+    query.include_diffs,
+  )
+  .await
+  {
     Ok(session) => Ok(Json(SessionDetailSnapshot {
       revision: session.revision.unwrap_or_default(),
       session,
@@ -207,7 +228,14 @@ pub async fn get_session_composer(
   Query(query): Query<SessionSnapshotQuery>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionComposerSnapshot> {
-  match load_full_session_state(&state, &session_id, query.include_messages).await {
+  match load_full_session_state(
+    &state,
+    &session_id,
+    query.include_messages,
+    query.include_diffs,
+  )
+  .await
+  {
     Ok(session) => Ok(Json(SessionComposerSnapshot {
       revision: session.revision.unwrap_or_default(),
       session,
@@ -242,7 +270,7 @@ pub async fn get_conversation_snapshot(
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<ConversationSnapshotPage> {
   let limit = clamp_conversation_limit(query.limit);
-  match load_conversation_bootstrap(&state, &session_id, limit).await {
+  match load_conversation_bootstrap(&state, &session_id, limit, query.include_diffs).await {
     Ok(bootstrap) => {
       let rows = bootstrap
         .session
@@ -317,6 +345,42 @@ pub async fn get_conversation_history(
   }
 }
 
+pub async fn get_session_diffs(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<SessionDiffsResponse> {
+  match load_full_session_state(&state, &session_id, false, true).await {
+    Ok(session) => Ok(Json(SessionDiffsResponse {
+      session_id,
+      revision: session.revision.unwrap_or_default(),
+      current_diff: session.current_diff,
+      cumulative_diff: session.cumulative_diff,
+      turn_diffs: session.turn_diffs,
+    })),
+    Err(SessionLoadError::NotFound) => Err((
+      StatusCode::NOT_FOUND,
+      Json(ApiErrorResponse {
+        code: "not_found",
+        error: format!("Session {} not found", session_id),
+      }),
+    )),
+    Err(SessionLoadError::Db(err)) => Err((
+      StatusCode::INTERNAL_SERVER_ERROR,
+      Json(ApiErrorResponse {
+        code: "db_error",
+        error: err,
+      }),
+    )),
+    Err(SessionLoadError::Runtime(err)) => Err((
+      StatusCode::SERVICE_UNAVAILABLE,
+      Json(ApiErrorResponse {
+        code: "runtime_error",
+        error: err,
+      }),
+    )),
+  }
+}
+
 pub async fn mark_session_read(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -347,7 +411,7 @@ pub async fn search_conversation_rows(
   Query(query): Query<ConversationSearchQuery>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<RowPageSummary> {
-  let rows = load_full_session_state(&state, &session_id, true)
+  let rows = load_full_session_state(&state, &session_id, true, false)
     .await
     .map_err(|error| match error {
       SessionLoadError::NotFound => (
@@ -397,7 +461,7 @@ pub async fn get_session_stats(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionStatsResponse> {
-  let session = load_full_session_state(&state, &session_id, true)
+  let session = load_full_session_state(&state, &session_id, true, false)
     .await
     .map_err(|error| match error {
       SessionLoadError::NotFound => (

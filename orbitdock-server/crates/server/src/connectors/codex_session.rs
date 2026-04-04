@@ -2,6 +2,9 @@
 //!
 //! Wraps the CodexConnector and handles event forwarding.
 
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use codex_protocol::dynamic_tools::{DynamicToolCallOutputContentItem, DynamicToolResponse};
@@ -74,9 +77,213 @@ impl DynamicToolExecutionResult {
   }
 }
 
+#[derive(Default)]
+struct DynamicWorkspaceDiffTracker {
+  baseline_files: BTreeMap<PathBuf, Option<String>>,
+  last_emitted_diff: Option<String>,
+}
+
+impl DynamicWorkspaceDiffTracker {
+  fn clear(&mut self) {
+    self.baseline_files.clear();
+    self.last_emitted_diff = None;
+  }
+
+  fn capture_baseline_if_workspace_file_tool(
+    &mut self,
+    workspace_ctx: &CodexWorkspaceToolContext,
+    tool_name: &str,
+    arguments: &Value,
+  ) {
+    if !is_dynamic_workspace_file_change_tool(tool_name) {
+      return;
+    }
+    let Some(path) = resolve_dynamic_tool_path(workspace_ctx, arguments) else {
+      return;
+    };
+    if self.baseline_files.contains_key(&path) {
+      return;
+    }
+    self
+      .baseline_files
+      .insert(path.clone(), read_text_file_lossy(&path));
+  }
+
+  fn render_unified_diff(&self, workspace_ctx: &CodexWorkspaceToolContext) -> Option<String> {
+    if self.baseline_files.is_empty() {
+      return None;
+    }
+    let project_root = fs::canonicalize(&workspace_ctx.project_path).ok();
+    let mut sections: Vec<String> = Vec::new();
+
+    for (path, baseline_text) in &self.baseline_files {
+      let current_text = read_text_file_lossy(path);
+      if current_text == *baseline_text {
+        continue;
+      }
+
+      let rel = relative_display_path(path, project_root.as_deref());
+      let old_header = if baseline_text.is_some() {
+        format!("a/{rel}")
+      } else {
+        "/dev/null".to_string()
+      };
+      let new_header = if current_text.is_some() {
+        format!("b/{rel}")
+      } else {
+        "/dev/null".to_string()
+      };
+      let before = baseline_text.as_deref().unwrap_or("");
+      let after = current_text.as_deref().unwrap_or("");
+
+      let unified = similar::TextDiff::from_lines(before, after)
+        .unified_diff()
+        .context_radius(3)
+        .header(&old_header, &new_header)
+        .to_string();
+
+      if unified.trim().is_empty() {
+        continue;
+      }
+
+      sections.push(format!("diff --git a/{rel} b/{rel}\n{unified}"));
+    }
+
+    if sections.is_empty() {
+      return None;
+    }
+
+    Some(sections.join("\n"))
+  }
+
+  fn merge_with_current_turn_diff(&self, current_diff: Option<&str>, dynamic_diff: &str) -> String {
+    let Some(current_diff) = current_diff
+      .map(str::trim)
+      .filter(|value| !value.is_empty())
+    else {
+      return dynamic_diff.to_string();
+    };
+
+    // If the session's current diff already came from this tracker, replace it
+    // with the latest recomputed dynamic diff to avoid duplicate hunk growth.
+    if self.last_emitted_diff.as_deref() == Some(current_diff) {
+      return dynamic_diff.to_string();
+    }
+
+    let existing = orbitdock_protocol::TurnDiff {
+      turn_id: "dynamic-existing".to_string(),
+      diff: current_diff.to_string(),
+      token_usage: None,
+      snapshot_kind: None,
+    };
+    orbitdock_protocol::diff_merge::compute_cumulative_diff(&[existing], Some(dynamic_diff))
+      .unwrap_or_else(|| dynamic_diff.to_string())
+  }
+
+  fn mark_emitted(&mut self, diff: String) {
+    self.last_emitted_diff = Some(diff);
+  }
+}
+
+async fn flush_dynamic_workspace_diff_if_any(
+  session_id: &str,
+  session_handle: &mut SessionHandle,
+  tracker: &mut DynamicWorkspaceDiffTracker,
+  persist: &mpsc::Sender<PersistCommand>,
+) {
+  let workspace_ctx = workspace_tool_context(session_handle);
+  let Some(diff) = tracker.render_unified_diff(&workspace_ctx) else {
+    return;
+  };
+
+  let current_diff = session_handle.retained_state().current_diff;
+  let merged_diff = tracker.merge_with_current_turn_diff(current_diff.as_deref(), &diff);
+  dispatch_connector_event(
+    session_id,
+    orbitdock_connector_core::ConnectorEvent::DiffUpdated(merged_diff.clone()),
+    session_handle,
+    persist,
+  )
+  .await;
+  tracker.mark_emitted(merged_diff);
+}
+
+fn is_dynamic_workspace_file_change_tool(tool_name: &str) -> bool {
+  matches!(tool_name, "file_write" | "file_edit")
+}
+
+fn workspace_tool_context(handle: &SessionHandle) -> CodexWorkspaceToolContext {
+  let snapshot = handle.retained_state();
+  CodexWorkspaceToolContext {
+    project_path: snapshot.project_path,
+    current_cwd: snapshot.current_cwd,
+  }
+}
+
+fn resolve_dynamic_tool_path(
+  workspace_ctx: &CodexWorkspaceToolContext,
+  arguments: &Value,
+) -> Option<PathBuf> {
+  let raw_path = arguments.get("path").and_then(Value::as_str)?.trim();
+  if raw_path.is_empty() {
+    return None;
+  }
+
+  let candidate = PathBuf::from(raw_path);
+  let mut resolved = if candidate.is_absolute() {
+    candidate
+  } else {
+    let base = workspace_ctx
+      .current_cwd
+      .as_deref()
+      .unwrap_or(workspace_ctx.project_path.as_str());
+    Path::new(base).join(candidate)
+  };
+
+  if resolved.exists() {
+    if let Ok(canonical) = fs::canonicalize(&resolved) {
+      resolved = canonical;
+    }
+  } else if let Some(parent) = resolved.parent() {
+    if let Ok(canonical_parent) = fs::canonicalize(parent) {
+      if let Some(file_name) = resolved.file_name() {
+        resolved = canonical_parent.join(file_name);
+      }
+    }
+  }
+
+  let project_root = fs::canonicalize(&workspace_ctx.project_path).ok();
+  if let Some(root) = project_root {
+    if !resolved.starts_with(&root) {
+      return None;
+    }
+  }
+
+  Some(resolved)
+}
+
+fn read_text_file_lossy(path: &Path) -> Option<String> {
+  if !path.exists() || !path.is_file() {
+    return None;
+  }
+  fs::read(path)
+    .ok()
+    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn relative_display_path(path: &Path, project_root: Option<&Path>) -> String {
+  let shown = project_root
+    .and_then(|root| path.strip_prefix(root).ok())
+    .unwrap_or(path)
+    .display()
+    .to_string();
+  shown.replace('\\', "/")
+}
+
 struct DynamicToolCallRequest<'a> {
   session: &'a mut CodexSession,
-  handle: &'a SessionHandle,
+  session_handle: &'a mut SessionHandle,
+  dynamic_diff_tracker: &'a mut DynamicWorkspaceDiffTracker,
   state: &'a Arc<SessionRegistry>,
   persist_tx: &'a mpsc::Sender<PersistCommand>,
   session_id: &'a str,
@@ -109,6 +316,7 @@ pub fn start_event_loop(
 
   let mut session_handle = handle;
   let persist = persist_tx.clone();
+  let mut dynamic_diff_tracker = DynamicWorkspaceDiffTracker::default();
 
   tokio::spawn(async move {
     // Watchdog channel for synthetic events (interrupt timeout)
@@ -120,6 +328,29 @@ pub fn start_event_loop(
           Some(event) = event_rx.recv() => {
               if is_turn_ending(&event) {
                   if let Some(h) = interrupt_watchdog.take() { h.abort(); }
+              }
+              if matches!(event, orbitdock_connector_core::ConnectorEvent::TurnStarted) {
+                  dynamic_diff_tracker.clear();
+              }
+              let clear_dynamic_diff_after_event = matches!(
+                  event,
+                  orbitdock_connector_core::ConnectorEvent::TurnCompleted
+                  | orbitdock_connector_core::ConnectorEvent::TurnAborted { .. }
+                  | orbitdock_connector_core::ConnectorEvent::SessionEnded { .. }
+              );
+
+              if matches!(
+                  event,
+                  orbitdock_connector_core::ConnectorEvent::TurnCompleted
+                  | orbitdock_connector_core::ConnectorEvent::TurnAborted { .. }
+                  | orbitdock_connector_core::ConnectorEvent::SessionEnded { .. }
+              ) {
+                  flush_dynamic_workspace_diff_if_any(
+                      &session_id,
+                      &mut session_handle,
+                      &mut dynamic_diff_tracker,
+                      &persist,
+                  ).await;
               }
 
               if let orbitdock_connector_core::ConnectorEvent::SubagentsUpdated { subagents } = &event {
@@ -151,7 +382,8 @@ pub fn start_event_loop(
               {
                   handle_dynamic_tool_call(DynamicToolCallRequest {
                       session: &mut session,
-                      handle: &session_handle,
+                      session_handle: &mut session_handle,
+                      dynamic_diff_tracker: &mut dynamic_diff_tracker,
                       state: &state,
                       persist_tx: &persist,
                       session_id: &session_id,
@@ -194,6 +426,9 @@ pub fn start_event_loop(
               dispatch_connector_event(
                   &session_id, enriched_event, &mut session_handle, &persist,
               ).await;
+              if clear_dynamic_diff_after_event {
+                  dynamic_diff_tracker.clear();
+              }
           }
 
           Some(event) = watchdog_rx.recv() => {
@@ -362,7 +597,8 @@ pub fn start_event_loop(
 async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
   let DynamicToolCallRequest {
     session,
-    handle,
+    session_handle,
+    dynamic_diff_tracker,
     state,
     persist_tx,
     session_id,
@@ -371,7 +607,14 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
     arguments,
   } = request;
 
-  let result = execute_dynamic_tool(handle, state, &tool_name, arguments).await;
+  let workspace_ctx = workspace_tool_context(session_handle);
+  dynamic_diff_tracker.capture_baseline_if_workspace_file_tool(
+    &workspace_ctx,
+    &tool_name,
+    &arguments,
+  );
+
+  let result = execute_dynamic_tool(session_handle, state, &tool_name, arguments.clone()).await;
   let DynamicToolExecutionResult {
     success,
     output,
@@ -410,7 +653,7 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
     return;
   }
 
-  let mission_context = match load_mission_tool_execution_context(handle, state).await {
+  let mission_context = match load_mission_tool_execution_context(session_handle, state).await {
     Ok(Some(context)) => context,
     Ok(None) => return,
     Err(error) => {
@@ -582,4 +825,110 @@ async fn load_mission_tool_execution_context(
     },
   )
   .await?
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serde_json::json;
+
+  #[test]
+  fn dynamic_workspace_tracker_renders_diff_for_existing_file_write() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let target = root.join("note.txt");
+    fs::write(&target, "before\n").expect("seed file");
+
+    let ctx = CodexWorkspaceToolContext {
+      project_path: root.to_string_lossy().to_string(),
+      current_cwd: None,
+    };
+    let mut tracker = DynamicWorkspaceDiffTracker::default();
+    tracker.capture_baseline_if_workspace_file_tool(
+      &ctx,
+      "file_write",
+      &json!({
+        "path": "note.txt",
+        "content": "after\n",
+      }),
+    );
+
+    fs::write(&target, "after\n").expect("update file");
+
+    let diff = tracker.render_unified_diff(&ctx).expect("diff");
+    assert!(diff.contains("diff --git a/note.txt b/note.txt"));
+    assert!(diff.contains("-before"));
+    assert!(diff.contains("+after"));
+  }
+
+  #[test]
+  fn dynamic_workspace_tracker_renders_addition_for_new_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let target = root.join("new.txt");
+
+    let ctx = CodexWorkspaceToolContext {
+      project_path: root.to_string_lossy().to_string(),
+      current_cwd: None,
+    };
+    let mut tracker = DynamicWorkspaceDiffTracker::default();
+    tracker.capture_baseline_if_workspace_file_tool(
+      &ctx,
+      "file_write",
+      &json!({
+        "path": "new.txt",
+        "content": "hello\n",
+      }),
+    );
+
+    fs::write(&target, "hello\n").expect("write file");
+
+    let diff = tracker.render_unified_diff(&ctx).expect("diff");
+    assert!(diff.contains("diff --git a/new.txt b/new.txt"));
+    assert!(diff.contains("--- /dev/null"));
+    assert!(diff.contains("+++ b/new.txt"));
+    assert!(diff.contains("+hello"));
+  }
+
+  #[test]
+  fn resolve_dynamic_tool_path_rejects_project_escape() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let ctx = CodexWorkspaceToolContext {
+      project_path: root.to_string_lossy().to_string(),
+      current_cwd: None,
+    };
+
+    let resolved = resolve_dynamic_tool_path(&ctx, &json!({ "path": "../outside.txt" }));
+    assert!(resolved.is_none());
+  }
+
+  #[test]
+  fn dynamic_workspace_tracker_keeps_full_diff_content() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let target = root.join("big.txt");
+    let before = "a\n".repeat(5_000);
+    let after = "b\n".repeat(5_000);
+    fs::write(&target, &before).expect("seed file");
+
+    let ctx = CodexWorkspaceToolContext {
+      project_path: root.to_string_lossy().to_string(),
+      current_cwd: None,
+    };
+    let mut tracker = DynamicWorkspaceDiffTracker::default();
+    tracker.capture_baseline_if_workspace_file_tool(
+      &ctx,
+      "file_write",
+      &json!({
+        "path": "big.txt",
+        "content": after,
+      }),
+    );
+
+    fs::write(&target, &after).expect("update file");
+    let diff = tracker.render_unified_diff(&ctx).expect("diff");
+    assert!(!diff.contains("dynamic turn diff truncated"));
+    assert!(diff.contains("diff --git a/big.txt b/big.txt"));
+  }
 }

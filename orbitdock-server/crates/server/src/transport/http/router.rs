@@ -55,6 +55,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_conversation_history),
     )
     .route(
+      "/api/sessions/{session_id}/diffs",
+      get(super::get_session_diffs),
+    )
+    .route(
       "/api/sessions/{session_id}/search",
       get(super::search_conversation_rows),
     )

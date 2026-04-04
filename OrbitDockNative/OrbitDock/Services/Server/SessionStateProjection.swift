@@ -133,10 +133,12 @@ extension SessionObservable {
     isWorktree = state.isWorktree
     worktreeId = state.worktreeId
     unreadCount = state.unreadCount
-    diff = state.currentDiff
-    cumulativeDiff = state.cumulativeDiff
+    // Full diffs are loaded on demand for review surfaces to avoid retaining
+    // large payloads in shared session state.
+    diff = nil
+    cumulativeDiff = nil
     plan = state.currentPlan
-    turnDiffs = state.turnDiffs
+    turnDiffs = []
     currentTurnId = state.currentTurnId
     turnCount = state.turnCount
     subagents = state.subagents
@@ -224,11 +226,11 @@ extension SessionObservable {
       tokenUsageSnapshotKind = snapshotKind
     }
 
-    if let currentDiff = changes.currentDiff {
-      diff = currentDiff
+    if changes.currentDiff != nil {
+      diff = nil
     }
-    if let cumulativeDiff = changes.cumulativeDiff {
-      self.cumulativeDiff = cumulativeDiff
+    if changes.cumulativeDiff != nil {
+      cumulativeDiff = nil
     }
     if let plan = changes.currentPlan {
       self.plan = plan
