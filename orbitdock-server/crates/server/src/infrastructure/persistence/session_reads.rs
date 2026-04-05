@@ -384,7 +384,8 @@ async fn load_sessions_for_startup_with_db_path(
                  WHERE status = 'active'
                    AND work_status = 'working'
                    AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))",
+                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
+                     OR control_mode = 'direct')",
                 [],
             )?;
 
@@ -398,7 +399,8 @@ async fn load_sessions_for_startup_with_db_path(
                  WHERE status = 'ended'
                    AND end_reason = 'server_shutdown'
                    AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))",
+                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
+                     OR control_mode = 'direct')",
                 [],
             )?;
 
@@ -411,7 +413,8 @@ async fn load_sessions_for_startup_with_db_path(
                      work_status = 'waiting'
                  WHERE status = 'active'
                    AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct'))
+                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
+                     OR control_mode = 'direct')
                    AND COALESCE(lifecycle_state, 'open') != 'ended'",
                 [],
             )?;

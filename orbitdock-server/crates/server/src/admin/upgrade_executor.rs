@@ -372,21 +372,52 @@ fn attempt_service_restart() -> anyhow::Result<()> {
   Ok(())
 }
 
-/// Send SIGTERM to the parent process (the running server that spawned this
-/// upgrade child) and wait briefly for it to exit and release its port.
+/// Send SIGTERM to the running OrbitDock server and wait for it to release
+/// its port.
 ///
-/// This is a no-op when PPID is 1 (already reparented to init, old server
-/// already gone) or on non-Unix platforms.
+/// Safety: only signals the process if the PID file confirms it is the
+/// OrbitDock server, preventing accidental kills when the upgrade is
+/// invoked from a user shell rather than spawned by the server.
 fn signal_parent_to_stop() {
   #[cfg(unix)]
   {
-    let ppid = unsafe { libc::getppid() };
-    if ppid > 1 {
-      println!("  Stopping old server process (PID {ppid})...");
-      unsafe { libc::kill(ppid, libc::SIGTERM) };
-      // Give the old process time to handle SIGTERM gracefully and release
-      // the port before the service manager tries to bind it.
-      std::thread::sleep(std::time::Duration::from_secs(3));
+    let pid_path = crate::infrastructure::paths::pid_file_path();
+    let server_pid: Option<i32> = std::fs::read_to_string(&pid_path)
+      .ok()
+      .and_then(|s| s.trim().parse().ok());
+
+    let Some(pid) = server_pid else {
+      println!("  No PID file found — skipping server stop");
+      return;
+    };
+
+    if pid <= 1 {
+      return;
     }
+
+    // Verify the process is actually alive before signalling.
+    let alive = unsafe { libc::kill(pid, 0) == 0 };
+    if !alive {
+      println!("  Server process (PID {pid}) already stopped");
+      let _ = std::fs::remove_file(&pid_path);
+      return;
+    }
+
+    println!("  Stopping server process (PID {pid})...");
+    unsafe { libc::kill(pid, libc::SIGTERM) };
+
+    // Wait for the server to finish its graceful shutdown (up to 10s).
+    // The server's shutdown handler can take up to 35s for sync drain,
+    // but port release happens early in that sequence.
+    for _ in 0..20 {
+      std::thread::sleep(std::time::Duration::from_millis(500));
+      let still_alive = unsafe { libc::kill(pid, 0) == 0 };
+      if !still_alive {
+        println!("  Server process stopped");
+        let _ = std::fs::remove_file(&pid_path);
+        return;
+      }
+    }
+    println!("  Server process still running after 10s — proceeding anyway");
   }
 }
