@@ -994,7 +994,19 @@ async fn shutdown_signal(
   sync_shutdown_tx: Option<watch::Sender<bool>>,
   sync_writer_handle: Option<tokio::task::JoinHandle<()>>,
 ) {
-  let _ = tokio::signal::ctrl_c().await;
+  #[cfg(unix)]
+  {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM handler");
+    tokio::select! {
+      _ = tokio::signal::ctrl_c() => {}
+      _ = sigterm.recv() => {}
+    }
+  }
+  #[cfg(not(unix))]
+  {
+    let _ = tokio::signal::ctrl_c().await;
+  }
   info!(
     component = "server",
     event = "server.shutdown",
