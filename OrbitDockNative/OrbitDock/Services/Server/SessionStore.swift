@@ -253,7 +253,7 @@ final class SessionStore {
     surfaces: SessionSurfaceSet = Set(ServerSessionSurface.allCases),
     forceRecovery: Bool = false
   ) {
-    guard !surfaces.isEmpty else { return }
+    guard !surfaces.isEmpty, !sessionId.isEmpty else { return }
     let previousSurfaces = subscribedSessionSurfaces[sessionId] ?? []
     let requestedSurfaces = previousSurfaces.union(surfaces)
     let inserted = subscribedSessions.insert(sessionId).inserted

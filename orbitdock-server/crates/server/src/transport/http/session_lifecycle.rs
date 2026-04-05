@@ -506,9 +506,14 @@ pub async fn create_session(
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.model_provider.clone()),
       codex_config_source,
-      codex_config_overrides: normalized_codex_selection
+      codex_config_overrides: resolved_codex
         .as_ref()
-        .map(|selection| selection.overrides.clone()),
+        .map(|resolved| resolved.effective_settings.overrides.clone())
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .map(|selection| selection.overrides.clone())
+        }),
     },
   )
   .await;

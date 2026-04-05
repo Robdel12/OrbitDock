@@ -29,6 +29,11 @@ struct DashboardView: View {
     return true
   }
 
+  private var isDashboardRouteActive: Bool {
+    if case .dashboard = router.route { return true }
+    return false
+  }
+
   private var isDashboardInteractionEnabled: Bool {
     isMissionControlVisible && !router.showQuickSwitcher
   }
@@ -78,6 +83,33 @@ struct DashboardView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .background(Color.backgroundPrimary)
+    }
+    .task(id: isDashboardRouteActive ? viewModel.dashboardRefreshIdentity : "dashboard-hidden") {
+      guard isDashboardRouteActive else { return }
+      await viewModel.refreshDashboardData()
+    }
+    .onAppear {
+      viewModel.bind(runtimeRegistry: appStore.runtimeRegistry)
+      viewModel.setRealtimeUpdatesEnabled(isDashboardRouteActive)
+      if isDashboardRouteActive {
+        Task { await viewModel.refreshDashboardData() }
+      }
+    }
+    .onChange(of: router.route) { _, newRoute in
+      let active: Bool
+      if case .dashboard = newRoute {
+        active = true
+      } else {
+        active = false
+      }
+      viewModel.setRealtimeUpdatesEnabled(active)
+      if active {
+        Task { await viewModel.refreshDashboardData() }
+      }
+    }
+    .onChange(of: router.dashboardTab) { _, _ in
+      guard isDashboardRouteActive else { return }
+      Task { await viewModel.refreshDashboardData() }
     }
     #if os(iOS)
     .navigationTitle(router.dashboardTab.navigationTitle)
@@ -197,17 +229,6 @@ struct DashboardView: View {
     }
     .scrollContentBackground(.hidden)
     .scrollPosition(id: dashboardScrollAnchorBinding)
-    .task {
-      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
-      if isMissionControlVisible {
-        await viewModel.refreshDashboardData()
-      }
-    }
-    .task(id: isMissionControlVisible ? viewModel.dashboardRefreshIdentity : "dashboard-hidden") {
-      guard isMissionControlVisible else { return }
-      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
-      await viewModel.refreshDashboardData()
-    }
     .onChange(of: viewModel.selectedIndex) { _, _ in
       guard let targetID = viewModel.selectedConversationScrollTargetID else { return }
       withAnimation(Motion.hover) {
@@ -217,24 +238,14 @@ struct DashboardView: View {
     .focusable()
     .focused($isDashboardFocused)
     .onAppear {
-      viewModel.bind(projectionStore: appStore.dashboardProjectionStore)
       viewModel.dashboardScrollAnchorID = router.dashboardScrollAnchorID
       syncDashboardFocus()
     }
     .onChange(of: router.route) { _, _ in
       if isMissionControlVisible {
         viewModel.dashboardScrollAnchorID = router.dashboardScrollAnchorID
-        Task {
-          await viewModel.refreshDashboardData()
-        }
       }
       syncDashboardFocus()
-    }
-    .onChange(of: router.dashboardTab) { _, newTab in
-      guard newTab == .missionControl else { return }
-      Task {
-        await viewModel.refreshDashboardData()
-      }
     }
     .onChange(of: router.showQuickSwitcher) { _, _ in
       syncDashboardFocus()
@@ -244,6 +255,9 @@ struct DashboardView: View {
     }
     .onChange(of: viewModel.filteredDashboardConversations.count) { _, _ in
       viewModel.syncSelectionBounds()
+    }
+    .onDisappear {
+      viewModel.setRealtimeUpdatesEnabled(false)
     }
     .modifier(KeyboardNavigationModifier(
       isEnabled: isDashboardInteractionEnabled,

@@ -46,7 +46,7 @@ final class ConversationViewModel {
 
   /// Called from ConversationView's .task — bootstraps from HTTP then consumes WS row deltas.
   func startStreaming() async {
-    guard let sessionId = currentSessionId else { return }
+    guard let sessionId = currentSessionId, !sessionId.isEmpty else { return }
     let store = currentSessionStore
 
     // 1. Bootstrap: fetch initial conversation page via HTTP

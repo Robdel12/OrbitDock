@@ -44,22 +44,155 @@ final class DashboardViewModel {
     }
   }
 
-  @ObservationIgnored private weak var dashboardProjectionStore: DashboardProjectionStore?
-  @ObservationIgnored private var observationGeneration: UInt64 = 0
+  // MARK: - Backing state
 
-  func bind(projectionStore: DashboardProjectionStore) {
-    dashboardProjectionStore = projectionStore
-    observationGeneration &+= 1
-    startObservation(generation: observationGeneration)
+  @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
+  @ObservationIgnored private var dashboardSessions: [RootSessionNode] = []
+  @ObservationIgnored private var libraryExtras: [RootSessionNode] = []
+  @ObservationIgnored private var dashboardConversationsStore: [DashboardConversationRecord] = []
+  @ObservationIgnored private var dashboardCountsStore = DashboardTriageCounts(conversations: [])
+  @ObservationIgnored private var dashboardDirectCountStore = 0
+  @ObservationIgnored private var dashboardRefreshIdentityStore = "dashboard-unbound"
+  @ObservationIgnored private var dashboardHasMultipleEndpointsStore = false
+  @ObservationIgnored private var dashboardRevisionByEndpoint: [UUID: UInt64] = [:]
+
+  // MARK: - Refresh + realtime
+
+  @ObservationIgnored private var isRefreshingDashboard = false
+  @ObservationIgnored private var dashboardRefreshQueued = false
+  @ObservationIgnored private var realtimeListenersByEndpoint: [UUID: RealtimeSubscription] = [:]
+  @ObservationIgnored private var realtimeRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var realtimeUpdatesEnabled = false
+
+  // MARK: - Library pagination
+
+  private struct LibraryPaginationState {
+    var nextOffset: Int?
+    var totalCount: Int?
+  }
+
+  @ObservationIgnored private var libraryPaginationByEndpoint: [UUID: LibraryPaginationState] = [:]
+  @ObservationIgnored private var isLoadingLibrary = false
+
+  // MARK: - Lifecycle
+
+  func bind(runtimeRegistry: ServerRuntimeRegistry) {
+    if self.runtimeRegistry !== runtimeRegistry {
+      detachRealtimeListeners()
+    }
+    self.runtimeRegistry = runtimeRegistry
+    libraryPaginationByEndpoint = runtimeRegistry.runtimes.reduce(into: [:]) { result, runtime in
+      guard runtime.endpoint.isEnabled else { return }
+      result[runtime.endpoint.id] = LibraryPaginationState(nextOffset: 0, totalCount: nil)
+    }
+    dashboardRefreshIdentityStore = Self.makeRefreshIdentity(for: runtimeRegistry.runtimes)
+  }
+
+  func setRealtimeUpdatesEnabled(_ enabled: Bool) {
+    guard realtimeUpdatesEnabled != enabled else { return }
+    realtimeUpdatesEnabled = enabled
+    enabled ? attachRealtimeListeners() : detachRealtimeListeners()
   }
 
   func showingLoadingSkeleton(isInitialLoading: Bool) -> Bool {
-    isInitialLoading && librarySessions.isEmpty
+    isInitialLoading && rootSessions.isEmpty
   }
 
   func refreshDashboardData() async {
-    guard let dashboardProjectionStore else { return }
-    await dashboardProjectionStore.refreshDashboardData()
+    guard let runtimeRegistry else { return }
+    if isRefreshingDashboard {
+      dashboardRefreshQueued = true
+      debugLogDashboard("refreshDashboard.skip_inflight", data: [:])
+      return
+    }
+
+    isRefreshingDashboard = true
+    debugLogDashboard("refreshDashboard.begin", data: [
+      "enabledEndpoints": runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).map { $0.endpoint.id.uuidString },
+    ])
+    defer {
+      isRefreshingDashboard = false
+      if dashboardRefreshQueued {
+        dashboardRefreshQueued = false
+        debugLogDashboard("refreshDashboard.requeued", data: [:])
+        Task { await refreshDashboardData() }
+      } else {
+        debugLogDashboard("refreshDashboard.idle", data: [:])
+      }
+    }
+
+    let runtimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+    guard !runtimes.isEmpty else {
+      applyDashboardData(
+        sessions: [],
+        conversations: [],
+        counts: DashboardTriageCounts(conversations: []),
+        hasMultipleEndpoints: false,
+        directCount: 0
+      )
+      return
+    }
+
+    var collectedSessions: [RootSessionNode] = []
+    var collectedConversations: [DashboardConversationRecord] = []
+    var directCount: Int = 0
+
+    for runtime in runtimes {
+      let endpointId = runtime.endpoint.id
+      let endpointName = runtime.endpoint.name
+      do {
+        let snapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
+        let connectionStatus = runtime.connection.connectionStatus
+        dashboardRevisionByEndpoint[endpointId] = snapshot.revision
+        debugLogDashboard("refreshDashboard.endpoint.applied", data: [
+          "endpointId": endpointId.uuidString,
+          "endpointName": endpointName,
+          "sessions": snapshot.sessions.count,
+          "conversations": snapshot.conversations.count,
+          "revision": snapshot.revision,
+          "connectionStatus": describeConnectionStatus(connectionStatus),
+        ])
+
+        collectedSessions.append(contentsOf: snapshot.sessions.map {
+          RootSessionNode(
+            session: $0,
+            endpointId: endpointId,
+            endpointName: endpointName,
+            connectionStatus: connectionStatus
+          )
+        })
+
+        collectedConversations.append(contentsOf: snapshot.conversations.map {
+          DashboardConversationRecord(item: $0, endpointId: endpointId, endpointName: endpointName)
+        })
+
+        directCount += Int(snapshot.counts.direct)
+      } catch {
+        debugLogDashboard("refreshDashboard.endpoint.failed", data: [
+          "endpointId": endpointId.uuidString,
+          "endpointName": endpointName,
+          "error": String(describing: error),
+        ])
+        continue
+      }
+    }
+
+    let counts = DashboardTriageCounts(conversations: collectedConversations)
+    let hasMultipleEndpoints = Set(collectedConversations.map { $0.sessionRef.endpointId }).count > 1
+
+    applyDashboardData(
+      sessions: collectedSessions,
+      conversations: collectedConversations,
+      counts: counts,
+      hasMultipleEndpoints: hasMultipleEndpoints,
+      directCount: directCount
+    )
+    debugLogDashboard("refreshDashboard.complete", data: [
+      "sessionCount": collectedSessions.count,
+      "conversationCount": collectedConversations.count,
+      "directCount": directCount,
+      "hasMultipleEndpoints": hasMultipleEndpoints,
+    ])
   }
 
   func syncSelectionBounds() {
@@ -109,39 +242,39 @@ final class DashboardViewModel {
     return DashboardScrollIDs.session(selectedConversation.id)
   }
 
-  private func startObservation(generation: UInt64) {
-    guard let projectionStore = dashboardProjectionStore else {
-      applyBaseState(.empty)
-      return
-    }
+  // MARK: - Derived collections
 
-    withObservationTracking {
-      applyBaseState(
-        DashboardProjectionSnapshot(
-          rootSessions: projectionStore.rootSessions,
-          dashboardConversations: projectionStore.dashboardConversations,
-          hasMultipleEndpoints: projectionStore.hasMultipleEndpoints,
-          counts: projectionStore.counts,
-          directCount: projectionStore.directCount,
-          refreshIdentity: projectionStore.refreshIdentity
-        )
-      )
-    } onChange: { [weak self] in
-      Task { @MainActor [weak self] in
-        guard let self, self.observationGeneration == generation else { return }
-        self.startObservation(generation: generation)
-      }
-    }
-  }
+  private func applyDashboardData(
+    sessions: [RootSessionNode],
+    conversations: [DashboardConversationRecord],
+    counts: DashboardTriageCounts,
+    hasMultipleEndpoints: Bool,
+    directCount: Int
+  ) {
+    dashboardSessions = Self.sortSessions(sessions)
+    dashboardConversationsStore = Self.sortConversations(conversations, sort: .recent)
+    dashboardCountsStore = counts
+    dashboardDirectCountStore = directCount
+    dashboardHasMultipleEndpointsStore = hasMultipleEndpoints
+    dashboardRefreshIdentityStore = Self.makeRefreshIdentity(for: runtimeRegistry?.runtimes ?? [])
 
-  private func applyBaseState(_ snapshot: DashboardProjectionSnapshot) {
-    rootSessions = snapshot.rootSessions
-    filteredDashboardConversations = snapshot.dashboardConversations
+    rebuildSessionCollections()
     recomputeDerivedCollections()
   }
 
+  private func rebuildSessionCollections() {
+    var combined: [String: RootSessionNode] = [:]
+    for session in dashboardSessions {
+      combined[session.scopedID] = session
+    }
+    for session in libraryExtras {
+      combined[session.scopedID] = session
+    }
+    rootSessions = Self.sortSessions(Array(combined.values))
+  }
+
   private func recomputeDerivedCollections() {
-    guard let dashboardProjectionStore else {
+    guard !dashboardConversationsStore.isEmpty else {
       filteredDashboardConversations = []
       sidebarConversations = []
       missionControlGroups = []
@@ -150,16 +283,15 @@ final class DashboardViewModel {
       return
     }
 
-    let dashboardConversations = dashboardProjectionStore.dashboardConversations
     filteredDashboardConversations = DashboardConversationDeckPlanner.build(
-      from: dashboardConversations,
+      from: dashboardConversationsStore,
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
       projectFilter: activeProjectFilter
     )
     sidebarConversations = DashboardConversationDeckPlanner.build(
-      from: dashboardConversations,
+      from: dashboardConversationsStore,
       filter: activeWorkbenchFilter,
       sort: activeSort,
       providerFilter: activeProviderFilter,
@@ -176,38 +308,291 @@ final class DashboardViewModel {
     syncSelectionBounds()
   }
 
+  // MARK: - Library API
+
   var librarySessions: [RootSessionNode] {
     rootSessions
   }
 
   var libraryHasMoreSessions: Bool {
-    dashboardProjectionStore?.runtimeRegistry?.hasMoreLibrarySessions ?? false
+    libraryPaginationByEndpoint.values.contains { $0.nextOffset != nil }
   }
 
   func loadMoreLibrarySessions() async {
-    guard let runtimeRegistry = dashboardProjectionStore?.runtimeRegistry else { return }
-    await runtimeRegistry.loadMoreLibrarySessions()
+    guard let runtimeRegistry, !isLoadingLibrary else { return }
+    isLoadingLibrary = true
+    defer { isLoadingLibrary = false }
+
+    let runtimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+    for runtime in runtimes {
+      let endpointId = runtime.endpoint.id
+      guard var pagination = libraryPaginationByEndpoint[endpointId] else { continue }
+      guard let offset = pagination.nextOffset else { continue }
+      do {
+        let page = try await runtime.clients.dashboard.fetchLibrarySnapshot(limit: 200, offset: offset)
+        pagination.nextOffset = page.nextOffset.map(Int.init)
+        pagination.totalCount = Int(page.totalCount)
+        libraryPaginationByEndpoint[endpointId] = pagination
+
+        let connectionStatus = runtime.connection.connectionStatus
+        let newSessions = page.sessions.map {
+          RootSessionNode(
+            session: $0,
+            endpointId: endpointId,
+            endpointName: runtime.endpoint.name,
+            connectionStatus: connectionStatus
+          )
+        }
+        libraryExtras.append(contentsOf: newSessions)
+        rebuildSessionCollections()
+        return
+      } catch {
+        continue
+      }
+    }
   }
 
+  // MARK: - Dashboard state accessors
+
   var dashboardConversations: [DashboardConversationRecord] {
-    dashboardProjectionStore?.dashboardConversations ?? []
+    dashboardConversationsStore
   }
 
   var dashboardHasMultipleEndpoints: Bool {
-    dashboardProjectionStore?.hasMultipleEndpoints ?? false
+    dashboardHasMultipleEndpointsStore
   }
 
   var dashboardCounts: DashboardTriageCounts {
-    dashboardProjectionStore?.counts ?? DashboardTriageCounts(conversations: [])
+    dashboardCountsStore
   }
 
   var dashboardDirectCount: Int {
-    dashboardProjectionStore?.directCount ?? 0
+    dashboardDirectCountStore
   }
 
   var dashboardRefreshIdentity: String {
-    dashboardProjectionStore?.refreshIdentity ?? "dashboard-unbound"
+    dashboardRefreshIdentityStore
   }
+
+  // MARK: - Realtime handling
+
+  private func attachRealtimeListeners() {
+    guard realtimeUpdatesEnabled, let runtimeRegistry else {
+      detachRealtimeListeners()
+      return
+    }
+
+    let enabledRuntimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+    let enabledIds = Set(enabledRuntimes.map(\.endpoint.id))
+
+    for (endpointId, subscription) in realtimeListenersByEndpoint where !enabledIds.contains(endpointId) {
+      subscription.connection.removeListener(subscription.token)
+      realtimeListenersByEndpoint.removeValue(forKey: endpointId)
+    }
+
+    for runtime in enabledRuntimes {
+      let endpointId = runtime.endpoint.id
+      let endpointName = runtime.endpoint.name
+      guard realtimeListenersByEndpoint[endpointId] == nil else { continue }
+      let connection = runtime.connection
+      let token = connection.addListener { [weak self] event in
+        guard let self else { return }
+        self.handleRealtimeEvent(event, endpointId: endpointId, endpointName: endpointName)
+      }
+      realtimeListenersByEndpoint[endpointId] = RealtimeSubscription(connection: connection, token: token)
+    }
+  }
+
+  private func detachRealtimeListeners() {
+    for subscription in realtimeListenersByEndpoint.values {
+      subscription.connection.removeListener(subscription.token)
+    }
+    realtimeListenersByEndpoint.removeAll()
+  }
+
+  private func scheduleRealtimeRefresh() {
+    guard realtimeRefreshTask == nil else {
+      debugLogDashboard("realtimeRefresh.skip_existing", data: [:])
+      return
+    }
+    debugLogDashboard("realtimeRefresh.scheduled", data: [:])
+    realtimeRefreshTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { self.realtimeRefreshTask = nil }
+      debugLogDashboard("realtimeRefresh.executing", data: [:])
+      await self.refreshDashboardData()
+    }
+  }
+
+  private func handleRealtimeEvent(_ event: ServerEvent, endpointId: UUID, endpointName: String) {
+    let shouldRefresh = shouldRefreshDashboard(for: event)
+    var payload: [String: Any] = [
+      "endpointId": endpointId.uuidString,
+      "endpointName": endpointName,
+      "event": debugEventName(for: event),
+      "shouldRefresh": shouldRefresh,
+    ]
+    if let lastRevision = dashboardRevisionByEndpoint[endpointId] {
+      payload["lastHTTPRevision"] = lastRevision
+    }
+    switch event {
+      case let .dashboardInvalidated(revision):
+        payload["wsRevision"] = revision
+      case let .sessionDelta(sessionId, _):
+        payload["sessionId"] = sessionId
+      case let .sessionEnded(sessionId, _):
+        payload["sessionId"] = sessionId
+      case let .approvalRequested(sessionId, _, approvalVersion):
+        payload["sessionId"] = sessionId
+        if let approvalVersion {
+          payload["approvalVersion"] = approvalVersion
+        }
+      case let .connectionStatusChanged(status):
+        payload["connectionStatus"] = describeConnectionStatus(status)
+      case let .error(code, message, sessionId):
+        payload["errorCode"] = code
+        payload["errorMessage"] = message
+        if let sessionId {
+          payload["sessionId"] = sessionId
+        }
+      default:
+        break
+    }
+    debugLogDashboard("realtimeEvent.received", data: payload)
+    if shouldRefresh {
+      scheduleRealtimeRefresh()
+    }
+  }
+
+  private func shouldRefreshDashboard(for event: ServerEvent) -> Bool {
+    switch event {
+      case .dashboardInvalidated:
+        return true
+      case let .connectionStatusChanged(status):
+        return status == .connected
+      default:
+        return false
+    }
+  }
+
+  // MARK: - Helpers
+
+  private static func sortSessions(_ sessions: [RootSessionNode]) -> [RootSessionNode] {
+    sessions.sorted { lhs, rhs in
+      if lhs.isActive != rhs.isActive { return lhs.isActive }
+      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+      return lhsDate > rhsDate
+    }
+  }
+
+  fileprivate static func sortConversations(
+    _ conversations: [DashboardConversationRecord],
+    sort: ActiveSessionSort
+  ) -> [DashboardConversationRecord] {
+    conversations.sorted { lhs, rhs in
+      switch sort {
+        case .recent, .tokens, .cost:
+          let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+          let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+          return lhsDate > rhsDate
+        case .name:
+          let nameOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+          if nameOrder != .orderedSame {
+            return nameOrder == .orderedAscending
+          }
+          let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+          let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+          return lhsDate > rhsDate
+        case .status:
+          let lhsPriority = statusPriority(lhs.displayStatus)
+          let rhsPriority = statusPriority(rhs.displayStatus)
+          if lhsPriority != rhsPriority {
+            return lhsPriority < rhsPriority
+          }
+          let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
+          let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
+          return lhsDate > rhsDate
+      }
+    }
+  }
+
+  private static func statusPriority(_ status: SessionDisplayStatus) -> Int {
+    switch status {
+      case .permission: 0
+      case .question: 1
+      case .working: 2
+      case .reply: 3
+      case .ended: 4
+    }
+  }
+
+  private static func makeRefreshIdentity(for runtimes: [ServerRuntime]) -> String {
+    runtimes
+      .filter(\.endpoint.isEnabled)
+      .map { runtime in
+        "\(runtime.endpoint.id.uuidString):\(connectionToken(for: runtime.connection.connectionStatus))"
+      }
+      .sorted()
+      .joined(separator: "|")
+  }
+
+  private static func connectionToken(for status: ConnectionStatus) -> String {
+    switch status {
+      case .disconnected:
+        return "disconnected"
+      case .connecting:
+        return "connecting"
+      case .connected:
+        return "connected"
+      case let .failed(message):
+        return "failed:\(message)"
+    }
+  }
+
+  private func describeConnectionStatus(_ status: ConnectionStatus) -> String {
+    switch status {
+      case .disconnected: "disconnected"
+      case .connecting: "connecting"
+      case .connected: "connected"
+      case let .failed(message): "failed:\(message)"
+    }
+  }
+
+  private func debugLogDashboard(_ message: String, data: [String: Any] = [:]) {
+    #if DEBUG
+      netLog(.info, cat: .store, "[dashboard] \(message)", data: data)
+    #endif
+  }
+
+  private func debugEventName(for event: ServerEvent) -> String {
+    #if DEBUG
+      switch event {
+        case .dashboardInvalidated: "dashboardInvalidated"
+        case .missionsInvalidated: "missionsInvalidated"
+        case .dashboardSnapshot: "dashboardSnapshot"
+        case .missionsSnapshot: "missionsSnapshot"
+        case .sessionDelta: "sessionDelta"
+        case .sessionEnded: "sessionEnded"
+        case .conversationRowsChanged: "conversationRowsChanged"
+        case .approvalRequested: "approvalRequested"
+        case .approvalDecisionResult: "approvalDecisionResult"
+        case .approvalsList: "approvalsList"
+        case .approvalDeleted: "approvalDeleted"
+        case .tokensUpdated: "tokensUpdated"
+        case .connectionStatusChanged: "connectionStatusChanged"
+        case .error: "error"
+        default: "other"
+      }
+    #else
+      return "disabled"
+    #endif
+  }
+}
+
+private struct RealtimeSubscription {
+  let connection: ServerConnection
+  let token: ServerConnectionListenerToken
 }
 
 enum DashboardConversationDeckPlanner {
@@ -246,46 +631,6 @@ enum DashboardConversationDeckPlanner {
         filtered.filter { $0.displayStatus == .reply }
     }
 
-    return filtered.sorted { lhs, rhs in
-      sortConversations(lhs: lhs, rhs: rhs, sort: sort)
-    }
-  }
-
-  private static func sortConversations(
-    lhs: DashboardConversationRecord,
-    rhs: DashboardConversationRecord,
-    sort: ActiveSessionSort
-  ) -> Bool {
-    switch sort {
-      case .recent, .tokens, .cost:
-        return sortDate(lhs) > sortDate(rhs)
-      case .name:
-        let nameOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
-        if nameOrder != .orderedSame {
-          return nameOrder == .orderedAscending
-        }
-        return sortDate(lhs) > sortDate(rhs)
-      case .status:
-        let lhsPriority = statusPriority(lhs.displayStatus)
-        let rhsPriority = statusPriority(rhs.displayStatus)
-        if lhsPriority != rhsPriority {
-          return lhsPriority < rhsPriority
-        }
-        return sortDate(lhs) > sortDate(rhs)
-    }
-  }
-
-  private static func sortDate(_ conversation: DashboardConversationRecord) -> Date {
-    conversation.lastActivityAt ?? conversation.startedAt ?? .distantPast
-  }
-
-  private static func statusPriority(_ status: SessionDisplayStatus) -> Int {
-    switch status {
-      case .permission: 0
-      case .question: 1
-      case .working: 2
-      case .reply: 3
-      case .ended: 4
-    }
+    return DashboardViewModel.sortConversations(filtered, sort: sort)
   }
 }

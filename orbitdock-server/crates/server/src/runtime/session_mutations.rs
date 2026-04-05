@@ -14,9 +14,7 @@ use crate::connectors::codex_session::CodexAction;
 use crate::domain::codex_tools::{write_plan_markdown, CodexWorkspaceToolContext};
 use crate::domain::sessions::session::SessionSnapshot;
 use crate::infrastructure::persistence::PersistCommand;
-use crate::runtime::codex_config::{
-  resolve_codex_settings, serialize_codex_overrides, CodexConfigSelection,
-};
+use crate::runtime::codex_config::serialize_codex_overrides;
 use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::session_modes::is_passive_rollout_session;
@@ -191,15 +189,17 @@ pub(crate) async fn update_session_config(
     codex_config_source,
     codex_config_overrides,
   ) = if current_summary.provider == orbitdock_protocol::Provider::Codex {
+    // Mid-session config changes go straight to the connector via
+    // OverrideTurnContext — no app-server or config re-resolution needed.
     let mut overrides = current_summary
       .codex_config_overrides
       .clone()
       .unwrap_or_default();
-    if let Some(value) = model {
-      overrides.model = value;
+    if let Some(ref value) = model {
+      overrides.model = value.clone();
     }
-    if let Some(value) = approval_policy {
-      overrides.approval_policy = value;
+    if let Some(ref value) = approval_policy {
+      overrides.approval_policy = value.clone();
     }
     if let Some(value) = approval_policy_details.clone() {
       overrides.approval_policy_details = value;
@@ -207,79 +207,49 @@ pub(crate) async fn update_session_config(
         overrides.approval_policy = Some(details.legacy_summary());
       }
     }
-    if let Some(value) = sandbox_mode {
-      overrides.sandbox_mode = value;
+    if let Some(ref value) = sandbox_mode {
+      overrides.sandbox_mode = value.clone();
     }
     if let Some(value) = approvals_reviewer {
       overrides.approvals_reviewer = value;
     }
-    if let Some(value) = collaboration_mode {
-      overrides.collaboration_mode = value;
+    if let Some(ref value) = collaboration_mode {
+      overrides.collaboration_mode = value.clone();
     }
     if let Some(value) = multi_agent {
       overrides.multi_agent = value;
     }
-    if let Some(value) = personality {
-      overrides.personality = value;
+    if let Some(ref value) = personality {
+      overrides.personality = value.clone();
     }
-    if let Some(value) = service_tier {
-      overrides.service_tier = value;
+    if let Some(ref value) = service_tier {
+      overrides.service_tier = value.clone();
     }
-    if let Some(value) = developer_instructions {
-      overrides.developer_instructions = value;
+    if let Some(ref value) = developer_instructions {
+      overrides.developer_instructions = value.clone();
     }
-    if let Some(value) = effort {
-      overrides.effort = value;
+    if let Some(ref value) = effort {
+      overrides.effort = value.clone();
     }
     if let Some(value) = codex_model_provider.clone() {
       overrides.model_provider = value;
     }
 
-    let source = current_summary
-      .codex_config_source
-      .unwrap_or(orbitdock_protocol::CodexConfigSource::User);
-    let config_mode = match codex_config_mode {
-      Some(Some(value)) => value,
-      Some(None) => orbitdock_protocol::CodexConfigMode::Inherit,
-      None => current_summary
-        .codex_config_mode
-        .unwrap_or(orbitdock_protocol::CodexConfigMode::Inherit),
-    };
-    let config_profile = match codex_config_profile.clone() {
-      Some(value) => value,
-      None => current_summary.codex_config_profile.clone(),
-    };
-    let model_provider = match codex_model_provider.clone() {
-      Some(value) => value,
-      None => current_summary.codex_model_provider.clone(),
-    };
-    let resolved = resolve_codex_settings(
-      &current_summary.project_path,
-      CodexConfigSelection {
-        config_source: source,
-        config_mode,
-        config_profile: config_profile.clone(),
-        model_provider: model_provider.clone(),
-        overrides: overrides.clone(),
-      },
-    )
-    .await
-    .map_err(SessionMutationError::InvalidCodexConfig)?;
     (
-      Some(resolved.effective_settings.approval_policy.clone()),
-      Some(resolved.effective_settings.approval_policy_details.clone()),
-      Some(resolved.effective_settings.sandbox_mode.clone()),
-      Some(resolved.effective_settings.collaboration_mode.clone()),
-      Some(resolved.effective_settings.multi_agent),
-      Some(resolved.effective_settings.personality.clone()),
-      Some(resolved.effective_settings.service_tier.clone()),
-      Some(resolved.effective_settings.developer_instructions.clone()),
-      Some(resolved.effective_settings.model.clone()),
-      Some(resolved.effective_settings.effort.clone()),
-      Some(Some(config_mode)),
-      Some(config_profile),
-      Some(resolved.effective_settings.model_provider.clone()),
-      Some(source),
+      approval_policy,
+      approval_policy_details,
+      sandbox_mode,
+      collaboration_mode,
+      multi_agent,
+      personality,
+      service_tier,
+      developer_instructions,
+      model,
+      effort,
+      codex_config_mode,
+      codex_config_profile,
+      codex_model_provider,
+      None,
       Some(overrides),
     )
   } else {
@@ -1036,6 +1006,46 @@ mod tests {
     assert_eq!(snapshot.effort.as_deref(), Some("high"));
     assert_eq!(snapshot.permission_mode.as_deref(), Some("full"));
     assert_eq!(snapshot.collaboration_mode.as_deref(), Some("enabled"));
+  }
+
+  #[tokio::test]
+  async fn update_codex_session_model_mid_session() {
+    let state = new_test_session_registry(true);
+    let session_id = "codex-model-switch";
+
+    let mut handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/codex-model-switch".to_string(),
+    );
+    handle.set_model(Some("gpt-5-codex".to_string()));
+    handle.refresh_snapshot();
+    state.add_session(handle);
+
+    let result = update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        model: Some(Some("gpt-5-codex-mini".to_string())),
+        ..Default::default()
+      },
+    )
+    .await;
+
+    match &result {
+      Ok(()) => {}
+      Err(e) => eprintln!("update_session_config failed: {:?}", e),
+    }
+    result.expect("codex model switch should succeed");
+
+    let snapshot = state
+      .get_session(session_id)
+      .expect("session still exists after config update")
+      .summary()
+      .await
+      .expect("summary command should be answered");
+
+    assert_eq!(snapshot.model.as_deref(), Some("gpt-5-codex-mini"));
   }
 
   #[tokio::test]
