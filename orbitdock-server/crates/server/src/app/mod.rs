@@ -739,14 +739,16 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   let shutdown_state = state.clone();
   let shutdown_persist = persist_tx.clone();
   let mut app = Router::new()
-    .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))
     .route("/ws", get(ws_handler))
     .merge(crate::transport::http::build_router())
     .route("/health", get(health_handler))
     .route(
       "/metrics",
       get(crate::infrastructure::metrics::metrics_handler),
-    );
+    )
+    // Must come after all routes: axum layers only wrap routes that
+    // already exist in the router at the time `.layer()` is called.
+    .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES));
 
   let auth_state = crate::infrastructure::auth::AuthState {
     static_token: auth_token.clone(),
@@ -999,8 +1001,8 @@ async fn shutdown_signal(
     use tokio::signal::unix::{signal, SignalKind};
     let mut sigterm = signal(SignalKind::terminate()).expect("failed to register SIGTERM handler");
     tokio::select! {
-      _ = tokio::signal::ctrl_c() => {}
-      _ = sigterm.recv() => {}
+      _ = tokio::signal::ctrl_c() => {},
+      _ = sigterm.recv() => {},
     }
   }
   #[cfg(not(unix))]

@@ -169,6 +169,7 @@ pub(crate) async fn start_direct_claude_session(
       effort,
       allow_bypass_permissions,
       extra_env,
+      orbitdock_session_id: &session_id,
     },
   )
   .await

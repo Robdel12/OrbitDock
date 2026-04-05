@@ -61,6 +61,7 @@ pub(crate) async fn start_claude_fork_session(
       effort: None,
       allow_bypass_permissions: false,
       extra_env: &[],
+      orbitdock_session_id: &new_session_id,
     },
   )
   .await

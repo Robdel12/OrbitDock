@@ -500,6 +500,7 @@ async fn complete_claude_takeover(
         effort: None,
         allow_bypass_permissions: false,
         extra_env: &[],
+        orbitdock_session_id: task_session_id.as_str(),
       },
     )
     .await

@@ -241,6 +241,7 @@ async fn spawn_claude_resume(
           effort: None,
           allow_bypass_permissions,
           extra_env: &[],
+          orbitdock_session_id: sid.as_str(),
         },
       )
       .await

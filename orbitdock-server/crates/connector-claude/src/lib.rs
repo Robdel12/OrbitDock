@@ -582,6 +582,8 @@ struct ClaudeEventLoopState {
   pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
   pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
   stdin_tx: mpsc::Sender<String>,
+  /// OrbitDock session ID for structured log correlation.
+  orbitdock_session_id: String,
 
   // -- Mutable local state (owned by the event loop task) --
   streaming_content: String,
@@ -609,12 +611,14 @@ impl ClaudeEventLoopState {
     pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
     stdin_tx: mpsc::Sender<String>,
+    orbitdock_session_id: String,
   ) -> Self {
     Self {
       session_id,
       pending_controls,
       pending_approvals,
       stdin_tx,
+      orbitdock_session_id,
       streaming_content: String::new(),
       streaming_msg_id: None,
       streaming_last_broadcast: None,
@@ -767,6 +771,7 @@ impl ClaudeConnector {
 
     // Spawn stderr reader + exit code watcher
     let child_arc: Arc<Mutex<Child>> = Arc::new(Mutex::new(child));
+    let stderr_session_id = config.orbitdock_session_id.to_string();
     if let Some(stderr) = child_arc.lock().await.stderr.take() {
       let child_for_exit = child_arc.clone();
       tokio::spawn(async move {
@@ -777,6 +782,7 @@ impl ClaudeConnector {
           warn!(
               component = "claude_connector",
               event = "claude.stderr",
+              session_id = %stderr_session_id,
               line = %line,
               "Claude CLI stderr"
           );
@@ -794,6 +800,7 @@ impl ClaudeConnector {
               warn!(
                   component = "claude_connector",
                   event = "claude.exit",
+                  session_id = %stderr_session_id,
                   exit_code = ?code,
                   stderr_tail = %stderr_lines
                       .iter()
@@ -811,6 +818,7 @@ impl ClaudeConnector {
               info!(
                   component = "claude_connector",
                   event = "claude.exit",
+                  session_id = %stderr_session_id,
                   exit_code = ?code,
                   "Claude CLI exited"
               );
@@ -820,6 +828,7 @@ impl ClaudeConnector {
             error!(
                 component = "claude_connector",
                 event = "claude.exit.error",
+                session_id = %stderr_session_id,
                 error = %e,
                 "Failed to get Claude CLI exit status"
             );
@@ -834,11 +843,13 @@ impl ClaudeConnector {
     });
 
     // Spawn stdout reader loop
+    let loop_session_id = config.orbitdock_session_id.to_string();
     let loop_state = ClaudeEventLoopState::new(
       claude_session_id.clone(),
       pending_controls.clone(),
       pending_approvals.clone(),
       stdin_tx.clone(),
+      loop_session_id,
     );
 
     tokio::spawn(async move {
@@ -1338,6 +1349,7 @@ impl ClaudeConnector {
           warn!(
             component = "claude_connector",
             event = "claude.stdout.eof",
+            session_id = %state.orbitdock_session_id,
             lines_read = state.line_count,
             "Claude CLI stdout EOF"
           );
@@ -1352,6 +1364,7 @@ impl ClaudeConnector {
           error!(
               component = "claude_connector",
               event = "claude.stdout.read_error",
+              session_id = %state.orbitdock_session_id,
               error = %e,
               "Error reading CLI stdout"
           );
@@ -3263,6 +3276,7 @@ mod tests {
       Arc::new(Mutex::new(HashMap::new())),
       Arc::new(Mutex::new(HashMap::new())),
       stdin_tx,
+      "test-session".to_string(),
     )
   }
 

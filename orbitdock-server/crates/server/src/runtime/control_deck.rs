@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use orbitdock_connector_codex::discover_models_for_context;
 use orbitdock_protocol::{
@@ -17,11 +18,13 @@ use crate::infrastructure::persistence::{load_config_value, PersistCommand};
 use crate::runtime::message_dispatch::{
   dispatch_send_message, DispatchMessageError, DispatchSendMessage,
 };
+use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_mutations::{
   update_session_config as update_runtime_session_config, SessionConfigUpdate, SessionMutationError,
 };
 use crate::runtime::session_queries::{load_full_session_state, SessionLoadError};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::session_resume::launch_resumed_session;
 
 #[derive(Debug)]
 pub(crate) enum ControlDeckSnapshotLoadError {
@@ -308,23 +311,99 @@ pub(crate) async fn submit_control_deck_turn(
     },
   )?;
 
-  let user_row = dispatch_control_deck_turn(
-    state,
-    ControlDeckDispatchRequest {
-      session_id: session_id.to_string(),
-      content: plan.text,
-      model: plan.model,
-      effort: plan.effort,
-      skills: plan.skills,
-      images: plan.images,
-      mentions: plan.mentions,
-      message_id: format!("control-deck-http-{}", orbitdock_protocol::new_id()),
-    },
-  )
-  .await
-  .map_err(map_dispatch_error)?;
+  let dispatch_request = ControlDeckDispatchRequest {
+    session_id: session_id.to_string(),
+    content: plan.text,
+    model: plan.model,
+    effort: plan.effort,
+    skills: plan.skills,
+    images: plan.images,
+    mentions: plan.mentions,
+    message_id: format!("control-deck-http-{}", orbitdock_protocol::new_id()),
+  };
+
+  let result = dispatch_control_deck_turn(state, dispatch_request.clone()).await;
+
+  let user_row = match result {
+    Ok(row) => row,
+    Err(DispatchMessageError::ConnectorUnavailable) => {
+      info!(
+        component = "control_deck",
+        event = "submit.auto_resume",
+        session_id = %session_id,
+        "No connector available — attempting auto-resume before retry"
+      );
+      auto_resume_session(state, session_id).await?;
+      dispatch_control_deck_turn(state, dispatch_request)
+        .await
+        .map_err(map_dispatch_error)?
+    }
+    Err(other) => return Err(map_dispatch_error(other)),
+  };
 
   Ok(ControlDeckSubmitResult { row: user_row })
+}
+
+/// Attempt to transparently resume a session whose connector has died.
+/// Clears the stale in-memory actor, reloads from the database, and
+/// relaunches the connector. Returns an error only if the session cannot
+/// be resumed at all.
+async fn auto_resume_session(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), ControlDeckSubmitError> {
+  // Remove stale in-memory session so resume can rebuild from DB.
+  state.remove_session(session_id);
+
+  let prepared = load_prepared_resume_session(session_id)
+    .await
+    .map_err(|e| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.load_failed",
+        session_id = %session_id,
+        error = %e,
+        "Auto-resume failed: could not load session from database"
+      );
+      ControlDeckSubmitError::ConnectorUnavailable
+    })?
+    .ok_or_else(|| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.not_found",
+        session_id = %session_id,
+        "Auto-resume failed: session not found in database"
+      );
+      ControlDeckSubmitError::SessionNotFound
+    })?;
+
+  let launch = launch_resumed_session(state, session_id, prepared)
+    .await
+    .map_err(|e| {
+      warn!(
+        component = "control_deck",
+        event = "submit.auto_resume.launch_failed",
+        session_id = %session_id,
+        error = %e.message(),
+        "Auto-resume failed: connector launch error"
+      );
+      ControlDeckSubmitError::ConnectorUnavailable
+    })?;
+
+  // Wait for the connector to be ready (runtime startup has a 15s timeout
+  // internally; we add 1s buffer).
+  if let Some(startup_ready) = launch.startup_ready {
+    let _ = tokio::time::timeout(Duration::from_secs(16), startup_ready).await;
+  }
+
+  info!(
+    component = "control_deck",
+    event = "submit.auto_resume.success",
+    session_id = %session_id,
+    "Auto-resume succeeded — retrying dispatch"
+  );
+
+  Ok(())
 }
 
 async fn dispatch_control_deck_turn(

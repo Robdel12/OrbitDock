@@ -26,6 +26,7 @@ pub struct ClaudeSessionConfig<'a> {
   pub effort: Option<&'a str>,
   pub allow_bypass_permissions: bool,
   pub extra_env: &'a [(String, String)],
+  pub orbitdock_session_id: &'a str,
 }
 
 #[derive(Debug)]
