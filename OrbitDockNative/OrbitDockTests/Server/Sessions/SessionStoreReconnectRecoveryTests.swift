@@ -114,21 +114,24 @@ struct SessionStoreReconnectRecoveryTests {
     )
   }
 
-  @Test func resumeSessionReconcilesConversationBeforeReturning() async throws {
+  @Test func resumeSessionNotifiesSessionChangedAndTriggersRecovery() async throws {
     let fixture = ResumeAndConversationMutationFixture()
+    let connection = SessionStoreConnectionSpy()
     let store = try makeStore(
       loader: { request in try await fixture.loader(request) },
-      connection: SessionStoreConnectionSpy()
+      connection: connection
     )
     store.connectionGeneration = 8
 
     try await store.resumeSession("session-1")
 
     #expect(await fixture.resumeRequestCount == 1)
-    #expect(await fixture.conversationRequestCount == 1)
+    // Resume triggers forceRecovery subscribe — conversation bootstrap
+    // happens asynchronously via the recovery path, not inline.
+    #expect(store.subscribedSessions.contains("session-1"))
   }
 
-  @Test func sendMessageReconcilesConversationWithBootstrapState() async throws {
+  @Test func sendMessageEmitsRowDeltaDirectly() async throws {
     let fixture = ResumeAndConversationMutationFixture()
     let store = try makeStore(
       loader: { request in try await fixture.loader(request) },
@@ -139,7 +142,9 @@ struct SessionStoreReconnectRecoveryTests {
     try await store.sendMessage(sessionId: "session-1", content: "hello from test")
 
     #expect(await fixture.sendMessageRequestCount == 1)
-    #expect(await fixture.conversationRequestCount == 1)
+    // sendMessage now emits the response row via notifyConversationRowDelta
+    // instead of re-fetching the full conversation bootstrap.
+    #expect(await fixture.conversationRequestCount == 0)
   }
 
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
