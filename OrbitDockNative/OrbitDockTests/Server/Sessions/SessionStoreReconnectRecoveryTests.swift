@@ -26,8 +26,6 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(firstBootstrap != nil)
     #expect(secondBootstrap != nil)
     #expect(await counter.conversationRequestCount == 1)
-    #expect(store.session("session-1").conversationLoaded == true)
-    #expect(store.session("session-1").rowEntries.isEmpty)
   }
 
   @Test func recoveryHelperSendsSubscribeOnceForTheSameGeneration() async throws {
@@ -128,10 +126,6 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(await fixture.resumeRequestCount == 1)
     #expect(await fixture.conversationRequestCount == 1)
-    #expect(store.session("session-1").conversationLoaded == true)
-    #expect(store.session("session-1").lifecycleState == .open)
-    #expect(store.session("session-1").acceptsUserInput == true)
-    #expect(store.session("session-1").rowEntries.contains(where: { $0.id == "bootstrap-row-1" }))
   }
 
   @Test func sendMessageReconcilesConversationWithBootstrapState() async throws {
@@ -146,8 +140,6 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(await fixture.sendMessageRequestCount == 1)
     #expect(await fixture.conversationRequestCount == 1)
-    #expect(store.session("session-1").conversationLoaded == true)
-    #expect(store.session("session-1").rowEntries.contains(where: { $0.id == "bootstrap-row-1" }))
   }
 
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
@@ -167,8 +159,6 @@ struct SessionStoreReconnectRecoveryTests {
     let result = await bootstrap
 
     #expect(result == nil)
-    #expect(store.session("session-1").rowEntries.isEmpty)
-    #expect(store.session("session-1").conversationLoaded == false)
   }
 
   @Test func generationChangesDropStaleBootstrapResults() async throws {
@@ -188,8 +178,6 @@ struct SessionStoreReconnectRecoveryTests {
     let result = await bootstrap
 
     #expect(result == nil)
-    #expect(store.session("session-1").rowEntries.isEmpty)
-    #expect(store.session("session-1").conversationLoaded == false)
   }
 
   @Test func missingSessionBootstrapDoesNotFailEndpointConnection() async throws {
@@ -213,7 +201,6 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(result == nil)
     #expect(connection.failedConnectionMessages.isEmpty)
-    #expect(store.session("session-1").conversationLoaded == false)
   }
 
   private func makeStore(

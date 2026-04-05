@@ -20,6 +20,8 @@ final class ConversationViewModel {
   @ObservationIgnored private var contentRevision: Int = 0
   @ObservationIgnored private var lastNewestSequence: UInt64 = 0
   @ObservationIgnored private var conversationLoaded = false
+  @ObservationIgnored private var hasMoreBefore = false
+  @ObservationIgnored private var isLoadingOlder = false
 
   private let pageSize = 50
 
@@ -36,6 +38,8 @@ final class ConversationViewModel {
       contentRevision = 0
       lastNewestSequence = 0
       conversationLoaded = false
+      hasMoreBefore = false
+      isLoadingOlder = false
       rebuildPresentation(changedEntries: [])
     }
   }
@@ -52,6 +56,7 @@ final class ConversationViewModel {
         limit: pageSize
       )
       rowEntries = bootstrap.rows
+      hasMoreBefore = bootstrap.hasMoreBefore
       conversationLoaded = true
       structureRevision += 1
       contentRevision += 1
@@ -93,8 +98,30 @@ final class ConversationViewModel {
   }
 
   func loadOlderMessages() {
-    guard let currentSessionId else { return }
-    currentSessionStore.loadOlderMessages(sessionId: currentSessionId, limit: pageSize)
+    guard let currentSessionId, hasMoreBefore, !isLoadingOlder else { return }
+    guard let oldestSequence = rowEntries.first?.sequence else { return }
+    isLoadingOlder = true
+    let store = currentSessionStore
+
+    Task {
+      defer { isLoadingOlder = false }
+      do {
+        let page = try await store.clients.conversation.fetchConversationHistory(
+          currentSessionId,
+          beforeSequence: oldestSequence,
+          limit: pageSize
+        )
+        hasMoreBefore = page.hasMoreBefore
+        rowEntries.insert(contentsOf: page.rows, at: 0)
+        structureRevision += 1
+        contentRevision += 1
+        rebuildPresentation(changedEntries: page.rows)
+      } catch {
+        netLog(.error, cat: .store, "Load older messages failed", sid: currentSessionId, data: [
+          "error": String(describing: error),
+        ])
+      }
+    }
   }
 
   // MARK: - Private

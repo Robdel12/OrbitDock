@@ -324,11 +324,6 @@ extension SessionStore {
     try await clients.conversation.cancelShell(sessionId: sessionId, requestId: requestId)
   }
 
-  func loadOlderMessages(sessionId: String, limit: Int = 50) {
-    // TODO: Move pagination state into ConversationViewModel
-    netLog(.info, cat: .conv, "Load older messages requested", sid: sessionId)
-  }
-
   func uploadControlDeckImageAttachment(
     sessionId: String,
     data: Data,

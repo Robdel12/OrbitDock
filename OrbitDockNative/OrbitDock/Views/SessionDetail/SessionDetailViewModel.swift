@@ -385,7 +385,16 @@ final class SessionDetailViewModel {
     usageSource = snapshot.usageSource
     worktreeState = snapshot.worktreeState
     reviewState = snapshot.reviewState
-    workerState = snapshot.workerState
+    // Preserve loaded worker tools/messages across refreshes — the snapshot only carries
+    // the subagent roster, not the detail payloads we fetched on-demand.
+    let preservedTools = workerState.subagentTools
+    let preservedMessages = workerState.subagentMessages
+    workerState = SessionDetailWorkerState(
+      subagents: snapshot.workerState.subagents,
+      subagentTools: preservedTools,
+      subagentMessages: preservedMessages,
+      timelineRevision: snapshot.workerState.timelineRevision
+    )
     workerRosterPresentation = SessionWorkerRosterPlanner.presentation(subagents: workerState.subagents)
     syncSelectedWorker()
     conversationPresentation = snapshot.conversationPresentation
@@ -488,7 +497,7 @@ final class SessionDetailViewModel {
         inputTokens: Int(s.tokenUsage.inputTokens),
         outputTokens: Int(s.tokenUsage.outputTokens),
         cachedTokens: Int(s.tokenUsage.cachedTokens),
-        contextUsed: Int(s.tokenUsage.inputTokens),
+        contextUsed: Int(s.tokenUsage.contextWindow),
         totalTokens: Int(s.tokenUsage.inputTokens + s.tokenUsage.outputTokens)
       ),
       worktreeState: SessionDetailWorktreeState(
