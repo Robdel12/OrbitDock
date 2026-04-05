@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex};
 use tracing::warn;
 
 use crate::connectors::claude_session::ClaudeAction;
@@ -144,6 +144,9 @@ pub struct SessionRegistry {
   update_status: std::sync::RwLock<Option<CachedUpdateStatus>>,
   /// Guard to prevent concurrent update checks.
   update_check_in_flight: std::sync::atomic::AtomicBool,
+
+  /// Per-session gate to prevent duplicate direct-runtime auto-resume launches.
+  auto_resume_locks: DashMap<String, Arc<AsyncMutex<()>>>,
 }
 
 impl SessionRegistry {
@@ -249,6 +252,7 @@ impl SessionRegistry {
       mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
       update_status: std::sync::RwLock::new(None),
       update_check_in_flight: std::sync::atomic::AtomicBool::new(false),
+      auto_resume_locks: DashMap::new(),
     }
   }
 
@@ -330,6 +334,15 @@ impl SessionRegistry {
     self
       .update_check_in_flight
       .store(false, std::sync::atomic::Ordering::SeqCst);
+  }
+
+  /// Fetch or create the per-session auto-resume mutex.
+  pub fn auto_resume_lock(&self, session_id: &str) -> Arc<AsyncMutex<()>> {
+    self
+      .auto_resume_locks
+      .entry(session_id.to_string())
+      .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+      .clone()
   }
 
   pub fn ws_connect(&self) -> u64 {
@@ -453,6 +466,12 @@ impl SessionRegistry {
           .resolve_runtime_owner_session_id(session_id)
           .and_then(|owner| self.connectors.get_claude_action_tx(&owner))
       })
+  }
+
+  /// True when either provider-specific action channel is currently registered.
+  pub fn has_active_connector_action_tx(&self, session_id: &str) -> bool {
+    self.get_codex_action_tx(session_id).is_some()
+      || self.get_claude_action_tx(session_id).is_some()
   }
 
   /// Remove a Claude action sender (stale channel cleanup)
