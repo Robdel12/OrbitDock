@@ -296,7 +296,7 @@ struct ControlDeckApprovalTakeover: View {
             Text(segment.command)
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textPrimary)
-              .lineLimit(2)
+              .fixedSize(horizontal: false, vertical: true)
               .textSelection(.enabled)
           }
         }
