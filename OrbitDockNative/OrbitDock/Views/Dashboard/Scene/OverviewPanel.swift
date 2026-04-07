@@ -93,7 +93,6 @@ struct OverviewPanel: View {
             HStack(spacing: Spacing.sm) {
               ForEach(Array(providers.enumerated()), id: \.element.provider.id) { _, entry in
                 providerLimitsCard(entry.provider, windows: entry.windows, isLoading: entry.isLoading)
-                  .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
               }
             }
           }
@@ -190,6 +189,7 @@ struct OverviewPanel: View {
       }
     }
     .padding(Spacing.md_)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(
       RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
         .fill(Color.backgroundSecondary)

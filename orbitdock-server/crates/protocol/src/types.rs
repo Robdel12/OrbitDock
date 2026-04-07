@@ -869,7 +869,11 @@ impl SessionSummary {
       is_worktree: self.is_worktree,
       worktree_id: self.worktree_id.clone(),
       total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
-      total_cost_usd: estimate_session_cost(self.provider, self.model.as_deref(), &self.token_usage),
+      total_cost_usd: estimate_session_cost(
+        self.provider,
+        self.model.as_deref(),
+        &self.token_usage,
+      ),
       input_tokens: self.token_usage.input_tokens,
       output_tokens: self.token_usage.output_tokens,
       cached_tokens: self.token_usage.cached_tokens,
@@ -890,7 +894,11 @@ impl SessionSummary {
 
 impl From<SessionSummary> for SessionListItem {
   fn from(summary: SessionSummary) -> Self {
-    let cost = estimate_session_cost(summary.provider, summary.model.as_deref(), &summary.token_usage);
+    let cost = estimate_session_cost(
+      summary.provider,
+      summary.model.as_deref(),
+      &summary.token_usage,
+    );
     SessionListItem {
       id: summary.id,
       provider: summary.provider,
@@ -1246,7 +1254,11 @@ impl SessionListItem {
       is_worktree: summary.is_worktree,
       worktree_id: summary.worktree_id.clone(),
       total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
-      total_cost_usd: estimate_session_cost(summary.provider, summary.model.as_deref(), &summary.token_usage),
+      total_cost_usd: estimate_session_cost(
+        summary.provider,
+        summary.model.as_deref(),
+        &summary.token_usage,
+      ),
       input_tokens: summary.token_usage.input_tokens,
       output_tokens: summary.token_usage.output_tokens,
       cached_tokens: summary.token_usage.cached_tokens,

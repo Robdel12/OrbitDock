@@ -478,7 +478,9 @@ pub(crate) fn estimate_cost_usd(
   cache_read_tokens: u64,
   cache_write_tokens: u64,
 ) -> f64 {
-  let provider_enum: orbitdock_protocol::Provider = provider.parse().unwrap_or(orbitdock_protocol::Provider::Claude);
+  let provider_enum: orbitdock_protocol::Provider = provider
+    .parse()
+    .unwrap_or(orbitdock_protocol::Provider::Claude);
   let p = orbitdock_protocol::model_pricing(provider_enum, model);
   input_tokens as f64 * p.input_per_token
     + output_tokens as f64 * p.output_per_token
