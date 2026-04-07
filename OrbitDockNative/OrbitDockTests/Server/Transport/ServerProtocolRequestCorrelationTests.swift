@@ -65,6 +65,21 @@ struct ServerProtocolRequestCorrelationTests {
     }
   }
 
+  @Test func unsubscribeDashboardRoundTrips() throws {
+    let message = ClientToServerMessage.unsubscribeDashboard
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "unsubscribe_dashboard")
+
+    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
+    switch parsed {
+      case .unsubscribeDashboard:
+        break
+      default:
+        Issue.record("Expected unsubscribe_dashboard")
+    }
+  }
+
   @Test func subscribeSessionSurfaceSupportsReplayOnlyEncodingAndDecoding() throws {
     let message = ClientToServerMessage.subscribeSessionSurface(
       sessionId: "session-2",

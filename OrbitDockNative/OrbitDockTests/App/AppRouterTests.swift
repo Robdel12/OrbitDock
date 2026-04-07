@@ -20,12 +20,13 @@ struct AppRouterTests {
     #expect(router.selectedSessionRef == ref)
   }
 
-  @Test func goToDashboardDoesNotRewriteMissionControlRoute() {
+  @Test func goToDashboardDoesNotRewriteOverviewSelection() {
     let router = AppRouter()
-    // Starting state is already dashboard missionControl (empty stack)
+    // Starting state is already .overview
 
     router.goToDashboard(source: .commandMenu)
 
+    #expect(router.workspaceSelection == .overview)
     #expect(router.route == .dashboard(.missionControl))
   }
 }
