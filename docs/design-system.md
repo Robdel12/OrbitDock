@@ -731,3 +731,8 @@ When building a new view or component, verify:
 ---
 
 *"A cosmic harbor for AI agent sessions — spacecraft docked at your mission control center."*
+
+---
+
+## Typography System
+
