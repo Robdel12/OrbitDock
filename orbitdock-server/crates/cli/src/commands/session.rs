@@ -4,7 +4,7 @@ use std::time::Duration;
 use base64::Engine;
 use orbitdock_protocol::{
   conversation_contracts::extract_row_content_str_summary, ClientMessage, ConversationSnapshotPage,
-  DashboardSnapshot, Provider, ServerMessage, SessionDetailSnapshot, SessionListItem, SessionState,
+  LibrarySnapshot, Provider, ServerMessage, SessionDetailSnapshot, SessionListItem, SessionState,
   SessionStatus, SessionSummary, SessionSurface, ToolApprovalDecision, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
@@ -757,7 +757,7 @@ async fn list(
   project: Option<&str>,
 ) -> i32 {
   match rest
-    .get::<DashboardSnapshot>("/api/dashboard")
+    .get::<LibrarySnapshot>("/api/library")
     .await
     .into_result()
   {
@@ -1950,6 +1950,8 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
     ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
     ServerMessage::PermissionRules { .. } => "permission_rules",
     ServerMessage::DashboardInvalidated { .. } => "dashboard_invalidated",
+    ServerMessage::DashboardConversationUpdated { .. } => "dashboard_conversation_updated",
+    ServerMessage::DashboardItemRemoved { .. } => "dashboard_item_removed",
     ServerMessage::MissionsInvalidated { .. } => "missions_invalidated",
     ServerMessage::MissionsList { .. } => "missions_list",
     ServerMessage::MissionDelta { .. } => "mission_delta",
