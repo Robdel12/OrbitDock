@@ -23,10 +23,10 @@ use orbitdock_protocol::{
 };
 
 use crate::domain::sessions::transition::{
-  approval_preview, approval_question, approval_question_prompts, ApprovalPreviewInput,
+  approval_question, Input,
 };
 use crate::infrastructure::persistence::{
-  load_direct_claude_owner_by_sdk_session_id, ApprovalRequestedParams, PersistCommand,
+  load_direct_claude_owner_by_sdk_session_id, PersistCommand,
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingClaudeSession, PendingHookSession, SessionRegistry};
@@ -93,7 +93,11 @@ async fn cleanup_claude_shadow_session(
   });
 
   if should_remove_runtime_shadow && state.remove_session(hook_session_id).is_some() {
-    state.publish_dashboard_snapshot();
+    let _ = state
+      .list_tx()
+      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+        session_id: hook_session_id.to_string(),
+      });
   }
 }
 
@@ -216,15 +220,17 @@ pub async fn handle_hook_message_with_options(
         if existing.snapshot().provider == Provider::Codex {
           return;
         }
-        existing
-          .send(SessionCommand::SetModel {
-            model: model.clone(),
-          })
-          .await;
+        if let Some(ref m) = model {
+          existing
+            .send(SessionCommand::ProcessEvent {
+              event: Input::ModelUpdated(m.clone()),
+            })
+            .await;
+        }
         if transcript_path.is_some() {
           existing
-            .send(SessionCommand::SetTranscriptPath {
-              path: transcript_path.clone(),
+            .send(SessionCommand::ProcessEvent {
+              event: Input::TranscriptPathUpdated(transcript_path.clone()),
             })
             .await;
         }
@@ -237,30 +243,29 @@ pub async fn handle_hook_message_with_options(
         // Use repository root for grouping so worktree sessions group correctly
         let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
 
+        crate::runtime::session_state_transitions::transition_work_status(
+          &existing,
+          &session_id,
+          orbitdock_protocol::WorkStatus::Waiting,
+          Some(orbitdock_protocol::StateChanges {
+            current_cwd: Some(Some(cwd.clone())),
+            git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+            git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
+            repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+            is_worktree: if is_worktree { Some(true) } else { None },
+            ..Default::default()
+          }),
+        )
+        .await;
         existing
-          .send(SessionCommand::ApplyDelta {
-            changes: Box::new(orbitdock_protocol::StateChanges {
-              work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-              current_cwd: Some(Some(cwd.clone())),
-              git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
-              git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
-              repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
-              is_worktree: if is_worktree { Some(true) } else { None },
-              last_activity_at: Some(chrono_now()),
-              ..Default::default()
-            }),
-            persist_op: None,
-          })
-          .await;
-        let _ = state
-          .persist()
-          .send(PersistCommand::EnvironmentUpdate {
-            session_id: session_id.clone(),
-            cwd: Some(cwd.clone()),
-            git_branch: git_branch.clone(),
-            git_sha: git_sha.clone(),
-            repository_root: repository_root.clone(),
-            is_worktree: Some(is_worktree),
+          .send(SessionCommand::ProcessEvent {
+            event: Input::EnvironmentChanged {
+              cwd: Some(cwd.clone()),
+              git_branch: git_branch.clone(),
+              git_sha: git_sha.clone(),
+              repository_root: repository_root.clone(),
+              is_worktree: Some(is_worktree),
+            },
           })
           .await;
         let _ = state
@@ -361,7 +366,11 @@ pub async fn handle_hook_message_with_options(
         .await;
 
       if state.remove_session(&session_id).is_some() {
-        state.publish_dashboard_snapshot();
+        let _ = state
+          .list_tx()
+          .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+            session_id: session_id.clone(),
+          });
       }
     }
 
@@ -395,6 +404,65 @@ pub async fn handle_hook_message_with_options(
           if let Some(actor) = state.get_session(&owner_session_id) {
             let persist_tx = state.persist().clone();
 
+            // Route work_status transitions for managed direct sessions
+            let next_work_status = match hook_event_name.as_str() {
+              "UserPromptSubmit" => Some(orbitdock_protocol::WorkStatus::Working),
+              "Stop" => {
+                let is_question =
+                  actor.last_tool().await.ok().flatten().as_deref() == Some("AskUserQuestion");
+                if is_question {
+                  Some(orbitdock_protocol::WorkStatus::Question)
+                } else {
+                  Some(orbitdock_protocol::WorkStatus::Reply)
+                }
+              }
+              "Notification" => match notification_type.as_deref() {
+                Some("idle_prompt") => {
+                  let is_question =
+                    actor.last_tool().await.ok().flatten().as_deref() == Some("AskUserQuestion");
+                  if is_question {
+                    Some(orbitdock_protocol::WorkStatus::Question)
+                  } else {
+                    Some(orbitdock_protocol::WorkStatus::Reply)
+                  }
+                }
+                _ => None,
+              },
+              "TeammateIdle" => Some(orbitdock_protocol::WorkStatus::Reply),
+              _ => None,
+            };
+
+            if let Some(ws) = next_work_status {
+              use crate::runtime::session_state_transitions::{
+                attention_reason_for_status, transition_work_status,
+              };
+              actor
+                .send(SessionCommand::ProcessEvent {
+                  event: Input::AttentionUpdated {
+                    attention_reason: attention_reason_for_status(ws),
+                    last_tool: None,
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                  },
+                })
+                .await;
+              transition_work_status(
+                &actor,
+                &owner_session_id,
+                ws,
+                None,
+              )
+              .await;
+
+              crate::runtime::session_registry::flush_and_publish_conversation(
+                &persist_tx,
+                state,
+                &owner_session_id,
+              )
+              .await;
+            }
+
             // Route summary extraction on Stop
             if hook_event_name == "Stop" {
               let snap = actor.snapshot();
@@ -413,18 +481,8 @@ pub async fn handle_hook_message_with_options(
                       .await
                   {
                     actor
-                      .send(SessionCommand::ApplyDelta {
-                        changes: Box::new(orbitdock_protocol::StateChanges {
-                          summary: Some(Some(summary.clone())),
-                          ..Default::default()
-                        }),
-                        persist_op: None,
-                      })
-                      .await;
-                    let _ = persist_tx
-                      .send(PersistCommand::SetSummary {
-                        session_id: owner_session_id.clone(),
-                        summary,
+                      .send(SessionCommand::ProcessEvent {
+                        event: Input::SummaryUpdated(summary),
                       })
                       .await;
                   }
@@ -458,8 +516,14 @@ pub async fn handle_hook_message_with_options(
             // Route last_tool tracking
             if let Some(ref tool_name) = tool_name {
               actor
-                .send(SessionCommand::SetLastTool {
-                  tool: Some(tool_name.clone()),
+                .send(SessionCommand::ProcessEvent {
+                  event: Input::AttentionUpdated {
+                    attention_reason: None,
+                    last_tool: Some(tool_name.clone()),
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                  },
                 })
                 .await;
             }
@@ -497,16 +561,14 @@ pub async fn handle_hook_message_with_options(
         }
         if cwd.is_some() || git_branch.is_some() || repository_root.is_some() {
           existing
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(orbitdock_protocol::StateChanges {
-                current_cwd: cwd.as_ref().map(|value| Some(value.clone())),
-                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
-                git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
-                repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+            .send(SessionCommand::ProcessEvent {
+              event: Input::EnvironmentChanged {
+                cwd: cwd.clone(),
+                git_branch: git_branch.clone(),
+                git_sha: git_sha.clone(),
+                repository_root: repository_root.clone(),
                 is_worktree: if is_worktree { Some(true) } else { None },
-                ..Default::default()
-              }),
-              persist_op: None,
+              },
             })
             .await;
         }
@@ -530,10 +592,12 @@ pub async fn handle_hook_message_with_options(
 
       if transcript_path.is_some() || derived_transcript_path.is_some() {
         actor
-          .send(SessionCommand::SetTranscriptPath {
-            path: transcript_path
-              .clone()
-              .or_else(|| derived_transcript_path.clone()),
+          .send(SessionCommand::ProcessEvent {
+            event: Input::TranscriptPathUpdated(
+              transcript_path
+                .clone()
+                .or_else(|| derived_transcript_path.clone()),
+            ),
           })
           .await;
       }
@@ -541,14 +605,15 @@ pub async fn handle_hook_message_with_options(
       // Use repository root for grouping so worktree sessions group correctly
       if let Some(cwd) = cwd.clone() {
         let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
-        let _ = persist_tx
-          .send(PersistCommand::EnvironmentUpdate {
-            session_id: session_id.clone(),
-            cwd: Some(cwd.clone()),
-            git_branch: git_branch.clone(),
-            git_sha: git_sha.clone(),
-            repository_root: repository_root.clone(),
-            is_worktree: Some(is_worktree),
+        actor
+          .send(SessionCommand::ProcessEvent {
+            event: Input::EnvironmentChanged {
+              cwd: Some(cwd.clone()),
+              git_branch: git_branch.clone(),
+              git_sha: git_sha.clone(),
+              repository_root: repository_root.clone(),
+              is_worktree: Some(is_worktree),
+            },
           })
           .await;
         let _ = persist_tx
@@ -575,53 +640,35 @@ pub async fn handle_hook_message_with_options(
           .await;
       }
 
-      let (next_work_status, persist_attention_reason) = match hook_event_name.as_str() {
-        "UserPromptSubmit" => (
-          Some(orbitdock_protocol::WorkStatus::Working),
-          Some(Some("none".to_string())),
-        ),
+      let next_work_status = match hook_event_name.as_str() {
+        "UserPromptSubmit" => Some(orbitdock_protocol::WorkStatus::Working),
         "Stop" => {
           let is_question =
             actor.last_tool().await.ok().flatten().as_deref() == Some("AskUserQuestion");
           if is_question {
-            (
-              Some(orbitdock_protocol::WorkStatus::Question),
-              Some(Some("awaitingQuestion".to_string())),
-            )
+            Some(orbitdock_protocol::WorkStatus::Question)
           } else {
-            (
-              Some(orbitdock_protocol::WorkStatus::Waiting),
-              Some(Some("awaitingReply".to_string())),
-            )
+            Some(orbitdock_protocol::WorkStatus::Reply)
           }
         }
         "Notification" => match notification_type.as_deref() {
           // Notification events are informational; actionable permission/question
           // state is driven by PermissionRequest tool hooks.
-          Some("permission_prompt") => (None, None),
-          Some("elicitation_dialog") => (None, None),
+          Some("permission_prompt") => None,
+          Some("elicitation_dialog") => None,
           Some("idle_prompt") => {
             let is_question =
               actor.last_tool().await.ok().flatten().as_deref() == Some("AskUserQuestion");
             if is_question {
-              (
-                Some(orbitdock_protocol::WorkStatus::Question),
-                Some(Some("awaitingQuestion".to_string())),
-              )
+              Some(orbitdock_protocol::WorkStatus::Question)
             } else {
-              (
-                Some(orbitdock_protocol::WorkStatus::Waiting),
-                Some(Some("awaitingReply".to_string())),
-              )
+              Some(orbitdock_protocol::WorkStatus::Reply)
             }
           }
-          _ => (None, None),
+          _ => None,
         },
-        "TeammateIdle" => (
-          Some(orbitdock_protocol::WorkStatus::Waiting),
-          Some(Some("awaitingReply".to_string())),
-        ),
-        _ => (None, None),
+        "TeammateIdle" => Some(orbitdock_protocol::WorkStatus::Reply),
+        _ => None,
       };
 
       if hook_event_name == "UserPromptSubmit" {
@@ -634,14 +681,11 @@ pub async fn handle_hook_message_with_options(
 
         // Broadcast first_prompt delta and trigger AI naming
         if let Some(ref prompt_text) = prompt {
-          let changes = orbitdock_protocol::StateChanges {
-            first_prompt: Some(Some(prompt_text.clone())),
-            ..Default::default()
-          };
-          let _ = actor
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(changes),
-              persist_op: None,
+          actor
+            .send(SessionCommand::ProcessEvent {
+              event: crate::domain::sessions::transition::Input::FirstPromptCaptured(
+                prompt_text.clone(),
+              ),
             })
             .await;
 
@@ -650,8 +694,6 @@ pub async fn handle_hook_message_with_options(
               session_id.clone(),
               prompt_text.clone(),
               actor.clone(),
-              persist_tx.clone(),
-              state.list_tx(),
             );
           }
         }
@@ -661,29 +703,15 @@ pub async fn handle_hook_message_with_options(
         if let Some(ref prompt_cwd) = cwd {
           let fresh_info = crate::domain::git::repo::resolve_git_info(prompt_cwd).await;
           if let Some(ref info) = fresh_info {
-            // Push delta to clients
-            let _ = actor
-              .send(SessionCommand::ApplyDelta {
-                changes: Box::new(orbitdock_protocol::StateChanges {
-                  current_cwd: Some(Some(prompt_cwd.clone())),
-                  git_branch: Some(Some(info.branch.clone())),
-                  git_sha: Some(Some(info.sha.clone())),
-                  repository_root: Some(Some(info.common_dir_root.clone())),
-                  is_worktree: if info.is_worktree { Some(true) } else { None },
-                  ..Default::default()
-                }),
-                persist_op: None,
-              })
-              .await;
-            // Persist updated environment to DB
-            let _ = persist_tx
-              .send(PersistCommand::EnvironmentUpdate {
-                session_id: session_id.clone(),
-                cwd: Some(prompt_cwd.clone()),
-                git_branch: Some(info.branch.clone()),
-                git_sha: Some(info.sha.clone()),
-                repository_root: Some(info.common_dir_root.clone()),
-                is_worktree: Some(info.is_worktree),
+            actor
+              .send(SessionCommand::ProcessEvent {
+                event: Input::EnvironmentChanged {
+                  cwd: Some(prompt_cwd.clone()),
+                  git_branch: Some(info.branch.clone()),
+                  git_sha: Some(info.sha.clone()),
+                  repository_root: Some(info.common_dir_root.clone()),
+                  is_worktree: Some(info.is_worktree),
+                },
               })
               .await;
           }
@@ -711,18 +739,8 @@ pub async fn handle_hook_message_with_options(
               crate::infrastructure::persistence::extract_summary_from_transcript_path(&path).await
             {
               actor
-                .send(SessionCommand::ApplyDelta {
-                  changes: Box::new(orbitdock_protocol::StateChanges {
-                    summary: Some(Some(extracted_summary.clone())),
-                    ..Default::default()
-                  }),
-                  persist_op: None,
-                })
-                .await;
-              let _ = persist_tx
-                .send(PersistCommand::SetSummary {
-                  session_id: session_id.clone(),
-                  summary: extracted_summary,
+                .send(SessionCommand::ProcessEvent {
+                  event: Input::SummaryUpdated(extracted_summary),
                 })
                 .await;
             }
@@ -754,50 +772,58 @@ pub async fn handle_hook_message_with_options(
 
       if let Some(tool_name) = tool_name {
         actor
-          .send(SessionCommand::SetLastTool {
-            tool: Some(tool_name),
+          .send(SessionCommand::ProcessEvent {
+            event: Input::AttentionUpdated {
+              attention_reason: None,
+              last_tool: Some(tool_name),
+              pending_tool_name: None,
+              pending_tool_input: None,
+              pending_question: None,
+            },
           })
           .await;
       }
 
       if let Some(work_status) = next_work_status {
+        use crate::runtime::session_state_transitions::{
+          attention_reason_for_status, transition_work_status,
+        };
         actor
-          .send(SessionCommand::ApplyDelta {
-            changes: Box::new(orbitdock_protocol::StateChanges {
-              work_status: Some(work_status),
-              last_activity_at: Some(chrono_now()),
-              ..Default::default()
-            }),
-            persist_op: None,
+          .send(SessionCommand::ProcessEvent {
+            event: Input::AttentionUpdated {
+              attention_reason: attention_reason_for_status(work_status),
+              last_tool: None,
+              pending_tool_name: None,
+              pending_tool_input: None,
+              pending_question: None,
+            },
           })
           .await;
+        transition_work_status(
+          &actor,
+          &session_id,
+          work_status,
+          None,
+        )
+        .await;
 
-        let _ = persist_tx
-          .send(PersistCommand::ClaudeSessionUpdate {
-            id: session_id.clone(),
-            work_status: Some(match work_status {
-              orbitdock_protocol::WorkStatus::Working => "working".to_string(),
-              orbitdock_protocol::WorkStatus::Waiting => "waiting".to_string(),
-              orbitdock_protocol::WorkStatus::Permission => "permission".to_string(),
-              orbitdock_protocol::WorkStatus::Question => "question".to_string(),
-              orbitdock_protocol::WorkStatus::Reply => "reply".to_string(),
-              orbitdock_protocol::WorkStatus::Ended => "ended".to_string(),
-            }),
-            attention_reason: persist_attention_reason,
-            last_tool: None,
-            last_tool_at: None,
-            pending_tool_name: None,
-            pending_tool_input: None,
-            pending_question: None,
-            source: None,
-            agent_type: None,
-            permission_mode: permission_mode.clone().map(Some),
-            active_subagent_id: None,
-            active_subagent_type: None,
-            first_prompt: None,
-            compact_count_increment: false,
-          })
-          .await;
+        // Persist permission_mode separately if reported
+        if let Some(ref pm) = permission_mode {
+          actor
+            .send(SessionCommand::ProcessEvent {
+              event: Input::PermissionModeChanged {
+                mode: pm.clone(),
+              },
+            })
+            .await;
+        }
+
+        crate::runtime::session_registry::flush_and_publish_conversation(
+          &persist_tx,
+          state,
+          &session_id,
+        )
+        .await;
       }
 
       maybe_sync_transcript_messages(&actor, &persist_tx, &options).await;
@@ -823,30 +849,16 @@ pub async fn handle_hook_message_with_options(
 
           match hook_event_name.as_str() {
             "PreToolUse" => {
-              let _ = persist_tx
-                .send(PersistCommand::ClaudeSessionUpdate {
-                  id: owner_session_id.clone(),
-                  work_status: None,
-                  attention_reason: None,
-                  last_tool: Some(Some(tool_name.clone())),
-                  last_tool_at: Some(Some(chrono_now())),
-                  pending_tool_name: None,
-                  pending_tool_input: None,
-                  pending_question: None,
-                  source: None,
-                  agent_type: None,
-                  permission_mode: None,
-                  active_subagent_id: None,
-                  active_subagent_type: None,
-                  first_prompt: None,
-                  compact_count_increment: false,
-                })
-                .await;
-
               if let Some(actor) = state.get_session(&owner_session_id) {
                 actor
-                  .send(SessionCommand::SetLastTool {
-                    tool: Some(tool_name.clone()),
+                  .send(SessionCommand::ProcessEvent {
+                    event: Input::AttentionUpdated {
+                      attention_reason: None,
+                      last_tool: Some(tool_name.clone()),
+                      pending_tool_name: None,
+                      pending_tool_input: None,
+                      pending_question: None,
+                    },
                   })
                   .await;
               }
@@ -859,31 +871,17 @@ pub async fn handle_hook_message_with_options(
               // persist supplementary metadata.
               if let Some(actor) = state.get_session(&owner_session_id) {
                 actor
-                  .send(SessionCommand::SetLastTool {
-                    tool: Some(tool_name.clone()),
+                  .send(SessionCommand::ProcessEvent {
+                    event: Input::AttentionUpdated {
+                      attention_reason: None,
+                      last_tool: Some(tool_name),
+                      pending_tool_name: None,
+                      pending_tool_input: None,
+                      pending_question: None,
+                    },
                   })
                   .await;
               }
-
-              let _ = persist_tx
-                .send(PersistCommand::ClaudeSessionUpdate {
-                  id: owner_session_id.clone(),
-                  work_status: None,
-                  attention_reason: None,
-                  last_tool: Some(Some(tool_name)),
-                  last_tool_at: Some(Some(chrono_now())),
-                  pending_tool_name: None,
-                  pending_tool_input: None,
-                  pending_question: None,
-                  source: None,
-                  agent_type: None,
-                  permission_mode: None,
-                  active_subagent_id: None,
-                  active_subagent_type: None,
-                  first_prompt: None,
-                  compact_count_increment: false,
-                })
-                .await;
             }
             "PostToolUse" | "PostToolUseFailure" => {
               // For managed direct sessions, the connector owns
@@ -930,15 +928,14 @@ pub async fn handle_hook_message_with_options(
         // Update branch/worktree info if missing
         if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
           existing
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(orbitdock_protocol::StateChanges {
-                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
-                git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
-                repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+            .send(SessionCommand::ProcessEvent {
+              event: Input::EnvironmentChanged {
+                cwd: None,
+                git_branch: git_branch.clone(),
+                git_sha: git_sha.clone(),
+                repository_root: repository_root.clone(),
                 is_worktree: if is_worktree { Some(true) } else { None },
-                ..Default::default()
-              }),
-              persist_op: None,
+              },
             })
             .await;
         }
@@ -994,8 +991,26 @@ pub async fn handle_hook_message_with_options(
             .and_then(|value| serde_json::to_string(value).ok());
 
           actor
-            .send(SessionCommand::SetLastTool {
-              tool: Some(tool_name.clone()),
+            .send(SessionCommand::ProcessEvent {
+              event: Input::AttentionUpdated {
+                attention_reason: None,
+                last_tool: Some(tool_name.clone()),
+                pending_tool_name: if was_permission || had_pending_approval {
+                  None
+                } else {
+                  Some(Some(tool_name.clone()))
+                },
+                pending_tool_input: if was_permission || had_pending_approval {
+                  None
+                } else {
+                  Some(serialized_input)
+                },
+                pending_question: if was_permission || had_pending_approval {
+                  None
+                } else {
+                  Some(question)
+                },
+              },
             })
             .await;
           actor
@@ -1009,37 +1024,15 @@ pub async fn handle_hook_message_with_options(
             })
             .await;
 
-          let _ = persist_tx
-            .send(PersistCommand::ClaudeSessionUpdate {
-              id: session_id.clone(),
-              work_status: Some("working".to_string()),
-              attention_reason: Some(Some("none".to_string())),
-              last_tool: Some(Some(tool_name.clone())),
-              last_tool_at: Some(Some(chrono_now())),
-              pending_tool_name: if was_permission || had_pending_approval {
-                None
-              } else {
-                Some(Some(tool_name.clone()))
-              },
-              pending_tool_input: if was_permission || had_pending_approval {
-                None
-              } else {
-                Some(serialized_input)
-              },
-              pending_question: if was_permission || had_pending_approval {
-                None
-              } else {
-                Some(question)
-              },
-              source: None,
-              agent_type: None,
-              permission_mode: permission_mode.clone().map(Some),
-              active_subagent_id: None,
-              active_subagent_type: None,
-              first_prompt: None,
-              compact_count_increment: false,
-            })
-            .await;
+          if let Some(ref pm) = permission_mode {
+            actor
+              .send(SessionCommand::ProcessEvent {
+                event: Input::PermissionModeChanged {
+                  mode: pm.clone(),
+                },
+              })
+              .await;
+          }
         }
         "PostToolUse" => {
           resolve_pending_approvals_after_tool_outcome(
@@ -1056,39 +1049,37 @@ pub async fn handle_hook_message_with_options(
               id: session_id.clone(),
             })
             .await;
-          let _ = persist_tx
-            .send(PersistCommand::ClaudeSessionUpdate {
-              id: session_id.clone(),
-              work_status: Some("working".to_string()),
-              attention_reason: Some(Some("none".to_string())),
-              last_tool: None,
-              last_tool_at: None,
-              pending_tool_name: Some(None),
-              pending_tool_input: Some(None),
-              pending_question: Some(None),
-              source: None,
-              agent_type: None,
-              permission_mode: permission_mode.clone().map(Some),
-              active_subagent_id: None,
-              active_subagent_type: None,
-              first_prompt: None,
-              compact_count_increment: false,
+          // Clear pending attention fields after tool completion
+          actor
+            .send(SessionCommand::ProcessEvent {
+              event: Input::AttentionUpdated {
+                attention_reason: None,
+                last_tool: None,
+                pending_tool_name: Some(None),
+                pending_tool_input: Some(None),
+                pending_question: Some(None),
+              },
             })
             .await;
 
           // Broadcast permission_mode changes (e.g. EnterPlanMode sets "plan",
           // ExitPlanMode restores "default") so clients update immediately.
-          let mut delta = orbitdock_protocol::StateChanges {
-            work_status: Some(orbitdock_protocol::WorkStatus::Working),
-            last_activity_at: Some(chrono_now()),
-            ..Default::default()
-          };
-          if permission_mode.is_some() {
-            delta.permission_mode = Some(permission_mode.clone());
+          if let Some(ref pm) = permission_mode {
+            actor
+              .send(SessionCommand::ProcessEvent {
+                event: Input::PermissionModeChanged {
+                  mode: pm.clone(),
+                },
+              })
+              .await;
           }
           actor
             .send(SessionCommand::ApplyDelta {
-              changes: Box::new(delta),
+              changes: Box::new(orbitdock_protocol::StateChanges {
+                work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                last_activity_at: Some(chrono_now()),
+                ..Default::default()
+              }),
               persist_op: None,
             })
             .await;
@@ -1113,61 +1104,43 @@ pub async fn handle_hook_message_with_options(
               id: session_id.clone(),
             })
             .await;
-          let _ = persist_tx
-            .send(PersistCommand::ClaudeSessionUpdate {
-              id: session_id.clone(),
-              work_status: Some("working".to_string()),
-              attention_reason: Some(Some("none".to_string())),
-              last_tool: None,
-              last_tool_at: None,
-              pending_tool_name: Some(None),
-              pending_tool_input: Some(None),
-              pending_question: Some(None),
-              source: None,
-              agent_type: None,
-              permission_mode: permission_mode.clone().map(Some),
-              active_subagent_id: None,
-              active_subagent_type: None,
-              first_prompt: None,
-              compact_count_increment: false,
-            })
+          {
+            use crate::runtime::session_state_transitions::{
+              attention_reason_for_status, transition_work_status,
+            };
+            actor
+              .send(SessionCommand::ProcessEvent {
+                event: Input::AttentionUpdated {
+                  attention_reason: attention_reason_for_status(
+                    orbitdock_protocol::WorkStatus::Working,
+                  ),
+                  last_tool: None,
+                  pending_tool_name: None,
+                  pending_tool_input: None,
+                  pending_question: None,
+                },
+              })
+              .await;
+            transition_work_status(
+              &actor,
+              &session_id,
+              orbitdock_protocol::WorkStatus::Working,
+              None,
+            )
             .await;
-
-          actor
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(orbitdock_protocol::StateChanges {
-                work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                last_activity_at: Some(chrono_now()),
-                ..Default::default()
-              }),
-              persist_op: None,
-            })
-            .await;
+          }
         }
         "PermissionRequest" => {
           let serialized_input = tool_input
             .as_ref()
             .and_then(|value| serde_json::to_string(value).ok());
-          let (approval_type, work_status, attention_reason) =
+          let (approval_type, work_status) =
             classify_permission_request(&tool_name);
           let request_id =
             claude_permission_request_id(Some(&actor), &tool_name, tool_use_id.as_deref());
           let fallback_question = extract_question_from_tool_input(tool_input.as_ref());
           let question_text =
             approval_question(serialized_input.as_deref(), fallback_question.as_deref());
-          let question_prompts =
-            approval_question_prompts(serialized_input.as_deref(), question_text.as_deref());
-          let preview = approval_preview(ApprovalPreviewInput {
-            request_id: request_id.as_str(),
-            approval_type,
-            tool_name: Some(tool_name.as_str()),
-            tool_input: serialized_input.as_deref(),
-            command: None,
-            file_path: None,
-            diff: None,
-            question: question_text.as_deref(),
-            permission_reason: None,
-          });
           let plan_text = extract_plan_from_tool_input(tool_input.as_ref());
           let snapshot = actor.snapshot();
           let is_duplicate_request = permission_request_matches_snapshot(
@@ -1186,37 +1159,33 @@ pub async fn handle_hook_message_with_options(
           if is_duplicate_request {
             // Duplicate permission request with unchanged effective state — skip.
           } else {
+            // Set last_tool before the approval
             actor
-              .send(SessionCommand::SetLastTool {
-                tool: Some(tool_name.clone()),
-              })
-              .await;
-            actor
-              .send(SessionCommand::SetPendingApproval {
-                request_id: request_id.clone(),
-                approval_type,
-                proposed_amendment: None,
-                tool_name: Some(tool_name.clone()),
-                tool_input: serialized_input.clone(),
-                question: question_text.clone(),
-              })
-              .await;
-            actor
-              .send(SessionCommand::ApplyDelta {
-                changes: Box::new(orbitdock_protocol::StateChanges {
-                  work_status: Some(work_status),
-                  current_plan: plan_text.clone().map(Some),
-                  last_activity_at: Some(chrono_now()),
-                  ..Default::default()
-                }),
-                persist_op: None,
+              .send(SessionCommand::ProcessEvent {
+                event: Input::AttentionUpdated {
+                  attention_reason: crate::runtime::session_state_transitions::attention_reason_for_status(work_status),
+                  last_tool: Some(tool_name.clone()),
+                  pending_tool_name: None,
+                  pending_tool_input: None,
+                  pending_question: None,
+                },
               })
               .await;
 
-            let _ = persist_tx
-              .send(PersistCommand::ApprovalRequested(Box::new(
-                ApprovalRequestedParams {
-                  session_id: session_id.clone(),
+            // Handle plan update if present
+            if let Some(plan_text) = plan_text {
+              actor
+                .send(SessionCommand::ProcessEvent {
+                  event: Input::PlanUpdated(plan_text),
+                })
+                .await;
+            }
+
+            // ApprovalRequested handles: pending fields, work_status persist,
+            // approval row persist, and broadcast — all atomically.
+            actor
+              .send(SessionCommand::ProcessEvent {
+                event: Input::ApprovalRequested {
                   request_id: request_id.clone(),
                   approval_type,
                   tool_name: Some(tool_name.clone()),
@@ -1225,12 +1194,8 @@ pub async fn handle_hook_message_with_options(
                   file_path: None,
                   diff: None,
                   question: question_text.clone(),
-                  question_prompts,
-                  preview,
                   permission_reason: None,
                   requested_permissions: None,
-                  granted_permissions: None,
-                  cwd: None,
                   proposed_amendment: None,
                   permission_suggestions: permission_suggestions.clone(),
                   elicitation_mode: None,
@@ -1241,49 +1206,25 @@ pub async fn handle_hook_message_with_options(
                   network_host: None,
                   network_protocol: None,
                 },
-              )))
+              })
               .await;
 
-            if let Some(plan_text) = plan_text {
-              let _ = persist_tx
-                .send(PersistCommand::TurnStateUpdate {
-                  session_id: session_id.clone(),
-                  diff: None,
-                  plan: Some(plan_text),
+            if let Some(ref pm) = permission_mode {
+              actor
+                .send(SessionCommand::ProcessEvent {
+                  event: Input::PermissionModeChanged {
+                    mode: pm.clone(),
+                  },
                 })
                 .await;
             }
 
-            let pending_question = if approval_type == orbitdock_protocol::ApprovalType::Question {
-              Some(question_text)
-            } else {
-              None
-            };
-
-            let _ = persist_tx
-              .send(PersistCommand::ClaudeSessionUpdate {
-                id: session_id.clone(),
-                work_status: Some(
-                  serde_json::to_value(work_status)
-                    .ok()
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_else(|| "permission".to_string()),
-                ),
-                attention_reason: Some(Some(attention_reason.to_string())),
-                last_tool: Some(Some(tool_name.clone())),
-                last_tool_at: Some(Some(chrono_now())),
-                pending_tool_name: Some(Some(tool_name)),
-                pending_tool_input: Some(serialized_input),
-                pending_question,
-                source: None,
-                agent_type: None,
-                permission_mode: permission_mode.map(Some),
-                active_subagent_id: None,
-                active_subagent_type: None,
-                first_prompt: None,
-                compact_count_increment: false,
-              })
-              .await;
+            crate::runtime::session_registry::flush_and_publish_conversation(
+              &persist_tx,
+              state,
+              &session_id,
+            )
+            .await;
           }
         }
         _ => {}
@@ -1550,8 +1491,10 @@ async fn publish_claude_subagent_update(
 
   let updated_subagents = apply_claude_subagent_update(current_subagents, update);
   actor
-    .send(SessionCommand::SetSubagents {
-      subagents: updated_subagents,
+    .send(SessionCommand::ProcessEvent {
+      event: Input::SubagentsUpdated {
+        subagents: updated_subagents,
+      },
     })
     .await;
 }
@@ -1741,15 +1684,12 @@ mod tests {
 
     assert_eq!(question.0, orbitdock_protocol::ApprovalType::Question);
     assert_eq!(question.1, WorkStatus::Question);
-    assert_eq!(question.2, "awaitingQuestion");
 
     assert_eq!(patch.0, orbitdock_protocol::ApprovalType::Patch);
     assert_eq!(patch.1, WorkStatus::Permission);
-    assert_eq!(patch.2, "awaitingPermission");
 
     assert_eq!(exec.0, orbitdock_protocol::ApprovalType::Exec);
     assert_eq!(exec.1, WorkStatus::Permission);
-    assert_eq!(exec.2, "awaitingPermission");
   }
 
   #[test]

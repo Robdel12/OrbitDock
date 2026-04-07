@@ -38,13 +38,11 @@ pub(crate) fn classify_permission_request(
 ) -> (
   orbitdock_protocol::ApprovalType,
   orbitdock_protocol::WorkStatus,
-  &'static str,
 ) {
   if tool_name == "AskUserQuestion" {
     return (
       orbitdock_protocol::ApprovalType::Question,
       orbitdock_protocol::WorkStatus::Question,
-      "awaitingQuestion",
     );
   }
 
@@ -52,14 +50,12 @@ pub(crate) fn classify_permission_request(
     return (
       orbitdock_protocol::ApprovalType::Patch,
       orbitdock_protocol::WorkStatus::Permission,
-      "awaitingPermission",
     );
   }
 
   (
     orbitdock_protocol::ApprovalType::Exec,
     orbitdock_protocol::WorkStatus::Permission,
-    "awaitingPermission",
   )
 }
 
@@ -153,18 +149,6 @@ pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
         session_id: session_id.to_string(),
         request_id,
         decision: decision.to_string(),
-      })
-      .await;
-
-    let _ = persist_tx
-      .send(PersistCommand::SessionUpdate {
-        id: session_id.to_string(),
-        status: None,
-        work_status: Some(resolution.work_status),
-        control_mode: None,
-        lifecycle_state: None,
-        last_activity_at: None,
-        last_progress_at: None,
       })
       .await;
 

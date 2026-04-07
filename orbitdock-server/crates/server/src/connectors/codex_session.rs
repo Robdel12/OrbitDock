@@ -77,6 +77,7 @@ impl DynamicToolExecutionResult {
   }
 }
 
+
 #[derive(Default)]
 struct DynamicWorkspaceDiffTracker {
   baseline_files: BTreeMap<PathBuf, Option<String>>,
@@ -320,7 +321,7 @@ pub fn start_event_loop(
 
   tokio::spawn(async move {
     // Watchdog channel for synthetic events (interrupt timeout)
-    let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
+    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<orbitdock_connector_core::ConnectorEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
     'session_loop: loop {
@@ -351,27 +352,6 @@ pub fn start_event_loop(
                       &mut dynamic_diff_tracker,
                       &persist,
                   ).await;
-              }
-
-              if let orbitdock_connector_core::ConnectorEvent::SubagentsUpdated { subagents } = &event {
-                  for info in subagents.clone() {
-                      let _ = persist
-                          .send(PersistCommand::UpsertSubagent {
-                              session_id: session_id.clone(),
-                              info,
-                          })
-                          .await;
-                  }
-
-                  handle_session_command(
-                      SessionCommand::SetSubagents {
-                          subagents: subagents.clone(),
-                      },
-                      &mut session_handle,
-                      &persist,
-                  )
-                  .await;
-                  continue;
               }
 
               if let orbitdock_connector_core::ConnectorEvent::DynamicToolCallRequested {
@@ -423,18 +403,26 @@ pub fn start_event_loop(
                   _ => event,
               };
 
+              let dashboard_refresh_needed = enriched_event.requires_dashboard_refresh();
               dispatch_connector_event(
                   &session_id, enriched_event, &mut session_handle, &persist,
               ).await;
+              if dashboard_refresh_needed {
+                  state.publish_dashboard_conversation_updated(&session_id);
+              }
               if clear_dynamic_diff_after_event {
                   dynamic_diff_tracker.clear();
               }
           }
 
           Some(event) = watchdog_rx.recv() => {
+              let dashboard_refresh_needed = event.requires_dashboard_refresh();
               dispatch_connector_event(
                   &session_id, event, &mut session_handle, &persist,
               ).await;
+              if dashboard_refresh_needed {
+                  state.publish_dashboard_conversation_updated(&session_id);
+              }
           }
 
           Some(action) = action_rx.recv() => {

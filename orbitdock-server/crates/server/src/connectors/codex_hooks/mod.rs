@@ -8,7 +8,7 @@ use tracing::warn;
 
 use orbitdock_protocol::{
   ClientMessage, CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState,
-  SessionStatus, StateChanges, WorkStatus,
+  SessionStatus, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -16,12 +16,12 @@ use crate::infrastructure::persistence::{
   extract_summary_from_transcript_path, load_direct_codex_owner_by_thread_id, PersistCommand,
   SessionCreateParams,
 };
+use crate::domain::sessions::transition::Input;
 use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingCodexSession, PendingHookSession, SessionRegistry};
 use crate::runtime::session_runtime_helpers::sync_transcript_messages;
 use crate::support::session_paths::project_name_from_cwd;
-use crate::support::session_time::chrono_now;
 
 enum CodexHookRoutingDecision {
   ManagedDirect { owner_session_id: String },
@@ -69,7 +69,11 @@ async fn cleanup_codex_shadow_session(state: &Arc<SessionRegistry>, thread_id: &
   });
 
   if should_remove_runtime_shadow && state.remove_session(thread_id).is_some() {
-    state.publish_dashboard_snapshot();
+    let _ = state
+      .list_tx()
+      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+        session_id: thread_id.to_string(),
+      });
   }
 }
 
@@ -121,35 +125,23 @@ async fn resolve_codex_hook_routing(
 
 async fn apply_codex_hook_metadata(
   actor: &SessionActorHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  session_id: &str,
+  _persist_tx: &mpsc::Sender<PersistCommand>,
+  _session_id: &str,
   model: Option<&String>,
   transcript_path: Option<&String>,
 ) {
   if let Some(model) = model {
     actor
-      .send(SessionCommand::SetModel {
-        model: Some(model.clone()),
-      })
-      .await;
-    let _ = persist_tx
-      .send(PersistCommand::ModelUpdate {
-        session_id: session_id.to_string(),
-        model: model.clone(),
+      .send(SessionCommand::ProcessEvent {
+        event: Input::ModelUpdated(model.clone()),
       })
       .await;
   }
 
   if let Some(transcript_path) = transcript_path {
     actor
-      .send(SessionCommand::SetTranscriptPath {
-        path: Some(transcript_path.clone()),
-      })
-      .await;
-    let _ = persist_tx
-      .send(PersistCommand::SetTranscriptPath {
-        session_id: session_id.to_string(),
-        transcript_path: Some(transcript_path.clone()),
+      .send(SessionCommand::ProcessEvent {
+        event: Input::TranscriptPathUpdated(Some(transcript_path.clone())),
       })
       .await;
   }
@@ -189,7 +181,7 @@ async fn materialize_codex_session(
   let actor = state.add_session(handle);
 
   let _ = actor.summary().await;
-  state.publish_dashboard_snapshot();
+  state.publish_dashboard_conversation_updated(thread_id);
 
   let _ = persist_tx
     .send(PersistCommand::ReactivateSession {
@@ -234,18 +226,16 @@ async fn materialize_codex_session(
     })
     .await;
   if let Some(transcript_path) = transcript_path {
-    let _ = persist_tx
-      .send(PersistCommand::SetTranscriptPath {
-        session_id: thread_id.to_string(),
-        transcript_path: Some(transcript_path),
+    actor
+      .send(SessionCommand::ProcessEvent {
+        event: Input::TranscriptPathUpdated(Some(transcript_path)),
       })
       .await;
   }
   if let Some(model) = model {
-    let _ = persist_tx
-      .send(PersistCommand::ModelUpdate {
-        session_id: thread_id.to_string(),
-        model,
+    actor
+      .send(SessionCommand::ProcessEvent {
+        event: Input::ModelUpdated(model),
       })
       .await;
   }
@@ -290,52 +280,36 @@ async fn maybe_claim_direct_codex_session(
   registered || persist_sent
 }
 
-async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {
-  let now = chrono_now();
-  actor
-    .send(SessionCommand::ApplyDelta {
-      changes: Box::new(StateChanges {
-        work_status: Some(WorkStatus::Working),
-        last_activity_at: Some(now.clone()),
-        ..Default::default()
-      }),
-      persist_op: Some(PersistOp::SessionUpdate {
-        id: session_id.to_string(),
-        status: None,
-        work_status: Some(WorkStatus::Working),
-        lifecycle_state: None,
-        last_activity_at: Some(now),
-        last_progress_at: None,
-      }),
-    })
-    .await;
+async fn mark_passive_turn_started(
+  actor: &SessionActorHandle,
+  session_id: &str,
+) {
+  crate::runtime::session_state_transitions::transition_work_status(
+    actor,
+    session_id,
+    WorkStatus::Working,
+    None,
+  )
+  .await;
 }
 
-async fn mark_passive_turn_stopped(actor: &SessionActorHandle, session_id: &str) {
-  let now = chrono_now();
-  actor
-    .send(SessionCommand::ApplyDelta {
-      changes: Box::new(StateChanges {
-        work_status: Some(WorkStatus::Waiting),
-        last_activity_at: Some(now.clone()),
-        ..Default::default()
-      }),
-      persist_op: Some(PersistOp::SessionUpdate {
-        id: session_id.to_string(),
-        status: None,
-        work_status: Some(WorkStatus::Waiting),
-        lifecycle_state: None,
-        last_activity_at: Some(now),
-        last_progress_at: None,
-      }),
-    })
-    .await;
+async fn mark_passive_turn_stopped(
+  actor: &SessionActorHandle,
+  session_id: &str,
+) {
+  crate::runtime::session_state_transitions::transition_work_status(
+    actor,
+    session_id,
+    WorkStatus::Reply,
+    None,
+  )
+  .await;
 }
 
 async fn maybe_extract_transcript_summary(
   actor: &SessionActorHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  session_id: &str,
+  _persist_tx: &mpsc::Sender<PersistCommand>,
+  _session_id: &str,
   transcript_path: Option<&String>,
 ) {
   let snapshot = actor.snapshot();
@@ -356,48 +330,12 @@ async fn maybe_extract_transcript_summary(
   };
 
   actor
-    .send(SessionCommand::ApplyDelta {
-      changes: Box::new(StateChanges {
-        summary: Some(Some(summary.clone())),
-        ..Default::default()
-      }),
-      persist_op: None,
-    })
-    .await;
-  let _ = persist_tx
-    .send(PersistCommand::SetSummary {
-      session_id: session_id.to_string(),
-      summary,
+    .send(SessionCommand::ProcessEvent {
+      event: crate::domain::sessions::transition::Input::SummaryUpdated(summary),
     })
     .await;
 }
 
-async fn persist_session_attention(
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  session_id: &str,
-  update: SessionAttentionUpdate,
-) {
-  let _ = persist_tx
-    .send(PersistCommand::SessionAttentionUpdate {
-      session_id: session_id.to_string(),
-      attention_reason: update.attention_reason,
-      last_tool: update.last_tool,
-      last_tool_at: update.last_tool_at,
-      pending_tool_name: update.pending_tool_name,
-      pending_tool_input: update.pending_tool_input,
-      pending_question: update.pending_question,
-    })
-    .await;
-}
-
-struct SessionAttentionUpdate {
-  attention_reason: Option<Option<String>>,
-  last_tool: Option<Option<String>>,
-  last_tool_at: Option<Option<String>>,
-  pending_tool_name: Option<Option<String>>,
-  pending_tool_input: Option<Option<String>>,
-  pending_question: Option<Option<String>>,
-}
 
 fn serialized_tool_input(tool_input: Option<&Value>) -> Option<String> {
   tool_input.and_then(|value| serde_json::to_string(value).ok())
@@ -425,7 +363,6 @@ async fn maybe_sync_transcript_messages(
 
 async fn handle_codex_pre_tool_use(
   actor: &SessionActorHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
   session_id: &str,
   tool_name: &str,
   tool_input: Option<&Value>,
@@ -433,30 +370,27 @@ async fn handle_codex_pre_tool_use(
   let serialized_input = serialized_tool_input(tool_input);
   let pending_question = codex_tool_question(tool_input);
 
+  let ws = if pending_question.is_some() {
+    WorkStatus::Question
+  } else {
+    WorkStatus::Working
+  };
+
+  let attention_reason =
+    crate::runtime::session_state_transitions::attention_reason_for_status(ws);
   actor
-    .send(SessionCommand::SetLastTool {
-      tool: Some(tool_name.to_string()),
+    .send(SessionCommand::ProcessEvent {
+      event: Input::AttentionUpdated {
+        attention_reason,
+        last_tool: Some(tool_name.to_string()),
+        pending_tool_name: Some(Some(tool_name.to_string())),
+        pending_tool_input: Some(serialized_input),
+        pending_question: Some(pending_question),
+      },
     })
     .await;
-  mark_passive_turn_started(actor, session_id).await;
-  actor
-    .send(SessionCommand::SetPendingAttention {
-      pending_tool_name: Some(tool_name.to_string()),
-      pending_tool_input: serialized_input.clone(),
-      pending_question: pending_question.clone(),
-    })
-    .await;
-  persist_session_attention(
-    persist_tx,
-    session_id,
-    SessionAttentionUpdate {
-      attention_reason: Some(Some("none".to_string())),
-      last_tool: Some(Some(tool_name.to_string())),
-      last_tool_at: Some(Some(chrono_now())),
-      pending_tool_name: Some(Some(tool_name.to_string())),
-      pending_tool_input: Some(serialized_input),
-      pending_question: Some(pending_question),
-    },
+  crate::runtime::session_state_transitions::transition_work_status(
+    actor, session_id, ws, None,
   )
   .await;
 }
@@ -467,10 +401,14 @@ async fn handle_codex_post_tool_use(
   session_id: &str,
 ) {
   actor
-    .send(SessionCommand::SetPendingAttention {
-      pending_tool_name: None,
-      pending_tool_input: None,
-      pending_question: None,
+    .send(SessionCommand::ProcessEvent {
+      event: Input::AttentionUpdated {
+        attention_reason: Some(Some("none".to_string())),
+        last_tool: None,
+        pending_tool_name: Some(None),
+        pending_tool_input: Some(None),
+        pending_question: Some(None),
+      },
     })
     .await;
   mark_passive_turn_started(actor, session_id).await;
@@ -479,19 +417,6 @@ async fn handle_codex_post_tool_use(
       session_id: session_id.to_string(),
     })
     .await;
-  persist_session_attention(
-    persist_tx,
-    session_id,
-    SessionAttentionUpdate {
-      attention_reason: Some(Some("none".to_string())),
-      last_tool: None,
-      last_tool_at: None,
-      pending_tool_name: Some(None),
-      pending_tool_input: Some(None),
-      pending_question: Some(None),
-    },
-  )
-  .await;
 }
 
 pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry>) {
@@ -717,7 +642,6 @@ pub async fn handle_hook_message_with_options(
               "PreToolUse" => {
                 handle_codex_pre_tool_use(
                   &actor,
-                  &persist_tx,
                   &owner_session_id,
                   &tool_name,
                   tool_input.as_ref(),
@@ -764,7 +688,6 @@ pub async fn handle_hook_message_with_options(
         "PreToolUse" => {
           handle_codex_pre_tool_use(
             &actor,
-            &persist_tx,
             &session_id,
             &tool_name,
             tool_input.as_ref(),
@@ -1008,7 +931,9 @@ mod tests {
     let snapshot = actor.snapshot();
     assert_eq!(snapshot.provider, Provider::Codex);
     assert_eq!(snapshot.control_mode, SessionControlMode::Passive);
-    assert_eq!(snapshot.work_status, WorkStatus::Working);
+    // When the tool has a pending question, work_status should be Question (not Working)
+    // so the dashboard and control deck surface it as needing user attention.
+    assert_eq!(snapshot.work_status, WorkStatus::Question);
     assert_eq!(snapshot.pending_tool_name.as_deref(), Some("Bash"));
     assert_eq!(
       snapshot.pending_tool_input.as_deref(),
@@ -1032,7 +957,7 @@ mod tests {
         pending_question,
       }
         if session_id == "codex-thread-tool-passive"
-          && attention_reason.as_ref() == Some(&Some("none".to_string()))
+          && attention_reason.as_ref() == Some(&Some("awaitingQuestion".to_string()))
           && last_tool.as_ref() == Some(&Some("Bash".to_string()))
           && last_tool_at.as_ref().is_some_and(|value| value.is_some())
           && pending_tool_name.as_ref() == Some(&Some("Bash".to_string()))
