@@ -49,6 +49,8 @@ enum AppWindowPlanner {
         return .mission(ref)
       case let .terminal(terminalId):
         return .terminal(terminalId: terminalId)
+      case .settings:
+        return .dashboard
     }
   }
 

@@ -16,6 +16,7 @@ struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(DashboardDataService.self) private var dashboardDataService
   @Environment(AppRouter.self) private var router
   @Environment(OrbitDockAppRuntime.self) private var appRuntime
 

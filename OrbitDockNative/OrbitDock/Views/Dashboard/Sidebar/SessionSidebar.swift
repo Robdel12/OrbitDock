@@ -340,6 +340,14 @@ struct SessionSidebar: View {
         ) {
           router.goToLibrary()
         }
+
+        footerNavButton(
+          icon: "gearshape",
+          label: "Settings",
+          isActive: router.workspaceSelection == .settings
+        ) {
+          router.goToSettings(source: .dashboardSidebar)
+        }
       }
       .padding(.horizontal, Spacing.md)
       .padding(.vertical, Spacing.md_)

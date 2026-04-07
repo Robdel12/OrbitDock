@@ -11,7 +11,7 @@ struct DashboardView: View {
 
       VStack(spacing: 0) {
         DashboardStatusBar(
-          sessions: viewModel.rootSessions
+          sessions: viewModel.librarySessions
         )
 
         switch router.dashboardTab {
@@ -22,10 +22,8 @@ struct DashboardView: View {
           case .library:
             LibraryView(
               sessions: viewModel.librarySessions,
-              hasMoreSessions: viewModel.libraryHasMoreSessions,
-              onLoadMoreSessions: {
-                await viewModel.loadMoreLibrarySessions()
-              },
+              hasMoreSessions: false,
+              onLoadMoreSessions: {},
               containerWidth: containerWidth
             )
         }
@@ -61,7 +59,8 @@ struct DashboardView: View {
     shouldBootstrapFromSettings: false
   )
   let router = AppRouter()
-  DashboardView(viewModel: DashboardViewModel())
+  let dataService = DashboardDataService()
+  DashboardView(viewModel: DashboardViewModel(dataService: dataService))
     .frame(width: 900, height: 500)
     .environment(runtimeRegistry)
     .environment(router)

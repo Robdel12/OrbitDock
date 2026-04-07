@@ -21,6 +21,7 @@ enum WorkspaceSelection: Hashable {
   case missions
   case library
   case terminal(terminalId: String)
+  case settings
 }
 
 enum NavigationSource: String, Sendable {
@@ -41,6 +42,7 @@ enum AppRoute: Equatable {
   case session(SessionRef)
   case mission(MissionRef)
   case terminal(terminalId: String)
+  case settings
 }
 
 /// The destinations that can be pushed onto the navigation stack.
@@ -122,6 +124,7 @@ final class AppRouter {
       case .missions: .dashboard(.missions)
       case .library: .dashboard(.library)
       case let .terminal(terminalId): .terminal(terminalId: terminalId)
+      case .settings: .settings
     }
   }
 
@@ -200,6 +203,7 @@ final class AppRouter {
       case .missions: return "Missions"
       case .library: return "Library"
       case .terminal: return "Terminal"
+      case .settings: return "Settings"
     }
   }
 
@@ -239,6 +243,26 @@ final class AppRouter {
 
   func goToLibrary() {
     selectDashboardTab(.library)
+  }
+
+  func goToSettings(source: NavigationSource = .unspecified) {
+    guard workspaceSelection != .settings else {
+      logNavigation(
+        action: "goToSettings",
+        source: source,
+        outcome: "noop",
+        details: "route=\(routeSummary)"
+      )
+      return
+    }
+
+    logNavigation(
+      action: "goToSettings",
+      source: source,
+      outcome: "applied",
+      details: "from=\(routeSummary)"
+    )
+    workspaceSelection = .settings
   }
 
   func selectDashboardTab(_ tab: DashboardTab, source: NavigationSource = .unspecified) {
@@ -335,6 +359,7 @@ final class AppRouter {
       case .missions: "missions"
       case .library: "library"
       case let .terminal(terminalId): "terminal(\(terminalId))"
+      case .settings: "settings"
     }
   }
 

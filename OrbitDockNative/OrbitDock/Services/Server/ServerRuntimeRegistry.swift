@@ -582,12 +582,6 @@ final class ServerRuntimeRegistry {
             hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
 
-        case .dashboardInvalidated:
-          Task { [weak self, weak runtime] in
-            guard let self, let runtime else { return }
-            _ = await self.refreshDashboardConversations(for: runtime)
-          }
-
         case .missionsSnapshot:
           self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
@@ -605,11 +599,6 @@ final class ServerRuntimeRegistry {
         case let .error(code, _, sessionId):
           guard sessionId == nil else { break }
           switch code {
-            case "dashboard_resync_required", "lagged", "replay_oversized":
-              Task { [weak self, weak runtime] in
-                guard let self, let runtime else { return }
-                _ = await self.refreshDashboardConversations(for: runtime)
-              }
             case "missions_resync_required":
               Task { [weak self, weak runtime] in
                 guard let self, let runtime else { return }

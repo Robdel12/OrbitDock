@@ -10,6 +10,7 @@ import SwiftUI
   struct MenuBarView: View {
     @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
     @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
+    @Environment(DashboardDataService.self) private var dashboardDataService
     @Environment(OrbitDockAppRuntime.self) private var appRuntime
     @Environment(\.colorScheme) private var colorScheme
     @State private var viewModel = MenuBarViewModel()
@@ -128,7 +129,6 @@ import SwiftUI
 
           Button {
             runtimeRegistry.refreshEnabledSessionLists()
-            Task { await viewModel.refreshSnapshot() }
             Task { await usageServiceRegistry.refreshAll() }
           } label: {
             Image(systemName: "arrow.clockwise")
@@ -145,9 +145,11 @@ import SwiftUI
       .task {
         if appRuntime.isDemoModeEnabled {
           viewModel.applySessions(appRuntime.demoExperience.rootSessions)
-        } else {
-          await viewModel.observe(runtimeRegistry: runtimeRegistry)
         }
+      }
+      .onChange(of: dashboardDataService.librarySessions) { _, sessions in
+        guard !appRuntime.isDemoModeEnabled else { return }
+        viewModel.applySessions(sessions)
       }
     }
 

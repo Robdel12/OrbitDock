@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class OrbitDockAppRuntime {
   let runtimeRegistry: ServerRuntimeRegistry
+  let dashboardDataService: DashboardDataService
   let externalNavigationCenter: AppExternalNavigationCenter
   let notificationCoordinator: NotificationCoordinator
   let focusTracker: AppFocusTracker
@@ -17,6 +18,7 @@ final class OrbitDockAppRuntime {
   init() {
     let runtimeRegistry = ServerRuntimeRegistry()
     self.runtimeRegistry = runtimeRegistry
+    self.dashboardDataService = DashboardDataService()
     self.externalNavigationCenter = AppExternalNavigationCenter()
     self.notificationCoordinator = NotificationCoordinator()
     self.focusTracker = AppFocusTracker()
@@ -32,6 +34,7 @@ final class OrbitDockAppRuntime {
     notificationCoordinator.startIfNeeded()
     focusTracker.startObserving()
     await startupCoordinator.startIfNeeded()
+    dashboardDataService.start(runtimeRegistry: runtimeRegistry)
   }
 
   func enterDemoMode() {

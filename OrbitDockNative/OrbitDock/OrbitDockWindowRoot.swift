@@ -4,7 +4,7 @@ struct OrbitDockWindowRoot: View {
   @Environment(OrbitDockAppRuntime.self) private var environmentAppRuntime
   let appRuntime: OrbitDockAppRuntime
   @State private var router = AppRouter()
-  @State private var dashboardViewModel = DashboardViewModel()
+  @State private var dashboardViewModel: DashboardViewModel
   @State private var terminalRegistry = TerminalSessionRegistry()
   @State private var notificationSessionMonitor = NotificationSessionMonitor()
   @State private var externalNavWindowID = UUID()
@@ -17,6 +17,7 @@ struct OrbitDockWindowRoot: View {
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
+    _dashboardViewModel = State(initialValue: DashboardViewModel(dataService: appRuntime.dashboardDataService))
   }
 
   var body: some View {
@@ -43,6 +44,7 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime)
     .environment(router)
     .environment(terminalRegistry)
+    .environment(appRuntime.dashboardDataService)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
@@ -76,11 +78,8 @@ struct OrbitDockWindowRoot: View {
           directCount: conversations.filter(\.isDirect).count,
           hasMultipleEndpoints: false
         ))
+        appRuntime.dashboardDataService.applyDemoSessions(appRuntime.demoExperience.rootSessions)
         notificationSessionMonitor.applySessions(appRuntime.demoExperience.rootSessions)
-      } else {
-        async let dashboardObs: Void = dashboardViewModel.observe(runtimeRegistry: appRuntime.runtimeRegistry)
-        async let notifObs: Void = notificationSessionMonitor.observe(runtimeRegistry: appRuntime.runtimeRegistry)
-        _ = await (dashboardObs, notifObs)
       }
     }
     .onAppear {
@@ -96,7 +95,8 @@ struct OrbitDockWindowRoot: View {
     .onDisappear {
       appRuntime.externalNavigationCenter.unregisterWindow(externalNavWindowID)
     }
-    .onChange(of: notificationSessionMonitor.sessions) { oldSessions, newSessions in
+    .onChange(of: appRuntime.dashboardDataService.librarySessions) { oldSessions, newSessions in
+      notificationSessionMonitor.applySessions(newSessions)
       if oldSessions.isEmpty, !newSessions.isEmpty {
         // First load — seed baseline to avoid a burst of toasts
         appRuntime.notificationCoordinator.seedBaseline(newSessions)
@@ -189,6 +189,8 @@ struct OrbitDockWindowRoot: View {
           TerminalContainerView(session: session)
             .id(terminalId)
         }
+      case .settings:
+        SettingsView()
     }
   }
 
