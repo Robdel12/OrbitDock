@@ -79,10 +79,6 @@ pub(crate) async fn rename_session(
     })
     .await;
 
-  if reply_rx.await.is_ok() {
-    state.publish_dashboard_conversation_updated(session_id);
-  }
-
   if let Some(ref name) = name {
     if let Some(tx) = state.get_codex_action_tx(session_id) {
       let _ = tx
@@ -108,8 +104,6 @@ pub(crate) async fn set_summary(
       event: crate::domain::sessions::transition::Input::SummaryUpdated(summary),
     })
     .await;
-
-  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(())
 }

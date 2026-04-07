@@ -107,8 +107,7 @@ pub(crate) async fn materialize_claude_session(
   }
 
   if actor.summary().await.is_ok() {
-    crate::runtime::session_registry::flush_and_publish_conversation(persist_tx, state, session_id)
-      .await;
+    state.notify_dashboard_session_updated(session_id);
   }
 
   let _ = persist_tx

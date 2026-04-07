@@ -151,24 +151,16 @@ pub fn start_event_loop(
 
               // HookSessionId is fully handled above; skip transition
               if !matches!(event, ConnectorEvent::HookSessionId(_)) {
-                  let dashboard_refresh_needed = event.requires_dashboard_refresh();
                   dispatch_connector_event(
                       &session_id, event, &mut session_handle, &persist,
                   ).await;
-                  if dashboard_refresh_needed {
-                      state.publish_dashboard_conversation_updated(&session_id);
-                  }
               }
           }
 
           Some(event) = watchdog_rx.recv() => {
-              let dashboard_refresh_needed = event.requires_dashboard_refresh();
               dispatch_connector_event(
                   &session_id, event, &mut session_handle, &persist,
               ).await;
-              if dashboard_refresh_needed {
-                  state.publish_dashboard_conversation_updated(&session_id);
-              }
           }
 
           Some(action) = action_rx.recv() => {

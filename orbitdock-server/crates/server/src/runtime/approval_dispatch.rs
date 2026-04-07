@@ -192,8 +192,6 @@ pub(crate) async fn dispatch_approve_tool(
     }
   }
 
-  state.publish_dashboard_conversation_updated(session_id);
-
   Ok(ApprovalDispatchResult {
     outcome: "applied".to_string(),
     active_request_id: next_pending_request_id,

@@ -558,8 +558,6 @@ pub(crate) async fn dispatch_answer_question(
     }
   }
 
-  state.publish_dashboard_conversation_updated(session_id);
-
   Ok(AnswerQuestionResult {
     outcome: "applied".to_string(),
     active_request_id: next_pending_request_id,
@@ -637,8 +635,6 @@ pub(crate) async fn dispatch_request_permissions_response(
   } else {
     return Err("connector_unavailable");
   }
-
-  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(AnswerQuestionResult {
     outcome: "applied".to_string(),

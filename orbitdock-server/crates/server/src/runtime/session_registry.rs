@@ -1250,37 +1250,28 @@ impl SessionRegistry {
   }
 
   /// Broadcast a granular conversation update for a single session.
-  /// If the item is found, sends `DashboardConversationUpdated`.
-  /// If the item is not found (session ended or removed), sends `DashboardItemRemoved`.
-  /// On DB error, falls back to `DashboardInvalidated`.
-  pub fn publish_dashboard_conversation_updated(self: &Arc<Self>, session_id: &str) {
+  /// Notify dashboard subscribers that something changed.
+  ///
+  /// Emit an incremental `DashboardConversationUpdated` for a specific session.
+  /// Reads the session's in-memory snapshot and sends the full dashboard item
+  /// so the client can update in-place without an HTTP round-trip.
+  /// Falls back to `DashboardInvalidated` if the session isn't in the registry.
+  pub fn notify_dashboard_session_updated(&self, session_id: &str) {
     let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-    let db_path = self.db_path().clone();
-    let session_id = session_id.to_string();
-    let list_tx = self.list_tx.clone();
-
-    tokio::spawn(async move {
-      match crate::runtime::session_queries::load_dashboard_conversation_item(db_path, &session_id)
-        .await
-      {
-        Ok(Some(item)) => {
-          let _ = list_tx.send(
-            orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
-              revision,
-              item: Box::new(item),
-            },
-          );
-        }
-        Ok(None) => {
-          let _ =
-            list_tx.send(orbitdock_protocol::ServerMessage::DashboardItemRemoved { session_id });
-        }
-        Err(_) => {
-          let _ =
-            list_tx.send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
-        }
-      }
-    });
+    if let Some(entry) = self.sessions.get(session_id) {
+      let snap = entry.value().snapshot();
+      let item = crate::domain::sessions::dashboard_projection::dashboard_item_from_snapshot(&snap);
+      let _ = self.list_tx.send(
+        orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
+          revision,
+          item: Box::new(item),
+        },
+      );
+    } else {
+      let _ = self
+        .list_tx
+        .send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
+    }
   }
 
   pub fn publish_missions_snapshot(&self) {

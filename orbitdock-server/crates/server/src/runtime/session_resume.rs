@@ -512,18 +512,13 @@ async fn spawn_codex_resume(
             messages = message_count,
             "HTTP: Resumed Codex session"
         );
-        state.publish_dashboard_conversation_updated(&session_id);
+        state.notify_dashboard_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
       }
       Err(error) => {
         handle.apply_changes(&direct_resume_failure_changes(Provider::Codex));
         state.add_session(handle);
-        crate::runtime::session_registry::flush_and_publish_conversation(
-          &persist_tx,
-          &state,
-          &session_id,
-        )
-        .await;
+        state.notify_dashboard_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
         error!(
             component = "session",

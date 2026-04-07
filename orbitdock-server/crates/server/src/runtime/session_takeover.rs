@@ -189,12 +189,6 @@ pub(crate) async fn takeover_passive_session(
     }
   }
 
-  if let Some(actor) = state.get_session(session_id) {
-    if actor.summary().await.is_ok() {
-      state.publish_dashboard_conversation_updated(session_id);
-    }
-  }
-
   Ok(())
 }
 

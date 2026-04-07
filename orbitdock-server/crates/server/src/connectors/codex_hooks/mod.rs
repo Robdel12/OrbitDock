@@ -181,7 +181,7 @@ async fn materialize_codex_session(
   let actor = state.add_session(handle);
 
   let _ = actor.summary().await;
-  state.publish_dashboard_conversation_updated(thread_id);
+  state.notify_dashboard_session_updated(thread_id);
 
   let _ = persist_tx
     .send(PersistCommand::ReactivateSession {

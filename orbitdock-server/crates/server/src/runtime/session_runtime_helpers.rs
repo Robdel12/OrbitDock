@@ -414,8 +414,6 @@ pub(crate) async fn mark_direct_session_connector_detached(
       }),
     })
     .await;
-
-  state.publish_dashboard_conversation_updated(session_id);
 }
 
 /// Apply connector-detached state directly on a `SessionHandle` owned by the
@@ -472,8 +470,6 @@ pub(crate) async fn apply_connector_detached_directly(
     session_id: session_id.to_string(),
     changes: Box::new(changes),
   });
-
-  state.publish_dashboard_conversation_updated(session_id);
 }
 
 pub(crate) fn is_stale_empty_claude_shell(

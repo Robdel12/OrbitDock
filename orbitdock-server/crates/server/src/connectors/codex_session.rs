@@ -403,26 +403,18 @@ pub fn start_event_loop(
                   _ => event,
               };
 
-              let dashboard_refresh_needed = enriched_event.requires_dashboard_refresh();
               dispatch_connector_event(
                   &session_id, enriched_event, &mut session_handle, &persist,
               ).await;
-              if dashboard_refresh_needed {
-                  state.publish_dashboard_conversation_updated(&session_id);
-              }
               if clear_dynamic_diff_after_event {
                   dynamic_diff_tracker.clear();
               }
           }
 
           Some(event) = watchdog_rx.recv() => {
-              let dashboard_refresh_needed = event.requires_dashboard_refresh();
               dispatch_connector_event(
                   &session_id, event, &mut session_handle, &persist,
               ).await;
-              if dashboard_refresh_needed {
-                  state.publish_dashboard_conversation_updated(&session_id);
-              }
           }
 
           Some(action) = action_rx.recv() => {
