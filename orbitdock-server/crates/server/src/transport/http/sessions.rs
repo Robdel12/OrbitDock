@@ -168,7 +168,6 @@ pub async fn get_dashboard_snapshot(
     )),
     Err(SessionLoadError::NotFound) => Ok(Json(DashboardSnapshot {
       revision: state.current_dashboard_revision(),
-      sessions: Vec::new(),
       conversations: Vec::new(),
       counts: orbitdock_protocol::DashboardCounts {
         attention: 0,
@@ -941,7 +940,6 @@ mod tests {
       .await
       .expect("dashboard snapshot should succeed");
 
-    assert_eq!(snapshot.sessions.len(), 1);
     assert_eq!(snapshot.conversations.len(), 1);
     assert_eq!(snapshot.counts.attention, 0);
     assert_eq!(snapshot.counts.running, 0);
