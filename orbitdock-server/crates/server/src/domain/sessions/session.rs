@@ -1315,6 +1315,7 @@ impl SessionHandle {
     self.refresh_snapshot();
   }
 
+  #[allow(dead_code)]
   pub fn set_pending_attention(
     &mut self,
     pending_tool_name: Option<String>,
@@ -1534,6 +1535,7 @@ impl SessionHandle {
   }
 
   /// Set status
+  #[allow(dead_code)] // Used by apply_changes; kept for direct mutation paths (e.g. connector detach).
   pub fn set_status(&mut self, status: SessionStatus) {
     self.status = status;
     if status == SessionStatus::Ended {
@@ -1548,6 +1550,7 @@ impl SessionHandle {
   }
 
   /// Set last_activity_at timestamp
+  #[allow(dead_code)] // Used by apply_changes; kept for direct mutation paths (e.g. connector detach).
   pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
     self.timestamps.last_activity_at = last_activity_at;
   }
@@ -1561,7 +1564,12 @@ impl SessionHandle {
   }
 
   /// Get work status
+  pub fn work_status(&self) -> WorkStatus {
+    self.work_status
+  }
+
   /// Set last tool name
+  #[allow(dead_code)]
   pub fn set_last_tool(&mut self, tool: Option<String>) {
     self.last_tool = tool;
   }
@@ -1994,59 +2002,6 @@ impl SessionHandle {
     }
   }
 
-  /// Register a pending approval with optional proposed amendment and tool metadata.
-  pub fn set_pending_approval(
-    &mut self,
-    request_id: String,
-    approval_type: ApprovalType,
-    proposed_amendment: Option<Vec<String>>,
-    tool_name: Option<String>,
-    tool_input: Option<String>,
-    question: Option<String>,
-  ) {
-    let question_prompts = extract_question_prompts(tool_input.as_deref(), question.as_deref());
-    let resolved_question = question.or_else(|| {
-      question_prompts
-        .first()
-        .map(|p| p.question.clone())
-        .filter(|t| !t.is_empty())
-    });
-    let preview = preview_for_pending_approval(
-      Some(request_id.as_str()),
-      approval_type,
-      tool_name.as_deref(),
-      tool_input.as_deref(),
-      resolved_question.as_deref(),
-    );
-    let request = ApprovalRequest {
-      id: request_id,
-      session_id: self.identity.id.clone(),
-      approval_type,
-      tool_name,
-      tool_input,
-      command: None,
-      file_path: None,
-      diff: None,
-      question: resolved_question,
-      question_prompts,
-      preview,
-      permission_reason: None,
-      requested_permissions: None,
-      granted_permissions: None,
-      proposed_amendment: proposed_amendment.clone(),
-      permission_suggestions: None,
-      elicitation_mode: None,
-      elicitation_schema: None,
-      elicitation_url: None,
-      elicitation_message: None,
-      mcp_server_name: None,
-      network_host: None,
-      network_protocol: None,
-    };
-    self.queue_pending_approval(request, approval_type, proposed_amendment);
-    self.promote_queue_front();
-  }
-
   /// Resolve a pending approval request and promote the next queued request.
   pub fn resolve_pending_approval(
     &mut self,
@@ -2103,6 +2058,7 @@ impl SessionHandle {
   /// Apply a `StateChanges` delta to the handle fields.
   /// Each `Some` field overwrites the corresponding handle field.
   pub fn apply_changes(&mut self, changes: &StateChanges) {
+    let prev_work_status = self.work_status;
     if let Some(status) = changes.status {
       self.status = status;
     }
@@ -2242,14 +2198,18 @@ impl SessionHandle {
       self.config.effort = effort.clone();
     }
 
+    // Only clear pending approval/tool state when transitioning away from an
+    // approval state (Permission/Question → something else). This preserves
+    // pending fields set by AttentionUpdated transitions that precede
+    // work_status changes.
+    let exiting_approval =
+      matches!(prev_work_status, WorkStatus::Permission | WorkStatus::Question)
+        && !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question);
     if self.status == SessionStatus::Ended || self.work_status == WorkStatus::Ended {
       self.clear_pending_approvals();
     } else if !self.pending_approvals.is_empty() {
       self.promote_queue_front();
-    } else if !matches!(
-      self.work_status,
-      WorkStatus::Permission | WorkStatus::Question
-    ) {
+    } else if exiting_approval {
       self.pending_approval = None;
       self.pending_tool_name = None;
       self.pending_tool_input = None;
@@ -2455,12 +2415,23 @@ impl SessionHandle {
       pending_approval: self.pending_approval.clone(),
       repository_root: self.environment.repository_root.clone(),
       is_worktree: self.environment.is_worktree,
+      model: self.config.model.clone(),
+      transcript_path: self.identity.transcript_path.clone(),
+      last_tool: self.last_tool.clone(),
+      pending_tool_name: self.pending_tool_name.clone(),
+      pending_tool_input: self.pending_tool_input.clone(),
+      pending_question: self.pending_question.clone(),
+      subagents: self.subagents.clone(),
+      summary: self.display.summary.clone(),
+      effort: self.config.effort.clone(),
+      first_prompt: self.display.first_prompt.clone(),
     }
   }
 
   /// Apply the transition result back to this handle
   pub fn apply_state(&mut self, state: TransitionState) {
     let phase = state.phase.clone();
+    let prev_work_status = self.work_status;
     self.work_status = phase.to_work_status();
     self.rows = state.rows;
     self.total_row_count = state.total_row_count;
@@ -2480,6 +2451,16 @@ impl SessionHandle {
     self.environment.current_cwd = state.current_cwd;
     self.environment.repository_root = state.repository_root;
     self.environment.is_worktree = state.is_worktree;
+    self.config.model = state.model;
+    self.identity.transcript_path = state.transcript_path;
+    self.last_tool = state.last_tool;
+    self.pending_tool_name = state.pending_tool_name;
+    self.pending_tool_input = state.pending_tool_input;
+    self.pending_question = state.pending_question;
+    self.subagents = state.subagents;
+    self.display.summary = state.summary;
+    self.config.effort = state.effort;
+    self.display.first_prompt = state.first_prompt;
 
     if let Some(approval) = state.pending_approval {
       let (approval_type, proposed_amendment) = match &phase {
@@ -2493,14 +2474,15 @@ impl SessionHandle {
       self.queue_pending_approval(approval, approval_type, proposed_amendment);
     }
 
+    // Only clear pending state when transitioning away from an approval state.
+    let exiting_approval =
+      matches!(prev_work_status, WorkStatus::Permission | WorkStatus::Question)
+        && !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question);
     if matches!(phase, WorkPhase::Ended { .. }) {
       self.clear_pending_approvals();
     } else if !self.pending_approvals.is_empty() {
       self.promote_queue_front();
-    } else if !matches!(
-      self.work_status,
-      WorkStatus::Permission | WorkStatus::Question
-    ) {
+    } else if exiting_approval {
       self.pending_approval = None;
       self.pending_tool_name = None;
       self.pending_tool_input = None;
@@ -2709,25 +2691,38 @@ mod tests {
   #[test]
   fn duplicate_pending_approval_is_a_no_op() {
     let mut session = pending_approval_session();
+    let request = ApprovalRequest {
+      id: "approval-1".to_string(),
+      session_id: session.identity.id.clone(),
+      approval_type: ApprovalType::Exec,
+      tool_name: Some("Bash".to_string()),
+      tool_input: Some("{\"command\":\"ls\"}".to_string()),
+      command: None,
+      file_path: None,
+      diff: None,
+      question: None,
+      question_prompts: vec![],
+      preview: None,
+      permission_reason: None,
+      requested_permissions: None,
+      granted_permissions: None,
+      proposed_amendment: None,
+      permission_suggestions: None,
+      elicitation_mode: None,
+      elicitation_schema: None,
+      elicitation_url: None,
+      elicitation_message: None,
+      mcp_server_name: None,
+      network_host: None,
+      network_protocol: None,
+    };
 
-    session.set_pending_approval(
-      "approval-1".to_string(),
-      ApprovalType::Exec,
-      None,
-      Some("Bash".to_string()),
-      Some("{\"command\":\"ls\"}".to_string()),
-      None,
-    );
+    session.queue_pending_approval(request.clone(), ApprovalType::Exec, None);
+    session.promote_queue_front();
     let version_after_first = session.approval_version();
 
-    session.set_pending_approval(
-      "approval-1".to_string(),
-      ApprovalType::Exec,
-      None,
-      Some("Bash".to_string()),
-      Some("{\"command\":\"ls\"}".to_string()),
-      None,
-    );
+    session.queue_pending_approval(request, ApprovalType::Exec, None);
+    session.promote_queue_front();
 
     assert_eq!(session.approval_version(), version_after_first);
     assert_eq!(session.pending_approvals.len(), 1);
@@ -2815,24 +2810,38 @@ mod tests {
   #[test]
   fn changed_pending_approval_updates_version_in_place() {
     let mut session = pending_approval_session();
+    let sid = session.identity.id.clone();
+    let make_request = |input: &str| ApprovalRequest {
+      id: "approval-1".to_string(),
+      session_id: sid.clone(),
+      approval_type: ApprovalType::Exec,
+      tool_name: Some("Bash".to_string()),
+      tool_input: Some(input.to_string()),
+      command: None,
+      file_path: None,
+      diff: None,
+      question: None,
+      question_prompts: vec![],
+      preview: None,
+      permission_reason: None,
+      requested_permissions: None,
+      granted_permissions: None,
+      proposed_amendment: None,
+      permission_suggestions: None,
+      elicitation_mode: None,
+      elicitation_schema: None,
+      elicitation_url: None,
+      elicitation_message: None,
+      mcp_server_name: None,
+      network_host: None,
+      network_protocol: None,
+    };
 
-    session.set_pending_approval(
-      "approval-1".to_string(),
-      ApprovalType::Exec,
-      None,
-      Some("Bash".to_string()),
-      Some("{\"command\":\"ls\"}".to_string()),
-      None,
-    );
+    session.queue_pending_approval(make_request("{\"command\":\"ls\"}"), ApprovalType::Exec, None);
+    session.promote_queue_front();
 
-    session.set_pending_approval(
-      "approval-1".to_string(),
-      ApprovalType::Exec,
-      None,
-      Some("Bash".to_string()),
-      Some("{\"command\":\"pwd\"}".to_string()),
-      None,
-    );
+    session.queue_pending_approval(make_request("{\"command\":\"pwd\"}"), ApprovalType::Exec, None);
+    session.promote_queue_front();
 
     assert_eq!(session.approval_version(), 2);
     assert_eq!(session.pending_approvals.len(), 1);

@@ -7,8 +7,6 @@ use orbitdock_protocol::{
   CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage, SessionSummary,
 };
 
-use orbitdock_protocol::StateChanges;
-
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
 use crate::domain::codex_tools::{write_plan_markdown, CodexWorkspaceToolContext};
@@ -82,7 +80,7 @@ pub(crate) async fn rename_session(
     .await;
 
   if reply_rx.await.is_ok() {
-    state.publish_dashboard_snapshot();
+    state.publish_dashboard_conversation_updated(session_id);
   }
 
   if let Some(ref name) = name {
@@ -105,27 +103,13 @@ pub(crate) async fn set_summary(
     .get_session(session_id)
     .ok_or_else(|| SessionMutationError::NotFound(session_id.to_string()))?;
 
-  // Apply summary delta to in-memory state and broadcast to session subscribers
   actor
-    .send(SessionCommand::ApplyDelta {
-      changes: Box::new(StateChanges {
-        summary: Some(Some(summary.clone())),
-        ..Default::default()
-      }),
-      persist_op: None,
+    .send(SessionCommand::ProcessEvent {
+      event: crate::domain::sessions::transition::Input::SummaryUpdated(summary),
     })
     .await;
 
-  state.publish_dashboard_snapshot();
-
-  // Persist to DB
-  let _ = state
-    .persist()
-    .send(PersistCommand::SetSummary {
-      session_id: session_id.to_string(),
-      summary,
-    })
-    .await;
+  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(())
 }
@@ -414,7 +398,12 @@ pub(crate) async fn update_session_config(
     );
   }
 
-  state.publish_dashboard_snapshot();
+  crate::runtime::session_registry::flush_and_publish_conversation(
+    state.persist(),
+    state,
+    session_id,
+  )
+  .await;
 
   if let Some(Some(ref mode)) = permission_mode {
     if let Some(tx) = state.get_claude_action_tx(session_id) {

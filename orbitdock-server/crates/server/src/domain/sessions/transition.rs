@@ -177,5 +177,57 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
       codex_config_source: None,
       codex_config_overrides_json: None,
     },
+    PersistOp::SetTranscriptPath {
+      session_id,
+      transcript_path,
+    } => PersistCommand::SetTranscriptPath {
+      session_id,
+      transcript_path,
+    },
+    PersistOp::AttentionUpdate {
+      session_id,
+      attention_reason,
+      last_tool,
+      last_tool_at,
+      pending_tool_name,
+      pending_tool_input,
+      pending_question,
+    } => PersistCommand::SessionAttentionUpdate {
+      session_id,
+      attention_reason,
+      last_tool,
+      last_tool_at,
+      pending_tool_name,
+      pending_tool_input,
+      pending_question,
+    },
+    PersistOp::UpsertSubagents {
+      session_id,
+      subagents,
+    } => PersistCommand::UpsertSubagents {
+      session_id,
+      infos: subagents,
+    },
+    PersistOp::SetSummary {
+      session_id,
+      summary,
+    } => PersistCommand::SetSummary {
+      session_id,
+      summary,
+    },
+    PersistOp::EffortUpdate {
+      session_id,
+      effort,
+    } => PersistCommand::EffortUpdate {
+      session_id,
+      effort,
+    },
+    PersistOp::FirstPromptCaptured {
+      session_id,
+      first_prompt,
+    } => PersistCommand::CodexPromptIncrement {
+      id: session_id,
+      first_prompt: Some(first_prompt),
+    },
   }
 }

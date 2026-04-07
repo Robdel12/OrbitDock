@@ -6,11 +6,8 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-use orbitdock_protocol::{ServerMessage, StateChanges};
-use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
-use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
 
@@ -56,17 +53,14 @@ pub fn spawn_naming_task(
   session_id: String,
   first_prompt: String,
   actor: SessionActorHandle,
-  persist_tx: mpsc::Sender<PersistCommand>,
-  list_tx: broadcast::Sender<ServerMessage>,
 ) {
   tokio::spawn(async move {
     if is_bootstrap_prompt(&first_prompt) {
       return;
     }
 
-    // Check if session already has a summary
     let snap = actor.snapshot();
-    if snap.summary.is_some() {
+    if snap.summary.is_some() || snap.custom_name.is_some() {
       return;
     }
 
@@ -89,32 +83,10 @@ pub fn spawn_naming_task(
             "AI-generated session name"
         );
 
-        // Broadcast summary delta to UI
-        let changes = StateChanges {
-          summary: Some(Some(name.clone())),
-          ..Default::default()
-        };
-        let _ = actor
-          .send(SessionCommand::ApplyDelta {
-            changes: Box::new(changes),
-            persist_op: None,
-          })
-          .await;
-
-        // Also broadcast to list subscribers (dashboard sidebar)
-        let _ = list_tx.send(ServerMessage::SessionDelta {
-          session_id: session_id.clone(),
-          changes: Box::new(StateChanges {
-            summary: Some(Some(name.clone())),
-            ..Default::default()
-          }),
-        });
-
-        // Persist to DB
-        let _ = persist_tx
-          .send(PersistCommand::SetSummary {
-            session_id,
-            summary: name,
+        // Persist + broadcast summary via transition
+        actor
+          .send(SessionCommand::ProcessEvent {
+            event: crate::domain::sessions::transition::Input::SummaryUpdated(name),
           })
           .await;
       }
@@ -140,7 +112,7 @@ async fn generate_name(api_key: &str, prompt: &str) -> Result<String, anyhow::Er
   let body = serde_json::json!({
       "model": "gpt-5-mini-2025-08-07",
       "max_output_tokens": 4096,
-      "instructions": "You name coding sessions. Given a user's first message to an AI coding assistant, produce a concise 3-7 word name.",
+      "instructions": "You name coding sessions. Given a user's first message to an AI coding assistant, produce a concise 3-7 word name.\n\nRules:\n- Be specific about what the user is working on\n- Include file names or project names when relevant\n- Keep it professional but warm\n- Don't include technical jargon unless it's the core focus",
       "input": truncated,
       "text": {
           "format": {

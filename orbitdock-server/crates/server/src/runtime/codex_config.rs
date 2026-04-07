@@ -469,8 +469,9 @@ fn effective_settings(
   // Populate approvals_reviewer from the resolved config so the UI reflects
   // what the codex process actually uses (e.g. guardian review from config).
   if overrides.approvals_reviewer.is_none() {
-    overrides.approvals_reviewer =
-      Some(core_approvals_reviewer_to_protocol(config.approvals_reviewer));
+    overrides.approvals_reviewer = Some(core_approvals_reviewer_to_protocol(
+      config.approvals_reviewer,
+    ));
   }
 
   CodexResolvedSettings {

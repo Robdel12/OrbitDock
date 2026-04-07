@@ -7,7 +7,7 @@ use orbitdock_protocol::{
   SessionLifecycleState, SessionListItem, SessionListStatus, SessionState, SessionStatus,
   SessionSummary, TokenUsage, WorkStatus,
 };
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use tracing::warn;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
@@ -634,77 +634,78 @@ pub(crate) async fn load_library_snapshot(
   })
 }
 
+fn build_conversation_item(projection: &PersistedDashboardProjection) -> DashboardConversationItem {
+  let (display_title, context_line) = projection_display_context(projection);
+  let list_status = projection_list_status(projection);
+  let preview_text =
+    dashboard_preview_text(projection.last_message.as_deref(), context_line.as_deref());
+  let activity_summary = dashboard_activity_summary(
+    projection.pending_tool_name.as_deref(),
+    projection.last_message.as_deref(),
+    context_line.as_deref(),
+  );
+  let alert_context = dashboard_alert_context(
+    projection.pending_question.as_deref(),
+    projection.pending_tool_name.as_deref(),
+    projection.pending_tool_input.as_deref(),
+    projection.last_message.as_deref(),
+    context_line.as_deref(),
+  );
+  let (grouping_path, grouping_name) = dashboard_grouping_details(
+    &projection.project_path,
+    projection.repository_root.as_deref(),
+    projection.project_name.as_deref(),
+  );
+
+  DashboardConversationItem {
+    session_id: projection.id.clone(),
+    provider: projection.provider,
+    project_path: projection.project_path.clone(),
+    grouping_path: Some(grouping_path),
+    grouping_name: Some(grouping_name),
+    project_name: projection.project_name.clone(),
+    repository_root: projection.repository_root.clone(),
+    git_branch: projection.git_branch.clone(),
+    is_worktree: projection.is_worktree,
+    worktree_id: projection.worktree_id.clone(),
+    model: projection.model.clone(),
+    codex_integration_mode: projection.codex_integration_mode,
+    claude_integration_mode: projection.claude_integration_mode,
+    status: projection.status,
+    work_status: projection.work_status,
+    control_mode: projection.control_mode,
+    lifecycle_state: projection.lifecycle_state,
+    list_status,
+    display_title,
+    context_line,
+    last_message: projection.last_message.clone(),
+    preview_text: Some(preview_text),
+    activity_summary: Some(activity_summary),
+    alert_context: Some(alert_context),
+    started_at: projection.started_at.clone(),
+    last_activity_at: projection.last_activity_at.clone(),
+    unread_count: projection.unread_count,
+    has_turn_diff: has_turn_diff(projection.current_diff.as_deref()),
+    diff_preview: dashboard_diff_preview(projection.current_diff.as_deref()),
+    pending_tool_name: projection.pending_tool_name.clone(),
+    pending_tool_input: projection.pending_tool_input.clone(),
+    pending_question: projection.pending_question.clone(),
+    tool_count: projection.tool_count,
+    active_worker_count: projection.active_worker_count,
+    issue_identifier: projection.issue_identifier.clone(),
+    effort: projection.effort.clone(),
+  }
+}
+
 pub(crate) async fn load_dashboard_snapshot(
   state: &Arc<SessionRegistry>,
 ) -> Result<DashboardSnapshot, SessionLoadError> {
   let projections = load_persisted_dashboard_projections(state.db_path().clone()).await?;
-  let sessions = sorted_session_summaries(&projections);
 
   let mut conversations: Vec<DashboardConversationItem> = projections
     .iter()
     .filter(|projection| projection.status == SessionStatus::Active)
-    .map(|projection| {
-      let (display_title, context_line) = projection_display_context(projection);
-      let list_status = projection_list_status(projection);
-      let preview_text =
-        dashboard_preview_text(projection.last_message.as_deref(), context_line.as_deref());
-      let activity_summary = dashboard_activity_summary(
-        projection.pending_tool_name.as_deref(),
-        projection.last_message.as_deref(),
-        context_line.as_deref(),
-      );
-      let alert_context = dashboard_alert_context(
-        projection.pending_question.as_deref(),
-        projection.pending_tool_name.as_deref(),
-        projection.pending_tool_input.as_deref(),
-        projection.last_message.as_deref(),
-        context_line.as_deref(),
-      );
-      let (grouping_path, grouping_name) = dashboard_grouping_details(
-        &projection.project_path,
-        projection.repository_root.as_deref(),
-        projection.project_name.as_deref(),
-      );
-
-      DashboardConversationItem {
-        session_id: projection.id.clone(),
-        provider: projection.provider,
-        project_path: projection.project_path.clone(),
-        grouping_path: Some(grouping_path),
-        grouping_name: Some(grouping_name),
-        project_name: projection.project_name.clone(),
-        repository_root: projection.repository_root.clone(),
-        git_branch: projection.git_branch.clone(),
-        is_worktree: projection.is_worktree,
-        worktree_id: projection.worktree_id.clone(),
-        model: projection.model.clone(),
-        codex_integration_mode: projection.codex_integration_mode,
-        claude_integration_mode: projection.claude_integration_mode,
-        status: projection.status,
-        work_status: projection.work_status,
-        control_mode: projection.control_mode,
-        lifecycle_state: projection.lifecycle_state,
-        list_status,
-        display_title,
-        context_line,
-        last_message: projection.last_message.clone(),
-        preview_text: Some(preview_text),
-        activity_summary: Some(activity_summary),
-        alert_context: Some(alert_context),
-        started_at: projection.started_at.clone(),
-        last_activity_at: projection.last_activity_at.clone(),
-        unread_count: projection.unread_count,
-        has_turn_diff: has_turn_diff(projection.current_diff.as_deref()),
-        diff_preview: dashboard_diff_preview(projection.current_diff.as_deref()),
-        pending_tool_name: projection.pending_tool_name.clone(),
-        pending_tool_input: projection.pending_tool_input.clone(),
-        pending_question: projection.pending_question.clone(),
-        tool_count: projection.tool_count,
-        active_worker_count: projection.active_worker_count,
-        issue_identifier: projection.issue_identifier.clone(),
-        effort: projection.effort.clone(),
-      }
-    })
+    .map(build_conversation_item)
     .collect();
 
   conversations.sort_by(|lhs, rhs| {
@@ -740,10 +741,162 @@ pub(crate) async fn load_dashboard_snapshot(
 
   Ok(DashboardSnapshot {
     revision: state.current_dashboard_revision(),
-    sessions: sessions.iter().map(SessionListItem::from_summary).collect(),
     conversations,
     counts,
   })
+}
+
+/// Load a single active conversation item by session ID.
+/// Returns `Ok(None)` if the session doesn't exist or is ended.
+pub(crate) async fn load_dashboard_conversation_item(
+  db_path: PathBuf,
+  session_id: &str,
+) -> Result<Option<DashboardConversationItem>, SessionLoadError> {
+  let session_id = session_id.to_string();
+  tokio::task::spawn_blocking(move || -> Result<Option<DashboardConversationItem>, SessionLoadError> {
+    let conn = Connection::open(&db_path).map_err(|err| SessionLoadError::Db(err.to_string()))?;
+    conn
+      .execute_batch("PRAGMA busy_timeout = 5000;")
+      .map_err(|err| SessionLoadError::Db(err.to_string()))?;
+
+    let mut stmt = conn
+      .prepare(
+        "SELECT s.id,
+                s.provider,
+                s.status,
+                s.work_status,
+                COALESCE(s.control_mode, CASE
+                    WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+                    WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
+                    ELSE 'passive'
+                END),
+                COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
+                s.project_path,
+                s.project_name,
+                s.repository_root,
+                s.git_branch,
+                COALESCE(s.is_worktree, 0),
+                s.worktree_id,
+                s.model,
+                s.codex_integration_mode,
+                s.claude_integration_mode,
+                s.custom_name,
+                s.summary,
+                s.first_prompt,
+                s.last_message,
+                s.started_at,
+                s.last_activity_at,
+                COALESCE(s.unread_count, 0),
+                s.current_diff,
+                s.pending_tool_name,
+                s.pending_tool_input,
+                s.pending_question,
+                COALESCE(s.tool_count, 0),
+                COALESCE((SELECT COUNT(*) FROM subagents sa WHERE sa.session_id = s.id AND sa.status = 'running'), 0),
+                s.issue_identifier,
+                s.effort,
+                s.approval_policy,
+                s.sandbox_mode,
+                s.permission_mode,
+                s.collaboration_mode,
+                s.multi_agent,
+                s.personality,
+                s.service_tier,
+                s.developer_instructions,
+                COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
+                COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
+                COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
+                COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                COALESCE(uss.snapshot_kind, 'unknown'),
+                s.pending_approval_id,
+                s.mission_id,
+                COALESCE(s.allow_bypass_permissions, 0),
+                s.forked_from_session_id,
+                COALESCE(s.approval_version, 0)
+         FROM sessions s
+         LEFT JOIN usage_session_state uss ON uss.session_id = s.id
+         WHERE s.id = ?1 AND s.status != 'ended'
+         LIMIT 1",
+      )
+      .map_err(|err| SessionLoadError::Db(err.to_string()))?;
+
+    let projection = stmt
+      .query_row([&session_id], |row| {
+        let provider = parse_provider(&row.get::<_, String>(1)?);
+        let status = parse_status(&row.get::<_, String>(2)?);
+        let work_status = parse_work_status(status, &row.get::<_, String>(3)?);
+        let control_mode = parse_control_mode(&row.get::<_, String>(4)?);
+        let lifecycle_state = parse_lifecycle_state(&row.get::<_, String>(5)?);
+        let (codex_integration_mode, claude_integration_mode) =
+          normalize_integration_modes(provider, control_mode);
+
+        let multi_agent: Option<i64> = row.get(34)?;
+        let input_tokens: i64 = row.get(38)?;
+        let output_tokens: i64 = row.get(39)?;
+        let cached_tokens: i64 = row.get(40)?;
+        let context_window: i64 = row.get(41)?;
+        let snapshot_kind: String = row.get(42)?;
+
+        Ok(PersistedDashboardProjection {
+          id: row.get(0)?,
+          provider,
+          status,
+          work_status,
+          control_mode,
+          lifecycle_state,
+          project_path: row.get(6)?,
+          project_name: row.get(7)?,
+          repository_root: row.get(8)?,
+          git_branch: row.get(9)?,
+          is_worktree: row.get::<_, i64>(10)? != 0,
+          worktree_id: row.get(11)?,
+          model: row.get(12)?,
+          codex_integration_mode,
+          claude_integration_mode,
+          custom_name: row.get(15)?,
+          summary: row.get(16)?,
+          first_prompt: row.get(17)?,
+          last_message: row.get(18)?,
+          started_at: row.get(19)?,
+          last_activity_at: row.get(20)?,
+          unread_count: row.get::<_, i64>(21)?.max(0) as u64,
+          current_diff: row.get(22)?,
+          pending_tool_name: row.get(23)?,
+          pending_tool_input: row.get(24)?,
+          pending_question: row.get(25)?,
+          tool_count: row.get::<_, i64>(26)?.max(0) as u64,
+          active_worker_count: row.get::<_, i64>(27)?.max(0) as u32,
+          issue_identifier: row.get(28)?,
+          effort: row.get(29)?,
+          approval_policy: row.get(30)?,
+          sandbox_mode: row.get(31)?,
+          permission_mode: row.get(32)?,
+          collaboration_mode: row.get(33)?,
+          multi_agent: multi_agent.map(|value| value != 0),
+          personality: row.get(35)?,
+          service_tier: row.get(36)?,
+          developer_instructions: row.get(37)?,
+          token_usage: TokenUsage {
+            input_tokens: input_tokens.max(0) as u64,
+            output_tokens: output_tokens.max(0) as u64,
+            cached_tokens: cached_tokens.max(0) as u64,
+            context_window: context_window.max(0) as u64,
+          },
+          token_usage_snapshot_kind: snapshot_kind_from_str(Some(snapshot_kind.as_str())),
+          pending_approval_id: row.get(43)?,
+          mission_id: row.get(44)?,
+          allow_bypass_permissions: row.get::<_, i64>(45)? != 0,
+          forked_from_session_id: row.get(46)?,
+          approval_version: row.get::<_, i64>(47)?.max(0) as u64,
+        })
+      })
+      .optional()
+      .map_err(|err| SessionLoadError::Db(err.to_string()))?;
+
+    Ok(projection.map(|p| build_conversation_item(&p)))
+  })
+  .await
+  .map_err(|err| SessionLoadError::Runtime(err.to_string()))?
 }
 
 async fn expand_conversation_page(

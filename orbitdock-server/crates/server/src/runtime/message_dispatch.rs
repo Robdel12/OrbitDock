@@ -237,73 +237,42 @@ pub(crate) async fn dispatch_send_message(
     })
     .await;
 
-  let _ = state
-    .persist()
-    .send(PersistCommand::CodexPromptIncrement {
-      id: session_id.clone(),
-      first_prompt: first_prompt.clone(),
-    })
-    .await;
-
   if let Some(prompt) = first_prompt {
-    let changes = orbitdock_protocol::StateChanges {
-      first_prompt: Some(Some(prompt.clone())),
-      ..Default::default()
-    };
-    let _ = actor
-      .send(SessionCommand::ApplyDelta {
-        changes: Box::new(changes),
-        persist_op: None,
+    // First message: persist prompt_count + first_prompt + broadcast via transition
+    actor
+      .send(SessionCommand::ProcessEvent {
+        event: crate::domain::sessions::transition::Input::FirstPromptCaptured(prompt.clone()),
       })
       .await;
 
     if state.naming_guard().try_claim(&session_id) {
-      crate::support::ai_naming::spawn_naming_task(
-        session_id.clone(),
-        prompt,
-        actor.clone(),
-        state.persist().clone(),
-        state.list_tx(),
-      );
+      crate::support::ai_naming::spawn_naming_task(session_id.clone(), prompt, actor.clone());
     }
+  } else {
+    // Subsequent messages: just increment prompt_count
+    let _ = state
+      .persist()
+      .send(PersistCommand::CodexPromptIncrement {
+        id: session_id.clone(),
+        first_prompt: None,
+      })
+      .await;
   }
 
   if let Some(ref model_name) = action_model {
-    let _ = state
-      .persist()
-      .send(PersistCommand::ModelUpdate {
-        session_id: session_id.clone(),
-        model: model_name.clone(),
-      })
-      .await;
-    let changes = orbitdock_protocol::StateChanges {
-      model: Some(Some(model_name.clone())),
-      ..Default::default()
-    };
-    let _ = actor
-      .send(SessionCommand::ApplyDelta {
-        changes: Box::new(changes),
-        persist_op: None,
+    actor
+      .send(SessionCommand::ProcessEvent {
+        event: crate::domain::sessions::transition::Input::ModelUpdated(model_name.clone()),
       })
       .await;
   }
 
   if let Some(ref effort_name) = session_effort_update {
-    let _ = state
-      .persist()
-      .send(PersistCommand::EffortUpdate {
-        session_id: session_id.clone(),
-        effort: Some(effort_name.clone()),
-      })
-      .await;
-    let changes = orbitdock_protocol::StateChanges {
-      effort: Some(Some(effort_name.clone())),
-      ..Default::default()
-    };
-    let _ = actor
-      .send(SessionCommand::ApplyDelta {
-        changes: Box::new(changes),
-        persist_op: None,
+    actor
+      .send(SessionCommand::ProcessEvent {
+        event: crate::domain::sessions::transition::Input::EffortUpdated(Some(
+          effort_name.clone(),
+        )),
       })
       .await;
   } else if provider == orbitdock_protocol::Provider::Claude {
@@ -512,7 +481,6 @@ pub(crate) async fn dispatch_answer_question(
   }
 
   let fallback_work_status = WorkStatus::Working;
-  let mut resolved_work_status = fallback_work_status;
   let mut next_pending_request_id: Option<String> = None;
   let mut approval_version: u64 = 0;
   if let Some(actor) = state.get_session(session_id) {
@@ -526,7 +494,6 @@ pub(crate) async fn dispatch_answer_question(
       .await;
     if let Ok(resolution) = reply_rx.await {
       let resolved = resolution.approval_type.is_some();
-      resolved_work_status = resolution.work_status;
       next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
       approval_version = resolution.approval_version;
 
@@ -591,18 +558,7 @@ pub(crate) async fn dispatch_answer_question(
     }
   }
 
-  let _ = state
-    .persist()
-    .send(PersistCommand::SessionUpdate {
-      id: session_id.to_string(),
-      status: None,
-      work_status: Some(resolved_work_status),
-      control_mode: None,
-      lifecycle_state: None,
-      last_activity_at: None,
-      last_progress_at: None,
-    })
-    .await;
+  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(AnswerQuestionResult {
     outcome: "applied".to_string(),
@@ -621,7 +577,6 @@ pub(crate) async fn dispatch_request_permissions_response(
   let normalized_permissions = normalize_permission_response(permissions)?;
   let scope = scope.unwrap_or(PermissionGrantScope::Turn);
   let fallback_work_status = WorkStatus::Working;
-  let mut resolved_work_status = fallback_work_status;
   let mut next_pending_request_id: Option<String> = None;
   let mut approval_version: u64 = 0;
 
@@ -636,7 +591,6 @@ pub(crate) async fn dispatch_request_permissions_response(
       .await;
     if let Ok(resolution) = reply_rx.await {
       let resolved = resolution.approval_type.is_some();
-      resolved_work_status = resolution.work_status;
       next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
       approval_version = resolution.approval_version;
 
@@ -684,18 +638,7 @@ pub(crate) async fn dispatch_request_permissions_response(
     return Err("connector_unavailable");
   }
 
-  let _ = state
-    .persist()
-    .send(PersistCommand::SessionUpdate {
-      id: session_id.to_string(),
-      status: None,
-      work_status: Some(resolved_work_status),
-      control_mode: None,
-      lifecycle_state: None,
-      last_activity_at: None,
-      last_progress_at: None,
-    })
-    .await;
+  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(AnswerQuestionResult {
     outcome: "applied".to_string(),

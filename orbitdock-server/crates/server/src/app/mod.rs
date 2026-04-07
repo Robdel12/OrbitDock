@@ -315,7 +315,12 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                       .handle
                       .apply_changes(&direct_resume_failure_changes(prepared.provider));
                     state.add_session(prepared.handle);
-                    state.publish_dashboard_snapshot();
+                    crate::runtime::session_registry::flush_and_publish_conversation(
+                      state.persist(),
+                      &state,
+                      &session_id,
+                    )
+                    .await;
                     warn!(
                         component = "restore",
                         event = "restore.session.downgraded_to_resumable",
@@ -705,8 +710,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               summary.id.clone(),
               summary.first_prompt.clone().unwrap(),
               actor,
-              persist_tx.clone(),
-              state.list_tx(),
             );
           }
         }

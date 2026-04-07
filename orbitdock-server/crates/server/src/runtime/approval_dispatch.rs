@@ -123,7 +123,6 @@ pub(crate) async fn dispatch_approve_tool(
   updated_input: Option<serde_json::Value>,
 ) -> Result<ApprovalDispatchResult, &'static str> {
   let fallback_work_status = work_status_for_approval_decision(decision.as_str());
-  let mut resolved_work_status = fallback_work_status;
 
   let (approval_type, proposed_amendment, next_pending_request_id, approval_version) =
     if let Some(actor) = state.get_session(session_id) {
@@ -136,7 +135,6 @@ pub(crate) async fn dispatch_approve_tool(
         })
         .await;
       if let Ok(resolution) = reply_rx.await {
-        resolved_work_status = resolution.work_status;
         (
           resolution.approval_type,
           resolution.proposed_amendment,
@@ -194,18 +192,7 @@ pub(crate) async fn dispatch_approve_tool(
     }
   }
 
-  let _ = state
-    .persist()
-    .send(PersistCommand::SessionUpdate {
-      id: session_id.to_string(),
-      status: None,
-      work_status: Some(resolved_work_status),
-      control_mode: None,
-      lifecycle_state: None,
-      last_activity_at: None,
-      last_progress_at: None,
-    })
-    .await;
+  state.publish_dashboard_conversation_updated(session_id);
 
   Ok(ApprovalDispatchResult {
     outcome: "applied".to_string(),

@@ -2,8 +2,7 @@
 
 use orbitdock_protocol::{
   conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType, ServerMessage,
-  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
-  WorkStatus,
+  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -75,27 +74,10 @@ pub enum SessionCommand {
     event: crate::domain::sessions::transition::Input,
   },
 
-  // -- Simple mutations (fire-and-forget) --
+  // -- Simple mutations (test-only) --
   #[allow(dead_code)] // Test-only actor mutation helper for lightweight state assertions.
   SetWorkStatus {
     status: WorkStatus,
-  },
-  SetModel {
-    model: Option<String>,
-  },
-  SetTranscriptPath {
-    path: Option<String>,
-  },
-  SetLastTool {
-    tool: Option<String>,
-  },
-  SetSubagents {
-    subagents: Vec<SubagentInfo>,
-  },
-  SetPendingAttention {
-    pending_tool_name: Option<String>,
-    pending_tool_input: Option<String>,
-    pending_question: Option<String>,
   },
 
   // -- Compound operations --
@@ -150,15 +132,6 @@ pub enum SessionCommand {
     fallback_work_status: WorkStatus,
     reply: oneshot::Sender<PendingApprovalResolution>,
   },
-  SetPendingApproval {
-    request_id: String,
-    approval_type: ApprovalType,
-    proposed_amendment: Option<Vec<String>>,
-    tool_name: Option<String>,
-    tool_input: Option<String>,
-    question: Option<String>,
-  },
-
   // -- Broadcast --
   /// Broadcast an arbitrary ServerMessage to session subscribers
   Broadcast {
@@ -198,7 +171,6 @@ pub struct PendingApprovalResolution {
   pub approval_type: Option<ApprovalType>,
   pub proposed_amendment: Option<Vec<String>>,
   pub next_pending_approval: Option<ApprovalRequest>,
-  pub work_status: WorkStatus,
   pub approval_version: u64,
 }
 

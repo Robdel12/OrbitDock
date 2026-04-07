@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tracing::info;
 
-use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, StateChanges};
+use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
@@ -191,7 +191,7 @@ pub(crate) async fn takeover_passive_session(
 
   if let Some(actor) = state.get_session(session_id) {
     if actor.summary().await.is_ok() {
-      state.publish_dashboard_snapshot();
+      state.publish_dashboard_conversation_updated(session_id);
     }
   }
 
@@ -366,34 +366,24 @@ async fn complete_codex_takeover(
       state.add_session_actor(actor_handle);
       state.set_codex_action_tx(&session_id, action_tx);
 
-      if let Some(ref model_name) = effective_model {
-        let _ = persist_tx
-          .send(PersistCommand::ModelUpdate {
-            session_id: session_id.clone(),
-            model: model_name.clone(),
-          })
-          .await;
-      }
-      if let Some(ref effort_name) = effective_effort {
-        let _ = persist_tx
-          .send(PersistCommand::EffortUpdate {
-            session_id: session_id.clone(),
-            effort: Some(effort_name.clone()),
-          })
-          .await;
-      }
-
       activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
 
       if let Some(actor) = state.get_session(&session_id) {
+        if let Some(ref model_name) = effective_model {
+          actor
+            .send(SessionCommand::ProcessEvent {
+              event: crate::domain::sessions::transition::Input::ModelUpdated(
+                model_name.clone(),
+              ),
+            })
+            .await;
+        }
         if let Some(ref effort_name) = effective_effort {
           actor
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(StateChanges {
-                effort: Some(Some(effort_name.clone())),
-                ..Default::default()
-              }),
-              persist_op: None,
+            .send(SessionCommand::ProcessEvent {
+              event: crate::domain::sessions::transition::Input::EffortUpdated(Some(
+                effort_name.clone(),
+              )),
             })
             .await;
         }

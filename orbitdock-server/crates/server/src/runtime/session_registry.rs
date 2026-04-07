@@ -1107,7 +1107,6 @@ impl SessionRegistry {
 
   #[allow(dead_code)]
   pub fn current_dashboard_snapshot(&self) -> DashboardSnapshot {
-    let sessions = self.get_session_list_items();
     let conversations = self.get_dashboard_conversations();
     let counts = DashboardCounts {
       attention: conversations
@@ -1163,7 +1162,6 @@ impl SessionRegistry {
 
     DashboardSnapshot {
       revision: self.dashboard_revision.load(Ordering::Relaxed),
-      sessions,
       conversations,
       counts,
     }
@@ -1225,6 +1223,40 @@ impl SessionRegistry {
       .send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
   }
 
+  /// Broadcast a granular conversation update for a single session.
+  /// If the item is found, sends `DashboardConversationUpdated`.
+  /// If the item is not found (session ended or removed), sends `DashboardItemRemoved`.
+  /// On DB error, falls back to `DashboardInvalidated`.
+  pub fn publish_dashboard_conversation_updated(self: &Arc<Self>, session_id: &str) {
+    let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    let db_path = self.db_path().clone();
+    let session_id = session_id.to_string();
+    let list_tx = self.list_tx.clone();
+
+    tokio::spawn(async move {
+      match crate::runtime::session_queries::load_dashboard_conversation_item(db_path, &session_id)
+        .await
+      {
+        Ok(Some(item)) => {
+          let _ = list_tx.send(
+            orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
+              revision,
+              item: Box::new(item),
+            },
+          );
+        }
+        Ok(None) => {
+          let _ =
+            list_tx.send(orbitdock_protocol::ServerMessage::DashboardItemRemoved { session_id });
+        }
+        Err(_) => {
+          let _ =
+            list_tx.send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
+        }
+      }
+    });
+  }
+
   pub fn publish_missions_snapshot(&self) {
     let revision = self.mission_revision.fetch_add(1, Ordering::Relaxed) + 1;
     let _ = self
@@ -1234,15 +1266,7 @@ impl SessionRegistry {
 
   /// Broadcast a message to all list subscribers
   pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {
-    let should_emit_dashboard = matches!(
-      msg,
-      orbitdock_protocol::ServerMessage::SessionEnded { .. }
-        | orbitdock_protocol::ServerMessage::SessionForked { .. }
-    );
     let _ = self.list_tx.send(msg);
-    if should_emit_dashboard {
-      self.publish_dashboard_snapshot();
-    }
   }
 
   /// Get a clone of the list broadcast sender (for passing to background tasks)
@@ -1492,6 +1516,19 @@ fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
 }
 
 // Note: No Default impl - requires persist_tx
+
+/// Flush all pending DB writes, then publish a granular dashboard update for a single session.
+/// This guarantees the client reads committed state when it processes the WS event.
+pub async fn flush_and_publish_conversation(
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) {
+  let (tx, rx) = tokio::sync::oneshot::channel();
+  let _ = persist_tx.send(PersistCommand::Flush { ack: tx }).await;
+  let _ = rx.await;
+  state.publish_dashboard_conversation_updated(session_id);
+}
 
 #[cfg(test)]
 mod tests {
