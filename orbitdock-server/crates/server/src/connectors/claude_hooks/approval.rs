@@ -169,6 +169,8 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+  use std::sync::Arc;
+
   use orbitdock_protocol::{
     Provider, SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
   };
@@ -216,13 +218,14 @@ mod tests {
       pending_approval_id: Some("claude-perm-tooluse-1".to_string()),
       message_count: 0,
       active_worker_count: 0,
+      tool_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       started_at: None,
       last_activity_at: None,
       last_progress_at: None,
       revision: 0,
-      current_plan: Some("Inspect files".to_string()),
+      current_plan: Some(Arc::from("Inspect files")),
       current_diff: None,
       git_branch: None,
       git_sha: None,

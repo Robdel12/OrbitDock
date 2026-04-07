@@ -27,35 +27,24 @@ pub fn dashboard_snapshot_from_registry(registry: &SessionRegistry) -> Dashboard
       .then_with(|| lhs.display_title.cmp(&rhs.display_title))
   });
 
-  let counts = DashboardCounts {
-    attention: conversations
-      .iter()
-      .filter(|c| {
-        matches!(
-          c.list_status,
-          orbitdock_protocol::SessionListStatus::Permission
-            | orbitdock_protocol::SessionListStatus::Question
-        )
-      })
-      .count() as u32,
-    running: conversations
-      .iter()
-      .filter(|c| {
-        matches!(
-          c.list_status,
-          orbitdock_protocol::SessionListStatus::Working
-        )
-      })
-      .count() as u32,
-    ready: conversations
-      .iter()
-      .filter(|c| matches!(c.list_status, orbitdock_protocol::SessionListStatus::Reply))
-      .count() as u32,
-    direct: conversations
-      .iter()
-      .filter(|c| is_direct_conversation(c))
-      .count() as u32,
+  let mut counts = DashboardCounts {
+    attention: 0,
+    running: 0,
+    ready: 0,
+    direct: 0,
   };
+  for c in &conversations {
+    match c.list_status {
+      orbitdock_protocol::SessionListStatus::Permission
+      | orbitdock_protocol::SessionListStatus::Question => counts.attention += 1,
+      orbitdock_protocol::SessionListStatus::Working => counts.running += 1,
+      orbitdock_protocol::SessionListStatus::Reply => counts.ready += 1,
+      orbitdock_protocol::SessionListStatus::Ended => {}
+    }
+    if is_direct_conversation(c) {
+      counts.direct += 1;
+    }
+  }
 
   DashboardSnapshot {
     revision: registry.current_dashboard_revision(),

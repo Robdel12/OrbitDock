@@ -606,151 +606,6 @@ impl SessionRegistry {
       .collect()
   }
 
-  #[allow(dead_code)]
-  pub fn get_dashboard_conversations(&self) -> Vec<DashboardConversationItem> {
-    let tool_counts_by_session = self.load_active_tool_counts();
-    let mut conversations: Vec<DashboardConversationItem> = self
-      .sessions
-      .iter()
-      .filter(|entry| entry.value().snapshot().status == orbitdock_protocol::SessionStatus::Active)
-      .map(|entry| {
-        let snap = entry.value().snapshot();
-        let display_title = SessionSummary::display_title_from_parts(
-          snap.custom_name.as_deref(),
-          snap.summary.as_deref(),
-          snap.first_prompt.as_deref(),
-          snap.project_name.as_deref(),
-          &snap.project_path,
-        );
-        let context_line = SessionSummary::context_line_from_parts(
-          snap.summary.as_deref(),
-          snap.first_prompt.as_deref(),
-          snap.last_message.as_deref(),
-        );
-        let preview_text =
-          dashboard_preview_text(snap.last_message.as_deref(), context_line.as_deref());
-        let activity_summary = dashboard_activity_summary(
-          snap.pending_tool_name.as_deref(),
-          snap.last_message.as_deref(),
-          context_line.as_deref(),
-        );
-        let alert_context = dashboard_alert_context(
-          snap.pending_question.as_deref(),
-          snap.pending_tool_name.as_deref(),
-          snap.pending_tool_input.as_deref(),
-          snap.last_message.as_deref(),
-          context_line.as_deref(),
-        );
-        let control_mode = snap.control_mode;
-        let lifecycle_state = snap.lifecycle_state;
-        let (grouping_path, grouping_name) = dashboard_grouping_details(
-          &snap.project_path,
-          snap.repository_root.as_deref(),
-          snap.project_name.as_deref(),
-        );
-
-        DashboardConversationItem {
-          session_id: snap.id.clone(),
-          provider: snap.provider,
-          project_path: snap.project_path.clone(),
-          grouping_path: Some(grouping_path),
-          grouping_name: Some(grouping_name),
-          project_name: snap.project_name.clone(),
-          repository_root: snap.repository_root.clone(),
-          git_branch: snap.git_branch.clone(),
-          is_worktree: snap.is_worktree,
-          worktree_id: snap.worktree_id.clone(),
-          model: snap.model.clone(),
-          codex_integration_mode: snap.codex_integration_mode,
-          claude_integration_mode: snap.claude_integration_mode,
-          status: snap.status,
-          work_status: snap.work_status,
-          control_mode,
-          lifecycle_state,
-          list_status: SessionSummary::list_status_from_parts(snap.status, snap.work_status),
-          display_title,
-          context_line,
-          last_message: snap.last_message.clone(),
-          started_at: snap.started_at.clone(),
-          last_activity_at: snap.last_activity_at.clone(),
-          unread_count: snap.unread_count,
-          has_turn_diff: snap.has_turn_diff,
-          diff_preview: dashboard_diff_preview(snap.current_diff.as_deref()),
-          pending_tool_name: snap.pending_tool_name.clone(),
-          pending_tool_input: snap.pending_tool_input.clone(),
-          pending_question: snap.pending_question.clone(),
-          preview_text: Some(preview_text),
-          activity_summary: Some(activity_summary),
-          alert_context: Some(alert_context),
-          tool_count: tool_counts_by_session.get(&snap.id).copied().unwrap_or(0),
-          active_worker_count: snap.active_worker_count,
-          issue_identifier: snap.issue_identifier.clone(),
-          effort: snap.effort.clone(),
-        }
-      })
-      .collect();
-
-    conversations.sort_by(|lhs, rhs| {
-      dashboard_priority(lhs)
-        .cmp(&dashboard_priority(rhs))
-        .then_with(|| rhs.last_activity_at.cmp(&lhs.last_activity_at))
-        .then_with(|| lhs.display_title.cmp(&rhs.display_title))
-    });
-
-    conversations
-  }
-
-  fn load_active_tool_counts(&self) -> HashMap<String, u64> {
-    let conn = match Connection::open(&self.db_path) {
-      Ok(conn) => conn,
-      Err(error) => {
-        warn!(
-            component = "dashboard",
-            event = "dashboard.tool_counts.db_open_failed",
-            error = %error,
-            "Failed to open database for dashboard tool counts"
-        );
-        return HashMap::new();
-      }
-    };
-
-    let mut stmt = match conn.prepare(
-      "SELECT id, COALESCE(tool_count, 0) AS tool_count
-         FROM sessions
-        WHERE status = 'active'",
-    ) {
-      Ok(stmt) => stmt,
-      Err(error) => {
-        warn!(
-            component = "dashboard",
-            event = "dashboard.tool_counts.query_prepare_failed",
-            error = %error,
-            "Failed to prepare dashboard tool count query"
-        );
-        return HashMap::new();
-      }
-    };
-
-    let rows = match stmt.query_map([], |row| {
-      let session_id: String = row.get(0)?;
-      let tool_count: i64 = row.get(1)?;
-      Ok((session_id, tool_count.max(0) as u64))
-    }) {
-      Ok(rows) => rows,
-      Err(error) => {
-        warn!(
-            component = "dashboard",
-            event = "dashboard.tool_counts.query_failed",
-            error = %error,
-            "Failed to read dashboard tool counts"
-        );
-        return HashMap::new();
-      }
-    };
-
-    rows.filter_map(Result::ok).collect()
-  }
-
   /// Iterate over all sessions (lock-free DashMap iteration).
   pub fn iter_sessions(&self) -> dashmap::iter::Iter<'_, String, SessionActorHandle> {
     self.sessions.iter()
@@ -772,18 +627,24 @@ impl SessionRegistry {
     let id = handle.id().to_string();
     let actor = SessionActorHandle::spawn(handle, self.persist_tx.clone());
     self.sessions.insert(id, actor.clone());
+    self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
     actor
   }
 
   /// Add a pre-spawned actor handle (e.g. from CodexSession event loop)
   pub fn add_session_actor(&self, actor: SessionActorHandle) {
     self.sessions.insert(actor.id.clone(), actor);
+    self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
   }
 
   /// Remove a session
   pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
     self.connectors.remove_action_txs(id);
-    self.sessions.remove(id).map(|(_, v)| v)
+    let removed = self.sessions.remove(id).map(|(_, v)| v);
+    if removed.is_some() {
+      self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
+    }
+    removed
   }
 
   /// Register codex-core thread ID for a direct session.
@@ -1131,66 +992,39 @@ impl SessionRegistry {
     self.dashboard_revision.load(Ordering::Relaxed)
   }
 
-  #[allow(dead_code)]
-  pub fn current_dashboard_snapshot(&self) -> DashboardSnapshot {
-    let conversations = self.get_dashboard_conversations();
-    let counts = DashboardCounts {
-      attention: conversations
-        .iter()
-        .filter(|conversation| {
-          matches!(
-            conversation.list_status,
-            orbitdock_protocol::SessionListStatus::Permission
-              | orbitdock_protocol::SessionListStatus::Question
-          )
-        })
-        .count() as u32,
-      running: conversations
-        .iter()
-        .filter(|conversation| {
-          matches!(
-            conversation.list_status,
-            orbitdock_protocol::SessionListStatus::Working
-          )
-        })
-        .count() as u32,
-      ready: conversations
-        .iter()
-        .filter(|conversation| {
-          matches!(
-            conversation.list_status,
-            orbitdock_protocol::SessionListStatus::Reply
-          )
-        })
-        .count() as u32,
-      direct: conversations
-        .iter()
-        .filter(|conversation| {
-          matches!(
-            (
-              conversation.provider,
-              conversation.codex_integration_mode,
-              conversation.claude_integration_mode
-            ),
-            (
-              orbitdock_protocol::Provider::Codex,
-              Some(orbitdock_protocol::CodexIntegrationMode::Direct),
-              _
-            ) | (
-              orbitdock_protocol::Provider::Claude,
-              _,
-              Some(orbitdock_protocol::ClaudeIntegrationMode::Direct)
-            )
-          )
-        })
-        .count() as u32,
-    };
-
-    DashboardSnapshot {
-      revision: self.dashboard_revision.load(Ordering::Relaxed),
-      conversations,
-      counts,
+  /// Returns a cached dashboard snapshot, recomputing only when the revision has changed.
+  /// The snapshot is built from in-memory ArcSwap session snapshots — no DB access.
+  pub fn cached_dashboard_snapshot(&self) -> Arc<(u64, DashboardSnapshot)> {
+    let current_rev = self.current_dashboard_revision();
+    let cached = self.dashboard_cache.load_full();
+    if cached.0 == current_rev {
+      return cached;
     }
+    let snapshot = crate::runtime::dashboard::dashboard_snapshot_from_registry(self);
+    let entry = Arc::new((snapshot.revision, snapshot));
+    self.dashboard_cache.store(Arc::clone(&entry));
+    entry
+  }
+
+  /// Publish a granular dashboard update for a single session via the list broadcast channel.
+  pub fn publish_dashboard_conversation_updated(&self, session_id: &str) {
+    let Some(entry) = self.sessions.get(session_id) else {
+      return;
+    };
+    let snap = entry.value().snapshot();
+    let item = crate::domain::sessions::dashboard_projection::dashboard_item_from_snapshot(&snap);
+    let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    let _ = self.list_tx.send(
+      orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
+        revision,
+        item: Box::new(item),
+      },
+    );
+  }
+
+  /// Access the read-only connection pool.
+  pub fn read_pool(&self) -> &Arc<crate::infrastructure::db_pool::ReadPool> {
+    &self.read_pool
   }
 
   pub fn current_missions_snapshot(&self) -> MissionsSnapshot {
@@ -1375,163 +1209,6 @@ impl SessionRegistry {
   }
 }
 
-fn dashboard_priority(item: &DashboardConversationItem) -> u8 {
-  match item.list_status {
-    orbitdock_protocol::SessionListStatus::Permission => 0,
-    orbitdock_protocol::SessionListStatus::Question => 1,
-    orbitdock_protocol::SessionListStatus::Working => 2,
-    orbitdock_protocol::SessionListStatus::Reply => 3,
-    orbitdock_protocol::SessionListStatus::Ended => 4,
-  }
-}
-
-fn dashboard_grouping_details(
-  project_path: &str,
-  repository_root: Option<&str>,
-  project_name: Option<&str>,
-) -> (String, String) {
-  let grouping_path = repository_root.unwrap_or(project_path).to_string();
-  let grouping_name = project_name
-    .map(str::trim)
-    .filter(|name| !name.is_empty())
-    .map(ToOwned::to_owned)
-    .unwrap_or_else(|| {
-      grouping_path
-        .rsplit('/')
-        .find(|segment| !segment.is_empty())
-        .map(std::string::ToString::to_string)
-        .unwrap_or_else(|| "Unknown".to_string())
-    });
-
-  (grouping_path, grouping_name)
-}
-
-fn dashboard_preview_text(last_message: Option<&str>, context_line: Option<&str>) -> String {
-  sanitize_dashboard_text(
-    last_message
-      .or(context_line)
-      .unwrap_or("Waiting for your next message."),
-  )
-}
-
-fn dashboard_activity_summary(
-  pending_tool_name: Option<&str>,
-  last_message: Option<&str>,
-  context_line: Option<&str>,
-) -> String {
-  if let Some(tool_name) = pending_tool_name {
-    return format!("Running {tool_name}");
-  }
-
-  sanitize_dashboard_text(last_message.or(context_line).unwrap_or("Processing…"))
-}
-
-fn dashboard_alert_context(
-  pending_question: Option<&str>,
-  pending_tool_name: Option<&str>,
-  pending_tool_input: Option<&str>,
-  last_message: Option<&str>,
-  context_line: Option<&str>,
-) -> String {
-  if let Some(question) = pending_question.filter(|value| !value.is_empty()) {
-    return question.to_string();
-  }
-
-  if let Some(tool_name) = pending_tool_name {
-    return format_tool_context(tool_name, pending_tool_input);
-  }
-
-  sanitize_dashboard_text(
-    last_message
-      .or(context_line)
-      .unwrap_or("Needs your attention."),
-  )
-}
-
-fn sanitize_dashboard_text(text: &str) -> String {
-  text
-    .replace("**", "")
-    .replace("__", "")
-    .replace('`', "")
-    .replace("## ", "")
-    .replace("# ", "")
-}
-
-fn format_tool_context(tool_name: &str, input: Option<&str>) -> String {
-  let Some(input) = input.filter(|value| !value.is_empty()) else {
-    return format!("Wants to run {tool_name}");
-  };
-
-  let Ok(json) = serde_json::from_str::<serde_json::Value>(input) else {
-    return format!("Wants to run {tool_name}");
-  };
-
-  match tool_name {
-    "Bash" => json
-      .get("command")
-      .and_then(serde_json::Value::as_str)
-      .map(ToOwned::to_owned),
-    "Edit" | "Write" | "Read" => json
-      .get("file_path")
-      .and_then(serde_json::Value::as_str)
-      .and_then(|path| std::path::Path::new(path).file_name())
-      .and_then(|name| name.to_str())
-      .map(|name| format!("{tool_name} {name}")),
-    "Grep" => json
-      .get("pattern")
-      .and_then(serde_json::Value::as_str)
-      .map(|pattern| format!("Search for \"{pattern}\"")),
-    "Glob" => json
-      .get("pattern")
-      .and_then(serde_json::Value::as_str)
-      .map(|pattern| format!("Find files matching {pattern}")),
-    _ => None,
-  }
-  .unwrap_or_else(|| format!("Wants to run {tool_name}"))
-}
-
-fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
-  let diff = diff?.trim();
-  if diff.is_empty() {
-    return None;
-  }
-
-  let mut file_paths: Vec<String> = vec![];
-  let mut additions = 0_u32;
-  let mut deletions = 0_u32;
-
-  for line in diff.lines() {
-    if let Some(path) = line.strip_prefix("+++ b/") {
-      let path = path.trim();
-      if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-        file_paths.push(path.to_string());
-      }
-      continue;
-    }
-    if let Some(rest) = line.strip_prefix("diff --git ") {
-      if let Some(path) = rest.split(" b/").nth(1) {
-        let path = path.trim();
-        if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-          file_paths.push(path.to_string());
-        }
-      }
-      continue;
-    }
-    if line.starts_with('+') && !line.starts_with("+++") {
-      additions = additions.saturating_add(1);
-    } else if line.starts_with('-') && !line.starts_with("---") {
-      deletions = deletions.saturating_add(1);
-    }
-  }
-
-  Some(DashboardDiffPreview {
-    file_count: file_paths.len() as u32,
-    additions,
-    deletions,
-    file_paths: file_paths.into_iter().take(3).collect(),
-  })
-}
-
 // Note: No Default impl - requires persist_tx
 
 /// Flush all pending DB writes, then publish a granular dashboard update for a single session.
@@ -1600,7 +1277,8 @@ mod tests {
     ended.refresh_snapshot();
     registry.add_session(ended);
 
-    let conversations = registry.get_dashboard_conversations();
+    let conversations =
+      crate::runtime::dashboard::dashboard_snapshot_from_registry(&registry).conversations;
     assert_eq!(conversations.len(), 1);
     assert_eq!(conversations[0].session_id, "active-session");
   }
@@ -1630,7 +1308,8 @@ mod tests {
     session.refresh_snapshot();
     registry.add_session(session);
 
-    let conversations = registry.get_dashboard_conversations();
+    let conversations =
+      crate::runtime::dashboard::dashboard_snapshot_from_registry(&registry).conversations;
     assert_eq!(conversations.len(), 1);
 
     let conversation = &conversations[0];
@@ -1736,8 +1415,8 @@ mod tests {
     assert_eq!(summary.mission_id.as_deref(), Some("mission-1"));
     assert_eq!(summary.issue_identifier.as_deref(), Some("PROJ-42"));
 
-    let conversation = registry
-      .get_dashboard_conversations()
+    let conversation = crate::runtime::dashboard::dashboard_snapshot_from_registry(&registry)
+      .conversations
       .into_iter()
       .find(|item| item.session_id == "mission-session")
       .expect("dashboard conversation should exist");
@@ -1746,54 +1425,28 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn dashboard_conversations_load_tool_count_from_persistence() {
-    let db_path = std::env::temp_dir().join(format!(
-      "orbitdock-session-registry-dashboard-{}.db",
-      std::process::id()
-    ));
-    let _ = std::fs::remove_file(&db_path);
-    let conn = Connection::open(&db_path).expect("open temp db");
-    conn
-      .execute(
-        "CREATE TABLE sessions (
-           id TEXT PRIMARY KEY,
-           status TEXT NOT NULL,
-           tool_count INTEGER NOT NULL DEFAULT 0
-         )",
-        [],
-      )
-      .expect("create sessions table");
-    conn
-      .execute(
-        "INSERT INTO sessions (id, status, tool_count) VALUES (?1, ?2, ?3)",
-        ("tool-session", "active", 7_i64),
-      )
-      .expect("seed session row");
-    drop(conn);
-
+  async fn dashboard_snapshot_reflects_in_memory_tool_count() {
+    ensure_server_test_data_dir();
     let (persist_tx, _persist_rx) = mpsc::channel(8);
-    let registry = SessionRegistry::new_with_primary_and_db_path(
-      persist_tx,
-      db_path.clone(),
-      true,
-      WorkspaceProviderKind::default(),
-    );
+    let registry = SessionRegistry::new_with_primary(persist_tx, true);
 
-    let session = SessionHandle::new(
+    let mut session = SessionHandle::new(
       "tool-session".to_string(),
       Provider::Codex,
       "/tmp/orbitdock-tools".to_string(),
     );
+    for _ in 0..7 {
+      session.increment_tool_count();
+    }
+    session.refresh_snapshot();
     registry.add_session(session);
 
-    let conversation = registry
-      .get_dashboard_conversations()
+    let conversation = crate::runtime::dashboard::dashboard_snapshot_from_registry(&registry)
+      .conversations
       .into_iter()
       .find(|item| item.session_id == "tool-session")
       .expect("dashboard conversation should exist");
     assert_eq!(conversation.tool_count, 7);
-
-    let _ = std::fs::remove_file(db_path);
   }
 
   fn create_ownership_test_db() -> std::path::PathBuf {

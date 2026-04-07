@@ -270,9 +270,7 @@ pub(crate) async fn dispatch_send_message(
   if let Some(ref effort_name) = session_effort_update {
     actor
       .send(SessionCommand::ProcessEvent {
-        event: crate::domain::sessions::transition::Input::EffortUpdated(Some(
-          effort_name.clone(),
-        )),
+        event: crate::domain::sessions::transition::Input::EffortUpdated(Some(effort_name.clone())),
       })
       .await;
   } else if provider == orbitdock_protocol::Provider::Claude {

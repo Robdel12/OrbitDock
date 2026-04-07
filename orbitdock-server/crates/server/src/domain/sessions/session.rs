@@ -34,57 +34,8 @@ use crate::domain::sessions::transition::{
 };
 use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
 
-/// Events that matter for list/dashboard subscribers.
-/// Keep conversation row streaming off this channel; session-level deltas are
-/// lightweight and drive dashboard badges/status in real time.
-fn is_list_relevant(msg: &ServerMessage) -> bool {
-  matches!(
-    msg,
-    ServerMessage::SessionDelta { .. }
-      | ServerMessage::SessionEnded { .. }
-      | ServerMessage::SessionForked { .. }
-  )
-}
-
-fn should_emit_dashboard_invalidation(msg: &ServerMessage) -> bool {
-  match msg {
-    ServerMessage::SessionDelta { changes, .. } => {
-      changes.status.is_some()
-        || changes.work_status.is_some()
-        || changes.control_mode.is_some()
-        || changes.lifecycle_state.is_some()
-        || changes.steerable.is_some()
-        || changes.pending_approval.is_some()
-        || changes.custom_name.is_some()
-        || changes.summary.is_some()
-        || changes.first_prompt.is_some()
-        || changes.model.is_some()
-        || changes.effort.is_some()
-        || changes.approval_policy.is_some()
-        || changes.approval_policy_details.is_some()
-        || changes.sandbox_mode.is_some()
-        || changes.permission_mode.is_some()
-        || changes.collaboration_mode.is_some()
-        || changes.multi_agent.is_some()
-        || changes.personality.is_some()
-        || changes.service_tier.is_some()
-        || changes.developer_instructions.is_some()
-        || changes.codex_config_mode.is_some()
-        || changes.codex_config_profile.is_some()
-        || changes.codex_model_provider.is_some()
-        || changes.codex_config_source.is_some()
-        || changes.codex_config_overrides.is_some()
-        || changes.codex_integration_mode.is_some()
-        || changes.claude_integration_mode.is_some()
-        || changes.current_diff.is_some()
-        || changes.subagents.is_some()
-        || changes.last_activity_at.is_some()
-        || changes.last_message.is_some()
-        || changes.unread_count.is_some()
-    }
-    ServerMessage::SessionEnded { .. } | ServerMessage::SessionForked { .. } => true,
-    _ => false,
-  }
+fn is_session_ended(msg: &ServerMessage) -> bool {
+  matches!(msg, ServerMessage::SessionEnded { .. })
 }
 
 fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
@@ -442,14 +393,15 @@ pub struct SessionSnapshot {
   pub message_count: usize,
   /// Number of active sub-agents.
   pub active_worker_count: u32,
+  pub tool_count: u64,
   pub token_usage: TokenUsage,
   pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
   pub started_at: Option<String>,
   pub last_activity_at: Option<String>,
   pub last_progress_at: Option<String>,
   pub revision: u64,
-  pub current_plan: Option<String>,
-  pub current_diff: Option<String>,
+  pub current_plan: Option<Arc<str>>,
+  pub current_diff: Option<Arc<str>>,
   pub git_branch: Option<String>,
   pub git_sha: Option<String>,
   pub current_cwd: Option<String>,
@@ -533,9 +485,12 @@ pub struct SessionHandle {
   token_usage: TokenUsage,
   token_usage_snapshot_kind: TokenUsageSnapshotKind,
 
+  // ── Tool count ─────────────────────────────────────────────────
+  tool_count: u64,
+
   // ── Diff & plan ─────────────────────────────────────────────────
-  current_diff: Option<String>,
-  current_plan: Option<String>,
+  current_diff: Option<Arc<str>>,
+  current_plan: Option<Arc<str>>,
 
   // ── Turn tracking ───────────────────────────────────────────────
   current_turn_id: Option<String>,
@@ -870,6 +825,7 @@ impl SessionHandle {
       pending_approval_id: None,
       message_count: 0,
       active_worker_count: 0,
+      tool_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       started_at: timestamps.started_at.clone(),
@@ -914,6 +870,7 @@ impl SessionHandle {
       total_row_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
+      tool_count: 0,
       current_diff: None,
       current_plan: None,
       current_turn_id: None,
@@ -1014,14 +971,15 @@ impl SessionHandle {
       pending_approval_id: pending_approval_id.clone(),
       message_count: rows.len(),
       active_worker_count: 0,
+      tool_count: 0,
       token_usage: token_usage.clone(),
       token_usage_snapshot_kind,
       started_at: timestamps.started_at.clone(),
       last_activity_at: timestamps.last_activity_at.clone(),
       last_progress_at: timestamps.last_progress_at.clone(),
       revision: 0,
-      current_plan: current_plan.clone(),
-      current_diff: current_diff.clone(),
+      current_plan: current_plan.as_deref().map(Arc::from),
+      current_diff: current_diff.as_deref().map(Arc::from),
       git_branch: environment.git_branch.clone(),
       git_sha: environment.git_sha.clone(),
       current_cwd: environment.current_cwd.clone(),
@@ -1061,8 +1019,9 @@ impl SessionHandle {
       total_row_count: 0,
       token_usage,
       token_usage_snapshot_kind,
-      current_diff,
-      current_plan,
+      tool_count: 0,
+      current_diff: current_diff.map(Arc::from),
+      current_plan: current_plan.map(Arc::from),
       current_turn_id: None,
       turn_count: turn_diffs.len() as u64,
       turn_diffs,

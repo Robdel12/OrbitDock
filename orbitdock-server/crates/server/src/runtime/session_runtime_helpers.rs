@@ -423,7 +423,7 @@ pub(crate) async fn mark_direct_session_connector_detached(
 pub(crate) async fn apply_connector_detached_directly(
   handle: &mut SessionHandle,
   persist_tx: &mpsc::Sender<PersistCommand>,
-  state: &Arc<SessionRegistry>,
+  _state: &Arc<SessionRegistry>,
   session_id: &str,
   provider: Provider,
 ) {

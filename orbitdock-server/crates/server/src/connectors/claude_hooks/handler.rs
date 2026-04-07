@@ -22,9 +22,7 @@ use orbitdock_protocol::{
   SubagentStatus,
 };
 
-use crate::domain::sessions::transition::{
-  approval_question, Input,
-};
+use crate::domain::sessions::transition::{approval_question, Input};
 use crate::infrastructure::persistence::{
   load_direct_claude_owner_by_sdk_session_id, PersistCommand,
 };
@@ -447,13 +445,7 @@ pub async fn handle_hook_message_with_options(
                   },
                 })
                 .await;
-              transition_work_status(
-                &actor,
-                &owner_session_id,
-                ws,
-                None,
-              )
-              .await;
+              transition_work_status(&actor, &owner_session_id, ws, None).await;
 
               crate::runtime::session_registry::flush_and_publish_conversation(
                 &persist_tx,
@@ -799,21 +791,13 @@ pub async fn handle_hook_message_with_options(
             },
           })
           .await;
-        transition_work_status(
-          &actor,
-          &session_id,
-          work_status,
-          None,
-        )
-        .await;
+        transition_work_status(&actor, &session_id, work_status, None).await;
 
         // Persist permission_mode separately if reported
         if let Some(ref pm) = permission_mode {
           actor
             .send(SessionCommand::ProcessEvent {
-              event: Input::PermissionModeChanged {
-                mode: pm.clone(),
-              },
+              event: Input::PermissionModeChanged { mode: pm.clone() },
             })
             .await;
         }
@@ -1027,9 +1011,7 @@ pub async fn handle_hook_message_with_options(
           if let Some(ref pm) = permission_mode {
             actor
               .send(SessionCommand::ProcessEvent {
-                event: Input::PermissionModeChanged {
-                  mode: pm.clone(),
-                },
+                event: Input::PermissionModeChanged { mode: pm.clone() },
               })
               .await;
           }
@@ -1067,9 +1049,7 @@ pub async fn handle_hook_message_with_options(
           if let Some(ref pm) = permission_mode {
             actor
               .send(SessionCommand::ProcessEvent {
-                event: Input::PermissionModeChanged {
-                  mode: pm.clone(),
-                },
+                event: Input::PermissionModeChanged { mode: pm.clone() },
               })
               .await;
           }
@@ -1134,8 +1114,7 @@ pub async fn handle_hook_message_with_options(
           let serialized_input = tool_input
             .as_ref()
             .and_then(|value| serde_json::to_string(value).ok());
-          let (approval_type, work_status) =
-            classify_permission_request(&tool_name);
+          let (approval_type, work_status) = classify_permission_request(&tool_name);
           let request_id =
             claude_permission_request_id(Some(&actor), &tool_name, tool_use_id.as_deref());
           let fallback_question = extract_question_from_tool_input(tool_input.as_ref());
@@ -1163,7 +1142,10 @@ pub async fn handle_hook_message_with_options(
             actor
               .send(SessionCommand::ProcessEvent {
                 event: Input::AttentionUpdated {
-                  attention_reason: crate::runtime::session_state_transitions::attention_reason_for_status(work_status),
+                  attention_reason:
+                    crate::runtime::session_state_transitions::attention_reason_for_status(
+                      work_status,
+                    ),
                   last_tool: Some(tool_name.clone()),
                   pending_tool_name: None,
                   pending_tool_input: None,
@@ -1212,9 +1194,7 @@ pub async fn handle_hook_message_with_options(
             if let Some(ref pm) = permission_mode {
               actor
                 .send(SessionCommand::ProcessEvent {
-                  event: Input::PermissionModeChanged {
-                    mode: pm.clone(),
-                  },
+                  event: Input::PermissionModeChanged { mode: pm.clone() },
                 })
                 .await;
             }

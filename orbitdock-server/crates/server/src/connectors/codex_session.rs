@@ -77,7 +77,6 @@ impl DynamicToolExecutionResult {
   }
 }
 
-
 #[derive(Default)]
 struct DynamicWorkspaceDiffTracker {
   baseline_files: BTreeMap<PathBuf, Option<String>>,
@@ -321,7 +320,8 @@ pub fn start_event_loop(
 
   tokio::spawn(async move {
     // Watchdog channel for synthetic events (interrupt timeout)
-    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<orbitdock_connector_core::ConnectorEvent>(4);
+    let (watchdog_tx, mut watchdog_rx) =
+      mpsc::channel::<orbitdock_connector_core::ConnectorEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
     'session_loop: loop {

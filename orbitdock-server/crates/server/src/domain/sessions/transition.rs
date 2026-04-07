@@ -215,13 +215,9 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
       session_id,
       summary,
     },
-    PersistOp::EffortUpdate {
-      session_id,
-      effort,
-    } => PersistCommand::EffortUpdate {
-      session_id,
-      effort,
-    },
+    PersistOp::EffortUpdate { session_id, effort } => {
+      PersistCommand::EffortUpdate { session_id, effort }
+    }
     PersistOp::FirstPromptCaptured {
       session_id,
       first_prompt,

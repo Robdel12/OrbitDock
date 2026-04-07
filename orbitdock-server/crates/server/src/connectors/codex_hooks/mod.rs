@@ -12,11 +12,11 @@ use orbitdock_protocol::{
 };
 
 use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::transition::Input;
 use crate::infrastructure::persistence::{
   extract_summary_from_transcript_path, load_direct_codex_owner_by_thread_id, PersistCommand,
   SessionCreateParams,
 };
-use crate::domain::sessions::transition::Input;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingCodexSession, PendingHookSession, SessionRegistry};
@@ -280,10 +280,7 @@ async fn maybe_claim_direct_codex_session(
   registered || persist_sent
 }
 
-async fn mark_passive_turn_started(
-  actor: &SessionActorHandle,
-  session_id: &str,
-) {
+async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {
   crate::runtime::session_state_transitions::transition_work_status(
     actor,
     session_id,
@@ -293,10 +290,7 @@ async fn mark_passive_turn_started(
   .await;
 }
 
-async fn mark_passive_turn_stopped(
-  actor: &SessionActorHandle,
-  session_id: &str,
-) {
+async fn mark_passive_turn_stopped(actor: &SessionActorHandle, session_id: &str) {
   crate::runtime::session_state_transitions::transition_work_status(
     actor,
     session_id,
@@ -335,7 +329,6 @@ async fn maybe_extract_transcript_summary(
     })
     .await;
 }
-
 
 fn serialized_tool_input(tool_input: Option<&Value>) -> Option<String> {
   tool_input.and_then(|value| serde_json::to_string(value).ok())
@@ -376,8 +369,7 @@ async fn handle_codex_pre_tool_use(
     WorkStatus::Working
   };
 
-  let attention_reason =
-    crate::runtime::session_state_transitions::attention_reason_for_status(ws);
+  let attention_reason = crate::runtime::session_state_transitions::attention_reason_for_status(ws);
   actor
     .send(SessionCommand::ProcessEvent {
       event: Input::AttentionUpdated {
@@ -389,10 +381,8 @@ async fn handle_codex_pre_tool_use(
       },
     })
     .await;
-  crate::runtime::session_state_transitions::transition_work_status(
-    actor, session_id, ws, None,
-  )
-  .await;
+  crate::runtime::session_state_transitions::transition_work_status(actor, session_id, ws, None)
+    .await;
 }
 
 async fn handle_codex_post_tool_use(
@@ -686,13 +676,7 @@ pub async fn handle_hook_message_with_options(
 
       match hook_event_name.as_str() {
         "PreToolUse" => {
-          handle_codex_pre_tool_use(
-            &actor,
-            &session_id,
-            &tool_name,
-            tool_input.as_ref(),
-          )
-          .await;
+          handle_codex_pre_tool_use(&actor, &session_id, &tool_name, tool_input.as_ref()).await;
         }
         "PostToolUse" | "PostToolUseFailure" => {
           handle_codex_post_tool_use(&actor, &persist_tx, &session_id).await;

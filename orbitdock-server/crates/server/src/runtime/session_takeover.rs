@@ -366,9 +366,7 @@ async fn complete_codex_takeover(
         if let Some(ref model_name) = effective_model {
           actor
             .send(SessionCommand::ProcessEvent {
-              event: crate::domain::sessions::transition::Input::ModelUpdated(
-                model_name.clone(),
-              ),
+              event: crate::domain::sessions::transition::Input::ModelUpdated(model_name.clone()),
             })
             .await;
         }

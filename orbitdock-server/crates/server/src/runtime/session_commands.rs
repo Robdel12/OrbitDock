@@ -165,6 +165,10 @@ pub enum SessionCommand {
   MarkRead {
     reply: oneshot::Sender<u64>,
   },
+
+  /// Increment the in-memory tool count (called alongside persist command).
+  #[allow(dead_code)]
+  IncrementToolCount,
 }
 
 pub struct PendingApprovalResolution {

@@ -49,11 +49,7 @@ fn is_bootstrap_prompt(prompt: &str) -> bool {
 }
 
 /// Spawn a fire-and-forget task to generate an AI name for a session.
-pub fn spawn_naming_task(
-  session_id: String,
-  first_prompt: String,
-  actor: SessionActorHandle,
-) {
+pub fn spawn_naming_task(session_id: String, first_prompt: String, actor: SessionActorHandle) {
   tokio::spawn(async move {
     if is_bootstrap_prompt(&first_prompt) {
       return;

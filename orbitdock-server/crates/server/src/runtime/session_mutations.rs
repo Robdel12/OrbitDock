@@ -67,7 +67,7 @@ pub(crate) async fn rename_session(
     .get_session(session_id)
     .ok_or_else(|| SessionMutationError::NotFound(session_id.to_string()))?;
 
-  let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+  let (reply_tx, _reply_rx) = tokio::sync::oneshot::channel();
   actor
     .send(SessionCommand::SetCustomNameAndNotify {
       name: name.clone(),
