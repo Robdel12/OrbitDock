@@ -10,11 +10,12 @@ import SwiftUI
   struct MenuBarView: View {
     @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
     @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
+    @Environment(OrbitDockAppRuntime.self) private var appRuntime
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(AppStore.self) private var appStore
-    @State private var snapshot = MenuBarSnapshot.empty
+    @State private var viewModel = MenuBarViewModel()
 
     var body: some View {
+      let snapshot = viewModel.snapshot
       let activeSessions = snapshot.activeSessions
       let recentSessions = snapshot.recentSessions
       let hasAnySessions = snapshot.totalCount > 0
@@ -105,7 +106,7 @@ import SwiftUI
         HStack {
           Button {
             if let window = NSApplication.shared.windows.first(where: {
-              $0.title.contains("OrbitDock") || $0.contentView is NSHostingView<ContentView>
+              $0.title.contains("OrbitDock")
             }) {
               NSApplication.shared.activate(ignoringOtherApps: true)
               window.makeKeyAndOrderFront(nil)
@@ -127,7 +128,7 @@ import SwiftUI
 
           Button {
             runtimeRegistry.refreshEnabledSessionLists()
-            refreshSnapshot()
+            Task { await viewModel.refreshSnapshot() }
             Task { await usageServiceRegistry.refreshAll() }
           } label: {
             Image(systemName: "arrow.clockwise")
@@ -141,17 +142,13 @@ import SwiftUI
       }
       .frame(width: 332)
       .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
-      .onAppear {
-        refreshSnapshot()
+      .task {
+        if appRuntime.isDemoModeEnabled {
+          viewModel.applySessions(appRuntime.demoExperience.rootSessions)
+        } else {
+          await viewModel.observe(runtimeRegistry: runtimeRegistry)
+        }
       }
-    }
-
-    private func refreshSnapshot() {
-      snapshot = MenuBarSnapshot(
-        activeSessions: Array(appStore.missionControlRecords().prefix(8)),
-        recentSessions: appStore.recentRecords(limit: 5),
-        totalCount: appStore.counts.total
-      )
     }
 
     private func sectionHeader(_ title: String) -> some View {
@@ -204,14 +201,6 @@ import SwiftUI
     private var dividerColor: Color {
       colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
     }
-  }
-
-  private struct MenuBarSnapshot {
-    let activeSessions: [RootSessionNode]
-    let recentSessions: [RootSessionNode]
-    let totalCount: Int
-
-    static let empty = MenuBarSnapshot(activeSessions: [], recentSessions: [], totalCount: 0)
   }
 
   struct MenuBarSessionRow: View {
@@ -271,8 +260,12 @@ import SwiftUI
   }
 
   #Preview {
+    let runtime = PreviewRuntime(scenario: .dashboard)
     MenuBarView()
-      .environment(SessionStore.preview())
+      .environment(runtime.appRuntime)
+      .environment(runtime.runtimeRegistry)
+      .environment(runtime.usageServiceRegistry)
+      .environment(\.colorScheme, .dark)
   }
 
 #else
@@ -284,3 +277,11 @@ import SwiftUI
   }
 
 #endif
+
+struct MenuBarSnapshot {
+  let activeSessions: [RootSessionNode]
+  let recentSessions: [RootSessionNode]
+  let totalCount: Int
+
+  static let empty = MenuBarSnapshot(activeSessions: [], recentSessions: [], totalCount: 0)
+}

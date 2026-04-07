@@ -11,7 +11,6 @@ struct MissionOverviewTab: View {
   let http: ServerHTTPClient?
   let isCompact: Bool
   let endpointId: UUID
-  let dashboardConversationsBySessionId: [String: DashboardConversationRecord]
   let nextTickAt: Date?
   let lastTickAt: Date?
   let onRefresh: () async -> Void
@@ -36,8 +35,8 @@ struct MissionOverviewTab: View {
     issues.sorted { lhs, rhs in
       let lhsStatus = displayStatus(for: lhs)
       let rhsStatus = displayStatus(for: rhs)
-      let lhsPriority = statusPriority(lhsStatus)
-      let rhsPriority = statusPriority(rhsStatus)
+      let lhsPriority = lhsStatus?.sortPriority ?? 5
+      let rhsPriority = rhsStatus?.sortPriority ?? 5
       if lhsPriority != rhsPriority {
         return lhsPriority < rhsPriority
       }
@@ -299,28 +298,27 @@ struct MissionOverviewTab: View {
   }
 
   private func displayStatus(for issue: MissionIssueItem) -> SessionDisplayStatus? {
-    guard let sessionId = issue.sessionId else { return nil }
-    return dashboardConversationsBySessionId[sessionId]?.displayStatus
+    switch issue.workStatus {
+      case "permission":
+        .permission
+      case "question":
+        .question
+      case "working":
+        .working
+      case "reply", "waiting":
+        .reply
+      case nil:
+        nil
+      default:
+        nil
+    }
   }
 
   private func sortDate(for issue: MissionIssueItem) -> Date {
-    guard let sessionId = issue.sessionId,
-          let conversation = dashboardConversationsBySessionId[sessionId]
-    else {
-      return .distantPast
-    }
-    return conversation.lastActivityAt ?? conversation.startedAt ?? .distantPast
-  }
-
-  private func statusPriority(_ status: SessionDisplayStatus?) -> Int {
-    switch status {
-      case .permission: 0
-      case .question: 1
-      case .working: 2
-      case .reply: 3
-      case .ended: 4
-      case nil: 5
-    }
+    parseTimestamp(issue.lastActivity)
+      ?? parseTimestamp(issue.startedAt)
+      ?? parseTimestamp(issue.completedAt)
+      ?? .distantPast
   }
 
   private func issueRowAccent(for issue: MissionIssueItem) -> Color {
@@ -328,6 +326,11 @@ struct MissionOverviewTab: View {
       return issue.orchestrationState.color
     }
     return displayStatus(for: issue)?.color ?? issue.orchestrationState.color
+  }
+
+  private func parseTimestamp(_ value: String?) -> Date? {
+    guard let value else { return nil }
+    return MissionOverviewTimestampParser.shared.date(from: value)
   }
 
   private func overviewSection(
@@ -468,6 +471,27 @@ struct MissionOverviewTab: View {
     } catch {
       actionError = error.localizedDescription
     }
+  }
+}
+
+private final class MissionOverviewTimestampParser {
+  static let shared = MissionOverviewTimestampParser()
+
+  private let fractionalFormatter: ISO8601DateFormatter
+  private let standardFormatter: ISO8601DateFormatter
+
+  private init() {
+    let fractionalFormatter = ISO8601DateFormatter()
+    fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    self.fractionalFormatter = fractionalFormatter
+
+    let standardFormatter = ISO8601DateFormatter()
+    standardFormatter.formatOptions = [.withInternetDateTime]
+    self.standardFormatter = standardFormatter
+  }
+
+  func date(from value: String) -> Date? {
+    fractionalFormatter.date(from: value) ?? standardFormatter.date(from: value)
   }
 }
 

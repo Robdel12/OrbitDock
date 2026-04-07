@@ -406,7 +406,6 @@ struct ServerDashboardCounts: Codable, Sendable {
 
 struct ServerDashboardSnapshotPayload: Codable, Sendable {
   let revision: UInt64
-  let sessions: [ServerSessionListItem]
   let conversations: [ServerDashboardConversationItem]
   let counts: ServerDashboardCounts
 }

@@ -21,16 +21,15 @@ struct CodeViewport<Content: View>: View {
   /// Threshold below which content renders inline (no viewport)
   private let inlineThreshold = 30
 
-  /// Platform-adaptive default viewport height
-  private static var defaultViewportHeight: CGFloat {
-    #if os(iOS)
-      260
-    #else
-      350
-    #endif
-  }
+  /// Default viewport height (compact screens get a shorter viewport)
+  private static var defaultViewportHeight: CGFloat { 350 }
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var isFullyExpanded = false
+
+  private var effectiveMaxHeight: CGFloat {
+    horizontalSizeClass == .compact ? min(maxHeight, 260) : maxHeight
+  }
 
   var body: some View {
     if lineCount <= inlineThreshold || isFullyExpanded {
@@ -65,7 +64,7 @@ struct CodeViewport<Content: View>: View {
           content()
         }
       }
-      .frame(maxHeight: maxHeight)
+      .frame(maxHeight: effectiveMaxHeight)
       .background(Color.backgroundCode)
       .mask(edgeFadeMask)
       .clipShape(

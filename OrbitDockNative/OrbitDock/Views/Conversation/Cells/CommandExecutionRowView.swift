@@ -21,11 +21,7 @@ struct CommandExecutionRowView: View {
   }
 
   private var outputViewportMaxHeight: CGFloat {
-    #if os(iOS)
-      360
-    #else
-      500
-    #endif
+    isCompactLayout ? 360 : 500
   }
 
   private var actionCount: Int {

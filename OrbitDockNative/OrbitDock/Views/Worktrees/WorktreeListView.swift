@@ -12,9 +12,7 @@ import SwiftUI
 struct WorktreeListView: View {
   @State private var viewModel = WorktreeListViewModel()
   private let serverState: SessionStore
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let repoRoot: String
   let projectName: String
@@ -41,23 +39,17 @@ struct WorktreeListView: View {
     self.onCreateCodexSession = onCreateCodexSession
   }
 
-  #if os(iOS)
-    private var isPhoneCompact: Bool {
-      horizontalSizeClass == .compact
-    }
-  #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     Group {
-      #if os(iOS)
-        if isPhoneCompact {
-          compactLayout
-        } else {
-          panelLayout
-        }
-      #else
+      if isCompact {
+        compactLayout
+      } else {
         panelLayout
-      #endif
+      }
     }
     .task(id: bindingIdentity) {
       viewModel.bind(serverState: serverState, repoRoot: repoRoot)
@@ -197,11 +189,10 @@ struct WorktreeListView: View {
     .padding(.vertical, Spacing.md)
   }
 
-  #if os(iOS)
-    private var compactLayout: some View {
-      NavigationStack {
-        VStack(spacing: 0) {
-          compactProjectHeader
+  private var compactLayout: some View {
+    NavigationStack {
+      VStack(spacing: 0) {
+        compactProjectHeader
 
           if viewModel.worktrees.isEmpty {
             compactEmptyState
@@ -221,7 +212,9 @@ struct WorktreeListView: View {
         }
         .background(Color.backgroundSecondary)
         .navigationTitle("Worktrees")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
             Button("Done") {
@@ -233,11 +226,13 @@ struct WorktreeListView: View {
           compactActionBar
         }
       }
+      #if os(iOS)
       .presentationDetents([.medium, .large])
       .presentationDragIndicator(.visible)
+    #endif
     }
 
-    private var compactProjectHeader: some View {
+  private var compactProjectHeader: some View {
       VStack(alignment: .leading, spacing: Spacing.xxs) {
         Text(projectName)
           .font(.system(size: TypeScale.subhead, weight: .semibold))
@@ -376,7 +371,6 @@ struct WorktreeListView: View {
           .stroke(Color.surfaceBorder, lineWidth: 1)
       }
     }
-  #endif
 
   // MARK: - Row
 

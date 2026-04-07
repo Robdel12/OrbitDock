@@ -8,20 +8,16 @@ struct ControlDeckCompletionPanel: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  private var isCompactIOS: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
   }
 
   private var rowHeight: CGFloat {
-    isCompactIOS ? 50 : 44
+    isCompact ? 50 : 44
   }
 
   private var visibleRowCount: Int {
-    let cap = isCompactIOS ? 6 : 10
+    let cap = isCompact ? 6 : 10
     return min(max(suggestions.count, 1), cap)
   }
 
@@ -66,7 +62,7 @@ struct ControlDeckCompletionPanel: View {
 
       Spacer(minLength: 0)
 
-      if !isCompactIOS {
+      if !isCompact {
         Text("↑↓ move · tab insert · esc dismiss")
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
@@ -125,7 +121,7 @@ struct ControlDeckCompletionPanel: View {
 
         Spacer(minLength: 0)
 
-        if isSelected, !isCompactIOS {
+        if isSelected, !isCompact {
           Text("tab")
             .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)

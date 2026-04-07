@@ -113,51 +113,31 @@ struct ClaudePermissionPill: View {
     case regular
     case statusBar
 
-    var iconFontSize: CGFloat {
+    func iconFontSize(compact: Bool) -> CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar:
-          #if os(iOS)
-            IconScale.xs
-          #else
-            IconScale.sm
-          #endif
+        case .statusBar: compact ? IconScale.xs : IconScale.sm
       }
     }
 
-    var textFontSize: CGFloat {
+    func textFontSize(compact: Bool) -> CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar:
-          #if os(iOS)
-            TypeScale.mini
-          #else
-            TypeScale.micro
-          #endif
+        case .statusBar: compact ? TypeScale.mini : TypeScale.micro
       }
     }
 
-    var horizontalPadding: CGFloat {
+    func horizontalPadding(compact: Bool) -> CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.md)
-        case .statusBar:
-          #if os(iOS)
-            CGFloat(Spacing.sm_)
-          #else
-            CGFloat(Spacing.sm)
-          #endif
+        case .statusBar: compact ? CGFloat(Spacing.sm_) : CGFloat(Spacing.sm)
       }
     }
 
-    var verticalPadding: CGFloat {
+    func verticalPadding(compact: Bool) -> CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.sm)
-        case .statusBar:
-          #if os(iOS)
-            CGFloat(Spacing.gap)
-          #else
-            CGFloat(Spacing.xs)
-          #endif
+        case .statusBar: compact ? CGFloat(Spacing.gap) : CGFloat(Spacing.xs)
       }
     }
 
@@ -168,15 +148,10 @@ struct ClaudePermissionPill: View {
       }
     }
 
-    var height: CGFloat? {
+    func height(compact: Bool) -> CGFloat? {
       switch self {
         case .regular: nil
-        case .statusBar:
-          #if os(iOS)
-            24
-          #else
-            20
-          #endif
+        case .statusBar: compact ? 24 : 20
       }
     }
   }
@@ -188,11 +163,14 @@ struct ClaudePermissionPill: View {
   var onTapOverride: (() -> Void)?
   var onUpdate: ((ClaudePermissionMode) -> Void)?
   @State private var showPopover = false
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   private var title: String {
-    #if os(iOS)
-      if size == .statusBar { return currentMode.compactStatusName }
-    #endif
+    if isCompact, size == .statusBar { return currentMode.compactStatusName }
     return currentMode.displayName
   }
 
@@ -206,14 +184,14 @@ struct ClaudePermissionPill: View {
     } label: {
       HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
-          .font(.system(size: size.iconFontSize, weight: .semibold))
+          .font(.system(size: size.iconFontSize(compact: isCompact), weight: .semibold))
         Text(title)
-          .font(.system(size: size.textFontSize, weight: .semibold))
+          .font(.system(size: size.textFontSize(compact: isCompact), weight: .semibold))
       }
       .foregroundStyle(isActive ? Color.backgroundSecondary : currentMode.color)
-      .padding(.horizontal, size.horizontalPadding)
-      .padding(.vertical, size.verticalPadding)
-      .frame(height: size.height)
+      .padding(.horizontal, size.horizontalPadding(compact: isCompact))
+      .padding(.vertical, size.verticalPadding(compact: isCompact))
+      .frame(height: size.height(compact: isCompact))
       .background(
         isActive
           ? AnyShapeStyle(currentMode.color)

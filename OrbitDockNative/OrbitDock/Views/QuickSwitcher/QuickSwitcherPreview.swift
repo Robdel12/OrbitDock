@@ -1,16 +1,24 @@
 import SwiftUI
 
 #Preview {
+  let runtimeRegistry = ServerRuntimeRegistry(
+    endpointsProvider: { [] },
+    runtimeFactory: { _ in fatalError("No runtime in preview") },
+    shouldBootstrapFromSettings: false
+  )
+
   ZStack {
     Color.black.opacity(0.5)
       .ignoresSafeArea()
 
     QuickSwitcher(
       onQuickLaunchClaude: nil,
-      onQuickLaunchCodex: nil
+      onQuickLaunchCodex: nil,
+      previewSessions: quickSwitcherPreviewSessions()
     )
     .environment(AppRouter())
-    .environment(quickSwitcherPreviewAppStore())
+    .environment(runtimeRegistry)
+    .environment(OrbitDockAppRuntime())
   }
   .frame(width: 800, height: 600)
 }
@@ -98,14 +106,8 @@ private func quickSwitcherPreviewNode(
   )
 }
 
-private func quickSwitcherPreviewAppStore() -> AppStore {
-  let registry = ServerRuntimeRegistry(
-    endpointsProvider: { [] },
-    runtimeFactory: { _ in fatalError("No runtime in preview") },
-    shouldBootstrapFromSettings: false
-  )
-  let store = AppStore(runtimeRegistry: registry)
-  store.seed(records: [
+private func quickSwitcherPreviewSessions() -> [RootSessionNode] {
+  [
     quickSwitcherPreviewNode(
       id: "1",
       projectPath: "/Users/developer/Developer/vizzly-cli",
@@ -140,6 +142,5 @@ private func quickSwitcherPreviewAppStore() -> AppStore {
       startedAt: Date().addingTimeInterval(-7_200),
       endedAt: Date().addingTimeInterval(-3_600)
     ),
-  ])
-  return store
+  ]
 }

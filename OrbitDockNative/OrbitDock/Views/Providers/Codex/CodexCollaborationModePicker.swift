@@ -227,49 +227,33 @@ struct CodexModePill: View {
     case regular
     case statusBar
 
-    var iconFontSize: CGFloat {
+    func iconFontSize(compact: Bool) -> CGFloat {
       if self == .statusBar {
-        #if os(iOS)
-          IconScale.xs
-        #else
-          IconScale.sm
-        #endif
+        compact ? IconScale.xs : IconScale.sm
       } else {
         TypeScale.body
       }
     }
 
-    var textFontSize: CGFloat {
+    func textFontSize(compact: Bool) -> CGFloat {
       if self == .statusBar {
-        #if os(iOS)
-          TypeScale.mini
-        #else
-          TypeScale.micro
-        #endif
+        compact ? TypeScale.mini : TypeScale.micro
       } else {
         TypeScale.body
       }
     }
 
-    var horizontalPadding: CGFloat {
+    func horizontalPadding(compact: Bool) -> CGFloat {
       if self == .statusBar {
-        #if os(iOS)
-          CGFloat(Spacing.sm_)
-        #else
-          CGFloat(Spacing.sm)
-        #endif
+        compact ? CGFloat(Spacing.sm_) : CGFloat(Spacing.sm)
       } else {
         CGFloat(Spacing.md)
       }
     }
 
-    var verticalPadding: CGFloat {
+    func verticalPadding(compact: Bool) -> CGFloat {
       if self == .statusBar {
-        #if os(iOS)
-          CGFloat(Spacing.gap)
-        #else
-          CGFloat(Spacing.xs)
-        #endif
+        compact ? CGFloat(Spacing.gap) : CGFloat(Spacing.xs)
       } else {
         CGFloat(Spacing.sm)
       }
@@ -279,13 +263,9 @@ struct CodexModePill: View {
       self == .statusBar ? CGFloat(Spacing.xs) : CGFloat(Spacing.xs)
     }
 
-    var height: CGFloat? {
+    func height(compact: Bool) -> CGFloat? {
       if self == .statusBar {
-        #if os(iOS)
-          24
-        #else
-          20
-        #endif
+        compact ? 24 : 20
       } else {
         nil
       }
@@ -297,11 +277,14 @@ struct CodexModePill: View {
   var size: PillSize = .regular
   var onUpdate: ((CodexCollaborationMode) -> Void)?
   @State private var showPopover = false
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   private var title: String {
-    #if os(iOS)
-      if size == .statusBar { return currentMode.compactStatusName }
-    #endif
+    if isCompact, size == .statusBar { return currentMode.compactStatusName }
     return currentMode.displayName
   }
 
@@ -311,14 +294,14 @@ struct CodexModePill: View {
     } label: {
       HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
-          .font(.system(size: size.iconFontSize, weight: .semibold))
+          .font(.system(size: size.iconFontSize(compact: isCompact), weight: .semibold))
         Text(title)
-          .font(.system(size: size.textFontSize, weight: .semibold))
+          .font(.system(size: size.textFontSize(compact: isCompact), weight: .semibold))
       }
       .foregroundStyle(currentMode.color)
-      .padding(.horizontal, size.horizontalPadding)
-      .padding(.vertical, size.verticalPadding)
-      .frame(height: size.height)
+      .padding(.horizontal, size.horizontalPadding(compact: isCompact))
+      .padding(.vertical, size.verticalPadding(compact: isCompact))
+      .frame(height: size.height(compact: isCompact))
       .background(currentMode.color.opacity(OpacityTier.light), in: Capsule())
       .overlay(
         Capsule()

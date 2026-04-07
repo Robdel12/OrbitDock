@@ -73,16 +73,12 @@ struct ControlDeckScreen: View {
     completionState.isActive && !isApprovalMode
   }
 
-  private var isCompactIOS: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
   }
 
   private var horizontalContentPadding: CGFloat {
-    isCompactIOS ? Spacing.sm : Spacing.md
+    isCompact ? Spacing.sm : Spacing.md
   }
 
   private var completionPanelWidth: CGFloat {

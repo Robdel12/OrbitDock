@@ -5,12 +5,10 @@ struct BashExpandedView: View {
   let content: ServerRowContent
   let isFailed: Bool
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
   private var outputViewportMaxHeight: CGFloat {
-    #if os(iOS)
-      360
-    #else
-      500
-    #endif
+    horizontalSizeClass == .compact ? 360 : 500
   }
 
   private var commandText: String? {

@@ -15,6 +15,8 @@ enum ServerEvent: Sendable {
   case dashboardSnapshot(ServerDashboardSnapshotPayload)
   case missionsSnapshot(ServerMissionSnapshotPayload)
   case dashboardInvalidated(revision: UInt64)
+  case dashboardConversationUpdated(revision: UInt64, item: ServerDashboardConversationItem)
+  case dashboardItemRemoved(sessionId: String)
   case missionsInvalidated(revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case sessionEnded(sessionId: String, reason: String)
@@ -298,6 +300,12 @@ final class ServerConnection {
     guard !hasSubscribedDashboardStream else { return }
     hasSubscribedDashboardStream = true
     send(.subscribeDashboard(sinceRevision: sinceRevision))
+  }
+
+  func unsubscribeDashboard() {
+    guard hasSubscribedDashboardStream else { return }
+    hasSubscribedDashboardStream = false
+    send(.unsubscribeDashboard)
   }
 
   func subscribeMissions(sinceRevision: UInt64? = nil) {
@@ -838,6 +846,10 @@ final class ServerConnection {
     switch message {
       case let .hello(hello): emit(.hello(hello))
       case let .dashboardInvalidated(revision): emit(.dashboardInvalidated(revision: revision))
+      case let .dashboardConversationUpdated(revision, item):
+        emit(.dashboardConversationUpdated(revision: revision, item: item))
+      case let .dashboardItemRemoved(sessionId):
+        emit(.dashboardItemRemoved(sessionId: sessionId))
       case let .missionsInvalidated(revision): emit(.missionsInvalidated(revision: revision))
       case let .sessionDelta(sessionId, changes):
         emit(.sessionDelta(sessionId: sessionId, changes: changes))

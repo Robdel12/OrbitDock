@@ -8,9 +8,7 @@
 import SwiftUI
 
 struct RenameSessionSheet: View {
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let session: RootSessionNode
   let initialText: String
@@ -20,23 +18,17 @@ struct RenameSessionSheet: View {
   @State private var text: String = ""
   @FocusState private var isFocused: Bool
 
-  #if os(iOS)
-    private var isPhoneCompact: Bool {
-      horizontalSizeClass == .compact
-    }
-  #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     Group {
-      #if os(iOS)
-        if isPhoneCompact {
-          compactLayout
-        } else {
-          panelLayout
-        }
-      #else
+      if isCompact {
+        compactLayout
+      } else {
         panelLayout
-      #endif
+      }
     }
     .onAppear {
       text = initialText
@@ -152,51 +144,53 @@ struct RenameSessionSheet: View {
     }
   }
 
-  #if os(iOS)
-    private var compactLayout: some View {
-      NavigationStack {
-        ScrollView {
-          VStack(alignment: .leading, spacing: Spacing.lg) {
-            formFields
+  private var compactLayout: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+          formFields
 
-            if !initialText.isEmpty {
-              Button {
-                Platform.services.playHaptic(.action)
-                onSave("")
-              } label: {
-                Label("Use AI Title", systemImage: "sparkles")
-                  .font(.system(size: TypeScale.body, weight: .semibold))
-                  .frame(maxWidth: .infinity)
-              }
-              .buttonStyle(.bordered)
-            }
-          }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.top, Spacing.md)
-          .padding(.bottom, Spacing.xl)
-        }
-        .background(Color.backgroundSecondary)
-        .navigationTitle("Rename Session")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
-              Platform.services.playHaptic(.selection)
-              onCancel()
-            }
-          }
-
-          ToolbarItem(placement: .confirmationAction) {
-            Button("Save") {
+          if !initialText.isEmpty {
+            Button {
               Platform.services.playHaptic(.action)
-              onSave(text)
+              onSave("")
+            } label: {
+              Label("Use AI Title", systemImage: "sparkles")
+                .font(.system(size: TypeScale.body, weight: .semibold))
+                .frame(maxWidth: .infinity)
             }
-            .disabled(text == initialText)
+            .buttonStyle(.bordered)
           }
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.md)
+        .padding(.bottom, Spacing.xl)
+      }
+      .background(Color.backgroundSecondary)
+      .navigationTitle("Rename Session")
+      #if os(iOS)
+      .navigationBarTitleDisplayMode(.inline)
+      #endif
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") {
+            Platform.services.playHaptic(.selection)
+            onCancel()
+          }
+        }
+
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save") {
+            Platform.services.playHaptic(.action)
+            onSave(text)
+          }
+          .disabled(text == initialText)
         }
       }
-      .presentationDetents([.height(360), .medium])
-      .presentationDragIndicator(.visible)
     }
-  #endif
+    #if os(iOS)
+    .presentationDetents([.height(360), .medium])
+    .presentationDragIndicator(.visible)
+    #endif
+  }
 }

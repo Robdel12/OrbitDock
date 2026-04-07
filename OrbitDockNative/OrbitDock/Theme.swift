@@ -481,6 +481,17 @@ enum SessionDisplayStatus: Sendable {
       default: false
     }
   }
+
+  /// Sort priority for dashboard/mission views (lower = more urgent)
+  var sortPriority: Int {
+    switch self {
+      case .permission: 0
+      case .question: 1
+      case .working: 2
+      case .reply: 3
+      case .ended: 4
+    }
+  }
 }
 
 extension SessionDisplayStatus: Equatable {

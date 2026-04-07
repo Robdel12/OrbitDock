@@ -42,8 +42,14 @@ struct NewSessionHeader: View {
   let codexAccount: ServerCodexAccount?
   let onDismiss: () -> Void
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
+
   var body: some View {
-    #if os(iOS)
+    if isCompact {
       VStack(alignment: .leading, spacing: Spacing.md) {
         HStack(spacing: Spacing.sm) {
           headerIcon
@@ -65,7 +71,7 @@ struct NewSessionHeader: View {
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
-    #else
+    } else {
       HStack(spacing: Spacing.sm) {
         headerIcon
 
@@ -83,7 +89,7 @@ struct NewSessionHeader: View {
       }
       .padding(.horizontal, Spacing.xl)
       .padding(.vertical, Spacing.md)
-    #endif
+    }
   }
 
   private var headerIcon: some View {
@@ -402,8 +408,14 @@ struct NewSessionFooter: View {
   let onCancel: () -> Void
   let onLaunch: () -> Void
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
+
   var body: some View {
-    #if os(iOS)
+    if isCompact {
       VStack(alignment: .leading, spacing: Spacing.md) {
         if provider == .codex, codexAccount != nil {
           signOutButton
@@ -419,7 +431,7 @@ struct NewSessionFooter: View {
       .padding(.horizontal, Spacing.lg)
       .padding(.top, Spacing.md)
       .padding(.bottom, Spacing.lg)
-    #else
+    } else {
       HStack(spacing: Spacing.md) {
         if provider == .codex, codexAccount != nil {
           signOutButton
@@ -432,7 +444,7 @@ struct NewSessionFooter: View {
       }
       .padding(.horizontal, Spacing.xl)
       .padding(.vertical, Spacing.md)
-    #endif
+    }
   }
 
   private var signOutButton: some View {

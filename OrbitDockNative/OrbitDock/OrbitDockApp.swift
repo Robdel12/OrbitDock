@@ -13,9 +13,6 @@ struct OrbitDockApp: App {
     @Environment(\.scenePhase) private var scenePhase
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
-  #if os(macOS)
-    @State private var menuBarAppStore: AppStore
-  #endif
   private let modelPricingService: ModelPricingService
 
   init() {
@@ -24,9 +21,6 @@ struct OrbitDockApp: App {
     _appRuntime = State(initialValue: appRuntime)
     self.modelPricingService = modelPricingService
     #if os(macOS)
-      _menuBarAppStore = State(
-        initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry)
-      )
       appDelegate.configure(
         appRuntime: appRuntime,
         modelPricingService: modelPricingService
@@ -80,7 +74,7 @@ struct OrbitDockApp: App {
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.usageServiceRegistry)
-          .environment(menuBarAppStore)
+          .environment(appRuntime)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)
       } label: {

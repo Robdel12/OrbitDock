@@ -90,12 +90,12 @@ struct HeaderView: View {
   private var backButton: some View {
     Button(action: {
       Platform.services.playHaptic(.navigation)
-      router.goToDashboard(source: .sessionHeader)
+      router.goBack(source: .sessionHeader)
     }) {
       HStack(spacing: Spacing.xs) {
         Image(systemName: "chevron.left")
           .font(.system(size: TypeScale.caption, weight: .semibold))
-        Text("Dashboard")
+        Text(router.backDestinationLabel)
           .font(.system(size: TypeScale.body, weight: .medium))
       }
       .foregroundStyle(isHoveringBack ? Color.textPrimary : Color.textSecondary)
@@ -105,11 +105,11 @@ struct HeaderView: View {
     }
     .buttonStyle(.plain)
     .onHover { isHoveringBack = $0 }
-    .help("Go to dashboard (⌘0)")
+    .help("Go back (⌘0)")
   }
 
   private var compactBackButton: some View {
-    Button(action: { router.goToDashboard(source: .sessionHeader) }) {
+    Button(action: { router.goBack(source: .sessionHeader) }) {
       Image(systemName: "chevron.left")
         .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.textSecondary)
@@ -117,7 +117,7 @@ struct HeaderView: View {
         .background(Color.surfaceHover.opacity(0.75), in: RoundedRectangle(cornerRadius: Radius.md))
     }
     .buttonStyle(.plain)
-    .help("Dashboard (⌘0)")
+    .help("Go back (⌘0)")
   }
 
   private var titleRow: some View {

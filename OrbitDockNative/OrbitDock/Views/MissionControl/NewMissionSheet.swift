@@ -2,6 +2,7 @@ import SwiftUI
 
 struct NewMissionSheet: View {
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let onCreated: (MissionSummary, UUID) -> Void
@@ -28,6 +29,10 @@ struct NewMissionSheet: View {
 
   private var canCreate: Bool {
     !missionName.isEmpty && !selectedPath.isEmpty && selectedPathIsGit && !isCreating && missionsClient != nil
+  }
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
   }
 
   private var availableEndpoints: [ServerRuntime] {
@@ -268,16 +273,16 @@ struct NewMissionSheet: View {
 
   private var footer: some View {
     HStack(spacing: Spacing.sm) {
-      #if os(iOS)
+      if isCompact {
         cancelButton
           .frame(maxWidth: .infinity)
         createButton
           .frame(maxWidth: .infinity)
-      #else
+      } else {
         Spacer()
         cancelButton
         createButton
-      #endif
+      }
     }
     .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.lg)
@@ -286,9 +291,7 @@ struct NewMissionSheet: View {
   private var cancelButton: some View {
     Button(action: { dismiss() }) {
       Text("Cancel")
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-      #endif
+        .if(isCompact) { $0.frame(maxWidth: .infinity) }
     }
     .buttonStyle(GhostButtonStyle(color: .textSecondary, size: .large))
   }
@@ -309,9 +312,7 @@ struct NewMissionSheet: View {
       .foregroundStyle(canCreate ? Color.white : Color.textTertiary)
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md_)
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-      #endif
+        .if(isCompact) { $0.frame(maxWidth: .infinity) }
         .background(
           RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
             .fill(canCreate ? Color.accent : Color.backgroundTertiary)

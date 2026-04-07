@@ -135,7 +135,7 @@ struct AttentionCard: View {
             metadataDivider
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .foregroundStyle(Color.gitBranch.opacity(0.5))
           }
 
           if DashboardSessionCapability(session: session) != nil {
@@ -293,7 +293,7 @@ struct WorkingCard: View {
               .foregroundStyle(Color.textQuaternary)
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .foregroundStyle(Color.gitBranch.opacity(0.5))
           }
 
           if let issueId = session.issueIdentifier {
@@ -457,7 +457,7 @@ struct CompactSessionRow: View {
               .foregroundStyle(Color.textQuaternary)
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .foregroundStyle(Color.gitBranch.opacity(0.5))
           }
 
           if DashboardSessionCapability(session: session) != nil {
@@ -548,7 +548,7 @@ struct CompactSessionRow: View {
               .foregroundStyle(Color.textQuaternary)
             Text(branch)
               .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .foregroundStyle(Color.gitBranch.opacity(0.5))
           }
 
           if DashboardSessionCapability(session: session) != nil {

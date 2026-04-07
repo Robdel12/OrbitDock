@@ -5,17 +5,10 @@ struct MissionListView: View {
 
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var isCompact: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+    horizontalSizeClass == .compact
   }
 
   var body: some View {
@@ -33,10 +26,11 @@ struct MissionListView: View {
     }
     .task {
       viewModel.bind(runtimeRegistry: runtimeRegistry)
+      viewModel.setRealtimeUpdatesEnabled(true)
       await viewModel.fetchAllMissions()
     }
-    .onChange(of: viewModel.projectedMissionsSnapshot) { _, _ in
-      viewModel.applyMissionListSnapshotIfNeeded()
+    .onDisappear {
+      viewModel.setRealtimeUpdatesEnabled(false)
     }
     .sheet(isPresented: $viewModel.showNewMission) {
       NewMissionSheet { newMission, endpointId in
@@ -141,16 +135,10 @@ private struct MissionOverviewHeader: View {
   let missions: [AggregatedMissionSummary]
   let onNewMission: () -> Void
 
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var isCompact: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+    horizontalSizeClass == .compact
   }
 
   private var activeCount: Int {
@@ -382,20 +370,14 @@ private struct MissionRowView: View {
   let onRefresh: () async -> Void
   let onApplyList: (MissionsListResponse) -> Void
 
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var isHovering = false
   @State private var showDeleteConfirmation = false
   @State private var actionError: String?
 
   private var isCompact: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+    horizontalSizeClass == .compact
   }
 
   private var statusColor: Color {
