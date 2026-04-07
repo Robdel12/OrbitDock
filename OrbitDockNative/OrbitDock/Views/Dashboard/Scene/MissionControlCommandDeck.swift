@@ -329,13 +329,7 @@ private struct ConversationProjectSection: View {
 
       // Scanline divider — tinted for hot sections
       Rectangle()
-        .fill(
-          LinearGradient(
-            colors: scanlineColors(tier),
-            startPoint: .leading,
-            endPoint: .trailing
-          )
-        )
+        .fill(scanlineColors(tier).first ?? Color.surfaceBorder.opacity(OpacityTier.subtle))
         .frame(height: 0.5)
 
       focusButton
@@ -698,18 +692,9 @@ private struct ActivityConversationCard: View, Equatable {
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(Color.backgroundTertiary)
 
-      // Gradient overlay — instrument backlighting effect
+      // Overlay — subtle instrument backlighting
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .fill(
-          LinearGradient(
-            colors: [
-              Color.statusWorking.opacity(isHovering ? 0.06 : 0.03),
-              Color.clear,
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-          )
-        )
+        .fill(Color.statusWorking.opacity(isHovering ? 0.06 : 0.03))
 
       // Border
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
@@ -852,19 +837,9 @@ private struct AlertConversationCard: View, Equatable {
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .fill(Color.backgroundTertiary)
 
-      // Radial beacon glow — emanates from top-left like a signal source
+      // Beacon glow overlay
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-        .fill(
-          RadialGradient(
-            colors: [
-              statusColor.opacity(isHovering ? 0.10 : 0.06),
-              Color.clear,
-            ],
-            center: .topLeading,
-            startRadius: 0,
-            endRadius: 300
-          )
-        )
+        .fill(statusColor.opacity(isHovering ? 0.08 : 0.04))
 
       // Border
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)

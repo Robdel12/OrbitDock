@@ -869,7 +869,7 @@ impl SessionSummary {
       is_worktree: self.is_worktree,
       worktree_id: self.worktree_id.clone(),
       total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
-      total_cost_usd: 0.0,
+      total_cost_usd: estimate_session_cost(self.provider, self.model.as_deref(), &self.token_usage),
       input_tokens: self.token_usage.input_tokens,
       output_tokens: self.token_usage.output_tokens,
       cached_tokens: self.token_usage.cached_tokens,
@@ -890,6 +890,7 @@ impl SessionSummary {
 
 impl From<SessionSummary> for SessionListItem {
   fn from(summary: SessionSummary) -> Self {
+    let cost = estimate_session_cost(summary.provider, summary.model.as_deref(), &summary.token_usage);
     SessionListItem {
       id: summary.id,
       provider: summary.provider,
@@ -913,7 +914,7 @@ impl From<SessionSummary> for SessionListItem {
       is_worktree: summary.is_worktree,
       worktree_id: summary.worktree_id,
       total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
-      total_cost_usd: 0.0,
+      total_cost_usd: cost,
       input_tokens: summary.token_usage.input_tokens,
       output_tokens: summary.token_usage.output_tokens,
       cached_tokens: summary.token_usage.cached_tokens,
@@ -1245,7 +1246,7 @@ impl SessionListItem {
       is_worktree: summary.is_worktree,
       worktree_id: summary.worktree_id.clone(),
       total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
-      total_cost_usd: 0.0,
+      total_cost_usd: estimate_session_cost(summary.provider, summary.model.as_deref(), &summary.token_usage),
       input_tokens: summary.token_usage.input_tokens,
       output_tokens: summary.token_usage.output_tokens,
       cached_tokens: summary.token_usage.cached_tokens,
@@ -2266,6 +2267,68 @@ pub enum SessionPermissionRules {
     #[serde(skip_serializing_if = "Option::is_none")]
     sandbox_mode: Option<String>,
   },
+}
+
+// ---- Cost estimation (pure pricing table) ----
+
+pub struct ModelPricing {
+  pub input_per_token: f64,
+  pub output_per_token: f64,
+  pub cache_read_per_token: f64,
+  pub cache_write_per_token: f64,
+}
+
+pub fn model_pricing(provider: Provider, model: Option<&str>) -> ModelPricing {
+  let normalized = model.unwrap_or_default().to_ascii_lowercase();
+
+  if normalized.contains("opus") {
+    return ModelPricing {
+      input_per_token: 15.0 / 1_000_000.0,
+      output_per_token: 75.0 / 1_000_000.0,
+      cache_read_per_token: 1.875 / 1_000_000.0,
+      cache_write_per_token: 18.75 / 1_000_000.0,
+    };
+  }
+  if normalized.contains("sonnet") {
+    return ModelPricing {
+      input_per_token: 3.0 / 1_000_000.0,
+      output_per_token: 15.0 / 1_000_000.0,
+      cache_read_per_token: 0.30 / 1_000_000.0,
+      cache_write_per_token: 3.75 / 1_000_000.0,
+    };
+  }
+  if normalized.contains("haiku") {
+    return ModelPricing {
+      input_per_token: 0.8 / 1_000_000.0,
+      output_per_token: 4.0 / 1_000_000.0,
+      cache_read_per_token: 0.08 / 1_000_000.0,
+      cache_write_per_token: 1.0 / 1_000_000.0,
+    };
+  }
+  if normalized.contains("gpt-5") || matches!(provider, Provider::Codex) {
+    return ModelPricing {
+      input_per_token: 2.0 / 1_000_000.0,
+      output_per_token: 10.0 / 1_000_000.0,
+      cache_read_per_token: 0.0,
+      cache_write_per_token: 0.0,
+    };
+  }
+
+  // Default to Sonnet pricing
+  ModelPricing {
+    input_per_token: 3.0 / 1_000_000.0,
+    output_per_token: 15.0 / 1_000_000.0,
+    cache_read_per_token: 0.30 / 1_000_000.0,
+    cache_write_per_token: 3.75 / 1_000_000.0,
+  }
+}
+
+/// Estimate cost from token counts using hardcoded model pricing.
+pub fn estimate_session_cost(provider: Provider, model: Option<&str>, usage: &TokenUsage) -> f64 {
+  let p = model_pricing(provider, model);
+  usage.input_tokens as f64 * p.input_per_token
+    + usage.output_tokens as f64 * p.output_per_token
+    + usage.cached_tokens as f64 * p.cache_read_per_token
 }
 
 #[cfg(test)]

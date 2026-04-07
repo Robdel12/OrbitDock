@@ -64,12 +64,12 @@ pub enum PersistCommand {
     plan: Option<String>,
   },
 
-  /// Persist a per-turn diff snapshot
+  /// Persist a per-turn diff snapshot and/or usage ledger entry
   TurnDiffInsert {
     session_id: String,
     turn_id: String,
     turn_seq: u64,
-    diff: String,
+    diff: Option<String>,
     input_tokens: u64,
     output_tokens: u64,
     cached_tokens: u64,

@@ -776,17 +776,20 @@ pub(super) fn execute_command(
       context_window,
       snapshot_kind,
     } => {
-      conn.execute(
-                "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![session_id, turn_id, diff, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
-            )?;
+      // Archive diff if present
+      if let Some(ref diff_content) = diff {
+        conn.execute(
+                  "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                  params![session_id, turn_id, diff_content, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
+              )?;
 
-      // Clear current_diff now that the turn diff has been archived
-      conn.execute(
-        "UPDATE sessions SET current_diff = NULL WHERE id = ?1",
-        params![session_id],
-      )?;
+        conn.execute(
+          "UPDATE sessions SET current_diff = NULL WHERE id = ?1",
+          params![session_id],
+        )?;
+      }
 
+      // Always write usage data regardless of diff
       upsert_usage_turn_snapshot(
         conn,
         &TurnSnapshotRow {

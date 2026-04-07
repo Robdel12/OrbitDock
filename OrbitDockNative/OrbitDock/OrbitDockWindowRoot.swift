@@ -49,6 +49,7 @@ struct OrbitDockWindowRoot: View {
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
     .focusable()
+    .focusEffectDisabled()
     .onKeyPress(keys: [.escape]) { _ in
       guard router.showQuickSwitcher else { return .ignored }
       withAnimation(Motion.standard) {

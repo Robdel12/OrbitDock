@@ -8,6 +8,7 @@ struct OverviewPanel: View {
 
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(UsageServiceRegistry.self) private var usageRegistry
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var collapsedGroups: Set<String> = []
@@ -28,13 +29,6 @@ struct OverviewPanel: View {
     conversations.filter(\.displayStatus.needsAttention)
   }
 
-  private var triageCounts: (attention: Int, orbit: Int, ready: Int) {
-    let attn = conversations.filter(\.displayStatus.needsAttention).count
-    let orbit = conversations.filter { $0.displayStatus == .working }.count
-    let ready = conversations.filter { $0.displayStatus == .reply || $0.displayStatus == .ended }.count
-    return (attn, orbit, ready)
-  }
-
   var body: some View {
     if viewModel.isLoading {
       loadingState
@@ -50,7 +44,7 @@ struct OverviewPanel: View {
   private var overviewContent: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: Spacing.xl) {
-        fleetStatusStrip
+        usageLimitsSection
 
         if !attentionSessions.isEmpty {
           attentionZone
@@ -61,61 +55,188 @@ struct OverviewPanel: View {
       .padding(layoutMode.isPhoneCompact ? Spacing.lg : Spacing.section)
     }
     .scrollContentBackground(.hidden)
+    .task {
+      await usageRegistry.refreshAll()
+    }
   }
 
-  // MARK: - Fleet Status Strip
+  // MARK: - Fleet Telemetry (Usage + Today Stats)
 
-  private var fleetStatusStrip: some View {
-    let counts = triageCounts
-    var pills: [(icon: String, count: Int, label: String, color: Color)] = []
-
-    if counts.attention > 0 {
-      pills.append(("exclamationmark.triangle.fill", counts.attention, "attention", .statusPermission))
+  private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
+    usageRegistry.allProviders.compactMap { provider in
+      let windows = usageRegistry.windows(for: provider)
+      let isLoading = usageRegistry.isLoading(for: provider)
+      guard !windows.isEmpty || isLoading else { return nil }
+      return (provider: provider, windows: windows, isLoading: isLoading)
     }
-    if counts.orbit > 0 {
-      pills.append(("bolt.fill", counts.orbit, "in orbit", .statusWorking))
-    }
-    pills.append(("bubble.left.fill", counts.ready, "docked", .statusReply))
+  }
 
-    return HStack(spacing: 0) {
-      HStack(spacing: Spacing.sm_) {
-        ForEach(Array(pills.enumerated()), id: \.offset) { index, pill in
-          if index > 0 {
-            Text("·")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
+  @ViewBuilder
+  private var usageLimitsSection: some View {
+    let providers = activeProviders
+    let todayStats = usageRegistry.summary?.today
+
+    if !providers.isEmpty || todayStats != nil {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        // Today strip — cost · sessions · tokens
+        if let stats = todayStats {
+          todayStatsStrip(stats)
+        }
+
+        // Provider limits — side by side on desktop, stacked on phone
+        if !providers.isEmpty {
+          if layoutMode.isPhoneCompact || providers.count == 1 {
+            ForEach(Array(providers.enumerated()), id: \.element.provider.id) { _, entry in
+              providerLimitsCard(entry.provider, windows: entry.windows, isLoading: entry.isLoading)
+            }
+          } else {
+            HStack(spacing: Spacing.sm) {
+              ForEach(Array(providers.enumerated()), id: \.element.provider.id) { _, entry in
+                providerLimitsCard(entry.provider, windows: entry.windows, isLoading: entry.isLoading)
+                  .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+              }
+            }
           }
-          statusPill(icon: pill.icon, count: pill.count, label: pill.label, color: pill.color)
         }
       }
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm_)
-      .background(
-        Capsule(style: .continuous)
-          .fill(Color.backgroundSecondary)
-      )
-      .overlay(
-        Capsule(style: .continuous)
-          .strokeBorder(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
-      )
-
-      Spacer()
     }
   }
 
-  private func statusPill(icon: String, count: Int, label: String, color: Color) -> some View {
-    HStack(spacing: Spacing.xs) {
-      Image(systemName: icon)
-        .font(.system(size: 8, weight: .bold))
-        .foregroundStyle(color)
+  // MARK: - Today Stats Strip
 
-      Text("\(count)")
-        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-        .foregroundStyle(count > 0 ? Color.textPrimary : Color.textQuaternary)
+  private func todayStatsStrip(_ stats: ServerUsageSummaryBucketPayload) -> some View {
+    HStack(spacing: Spacing.lg) {
+      telemetryMetric(
+        value: DashboardFormatters.costCompact(stats.totalCostUSD),
+        label: "cost",
+        emphasize: stats.totalCostUSD > 0
+      )
+
+      telemetryMetric(
+        value: "\(stats.sessionCount)",
+        label: stats.sessionCount == 1 ? "session" : "sessions"
+      )
+
+      telemetryMetric(
+        value: DashboardFormatters.tokens(Int(stats.totalTokens), zeroDisplay: "0"),
+        label: "tokens"
+      )
+
+      Spacer(minLength: 0)
+
+      Text("Today")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .strokeBorder(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
+    )
+  }
+
+  private func telemetryMetric(value: String, label: String, emphasize: Bool = false) -> some View {
+    HStack(spacing: Spacing.xxs) {
+      Text(value)
+        .font(.system(size: TypeScale.caption, weight: emphasize ? .bold : .semibold, design: .monospaced))
+        .foregroundStyle(emphasize ? Color.textPrimary : Color.textSecondary)
+        .contentTransition(.numericText())
 
       Text(label)
-        .font(.system(size: TypeScale.mini, weight: .medium))
+        .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(Color.textTertiary)
+    }
+  }
+
+  // MARK: - Provider Limits Card
+
+  private func providerLimitsCard(_ provider: Provider, windows: [RateLimitWindow], isLoading: Bool) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      // Provider header — icon + name + plan, all compact
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: provider.icon)
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(provider.accentColor)
+
+        Text(provider.displayName)
+          .font(.system(size: TypeScale.mini, weight: .bold))
+          .foregroundStyle(Color.textSecondary)
+
+        if let plan = usageRegistry.planName(for: provider) {
+          Text(plan)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+
+      if !windows.isEmpty {
+        VStack(spacing: Spacing.xs) {
+          ForEach(windows) { window in
+            compactWindowRow(window, provider: provider)
+          }
+        }
+      } else if isLoading {
+        HStack(spacing: Spacing.sm) {
+          ProgressView().controlSize(.mini)
+          Text("Loading...")
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+    }
+    .padding(Spacing.md_)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .fill(Color.backgroundSecondary)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+        .strokeBorder(Color.surfaceBorder.opacity(OpacityTier.subtle), lineWidth: 1)
+    )
+  }
+
+  private func compactWindowRow(_ window: RateLimitWindow, provider: Provider) -> some View {
+    let usageColor = provider.color(for: window.utilization)
+    let showProjection = window.projectedAtReset > window.utilization + 5
+
+    return VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: Spacing.xs) {
+        Text(window.descriptiveLabel)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+
+        if window.willExceed {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 7))
+            .foregroundStyle(Color.feedbackCaution)
+        }
+
+        Spacer(minLength: 0)
+
+        Text("\(Int(window.utilization))%")
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+          .foregroundStyle(usageColor)
+
+        if showProjection {
+          Text("→ \(Int(window.projectedAtReset.rounded()))%")
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+            .foregroundStyle(DashboardFormatters.projectedColor(window.projectedAtReset))
+        }
+      }
+
+      UsageGaugeBar(
+        utilization: window.utilization,
+        usageColor: usageColor,
+        projectedAtReset: window.projectedAtReset,
+        showProjection: showProjection
+      )
+      .frame(height: 3)
     }
   }
 
@@ -127,123 +248,39 @@ struct OverviewPanel: View {
       : [GridItem(.flexible(), spacing: Spacing.md), GridItem(.flexible(), spacing: Spacing.md)]
 
     return VStack(alignment: .leading, spacing: Spacing.md) {
-      zoneHeader(
-        title: "Needs Attention",
-        icon: "exclamationmark.triangle.fill",
-        color: .statusPermission,
-        count: attentionSessions.count
-      )
+      SectorHeader(title: "Incoming", color: .statusPermission, count: attentionSessions.count)
 
       LazyVGrid(columns: columns, spacing: Spacing.md) {
         ForEach(attentionSessions) { session in
-          attentionCard(session)
-        }
-      }
-    }
-  }
-
-  private func attentionCard(_ session: DashboardConversationRecord) -> some View {
-    let statusColor = session.displayStatus.color
-
-    return Button {
-      router.selectSession(session.sessionRef, source: .dashboardStream)
-    } label: {
-      VStack(alignment: .leading, spacing: Spacing.md) {
-        // Header: status dot + title + status badge
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: session.displayStatus.icon)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(statusColor)
-
-          Text(session.title)
-            .font(.system(size: TypeScale.subhead, weight: .bold))
-            .foregroundStyle(Color.textPrimary)
-            .lineLimit(2)
-
-          Spacer(minLength: Spacing.sm)
-
-          HStack(spacing: Spacing.gap) {
-            Text(session.displayStatus.label)
-              .font(.system(size: TypeScale.micro, weight: .bold))
+          TransmissionCard(session: session) {
+            router.selectSession(session.sessionRef, source: .dashboardStream)
           }
-          .foregroundStyle(statusColor)
-          .padding(.horizontal, Spacing.sm_)
-          .padding(.vertical, Spacing.xxs)
-          .background(
-            Capsule(style: .continuous)
-              .fill(statusColor.opacity(OpacityTier.light))
-          )
-        }
+          .contextMenu {
+            Button {
+              _ = Platform.services.revealInFileBrowser(session.projectPath)
+            } label: {
+              Label("Reveal in Finder", systemImage: "folder")
+            }
 
-        // The actual permission/question text
-        Text(session.alertContextText)
-          .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-          .lineLimit(3)
-          .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+              let command = "claude --resume \(session.sessionId)"
+              Platform.services.copyToClipboard(command)
+            } label: {
+              Label("Copy Resume Command", systemImage: "doc.on.doc")
+            }
 
-        // Footer: provider + model + branch + time
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: session.provider.icon)
-            .font(.system(size: 8, weight: .semibold))
-            .foregroundStyle(session.provider.accentColor.opacity(0.7))
-
-          if let model = session.modelDisplayLabel {
-            Text(model)
-              .font(.system(size: TypeScale.mini, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
-          }
-
-          Spacer()
-
-          if let branch = session.compactBranchLabel {
-            Text(branch)
-              .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.5))
-              .lineLimit(1)
-          }
-
-          if let recency = recencyLabel(for: session) {
-            Text(recency)
-              .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
+            if session.canEnd {
+              Divider()
+              Button(role: .destructive) {
+                Task { await endSession(session) }
+              } label: {
+                Label("End Session", systemImage: "stop.circle")
+              }
+            }
           }
         }
       }
-      .padding(Spacing.lg)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .fill(
-            LinearGradient(
-              colors: [
-                statusColor.opacity(OpacityTier.tint),
-                Color.backgroundSecondary,
-              ],
-              startPoint: .leading,
-              endPoint: UnitPoint(x: 0.3, y: 0.5)
-            )
-          )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .strokeBorder(
-            LinearGradient(
-              colors: [
-                statusColor.opacity(OpacityTier.medium),
-                statusColor.opacity(OpacityTier.subtle),
-              ],
-              startPoint: .topLeading,
-              endPoint: .bottomTrailing
-            ),
-            lineWidth: 1
-          )
-      )
-      .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-      .shadow(color: statusColor.opacity(0.20), radius: 16, y: 0)
-      .shadow(color: statusColor.opacity(0.08), radius: 4, y: 0)
     }
-    .buttonStyle(.plain)
   }
 
   // MARK: - Project Group List
@@ -268,8 +305,12 @@ struct OverviewPanel: View {
   ) -> some View {
     let isCollapsed = collapsedGroups.contains(group.id)
     return VStack(alignment: .leading, spacing: 0) {
-      // Group header — manifest-style
-      Button {
+      SectorHeader(
+        title: group.name,
+        color: group.signalColor,
+        count: sessions.count,
+        isCollapsed: isCollapsed
+      ) {
         withAnimation(Motion.hover) {
           if isCollapsed {
             collapsedGroups.remove(group.id)
@@ -277,45 +318,22 @@ struct OverviewPanel: View {
             collapsedGroups.insert(group.id)
           }
         }
-      } label: {
-        HStack(spacing: Spacing.sm_) {
-          Image(systemName: "folder.fill")
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(group.signalColor.opacity(0.7))
-
-          Text(group.name.uppercased())
-            .font(.system(size: TypeScale.micro, weight: .bold))
-            .foregroundStyle(Color.textSecondary)
-            .tracking(0.8)
-            .lineLimit(1)
-
-          Spacer()
-
-          if group.attentionCount > 0 {
-            HStack(spacing: Spacing.gap) {
-              Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 7, weight: .bold))
-              Text("\(group.attentionCount)")
-                .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-            }
-            .foregroundStyle(Color.statusPermission)
-          }
-
-          Text("\(sessions.count)")
-            .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-
-          Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-            .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(Color.textQuaternary)
-            .frame(width: 10)
-        }
-        .padding(.vertical, Spacing.sm)
-        .contentShape(Rectangle())
       }
-      .buttonStyle(.plain)
 
-      // Session rows with left accent edge
+      // Signal strip — project health at a glance when collapsed
+      if isCollapsed {
+        HStack(spacing: 2) {
+          ForEach(sessions) { session in
+            Circle()
+              .fill(session.displayStatus.color)
+              .frame(width: 4, height: 4)
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.bottom, Spacing.xs)
+      }
+
       if !isCollapsed {
         VStack(spacing: 0) {
           ForEach(sessions) { session in
@@ -351,29 +369,29 @@ struct OverviewPanel: View {
     return Button {
       router.selectSession(session.sessionRef, source: .dashboardStream)
     } label: {
-      VStack(alignment: .leading, spacing: 2) {
-        // Line 1: title + optional status tag + recency
-        HStack(spacing: Spacing.xs) {
-          Text(session.title)
-            .font(.system(size: TypeScale.caption, weight: isActive ? .bold : .semibold))
-            .foregroundStyle(isActive ? Color.textPrimary : Color.textSecondary)
-            .lineLimit(1)
+      HStack(spacing: Spacing.sm) {
+        OrbitalStatusIndicator(status: status, size: 12)
 
-          if isActive {
-            inlineStatusTag(status)
+        VStack(alignment: .leading, spacing: 2) {
+          // Line 1: title + recency
+          HStack(spacing: Spacing.xs) {
+            Text(session.title)
+              .font(.system(size: TypeScale.caption, weight: isActive ? .bold : .semibold))
+              .foregroundStyle(isActive ? Color.textPrimary : Color.textSecondary)
+              .lineLimit(1)
+
+            Spacer(minLength: Spacing.xs)
+
+            if let recency = recencyLabel(for: session) {
+              Text(recency)
+                .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+            }
           }
 
-          Spacer(minLength: Spacing.xs)
-
-          if let recency = recencyLabel(for: session) {
-            Text(recency)
-              .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-          }
+          // Line 2: state-driven metadata
+          overviewSessionMeta(session)
         }
-
-        // Line 2: state-driven metadata
-        overviewSessionMeta(session)
       }
       .padding(.horizontal, Spacing.md)
       .padding(.vertical, layoutMode.isPhoneCompact ? Spacing.md_ : Spacing.sm)
@@ -382,6 +400,29 @@ struct OverviewPanel: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
+    .contextMenu {
+      Button {
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
+      } label: {
+        Label("Reveal in Finder", systemImage: "folder")
+      }
+
+      Button {
+        let command = "claude --resume \(session.sessionId)"
+        Platform.services.copyToClipboard(command)
+      } label: {
+        Label("Copy Resume Command", systemImage: "doc.on.doc")
+      }
+
+      if session.canEnd {
+        Divider()
+        Button(role: .destructive) {
+          Task { await endSession(session) }
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    }
   }
 
   @ViewBuilder
@@ -421,35 +462,61 @@ struct OverviewPanel: View {
     }
   }
 
+  @ViewBuilder
   private func activityLabel(_ session: DashboardConversationRecord) -> some View {
-    Group {
-      if session.displayStatus == .working, let toolName = session.pendingToolName {
-        HStack(spacing: Spacing.gap) {
-          Image(systemName: "gearshape.fill")
-            .font(.system(size: 7, weight: .medium))
-            .foregroundStyle(Color.statusWorking.opacity(0.6))
-          Text(toolName)
-            .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.statusWorking.opacity(0.7))
-            .lineLimit(1)
-        }
-      } else if session.displayStatus == .permission, let toolName = session.pendingToolName {
+    switch session.displayStatus {
+    case .working:
+      if let toolName = session.pendingToolName {
         Text(toolName)
           .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color.statusPermission.opacity(0.7))
+          .foregroundStyle(Color.statusWorking.opacity(0.8))
           .lineLimit(1)
-      } else if session.displayStatus == .question, !session.alertContextText.isEmpty {
-        Text(session.alertContextText)
+      } else {
+        Text("thinking\u{2026}")
           .font(.system(size: TypeScale.mini, weight: .medium))
-          .foregroundStyle(Color.statusQuestion.opacity(0.7))
-          .lineLimit(1)
+          .foregroundStyle(Color.statusWorking.opacity(0.7))
+      }
+
+    case .permission:
+      Text(!session.alertContextText.isEmpty ? session.alertContextText : "awaiting approval")
+        .font(.system(size: TypeScale.mini, weight: .medium))
+        .foregroundStyle(Color.statusPermission.opacity(0.8))
+        .lineLimit(1)
+
+    case .question:
+      Text(!session.alertContextText.isEmpty ? session.alertContextText : "has a question")
+        .font(.system(size: TypeScale.mini, weight: .medium))
+        .foregroundStyle(Color.statusQuestion.opacity(0.8))
+        .lineLimit(1)
+
+    case .reply:
+      if let diff = session.diffPreview, diff.fileCount > 0 {
+        overviewDiffStats(diff)
       } else {
         Text(session.compactPreviewText)
           .font(.system(size: TypeScale.mini, weight: .regular))
           .foregroundStyle(Color.textQuaternary)
           .lineLimit(1)
       }
+
+    case .ended:
+      Text(session.compactPreviewText)
+        .font(.system(size: TypeScale.mini, weight: .regular))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
     }
+  }
+
+  private func overviewDiffStats(_ diff: ServerDashboardDiffPreview) -> some View {
+    HStack(spacing: Spacing.xs) {
+      Text("+\(diff.additions)")
+        .foregroundStyle(Color.diffAddedAccent)
+      Text("-\(diff.deletions)")
+        .foregroundStyle(Color.diffRemovedAccent)
+      Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
   }
 
   private func branchLabel(_ branch: String) -> some View {
@@ -457,40 +524,6 @@ struct OverviewPanel: View {
       .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
       .foregroundStyle(Color.gitBranch.opacity(0.5))
       .lineLimit(1)
-  }
-
-  private func inlineStatusTag(_ status: SessionDisplayStatus) -> some View {
-    HStack(spacing: Spacing.gap) {
-      Image(systemName: status.icon)
-        .font(.system(size: 7, weight: .bold))
-      Text(status.label)
-        .font(.system(size: TypeScale.mini, weight: .bold))
-    }
-    .foregroundStyle(status.color)
-    .padding(.horizontal, Spacing.sm_)
-    .padding(.vertical, 1)
-    .background(status.color.opacity(OpacityTier.light), in: Capsule())
-  }
-
-  // MARK: - Zone Header
-
-  private func zoneHeader(title: String, icon: String, color: Color, count: Int) -> some View {
-    HStack(spacing: Spacing.sm_) {
-      Image(systemName: icon)
-        .font(.system(size: IconScale.sm, weight: .semibold))
-        .foregroundStyle(color)
-
-      Text(title.uppercased())
-        .font(.system(size: TypeScale.micro, weight: .bold))
-        .foregroundStyle(color.opacity(0.8))
-        .tracking(0.8)
-
-      Text("\(count)")
-        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-        .foregroundStyle(color.opacity(0.7))
-
-      Spacer()
-    }
   }
 
   // MARK: - Empty State
@@ -509,13 +542,7 @@ struct OverviewPanel: View {
 
         Image(systemName: "terminal")
           .font(.system(size: 28, weight: .ultraLight))
-          .foregroundStyle(
-            LinearGradient(
-              colors: [Color.accent.opacity(0.4), Color.textQuaternary],
-              startPoint: .top,
-              endPoint: .bottom
-            )
-          )
+          .foregroundStyle(Color.textQuaternary)
       }
 
       VStack(spacing: Spacing.sm) {
@@ -591,6 +618,15 @@ struct OverviewPanel: View {
   }
 
   // MARK: - Helpers
+
+  private func endSession(_ session: DashboardConversationRecord) async {
+    let store = runtimeRegistry.sessionStore(
+      for: session.sessionRef.endpointId,
+      fallback: runtimeRegistry.activeSessionStore
+    )
+    try? await store.endSession(session.sessionId)
+    await runtimeRegistry.refreshDashboardConversations()
+  }
 
   private func recencyLabel(for session: DashboardConversationRecord) -> String? {
     guard let date = session.lastActivityAt ?? session.startedAt else { return nil }

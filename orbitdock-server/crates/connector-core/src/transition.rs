@@ -128,6 +128,11 @@ pub struct TransitionState {
   pub summary: Option<String>,
   pub effort: Option<String>,
   pub first_prompt: Option<String>,
+  /// Per-turn token accumulators — reset at TurnStarted, used for ledger entries.
+  /// Separate from `token_usage` which tracks lifetime accumulated values.
+  pub turn_input_tokens: u64,
+  pub turn_output_tokens: u64,
+  pub turn_cached_tokens: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +436,7 @@ pub enum PersistOp {
     session_id: String,
     turn_id: String,
     turn_seq: u64,
-    diff: String,
+    diff: Option<String>,
     input_tokens: u64,
     output_tokens: u64,
     cached_tokens: u64,
@@ -624,6 +629,9 @@ pub fn transition(
       state.turn_count += 1;
       let turn_id = format!("turn-{}", state.turn_count);
       state.current_turn_id = Some(turn_id.clone());
+      state.turn_input_tokens = 0;
+      state.turn_output_tokens = 0;
+      state.turn_cached_tokens = 0;
 
       effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
         id: sid.clone(),
@@ -646,40 +654,58 @@ pub fn transition(
     }
 
     Input::TurnCompleted => {
-      // Snapshot the current diff for this turn before clearing
-      if let (Some(turn_id), Some(diff)) =
-        (state.current_turn_id.as_ref(), state.current_diff.as_ref())
-      {
-        let usage = &state.token_usage;
-        let snapshot = TurnDiff {
-          turn_id: turn_id.clone(),
-          diff: diff.clone(),
-          token_usage: Some(usage.clone()),
-          snapshot_kind: Some(state.token_usage_snapshot_kind),
+      // Always persist usage for this turn. Archive diff snapshot if one exists.
+      if let Some(turn_id) = state.current_turn_id.as_ref() {
+        let diff = state.current_diff.clone();
+
+        // Use per-turn accumulators for the ledger entry (not lifetime token_usage).
+        let turn_usage = TokenUsage {
+          input_tokens: state.turn_input_tokens,
+          output_tokens: state.turn_output_tokens,
+          cached_tokens: state.turn_cached_tokens,
+          context_window: state.token_usage.context_window,
         };
-        state.turn_diffs.push(snapshot);
+
+        if let Some(ref d) = diff {
+          let snapshot = TurnDiff {
+            turn_id: turn_id.clone(),
+            diff: d.clone(),
+            token_usage: Some(turn_usage.clone()),
+            snapshot_kind: Some(state.token_usage_snapshot_kind),
+          };
+          state.turn_diffs.push(snapshot);
+        }
+
         effects.push(Effect::Persist(Box::new(PersistOp::TurnDiffInsert {
           session_id: sid.clone(),
           turn_id: turn_id.clone(),
           turn_seq: state.turn_count,
           diff: diff.clone(),
-          input_tokens: usage.input_tokens,
-          output_tokens: usage.output_tokens,
-          cached_tokens: usage.cached_tokens,
-          context_window: usage.context_window,
+          input_tokens: turn_usage.input_tokens,
+          output_tokens: turn_usage.output_tokens,
+          cached_tokens: turn_usage.cached_tokens,
+          context_window: turn_usage.context_window,
           snapshot_kind: state.token_usage_snapshot_kind,
         })));
-        effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
-          session_id: sid.clone(),
-          turn_id: turn_id.clone(),
-          diff: diff.clone(),
-          input_tokens: Some(usage.input_tokens),
-          output_tokens: Some(usage.output_tokens),
-          cached_tokens: Some(usage.cached_tokens),
-          context_window: Some(usage.context_window),
-          snapshot_kind: state.token_usage_snapshot_kind,
-        })));
+
+        if let Some(ref d) = diff {
+          effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
+            session_id: sid.clone(),
+            turn_id: turn_id.clone(),
+            diff: d.clone(),
+            input_tokens: Some(turn_usage.input_tokens),
+            output_tokens: Some(turn_usage.output_tokens),
+            cached_tokens: Some(turn_usage.cached_tokens),
+            context_window: Some(turn_usage.context_window),
+            snapshot_kind: state.token_usage_snapshot_kind,
+          })));
+        }
       }
+
+      // Reset per-turn accumulators
+      state.turn_input_tokens = 0;
+      state.turn_output_tokens = 0;
+      state.turn_cached_tokens = 0;
 
       // Clear current_diff now that it has been archived into turn_diffs
       state.current_diff = None;
@@ -1138,17 +1164,37 @@ pub fn transition(
       usage,
       snapshot_kind,
     } => {
-      state.token_usage = usage.clone();
+      match snapshot_kind {
+        TokenUsageSnapshotKind::MixedLegacy => {
+          // input/cached are per-call context values — keep as-is for context
+          // fill display (input+cached / context_window). Only output accumulates
+          // because the connector sends per-call output tokens.
+          state.token_usage.input_tokens = usage.input_tokens;
+          state.token_usage.output_tokens += usage.output_tokens;
+          state.token_usage.cached_tokens = usage.cached_tokens;
+          state.token_usage.context_window = usage.context_window;
+
+          // Per-turn tracking for ledger entries (reset at TurnStarted).
+          // These DO accumulate all three dimensions for accurate billing.
+          state.turn_input_tokens += usage.input_tokens;
+          state.turn_output_tokens += usage.output_tokens;
+          state.turn_cached_tokens += usage.cached_tokens;
+        }
+        _ => {
+          state.token_usage = usage;
+        }
+      }
       state.token_usage_snapshot_kind = snapshot_kind;
 
+      // Emit/persist the accumulated lifetime values (not raw per-call)
       effects.push(Effect::Persist(Box::new(PersistOp::TokensUpdate {
         session_id: sid.clone(),
-        usage: usage.clone(),
+        usage: state.token_usage.clone(),
         snapshot_kind,
       })));
       effects.push(Effect::Emit(Box::new(ServerMessage::TokensUpdated {
         session_id: sid,
-        usage,
+        usage: state.token_usage.clone(),
         snapshot_kind,
       })));
     }
@@ -1528,23 +1574,19 @@ pub fn transition(
     Input::ContextCompacted => {
       state.last_activity_at = Some(now.to_string());
       state.last_progress_at = Some(now.to_string());
-      let compacted_usage = TokenUsage {
-        input_tokens: 0,
-        output_tokens: state.token_usage.output_tokens,
-        cached_tokens: 0,
-        context_window: state.token_usage.context_window,
-      };
-      state.token_usage = compacted_usage.clone();
+      // Preserve accumulated lifetime totals — compaction resets context, not history.
+      // The CompactionReset snapshot kind tells the DB handler to zero context_* columns
+      // while keeping lifetime_* and snapshot_* at their accumulated values.
       state.token_usage_snapshot_kind = TokenUsageSnapshotKind::CompactionReset;
 
       effects.push(Effect::Persist(Box::new(PersistOp::TokensUpdate {
         session_id: sid.clone(),
-        usage: compacted_usage.clone(),
+        usage: state.token_usage.clone(),
         snapshot_kind: TokenUsageSnapshotKind::CompactionReset,
       })));
       effects.push(Effect::Emit(Box::new(ServerMessage::TokensUpdated {
         session_id: sid.clone(),
-        usage: compacted_usage,
+        usage: state.token_usage.clone(),
         snapshot_kind: TokenUsageSnapshotKind::CompactionReset,
       })));
 
@@ -2827,6 +2869,9 @@ mod tests {
       summary: None,
       effort: None,
       first_prompt: None,
+      turn_input_tokens: 0,
+      turn_output_tokens: 0,
+      turn_cached_tokens: 0,
     }
   }
 
@@ -3653,8 +3698,11 @@ mod tests {
 
     let (new_state, effects) = transition(state.clone(), Input::ContextCompacted, NOW);
     assert_eq!(new_state.phase, state.phase);
-    assert_eq!(new_state.token_usage.input_tokens, 0);
-    assert_eq!(new_state.token_usage.cached_tokens, 0);
+    // Compaction preserves accumulated lifetime totals (input/output/cached).
+    // Only context_* columns in the DB are zeroed — the transition layer keeps
+    // accumulated values so they survive server restarts.
+    assert_eq!(new_state.token_usage.input_tokens, 120_000);
+    assert_eq!(new_state.token_usage.cached_tokens, 2_400);
     assert_eq!(new_state.token_usage.output_tokens, 9_500);
     assert_eq!(new_state.token_usage.context_window, 200_000);
     assert_eq!(effects.len(), 5);
@@ -3666,8 +3714,8 @@ mod tests {
     if let Effect::Emit(message) = &effects[1] {
       match message.as_ref() {
         ServerMessage::TokensUpdated { usage, .. } => {
-          assert_eq!(usage.input_tokens, 0);
-          assert_eq!(usage.cached_tokens, 0);
+          assert_eq!(usage.input_tokens, 120_000);
+          assert_eq!(usage.cached_tokens, 2_400);
           assert_eq!(usage.output_tokens, 9_500);
           assert_eq!(usage.context_window, 200_000);
         }

@@ -196,16 +196,24 @@ pub(super) fn upsert_usage_session_state(
       context_window = usage_window;
     }
     TokenUsageSnapshotKind::MixedLegacy => {
+      // Context values are per-call (for context fill display).
       context_input = usage_input;
       context_cached = usage_cached;
       context_window = usage_window;
-      lifetime_output = lifetime_output.max(usage_output);
+      // Input and cached are per-call — accumulate into lifetime totals.
+      // Output is already accumulated in the transition layer.
+      lifetime_input += usage_input;
+      lifetime_output = usage_output;
+      lifetime_cached += usage_cached;
     }
     TokenUsageSnapshotKind::CompactionReset => {
+      // Context resets (compaction clears context), but lifetime totals persist.
       context_input = 0;
       context_cached = 0;
       context_window = usage_window;
+      lifetime_input = lifetime_input.max(usage_input);
       lifetime_output = lifetime_output.max(usage_output);
+      lifetime_cached = lifetime_cached.max(usage_cached);
     }
   }
 
@@ -470,62 +478,12 @@ pub(crate) fn estimate_cost_usd(
   cache_read_tokens: u64,
   cache_write_tokens: u64,
 ) -> f64 {
-  let pricing = estimate_model_pricing(provider, model);
-  input_tokens as f64 * pricing.input_per_token
-    + output_tokens as f64 * pricing.output_per_token
-    + cache_read_tokens as f64 * pricing.cache_read_per_token
-    + cache_write_tokens as f64 * pricing.cache_write_per_token
-}
-
-struct Pricing {
-  input_per_token: f64,
-  output_per_token: f64,
-  cache_read_per_token: f64,
-  cache_write_per_token: f64,
-}
-
-fn estimate_model_pricing(provider: &str, model: Option<&str>) -> Pricing {
-  let normalized = model.unwrap_or_default().to_ascii_lowercase();
-
-  if normalized.contains("opus") {
-    return Pricing {
-      input_per_token: 15.0 / 1_000_000.0,
-      output_per_token: 75.0 / 1_000_000.0,
-      cache_read_per_token: 1.875 / 1_000_000.0,
-      cache_write_per_token: 18.75 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("sonnet") {
-    return Pricing {
-      input_per_token: 3.0 / 1_000_000.0,
-      output_per_token: 15.0 / 1_000_000.0,
-      cache_read_per_token: 0.30 / 1_000_000.0,
-      cache_write_per_token: 3.75 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("haiku") {
-    return Pricing {
-      input_per_token: 0.8 / 1_000_000.0,
-      output_per_token: 4.0 / 1_000_000.0,
-      cache_read_per_token: 0.08 / 1_000_000.0,
-      cache_write_per_token: 1.0 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("gpt-5") || provider.eq_ignore_ascii_case("codex") {
-    return Pricing {
-      input_per_token: 2.0 / 1_000_000.0,
-      output_per_token: 10.0 / 1_000_000.0,
-      cache_read_per_token: 0.0,
-      cache_write_per_token: 0.0,
-    };
-  }
-
-  Pricing {
-    input_per_token: 3.0 / 1_000_000.0,
-    output_per_token: 15.0 / 1_000_000.0,
-    cache_read_per_token: 0.30 / 1_000_000.0,
-    cache_write_per_token: 3.75 / 1_000_000.0,
-  }
+  let provider_enum: orbitdock_protocol::Provider = provider.parse().unwrap_or(orbitdock_protocol::Provider::Claude);
+  let p = orbitdock_protocol::model_pricing(provider_enum, model);
+  input_tokens as f64 * p.input_per_token
+    + output_tokens as f64 * p.output_per_token
+    + cache_read_tokens as f64 * p.cache_read_per_token
+    + cache_write_tokens as f64 * p.cache_write_per_token
 }
 
 #[cfg(test)]

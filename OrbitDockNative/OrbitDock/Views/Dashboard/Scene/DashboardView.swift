@@ -10,10 +10,6 @@ struct DashboardView: View {
       let containerWidth = proxy.size.width
 
       VStack(spacing: 0) {
-        DashboardStatusBar(
-          sessions: viewModel.librarySessions
-        )
-
         switch router.dashboardTab {
           case .missionControl:
             OverviewPanel(viewModel: viewModel)

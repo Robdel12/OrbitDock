@@ -14,13 +14,36 @@ struct OrbitalStatusIndicator: View {
   let status: SessionDisplayStatus
   var size: CGFloat = 14
 
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var orbitRotation: Double = 0
   @State private var pulsePhase: CGFloat = 0
-  @State private var appeared = false
 
   var body: some View {
+    if reduceMotion {
+      staticIndicator
+    } else {
+      animatedIndicator
+    }
+  }
+
+  /// Reduced motion fallback — static colored dot with ring.
+  private var staticIndicator: some View {
     ZStack {
-      // Base ring — always visible, opacity varies by status
+      Circle()
+        .strokeBorder(status.color.opacity(baseRingOpacity), lineWidth: size > 16 ? 1.5 : 1)
+        .frame(width: size, height: size)
+
+      Circle()
+        .fill(status.color.opacity(status == .ended ? 0.25 : 0.6))
+        .frame(width: size * 0.35, height: size * 0.35)
+    }
+    .shadow(color: status.color.opacity(glowIntensity), radius: glowRadius)
+    .frame(width: size + 4, height: size + 4)
+  }
+
+  /// Full animated indicator.
+  private var animatedIndicator: some View {
+    ZStack {
       Circle()
         .strokeBorder(
           status.color.opacity(baseRingOpacity),
@@ -32,8 +55,6 @@ struct OrbitalStatusIndicator: View {
     }
     .shadow(color: status.color.opacity(glowIntensity), radius: glowRadius)
     .frame(width: size + 4, height: size + 4)
-    .onAppear { appeared = true }
-    .onDisappear { appeared = false }
   }
 
   // MARK: - Status-Specific Overlays
@@ -52,19 +73,12 @@ struct OrbitalStatusIndicator: View {
     }
   }
 
-  /// Orbiting satellite arc — a glowing trail sweeping around the ring.
-  /// Gradient fades from transparent to full color for a comet-tail effect.
+  /// Orbiting satellite arc — a bright trail sweeping around the ring.
+  /// Solid stroke with opacity fade handled by the arc shape itself.
   private var workingOverlay: some View {
     OrbitalArcShape(sweepFraction: 0.2)
       .stroke(
-        AngularGradient(
-          colors: [
-            Color.statusWorking.opacity(0),
-            Color.statusWorking.opacity(0.3),
-            Color.statusWorking,
-          ],
-          center: .center
-        ),
+        Color.statusWorking.opacity(0.8),
         style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
       )
       .frame(width: size, height: size)

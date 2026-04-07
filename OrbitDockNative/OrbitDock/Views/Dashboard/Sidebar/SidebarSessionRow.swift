@@ -5,7 +5,9 @@ struct SidebarSessionRow: View {
   let isSelected: Bool
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var isHovered = false
+  @State private var isEnding = false
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
@@ -25,9 +27,13 @@ struct SidebarSessionRow: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      titleLine
-      stateContent
+    HStack(spacing: Spacing.sm) {
+      OrbitalStatusIndicator(status: displayStatus, size: 12)
+
+      VStack(alignment: .leading, spacing: 2) {
+        titleLine
+        stateContent
+      }
     }
     .padding(.horizontal, Spacing.md)
     .padding(.vertical, layoutMode.isPhoneCompact ? Spacing.md_ : Spacing.sm_)
@@ -39,6 +45,40 @@ struct SidebarSessionRow: View {
         .padding(.horizontal, Spacing.xxs)
     )
     .contentShape(Rectangle())
+    .contextMenu {
+      Button {
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
+      } label: {
+        Label("Reveal in Finder", systemImage: "folder")
+      }
+
+      Button {
+        let command = "claude --resume \(session.sessionId)"
+        Platform.services.copyToClipboard(command)
+      } label: {
+        Label("Copy Resume Command", systemImage: "doc.on.doc")
+      }
+
+      if session.canEnd {
+        Divider()
+        Button(role: .destructive) {
+          Task { await endSession() }
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    }
+    #if os(iOS)
+    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+      if session.canEnd {
+        Button(role: .destructive) {
+          Task { await endSession() }
+        } label: {
+          Label(isEnding ? "Ending" : "End", systemImage: isEnding ? "stop.circle.fill" : "stop.circle")
+        }
+      }
+    }
+    #endif
     #if os(macOS)
       .onHover { isHovered = $0 }
     #endif
@@ -64,84 +104,87 @@ struct SidebarSessionRow: View {
     }
   }
 
-  // MARK: - State-Driven Content
+  // MARK: - State-Driven Metadata
 
   @ViewBuilder
   private var stateContent: some View {
     switch displayStatus {
     case .working:
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "bolt.fill")
-          .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(Color.statusWorking)
-
-        if let toolName = session.pendingToolName {
-          Text(toolName)
-            .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.statusWorking.opacity(0.8))
-            .lineLimit(1)
-        } else {
-          Text("thinking\u{2026}")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.statusWorking.opacity(0.7))
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          if let branch = session.compactBranchLabel {
+            metaDot
+            branchText(branch)
+          }
+          metaDot
+          workingLabel
         }
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          metaDot
+          workingLabel
+        }
+        providerAndModel
       }
 
     case .permission:
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "lock.fill")
-          .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(Color.statusPermission)
-
-        if let toolName = session.pendingToolName {
-          Text(toolName)
-            .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.statusPermission.opacity(0.8))
-            .lineLimit(1)
-        } else {
-          Text("awaiting approval")
-            .font(.system(size: TypeScale.mini, weight: .medium))
-            .foregroundStyle(Color.statusPermission.opacity(0.7))
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          metaDot
+          alertText(color: .statusPermission, fallback: "awaiting approval")
         }
+        providerAndModel
       }
 
     case .question:
-      HStack(spacing: Spacing.xs) {
-        Image(systemName: "questionmark.bubble.fill")
-          .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(Color.statusQuestion)
-
-        Text(!session.alertContextText.isEmpty ? session.alertContextText : "has a question")
-          .font(.system(size: TypeScale.mini, weight: .medium))
-          .foregroundStyle(Color.statusQuestion.opacity(0.8))
-          .lineLimit(1)
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          metaDot
+          alertText(color: .statusQuestion, fallback: "has a question")
+        }
+        providerAndModel
       }
 
-    case .reply, .ended:
-      metadataLine
-    }
-  }
+    case .reply:
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          if let branch = session.compactBranchLabel {
+            metaDot
+            branchText(branch)
+          }
+          metaDot
+          replyContent
+        }
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          metaDot
+          replyContent
+        }
+        HStack(spacing: Spacing.xs) {
+          providerAndModel
+          if let branch = session.compactBranchLabel {
+            metaDot
+            branchText(branch)
+          }
+        }
+      }
 
-  /// Standard provider + model + branch metadata (for reply/ended states)
-  private var metadataLine: some View {
-    ViewThatFits(in: .horizontal) {
+    case .ended:
       HStack(spacing: Spacing.xs) {
         providerAndModel
         if let branch = session.compactBranchLabel {
-          Circle()
-            .fill(Color.textQuaternary.opacity(0.6))
-            .frame(width: 2, height: 2)
-          Text(branch)
-            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.gitBranch.opacity(0.5))
-            .lineLimit(1)
+          metaDot
+          branchText(branch)
         }
-      }
-      HStack(spacing: Spacing.xs) {
-        providerAndModel
       }
     }
   }
+
+  // MARK: - Metadata Components
 
   private var providerAndModel: some View {
     HStack(spacing: Spacing.xs) {
@@ -156,6 +199,77 @@ struct SidebarSessionRow: View {
           .lineLimit(1)
       }
     }
+  }
+
+  private var metaDot: some View {
+    Circle()
+      .fill(Color.textQuaternary.opacity(0.6))
+      .frame(width: 2, height: 2)
+  }
+
+  private func branchText(_ branch: String) -> some View {
+    Text(branch)
+      .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+      .foregroundStyle(Color.gitBranch.opacity(0.5))
+      .lineLimit(1)
+  }
+
+  @ViewBuilder
+  private var workingLabel: some View {
+    if let tool = session.pendingToolName {
+      Text(tool)
+        .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
+        .foregroundStyle(Color.statusWorking.opacity(0.8))
+        .lineLimit(1)
+    } else {
+      Text("thinking\u{2026}")
+        .font(.system(size: TypeScale.mini, weight: .medium))
+        .foregroundStyle(Color.statusWorking.opacity(0.7))
+    }
+  }
+
+  private func alertText(color: Color, fallback: String) -> some View {
+    Text(!session.alertContextText.isEmpty ? session.alertContextText : fallback)
+      .font(.system(size: TypeScale.mini, weight: .medium))
+      .foregroundStyle(color.opacity(0.8))
+      .lineLimit(1)
+  }
+
+  @ViewBuilder
+  private var replyContent: some View {
+    if let diff = session.diffPreview, diff.fileCount > 0 {
+      diffStats(diff)
+    } else {
+      Text(session.compactPreviewText)
+        .font(.system(size: TypeScale.mini, weight: .regular))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+    }
+  }
+
+  private func diffStats(_ diff: ServerDashboardDiffPreview) -> some View {
+    HStack(spacing: Spacing.xs) {
+      Text("+\(diff.additions)")
+        .foregroundStyle(Color.diffAddedAccent)
+      Text("-\(diff.deletions)")
+        .foregroundStyle(Color.diffRemovedAccent)
+      Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+  }
+
+  // MARK: - Actions
+
+  private func endSession() async {
+    isEnding = true
+    defer { isEnding = false }
+    let store = runtimeRegistry.sessionStore(
+      for: session.sessionRef.endpointId,
+      fallback: runtimeRegistry.activeSessionStore
+    )
+    try? await store.endSession(session.sessionId)
+    await runtimeRegistry.refreshDashboardConversations()
   }
 
   // MARK: - Style Computation

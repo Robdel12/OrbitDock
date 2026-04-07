@@ -2409,6 +2409,9 @@ impl SessionHandle {
       summary: self.display.summary.clone(),
       effort: self.config.effort.clone(),
       first_prompt: self.display.first_prompt.clone(),
+      turn_input_tokens: 0,
+      turn_output_tokens: 0,
+      turn_cached_tokens: 0,
     }
   }
 
