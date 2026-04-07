@@ -9,7 +9,6 @@ struct SessionSidebar: View {
   @State private var isAttentionExpanded = true
   @State private var isOrbitExpanded = true
   @State private var isDockedExpanded = true
-  @State private var isCompletedExpanded = false
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
@@ -29,10 +28,6 @@ struct SessionSidebar: View {
 
   private var dockedSessions: [DashboardConversationRecord] {
     conversations.filter { $0.displayStatus == .reply }
-  }
-
-  private var completedSessions: [DashboardConversationRecord] {
-    conversations.filter { $0.displayStatus == .ended }
   }
 
   /// Server health — only shown when degraded or offline.
@@ -82,15 +77,6 @@ struct SessionSidebar: View {
               color: .statusReply,
               sessions: dockedSessions,
               isExpanded: $isDockedExpanded
-            )
-          }
-
-          if !completedSessions.isEmpty {
-            tierSection(
-              title: "Completed",
-              color: .textQuaternary,
-              sessions: completedSessions,
-              isExpanded: $isCompletedExpanded
             )
           }
 

@@ -108,6 +108,7 @@ final class DashboardDataService {
       conversations[index] = updatedRecord
     } else {
       conversations.append(updatedRecord)
+      scheduleLibraryRefresh()
     }
 
     conversations.sort { lhs, rhs in
@@ -122,12 +123,17 @@ final class DashboardDataService {
   private func removeConversation(sessionId: String, endpointId: UUID) {
     guard let current = snapshot else { return }
 
+    let before = current.conversations.count
     var conversations = current.conversations
     conversations.removeAll {
       $0.sessionId == sessionId && $0.sessionRef.endpointId == endpointId
     }
 
     snapshot = current.replacing(conversations: conversations)
+
+    if conversations.count != before {
+      scheduleLibraryRefresh()
+    }
   }
 
   // MARK: - Full refresh (dashboard only)
@@ -153,6 +159,7 @@ final class DashboardDataService {
     }
 
     var endpointResults: [DashboardSnapshotMapper.EndpointResult] = []
+    var failedEndpointIds: Set<UUID> = []
 
     for runtime in runtimes {
       do {
@@ -167,8 +174,21 @@ final class DashboardDataService {
         )
         endpointResults.append(result)
       } catch {
+        failedEndpointIds.insert(runtime.endpoint.id)
         continue
       }
+    }
+
+    // Preserve existing conversations for endpoints that failed to refresh
+    if let existing = snapshot, !failedEndpointIds.isEmpty {
+      let preserved = existing.conversations.filter { failedEndpointIds.contains($0.sessionRef.endpointId) }
+      endpointResults.append(DashboardSnapshotMapper.EndpointResult(
+        revision: existing.revision,
+        conversations: preserved,
+        counts: DashboardTriageCounts(conversations: preserved),
+        directCount: preserved.filter(\.isDirect).count,
+        endpointId: failedEndpointIds.first!
+      ))
     }
 
     let merged = DashboardSnapshotMapper.merge(endpointResults)
