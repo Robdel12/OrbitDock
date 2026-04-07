@@ -89,6 +89,14 @@ struct OrbitDockWindowCommands: Commands {
   @FocusedValue(\.orbitDockRouter) private var router
 
   var body: some Commands {
+    CommandGroup(replacing: .appSettings) {
+      Button("Settings...") {
+        router?.goToSettings(source: .commandMenu)
+      }
+      .keyboardShortcut(",", modifiers: .command)
+      .disabled(router == nil)
+    }
+
     CommandGroup(after: .toolbar) {
       Button("Dashboard") {
         router?.goToDashboard(source: .commandMenu)
