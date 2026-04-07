@@ -315,12 +315,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                       .handle
                       .apply_changes(&direct_resume_failure_changes(prepared.provider));
                     state.add_session(prepared.handle);
-                    crate::runtime::session_registry::flush_and_publish_conversation(
-                      state.persist(),
-                      &state,
-                      &session_id,
-                    )
-                    .await;
+                    state.notify_dashboard_session_updated(&session_id);
                     warn!(
                         component = "restore",
                         event = "restore.session.downgraded_to_resumable",

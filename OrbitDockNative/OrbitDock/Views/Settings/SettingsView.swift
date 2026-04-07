@@ -80,12 +80,10 @@ struct SettingsView: View {
   private static let compactLayoutThreshold: CGFloat = 840
   @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(\.dismiss) private var dismiss
-  private let showsCloseButton: Bool
+  @Environment(AppRouter.self) private var router
   @State private var selectedPane: SettingsPane
 
-  init(showsCloseButton: Bool = false, initialPane: SettingsPane = .workspace) {
-    self.showsCloseButton = showsCloseButton
+  init(initialPane: SettingsPane = .workspace) {
     _selectedPane = State(initialValue: initialPane)
   }
 
@@ -225,13 +223,11 @@ struct SettingsView: View {
           .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
         Spacer()
-        if showsCloseButton {
-          Button("Done") {
-            dismiss()
-          }
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.accent)
+        Button("Done") {
+          router.goBack(source: .unspecified)
         }
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.accent)
       }
       .padding(.horizontal, Spacing.section)
       .padding(.top, Spacing.lg)
@@ -302,13 +298,11 @@ struct SettingsView: View {
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
         Spacer()
-        if showsCloseButton {
-          Button("Done") {
-            dismiss()
-          }
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(Color.accent)
+        Button("Done") {
+          router.goBack(source: .unspecified)
         }
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.accent)
       }
       .padding(.horizontal, Spacing.xl)
       .padding(.top, Spacing.section)

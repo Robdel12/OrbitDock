@@ -72,8 +72,12 @@ struct QuickSwitcher: View {
         } else if appRuntime.isDemoModeEnabled {
           viewModel.applySessions(appRuntime.demoExperience.rootSessions)
         } else {
-          await viewModel.observe(runtimeRegistry: runtimeRegistry)
+          viewModel.applySessions(dashboardDataService.librarySessions)
         }
+      }
+      .onChange(of: dashboardDataService.librarySessions) { _, sessions in
+        guard previewSessions == nil, !appRuntime.isDemoModeEnabled else { return }
+        viewModel.applySessions(sessions)
       }
       .onAppear {
         quickSwitcherState.resetSelection()
