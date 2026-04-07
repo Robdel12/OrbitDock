@@ -13,6 +13,7 @@ import Foundation
 /// All reads and mutations go via typed HTTP server clients. Only subscription management uses WS.
 enum ClientToServerMessage: Codable, Sendable {
   case subscribeDashboard(sinceRevision: UInt64? = nil)
+  case unsubscribeDashboard
   case subscribeMissions(sinceRevision: UInt64? = nil)
   case subscribeSessionSurface(sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64? = nil)
   case unsubscribeSessionSurface(sessionId: String, surface: ServerSessionSurface)
@@ -31,6 +32,9 @@ enum ClientToServerMessage: Codable, Sendable {
       case let .subscribeDashboard(sinceRevision):
         try container.encode("subscribe_dashboard", forKey: .type)
         try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+
+      case .unsubscribeDashboard:
+        try container.encode("unsubscribe_dashboard", forKey: .type)
 
       case let .subscribeMissions(sinceRevision):
         try container.encode("subscribe_missions", forKey: .type)
@@ -58,6 +62,8 @@ enum ClientToServerMessage: Codable, Sendable {
         self = try .subscribeDashboard(
           sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
         )
+      case "unsubscribe_dashboard":
+        self = .unsubscribeDashboard
       case "subscribe_missions":
         self = try .subscribeMissions(
           sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)

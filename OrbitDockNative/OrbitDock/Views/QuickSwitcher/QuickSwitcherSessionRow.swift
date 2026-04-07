@@ -54,7 +54,7 @@ struct QuickSwitcherSessionRow: View {
                   .font(.system(size: isCompactLayout ? TypeScale.mini : TypeScale.micro, design: .monospaced))
                   .lineLimit(1)
               }
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .foregroundStyle(Color.gitBranch.opacity(0.5))
             }
 
           }

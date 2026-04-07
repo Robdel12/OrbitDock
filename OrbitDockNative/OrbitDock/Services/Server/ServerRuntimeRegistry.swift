@@ -4,71 +4,9 @@ import Foundation
   import UIKit
 #endif
 
-private actor RegistryAggregationWorker {
-  func sortedSessions(
-    from sessionsByEndpoint: [UUID: [String: RootSessionNode]]
-  ) -> [RootSessionNode] {
-    let all = sessionsByEndpoint.values.flatMap(\.values)
-    return all.sorted { lhs, rhs in
-      if lhs.isActive != rhs.isActive { return lhs.isActive }
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      return lhsDate > rhsDate
-    }
-  }
-
-  func sortedDashboardConversations(
-    from dashboardConversationsByEndpoint: [UUID: [String: DashboardConversationRecord]]
-  ) -> [DashboardConversationRecord] {
-    let all = dashboardConversationsByEndpoint.values.flatMap(\.values)
-    return all.sorted { lhs, rhs in
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      if lhs.displayStatus != rhs.displayStatus {
-        return ServerRuntimeRegistry.dashboardConversationPriority(lhs.displayStatus)
-          < ServerRuntimeRegistry.dashboardConversationPriority(rhs.displayStatus)
-      }
-      return lhsDate > rhsDate
-    }
-  }
-
-  func sortedMissions(
-    from missionsByEndpoint: [UUID: [String: AggregatedMissionSummary]]
-  ) -> [AggregatedMissionSummary] {
-    let all = missionsByEndpoint.values.flatMap(\.values)
-    return all.sorted { lhs, rhs in
-      let lhsActive = lhs.mission.enabled && !lhs.mission.paused
-      let rhsActive = rhs.mission.enabled && !rhs.mission.paused
-      if lhsActive != rhsActive { return lhsActive }
-      return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
-    }
-  }
-
-  func dashboardProjection(
-    rootSessions: [RootSessionNode],
-    dashboardConversations: [DashboardConversationRecord],
-    refreshIdentity: String
-  ) -> DashboardProjectionSnapshot {
-    DashboardProjectionBuilder.build(
-      rootSessions: rootSessions,
-      dashboardConversations: dashboardConversations,
-      refreshIdentity: refreshIdentity
-    )
-  }
-}
-
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
-  private struct LibraryPaginationState: Sendable {
-    let nextOffset: Int?
-    let totalCount: Int
-
-    var hasMore: Bool {
-      nextOffset != nil
-    }
-  }
-
   private enum BootstrapRefreshDecision: Equatable {
     case success
     case retry
@@ -89,19 +27,8 @@ final class ServerRuntimeRegistry {
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
   private(set) var hasConfiguredEndpoints = false
-  let dashboardProjectionStore = DashboardProjectionStore()
-  let missionProjectionStore = MissionProjectionStore()
   let readinessUpdates: AsyncStream<Void>
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
-
-  // MARK: - Session list aggregation (across all endpoints)
-
-  @ObservationIgnored private var sessionsByEndpoint: [UUID: [String: RootSessionNode]] = [:]
-  @ObservationIgnored private var dashboardConversationsByEndpoint: [UUID: [String: DashboardConversationRecord]] = [:]
-  @ObservationIgnored private var missionsByEndpoint: [UUID: [String: AggregatedMissionSummary]] = [:]
-  private(set) var aggregatedSessions: [RootSessionNode] = []
-  private(set) var aggregatedDashboardConversations: [DashboardConversationRecord] = []
-  private(set) var aggregatedMissions: [AggregatedMissionSummary] = []
 
   @ObservationIgnored
   private lazy var fallbackSessionStore: SessionStore = {
@@ -125,20 +52,8 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private var bootstrapRetryTasksByEndpointId: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var bootstrapRetryAttemptsByEndpointId: [UUID: Int] = [:]
   @ObservationIgnored private var dashboardBootstrapInFlightEndpointIds: Set<UUID> = []
-  @ObservationIgnored private var libraryPageInFlightEndpointIds: Set<UUID> = []
   @ObservationIgnored private var missionsBootstrapInFlightEndpointIds: Set<UUID> = []
-  @ObservationIgnored private var libraryPaginationByEndpoint: [UUID: LibraryPaginationState] = [:]
   @ObservationIgnored private var suspendedForBackground = false
-  @ObservationIgnored private let aggregationWorker = RegistryAggregationWorker()
-  @ObservationIgnored private var aggregationRefreshTask: Task<Void, Never>?
-  @ObservationIgnored private var sessionsAggregationDirty = false
-  @ObservationIgnored private var dashboardAggregationDirty = false
-  @ObservationIgnored private var missionsAggregationDirty = false
-  @ObservationIgnored private var dashboardProjectionRefreshTask: Task<Void, Never>?
-  @ObservationIgnored private var sessionsAggregationGeneration: UInt64 = 0
-  @ObservationIgnored private var dashboardAggregationGeneration: UInt64 = 0
-  @ObservationIgnored private var missionsAggregationGeneration: UInt64 = 0
-  @ObservationIgnored private let libraryPageSize = 200
 
   private static func resolvedDeviceName() -> String {
     #if canImport(UIKit)
@@ -187,7 +102,6 @@ final class ServerRuntimeRegistry {
     bootstrapRetryDelay = { attempt in
       ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
     }
-    dashboardProjectionStore.runtimeRegistry = self
   }
 
   init(
@@ -208,7 +122,6 @@ final class ServerRuntimeRegistry {
     self.clientIdentityProvider = { Self.currentIdentity() }
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
     self.bootstrapRetryDelay = bootstrapRetryDelay
-    dashboardProjectionStore.runtimeRegistry = self
   }
 
   init(
@@ -230,7 +143,6 @@ final class ServerRuntimeRegistry {
     self.clientIdentityProvider = clientIdentityProvider
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
     self.bootstrapRetryDelay = bootstrapRetryDelay
-    dashboardProjectionStore.runtimeRegistry = self
   }
 
   deinit {
@@ -382,16 +294,8 @@ final class ServerRuntimeRegistry {
       connectionStatusByEndpointId[id] = nil
       readinessByEndpointId[id] = nil
       cancelBootstrapRetry(for: id)
-      sessionsByEndpoint[id] = nil
-      dashboardConversationsByEndpoint[id] = nil
-      missionsByEndpoint[id] = nil
-      libraryPaginationByEndpoint[id] = nil
-      libraryPageInFlightEndpointIds.remove(id)
       readinessContinuation.yield(())
     }
-    setSessionsAggregationDirty()
-    setDashboardAggregationDirty()
-    setMissionsAggregationDirty()
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
@@ -402,12 +306,6 @@ final class ServerRuntimeRegistry {
           statusObserverTasks[endpoint.id] = nil
           readinessObserverTasks[endpoint.id]?.cancel()
           readinessObserverTasks[endpoint.id] = nil
-
-          sessionsByEndpoint[endpoint.id] = nil
-          dashboardConversationsByEndpoint[endpoint.id] = nil
-          missionsByEndpoint[endpoint.id] = nil
-          libraryPaginationByEndpoint[endpoint.id] = nil
-          libraryPageInFlightEndpointIds.remove(endpoint.id)
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -425,7 +323,6 @@ final class ServerRuntimeRegistry {
       configuredEndpoints: configuredEndpoints
     )
     recomputePrimaryEndpoint(from: configuredEndpoints)
-    setSessionsAggregationDirty()
     readinessContinuation.yield(())
 
     guard startEnabled else { return }
@@ -514,23 +411,6 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  var hasMoreLibrarySessions: Bool {
-    for runtime in runtimes where runtime.endpoint.isEnabled {
-      if libraryPaginationByEndpoint[runtime.endpoint.id]?.hasMore == true {
-        return true
-      }
-    }
-    return false
-  }
-
-  func loadMoreLibrarySessions() async {
-    ensureInitialized()
-
-    for runtime in runtimes where runtime.endpoint.isEnabled {
-      _ = await refreshLibraryPage(for: runtime)
-    }
-  }
-
   func handleMemoryPressure() {
     // Stub: memory pressure handling
   }
@@ -583,11 +463,6 @@ final class ServerRuntimeRegistry {
       return primaryRuntime.sessionStore
     }
     return fallback
-  }
-
-  func sessionNode(forScopedID scopedID: String) -> RootSessionNode? {
-    guard let ref = SessionRef(scopedID: scopedID) else { return nil }
-    return sessionsByEndpoint[ref.endpointId]?[ref.sessionId]
   }
 
   var dashboardRefreshIdentity: String {
@@ -669,7 +544,6 @@ final class ServerRuntimeRegistry {
     }
 
     // Observe connection status + session list changes from the ServerConnection
-    let endpointName = runtime.endpoint.name
     connectionListenerTokensByEndpointId[endpointId] = runtime.connection.addListener { [
       weak self,
       weak runtime
@@ -687,12 +561,6 @@ final class ServerRuntimeRegistry {
             hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
           if status == .connected {
-            // Bootstrap snapshots can be loaded over HTTP before the websocket
-            // handshake completes. In that case, explicitly (re)attach stream
-            // subscriptions once the transport is connected so live invalidations resume.
-            if runtime.connection.hasReceivedInitialDashboardSnapshot {
-              runtime.connection.subscribeDashboard()
-            }
             if runtime.connection.hasReceivedInitialMissionsSnapshot {
               runtime.connection.subscribeMissions()
             }
@@ -704,57 +572,23 @@ final class ServerRuntimeRegistry {
           } else {
             self.cancelBootstrapRetry(for: endpointId)
             self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-            if runtime.connection.hasReceivedInitialDashboardSnapshot {
-              self.scheduleDashboardProjectionRefresh()
-            }
           }
 
-        case let .dashboardSnapshot(snapshot):
+        case .dashboardSnapshot:
           self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: runtime.connection.connectionStatus,
             hasReceivedInitialDashboardSnapshot: true,
             hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
           )
-          var index: [String: RootSessionNode] = [:]
-          for item in snapshot.sessions {
-            let node = RootSessionNode(
-              session: item, endpointId: endpointId, endpointName: endpointName,
-              connectionStatus: .connected
-            )
-            index[node.sessionId] = node
-          }
-          self.sessionsByEndpoint[endpointId] = index
-          self.setSessionsAggregationDirty()
-          var conversationsIndex: [String: DashboardConversationRecord] = [:]
-          for item in snapshot.conversations {
-            let record = DashboardConversationRecord(item: item, endpointId: endpointId, endpointName: endpointName)
-            conversationsIndex[record.id] = record
-          }
-          self.dashboardConversationsByEndpoint[endpointId] = conversationsIndex
-          self.setDashboardAggregationDirty()
 
-        case .dashboardInvalidated:
-          Task { [weak self, weak runtime] in
-            guard let self, let runtime else { return }
-            _ = await self.refreshDashboardConversations(for: runtime)
-          }
-
-        case let .missionsSnapshot(snapshot):
+        case .missionsSnapshot:
           self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
             connectionStatus: runtime.connection.connectionStatus,
             hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
             hasReceivedInitialMissionsSnapshot: true
           )
-          let endpointName = runtime.endpoint.name
-          var index: [String: AggregatedMissionSummary] = [:]
-          for mission in snapshot.missions {
-            let agg = AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
-            index[agg.id] = agg
-          }
-          self.missionsByEndpoint[endpointId] = index
-          self.setMissionsAggregationDirty()
 
         case .missionsInvalidated:
           Task { [weak self, weak runtime] in
@@ -765,11 +599,6 @@ final class ServerRuntimeRegistry {
         case let .error(code, _, sessionId):
           guard sessionId == nil else { break }
           switch code {
-            case "dashboard_resync_required", "lagged", "replay_oversized":
-              Task { [weak self, weak runtime] in
-                guard let self, let runtime else { return }
-                _ = await self.refreshDashboardConversations(for: runtime)
-              }
             case "missions_resync_required":
               Task { [weak self, weak runtime] in
                 guard let self, let runtime else { return }
@@ -778,31 +607,6 @@ final class ServerRuntimeRegistry {
             default:
               break
           }
-
-        case let .sessionEnded(sessionId, reason):
-          if let existing = self.sessionsByEndpoint[endpointId]?[sessionId] {
-            self.sessionsByEndpoint[endpointId]?[sessionId] = existing.ended(reason: reason)
-            self.setSessionsAggregationDirty()
-          }
-          let scopedID = ScopedSessionID(endpointId: endpointId, sessionId: sessionId).scopedID
-          self.dashboardConversationsByEndpoint[endpointId]?[scopedID] = nil
-          self.setDashboardAggregationDirty()
-
-        case let .missionsList(missions):
-          let endpointName = runtime.endpoint.name
-          var index: [String: AggregatedMissionSummary] = [:]
-          for mission in missions {
-            let agg = AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
-            index[agg.id] = agg
-          }
-          self.missionsByEndpoint[endpointId] = index
-          self.setMissionsAggregationDirty()
-
-        case let .missionDelta(_, _, summary):
-          let endpointName = runtime.endpoint.name
-          let agg = AggregatedMissionSummary(mission: summary, endpointId: endpointId, endpointName: endpointName)
-          self.missionsByEndpoint[endpointId, default: [:]][agg.id] = agg
-          self.setMissionsAggregationDirty()
 
         default:
           break
@@ -819,98 +623,6 @@ final class ServerRuntimeRegistry {
     runtimeObservationTasks[endpointId] = nil
     cancelBootstrapRetry(for: endpointId)
     bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-    libraryPaginationByEndpoint[endpointId] = nil
-    libraryPageInFlightEndpointIds.remove(endpointId)
-  }
-
-  private func setSessionsAggregationDirty() {
-    sessionsAggregationDirty = true
-    scheduleAggregationRefresh()
-  }
-
-  private func setDashboardAggregationDirty() {
-    dashboardAggregationDirty = true
-    scheduleAggregationRefresh()
-  }
-
-  private func setMissionsAggregationDirty() {
-    missionsAggregationDirty = true
-    scheduleAggregationRefresh()
-  }
-
-  private func scheduleAggregationRefresh() {
-    guard aggregationRefreshTask == nil else { return }
-    aggregationRefreshTask = Task { @MainActor [weak self] in
-      await Task.yield()
-      guard let self else { return }
-      self.aggregationRefreshTask = nil
-
-      if self.sessionsAggregationDirty {
-        self.sessionsAggregationDirty = false
-        self.sessionsAggregationGeneration &+= 1
-        let generation = self.sessionsAggregationGeneration
-        let sessionsByEndpoint = self.sessionsByEndpoint
-        Task { [weak self] in
-          guard let self else { return }
-          let aggregated = await self.aggregationWorker.sortedSessions(from: sessionsByEndpoint)
-          guard generation == self.sessionsAggregationGeneration else { return }
-          self.aggregatedSessions = aggregated
-          self.scheduleDashboardProjectionRefresh()
-        }
-      }
-      if self.dashboardAggregationDirty {
-        self.dashboardAggregationDirty = false
-        self.dashboardAggregationGeneration &+= 1
-        let generation = self.dashboardAggregationGeneration
-        let dashboardConversationsByEndpoint = self.dashboardConversationsByEndpoint
-        Task { [weak self] in
-          guard let self else { return }
-          let aggregated = await self.aggregationWorker
-            .sortedDashboardConversations(from: dashboardConversationsByEndpoint)
-          guard generation == self.dashboardAggregationGeneration else { return }
-          self.aggregatedDashboardConversations = aggregated
-          self.scheduleDashboardProjectionRefresh()
-        }
-      }
-      if self.missionsAggregationDirty {
-        self.missionsAggregationDirty = false
-        self.missionsAggregationGeneration &+= 1
-        let generation = self.missionsAggregationGeneration
-        let missionsByEndpoint = self.missionsByEndpoint
-        Task { [weak self] in
-          guard let self else { return }
-          let aggregated = await self.aggregationWorker.sortedMissions(from: missionsByEndpoint)
-          guard generation == self.missionsAggregationGeneration else { return }
-          self.aggregatedMissions = aggregated
-          self.missionProjectionStore.apply(MissionProjectionSnapshot(missions: aggregated))
-        }
-      }
-    }
-  }
-
-  private func scheduleDashboardProjectionRefresh() {
-    guard dashboardProjectionRefreshTask == nil else { return }
-    dashboardProjectionRefreshTask = Task { @MainActor [weak self] in
-      await Task.yield()
-      guard let self else { return }
-      self.dashboardProjectionRefreshTask = nil
-
-      let rootSessions = self.aggregatedSessions
-      let dashboardConversations = self.aggregatedDashboardConversations
-      let refreshIdentity = Self.makeDashboardRefreshIdentity(
-        runtimes: self.runtimes.filter(\.endpoint.isEnabled).map { runtime in
-          (runtime.endpoint.id, self.connectionStatusByEndpointId[runtime.endpoint.id] ?? .disconnected)
-        }
-      )
-
-      let snapshot = await self.aggregationWorker.dashboardProjection(
-        rootSessions: rootSessions,
-        dashboardConversations: dashboardConversations,
-        refreshIdentity: refreshIdentity
-      )
-
-      self.dashboardProjectionStore.apply(snapshot)
-    }
   }
 
   private static func makeDashboardRefreshIdentity(
@@ -919,16 +631,6 @@ final class ServerRuntimeRegistry {
     runtimes
       .map { "\($0.endpointId.uuidString):\(dashboardConnectionToken(for: $0.status))" }
       .joined(separator: "|")
-  }
-
-  fileprivate nonisolated static func dashboardConversationPriority(_ status: SessionDisplayStatus) -> Int {
-    switch status {
-      case .permission: 0
-      case .question: 1
-      case .working: 2
-      case .reply: 3
-      case .ended: 4
-    }
   }
 
   fileprivate nonisolated static func dashboardConnectionToken(for status: ConnectionStatus) -> String {
@@ -953,45 +655,13 @@ final class ServerRuntimeRegistry {
     guard runtime.connection.requiresManualReconnect == false else { return .stop }
 
     do {
-      async let dashboardSnapshotTask = runtime.clients.dashboard.fetchDashboardSnapshot()
-      async let librarySnapshotTask = runtime.clients.dashboard.fetchLibrarySnapshot(
-        limit: libraryPageSize,
-        offset: 0
-      )
-      let dashboardSnapshot = try await dashboardSnapshotTask
-
-      let librarySnapshot: ServerLibrarySnapshotPayload
-      do {
-        librarySnapshot = try await librarySnapshotTask
-      } catch {
-        // Backward compatibility: older servers may not expose /api/library yet.
-        if let requestError = error as? ServerRequestError, requestError.statusCode == 404 {
-          librarySnapshot = ServerLibrarySnapshotPayload(
-            revision: dashboardSnapshot.revision,
-            sessions: dashboardSnapshot.sessions,
-            nextOffset: nil,
-            totalCount: UInt64(dashboardSnapshot.sessions.count)
-          )
-        } else {
-          throw error
-        }
-      }
-
-      libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
-        nextOffset: librarySnapshot.nextOffset.map(Int.init),
-        totalCount: Int(librarySnapshot.totalCount)
-      )
-
+      let dashboardSnapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
       let snapshot = ServerDashboardSnapshotPayload(
         revision: dashboardSnapshot.revision,
-        sessions: librarySnapshot.sessions,
         conversations: dashboardSnapshot.conversations,
         counts: dashboardSnapshot.counts
       )
       runtime.connection.applyDashboardSnapshot(snapshot)
-      if runtime.connection.connectionStatus == .connected {
-        runtime.connection.subscribeDashboard(sinceRevision: snapshot.revision)
-      }
       return .success
     } catch {
       if let requestError = error as? ServerRequestError,
@@ -1014,64 +684,6 @@ final class ServerRuntimeRegistry {
         ]
       )
       return shouldRetryBootstrap(after: error) ? .retry : .stop
-    }
-  }
-
-  private func refreshLibraryPage(for runtime: ServerRuntime) async -> Bool {
-    let endpointId = runtime.endpoint.id
-    guard runtime.endpoint.isEnabled else { return false }
-    guard let pagination = libraryPaginationByEndpoint[endpointId] else { return false }
-    guard let offset = pagination.nextOffset else { return false }
-    guard libraryPageInFlightEndpointIds.insert(endpointId).inserted else { return false }
-    defer { libraryPageInFlightEndpointIds.remove(endpointId) }
-
-    do {
-      let snapshot = try await runtime.clients.dashboard.fetchLibrarySnapshot(
-        limit: libraryPageSize,
-        offset: offset
-      )
-
-      libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
-        nextOffset: snapshot.nextOffset.map(Int.init),
-        totalCount: Int(snapshot.totalCount)
-      )
-
-      guard !snapshot.sessions.isEmpty else { return false }
-
-      let endpointName = runtime.endpoint.name
-      var index = sessionsByEndpoint[endpointId] ?? [:]
-      for item in snapshot.sessions {
-        let node = RootSessionNode(
-          session: item,
-          endpointId: endpointId,
-          endpointName: endpointName,
-          connectionStatus: runtime.connection.connectionStatus
-        )
-        index[node.sessionId] = node
-      }
-      sessionsByEndpoint[endpointId] = index
-      setSessionsAggregationDirty()
-      return true
-    } catch {
-      if let requestError = error as? ServerRequestError, requestError.statusCode == 404 {
-        libraryPaginationByEndpoint[endpointId] = LibraryPaginationState(
-          nextOffset: nil,
-          totalCount: pagination.totalCount
-        )
-        return false
-      }
-      netLog(
-        .error,
-        cat: .api,
-        "Library page fetch failed",
-        data: [
-          "endpointId": endpointId.uuidString,
-          "endpointName": runtime.endpoint.name,
-          "offset": "\(offset)",
-          "error": String(describing: error),
-        ]
-      )
-      return false
     }
   }
 

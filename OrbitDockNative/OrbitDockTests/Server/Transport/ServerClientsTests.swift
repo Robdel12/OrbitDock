@@ -217,7 +217,7 @@ struct ServerClientsTests {
 
     let snapshot = try await clients.dashboard.fetchDashboardSnapshot()
 
-    #expect(snapshot.sessions.isEmpty)
+    #expect(snapshot.conversations.isEmpty)
   }
 
   private nonisolated static func jsonResponse(

@@ -3,10 +3,13 @@ import SwiftUI
 struct OrbitDockWindowRoot: View {
   @Environment(OrbitDockAppRuntime.self) private var environmentAppRuntime
   let appRuntime: OrbitDockAppRuntime
-  @State private var appStore: AppStore
   @State private var router = AppRouter()
+  @State private var dashboardViewModel: DashboardViewModel
   @State private var terminalRegistry = TerminalSessionRegistry()
+  @State private var notificationSessionMonitor = NotificationSessionMonitor()
   @State private var externalNavWindowID = UUID()
+  @State private var sidebarVisibility: NavigationSplitViewVisibility = .automatic
+  @State private var preferredColumn: NavigationSplitViewColumn = .detail
 
   private var shouldShowSetup: Bool {
     !appRuntime.isDemoModeEnabled && !appRuntime.runtimeRegistry.hasConfiguredEndpoints
@@ -14,7 +17,7 @@ struct OrbitDockWindowRoot: View {
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
-    _appStore = State(initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry))
+    _dashboardViewModel = State(initialValue: DashboardViewModel(dataService: appRuntime.dashboardDataService))
   }
 
   var body: some View {
@@ -22,44 +25,13 @@ struct OrbitDockWindowRoot: View {
       if shouldShowSetup {
         ServerSetupView()
       } else {
-        NavigationStack(path: Binding(get: { router.navigationStack }, set: { router.navigationStack = $0 })) {
-          DashboardView(
-            isInitialLoading: appRuntime.runtimeRegistry.runtimes
-              .filter(\.endpoint.isEnabled)
-              .contains { runtime in
-                let readiness = appRuntime.runtimeRegistry.runtimeReadiness(for: runtime.endpoint.id)
-                return switch runtime.connection.connectionStatus {
-                  case .connecting, .connected:
-                    !readiness.dashboardReady
-                  case .disconnected, .failed:
-                    false
-                }
-              },
-            isRefreshingCachedSessions: false
-          )
-          .navigationDestination(for: AppNavDestination.self) { destination in
-            switch destination {
-              case let .session(ref):
-                SessionDetailView(
-                  sessionId: ref.sessionId,
-                  endpointId: ref.endpointId,
-                  sessionStore: detailSessionStore(for: ref.endpointId)
-                )
-                .id(ref.scopedID)
-              case let .mission(ref):
-                MissionShowView(
-                  missionId: ref.missionId,
-                  endpointId: ref.endpointId
-                )
-                .id(ref.id)
-              case let .terminal(terminalId):
-                if let session = terminalRegistry.session(for: terminalId) {
-                  TerminalContainerView(session: session)
-                    .id(terminalId)
-                }
-            }
-          }
+        NavigationSplitView(columnVisibility: $sidebarVisibility, preferredCompactColumn: $preferredColumn) {
+          SessionSidebar(viewModel: dashboardViewModel)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 244, max: 320)
+        } detail: {
+          workspaceContent
         }
+        .navigationSplitViewStyle(.balanced)
       }
 
       if router.showQuickSwitcher {
@@ -72,11 +44,12 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime)
     .environment(router)
     .environment(terminalRegistry)
-    .environment(appStore)
+    .environment(appRuntime.dashboardDataService)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
     .focusable()
+    .focusEffectDisabled()
     .onKeyPress(keys: [.escape]) { _ in
       guard router.showQuickSwitcher else { return .ignored }
       withAnimation(Motion.standard) {
@@ -84,11 +57,33 @@ struct OrbitDockWindowRoot: View {
       }
       return .handled
     }
+    .onKeyPress(characters: CharacterSet(charactersIn: "\\"), phases: .down) { press in
+      guard press.modifiers == .command else { return .ignored }
+      router.toggleSidebar()
+      return .handled
+    }
     .preferredColorScheme(.dark)
-    .toolbar(.hidden)
-    .onAppear {
-      syncDemoSeed()
+    #if os(macOS)
+      .toolbar(removing: .title)
+      .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    #endif
+    .task {
+      await appRuntime.startIfNeeded()
 
+      if appRuntime.isDemoModeEnabled {
+        let conversations = appRuntime.demoExperience.dashboardConversations
+        dashboardViewModel.applySnapshot(DashboardSnapshot(
+          revision: 0,
+          conversations: conversations,
+          counts: DashboardTriageCounts(conversations: conversations),
+          directCount: conversations.filter(\.isDirect).count,
+          hasMultipleEndpoints: false
+        ))
+        appRuntime.dashboardDataService.applyDemoSessions(appRuntime.demoExperience.rootSessions)
+        notificationSessionMonitor.applySessions(appRuntime.demoExperience.rootSessions)
+      }
+    }
+    .onAppear {
       // Register for external navigation (notification taps, etc.)
       appRuntime.externalNavigationCenter.registerWindow(externalNavWindowID) { command in
         switch command {
@@ -101,10 +96,8 @@ struct OrbitDockWindowRoot: View {
     .onDisappear {
       appRuntime.externalNavigationCenter.unregisterWindow(externalNavWindowID)
     }
-    .onChange(of: environmentAppRuntime.isDemoModeEnabled) { _, _ in
-      syncDemoSeed()
-    }
-    .onChange(of: appStore.dashboardProjectionStore.rootSessions) { oldSessions, newSessions in
+    .onChange(of: appRuntime.dashboardDataService.librarySessions) { oldSessions, newSessions in
+      notificationSessionMonitor.applySessions(newSessions)
       if oldSessions.isEmpty, !newSessions.isEmpty {
         // First load — seed baseline to avoid a burst of toasts
         appRuntime.notificationCoordinator.seedBaseline(newSessions)
@@ -115,50 +108,42 @@ struct OrbitDockWindowRoot: View {
     .onChange(of: appRuntime.focusTracker.isAppActive) { _, isActive in
       appRuntime.notificationCoordinator.appIsActive = isActive
     }
-    .onChange(of: router.route) { oldRoute, newRoute in
-      guard oldRoute != newRoute else { return }
+    .onChange(of: router.workspaceSelection) { oldSelection, newSelection in
+      guard oldSelection != newSelection else { return }
+
+      // On compact (iPhone), push to the detail column when selection changes.
+      // On regular width this binding is ignored by NavigationSplitView.
+      preferredColumn = .detail
 
       // Update notification coordinator's viewed session
-      if case let .session(ref) = newRoute {
+      if case let .session(ref) = newSelection {
         appRuntime.notificationCoordinator.viewedSessionScopedID = ref.scopedID
       } else {
         appRuntime.notificationCoordinator.viewedSessionScopedID = nil
       }
 
-      switch newRoute {
-        case let .session(ref):
-          // Unsubscribe from previous session before subscribing to the new one
-          if case let .session(oldRef) = oldRoute {
+      // Unsubscribe from previous session if leaving one
+      if case let .session(oldRef) = oldSelection {
+        if case .session = newSelection {
+          // Navigating session → session: unsubscribe old before subscribing new
+          detailSessionStore(for: oldRef.endpointId)
+            .unsubscribeFromSession(oldRef.sessionId)
+        } else {
+          // Navigating session → non-session: defer unsubscribe
+          Task { @MainActor in
             detailSessionStore(for: oldRef.endpointId)
               .unsubscribeFromSession(oldRef.sessionId)
           }
-          detailSessionStore(for: ref.endpointId)
-            .subscribeToSession(
-              ref.sessionId,
-              surfaces: [.detail, .composer, .conversation]
-            )
+        }
+      }
 
-        case .mission:
-          if case let .session(oldRef) = oldRoute {
-            detailSessionStore(for: oldRef.endpointId)
-              .unsubscribeFromSession(oldRef.sessionId)
-          }
-
-        case .terminal:
-          if case let .session(oldRef) = oldRoute {
-            detailSessionStore(for: oldRef.endpointId)
-              .unsubscribeFromSession(oldRef.sessionId)
-          }
-
-        case .dashboard:
-          // Unsubscribe after the view is removed so clearing the store
-          // doesn't trigger competing animations in the outgoing ConversationView.
-          if case let .session(oldRef) = oldRoute {
-            Task { @MainActor in
-              detailSessionStore(for: oldRef.endpointId)
-                .unsubscribeFromSession(oldRef.sessionId)
-            }
-          }
+      // Subscribe to new session if entering one
+      if case let .session(ref) = newSelection {
+        detailSessionStore(for: ref.endpointId)
+          .subscribeToSession(
+            ref.sessionId,
+            surfaces: [.detail, .composer, .conversation]
+          )
       }
     }
     .sheet(isPresented: Binding(
@@ -172,13 +157,42 @@ struct OrbitDockWindowRoot: View {
       )
       .environment(appRuntime.runtimeRegistry)
       .environment(router)
-      .environment(appStore)
       #if os(iOS)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
       #endif
     }
     .motionPolicy()
+  }
+
+  // MARK: - Workspace Content
+
+  @ViewBuilder
+  private var workspaceContent: some View {
+    switch router.workspaceSelection {
+      case .overview, .missions, .library:
+        DashboardView(viewModel: dashboardViewModel)
+      case let .session(ref):
+        SessionDetailView(
+          sessionId: ref.sessionId,
+          endpointId: ref.endpointId,
+          sessionStore: detailSessionStore(for: ref.endpointId)
+        )
+        .id(ref.scopedID)
+      case let .mission(ref):
+        MissionShowView(
+          missionId: ref.missionId,
+          endpointId: ref.endpointId
+        )
+        .id(ref.id)
+      case let .terminal(terminalId):
+        if let session = terminalRegistry.session(for: terminalId) {
+          TerminalContainerView(session: session)
+            .id(terminalId)
+        }
+      case .settings:
+        SettingsView()
+    }
   }
 
   // MARK: - Quick Switcher Overlay
@@ -238,25 +252,5 @@ struct OrbitDockWindowRoot: View {
     }
     let fallback = appRuntime.runtimeRegistry.activeSessionStore
     return appRuntime.runtimeRegistry.sessionStore(for: endpointId, fallback: fallback)
-  }
-
-  private func syncDemoSeed() {
-    if appRuntime.isDemoModeEnabled {
-      let demo = appRuntime.demoExperience
-      appStore.seed(records: demo.rootSessions)
-      appStore.seedDashboardConversations(demo.dashboardConversations)
-
-      // Push demo data into the projection store so DashboardViewModel sees it.
-      // applyDemo blocks real registry updates until clearDemoOverride is called.
-      let snapshot = DashboardProjectionBuilder.build(
-        rootSessions: demo.rootSessions,
-        dashboardConversations: demo.dashboardConversations,
-        refreshIdentity: "demo-\(UUID().uuidString.prefix(8))"
-      )
-      appStore.dashboardProjectionStore.applyDemo(snapshot)
-      return
-    }
-    appStore.dashboardProjectionStore.clearDemoOverride()
-    appStore.clearPreviewSeed()
   }
 }

@@ -593,7 +593,9 @@ struct ClaudeEventLoopState {
   turn_patch_diff: String,
   /// Per-call (input_tokens, cached_tokens) from the latest assistant message.
   last_turn_input: Option<(u64, u64)>,
-  cumulative_output: u64,
+  /// Per-turn output accumulator — sum of output_tokens from each API call
+  /// within the current turn. Reset on turn completion for accurate billing.
+  turn_output: u64,
   last_context_window: u64,
   /// Maps tool_use_id → task_id so we can finalize task cards when the Agent
   /// tool_result arrives.
@@ -625,7 +627,7 @@ impl ClaudeEventLoopState {
       in_turn: false,
       turn_patch_diff: String::new(),
       last_turn_input: None,
-      cumulative_output: 0,
+      turn_output: 0,
       last_context_window: 1_000_000,
       task_tool_use_map: HashMap::new(),
       compacting_msg_id: None,
@@ -2145,12 +2147,14 @@ impl ClaudeConnector {
       let input = value_to_u64(usage.get("input_tokens"));
       let cached = value_to_u64(usage.get("cache_read_input_tokens"))
         + value_to_u64(usage.get("cache_creation_input_tokens"));
+      let call_output = value_to_u64(usage.get("output_tokens"));
       state.last_turn_input = Some((input, cached));
-      state.cumulative_output += value_to_u64(usage.get("output_tokens"));
+      state.turn_output += call_output;
 
+      // Send per-call values — the transition layer accumulates into lifetime totals.
       let live_usage = orbitdock_protocol::TokenUsage {
         input_tokens: input,
-        output_tokens: state.cumulative_output,
+        output_tokens: call_output,
         cached_tokens: cached,
         context_window: state.last_context_window,
       };
@@ -2515,40 +2519,19 @@ impl ClaudeConnector {
       session_id,
     );
 
-    // Build token usage. Prefer per-call input/cached from the last assistant
-    // message (accurate for context fill) with cumulative output tokens.
-    // Fall back to the old cumulative modelUsage extraction if no per-call data.
-    let model_usage = raw.get("modelUsage").cloned();
-    let usage = raw.get("usage").cloned();
+    // Reset per-turn output accumulator. The transition layer already accumulated
+    // per-call values from handle_assistant_message events — no need to emit another
+    // TokensUpdated here (doing so would double-count output).
+    state.turn_output = 0;
 
-    let token_usage = if let Some((input, cached)) = state.last_turn_input.take() {
-      // Extract context_window from modelUsage (any model entry)
-      let context_window = model_usage
-        .as_ref()
-        .and_then(Value::as_object)
-        .and_then(|models| {
-          models
-            .values()
-            .find_map(|stats| stats.get("contextWindow").and_then(Value::as_u64))
-        })
-        .unwrap_or(1_000_000);
-
-      Some(orbitdock_protocol::TokenUsage {
-        input_tokens: input,
-        output_tokens: state.cumulative_output,
-        cached_tokens: cached,
-        context_window,
-      })
-    } else {
-      extract_token_usage(&model_usage, &usage)
-    };
-
-    if let Some(tu) = token_usage {
-      state.last_context_window = tu.context_window.max(1);
-      events.push(ConnectorEvent::TokensUpdated {
-        usage: tu,
-        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
-      });
+    // Update context_window from modelUsage if available.
+    if let Some(model_usage) = raw.get("modelUsage").and_then(Value::as_object) {
+      if let Some(cw) = model_usage
+        .values()
+        .find_map(|stats| stats.get("contextWindow").and_then(Value::as_u64))
+      {
+        state.last_context_window = cw.max(1);
+      }
     }
 
     let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
@@ -2947,70 +2930,6 @@ fn format_question_answers(answers: &HashMap<String, Vec<String>>) -> String {
 /// Extract a `u64` from an optional JSON value, defaulting to 0.
 fn value_to_u64(v: Option<&Value>) -> u64 {
   v.and_then(|v| v.as_u64()).unwrap_or(0)
-}
-
-/// Extract token usage from the modelUsage or usage fields in result messages.
-fn extract_token_usage(
-  model_usage: &Option<Value>,
-  usage: &Option<Value>,
-) -> Option<orbitdock_protocol::TokenUsage> {
-  // Try modelUsage first (per-model breakdown, sum all models)
-  if let Some(Value::Object(models)) = model_usage {
-    let mut total = orbitdock_protocol::TokenUsage {
-      input_tokens: 0,
-      output_tokens: 0,
-      cached_tokens: 0,
-      context_window: 1_000_000,
-    };
-    for (_model_name, stats) in models {
-      total.input_tokens += stats
-        .get("inputTokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-      total.output_tokens += stats
-        .get("outputTokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-      total.cached_tokens += stats
-        .get("cacheReadInputTokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0)
-        + stats
-          .get("cacheCreationInputTokens")
-          .and_then(|v| v.as_u64())
-          .unwrap_or(0);
-      if let Some(cw) = stats.get("contextWindow").and_then(|v| v.as_u64()) {
-        total.context_window = cw;
-      }
-    }
-    if total.input_tokens > 0 || total.output_tokens > 0 {
-      return Some(total);
-    }
-  }
-
-  // Fallback to flat usage object
-  if let Some(u) = usage {
-    let input = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let output = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-    let cached = u
-      .get("cache_read_input_tokens")
-      .and_then(|v| v.as_u64())
-      .unwrap_or(0)
-      + u
-        .get("cache_creation_input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if input > 0 || output > 0 {
-      return Some(orbitdock_protocol::TokenUsage {
-        input_tokens: input,
-        output_tokens: output,
-        cached_tokens: cached,
-        context_window: 1_000_000,
-      });
-    }
-  }
-
-  None
 }
 
 /// Resolve the claude binary path.

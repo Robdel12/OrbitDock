@@ -19,24 +19,16 @@ struct ControlDeckApprovalTakeover: View {
 
   // MARK: - Layout Constants
 
-  private var isCompactIOS: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
   }
 
   private var contentPadding: CGFloat {
-    isCompactIOS ? Spacing.sm : Spacing.md
+    isCompact ? Spacing.sm : Spacing.md
   }
 
   private var maxContentHeight: CGFloat {
-    #if os(iOS)
-      isCompactIOS ? 220 : 320
-    #else
-      320
-    #endif
+    isCompact ? 220 : 320
   }
 
   // MARK: - Action Routing
@@ -397,11 +389,7 @@ struct ControlDeckApprovalTakeover: View {
   }
 
   private var optionVerticalPadding: CGFloat {
-    #if os(iOS)
-      Spacing.sm
-    #else
-      Spacing.sm_
-    #endif
+    isCompact ? Spacing.sm : Spacing.sm_
   }
 
   private func answerField(prompt: ControlDeckApproval.Prompt, placeholder: String = "Type your answer") -> some View {
@@ -446,11 +434,7 @@ struct ControlDeckApprovalTakeover: View {
   }
 
   private var answerSubmitSize: CGFloat {
-    #if os(iOS)
-      28
-    #else
-      24
-    #endif
+    isCompact ? 28 : 24
   }
 
   // MARK: - Permission Content
@@ -507,7 +491,7 @@ struct ControlDeckApprovalTakeover: View {
 
   @ViewBuilder
   private var actionBar: some View {
-    if isCompactIOS {
+    if isCompact {
       compactActionBar
     } else {
       regularActionBar
@@ -617,11 +601,7 @@ struct ControlDeckApprovalTakeover: View {
   }
 
   private var regularButtonHeight: CGFloat {
-    #if os(iOS)
-      34
-    #else
-      28
-    #endif
+    isCompact ? 34 : 28
   }
 
   // MARK: - Helpers

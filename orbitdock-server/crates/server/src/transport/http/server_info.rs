@@ -391,8 +391,7 @@ mod tests {
 
   #[tokio::test]
   async fn workspace_provider_endpoint_returns_authoritative_state_and_enqueues_config_write() {
-    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
-    drop(guard);
+    let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
 
     let Json(updated) = set_workspace_provider(
       State(state.clone()),
@@ -425,8 +424,7 @@ mod tests {
 
   #[tokio::test]
   async fn workspace_provider_config_endpoint_redacts_secret_values() {
-    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
-    drop(guard);
+    let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
 
     let Json(updated) = set_workspace_provider_config_value(
       State(state),
@@ -457,8 +455,7 @@ mod tests {
 
   #[tokio::test]
   async fn workspace_provider_test_reports_local_provider_ready() {
-    let (state, _persist_rx, _db_path, guard) = new_persist_test_state(true).await;
-    drop(guard);
+    let (state, _persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
 
     let Json(response) = test_workspace_provider(State(state))
       .await
@@ -472,8 +469,7 @@ mod tests {
   #[tokio::test]
   async fn workspace_provider_config_endpoint_reports_env_override_as_effective_source() {
     let _env_guard = EnvVarGuard::set("ORBITDOCK_DAYTONA_API_URL", "https://env.daytona.example");
-    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
-    drop(guard);
+    let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
 
     let Json(updated) = set_workspace_provider_config_value(
       State(state),
@@ -515,8 +511,7 @@ mod tests {
 
   #[tokio::test]
   async fn workspace_provider_config_endpoint_treats_blank_values_as_clear() {
-    let (state, mut persist_rx, _db_path, guard) = new_persist_test_state(true).await;
-    drop(guard);
+    let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
 
     let Json(updated) = set_workspace_provider_config_value(
       State(state),

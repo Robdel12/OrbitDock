@@ -26,7 +26,6 @@ final class MissionControlViewModel {
   private(set) var liveState: MissionObservable?
 
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
-  @ObservationIgnored private weak var dashboardProjectionStore: DashboardProjectionStore?
   @ObservationIgnored private var boundMissionId: String?
   @ObservationIgnored private var boundEndpointId: UUID?
 
@@ -38,7 +37,6 @@ final class MissionControlViewModel {
     self.boundMissionId = missionId
     self.boundEndpointId = endpointId
     self.runtimeRegistry = runtimeRegistry
-    self.dashboardProjectionStore = runtimeRegistry.dashboardProjectionStore
     self.liveState = sessionStore?.mission(missionId)
   }
 
@@ -66,14 +64,6 @@ final class MissionControlViewModel {
 
   var sessionStore: SessionStore? {
     runtime?.sessionStore
-  }
-
-  var dashboardConversationsBySessionId: [String: DashboardConversationRecord] {
-    guard let dashboardProjectionStore, let endpointId = boundEndpointId else { return [:] }
-    return dashboardProjectionStore.dashboardConversations.reduce(into: [:]) { result, conversation in
-      guard conversation.sessionRef.endpointId == endpointId else { return }
-      result[conversation.sessionId] = conversation
-    }
   }
 
   func applyDetail(_ response: MissionDetailResponse) {

@@ -11,13 +11,13 @@ import SwiftUI
 
 struct DiffChangeStrip: View {
   let lines: [ServerDiffLine]
-  var height: CGFloat = {
-    #if os(iOS)
-      260
-    #else
-      350
-    #endif
-  }()
+  var height: CGFloat = 350
+
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var effectiveHeight: CGFloat {
+    horizontalSizeClass == .compact ? min(height, 260) : height
+  }
 
   var body: some View {
     Canvas { context, size in
@@ -46,7 +46,7 @@ struct DiffChangeStrip: View {
         context.fill(Path(rect), with: .color(markColor.opacity(0.7)))
       }
     }
-    .frame(width: 3, height: height)
+    .frame(width: 3, height: effectiveHeight)
     .clipShape(RoundedRectangle(cornerRadius: 1))
   }
 }

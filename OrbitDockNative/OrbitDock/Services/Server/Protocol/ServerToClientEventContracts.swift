@@ -13,6 +13,8 @@ enum ServerToClientMessage: Codable {
   // MARK: Session lifecycle and conversation
 
   case dashboardInvalidated(revision: UInt64)
+  case dashboardConversationUpdated(revision: UInt64, item: ServerDashboardConversationItem)
+  case dashboardItemRemoved(sessionId: String)
   case missionsInvalidated(revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case conversationRowsChanged(

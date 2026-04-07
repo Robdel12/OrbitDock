@@ -38,7 +38,7 @@ pub fn start_event_loop(
   mut session: ClaudeSession,
   handle: SessionHandle,
   persist_tx: mpsc::Sender<PersistCommand>,
-  list_tx: broadcast::Sender<ServerMessage>,
+  _list_tx: broadcast::Sender<ServerMessage>,
   state: Arc<SessionRegistry>,
 ) -> (SessionActorHandle, mpsc::Sender<ClaudeAction>) {
   let (action_tx, mut action_rx) = mpsc::channel::<ClaudeAction>(100);
@@ -61,7 +61,7 @@ pub fn start_event_loop(
 
   tokio::spawn(async move {
     // Watchdog channel for synthetic events (interrupt timeout)
-    let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
+    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
     'session_loop: loop {
@@ -108,7 +108,9 @@ pub fn start_event_loop(
                           })
                           .await;
                       if state.remove_session(hook_sid).is_some() {
-                          state.publish_dashboard_snapshot();
+                          let _ = state.list_tx().send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+                              session_id: hook_sid.to_string(),
+                          });
                       }
                   }
               }
@@ -140,7 +142,9 @@ pub fn start_event_loop(
                       if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
                           && state.remove_session(&sdk_sid).is_some()
                       {
-                          state.publish_dashboard_snapshot();
+                          let _ = state.list_tx().send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+                              session_id: sdk_sid.clone(),
+                          });
                       }
                   }
               }
@@ -166,21 +170,9 @@ pub fn start_event_loop(
                   if let ClaudeAction::SendMessage { ref content, .. } = action {
                       first_prompt_captured = true;
                       let prompt = content.clone();
-                      let _ = persist
-                          .send(PersistCommand::ClaudePromptIncrement {
-                              id: session_id.clone(),
-                              first_prompt: Some(prompt.clone()),
-                          })
-                          .await;
-
-                      let changes = orbitdock_protocol::StateChanges {
-                          first_prompt: Some(Some(prompt.clone())),
-                          ..Default::default()
-                      };
-                      let _ = actor_for_naming
-                          .send(crate::runtime::session_commands::SessionCommand::ApplyDelta {
-                              changes: Box::new(changes),
-                              persist_op: None,
+                      actor_for_naming
+                          .send(crate::runtime::session_commands::SessionCommand::ProcessEvent {
+                              event: crate::domain::sessions::transition::Input::FirstPromptCaptured(prompt.clone()),
                           })
                           .await;
 
@@ -188,8 +180,6 @@ pub fn start_event_loop(
                           session_id.clone(),
                           prompt,
                           actor_for_naming.clone(),
-                          persist.clone(),
-                          list_tx.clone(),
                       );
                   }
               }

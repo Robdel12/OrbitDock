@@ -637,9 +637,10 @@ Native apps support Dynamic Type scaling. The TypeScale values are base sizes �
 2. No unguarded fixed widths in shared views.
 3. Every iOS sheet needs explicit detents + drag indicator.
 4. Use ONLY design tokens — no ad-hoc colors, sizes, or spacing.
-5. All long text must truncate safely (`.lineLimit(1)`, `.truncationMode(.middle)`).
-6. No hover-only affordances as the sole interaction path.
-7. Bottom actions on iPhone use `safeAreaInset(edge: .bottom)`.
+5. **No gradients.** Solid fills, opacity tiers, and `.shadow()` glow are the vocabulary. `LinearGradient`, `AngularGradient`, and `RadialGradient` are not used anywhere in the UI.
+6. All long text must truncate safely (`.lineLimit(1)`, `.truncationMode(.middle)`).
+7. No hover-only affordances as the sole interaction path.
+8. Bottom actions on iPhone use `safeAreaInset(edge: .bottom)`.
 
 ### Platform Enhancements
 
@@ -731,3 +732,8 @@ When building a new view or component, verify:
 ---
 
 *"A cosmic harbor for AI agent sessions — spacecraft docked at your mission control center."*
+
+---
+
+## Typography System
+

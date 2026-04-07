@@ -292,15 +292,10 @@ struct AutonomyPill: View {
       }
     }
 
-    var height: CGFloat? {
+    func height(compact: Bool) -> CGFloat? {
       switch self {
         case .regular: nil
-        case .statusBar:
-          #if os(iOS)
-            30
-          #else
-            20
-          #endif
+        case .statusBar: compact ? 30 : 20
       }
     }
   }
@@ -313,6 +308,11 @@ struct AutonomyPill: View {
   var onUpdate: ((AutonomyLevel) -> Void)?
   var onApplyCurrentSelection: (() -> Void)?
   @State private var showPopover = false
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     Button {
@@ -335,7 +335,7 @@ struct AutonomyPill: View {
       .foregroundStyle(isActive ? Color.backgroundSecondary : currentLevel.color)
       .padding(.horizontal, size.horizontalPadding)
       .padding(.vertical, size.verticalPadding)
-      .frame(height: size.height)
+      .frame(height: size.height(compact: isCompact))
       .background(
         isActive
           ? AnyShapeStyle(currentLevel.color)

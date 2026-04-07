@@ -407,11 +407,18 @@ pub(crate) async fn handle_item_completed(
         let mut buffers = delta_buffers.lock().await;
         buffers.remove(&message_id);
       }
+      let plan_text = item.text.clone();
       let entry = finalized_thinking_row_entry(message_id.clone(), item.text);
-      vec![ConnectorEvent::ConversationRowUpdated {
+      let mut events = vec![ConnectorEvent::ConversationRowUpdated {
         row_id: message_id,
         entry,
-      }]
+      }];
+      // Store plan content in session state so auto-save on collaboration
+      // mode exit has something to write to plans/auto/<session>.md.
+      if !plan_text.trim().is_empty() {
+        events.push(ConnectorEvent::PlanUpdated(plan_text));
+      }
+      events
     }
     TurnItem::Reasoning(item) => {
       let mut events: Vec<ConnectorEvent> = Vec::new();

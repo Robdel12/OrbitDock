@@ -55,9 +55,18 @@ pub(crate) async fn handle(
 
       let rx = registry.subscribe_list();
       let handle = spawn_filtered_broadcast_forwarder(rx, client_tx.clone(), None, |msg| {
-        matches!(msg, ServerMessage::DashboardInvalidated { .. })
+        matches!(
+          msg,
+          ServerMessage::DashboardInvalidated { .. }
+            | ServerMessage::DashboardConversationUpdated { .. }
+            | ServerMessage::DashboardItemRemoved { .. }
+        )
       });
       subscriptions.replace_dashboard_forwarder(handle);
+    }
+
+    ClientMessage::UnsubscribeDashboard => {
+      subscriptions.remove_dashboard_forwarder();
     }
 
     ClientMessage::SubscribeMissions { since_revision } => {

@@ -9,9 +9,7 @@
 import SwiftUI
 
 struct CreateWorktreeSheet: View {
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let repoPath: String
   let projectName: String
@@ -30,23 +28,17 @@ struct CreateWorktreeSheet: View {
     baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
-  #if os(iOS)
-    private var isPhoneCompact: Bool {
-      horizontalSizeClass == .compact
-    }
-  #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     Group {
-      #if os(iOS)
-        if isPhoneCompact {
-          compactLayout
-        } else {
-          panelLayout
-        }
-      #else
+      if isCompact {
+        compactLayout
+      } else {
         panelLayout
-      #endif
+      }
     }
     .onAppear {
       isFocused = true
@@ -142,65 +134,67 @@ struct CreateWorktreeSheet: View {
     }
   }
 
-  #if os(iOS)
-    private var compactLayout: some View {
-      NavigationStack {
-        ScrollView {
-          VStack(alignment: .leading, spacing: Spacing.lg) {
-            compactProjectHeader
-            formFields
-          }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.top, Spacing.md)
-          .padding(.bottom, Spacing.xl)
+  private var compactLayout: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+          compactProjectHeader
+          formFields
         }
-        .background(Color.backgroundSecondary)
-        .navigationTitle("New Worktree")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
-              onCancel()
-            }
-          }
-
-          ToolbarItem(placement: .confirmationAction) {
-            Button("Create") {
-              submitCreate()
-            }
-            .disabled(trimmedBranchName.isEmpty)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.md)
+        .padding(.bottom, Spacing.xl)
+      }
+      .background(Color.backgroundSecondary)
+      .navigationTitle("New Worktree")
+      #if os(iOS)
+      .navigationBarTitleDisplayMode(.inline)
+      #endif
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") {
+            onCancel()
           }
         }
-      }
-      .presentationDetents([.height(420), .medium])
-      .presentationDragIndicator(.visible)
-    }
 
-    private var compactProjectHeader: some View {
-      VStack(alignment: .leading, spacing: Spacing.xxs) {
-        Text(projectName)
-          .font(.system(size: TypeScale.subhead, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-          .lineLimit(1)
-
-        Text(repoPath)
-          .font(.system(size: TypeScale.caption, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
-          .lineLimit(2)
-          .truncationMode(.middle)
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(Spacing.md)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .fill(Color.backgroundTertiary)
-      )
-      .overlay {
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .stroke(Color.surfaceBorder, lineWidth: 1)
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Create") {
+            submitCreate()
+          }
+          .disabled(trimmedBranchName.isEmpty)
+        }
       }
     }
-  #endif
+    #if os(iOS)
+    .presentationDetents([.height(420), .medium])
+    .presentationDragIndicator(.visible)
+    #endif
+  }
+
+  private var compactProjectHeader: some View {
+    VStack(alignment: .leading, spacing: Spacing.xxs) {
+      Text(projectName)
+        .font(.system(size: TypeScale.subhead, weight: .semibold))
+        .foregroundStyle(Color.textPrimary)
+        .lineLimit(1)
+
+      Text(repoPath)
+        .font(.system(size: TypeScale.caption, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(2)
+        .truncationMode(.middle)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(Spacing.md)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(Color.backgroundTertiary)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    }
+  }
 
   private func submitCreate() {
     let base = trimmedBaseBranch

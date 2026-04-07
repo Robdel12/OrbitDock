@@ -39,9 +39,7 @@ struct WorktreeCleanupRequest {
 }
 
 struct CompleteWorktreeSheet: View {
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let worktree: ServerWorktreeSummary
   let onCancel: () -> Void
@@ -86,23 +84,17 @@ struct CompleteWorktreeSheet: View {
     )
   }
 
-  #if os(iOS)
-    private var isPhoneCompact: Bool {
-      horizontalSizeClass == .compact
-    }
-  #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     Group {
-      #if os(iOS)
-        if isPhoneCompact {
-          compactLayout
-        } else {
-          panelLayout
-        }
-      #else
+      if isCompact {
+        compactLayout
+      } else {
         panelLayout
-      #endif
+      }
     }
     .onChange(of: deleteRemoteBranch) { _, newValue in
       if newValue {
@@ -227,59 +219,61 @@ struct CompleteWorktreeSheet: View {
     }
   }
 
-  #if os(iOS)
-    private var compactLayout: some View {
-      NavigationStack {
-        ScrollView {
-          VStack(alignment: .leading, spacing: Spacing.lg) {
-            contextSection
-              .padding(Spacing.md)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                  .fill(Color.backgroundTertiary)
-              )
-              .overlay {
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                  .stroke(Color.surfaceBorder, lineWidth: 1)
-              }
-
-            Picker("Action", selection: $mode) {
-              ForEach(WorktreeCleanupMode.allCases) { option in
-                Text(option.title).tag(option)
-              }
+  private var compactLayout: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+          contextSection
+            .padding(Spacing.md)
+            .background(
+              RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                .fill(Color.backgroundTertiary)
+            )
+            .overlay {
+              RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                .stroke(Color.surfaceBorder, lineWidth: 1)
             }
-            .pickerStyle(.segmented)
 
-            if mode == .complete {
-              completeOptionsSection
-            } else {
-              archiveInfoSection
+          Picker("Action", selection: $mode) {
+            ForEach(WorktreeCleanupMode.allCases) { option in
+              Text(option.title).tag(option)
             }
           }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.top, Spacing.md)
-          .padding(.bottom, Spacing.xl)
+          .pickerStyle(.segmented)
+
+          if mode == .complete {
+            completeOptionsSection
+          } else {
+            archiveInfoSection
+          }
         }
-        .background(Color.backgroundSecondary)
-        .navigationTitle("Complete Worktree")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
-              onCancel()
-            }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.md)
+        .padding(.bottom, Spacing.xl)
+      }
+      .background(Color.backgroundSecondary)
+      .navigationTitle("Complete Worktree")
+      #if os(iOS)
+      .navigationBarTitleDisplayMode(.inline)
+      #endif
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") {
+            onCancel()
           }
+        }
 
-          ToolbarItem(placement: .confirmationAction) {
-            Button(mode == .archive ? "Archive" : "Complete") {
-              Platform.services.playHaptic(mode == .archive ? .action : .warning)
-              onConfirm(cleanupRequest)
-            }
+        ToolbarItem(placement: .confirmationAction) {
+          Button(mode == .archive ? "Archive" : "Complete") {
+            Platform.services.playHaptic(mode == .archive ? .action : .warning)
+            onConfirm(cleanupRequest)
           }
         }
       }
-      .presentationDetents([.height(480), .large])
-      .presentationDragIndicator(.visible)
     }
-  #endif
+    #if os(iOS)
+    .presentationDetents([.height(480), .large])
+    .presentationDragIndicator(.visible)
+    #endif
+  }
 }

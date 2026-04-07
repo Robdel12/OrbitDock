@@ -28,7 +28,7 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::transcript_sync_policy::{
   plan_transcript_sync, TranscriptMessageSyncDecision, TranscriptSyncInputs,
 };
-use crate::support::session_time::{chrono_now, parse_unix_z};
+use crate::support::session_time::parse_unix_z;
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 pub(crate) const DIRECT_RUNTIME_STARTUP_GRACE: Duration = Duration::from_millis(250);
@@ -182,24 +182,13 @@ pub(crate) async fn mark_session_working_after_send(
     return;
   };
 
-  let now = chrono_now();
-  actor
-    .send(SessionCommand::ApplyDelta {
-      changes: Box::new(StateChanges {
-        work_status: Some(WorkStatus::Working),
-        last_activity_at: Some(now.clone()),
-        ..Default::default()
-      }),
-      persist_op: Some(PersistOp::SessionUpdate {
-        id: session_id.to_string(),
-        status: None,
-        work_status: Some(WorkStatus::Working),
-        lifecycle_state: None,
-        last_activity_at: Some(now),
-        last_progress_at: None,
-      }),
-    })
-    .await;
+  crate::runtime::session_state_transitions::transition_work_status(
+    &actor,
+    session_id,
+    WorkStatus::Working,
+    None,
+  )
+  .await;
 }
 
 pub(crate) async fn claim_codex_thread_for_direct_session(
@@ -229,7 +218,11 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
   }
 
   if thread_id != session_id && state.remove_session(thread_id).is_some() {
-    state.publish_dashboard_snapshot();
+    let _ = state
+      .list_tx()
+      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+        session_id: thread_id.to_string(),
+      });
   }
 
   let _ = persist_tx
@@ -421,8 +414,6 @@ pub(crate) async fn mark_direct_session_connector_detached(
       }),
     })
     .await;
-
-  state.publish_dashboard_snapshot();
 }
 
 /// Apply connector-detached state directly on a `SessionHandle` owned by the
@@ -432,7 +423,7 @@ pub(crate) async fn mark_direct_session_connector_detached(
 pub(crate) async fn apply_connector_detached_directly(
   handle: &mut SessionHandle,
   persist_tx: &mpsc::Sender<PersistCommand>,
-  state: &Arc<SessionRegistry>,
+  _state: &Arc<SessionRegistry>,
   session_id: &str,
   provider: Provider,
 ) {
@@ -479,8 +470,6 @@ pub(crate) async fn apply_connector_detached_directly(
     session_id: session_id.to_string(),
     changes: Box::new(changes),
   });
-
-  state.publish_dashboard_snapshot();
 }
 
 pub(crate) fn is_stale_empty_claude_shell(

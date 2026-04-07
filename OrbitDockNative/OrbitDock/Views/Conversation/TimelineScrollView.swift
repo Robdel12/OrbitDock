@@ -45,19 +45,11 @@ struct TimelineScrollView: View {
   @State private var pendingHistoryReveal = false
 
   private var recentRenderWindow: Int {
-    #if os(iOS)
-      sizeClass == .compact ? 40 : 60
-    #else
-      60
-    #endif
+    sizeClass == .compact ? 40 : 60
   }
 
   private var historyRenderExpansionStep: Int {
-    #if os(iOS)
-      sizeClass == .compact ? 20 : 30
-    #else
-      40
-    #endif
+    sizeClass == .compact ? 20 : 40
   }
 
   var body: some View {

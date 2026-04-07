@@ -16,6 +16,12 @@ struct FileTabHeader: View {
   var iconColor: Color?
   var badges: [FileBadge] = []
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
+
   struct FileBadge {
     let text: String
     let color: Color
@@ -72,15 +78,15 @@ struct FileTabHeader: View {
     let segments = path.components(separatedBy: "/").filter { !$0.isEmpty }
     // On narrow screens, show only the last 2 path segments to preserve the filename
     let displaySegments: [String] = {
-      #if os(iOS)
+      if isCompact {
         if segments.count > 2 {
           return ["…"] + Array(segments.suffix(2))
         }
-      #else
+      } else {
         if segments.count > 5 {
           return ["…"] + Array(segments.suffix(3))
         }
-      #endif
+      }
       return segments
     }()
 

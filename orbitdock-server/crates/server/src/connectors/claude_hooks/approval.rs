@@ -38,13 +38,11 @@ pub(crate) fn classify_permission_request(
 ) -> (
   orbitdock_protocol::ApprovalType,
   orbitdock_protocol::WorkStatus,
-  &'static str,
 ) {
   if tool_name == "AskUserQuestion" {
     return (
       orbitdock_protocol::ApprovalType::Question,
       orbitdock_protocol::WorkStatus::Question,
-      "awaitingQuestion",
     );
   }
 
@@ -52,14 +50,12 @@ pub(crate) fn classify_permission_request(
     return (
       orbitdock_protocol::ApprovalType::Patch,
       orbitdock_protocol::WorkStatus::Permission,
-      "awaitingPermission",
     );
   }
 
   (
     orbitdock_protocol::ApprovalType::Exec,
     orbitdock_protocol::WorkStatus::Permission,
-    "awaitingPermission",
   )
 }
 
@@ -156,18 +152,6 @@ pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
       })
       .await;
 
-    let _ = persist_tx
-      .send(PersistCommand::SessionUpdate {
-        id: session_id.to_string(),
-        status: None,
-        work_status: Some(resolution.work_status),
-        control_mode: None,
-        lifecycle_state: None,
-        last_activity_at: None,
-        last_progress_at: None,
-      })
-      .await;
-
     if resolution.next_pending_approval.is_none() {
       break;
     }
@@ -185,6 +169,8 @@ fn normalized_non_empty(value: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+  use std::sync::Arc;
+
   use orbitdock_protocol::{
     Provider, SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
   };
@@ -232,13 +218,14 @@ mod tests {
       pending_approval_id: Some("claude-perm-tooluse-1".to_string()),
       message_count: 0,
       active_worker_count: 0,
+      tool_count: 0,
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       started_at: None,
       last_activity_at: None,
       last_progress_at: None,
       revision: 0,
-      current_plan: Some("Inspect files".to_string()),
+      current_plan: Some(Arc::from("Inspect files")),
       current_diff: None,
       git_branch: None,
       git_sha: None,

@@ -365,8 +365,8 @@ pub(super) fn execute_command(
                  VALUES (
                     ?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', 'open',
                     ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-                    ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27,
-                    ?28, ?29, ?30, ?31
+                    ?18, ?19, ?20, ?21, ?22, ?23, ?24, NULL,
+                    ?25, ?26, ?27, ?28, ?29, ?30
                  )
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
@@ -374,8 +374,7 @@ pub(super) fn execute_command(
                    model = COALESCE(?5, model),
                    control_mode = COALESCE(sessions.control_mode, excluded.control_mode),
                    lifecycle_state = COALESCE(sessions.lifecycle_state, excluded.lifecycle_state),
-                   last_activity_at = ?24,
-                   last_progress_at = ?25",
+                   last_activity_at = ?24",
         params![
           id,
           project_path,
@@ -399,7 +398,6 @@ pub(super) fn execute_command(
           codex_model_provider,
           codex_config_source,
           codex_config_overrides_json,
-          now.clone(),
           now.clone(),
           now,
           forked_from_session_id,
@@ -778,17 +776,20 @@ pub(super) fn execute_command(
       context_window,
       snapshot_kind,
     } => {
-      conn.execute(
-                "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![session_id, turn_id, diff, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
-            )?;
+      // Archive diff if present
+      if let Some(ref diff_content) = diff {
+        conn.execute(
+                  "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                  params![session_id, turn_id, diff_content, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
+              )?;
 
-      // Clear current_diff now that the turn diff has been archived
-      conn.execute(
-        "UPDATE sessions SET current_diff = NULL WHERE id = ?1",
-        params![session_id],
-      )?;
+        conn.execute(
+          "UPDATE sessions SET current_diff = NULL WHERE id = ?1",
+          params![session_id],
+        )?;
+      }
 
+      // Always write usage data regardless of diff
       upsert_usage_turn_snapshot(
         conn,
         &TurnSnapshotRow {

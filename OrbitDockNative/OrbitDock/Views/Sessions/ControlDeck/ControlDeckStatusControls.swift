@@ -161,48 +161,28 @@ struct CodexApprovalPill: View {
     var iconFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar:
-          #if os(iOS)
-            IconScale.xs
-          #else
-            IconScale.sm
-          #endif
+        case .statusBar: IconScale.xs
       }
     }
 
     var textFontSize: CGFloat {
       switch self {
         case .regular: TypeScale.body
-        case .statusBar:
-          #if os(iOS)
-            TypeScale.mini
-          #else
-            TypeScale.micro
-          #endif
+        case .statusBar: TypeScale.mini
       }
     }
 
     var horizontalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.md)
-        case .statusBar:
-          #if os(iOS)
-            CGFloat(Spacing.sm_)
-          #else
-            CGFloat(Spacing.sm)
-          #endif
+        case .statusBar: CGFloat(Spacing.sm_)
       }
     }
 
     var verticalPadding: CGFloat {
       switch self {
         case .regular: CGFloat(Spacing.sm)
-        case .statusBar:
-          #if os(iOS)
-            CGFloat(Spacing.gap)
-          #else
-            CGFloat(Spacing.xs)
-          #endif
+        case .statusBar: CGFloat(Spacing.gap)
       }
     }
 
@@ -215,14 +195,8 @@ struct CodexApprovalPill: View {
 
     var height: CGFloat? {
       switch self {
-        case .regular:
-          nil
-        case .statusBar:
-          #if os(iOS)
-            24
-          #else
-            20
-          #endif
+        case .regular: nil
+        case .statusBar: 24
       }
     }
   }
@@ -233,12 +207,11 @@ struct CodexApprovalPill: View {
   var size: PillSize = .regular
   var onUpdate: ((CodexApprovalMode) -> Void)?
   var onReviewerUpdate: ((CodexApprovalsReviewer) -> Void)?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var showPopover = false
 
   private var title: String {
-    #if os(iOS)
-      if size == .statusBar { return currentMode.compactStatusName }
-    #endif
+    if size == .statusBar, horizontalSizeClass == .compact { return currentMode.compactStatusName }
     return currentMode.displayName
   }
 
@@ -419,21 +392,20 @@ struct CodexAutoReviewPill: View {
   var supportedLevels: [AutonomyLevel] = AutonomyLevel.allCases
   var size: CodexApprovalPill.PillSize = .regular
   var onUpdate: ((AutonomyLevel) -> Void)?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var showPopover = false
 
   private var title: String {
-    #if os(iOS)
-      if size == .statusBar {
-        switch currentLevel {
-          case .locked: return "You"
-          case .guarded: return "Sandbox"
-          case .autonomous: return "OrbitDock"
-          case .open: return "OrbitDock+"
-          case .fullAuto: return "Codex"
-          case .unrestricted: return "None"
-        }
+    if size == .statusBar, horizontalSizeClass == .compact {
+      switch currentLevel {
+        case .locked: return "You"
+        case .guarded: return "Sandbox"
+        case .autonomous: return "OrbitDock"
+        case .open: return "OrbitDock+"
+        case .fullAuto: return "Codex"
+        case .unrestricted: return "None"
       }
-    #endif
+    }
     return currentLevel.controlDeckAutoReviewLabel
   }
 
@@ -571,14 +543,13 @@ struct EffortPill: View {
   var supportedLevels: [EffortLevel] = EffortLevel.concreteCases
   var size: CodexApprovalPill.PillSize = .regular
   var onUpdate: ((EffortLevel) -> Void)?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var showPopover = false
 
   private var title: String {
-    #if os(iOS)
-      if size == .statusBar, currentLevel == .default {
-        return "Auto"
-      }
-    #endif
+    if size == .statusBar, horizontalSizeClass == .compact, currentLevel == .default {
+      return "Auto"
+    }
     return currentLevel.displayName
   }
 

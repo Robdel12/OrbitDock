@@ -8,12 +8,10 @@ Start here, then jump to the right doc.
 
 If you're making code changes, these are the docs that matter most:
 
-- [docs/repo-workflow.md](docs/repo-workflow.md) — project shape, commands, testing, and day-to-day workflow
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — project setup, build commands, testing, and day-to-day workflow
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — client patterns, server state architecture, and guardrails
 - [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles: what to test where, mocking rules, hard lines
-- [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — architecture and persistence rules that are easy to violate
-- [docs/local-development.md](docs/local-development.md) — local setup flow, file locations, and CLI basics
-- [docs/debugging.md](docs/debugging.md) — logs, hook checks, and database inspection
-- [docs/database-and-persistence.md](docs/database-and-persistence.md) — migration and persistence rules
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — server deployment, persistence, debugging, and troubleshooting
 
 ## Short Version
 
@@ -33,20 +31,13 @@ The repo rules are simple:
 
 ## Documentation Map
 
-- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — contributor setup and repo tour
-- [docs/repo-workflow.md](docs/repo-workflow.md) — commands, file placement, and testing expectations
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — setup, build commands, testing, key patterns
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — client patterns, server state architecture, and guardrails
 - [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles and hard lines
-- [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — server-authoritative rules, protocol guidance, UI constraints
-- [docs/CLIENT_DESIGN_PRINCIPLES.md](docs/CLIENT_DESIGN_PRINCIPLES.md) — short Swift client guardrails
-- [docs/SWIFT_CLIENT_ARCHITECTURE.md](docs/SWIFT_CLIENT_ARCHITECTURE.md) — durable client architecture rules
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment, database, debugging, and troubleshooting
 - [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract and surface model
-- [docs/design-system.md](docs/design-system.md) — unified design system (Cosmic Harbor)
-- [docs/typography.md](docs/typography.md) — typography system
-- [docs/local-development.md](docs/local-development.md) — setup flow, file locations, CLI basics
-- [docs/debugging.md](docs/debugging.md) — logs, filters, and inspection commands
-- [docs/database-and-persistence.md](docs/database-and-persistence.md) — migrations, schema rules, persistence model
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — deployment and install flows
-- [docs/FEATURES.md](docs/FEATURES.md) — product capability overview
-- [docs/NORTH_STAR.md](docs/NORTH_STAR.md) — product direction
+- [docs/design-system.md](docs/design-system.md) — unified design system (Cosmic Harbor) and typography
+- [docs/tool-rendering-spec.md](docs/tool-rendering-spec.md) — tool display contracts and rendering specs
+- [docs/FEATURES.md](docs/FEATURES.md) — product capabilities and user-facing features
 
 If a section starts turning into a handbook, move it into `docs/` and link it here.

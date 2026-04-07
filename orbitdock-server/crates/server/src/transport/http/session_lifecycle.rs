@@ -506,9 +506,14 @@ pub async fn create_session(
         .as_ref()
         .and_then(|resolved| resolved.effective_settings.model_provider.clone()),
       codex_config_source,
-      codex_config_overrides: normalized_codex_selection
+      codex_config_overrides: resolved_codex
         .as_ref()
-        .map(|selection| selection.overrides.clone()),
+        .map(|resolved| resolved.effective_settings.overrides.clone())
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .map(|selection| selection.overrides.clone())
+        }),
     },
   )
   .await;
@@ -570,7 +575,7 @@ pub async fn create_session(
       .await;
   }
 
-  state.publish_dashboard_snapshot();
+  state.notify_dashboard_session_updated(&session_id);
 
   Ok(Json(CreateSessionResponse {
     session_id,
@@ -948,8 +953,6 @@ pub async fn fork_session(
       .await
       .map_err(|error| internal("fork_failed", error))?;
 
-      state.publish_dashboard_snapshot();
-
       Ok(Json(ForkSessionResponse {
         source_session_id,
         new_session_id: started.new_session_id,
@@ -1011,8 +1014,6 @@ pub async fn fork_session(
       )
       .await
       .map_err(|error| internal("fork_failed", error))?;
-
-      state.publish_dashboard_snapshot();
 
       Ok(Json(ForkSessionResponse {
         source_session_id,

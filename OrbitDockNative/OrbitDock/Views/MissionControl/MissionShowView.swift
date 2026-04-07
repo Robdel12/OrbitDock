@@ -7,18 +7,12 @@ struct MissionShowView: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var viewModel = MissionControlViewModel()
 
   private var isCompact: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+    horizontalSizeClass == .compact
   }
 
   var body: some View {
@@ -98,12 +92,12 @@ struct MissionShowView: View {
     private var navigationBar: some View {
       HStack(spacing: Spacing.md) {
         Button {
-          router.selectDashboardTab(.missions)
+          router.goBack(source: .unspecified)
         } label: {
           HStack(spacing: Spacing.sm_) {
             Image(systemName: "chevron.left")
               .font(.system(size: 11, weight: .semibold))
-            Text("Missions")
+            Text(router.backDestinationLabel)
               .font(.system(size: TypeScale.caption, weight: .medium))
           }
           .foregroundStyle(Color.textSecondary)
@@ -147,7 +141,6 @@ struct MissionShowView: View {
                 http: viewModel.http,
                 isCompact: isCompact,
                 endpointId: endpointId,
-                dashboardConversationsBySessionId: viewModel.dashboardConversationsBySessionId,
                 nextTickAt: viewModel.nextTickAt,
                 lastTickAt: viewModel.lastTickAt,
                 onRefresh: { await viewModel.refreshDetail() },

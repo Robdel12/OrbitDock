@@ -14,6 +14,16 @@ enum DashboardTab: String, CaseIterable {
   }
 }
 
+enum WorkspaceSelection: Hashable {
+  case overview
+  case session(SessionRef)
+  case mission(MissionRef)
+  case missions
+  case library
+  case terminal(terminalId: String)
+  case settings
+}
+
 enum NavigationSource: String, Sendable {
   case unspecified
   case external
@@ -32,6 +42,7 @@ enum AppRoute: Equatable {
   case session(SessionRef)
   case mission(MissionRef)
   case terminal(terminalId: String)
+  case settings
 }
 
 /// The destinations that can be pushed onto the navigation stack.
@@ -86,26 +97,43 @@ struct SessionContinuation: Hashable, Sendable {
 @MainActor
 @Observable
 final class AppRouter {
-  /// The iOS NavigationStack path — the single source of truth for navigation.
-  /// macOS ContentView derives its displayed view from `route` (computed below).
-  var navigationStack: [AppNavDestination] = []
-  var dashboardTab: DashboardTab = .missionControl
+  /// The single source of truth for what the workspace displays.
+  var workspaceSelection: WorkspaceSelection = .overview {
+    didSet {
+      guard oldValue != workspaceSelection else { return }
+      previousSelection = oldValue
+    }
+  }
+
+  /// One level of navigation history for context-aware back navigation.
+  private(set) var previousSelection: WorkspaceSelection?
   var selectedMissionTabs: [MissionRef: MissionTab] = [:]
+
+  var isSidebarCollapsed = false
 
   var showQuickSwitcher = false
   var showNewSessionSheet = false
   var newSessionProvider: SessionProvider = .claude
   var newSessionContinuation: SessionContinuation?
-  var dashboardScrollAnchorID: String?
-
-  /// Computed from `navigationStack` and `dashboardTab`. All existing read
-  /// sites continue to work unchanged; macOS ContentView switches on this.
+  /// Derived from `workspaceSelection` for backward compatibility.
   var route: AppRoute {
-    switch navigationStack.last {
+    switch workspaceSelection {
+      case .overview: .dashboard(.missionControl)
       case let .session(ref): .session(ref)
       case let .mission(ref): .mission(ref)
+      case .missions: .dashboard(.missions)
+      case .library: .dashboard(.library)
       case let .terminal(terminalId): .terminal(terminalId: terminalId)
-      case nil: .dashboard(dashboardTab)
+      case .settings: .settings
+    }
+  }
+
+  /// Derived from `workspaceSelection` for views that read `dashboardTab`.
+  var dashboardTab: DashboardTab {
+    switch workspaceSelection {
+      case .missions: .missions
+      case .library: .library
+      default: .missionControl
     }
   }
 
@@ -126,11 +154,11 @@ final class AppRouter {
     if selectedMissionTabs[ref] == nil {
       selectedMissionTabs[ref] = .overview
     }
-    navigationStack = [.mission(ref)]
+    workspaceSelection = .mission(ref)
   }
 
   func selectSession(_ ref: SessionRef, source: NavigationSource = .unspecified) {
-    guard navigationStack.last != .session(ref) else {
+    guard workspaceSelection != .session(ref) else {
       logNavigation(
         action: "selectSession",
         source: source,
@@ -146,11 +174,51 @@ final class AppRouter {
       outcome: "applied",
       details: "scopedID=\(ref.scopedID) from=\(routeSummary)"
     )
-    navigationStack = [.session(ref)]
+    workspaceSelection = .session(ref)
+  }
+
+  /// Navigate back to the previous selection, falling back to overview.
+  func goBack(source: NavigationSource = .unspecified) {
+    let destination = previousSelection ?? .overview
+    logNavigation(
+      action: "goBack",
+      source: source,
+      outcome: "applied",
+      details: "to=\(selectionSummary(destination)) from=\(routeSummary)"
+    )
+    var t = Transaction(animation: nil)
+    t.disablesAnimations = true
+    withTransaction(t) {
+      workspaceSelection = destination
+    }
+  }
+
+  /// Human-readable label for the back button.
+  var backDestinationLabel: String {
+    guard let prev = previousSelection else { return "Overview" }
+    switch prev {
+      case .overview: return "Overview"
+      case .session: return "Session"
+      case .mission: return "Mission"
+      case .missions: return "Missions"
+      case .library: return "Library"
+      case .terminal: return "Terminal"
+      case .settings: return "Settings"
+    }
+  }
+
+  func toggleSidebar() {
+    #if os(macOS)
+      NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
+    #else
+      withAnimation(Motion.standard) {
+        isSidebarCollapsed.toggle()
+      }
+    #endif
   }
 
   func goToDashboard(source: NavigationSource = .unspecified) {
-    guard !navigationStack.isEmpty || dashboardTab != .missionControl else {
+    guard workspaceSelection != .overview else {
       logNavigation(
         action: "goToDashboard",
         source: source,
@@ -169,8 +237,7 @@ final class AppRouter {
     var t = Transaction(animation: nil)
     t.disablesAnimations = true
     withTransaction(t) {
-      navigationStack = []
-      dashboardTab = .missionControl
+      workspaceSelection = .overview
     }
   }
 
@@ -178,8 +245,34 @@ final class AppRouter {
     selectDashboardTab(.library)
   }
 
+  func goToSettings(source: NavigationSource = .unspecified) {
+    guard workspaceSelection != .settings else {
+      logNavigation(
+        action: "goToSettings",
+        source: source,
+        outcome: "noop",
+        details: "route=\(routeSummary)"
+      )
+      return
+    }
+
+    logNavigation(
+      action: "goToSettings",
+      source: source,
+      outcome: "applied",
+      details: "from=\(routeSummary)"
+    )
+    workspaceSelection = .settings
+  }
+
   func selectDashboardTab(_ tab: DashboardTab, source: NavigationSource = .unspecified) {
-    guard !navigationStack.isEmpty || dashboardTab != tab else {
+    let targetSelection: WorkspaceSelection = switch tab {
+      case .missionControl: .overview
+      case .missions: .missions
+      case .library: .library
+    }
+
+    guard workspaceSelection != targetSelection else {
       logNavigation(
         action: "selectDashboardTab",
         source: source,
@@ -195,8 +288,7 @@ final class AppRouter {
       outcome: "applied",
       details: "tab=\(tab.rawValue) from=\(routeSummary)"
     )
-    navigationStack = []
-    dashboardTab = tab
+    workspaceSelection = targetSelection
   }
 
   func openQuickSwitcher() {
@@ -214,7 +306,7 @@ final class AppRouter {
       outcome: "applied",
       details: "terminalId=\(terminalId) from=\(routeSummary)"
     )
-    navigationStack = [.terminal(terminalId: terminalId)]
+    workspaceSelection = .terminal(terminalId: terminalId)
   }
 
   func openNewSessionSheet() {
@@ -234,12 +326,12 @@ final class AppRouter {
   }
 
   var selectedSessionRef: SessionRef? {
-    guard case let .session(ref) = route else { return nil }
+    guard case let .session(ref) = workspaceSelection else { return nil }
     return ref
   }
 
   var selectedMissionRef: MissionRef? {
-    guard case let .mission(ref) = route else { return nil }
+    guard case let .mission(ref) = workspaceSelection else { return nil }
     return ref
   }
 
@@ -256,15 +348,18 @@ final class AppRouter {
   }
 
   private var routeSummary: String {
-    switch route {
-      case let .dashboard(tab):
-        "dashboard(\(tab.rawValue))"
-      case let .session(ref):
-        "session(\(ref.scopedID))"
-      case let .mission(ref):
-        "mission(\(ref.missionId))"
-      case let .terminal(terminalId):
-        "terminal(\(terminalId))"
+    selectionSummary(workspaceSelection)
+  }
+
+  private func selectionSummary(_ selection: WorkspaceSelection) -> String {
+    switch selection {
+      case .overview: "overview"
+      case let .session(ref): "session(\(ref.scopedID))"
+      case let .mission(ref): "mission(\(ref.missionId))"
+      case .missions: "missions"
+      case .library: "library"
+      case let .terminal(terminalId): "terminal(\(terminalId))"
+      case .settings: "settings"
     }
   }
 

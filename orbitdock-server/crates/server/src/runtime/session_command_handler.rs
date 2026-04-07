@@ -115,53 +115,33 @@ async fn persist_and_broadcast_mark_read(
     })
     .await;
 
-  handle.broadcast(ServerMessage::SessionDelta {
-    session_id: session_id.clone(),
-    changes: Box::new(StateChanges {
-      unread_count: Some(0),
-      ..Default::default()
-    }),
-  });
-}
-
-fn merge_subagent_updates(
-  existing: &[orbitdock_protocol::SubagentInfo],
-  incoming: Vec<orbitdock_protocol::SubagentInfo>,
-) -> Vec<orbitdock_protocol::SubagentInfo> {
-  let mut merged = existing.to_vec();
-
-  for updated in incoming {
-    if let Some(index) = merged.iter().position(|subagent| subagent.id == updated.id) {
-      merged[index] = updated;
-    } else {
-      merged.push(updated);
-    }
+  // When the user reads a session in Reply state, transition to Waiting.
+  // Reply means "has unread response"; once read, it becomes "idle/waiting."
+  let mut changes = StateChanges {
+    unread_count: Some(0),
+    ..Default::default()
+  };
+  if handle.work_status() == WorkStatus::Reply {
+    changes.work_status = Some(WorkStatus::Waiting);
+    changes.steerable = Some(false);
+    handle.set_work_status(WorkStatus::Waiting);
+    let _ = persist_tx
+      .send(PersistCommand::SessionUpdate {
+        id: session_id.clone(),
+        status: None,
+        work_status: Some(WorkStatus::Waiting),
+        control_mode: None,
+        lifecycle_state: None,
+        last_activity_at: None,
+        last_progress_at: None,
+      })
+      .await;
   }
 
-  merged.sort_by(|lhs, rhs| lhs.started_at.cmp(&rhs.started_at));
-  merged
-}
-
-fn subagent_lists_match(
-  lhs: &[orbitdock_protocol::SubagentInfo],
-  rhs: &[orbitdock_protocol::SubagentInfo],
-) -> bool {
-  lhs.len() == rhs.len()
-    && lhs.iter().zip(rhs.iter()).all(|(left, right)| {
-      left.id == right.id
-        && left.agent_type == right.agent_type
-        && left.started_at == right.started_at
-        && left.ended_at == right.ended_at
-        && left.provider == right.provider
-        && left.label == right.label
-        && left.status == right.status
-        && left.task_summary == right.task_summary
-        && left.result_summary == right.result_summary
-        && left.error_summary == right.error_summary
-        && left.parent_subagent_id == right.parent_subagent_id
-        && left.model == right.model
-        && left.last_activity_at == right.last_activity_at
-    })
+  handle.broadcast(ServerMessage::SessionDelta {
+    session_id: session_id.clone(),
+    changes: Box::new(changes),
+  });
 }
 
 fn should_suppress_connector_user_echo(handle: &SessionHandle, event: &ConnectorEvent) -> bool {
@@ -244,36 +224,6 @@ pub async fn handle_session_command(
     SessionCommand::SetWorkStatus { status } => {
       handle.set_work_status(status);
     }
-    SessionCommand::SetModel { model } => {
-      handle.set_model(model);
-    }
-    SessionCommand::SetTranscriptPath { path } => {
-      handle.set_transcript_path(path);
-    }
-    SessionCommand::SetLastTool { tool } => {
-      handle.set_last_tool(tool);
-    }
-    SessionCommand::SetSubagents { subagents } => {
-      let merged_subagents = merge_subagent_updates(handle.subagents(), subagents);
-      if subagent_lists_match(&merged_subagents, handle.subagents()) {
-        return;
-      }
-      handle.set_subagents(merged_subagents.clone());
-      handle.broadcast(ServerMessage::SessionDelta {
-        session_id: handle.id().to_string(),
-        changes: Box::new(StateChanges {
-          subagents: Some(merged_subagents),
-          ..Default::default()
-        }),
-      });
-    }
-    SessionCommand::SetPendingAttention {
-      pending_tool_name,
-      pending_tool_input,
-      pending_question,
-    } => {
-      handle.set_pending_attention(pending_tool_name, pending_tool_input, pending_question);
-    }
 
     // -- Compound operations --
     SessionCommand::ApplyDelta {
@@ -291,20 +241,26 @@ pub async fn handle_session_command(
       let _ = reply.send(());
     }
     SessionCommand::EndLocally => {
-      let session_id = handle.id().to_string();
       let now = chrono_now();
-      handle.set_status(SessionStatus::Ended);
-      handle.set_work_status(WorkStatus::Ended);
-      handle.set_last_activity_at(Some(now.clone()));
-      handle.broadcast(ServerMessage::SessionDelta {
-        session_id,
-        changes: Box::new(StateChanges {
+      apply_delta_and_broadcast(
+        handle,
+        persist_tx,
+        StateChanges {
           status: Some(SessionStatus::Ended),
           work_status: Some(WorkStatus::Ended),
-          last_activity_at: Some(now),
+          last_activity_at: Some(now.clone()),
           ..Default::default()
+        },
+        Some(PersistOp::SessionUpdate {
+          id: handle.id().to_string(),
+          status: Some(SessionStatus::Ended),
+          work_status: Some(WorkStatus::Ended),
+          lifecycle_state: None,
+          last_activity_at: Some(now),
+          last_progress_at: None,
         }),
-      });
+      )
+      .await;
     }
     SessionCommand::SetCustomNameAndNotify {
       name,
@@ -528,6 +484,20 @@ pub async fn handle_session_command(
       let approval_version = handle.approval_version();
       if approval_type.is_some() {
         let session_id = handle.id().to_string();
+
+        // Persist the resolved work_status so callers don't need to separately persist.
+        let _ = persist_tx
+          .send(PersistCommand::SessionUpdate {
+            id: session_id.clone(),
+            status: None,
+            work_status: Some(work_status),
+            control_mode: None,
+            lifecycle_state: None,
+            last_activity_at: None,
+            last_progress_at: None,
+          })
+          .await;
+
         handle.broadcast(ServerMessage::SessionDelta {
           session_id,
           changes: Box::new(StateChanges {
@@ -543,26 +513,8 @@ pub async fn handle_session_command(
         approval_type,
         proposed_amendment,
         next_pending_approval,
-        work_status,
         approval_version,
       });
-    }
-    SessionCommand::SetPendingApproval {
-      request_id,
-      approval_type,
-      proposed_amendment,
-      tool_name,
-      tool_input,
-      question,
-    } => {
-      handle.set_pending_approval(
-        request_id,
-        approval_type,
-        proposed_amendment,
-        tool_name,
-        tool_input,
-        question,
-      );
     }
     SessionCommand::Broadcast { msg } => {
       handle.broadcast(msg);
@@ -579,6 +531,10 @@ pub async fn handle_session_command(
     SessionCommand::MarkRead { reply } => {
       persist_and_broadcast_mark_read(handle, persist_tx).await;
       let _ = reply.send(handle.unread_count());
+    }
+
+    SessionCommand::IncrementToolCount => {
+      handle.increment_tool_count();
     }
   }
 
@@ -652,6 +608,13 @@ pub(crate) async fn dispatch_transition_input(
   let now = chrono_now();
   let state = handle.extract_state();
   let (new_state, effects) = transition::transition(state, input, &now);
+  tracing::debug!(
+    session_id = _session_id,
+    work_phase = ?new_state.phase,
+    pending_approval = new_state.pending_approval.is_some(),
+    effect_count = effects.len(),
+    "dispatch_transition_input: transition completed"
+  );
   handle.apply_state(new_state);
 
   // Update last_message from the latest completed user/assistant row.
@@ -668,10 +631,17 @@ pub(crate) async fn dispatch_transition_input(
   let mut sequence_futures: Vec<(String, tokio::sync::oneshot::Receiver<u64>)> = Vec::new();
   let mut appended_row_ids = HashSet::new();
   let mut deferred_emits: Vec<ServerMessage> = Vec::new();
+  let mut did_broadcast = false;
 
   for effect in effects {
     match effect {
       transition::Effect::Persist(op) => {
+        if matches!(
+          op.as_ref(),
+          transition::PersistOp::ToolCountIncrement { .. }
+        ) {
+          handle.increment_tool_count();
+        }
         if let transition::PersistOp::RowAppend { entry, .. } = op.as_ref() {
           appended_row_ids.insert(entry.id().to_string());
         }
@@ -743,6 +713,7 @@ pub(crate) async fn dispatch_transition_input(
     };
     if should_emit {
       handle.broadcast(msg);
+      did_broadcast = true;
     }
   }
 
@@ -751,7 +722,6 @@ pub(crate) async fn dispatch_transition_input(
     let session_id = handle.id().to_string();
     let affected_ids = handle.mark_last_turns_status(num_turns, status);
     if !affected_ids.is_empty() {
-      // Persist the status change to SQLite.
       let _ = persist_tx
         .send(PersistCommand::RowsTurnStatusUpdate {
           session_id: session_id.clone(),
@@ -760,7 +730,6 @@ pub(crate) async fn dispatch_transition_input(
         })
         .await;
 
-      // Broadcast updated summaries so connected clients see the change.
       let upserted: Vec<_> = affected_ids
         .iter()
         .filter_map(|id| handle.row_by_id(id).map(|row| row.to_transport_summary()))
@@ -773,6 +742,7 @@ pub(crate) async fn dispatch_transition_input(
           removed_row_ids: vec![],
           total_row_count: total,
         });
+        did_broadcast = true;
       }
     }
   }
@@ -786,9 +756,16 @@ pub(crate) async fn dispatch_transition_input(
       session_id: handle.id().to_string(),
       changes: Box::new(changes),
     });
+    did_broadcast = true;
   }
 
-  handle.refresh_snapshot();
+  // If no broadcast() fired (e.g. transition only produced Persist effects),
+  // refresh the snapshot and emit a dashboard update so the client sees
+  // state changes like cleared pending_question.
+  if !did_broadcast {
+    handle.refresh_snapshot();
+    handle.emit_dashboard_update();
+  }
 }
 
 /// Returns `true` if the event signals the end of a turn (used to cancel

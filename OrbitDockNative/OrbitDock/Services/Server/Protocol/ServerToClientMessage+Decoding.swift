@@ -14,6 +14,15 @@ extension ServerToClientMessage {
         let revision = try container.decode(UInt64.self, forKey: .revision)
         self = .dashboardInvalidated(revision: revision)
 
+      case "dashboard_conversation_updated":
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        let item = try container.decode(ServerDashboardConversationItem.self, forKey: .item)
+        self = .dashboardConversationUpdated(revision: revision, item: item)
+
+      case "dashboard_item_removed":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        self = .dashboardItemRemoved(sessionId: sessionId)
+
       case "missions_invalidated":
         let revision = try container.decode(UInt64.self, forKey: .revision)
         self = .missionsInvalidated(revision: revision)

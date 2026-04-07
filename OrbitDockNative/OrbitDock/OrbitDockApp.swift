@@ -13,9 +13,6 @@ struct OrbitDockApp: App {
     @Environment(\.scenePhase) private var scenePhase
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
-  #if os(macOS)
-    @State private var menuBarAppStore: AppStore
-  #endif
   private let modelPricingService: ModelPricingService
 
   init() {
@@ -24,9 +21,6 @@ struct OrbitDockApp: App {
     _appRuntime = State(initialValue: appRuntime)
     self.modelPricingService = modelPricingService
     #if os(macOS)
-      _menuBarAppStore = State(
-        initialValue: AppStore(runtimeRegistry: appRuntime.runtimeRegistry)
-      )
       appDelegate.configure(
         appRuntime: appRuntime,
         modelPricingService: modelPricingService
@@ -35,18 +29,6 @@ struct OrbitDockApp: App {
       appDelegate.configure(appRuntime: appRuntime)
     #endif
   }
-
-  #if os(macOS)
-  private static func recommendedSettingsWindowSize() -> CGSize {
-    let fallbackSize = CGSize(width: 1_520, height: 960)
-    let visibleFrame = NSScreen.main?.visibleFrame ?? .init(x: 0, y: 0, width: 1_440, height: 900)
-    let width = min(max(1_220, visibleFrame.width * 0.86), 1_800)
-    let height = min(max(770, visibleFrame.height * 0.82), 1_100)
-
-    guard width.isFinite && height.isFinite else { return fallbackSize }
-    return CGSize(width: width, height: height)
-  }
-  #endif
 
   var body: some Scene {
     #if os(macOS)
@@ -63,24 +45,13 @@ struct OrbitDockApp: App {
       .defaultSize(width: 1_400, height: 800)
       .commands { OrbitDockWindowCommands() }
 
-      Settings {
-        SettingsView(initialPane: appRuntime.requestedSettingsPane)
-          .environment(appRuntime)
-          .environment(appRuntime.runtimeRegistry.activeSessionStore)
-          .environment(\.modelPricingService, modelPricingService)
-          .environment(appRuntime.runtimeRegistry)
-          .environment(appRuntime.notificationCoordinator)
-          .preferredColorScheme(.dark)
-      }
-      .defaultSize(OrbitDockApp.recommendedSettingsWindowSize())
-      .windowResizability(.contentMinSize)
-
       MenuBarExtra {
         MenuBarView()
           .environment(\.modelPricingService, modelPricingService)
           .environment(appRuntime.runtimeRegistry)
           .environment(appRuntime.usageServiceRegistry)
-          .environment(menuBarAppStore)
+          .environment(appRuntime.dashboardDataService)
+          .environment(appRuntime)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)
       } label: {
@@ -118,6 +89,14 @@ struct OrbitDockWindowCommands: Commands {
   @FocusedValue(\.orbitDockRouter) private var router
 
   var body: some Commands {
+    CommandGroup(replacing: .appSettings) {
+      Button("Settings...") {
+        router?.goToSettings(source: .commandMenu)
+      }
+      .keyboardShortcut(",", modifiers: .command)
+      .disabled(router == nil)
+    }
+
     CommandGroup(after: .toolbar) {
       Button("Dashboard") {
         router?.goToDashboard(source: .commandMenu)

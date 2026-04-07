@@ -10,7 +10,14 @@ struct DashboardTriageCounts: Sendable {
   var running = 0
   var ready = 0
 
+  nonisolated init(attention: Int = 0, running: Int = 0, ready: Int = 0) {
+    self.attention = attention
+    self.running = running
+    self.ready = ready
+  }
+
   nonisolated init(sessions: [RootSessionNode]) {
+    self.init()
     for session in sessions {
       guard session.showsInMissionControl else { continue }
       switch session.displayStatus {
@@ -23,6 +30,7 @@ struct DashboardTriageCounts: Sendable {
   }
 
   nonisolated init(conversations: [DashboardConversationRecord]) {
+    self.init()
     for conversation in conversations {
       switch conversation.displayStatus {
         case .permission, .question: attention += 1
@@ -31,5 +39,13 @@ struct DashboardTriageCounts: Sendable {
         case .ended: break
       }
     }
+  }
+
+  nonisolated static func + (lhs: Self, rhs: Self) -> Self {
+    DashboardTriageCounts(
+      attention: lhs.attention + rhs.attention,
+      running: lhs.running + rhs.running,
+      ready: lhs.ready + rhs.ready
+    )
   }
 }

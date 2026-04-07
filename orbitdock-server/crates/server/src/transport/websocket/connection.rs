@@ -43,6 +43,12 @@ impl ConnectionSubscriptions {
     }
   }
 
+  pub(crate) fn remove_dashboard_forwarder(&mut self) {
+    if let Some(existing) = self.dashboard_forwarder.take() {
+      existing.abort();
+    }
+  }
+
   pub(crate) fn replace_missions_forwarder(&mut self, handle: JoinHandle<()>) {
     if let Some(existing) = self.missions_forwarder.replace(handle) {
       existing.abort();

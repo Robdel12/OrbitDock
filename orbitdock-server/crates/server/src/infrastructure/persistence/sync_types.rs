@@ -53,7 +53,7 @@ pub enum SyncCommand {
     session_id: String,
     turn_id: String,
     turn_seq: u64,
-    diff: String,
+    diff: Option<String>,
     input_tokens: u64,
     output_tokens: u64,
     cached_tokens: u64,

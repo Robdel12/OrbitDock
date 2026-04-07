@@ -56,7 +56,7 @@ func missionSectionLabel(_ text: String) -> some View {
   Text(text.uppercased())
     .font(.system(size: TypeScale.micro, weight: .bold))
     .foregroundStyle(Color.textQuaternary)
-    .tracking(0.6)
+    .tracking(0.8)
 }
 
 func missionCompactField(_ label: String, placeholder: String, text: Binding<String>) -> some View {

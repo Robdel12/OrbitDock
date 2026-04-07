@@ -5,6 +5,12 @@ struct NewSessionSheetShell<Header: View, FormContent: View, Footer: View>: View
   @ViewBuilder let formContent: () -> FormContent
   @ViewBuilder let footer: () -> Footer
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
+
   var body: some View {
     let chrome = VStack(spacing: 0) {
       header()
@@ -28,14 +34,14 @@ struct NewSessionSheetShell<Header: View, FormContent: View, Footer: View>: View
     .shadow(color: .black.opacity(0.32), radius: 28, y: 14)
     .shadow(color: Color.accent.opacity(0.08), radius: 18, y: 0)
 
-    #if os(iOS)
+    if isCompact {
       chrome
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    #else
+    } else {
       chrome
         .padding(Spacing.md)
         .frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
-    #endif
+    }
   }
 
   private var divider: some View {
@@ -48,21 +54,19 @@ struct NewSessionSheetShell<Header: View, FormContent: View, Footer: View>: View
 struct NewSessionFormShell<Content: View>: View {
   @ViewBuilder let content: () -> Content
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
+  }
+
   var body: some View {
-    #if os(iOS)
-      ScrollView(showsIndicators: false) {
-        content()
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.lg)
-          .padding(.bottom, Spacing.sm)
-      }
-    #else
-      ScrollView(showsIndicators: true) {
-        content()
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.section)
-      }
-    #endif
+    ScrollView(showsIndicators: !isCompact) {
+      content()
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, isCompact ? Spacing.lg : Spacing.section)
+        .if(isCompact) { $0.padding(.bottom, Spacing.sm) }
+    }
   }
 }
 

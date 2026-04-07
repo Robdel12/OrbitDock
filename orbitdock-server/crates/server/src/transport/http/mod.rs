@@ -38,8 +38,8 @@ use tracing::{error, info};
 
 use crate::infrastructure::persistence::{delete_approval, list_approvals, PersistCommand};
 use crate::runtime::session_queries::{
-  load_conversation_bootstrap, load_conversation_page, load_dashboard_snapshot,
-  load_full_session_state, load_library_snapshot, SessionLoadError,
+  load_conversation_bootstrap, load_conversation_page, load_full_session_state,
+  load_library_snapshot, SessionLoadError,
 };
 use crate::runtime::session_registry::SessionRegistry;
 

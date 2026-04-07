@@ -11,8 +11,8 @@ use codex_app_server_protocol::{
 use codex_core::config::Config as CoreConfig;
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
 use orbitdock_protocol::{
-  CodexApprovalMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
-  CodexGranularApprovalPolicy, CodexSessionOverrides,
+  CodexApprovalMode, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode,
+  CodexConfigSource, CodexGranularApprovalPolicy, CodexSessionOverrides,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -450,15 +450,35 @@ pub fn serialize_codex_overrides(overrides: &CodexSessionOverrides) -> Option<St
   }
 }
 
+fn core_approvals_reviewer_to_protocol(
+  reviewer: codex_core::config::ApprovalsReviewer,
+) -> CodexApprovalsReviewer {
+  match reviewer {
+    codex_core::config::ApprovalsReviewer::User => CodexApprovalsReviewer::User,
+    codex_core::config::ApprovalsReviewer::GuardianSubagent => {
+      CodexApprovalsReviewer::GuardianSubagent
+    }
+  }
+}
+
 fn effective_settings(
   config: &CoreConfig,
   selection: &CodexConfigSelection,
 ) -> CodexResolvedSettings {
+  let mut overrides = selection.overrides.clone();
+  // Populate approvals_reviewer from the resolved config so the UI reflects
+  // what the codex process actually uses (e.g. guardian review from config).
+  if overrides.approvals_reviewer.is_none() {
+    overrides.approvals_reviewer = Some(core_approvals_reviewer_to_protocol(
+      config.approvals_reviewer,
+    ));
+  }
+
   CodexResolvedSettings {
     config_source: selection.config_source,
     config_mode: selection.config_mode,
     config_profile: config.active_profile.clone(),
-    overrides: selection.overrides.clone(),
+    overrides,
     model: config.model.clone(),
     model_provider: Some(config.model_provider_id.clone()),
     approval_policy: Some(core_approval_policy_to_string(

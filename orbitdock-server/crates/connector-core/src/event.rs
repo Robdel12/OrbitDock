@@ -174,3 +174,18 @@ pub enum ConnectorEvent {
   /// Error occurred
   Error(String),
 }
+
+impl ConnectorEvent {
+  /// Whether this event should trigger a dashboard refresh for the session.
+  pub fn requires_dashboard_refresh(&self) -> bool {
+    matches!(
+      self,
+      ConnectorEvent::TurnStarted
+        | ConnectorEvent::TurnCompleted
+        | ConnectorEvent::TurnAborted { .. }
+        | ConnectorEvent::ApprovalRequested { .. }
+        | ConnectorEvent::ApprovalCancelled { .. }
+        | ConnectorEvent::SessionEnded { .. }
+    )
+  }
+}

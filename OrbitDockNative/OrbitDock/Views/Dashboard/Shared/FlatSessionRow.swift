@@ -150,7 +150,7 @@ struct FlatSessionRow: View {
             HStack(spacing: Spacing.gap) {
               Text(branch)
                 .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.gitBranch.opacity(0.7))
+                .foregroundStyle(Color.gitBranch.opacity(0.5))
                 .lineLimit(1)
               if session.isWorktree {
                 WorktreeBadge()
@@ -286,7 +286,7 @@ struct FlatSessionRow: View {
       if let branch = inlineBranch {
         Text(branch)
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.gitBranch.opacity(0.72))
+          .foregroundStyle(Color.gitBranch.opacity(0.5))
           .lineLimit(1)
       }
 

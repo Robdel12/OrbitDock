@@ -82,7 +82,7 @@ struct ProviderSelectionGroup: View {
         Text(text.uppercased())
           .font(.system(size: TypeScale.micro, weight: .bold))
           .foregroundStyle(Color.textQuaternary)
-          .tracking(0.6)
+          .tracking(0.8)
       } else {
         Text(text)
           .font(.system(size: TypeScale.micro, weight: .medium))

@@ -24,36 +24,20 @@ struct ControlDeckStatusBar: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  private var isCompactIOS: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
+  private var isCompact: Bool {
+    horizontalSizeClass == .compact
   }
 
   private var minimumBarHeight: CGFloat {
-    #if os(iOS)
-      isCompactIOS ? 38 : 42
-    #else
-      28
-    #endif
+    isCompact ? 38 : 28
   }
 
   private var actionButtonSize: CGFloat {
-    #if os(iOS)
-      isCompactIOS ? 32 : 34
-    #else
-      26
-    #endif
+    isCompact ? 32 : 26
   }
 
   private var sendButtonSize: CGFloat {
-    #if os(iOS)
-      isCompactIOS ? 34 : 36
-    #else
-      28
-    #endif
+    isCompact ? 34 : 28
   }
 
   private func isControlModule(_ module: ControlDeckStatusModuleItem) -> Bool {
@@ -66,13 +50,13 @@ struct ControlDeckStatusBar: View {
   }
 
   var body: some View {
-    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm_) {
+    HStack(spacing: isCompact ? Spacing.xs : Spacing.sm_) {
       // Action buttons (left edge)
       actionButtons
 
       // Scrollable status modules (fills middle)
       ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm) {
+        HStack(spacing: isCompact ? Spacing.xs : Spacing.sm) {
           if !controlModules.isEmpty {
             controlModuleRow(controlModules)
           }
@@ -97,7 +81,7 @@ struct ControlDeckStatusBar: View {
   // MARK: - Action Buttons
 
   private var actionButtons: some View {
-    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.xxs) {
+    HStack(spacing: isCompact ? Spacing.xs : Spacing.xxs) {
       if supportsImages {
         ghostButton(icon: "paperclip", tint: .accent, action: { onAddImage?() })
       }
@@ -115,7 +99,7 @@ struct ControlDeckStatusBar: View {
   // MARK: - Send Cluster
 
   private var sendCluster: some View {
-    HStack(spacing: isCompactIOS ? Spacing.xs : Spacing.sm_) {
+    HStack(spacing: isCompact ? Spacing.xs : Spacing.sm_) {
       sendButton
     }
   }
@@ -275,7 +259,7 @@ struct ControlDeckStatusBar: View {
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
-        .font(.system(size: isCompactIOS ? TypeScale.caption : TypeScale.subhead, weight: .semibold))
+        .font(.system(size: isCompact ? TypeScale.caption : TypeScale.subhead, weight: .semibold))
         .foregroundStyle(isEnabled ? tint : Color.textQuaternary)
         .frame(width: actionButtonSize, height: actionButtonSize)
         .background(

@@ -324,12 +324,10 @@ struct SessionDetailView: View {
         }, fallbackPath: screenPresentation.projectPath)
         .transition(.move(edge: .bottom).combined(with: .opacity))
 
-        #if os(macOS)
-        if viewModel.showInlineTerminal {
+        if !isCompactLayout && viewModel.showInlineTerminal {
           terminalPanel(session: session)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
-        #endif
       }
       #if os(iOS)
       .fullScreenCover(isPresented: $viewModel.showTerminalInteractiveSheet) {
@@ -348,15 +346,13 @@ struct SessionDetailView: View {
         directSessionDockHeader
       }
 
-      #if os(macOS)
-        if let session = controlDeckTerminalSession, viewModel.showInlineTerminal {
-          dividerLine
+      if !isCompactLayout, let session = controlDeckTerminalSession, viewModel.showInlineTerminal {
+        dividerLine
 
-          terminalPanel(session: session)
-            .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-      #endif
+        terminalPanel(session: session)
+          .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
 
       dividerLine
 
@@ -599,13 +595,15 @@ struct SessionDetailView: View {
   }
 
   private func handleTerminalStripTap(session: TerminalSessionController) {
-    #if os(iOS)
-    viewModel.showTerminalInteractiveSheet = true
-    #else
-    withAnimation(Motion.gentle) {
-      viewModel.showInlineTerminal.toggle()
+    if isCompactLayout {
+      #if os(iOS)
+      viewModel.showTerminalInteractiveSheet = true
+      #endif
+    } else {
+      withAnimation(Motion.gentle) {
+        viewModel.showInlineTerminal.toggle()
+      }
     }
-    #endif
   }
 
   func launchTerminal() {
@@ -628,11 +626,13 @@ struct SessionDetailView: View {
     withAnimation(Motion.gentle) {
       viewModel.activeTerminalId = terminalId
       viewModel.showTerminalPanel = true
-      #if os(iOS)
-      viewModel.showTerminalInteractiveSheet = true
-      #else
-      viewModel.showInlineTerminal = true
-      #endif
+      if isCompactLayout {
+        #if os(iOS)
+        viewModel.showTerminalInteractiveSheet = true
+        #endif
+      } else {
+        viewModel.showInlineTerminal = true
+      }
     }
     Platform.services.playHaptic(.selection)
 
@@ -666,15 +666,13 @@ struct SessionDetailView: View {
     }
   }
 
-  // MARK: - Terminal Panel (macOS inline)
+  // MARK: - Terminal Panel (inline)
 
-  #if os(macOS)
   func terminalPanel(session: TerminalSessionController) -> some View {
     TerminalView(session: session)
       .frame(maxWidth: .infinity, minHeight: 200, maxHeight: 320)
       .background(Color.backgroundCode)
   }
-  #endif
 
   // MARK: - Helpers
 

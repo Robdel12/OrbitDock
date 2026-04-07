@@ -22,6 +22,7 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
 
   match message {
     ClientMessage::SubscribeDashboard { .. }
+    | ClientMessage::UnsubscribeDashboard
     | ClientMessage::SubscribeMissions { .. }
     | ClientMessage::SubscribeSessionSurface { .. }
     | ClientMessage::UnsubscribeSessionSurface { .. } => MessageGroup::Subscribe,

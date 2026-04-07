@@ -14,22 +14,35 @@ import SwiftUI
 
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(AppStore.self) private var appStore
   @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(DashboardDataService.self) private var dashboardDataService
   @Environment(AppRouter.self) private var router
+  @Environment(OrbitDockAppRuntime.self) private var appRuntime
 
   // Quick launch callbacks
   let onQuickLaunchClaude: ((String) -> Void)?
   let onQuickLaunchCodex: ((String) -> Void)?
+  let previewSessions: [RootSessionNode]?
 
   @State private var quickSwitcherState = QuickSwitcherState()
+  @State private var viewModel = QuickSwitcherViewModel()
   @FocusState private var isSearchFocused: Bool
+
+  init(
+    onQuickLaunchClaude: ((String) -> Void)?,
+    onQuickLaunchCodex: ((String) -> Void)?,
+    previewSessions: [RootSessionNode]? = nil
+  ) {
+    self.onQuickLaunchClaude = onQuickLaunchClaude
+    self.onQuickLaunchCodex = onQuickLaunchCodex
+    self.previewSessions = previewSessions
+  }
 
   /// The session currently being viewed (for commands to act on)
   private func makeViewState() -> QuickSwitcherViewState {
     QuickSwitcherViewState.make(
-      sessions: appStore.records(),
+      sessions: viewModel.sessions,
       state: quickSwitcherState,
       selectedSessionRef: router.selectedSessionRef,
       isCompactLayout: isCompactLayout
@@ -54,6 +67,19 @@ struct QuickSwitcher: View {
     let viewState = makeViewState()
 
     return mainContent(viewState: viewState)
+      .task {
+        if let previewSessions {
+          viewModel.applySessions(previewSessions)
+        } else if appRuntime.isDemoModeEnabled {
+          viewModel.applySessions(appRuntime.demoExperience.rootSessions)
+        } else {
+          viewModel.applySessions(dashboardDataService.librarySessions)
+        }
+      }
+      .onChange(of: dashboardDataService.librarySessions) { _, sessions in
+        guard previewSessions == nil, !appRuntime.isDemoModeEnabled else { return }
+        viewModel.applySessions(sessions)
+      }
       .onAppear {
         quickSwitcherState.resetSelection()
         focusSearchField()

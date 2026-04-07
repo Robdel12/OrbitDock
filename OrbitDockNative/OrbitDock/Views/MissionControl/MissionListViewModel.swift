@@ -10,15 +10,21 @@ final class MissionListViewModel {
   var actionError: String?
 
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
-  @ObservationIgnored private weak var missionProjectionStore: MissionProjectionStore?
+  @ObservationIgnored private var realtimeListenersByEndpoint: [UUID: MissionListRealtimeSubscription] = [:]
+  @ObservationIgnored private var realtimeRefreshTask: Task<Void, Never>?
+  @ObservationIgnored private var realtimeUpdatesEnabled = false
 
   func bind(runtimeRegistry: ServerRuntimeRegistry) {
+    if self.runtimeRegistry !== runtimeRegistry {
+      detachRealtimeListeners()
+    }
     self.runtimeRegistry = runtimeRegistry
-    self.missionProjectionStore = runtimeRegistry.missionProjectionStore
   }
 
-  var projectedMissionsSnapshot: [AggregatedMissionSummary] {
-    missionProjectionStore?.missions ?? []
+  func setRealtimeUpdatesEnabled(_ enabled: Bool) {
+    guard realtimeUpdatesEnabled != enabled else { return }
+    realtimeUpdatesEnabled = enabled
+    enabled ? attachRealtimeListeners() : detachRealtimeListeners()
   }
 
   func fetchAllMissions() async {
@@ -47,23 +53,6 @@ final class MissionListViewModel {
     isLoading = false
   }
 
-  func applyMissionListSnapshotIfNeeded() {
-    let snapshot = projectedMissionsSnapshot
-    guard !snapshot.isEmpty else { return }
-    missions = mergeMissions(current: missions, incoming: snapshot)
-  }
-
-  private func mergeMissions(
-    current: [AggregatedMissionSummary],
-    incoming: [AggregatedMissionSummary]
-  ) -> [AggregatedMissionSummary] {
-    var mergedByID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
-    for mission in incoming {
-      mergedByID[mission.id] = mission
-    }
-    return sortMissions(Array(mergedByID.values))
-  }
-
   private func sortMissions(_ missions: [AggregatedMissionSummary]) -> [AggregatedMissionSummary] {
     missions.sorted { lhs, rhs in
       let lhsActive = lhs.mission.enabled && !lhs.mission.paused
@@ -72,4 +61,84 @@ final class MissionListViewModel {
       return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
     }
   }
+
+  private func attachRealtimeListeners() {
+    guard realtimeUpdatesEnabled, let runtimeRegistry else {
+      detachRealtimeListeners()
+      return
+    }
+
+    let enabledRuntimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+    let enabledIds = Set(enabledRuntimes.map(\.endpoint.id))
+
+    for (endpointId, subscription) in realtimeListenersByEndpoint where !enabledIds.contains(endpointId) {
+      subscription.connection.removeListener(subscription.token)
+      realtimeListenersByEndpoint.removeValue(forKey: endpointId)
+    }
+
+    for runtime in enabledRuntimes {
+      let endpointId = runtime.endpoint.id
+      if let existing = realtimeListenersByEndpoint[endpointId], existing.connection !== runtime.connection {
+        existing.connection.removeListener(existing.token)
+        realtimeListenersByEndpoint.removeValue(forKey: endpointId)
+      }
+
+      guard realtimeListenersByEndpoint[endpointId] == nil else { continue }
+      let connection = runtime.connection
+      let token = connection.addListener { [weak self] event in
+        guard let self else { return }
+        self.handleRealtimeEvent(event, endpointId: endpointId)
+      }
+      realtimeListenersByEndpoint[endpointId] = MissionListRealtimeSubscription(
+        connection: connection,
+        token: token
+      )
+      if connection.connectionStatus == .connected {
+        connection.subscribeMissions()
+      }
+    }
+  }
+
+  private func detachRealtimeListeners() {
+    realtimeRefreshTask?.cancel()
+    realtimeRefreshTask = nil
+    for subscription in realtimeListenersByEndpoint.values {
+      subscription.connection.removeListener(subscription.token)
+    }
+    realtimeListenersByEndpoint.removeAll()
+  }
+
+  private func scheduleRealtimeRefresh() {
+    guard realtimeRefreshTask == nil else { return }
+    realtimeRefreshTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer { self.realtimeRefreshTask = nil }
+      await self.fetchAllMissions()
+    }
+  }
+
+  private func handleRealtimeEvent(_ event: ServerEvent, endpointId: UUID) {
+    switch event {
+      case .missionsInvalidated:
+        scheduleRealtimeRefresh()
+      case let .connectionStatusChanged(status):
+        guard status == .connected else {
+          return
+        }
+        subscribeMissions(for: endpointId)
+        scheduleRealtimeRefresh()
+      default:
+        break
+    }
+  }
+
+  private func subscribeMissions(for endpointId: UUID) {
+    guard let subscription = realtimeListenersByEndpoint[endpointId] else { return }
+    subscription.connection.subscribeMissions()
+  }
+}
+
+private struct MissionListRealtimeSubscription {
+  let connection: ServerConnection
+  let token: ServerConnectionListenerToken
 }

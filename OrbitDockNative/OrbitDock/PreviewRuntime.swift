@@ -18,7 +18,6 @@ struct PreviewRuntime {
   let router: AppRouter
   let rootSessionActions: RootSessionActions
   let notificationCoordinator: NotificationCoordinator
-  let appStore: AppStore
   let externalNavigationCenter: AppExternalNavigationCenter
   let appRuntime: OrbitDockAppRuntime
 
@@ -52,7 +51,6 @@ struct PreviewRuntime {
     connection.seedDashboardSnapshotForTesting(
       ServerDashboardSnapshotPayload(
         revision: 1,
-        sessions: Self.previewSessionListItems(),
         conversations: [],
         counts: ServerDashboardCounts(attention: 0, running: 0, ready: 0, direct: 0)
       )
@@ -96,8 +94,6 @@ struct PreviewRuntime {
       )
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
-    self.appStore = AppStore(runtimeRegistry: runtimeRegistry)
-    self.appStore.router = router
     self.appRuntime = OrbitDockAppRuntime()
   }
 
@@ -111,7 +107,6 @@ struct PreviewRuntime {
       .environment(attentionService)
       .environment(router)
       .environment(\.rootSessionActions, rootSessionActions)
-      .environment(appStore)
   }
 
   private static func previewEndpoint() -> ServerEndpoint {

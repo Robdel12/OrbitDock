@@ -22,26 +22,19 @@ Today’s important nuance:
 ```mermaid
 flowchart TD
     UI[SwiftUI / CLI surfaces]
-    DPS[DashboardProjectionStore]
-    MPS[MissionProjectionStore]
-    SS[SessionStore]
+    VM[View Models]
+    SS[SessionStore — transport shell]
     WS[WebSocket realtime + replay]
     HTTP[HTTP snapshots + pagination + mutations]
     API[Rust transport layer]
-    DOMAIN[Session/domain transitions]
+    DOMAIN[Session actor + transition system]
     DB[(SQLite durable truth)]
     RT[Connector runtime / harnesses]
 
-    UI --> DPS
-    UI --> MPS
-    UI --> SS
+    UI --> VM
+    VM --> SS
 
-    DPS --> HTTP
-    MPS --> HTTP
-    SS --> HTTP
-
-    DPS --> WS
-    MPS --> WS
+    VM --> HTTP
     SS --> WS
 
     HTTP --> API

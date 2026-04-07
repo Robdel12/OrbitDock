@@ -315,7 +315,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                       .handle
                       .apply_changes(&direct_resume_failure_changes(prepared.provider));
                     state.add_session(prepared.handle);
-                    state.publish_dashboard_snapshot();
+                    state.notify_dashboard_session_updated(&session_id);
                     warn!(
                         component = "restore",
                         event = "restore.session.downgraded_to_resumable",
@@ -705,8 +705,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               summary.id.clone(),
               summary.first_prompt.clone().unwrap(),
               actor,
-              persist_tx.clone(),
-              state.list_tx(),
             );
           }
         }

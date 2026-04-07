@@ -143,7 +143,7 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
       session_id: "session-1".into(),
       turn_id: "turn-1".into(),
       turn_seq: 9,
-      diff: "diff --git".into(),
+      diff: Some("diff --git".into()),
       input_tokens: 1,
       output_tokens: 2,
       cached_tokens: 3,
