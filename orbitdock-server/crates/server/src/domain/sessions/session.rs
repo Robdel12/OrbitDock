@@ -1119,6 +1119,11 @@ impl SessionHandle {
     self.identity.provider
   }
 
+  /// Increment the in-memory tool count (called alongside persist command).
+  pub fn increment_tool_count(&mut self) {
+    self.tool_count += 1;
+  }
+
   /// Get a reference to the grouped config.
   #[allow(dead_code)]
   pub fn config(&self) -> &SessionConfig {
@@ -1260,9 +1265,9 @@ impl SessionHandle {
         .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
       token_usage: self.token_usage.clone(),
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
-      current_diff: self.current_diff.clone(),
+      current_diff: self.current_diff.as_deref().map(String::from),
       cumulative_diff: None,
-      current_plan: self.current_plan.clone(),
+      current_plan: self.current_plan.as_deref().map(String::from),
       codex_integration_mode: self.codex_integration_mode,
       claude_integration_mode: self.claude_integration_mode,
       approval_policy: self.config.approval_policy.clone(),
@@ -1796,13 +1801,13 @@ impl SessionHandle {
   /// Update aggregated diff
   #[allow(dead_code)]
   pub fn update_diff(&mut self, diff: String) {
-    self.current_diff = Some(diff);
+    self.current_diff = Some(Arc::from(diff));
   }
 
   /// Update plan
   #[allow(dead_code)]
   pub fn update_plan(&mut self, plan: String) {
-    self.current_plan = Some(plan);
+    self.current_plan = Some(Arc::from(plan));
   }
 
   fn inferred_approval_type_from_pending_fields(&self) -> ApprovalType {
@@ -2163,10 +2168,10 @@ impl SessionHandle {
       self.token_usage_snapshot_kind = snapshot_kind;
     }
     if let Some(ref current_diff) = changes.current_diff {
-      self.current_diff = current_diff.clone();
+      self.current_diff = current_diff.as_deref().map(Arc::from);
     }
     if let Some(ref current_plan) = changes.current_plan {
-      self.current_plan = current_plan.clone();
+      self.current_plan = current_plan.as_deref().map(Arc::from);
     }
     if let Some(ref current_turn_id) = changes.current_turn_id {
       self.current_turn_id = current_turn_id.clone();
@@ -2202,9 +2207,13 @@ impl SessionHandle {
     // approval state (Permission/Question → something else). This preserves
     // pending fields set by AttentionUpdated transitions that precede
     // work_status changes.
-    let exiting_approval =
-      matches!(prev_work_status, WorkStatus::Permission | WorkStatus::Question)
-        && !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question);
+    let exiting_approval = matches!(
+      prev_work_status,
+      WorkStatus::Permission | WorkStatus::Question
+    ) && !matches!(
+      self.work_status,
+      WorkStatus::Permission | WorkStatus::Question
+    );
     if self.status == SessionStatus::Ended || self.work_status == WorkStatus::Ended {
       self.clear_pending_approvals();
     } else if !self.pending_approvals.is_empty() {
@@ -2267,6 +2276,7 @@ impl SessionHandle {
         .iter()
         .filter(|subagent| subagent.ended_at.is_none())
         .count() as u32,
+      tool_count: self.tool_count,
       token_usage: self.token_usage.clone(),
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
       started_at: self.timestamps.started_at.clone(),
@@ -2302,6 +2312,24 @@ impl SessionHandle {
     self.snapshot_handle.store(Arc::new(self.to_snapshot()));
   }
 
+  /// Emit a `DashboardConversationUpdated` from the current snapshot.
+  /// Use after `refresh_snapshot()` in code paths that change session state
+  /// without going through `broadcast()` (e.g. transition effects that only
+  /// produce Persist ops with no Emit).
+  pub fn emit_dashboard_update(&self) {
+    if let (Some(ref list_tx), Some(ref dashboard_revision)) =
+      (&self.list_tx, &self.dashboard_revision)
+    {
+      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let snap = self.snapshot_handle.load();
+      let item = super::dashboard_projection::dashboard_item_from_snapshot(&snap);
+      let _ = list_tx.send(ServerMessage::DashboardConversationUpdated {
+        revision,
+        item: Box::new(item),
+      });
+    }
+  }
+
   /// Get the ArcSwap handle for lock-free reads
   pub fn snapshot_arc(&self) -> Arc<ArcSwap<SessionSnapshot>> {
     self.snapshot_handle.clone()
@@ -2313,7 +2341,6 @@ impl SessionHandle {
     let rev = self.revision;
     let msg = sanitize_server_message_for_transport(msg);
 
-    // Pre-serialize with revision for event log
     if let Ok(json) = serialize_with_revision(&msg, rev) {
       self.event_log.push_back((rev, json));
       if self.event_log.len() > EVENT_LOG_CAPACITY {
@@ -2321,27 +2348,25 @@ impl SessionHandle {
       }
     }
 
-    // Non-blocking fan-out to all receivers
     let _ = self.broadcast_tx.send(msg.clone());
-
-    // Forward session-level events to list subscribers (dashboard sidebar).
-    // Per-message events (streaming deltas, message appends, etc.) are too
-    // frequent and overflow the list channel during active turns.
-    if let Some(ref list_tx) = self.list_tx {
-      if is_list_relevant(&msg) {
-        let should_emit_dashboard = should_emit_dashboard_invalidation(&msg);
-        let _ = list_tx.send(msg);
-        if should_emit_dashboard {
-          if let Some(ref dashboard_revision) = self.dashboard_revision {
-            let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = list_tx.send(ServerMessage::DashboardInvalidated { revision });
-          }
-        }
-      }
-    }
-
-    // Update lock-free snapshot
     self.refresh_snapshot();
+
+    if is_session_ended(&msg) {
+      self.emit_dashboard_removed();
+    } else {
+      self.emit_dashboard_update();
+    }
+  }
+
+  fn emit_dashboard_removed(&self) {
+    if let (Some(ref list_tx), Some(ref dashboard_revision)) =
+      (&self.list_tx, &self.dashboard_revision)
+    {
+      dashboard_revision.fetch_add(1, Ordering::Relaxed);
+      let _ = list_tx.send(ServerMessage::DashboardItemRemoved {
+        session_id: self.identity.id.clone(),
+      });
+    }
   }
 
   /// Replay events since a given revision.
@@ -2400,8 +2425,8 @@ impl SessionHandle {
       total_row_count: self.rows.last().map(|r| r.sequence + 1).unwrap_or(0),
       token_usage: self.token_usage.clone(),
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
-      current_diff: self.current_diff.clone(),
-      current_plan: self.current_plan.clone(),
+      current_diff: self.current_diff.as_deref().map(String::from),
+      current_plan: self.current_plan.as_deref().map(String::from),
       custom_name: self.display.custom_name.clone(),
       project_path: self.identity.project_path.clone(),
       last_activity_at: self.timestamps.last_activity_at.clone(),
@@ -2438,8 +2463,8 @@ impl SessionHandle {
     self.newest_synced_row_id = self.rows.last().map(|row| row.id().to_string());
     self.token_usage = state.token_usage;
     self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
-    self.current_diff = state.current_diff;
-    self.current_plan = state.current_plan;
+    self.current_diff = state.current_diff.map(Arc::from);
+    self.current_plan = state.current_plan.map(Arc::from);
     self.display.custom_name = state.custom_name;
     self.timestamps.last_activity_at = state.last_activity_at;
     self.timestamps.last_progress_at = state.last_progress_at;
@@ -2475,9 +2500,13 @@ impl SessionHandle {
     }
 
     // Only clear pending state when transitioning away from an approval state.
-    let exiting_approval =
-      matches!(prev_work_status, WorkStatus::Permission | WorkStatus::Question)
-        && !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question);
+    let exiting_approval = matches!(
+      prev_work_status,
+      WorkStatus::Permission | WorkStatus::Question
+    ) && !matches!(
+      self.work_status,
+      WorkStatus::Permission | WorkStatus::Question
+    );
     if matches!(phase, WorkPhase::Ended { .. }) {
       self.clear_pending_approvals();
     } else if !self.pending_approvals.is_empty() {
@@ -2589,33 +2618,14 @@ mod tests {
   }
 
   #[test]
-  fn list_relevant_includes_session_delta() {
-    let message = ServerMessage::SessionDelta {
-      session_id: "session-1".to_string(),
-      changes: Box::default(),
-    };
-    assert!(is_list_relevant(&message));
-  }
-
-  #[test]
-  fn list_relevant_excludes_conversation_row_stream_updates() {
-    let message = ServerMessage::ConversationRowsChanged {
-      session_id: "session-1".to_string(),
-      upserted: vec![],
-      removed_row_ids: vec![],
-      total_row_count: 0,
-    };
-    assert!(!is_list_relevant(&message));
-  }
-
-  #[test]
-  fn list_relevant_session_delta_emits_dashboard_invalidation() {
+  fn broadcast_always_emits_dashboard_conversation_updated() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
     let dashboard_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
     session.set_dashboard_revision_counter(dashboard_revision);
 
+    // Any message type should emit a dashboard update — no filters.
     session.broadcast(ServerMessage::SessionDelta {
       session_id: "session-1".to_string(),
       changes: Box::new(StateChanges {
@@ -2624,47 +2634,37 @@ mod tests {
       }),
     });
 
-    let first = list_rx
+    let msg = list_rx
       .try_recv()
-      .expect("session delta should be forwarded");
-    assert!(matches!(first, ServerMessage::SessionDelta { .. }));
-
-    let second = list_rx
-      .try_recv()
-      .expect("dashboard invalidation should be emitted");
+      .expect("dashboard update should be emitted");
     assert!(matches!(
-      second,
-      ServerMessage::DashboardInvalidated { revision: 1 }
+      msg,
+      ServerMessage::DashboardConversationUpdated { revision: 1, .. }
     ));
   }
 
   #[test]
-  fn summary_delta_emits_dashboard_invalidation() {
+  fn broadcast_emits_dashboard_update_for_non_delta_messages() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
     let dashboard_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
     session.set_dashboard_revision_counter(dashboard_revision);
 
-    session.broadcast(ServerMessage::SessionDelta {
+    // ConversationRowsChanged was previously filtered out — now it emits a dashboard update.
+    session.broadcast(ServerMessage::ConversationRowsChanged {
       session_id: "session-1".to_string(),
-      changes: Box::new(StateChanges {
-        summary: Some(Some("New summary".to_string())),
-        ..Default::default()
-      }),
+      upserted: vec![],
+      removed_row_ids: vec![],
+      total_row_count: 0,
     });
 
-    let first = list_rx
+    let msg = list_rx
       .try_recv()
-      .expect("session delta should be forwarded");
-    assert!(matches!(first, ServerMessage::SessionDelta { .. }));
-
-    let second = list_rx
-      .try_recv()
-      .expect("dashboard invalidation should be emitted");
+      .expect("dashboard update should be emitted for any message type");
     assert!(matches!(
-      second,
-      ServerMessage::DashboardInvalidated { revision: 1 }
+      msg,
+      ServerMessage::DashboardConversationUpdated { revision: 1, .. }
     ));
   }
 
@@ -2837,10 +2837,18 @@ mod tests {
       network_protocol: None,
     };
 
-    session.queue_pending_approval(make_request("{\"command\":\"ls\"}"), ApprovalType::Exec, None);
+    session.queue_pending_approval(
+      make_request("{\"command\":\"ls\"}"),
+      ApprovalType::Exec,
+      None,
+    );
     session.promote_queue_front();
 
-    session.queue_pending_approval(make_request("{\"command\":\"pwd\"}"), ApprovalType::Exec, None);
+    session.queue_pending_approval(
+      make_request("{\"command\":\"pwd\"}"),
+      ApprovalType::Exec,
+      None,
+    );
     session.promote_queue_front();
 
     assert_eq!(session.approval_version(), 2);

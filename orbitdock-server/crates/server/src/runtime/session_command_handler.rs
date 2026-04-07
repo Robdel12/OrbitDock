@@ -144,7 +144,6 @@ async fn persist_and_broadcast_mark_read(
   });
 }
 
-
 fn should_suppress_connector_user_echo(handle: &SessionHandle, event: &ConnectorEvent) -> bool {
   if handle.provider() != Provider::Codex
     || handle.to_snapshot().codex_integration_mode != Some(CodexIntegrationMode::Direct)
@@ -533,6 +532,10 @@ pub async fn handle_session_command(
       persist_and_broadcast_mark_read(handle, persist_tx).await;
       let _ = reply.send(handle.unread_count());
     }
+
+    SessionCommand::IncrementToolCount => {
+      handle.increment_tool_count();
+    }
   }
 
   // Unconditional snapshot refresh — ensures the ArcSwap is always current
@@ -605,6 +608,13 @@ pub(crate) async fn dispatch_transition_input(
   let now = chrono_now();
   let state = handle.extract_state();
   let (new_state, effects) = transition::transition(state, input, &now);
+  tracing::debug!(
+    session_id = _session_id,
+    work_phase = ?new_state.phase,
+    pending_approval = new_state.pending_approval.is_some(),
+    effect_count = effects.len(),
+    "dispatch_transition_input: transition completed"
+  );
   handle.apply_state(new_state);
 
   // Update last_message from the latest completed user/assistant row.
@@ -621,10 +631,17 @@ pub(crate) async fn dispatch_transition_input(
   let mut sequence_futures: Vec<(String, tokio::sync::oneshot::Receiver<u64>)> = Vec::new();
   let mut appended_row_ids = HashSet::new();
   let mut deferred_emits: Vec<ServerMessage> = Vec::new();
+  let mut did_broadcast = false;
 
   for effect in effects {
     match effect {
       transition::Effect::Persist(op) => {
+        if matches!(
+          op.as_ref(),
+          transition::PersistOp::ToolCountIncrement { .. }
+        ) {
+          handle.increment_tool_count();
+        }
         if let transition::PersistOp::RowAppend { entry, .. } = op.as_ref() {
           appended_row_ids.insert(entry.id().to_string());
         }
@@ -696,6 +713,7 @@ pub(crate) async fn dispatch_transition_input(
     };
     if should_emit {
       handle.broadcast(msg);
+      did_broadcast = true;
     }
   }
 
@@ -704,7 +722,6 @@ pub(crate) async fn dispatch_transition_input(
     let session_id = handle.id().to_string();
     let affected_ids = handle.mark_last_turns_status(num_turns, status);
     if !affected_ids.is_empty() {
-      // Persist the status change to SQLite.
       let _ = persist_tx
         .send(PersistCommand::RowsTurnStatusUpdate {
           session_id: session_id.clone(),
@@ -713,7 +730,6 @@ pub(crate) async fn dispatch_transition_input(
         })
         .await;
 
-      // Broadcast updated summaries so connected clients see the change.
       let upserted: Vec<_> = affected_ids
         .iter()
         .filter_map(|id| handle.row_by_id(id).map(|row| row.to_transport_summary()))
@@ -726,6 +742,7 @@ pub(crate) async fn dispatch_transition_input(
           removed_row_ids: vec![],
           total_row_count: total,
         });
+        did_broadcast = true;
       }
     }
   }
@@ -739,9 +756,16 @@ pub(crate) async fn dispatch_transition_input(
       session_id: handle.id().to_string(),
       changes: Box::new(changes),
     });
+    did_broadcast = true;
   }
 
-  handle.refresh_snapshot();
+  // If no broadcast() fired (e.g. transition only produced Persist effects),
+  // refresh the snapshot and emit a dashboard update so the client sees
+  // state changes like cleared pending_question.
+  if !did_broadcast {
+    handle.refresh_snapshot();
+    handle.emit_dashboard_update();
+  }
 }
 
 /// Returns `true` if the event signals the end of a turn (used to cancel
