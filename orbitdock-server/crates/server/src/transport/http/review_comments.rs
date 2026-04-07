@@ -361,9 +361,8 @@ mod tests {
 
   #[tokio::test]
   async fn review_comments_endpoint_returns_empty_when_none_exist() {
-    let guard = crate::support::test_support::test_env_lock().lock().await;
+    let _guard = crate::support::test_support::test_env_lock().lock().await;
     crate::support::test_support::ensure_server_test_data_dir();
-    drop(guard);
     let session_id = orbitdock_protocol::new_session_id();
 
     let Json(response) = list_review_comments_endpoint(

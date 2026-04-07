@@ -73,8 +73,8 @@ struct ActivityStream {
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
         return sortDate(lhs) > sortDate(rhs)
       case .status:
-        let lhsPriority = statusPriority(lhs.displayStatus)
-        let rhsPriority = statusPriority(rhs.displayStatus)
+        let lhsPriority = lhs.displayStatus.sortPriority
+        let rhsPriority = rhs.displayStatus.sortPriority
         if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
         return sortDate(lhs) > sortDate(rhs)
       case .tokens:
@@ -90,13 +90,4 @@ struct ActivityStream {
     session.lastActivityAt ?? session.startedAt ?? .distantPast
   }
 
-  private static func statusPriority(_ status: SessionDisplayStatus) -> Int {
-    switch status {
-      case .permission: 0
-      case .question: 1
-      case .working: 2
-      case .reply: 3
-      case .ended: 4
-    }
-  }
 }
