@@ -17,6 +17,13 @@ pub enum ServerMessage {
   DashboardInvalidated {
     revision: u64,
   },
+  DashboardConversationUpdated {
+    revision: u64,
+    item: Box<DashboardConversationItem>,
+  },
+  DashboardItemRemoved {
+    session_id: String,
+  },
   MissionsInvalidated {
     revision: u64,
   },
@@ -909,6 +916,66 @@ mod tests {
     match reparsed {
       ServerMessage::DashboardInvalidated { revision } => {
         assert_eq!(revision, 42);
+      }
+      other => panic!("unexpected variant: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn roundtrip_dashboard_conversation_updated() {
+    let item = DashboardConversationItem {
+      session_id: "sess-42".to_string(),
+      provider: Provider::Claude,
+      project_path: "/tmp/project".to_string(),
+      grouping_path: Some("/tmp/project".to_string()),
+      grouping_name: Some("project".to_string()),
+      project_name: Some("project".to_string()),
+      repository_root: None,
+      git_branch: Some("main".to_string()),
+      is_worktree: false,
+      worktree_id: None,
+      model: Some("sonnet".to_string()),
+      codex_integration_mode: None,
+      claude_integration_mode: Some(ClaudeIntegrationMode::Direct),
+      status: SessionStatus::Active,
+      work_status: WorkStatus::Working,
+      control_mode: SessionControlMode::Direct,
+      lifecycle_state: SessionLifecycleState::Open,
+      list_status: SessionListStatus::Working,
+      display_title: "Fix the bug".to_string(),
+      context_line: None,
+      last_message: Some("Working on it".to_string()),
+      preview_text: Some("Working on it".to_string()),
+      activity_summary: Some("Processing".to_string()),
+      alert_context: None,
+      started_at: Some("2026-04-05T10:00:00Z".to_string()),
+      last_activity_at: Some("2026-04-05T10:05:00Z".to_string()),
+      unread_count: 0,
+      has_turn_diff: false,
+      diff_preview: None,
+      pending_tool_name: None,
+      pending_tool_input: None,
+      pending_question: None,
+      tool_count: 3,
+      active_worker_count: 0,
+      issue_identifier: None,
+      effort: None,
+    };
+
+    let msg = ServerMessage::DashboardConversationUpdated {
+      revision: 99,
+      item: Box::new(item),
+    };
+
+    let json = serde_json::to_string(&msg).expect("serialize");
+    assert!(json.contains("dashboard_conversation_updated"));
+    let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+    match reparsed {
+      ServerMessage::DashboardConversationUpdated { revision, item } => {
+        assert_eq!(revision, 99);
+        assert_eq!(item.session_id, "sess-42");
+        assert_eq!(item.display_title, "Fix the bug");
+        assert_eq!(item.list_status, SessionListStatus::Working);
       }
       other => panic!("unexpected variant: {:?}", other),
     }

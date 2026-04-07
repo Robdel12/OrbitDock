@@ -19,6 +19,7 @@ pub enum ClientMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     since_revision: Option<u64>,
   },
+  UnsubscribeDashboard,
   SubscribeMissions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     since_revision: Option<u64>,
@@ -1573,6 +1574,17 @@ mod tests {
         "unexpected variant for subscribe_session_surface: {:?}",
         other
       ),
+    }
+  }
+
+  #[test]
+  fn unsubscribe_dashboard_round_trips() {
+    let message = ClientMessage::UnsubscribeDashboard;
+
+    let json = serde_json::to_string(&message).expect("serialize unsubscribe_dashboard");
+    match serde_json::from_str::<ClientMessage>(&json).expect("deserialize unsubscribe_dashboard") {
+      ClientMessage::UnsubscribeDashboard => {}
+      other => panic!("unexpected variant for unsubscribe_dashboard: {:?}", other),
     }
   }
 }

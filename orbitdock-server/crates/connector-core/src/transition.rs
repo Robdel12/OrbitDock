@@ -19,8 +19,8 @@ use orbitdock_protocol::{
   ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
   ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
   McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool, Provider,
-  ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry, StateChanges, TokenUsage,
-  TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+  ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry, StateChanges, SubagentInfo,
+  TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -118,6 +118,16 @@ pub struct TransitionState {
   pub pending_approval: Option<ApprovalRequest>,
   pub repository_root: Option<String>,
   pub is_worktree: bool,
+  pub model: Option<String>,
+  pub transcript_path: Option<String>,
+  pub last_tool: Option<String>,
+  pub pending_tool_name: Option<String>,
+  pub pending_tool_input: Option<String>,
+  pub pending_question: Option<String>,
+  pub subagents: Vec<SubagentInfo>,
+  pub summary: Option<String>,
+  pub effort: Option<String>,
+  pub first_prompt: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +205,20 @@ pub enum Input {
     models: Vec<orbitdock_protocol::ClaudeModelOption>,
   },
   ModelUpdated(String),
+  TranscriptPathUpdated(Option<String>),
+  AttentionUpdated {
+    attention_reason: Option<Option<String>>,
+    last_tool: Option<String>,
+    pending_tool_name: Option<Option<String>>,
+    pending_tool_input: Option<Option<String>>,
+    pending_question: Option<Option<String>>,
+  },
+  SubagentsUpdated {
+    subagents: Vec<SubagentInfo>,
+  },
+  SummaryUpdated(String),
+  EffortUpdated(Option<String>),
+  FirstPromptCaptured(String),
   ContextCompacted,
   UndoStarted {
     message: Option<String>,
@@ -353,10 +377,9 @@ impl From<ConnectorEvent> for Input {
       ConnectorEvent::PromptSuggestion { suggestion } => Input::PromptSuggestion { suggestion },
       ConnectorEvent::FilesPersisted { files } => Input::FilesPersisted { files },
       ConnectorEvent::Error(msg) => Input::Error(msg),
+      ConnectorEvent::SubagentsUpdated { subagents } => Input::SubagentsUpdated { subagents },
       // Handled in event loop before reaching transitions
-      ConnectorEvent::HookSessionId(_)
-      | ConnectorEvent::SubagentsUpdated { .. }
-      | ConnectorEvent::DynamicToolCallRequested { .. } => {
+      ConnectorEvent::HookSessionId(_) | ConnectorEvent::DynamicToolCallRequested { .. } => {
         unreachable!()
       }
     }
@@ -464,6 +487,35 @@ pub enum PersistOp {
     session_id: String,
     permission_mode: String,
   },
+  SetTranscriptPath {
+    session_id: String,
+    transcript_path: Option<String>,
+  },
+  AttentionUpdate {
+    session_id: String,
+    attention_reason: Option<Option<String>>,
+    last_tool: Option<Option<String>>,
+    last_tool_at: Option<Option<String>>,
+    pending_tool_name: Option<Option<String>>,
+    pending_tool_input: Option<Option<String>>,
+    pending_question: Option<Option<String>>,
+  },
+  UpsertSubagents {
+    session_id: String,
+    subagents: Vec<SubagentInfo>,
+  },
+  SetSummary {
+    session_id: String,
+    summary: String,
+  },
+  EffortUpdate {
+    session_id: String,
+    effort: Option<String>,
+  },
+  FirstPromptCaptured {
+    session_id: String,
+    first_prompt: String,
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -519,6 +571,32 @@ fn finalize_in_progress_rows(
     )));
   }
   effects
+}
+
+// ---------------------------------------------------------------------------
+// Subagent merge helpers (pure)
+// ---------------------------------------------------------------------------
+
+/// Merge incoming subagent updates into the existing list by ID (upsert).
+pub fn merge_subagent_updates(
+  existing: &[SubagentInfo],
+  incoming: Vec<SubagentInfo>,
+) -> Vec<SubagentInfo> {
+  let mut merged = existing.to_vec();
+  for updated in incoming {
+    if let Some(index) = merged.iter().position(|s| s.id == updated.id) {
+      merged[index] = updated;
+    } else {
+      merged.push(updated);
+    }
+  }
+  merged.sort_by(|lhs, rhs| lhs.started_at.cmp(&rhs.started_at));
+  merged
+}
+
+/// Check whether two subagent lists are semantically identical.
+pub fn subagent_lists_match(lhs: &[SubagentInfo], rhs: &[SubagentInfo]) -> bool {
+  lhs == rhs
 }
 
 // ---------------------------------------------------------------------------
@@ -966,6 +1044,13 @@ pub fn transition(
 
       state.pending_approval = Some(request.clone());
 
+      effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
+        id: sid.clone(),
+        status: None,
+        work_status: Some(state.phase.to_work_status()),
+        last_activity_at: Some(now.to_string()),
+        last_progress_at: Some(now.to_string()),
+      })));
       effects.push(Effect::Persist(Box::new(PersistOp::ApprovalRequested {
         session_id: sid.clone(),
         request_id,
@@ -1292,6 +1377,7 @@ pub fn transition(
 
     // -- Model ---------------------------------------------------------------
     Input::ModelUpdated(model) => {
+      state.model = Some(model.clone());
       effects.push(Effect::Persist(Box::new(PersistOp::ModelUpdate {
         session_id: sid.clone(),
         model: model.clone(),
@@ -1300,6 +1386,123 @@ pub fn transition(
         session_id: sid,
         changes: Box::new(StateChanges {
           model: Some(Some(model)),
+          ..Default::default()
+        }),
+      })));
+    }
+
+    // -- Transcript path ---------------------------------------------------
+    Input::TranscriptPathUpdated(path) => {
+      state.transcript_path = path.clone();
+      effects.push(Effect::Persist(Box::new(PersistOp::SetTranscriptPath {
+        session_id: sid,
+        transcript_path: path,
+      })));
+    }
+
+    // -- Attention (last_tool, pending tool/input/question) ----------------
+    Input::AttentionUpdated {
+      attention_reason,
+      last_tool,
+      pending_tool_name,
+      pending_tool_input,
+      pending_question,
+    } => {
+      let has_last_tool = last_tool.is_some();
+      if let Some(ref tool) = last_tool {
+        state.last_tool = Some(tool.clone());
+      }
+      if let Some(ref name) = pending_tool_name {
+        state.pending_tool_name = name.clone();
+      }
+      if let Some(ref input) = pending_tool_input {
+        state.pending_tool_input = input.clone();
+      }
+      if let Some(ref question) = pending_question {
+        state.pending_question = question.clone();
+      }
+
+      effects.push(Effect::Persist(Box::new(PersistOp::AttentionUpdate {
+        session_id: sid,
+        attention_reason,
+        last_tool: last_tool.map(Some),
+        last_tool_at: if has_last_tool {
+          Some(Some(now.to_string()))
+        } else {
+          None
+        },
+        pending_tool_name,
+        pending_tool_input,
+        pending_question,
+      })));
+    }
+
+    // -- Subagents ---------------------------------------------------------
+    Input::SubagentsUpdated { subagents } => {
+      let merged = merge_subagent_updates(&state.subagents, subagents);
+      if !subagent_lists_match(&merged, &state.subagents) {
+        state.subagents = merged.clone();
+        effects.push(Effect::Persist(Box::new(PersistOp::UpsertSubagents {
+          session_id: sid.clone(),
+          subagents: merged.clone(),
+        })));
+        effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+          session_id: sid,
+          changes: Box::new(StateChanges {
+            subagents: Some(merged),
+            ..Default::default()
+          }),
+        })));
+      }
+    }
+
+    // -- Summary -----------------------------------------------------------
+    Input::SummaryUpdated(summary) => {
+      if state.summary.as_ref() != Some(&summary) {
+        state.summary = Some(summary.clone());
+        effects.push(Effect::Persist(Box::new(PersistOp::SetSummary {
+          session_id: sid.clone(),
+          summary: summary.clone(),
+        })));
+        effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+          session_id: sid,
+          changes: Box::new(StateChanges {
+            summary: Some(Some(summary)),
+            ..Default::default()
+          }),
+        })));
+      }
+    }
+
+    // -- Effort -------------------------------------------------------------
+    Input::EffortUpdated(effort) => {
+      if state.effort != effort {
+        state.effort = effort.clone();
+        effects.push(Effect::Persist(Box::new(PersistOp::EffortUpdate {
+          session_id: sid.clone(),
+          effort: effort.clone(),
+        })));
+        effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+          session_id: sid,
+          changes: Box::new(StateChanges {
+            effort: Some(effort),
+            ..Default::default()
+          }),
+        })));
+      }
+    }
+
+    // -- First prompt -------------------------------------------------------
+    Input::FirstPromptCaptured(prompt) => {
+      state.first_prompt = Some(prompt.clone());
+      effects.push(Effect::Persist(Box::new(PersistOp::FirstPromptCaptured {
+        session_id: sid.clone(),
+        first_prompt: prompt.clone(),
+      })));
+      effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+        session_id: sid,
+        changes: Box::new(StateChanges {
+          first_prompt: Some(Some(prompt)),
           ..Default::default()
         }),
       })));
@@ -2614,6 +2817,16 @@ mod tests {
       pending_approval: None,
       repository_root: None,
       is_worktree: false,
+      model: None,
+      transcript_path: None,
+      last_tool: None,
+      pending_tool_name: None,
+      pending_tool_input: None,
+      pending_question: None,
+      subagents: Vec::new(),
+      summary: None,
+      effort: None,
+      first_prompt: None,
     }
   }
 
@@ -2767,10 +2980,10 @@ mod tests {
             ..
         } if request_id == "req-1"
     ));
-    // Persist(ApprovalRequested) + Emit(ApprovalRequested)
-    assert_eq!(effects.len(), 2);
+    // Persist(SessionUpdate) + Persist(ApprovalRequested) + Emit(ApprovalRequested)
+    assert_eq!(effects.len(), 3);
 
-    if let Effect::Emit(message) = &effects[1] {
+    if let Effect::Emit(message) = &effects[2] {
       match message.as_ref() {
         ServerMessage::ApprovalRequested { request, .. } => {
           let preview = request.preview.as_ref().expect("expected preview");
@@ -2834,9 +3047,9 @@ mod tests {
             ..
         } if request_id == "req-shell"
     ));
-    assert_eq!(effects.len(), 2);
+    assert_eq!(effects.len(), 3);
 
-    if let Effect::Emit(message) = &effects[1] {
+    if let Effect::Emit(message) = &effects[2] {
       match message.as_ref() {
         ServerMessage::ApprovalRequested { request, .. } => {
           let preview = request.preview.as_ref().expect("expected preview");

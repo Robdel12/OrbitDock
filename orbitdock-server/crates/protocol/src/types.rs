@@ -958,7 +958,7 @@ pub enum SubagentStatus {
   NotFound,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubagentInfo {
   pub id: String,
   pub agent_type: String,
@@ -1819,7 +1819,6 @@ pub struct DashboardCounts {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardSnapshot {
   pub revision: u64,
-  pub sessions: Vec<SessionListItem>,
   pub conversations: Vec<DashboardConversationItem>,
   pub counts: DashboardCounts,
 }
