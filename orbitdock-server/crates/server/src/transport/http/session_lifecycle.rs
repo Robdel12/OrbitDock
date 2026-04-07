@@ -575,12 +575,7 @@ pub async fn create_session(
       .await;
   }
 
-  crate::runtime::session_registry::flush_and_publish_conversation(
-    state.persist(),
-    &state,
-    &session_id,
-  )
-  .await;
+  state.notify_dashboard_session_updated(&session_id);
 
   Ok(Json(CreateSessionResponse {
     session_id,
@@ -958,13 +953,6 @@ pub async fn fork_session(
       .await
       .map_err(|error| internal("fork_failed", error))?;
 
-      crate::runtime::session_registry::flush_and_publish_conversation(
-        state.persist(),
-        &state,
-        &started.new_session_id,
-      )
-      .await;
-
       Ok(Json(ForkSessionResponse {
         source_session_id,
         new_session_id: started.new_session_id,
@@ -1026,13 +1014,6 @@ pub async fn fork_session(
       )
       .await
       .map_err(|error| internal("fork_failed", error))?;
-
-      crate::runtime::session_registry::flush_and_publish_conversation(
-        state.persist(),
-        &state,
-        &started.new_session_id,
-      )
-      .await;
 
       Ok(Json(ForkSessionResponse {
         source_session_id,

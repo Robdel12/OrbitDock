@@ -150,33 +150,8 @@ fn duration_ms(started_at: Option<&str>, last_activity_at: Option<&str>) -> u64 
 pub async fn get_dashboard_snapshot(
   State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<DashboardSnapshot> {
-  match load_dashboard_snapshot(&state).await {
-    Ok(snapshot) => Ok(Json(snapshot)),
-    Err(SessionLoadError::Db(err)) => Err((
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(ApiErrorResponse {
-        code: "db_error",
-        error: err,
-      }),
-    )),
-    Err(SessionLoadError::Runtime(err)) => Err((
-      StatusCode::SERVICE_UNAVAILABLE,
-      Json(ApiErrorResponse {
-        code: "runtime_error",
-        error: err,
-      }),
-    )),
-    Err(SessionLoadError::NotFound) => Ok(Json(DashboardSnapshot {
-      revision: state.current_dashboard_revision(),
-      conversations: Vec::new(),
-      counts: orbitdock_protocol::DashboardCounts {
-        attention: 0,
-        running: 0,
-        ready: 0,
-        direct: 0,
-      },
-    })),
-  }
+  let cached = state.cached_dashboard_snapshot();
+  Ok(Json(cached.1.clone()))
 }
 
 pub async fn get_library_snapshot(
@@ -926,15 +901,17 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn dashboard_snapshot_reads_persisted_sessions() {
-    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
-    let session_id = orbitdock_protocol::new_session_id();
-    persist_session_fixture(
-      &db_path,
-      &session_id,
-      "/tmp/orbitdock-dashboard-test",
-      vec![],
+  async fn dashboard_snapshot_reads_in_memory_sessions() {
+    let (state, _persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+
+    let mut session = crate::domain::sessions::session::SessionHandle::new(
+      orbitdock_protocol::new_session_id(),
+      orbitdock_protocol::Provider::Codex,
+      "/tmp/orbitdock-dashboard-test".to_string(),
     );
+    session.set_work_status(orbitdock_protocol::WorkStatus::Reply);
+    session.refresh_snapshot();
+    state.add_session(session);
 
     let Json(snapshot) = get_dashboard_snapshot(State(state))
       .await

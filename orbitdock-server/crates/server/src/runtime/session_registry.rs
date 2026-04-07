@@ -6,18 +6,19 @@ mod recent_projects;
 
 use dashmap::DashMap;
 use orbitdock_protocol::{
-  ClientPrimaryClaim, DashboardConversationItem, DashboardCounts, DashboardDiffPreview,
-  DashboardSnapshot, MissionsSnapshot, Provider, SessionListItem, SessionSummary,
+  ClientPrimaryClaim, MissionsSnapshot, Provider, SessionListItem, SessionSummary,
   WorkspaceProviderKind,
 };
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex};
 use tracing::warn;
+
+use arc_swap::ArcSwap;
+use orbitdock_protocol::DashboardSnapshot;
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -109,6 +110,10 @@ pub struct SessionRegistry {
   /// Database path for synchronous read queries
   db_path: PathBuf,
 
+  /// Reusable read connection pool — avoids opening a new SQLite connection
+  /// per query from `spawn_blocking` tasks.
+  read_pool: Arc<crate::infrastructure::db_pool::ReadPool>,
+
   /// Global Codex account auth coordinator (not session-specific)
   codex_auth: Arc<CodexAuthService>,
 
@@ -133,6 +138,9 @@ pub struct SessionRegistry {
   connections: ConnectionState,
 
   dashboard_revision: Arc<AtomicU64>,
+  /// Cached dashboard snapshot with the revision it was computed at.
+  /// Avoids re-iterating all sessions when the dashboard hasn't changed.
+  dashboard_cache: ArcSwap<(u64, DashboardSnapshot)>,
   mission_revision: AtomicU64,
   workspace_provider_kind: std::sync::RwLock<WorkspaceProviderKind>,
 
@@ -217,7 +225,7 @@ impl SessionRegistry {
     is_primary: bool,
     workspace_provider_kind: WorkspaceProviderKind,
   ) -> Self {
-    let (list_tx, _) = broadcast::channel(256);
+    let (list_tx, _) = broadcast::channel(1024);
     #[cfg(test)]
     let codex_auth = {
       let codex_home = db_path
@@ -232,12 +240,17 @@ impl SessionRegistry {
     #[cfg(not(test))]
     let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
     let (mission_trigger_tx, mission_trigger_rx) = mpsc::channel(32);
+    let read_pool = Arc::new(crate::infrastructure::db_pool::ReadPool::new(
+      db_path.clone(),
+      4,
+    ));
     Self {
       sessions: DashMap::new(),
       connectors: ConnectorRegistry::new(),
       list_tx,
       persist_tx,
       db_path,
+      read_pool,
       codex_auth,
       naming_guard: Arc::new(NamingGuard::new()),
       pending_claude_sessions: DashMap::new(),
@@ -246,6 +259,19 @@ impl SessionRegistry {
       terminal_service: Arc::new(TerminalService::new()),
       connections: ConnectionState::new(is_primary),
       dashboard_revision: Arc::new(AtomicU64::new(0)),
+      dashboard_cache: ArcSwap::from_pointee((
+        0,
+        DashboardSnapshot {
+          revision: 0,
+          conversations: vec![],
+          counts: orbitdock_protocol::DashboardCounts {
+            attention: 0,
+            running: 0,
+            ready: 0,
+            direct: 0,
+          },
+        },
+      )),
       mission_revision: AtomicU64::new(0),
       workspace_provider_kind: std::sync::RwLock::new(workspace_provider_kind),
       mission_trigger_tx,
@@ -1652,7 +1678,8 @@ mod tests {
     registry.add_session(direct);
     registry.set_codex_action_tx("direct-session", action_tx);
 
-    let conversations = registry.get_dashboard_conversations();
+    let conversations =
+      crate::runtime::dashboard::dashboard_snapshot_from_registry(&registry).conversations;
     let conversation = conversations
       .iter()
       .find(|entry| entry.session_id == "direct-session")
