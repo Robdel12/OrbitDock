@@ -171,6 +171,9 @@ struct ControlDeckScreen: View {
       onResume: resumeSession,
       onApprove: { Task { await viewModel.approveTool(decision: .approved) } },
       onApproveForSession: { Task { await viewModel.approveTool(decision: .approvedForSession) } },
+      onApproveAlwaysForHost: { host in
+        Task { await viewModel.approveToolAlwaysAllowHost(host) }
+      },
       onDeny: { Task { await viewModel.approveTool(decision: .denied) } },
       onAnswer: { answer, promptId in
         Task { await viewModel.answerQuestion(answer: answer, questionId: promptId) }
@@ -184,6 +187,7 @@ struct ControlDeckScreen: View {
       onToggleTerminal: onToggleTerminal,
       onModuleAction: handleModuleAction,
       onApprovalReviewerAction: handleApprovalReviewerAction,
+      onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
       isSessionWorking: viewModel.steerable,
       onDictation: dictationAction,
@@ -376,6 +380,15 @@ struct ControlDeckScreen: View {
     ])
     Task {
       await viewModel.updateApprovalsReviewer(reviewer)
+    }
+  }
+
+  private func handleSandboxPolicyAction(_ policy: ServerCodexSandboxPolicy) {
+    netLog(.info, cat: .store, "ControlDeck sandbox policy action tapped", sid: sessionId, data: [
+      "policy": policy.legacySummary,
+    ])
+    Task {
+      await viewModel.updateSandboxPolicy(policy)
     }
   }
 

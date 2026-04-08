@@ -269,7 +269,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
     requestedPermissions = try container.decodePermissionDescriptors(forKey: .requestedPermissions)
     grantedPermissions = try container.decodePermissionDescriptors(forKey: .grantedPermissions)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent(
+    permissionSuggestions = try? container.decodeIfPresent(
       [ServerPermissionSuggestion].self,
       forKey: .permissionSuggestions
     )
@@ -483,7 +483,7 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try container.decodeIfPresent(
+    permissionSuggestions = try? container.decodeIfPresent(
       [ServerPermissionSuggestion].self,
       forKey: .permissionSuggestions
     )
@@ -559,7 +559,8 @@ enum ServerSessionPermissionRules: Codable {
   case codex(
     approvalPolicy: String?,
     approvalPolicyDetails: ServerCodexApprovalPolicy?,
-    sandboxMode: String?
+    sandboxMode: String?,
+    sandboxPolicyDetails: ServerCodexSandboxPolicy?
   )
 
   enum CodingKeys: String, CodingKey {
@@ -570,6 +571,7 @@ enum ServerSessionPermissionRules: Codable {
     case approvalPolicy = "approval_policy"
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case sandboxPolicyDetails = "sandbox_policy_details"
   }
 
   init(from decoder: Decoder) throws {
@@ -589,7 +591,16 @@ enum ServerSessionPermissionRules: Codable {
           forKey: .approvalPolicyDetails
         )
         let sandbox = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
-        self = .codex(approvalPolicy: policy, approvalPolicyDetails: details, sandboxMode: sandbox)
+        let sandboxDetails = try container.decodeIfPresent(
+          ServerCodexSandboxPolicy.self,
+          forKey: .sandboxPolicyDetails
+        )
+        self = .codex(
+          approvalPolicy: policy,
+          approvalPolicyDetails: details,
+          sandboxMode: sandbox,
+          sandboxPolicyDetails: sandboxDetails
+        )
       default:
         throw DecodingError.dataCorrupted(
           DecodingError.Context(
@@ -608,11 +619,12 @@ enum ServerSessionPermissionRules: Codable {
         try container.encodeIfPresent(mode, forKey: .permissionMode)
         try container.encode(rules, forKey: .rules)
         try container.encodeIfPresent(dirs, forKey: .additionalDirectories)
-      case let .codex(policy, details, sandbox):
+      case let .codex(policy, details, sandbox, sandboxDetails):
         try container.encode("codex", forKey: .provider)
         try container.encodeIfPresent(policy, forKey: .approvalPolicy)
         try container.encodeIfPresent(details, forKey: .approvalPolicyDetails)
         try container.encodeIfPresent(sandbox, forKey: .sandboxMode)
+        try container.encodeIfPresent(sandboxDetails, forKey: .sandboxPolicyDetails)
     }
   }
 }

@@ -147,6 +147,7 @@ struct NewSessionRequestPlannerTests {
       approvalPolicy,
       approvalPolicyDetails,
       sandboxMode,
+      sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
       personality,
@@ -158,8 +159,9 @@ struct NewSessionRequestPlannerTests {
       #expect(modelProvider == "openai")
       #expect(model == "gpt-5-codex")
       #expect(approvalPolicy == "on-request")
-      #expect(approvalPolicyDetails == .mode(.onRequest))
+      #expect(approvalPolicyDetails == ServerCodexApprovalPolicy.mode(.onRequest))
       #expect(sandboxMode == "danger-full-access")
+      #expect(sandboxPolicyDetails != nil)
       #expect(collaborationMode == "plan")
       #expect(multiAgent == true)
       #expect(personality == "friendly")
@@ -211,6 +213,7 @@ struct NewSessionRequestPlannerTests {
       approvalPolicy,
       approvalPolicyDetails,
       sandboxMode,
+      sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
       personality,
@@ -224,6 +227,7 @@ struct NewSessionRequestPlannerTests {
       #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
       #expect(sandboxMode == nil)
+      #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
       #expect(personality == nil)
@@ -376,6 +380,7 @@ struct NewSessionRequestPlannerTests {
       approvalPolicy,
       approvalPolicyDetails,
       sandboxMode,
+      sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
       personality,
@@ -389,6 +394,7 @@ struct NewSessionRequestPlannerTests {
       #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
       #expect(sandboxMode == nil)
+      #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
       #expect(personality == nil)
@@ -440,6 +446,7 @@ struct NewSessionRequestPlannerTests {
       approvalPolicy,
       approvalPolicyDetails,
       sandboxMode,
+      sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
       personality,
@@ -453,6 +460,7 @@ struct NewSessionRequestPlannerTests {
       #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
       #expect(sandboxMode == nil)
+      #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
       #expect(personality == nil)

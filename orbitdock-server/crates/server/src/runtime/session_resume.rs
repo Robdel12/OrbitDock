@@ -96,7 +96,7 @@ pub(crate) async fn launch_resumed_session(
         return Err(ResumeSessionError::MissingClaudeResumeId);
       };
 
-      state.register_claude_thread(&session_id, provider_resume_id.as_str());
+      // claude_sdk_session_id is already in DB — no registration needed on resume.
       let startup_ready = spawn_claude_resume(
         state,
         ClaudeResumeParams {
@@ -196,6 +196,10 @@ fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection 
         approval_policy: request.approval_policy.clone(),
         approval_policy_details: None,
         sandbox_mode: request.sandbox_mode.clone(),
+        sandbox_policy_details: request
+          .sandbox_mode
+          .as_deref()
+          .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text),
         approvals_reviewer: None,
         collaboration_mode: request.collaboration_mode.clone(),
         multi_agent: request.multi_agent,
@@ -254,7 +258,7 @@ async fn spawn_claude_resume(
 
     match tokio::time::timeout(connector_timeout, connector_task).await {
       Ok(Ok(Ok(claude_session))) => {
-        state.register_claude_thread(&session_id, provider_resume_id.as_str());
+        // claude_sdk_session_id is already in DB — no registration needed on resume.
         handle.set_list_tx(state.list_tx());
         handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(

@@ -100,7 +100,8 @@ extension SessionStore {
     requestId: String,
     decision: ApprovalsClient.ToolApprovalDecision,
     message: String? = nil,
-    interrupt: Bool? = nil
+    interrupt: Bool? = nil,
+    updatedInput: AnyCodable? = nil
   ) async throws {
     netLog(
       .info,
@@ -112,6 +113,7 @@ extension SessionStore {
     var request = ApprovalsClient.ApproveToolRequest(requestId: requestId, decision: decision)
     request.message = message
     request.interrupt = interrupt
+    request.updatedInput = updatedInput
     _ = try await clients.approvals.approveTool(sessionId, request: request)
   }
 

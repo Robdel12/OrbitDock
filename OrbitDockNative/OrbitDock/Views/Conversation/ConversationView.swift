@@ -77,7 +77,24 @@ struct ConversationView: View {
     .task(id: bindingIdentity) {
       localFollowState = .initial
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
-      await viewModel.startStreaming()
+      await viewModel.refresh()
+    }
+    .task(id: bindingIdentity + ":changes") {
+      guard let sessionId, !sessionId.isEmpty else { return }
+      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      for await _ in stream {
+        guard !Task.isCancelled else { break }
+        await viewModel.refresh()
+      }
+    }
+    .task(id: bindingIdentity + ":rows") {
+      guard let sessionId, !sessionId.isEmpty else { return }
+      let (stream, _) = sessionStore.conversationRowChanges(for: sessionId)
+      for await delta in stream {
+        guard !Task.isCancelled else { break }
+        guard viewModel.currentSessionId == sessionId else { break }
+        viewModel.handleConversationRowDelta(delta)
+      }
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in

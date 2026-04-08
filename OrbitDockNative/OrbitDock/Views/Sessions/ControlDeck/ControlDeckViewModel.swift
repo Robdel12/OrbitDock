@@ -223,7 +223,11 @@ final class ControlDeckViewModel {
 
   // MARK: - Approval Actions
 
-  func approveTool(decision: ApprovalsClient.ToolApprovalDecision, message: String? = nil) async {
+  func approveTool(
+    decision: ApprovalsClient.ToolApprovalDecision,
+    message: String? = nil,
+    updatedInput: AnyCodable? = nil
+  ) async {
     guard let sessionId = currentSessionId,
           let store = currentSessionStore,
           let requestId = pendingApproval?.requestId else { return }
@@ -232,13 +236,30 @@ final class ControlDeckViewModel {
         sessionId: sessionId,
         requestId: requestId,
         decision: decision,
-        message: message
+        message: message,
+        updatedInput: updatedInput
       )
       clearPendingApprovalOptimistically()
       await refresh()
     } catch {
       lastError = String(describing: error)
     }
+  }
+
+  func approveToolAlwaysAllowHost(_ host: String) async {
+    let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedHost.isEmpty else {
+      await approveTool(decision: .approvedAlways)
+      return
+    }
+
+    let updatedInput = AnyCodable([
+      "network_policy_amendment": [
+        "host": normalizedHost,
+        "action": "allow",
+      ],
+    ])
+    await approveTool(decision: .approvedAlways, updatedInput: updatedInput)
   }
 
   func answerQuestion(answer: String, questionId: String? = nil) async {
@@ -340,12 +361,20 @@ final class ControlDeckViewModel {
   func updateApprovalPolicy(_ policy: String) async {
     await applyConfigUpdate(action: "updateApprovalPolicy", value: policy) { request in
       request.approvalPolicy = policy
+      request.approvalPolicyDetails = ServerCodexApprovalPolicy.fromLegacySummary(policy)
     }
   }
 
   func updateApprovalsReviewer(_ reviewer: ServerCodexApprovalsReviewer) async {
     await applyConfigUpdate(action: "updateApprovalsReviewer", value: reviewer.rawValue) { request in
       request.approvalsReviewer = reviewer
+    }
+  }
+
+  func updateSandboxPolicy(_ policy: ServerCodexSandboxPolicy) async {
+    await applyConfigUpdate(action: "updateSandboxPolicy", value: policy.legacySummary) { request in
+      request.sandboxMode = policy.legacySummary
+      request.sandboxPolicyDetails = policy
     }
   }
 
@@ -361,7 +390,9 @@ final class ControlDeckViewModel {
     }
     await applyConfigUpdate(action: "updateAutoReview", value: value) { request in
       request.approvalPolicy = option.approvalPolicy
+      request.approvalPolicyDetails = option.approvalPolicyDetails
       request.sandboxMode = option.sandboxMode
+      request.sandboxPolicyDetails = option.sandboxPolicyDetails
     }
   }
 
@@ -416,16 +447,6 @@ final class ControlDeckViewModel {
     _ payload: ServerControlDeckSnapshotPayload,
     source: String
   ) {
-    // Never regress to an older revision.
-    if let current = snapshot?.revision, payload.revision < current {
-      netLog(.debug, cat: .store, "Skipping stale snapshot", sid: payload.sessionId, data: [
-        "source": source,
-        "currentRevision": current,
-        "incomingRevision": payload.revision,
-      ])
-      return
-    }
-
     lastError = nil
     netLog(
       .info,
@@ -526,6 +547,7 @@ final class ControlDeckViewModel {
       request.approvalPolicy != nil ? "approval_policy" : nil,
       request.approvalPolicyDetails != nil ? "approval_policy_details" : nil,
       request.sandboxMode != nil ? "sandbox_mode" : nil,
+      request.sandboxPolicyDetails != nil ? "sandbox_policy_details" : nil,
       request.approvalsReviewer != nil ? "approvals_reviewer" : nil,
       request.permissionMode != nil ? "permission_mode" : nil,
       request.collaborationMode != nil ? "collaboration_mode" : nil,
@@ -538,6 +560,7 @@ final class ControlDeckViewModel {
       "approvalPolicy": request.approvalPolicy ?? "",
       "approvalPolicyDetails": request.approvalPolicyDetails?.legacySummary ?? "",
       "sandboxMode": request.sandboxMode ?? "",
+      "sandboxPolicyDetails": request.sandboxPolicyDetails?.legacySummary ?? "",
       "approvalsReviewer": request.approvalsReviewer?.rawValue ?? "",
       "permissionMode": request.permissionMode ?? "",
       "collaborationMode": request.collaborationMode ?? "",
@@ -558,6 +581,7 @@ final class ControlDeckViewModel {
       "effort": snapshot.state.config.effort ?? "",
       "approvalPolicy": snapshot.state.config.approvalPolicy ?? "",
       "sandboxMode": snapshot.state.config.sandboxMode ?? "",
+      "sandboxPolicyDetails": snapshot.state.config.sandboxPolicyDetails?.legacySummary ?? "",
       "permissionMode": snapshot.state.config.permissionMode ?? "",
       "collaborationMode": snapshot.state.config.collaborationMode ?? "",
       "approvalsReviewer": snapshot.state.config.approvalsReviewer?.rawValue ?? "",

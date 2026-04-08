@@ -119,7 +119,8 @@ async fn resolve_codex_hook_routing(
     return CodexHookRoutingDecision::IgnoreShadowedByDirect;
   }
 
-  state.register_codex_thread(&owner_session_id, thread_id);
+  // Hooks are passive reporters — they never mutate direct session state.
+  // The direct session already has its codex_thread_id set via PersistCommand.
   CodexHookRoutingDecision::ManagedDirect { owner_session_id }
 }
 
@@ -267,17 +268,23 @@ async fn maybe_claim_direct_codex_session(
     return false;
   };
 
-  let registered = state.register_codex_thread(&owning_id, thread_id);
-  let persist_sent = state
+  state.register_codex_runtime_owner(thread_id, &owning_id);
+
+  // Write goes through PersistCommand only — single mutation path with immutability guard.
+  let persisted = state
     .persist()
     .send(PersistCommand::SetThreadId {
-      session_id: owning_id,
+      session_id: owning_id.clone(),
       thread_id: thread_id.to_string(),
     })
     .await
     .is_ok();
 
-  registered || persist_sent
+  if !persisted {
+    state.unregister_codex_runtime_owner(thread_id);
+  }
+
+  persisted
 }
 
 async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {
@@ -816,7 +823,7 @@ mod tests {
     ensure_server_test_data_dir();
     prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
-    let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+    let state = Arc::new(SessionRegistry::new_with_primary(persist_tx.clone(), true));
 
     let mut handle = SessionHandle::new(
       "od-direct-codex".to_string(),
@@ -825,7 +832,53 @@ mod tests {
     );
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     state.add_session(handle);
-    state.register_codex_thread("od-direct-codex", "codex-thread-direct");
+
+    // Create session row in DB, then set thread ID — single mutation path
+    let _ = persist_tx
+      .send(PersistCommand::SessionCreate(Box::new(
+        crate::infrastructure::persistence::SessionCreateParams {
+          id: "od-direct-codex".to_string(),
+          provider: Provider::Codex,
+          control_mode: SessionControlMode::Direct,
+          project_path: "/tmp/codex-direct".to_string(),
+          project_name: None,
+          branch: None,
+          model: None,
+          approval_policy: None,
+          sandbox_mode: None,
+          permission_mode: None,
+          collaboration_mode: None,
+          multi_agent: None,
+          personality: None,
+          service_tier: None,
+          developer_instructions: None,
+          codex_config_mode: None,
+          codex_config_profile: None,
+          codex_model_provider: None,
+          codex_config_source: None,
+          codex_config_overrides_json: None,
+          forked_from_session_id: None,
+          mission_id: None,
+          issue_identifier: None,
+          allow_bypass_permissions: false,
+          worktree_id: None,
+        },
+      )))
+      .await;
+    let _ = persist_tx
+      .send(PersistCommand::SetThreadId {
+        session_id: "od-direct-codex".to_string(),
+        thread_id: "codex-thread-direct".to_string(),
+      })
+      .await;
+    crate::infrastructure::persistence::flush_batch_for_test(
+      state.db_path(),
+      vec![
+        persist_rx.recv().await.unwrap(),
+        persist_rx.recv().await.unwrap(),
+      ],
+    )
+    .unwrap();
 
     handle_hook_message(
       ClientMessage::CodexUserPromptSubmit {
@@ -1038,7 +1091,7 @@ mod tests {
     ensure_server_test_data_dir();
     prepare_test_db();
     let (persist_tx, mut persist_rx) = mpsc::channel(64);
-    let state = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+    let state = Arc::new(SessionRegistry::new_with_primary(persist_tx.clone(), true));
 
     let mut handle = SessionHandle::new(
       "od-direct-tool-owner".to_string(),
@@ -1047,7 +1100,53 @@ mod tests {
     );
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     state.add_session(handle);
-    state.register_codex_thread("od-direct-tool-owner", "codex-thread-direct-tool");
+
+    // Create session row in DB, then set thread ID — single mutation path
+    let _ = persist_tx
+      .send(PersistCommand::SessionCreate(Box::new(
+        crate::infrastructure::persistence::SessionCreateParams {
+          id: "od-direct-tool-owner".to_string(),
+          provider: Provider::Codex,
+          control_mode: SessionControlMode::Direct,
+          project_path: "/tmp/codex-direct-tool".to_string(),
+          project_name: None,
+          branch: None,
+          model: None,
+          approval_policy: None,
+          sandbox_mode: None,
+          permission_mode: None,
+          collaboration_mode: None,
+          multi_agent: None,
+          personality: None,
+          service_tier: None,
+          developer_instructions: None,
+          codex_config_mode: None,
+          codex_config_profile: None,
+          codex_model_provider: None,
+          codex_config_source: None,
+          codex_config_overrides_json: None,
+          forked_from_session_id: None,
+          mission_id: None,
+          issue_identifier: None,
+          allow_bypass_permissions: false,
+          worktree_id: None,
+        },
+      )))
+      .await;
+    let _ = persist_tx
+      .send(PersistCommand::SetThreadId {
+        session_id: "od-direct-tool-owner".to_string(),
+        thread_id: "codex-thread-direct-tool".to_string(),
+      })
+      .await;
+    crate::infrastructure::persistence::flush_batch_for_test(
+      state.db_path(),
+      vec![
+        persist_rx.recv().await.unwrap(),
+        persist_rx.recv().await.unwrap(),
+      ],
+    )
+    .unwrap();
 
     handle_hook_message(
       ClientMessage::CodexToolEvent {

@@ -48,6 +48,7 @@ struct ServerControlDeckConfigState: Codable, Sendable {
   let approvalPolicy: String?
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let sandboxPolicyDetails: ServerCodexSandboxPolicy?
   let approvalsReviewer: ServerCodexApprovalsReviewer?
   let permissionMode: String?
   let collaborationMode: String?
@@ -62,6 +63,7 @@ struct ServerControlDeckConfigState: Codable, Sendable {
     case approvalPolicy = "approval_policy"
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case sandboxPolicyDetails = "sandbox_policy_details"
     case approvalsReviewer = "approvals_reviewer"
     case permissionMode = "permission_mode"
     case collaborationMode = "collaboration_mode"
@@ -151,13 +153,17 @@ struct ServerControlDeckAutoReviewOption: Codable, Sendable {
   let value: String
   let label: String
   let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let sandboxPolicyDetails: ServerCodexSandboxPolicy?
 
   enum CodingKeys: String, CodingKey {
     case value
     case label
     case approvalPolicy = "approval_policy"
+    case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case sandboxPolicyDetails = "sandbox_policy_details"
   }
 }
 
@@ -203,6 +209,7 @@ struct ServerControlDeckConfigUpdateRequest: Codable, Sendable {
   var approvalPolicy: String?
   var approvalPolicyDetails: ServerCodexApprovalPolicy?
   var sandboxMode: String?
+  var sandboxPolicyDetails: ServerCodexSandboxPolicy?
   var approvalsReviewer: ServerCodexApprovalsReviewer?
   var permissionMode: String?
   var collaborationMode: String?
@@ -213,6 +220,7 @@ struct ServerControlDeckConfigUpdateRequest: Codable, Sendable {
     case approvalPolicy = "approval_policy"
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
+    case sandboxPolicyDetails = "sandbox_policy_details"
     case approvalsReviewer = "approvals_reviewer"
     case permissionMode = "permission_mode"
     case collaborationMode = "collaboration_mode"

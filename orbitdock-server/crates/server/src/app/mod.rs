@@ -15,7 +15,7 @@ use axum::{
 };
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
-  SessionLifecycleState, SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
+  SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
 };
 use tokio::sync::{mpsc, watch};
 use tower_http::cors::CorsLayer;
@@ -31,12 +31,7 @@ use crate::infrastructure::persistence::{
   create_persistence_channel, create_sync_shutdown_channel, load_sessions_for_startup,
   PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
-use crate::runtime::restored_sessions::{
-  load_prepared_resume_session, prepare_restored_session_for_direct_resume,
-};
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_resume::launch_resumed_session;
-use crate::runtime::session_runtime_helpers::direct_resume_failure_changes;
 use crate::transport::websocket::ws_handler;
 use crate::VERSION;
 
@@ -270,86 +265,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
       );
 
       let mut backfill_tasks: Vec<(String, String)> = Vec::new();
-      let mut startup_resume_ready: Vec<tokio::sync::oneshot::Receiver<()>> = Vec::new();
-
       for rs in restored {
-        let should_restore_live_direct = rs.status.eq_ignore_ascii_case("active")
-          && rs.lifecycle_state == SessionLifecycleState::Open
-          && rs.control_mode == SessionControlMode::Direct;
-
-        if should_restore_live_direct {
-          let session_id = rs.id.clone();
-          let provider = rs.provider.clone();
-          let message_count = rs.rows.len();
-          let prepared = prepare_restored_session_for_direct_resume(rs, false);
-
-          match launch_resumed_session(&state, &session_id, prepared).await {
-            Ok(launch) => {
-              if let Some(startup_ready) = launch.startup_ready {
-                startup_resume_ready.push(startup_ready);
-              }
-              info!(
-                  component = "restore",
-                  event = "restore.session.resumed",
-                  session_id = %session_id,
-                  provider = %provider,
-                  messages = message_count,
-                  "Restored direct open session and reattached connector"
-              );
-            }
-            Err(error) => {
-              warn!(
-                  component = "restore",
-                  event = "restore.session.resume_failed",
-                  session_id = %session_id,
-                  provider = %provider,
-                  error_code = error.code(),
-                  error = %error.message(),
-                  "Failed to restore direct open session connector"
-              );
-
-              if state.get_session(&session_id).is_none() {
-                match load_prepared_resume_session(&session_id).await {
-                  Ok(Some(mut prepared)) => {
-                    prepared
-                      .handle
-                      .apply_changes(&direct_resume_failure_changes(prepared.provider));
-                    state.add_session(prepared.handle);
-                    state.notify_dashboard_session_updated(&session_id);
-                    warn!(
-                        component = "restore",
-                        event = "restore.session.downgraded_to_resumable",
-                        session_id = %session_id,
-                        provider = %provider,
-                        "Registered direct session as resumable after restore failure"
-                    );
-                  }
-                  Ok(None) => {
-                    warn!(
-                        component = "restore",
-                        event = "restore.session.missing_after_resume_failure",
-                        session_id = %session_id,
-                        provider = %provider,
-                        "Session disappeared while applying resumable restore fallback"
-                    );
-                  }
-                  Err(load_error) => {
-                    warn!(
-                        component = "restore",
-                        event = "restore.session.fallback_load_failed",
-                        session_id = %session_id,
-                        provider = %provider,
-                        error = %load_error,
-                        "Failed to reload session for resumable restore fallback"
-                    );
-                  }
-                }
-              }
-            }
-          }
-          continue;
-        }
-
         let crate::infrastructure::persistence::RestoredSession {
           id,
           provider,
@@ -365,8 +281,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
           summary,
           codex_integration_mode: _,
           claude_integration_mode: _,
-          codex_thread_id,
-          claude_sdk_session_id,
+          codex_thread_id: _,
+          claude_sdk_session_id: _,
           started_at,
           last_activity_at,
           approval_policy,
@@ -429,6 +345,14 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               .as_deref()
               .and_then(CodexApprovalPolicy::from_storage_text)
           });
+        let sandbox_policy_details = codex_config_overrides
+          .as_ref()
+          .and_then(|overrides| overrides.sandbox_policy_details.clone())
+          .or_else(|| {
+            sandbox_mode
+              .as_deref()
+              .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+          });
 
         let mut handle = crate::domain::sessions::session::SessionHandle::restore(
           crate::domain::sessions::session::SessionRestoreData {
@@ -444,6 +368,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               approval_policy: approval_policy.clone(),
               approval_policy_details,
               sandbox_mode: sandbox_mode.clone(),
+              sandbox_policy_details,
               collaboration_mode,
               multi_agent,
               personality,
@@ -568,22 +493,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
           handle.set_allow_bypass_permissions(true);
         }
 
-        if is_codex {
-          if let Some(ref thread_id) = codex_thread_id {
-            if orbitdock_protocol::is_provider_id(thread_id) {
-              state.register_codex_thread(&id, thread_id);
-            }
-          }
-        }
-        if is_claude && is_direct {
-          let sdk_id = claude_sdk_session_id
-            .as_deref()
-            .or(codex_thread_id.as_deref())
-            .and_then(orbitdock_protocol::ProviderSessionId::new);
-          if let Some(ref sdk_id) = sdk_id {
-            state.register_claude_thread(&id, sdk_id.as_str());
-          }
-        }
+        // Provider session IDs (claude_sdk_session_id, codex_thread_id) are already in DB.
+        // No registration needed on restore — DB is source of truth.
 
         state.add_session(handle);
 
@@ -598,10 +509,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             messages = msg_count,
             "Registered session"
         );
-      }
-
-      for startup_ready in startup_resume_ready {
-        let _ = startup_ready.await;
       }
 
       if !backfill_tasks.is_empty() {
@@ -1196,26 +1103,12 @@ fn spawn_spool_replay(state: Arc<SessionRegistry>) {
 }
 
 #[cfg(test)]
-async fn wait_for_startup_resume_ready(
-  startup_resume_ready: Vec<tokio::sync::oneshot::Receiver<()>>,
-) {
-  for startup_ready in startup_resume_ready {
-    let _ = startup_ready.await;
-  }
-}
-
-#[cfg(test)]
 mod tests {
-  use super::{drain_spool, resolve_workspace_provider_kind, wait_for_startup_resume_ready};
+  use super::{drain_spool, resolve_workspace_provider_kind};
   use crate::support::test_support::{
     ensure_server_test_data_dir, new_test_session_registry, test_env_lock,
   };
   use orbitdock_protocol::{ClientMessage, Provider, WorkspaceProviderKind};
-  use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-  };
-  use tokio::sync::oneshot;
 
   #[test]
   fn workspace_provider_override_wins_over_persisted_value() {
@@ -1299,24 +1192,5 @@ mod tests {
       snapshot.transcript_path.as_deref(),
       Some("/tmp/codex-repo/transcript.jsonl")
     );
-  }
-
-  #[tokio::test]
-  async fn startup_resume_ready_waits_for_every_receiver() {
-    let (ready_tx, ready_rx) = oneshot::channel();
-    let (delayed_tx, delayed_rx) = oneshot::channel();
-    let delayed_fired = Arc::new(AtomicBool::new(false));
-    let delayed_fired_for_task = delayed_fired.clone();
-
-    tokio::spawn(async move {
-      tokio::task::yield_now().await;
-      delayed_fired_for_task.store(true, Ordering::SeqCst);
-      let _ = delayed_tx.send(());
-    });
-
-    let _ = ready_tx.send(());
-    wait_for_startup_resume_ready(vec![ready_rx, delayed_rx]).await;
-
-    assert!(delayed_fired.load(Ordering::SeqCst));
   }
 }

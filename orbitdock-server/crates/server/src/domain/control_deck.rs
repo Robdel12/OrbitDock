@@ -232,6 +232,7 @@ pub(crate) fn build_control_deck_snapshot(
       approval_policy: session.approval_policy.clone(),
       approval_policy_details: session.approval_policy_details.clone(),
       sandbox_mode: session.sandbox_mode.clone(),
+      sandbox_policy_details: session.sandbox_policy_details.clone(),
       approvals_reviewer: session
         .codex_config_overrides
         .as_ref()
@@ -488,6 +489,7 @@ mod tests {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       started_at: None,
       last_activity_at: None,
       last_progress_at: None,

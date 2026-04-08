@@ -270,6 +270,9 @@ async fn complete_codex_takeover(
     approval_policy: effective_approval.clone(),
     approval_policy_details: None,
     sandbox_mode: effective_sandbox.clone(),
+    sandbox_policy_details: effective_sandbox
+      .as_deref()
+      .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text),
     collaboration_mode,
     multi_agent,
     personality,
@@ -490,9 +493,7 @@ async fn complete_claude_takeover(
 
   match tokio::time::timeout(Duration::from_secs(15), connector_task).await {
     Ok(Ok(Ok(claude_session))) => {
-      if let Some(ref sdk_id) = takeover_sdk_id {
-        state.register_claude_thread(&session_id, sdk_id.as_str());
-      }
+      // claude_sdk_session_id is already in DB — no registration needed on takeover.
 
       let persist_tx = state.persist().clone();
       let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
@@ -638,6 +639,10 @@ mod tests {
       token_usage: TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::default(),
       has_pending_approval: false,
+      approval_policy: None,
+      approval_policy_details: None,
+      sandbox_mode: None,
+      sandbox_policy_details: None,
       permission_mode: None,
       allow_bypass_permissions: false,
       collaboration_mode: Some("delegate".to_string()),
@@ -659,9 +664,6 @@ mod tests {
       pending_approval_id: None,
       codex_integration_mode: None,
       claude_integration_mode: None,
-      approval_policy: None,
-      approval_policy_details: None,
-      sandbox_mode: None,
       started_at: None,
       last_activity_at: None,
       last_progress_at: None,

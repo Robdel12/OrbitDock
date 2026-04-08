@@ -8,6 +8,7 @@ struct ControlDeckApprovalTakeover: View {
   // Action callbacks — routed by approval kind internally
   var onApprove: (() -> Void)?
   var onApproveForSession: (() -> Void)?
+  var onApproveAlwaysForHost: ((String) -> Void)?
   var onDeny: (() -> Void)?
   var onAnswer: ((String, String?) -> Void)?
   var onGrantPermission: (() -> Void)?
@@ -54,6 +55,14 @@ struct ControlDeckApprovalTakeover: View {
       case .permission: onGrantPermissionForSession
       case .question: nil
     }
+  }
+
+  private var approveAlwaysHost: String? {
+    guard case .tool = approval.kind else { return nil }
+    guard let host = approval.networkHost?.trimmingCharacters(in: .whitespacesAndNewlines), !host.isEmpty else {
+      return nil
+    }
+    return host
   }
 
   private var denyAction: (() -> Void)? {
@@ -522,6 +531,9 @@ struct ControlDeckApprovalTakeover: View {
 
         Menu {
           Button("\(primaryLabel) for Session") { primaryForSessionAction?() }
+          if let host = approveAlwaysHost {
+            Button("Always allow host \(host)") { onApproveAlwaysForHost?(host) }
+          }
         } label: {
           Image(systemName: "chevron.down")
             .font(.system(size: 10, weight: .bold))
@@ -587,6 +599,9 @@ struct ControlDeckApprovalTakeover: View {
 
         Menu {
           Button("\(primaryLabel) for Session") { primaryForSessionAction?() }
+          if let host = approveAlwaysHost {
+            Button("Always allow host \(host)") { onApproveAlwaysForHost?(host) }
+          }
         } label: {
           Image(systemName: "chevron.down")
             .font(.system(size: 8, weight: .bold))

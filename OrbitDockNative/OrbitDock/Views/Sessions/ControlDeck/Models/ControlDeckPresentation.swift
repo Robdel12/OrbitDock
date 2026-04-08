@@ -33,7 +33,28 @@ struct ControlDeckStatusModuleItem: Identifiable, Equatable, Sendable {
   let tintName: String
   let selectedValue: String?
   let reviewerValue: String?
+  let sandboxPolicyDetails: ServerCodexSandboxPolicy?
   let interaction: Interaction
+
+  init(
+    id: ControlDeckStatusModule,
+    label: String,
+    icon: String,
+    tintName: String,
+    selectedValue: String?,
+    reviewerValue: String?,
+    sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil,
+    interaction: Interaction
+  ) {
+    self.id = id
+    self.label = label
+    self.icon = icon
+    self.tintName = tintName
+    self.selectedValue = selectedValue
+    self.reviewerValue = reviewerValue
+    self.sandboxPolicyDetails = sandboxPolicyDetails
+    self.interaction = interaction
+  }
 
   enum Interaction: Equatable, Sendable {
     /// Read-only display, no tap action

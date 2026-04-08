@@ -809,6 +809,7 @@ mod tests {
   use orbitdock_protocol::conversation_contracts::{
     rows::MessageDeliveryStatus, ConversationRowEntry, MessageRowContent,
   };
+  use orbitdock_protocol::SessionLifecycleState;
   use tokio::sync::mpsc;
 
   fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
@@ -1026,5 +1027,60 @@ mod tests {
       panic!("expected assistant row");
     };
     assert_eq!(message.content, "final");
+  }
+
+  #[tokio::test]
+  async fn apply_delta_updates_actor_snapshot_and_persists_the_same_transition() {
+    let (persist_tx, mut persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    handle.refresh_snapshot();
+
+    handle_session_command(
+      SessionCommand::ApplyDelta {
+        changes: Box::new(StateChanges {
+          lifecycle_state: Some(SessionLifecycleState::Resumable),
+          work_status: Some(WorkStatus::Waiting),
+          steerable: Some(false),
+          ..Default::default()
+        }),
+        persist_op: Some(PersistOp::SessionUpdate {
+          id: "session-1".to_string(),
+          status: None,
+          work_status: Some(WorkStatus::Waiting),
+          lifecycle_state: Some(SessionLifecycleState::Resumable),
+          last_activity_at: None,
+          last_progress_at: None,
+        }),
+      },
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+
+    let Some(PersistCommand::SessionUpdate {
+      id,
+      status,
+      work_status,
+      lifecycle_state,
+      ..
+    }) = persist_rx.recv().await
+    else {
+      panic!("expected cleanup SessionUpdate persist command");
+    };
+
+    assert_eq!(id, "session-1");
+    assert_eq!(status, None);
+    assert_eq!(work_status, Some(WorkStatus::Waiting));
+    assert_eq!(lifecycle_state, Some(SessionLifecycleState::Resumable));
+
+    let snapshot = handle.to_snapshot();
+    assert_eq!(snapshot.status, SessionStatus::Active);
+    assert_eq!(snapshot.work_status, WorkStatus::Waiting);
+    assert_eq!(snapshot.lifecycle_state, SessionLifecycleState::Resumable);
+    assert!(!snapshot.steerable);
   }
 }

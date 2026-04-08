@@ -282,6 +282,42 @@ extension ServerCodexApprovalPolicy {
   }
 }
 
+extension ServerCodexSandboxMode {
+  nonisolated var displayName: String {
+    switch self {
+      case .dangerFullAccess: "Danger Full Access"
+      case .readOnly: "Read Only"
+      case .workspaceWrite: "Workspace Write"
+      case .externalSandbox: "External Sandbox"
+    }
+  }
+}
+
+extension ServerCodexSandboxPolicy {
+  nonisolated var displayName: String {
+    networkAccess ? "\(mode.displayName) + Network" : mode.displayName
+  }
+
+  nonisolated var summary: String {
+    switch (mode, networkAccess) {
+      case (.dangerFullAccess, _):
+        "No filesystem sandbox and full network access."
+      case (.workspaceWrite, true):
+        "Writable workspace sandbox with outbound network access."
+      case (.workspaceWrite, false):
+        "Writable workspace sandbox with network disabled."
+      case (.readOnly, true):
+        "Read-only filesystem sandbox with outbound network access."
+      case (.readOnly, false):
+        "Read-only filesystem sandbox with network disabled."
+      case (.externalSandbox, true):
+        "External sandbox policy with outbound network access."
+      case (.externalSandbox, false):
+        "External sandbox policy with network disabled."
+    }
+  }
+}
+
 extension AutonomyLevel {
   var approvalPolicyDetails: ServerCodexApprovalPolicy? {
     approvalPolicy.flatMap(ServerCodexApprovalPolicy.fromLegacySummary)

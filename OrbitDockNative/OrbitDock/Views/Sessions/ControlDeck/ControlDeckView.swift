@@ -34,6 +34,7 @@ struct ControlDeckView: View {
   // Approval callbacks
   var onApprove: (() -> Void)?
   var onApproveForSession: (() -> Void)?
+  var onApproveAlwaysForHost: ((String) -> Void)?
   var onDeny: (() -> Void)?
   var onAnswer: ((String, String?) -> Void)?
   var onGrantPermission: (() -> Void)?
@@ -47,6 +48,7 @@ struct ControlDeckView: View {
   var onToggleTerminal: (() -> Void)?
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
   var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
+  var onSandboxPolicyAction: ((ServerCodexSandboxPolicy) -> Void)?
   var isDictating: Bool = false
   var isSessionWorking: Bool = false
   var onDictation: (() -> Void)?
@@ -78,6 +80,7 @@ struct ControlDeckView: View {
           approval: approval,
           onApprove: onApprove,
           onApproveForSession: onApproveForSession,
+          onApproveAlwaysForHost: onApproveAlwaysForHost,
           onDeny: onDeny,
           onAnswer: { answer, promptId in onAnswer?(answer, promptId) },
           onGrantPermission: onGrantPermission,
@@ -93,6 +96,7 @@ struct ControlDeckView: View {
             modules: presentation.statusModules,
             onModuleAction: onModuleAction,
             onApprovalReviewerAction: onApprovalReviewerAction,
+            onSandboxPolicyAction: onSandboxPolicyAction,
             supportsImages: isInputEnabled && presentation.supportsImages,
             canPasteImage: isInputEnabled && canPasteImage(),
             canSubmit: canSubmit,

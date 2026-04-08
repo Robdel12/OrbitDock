@@ -21,7 +21,10 @@ use crate::runtime::session_command_handler::{
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::should_detach_direct_connector_after_send_error;
+use crate::runtime::session_runtime_helpers::{
+  apply_connector_detached_directly, should_detach_direct_connector_after_send_error,
+  spawn_connector_cleanup_monitor,
+};
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_claude::session::{
@@ -59,7 +62,18 @@ pub fn start_event_loop(
   let mut first_prompt_captured = false;
   let actor_for_naming = actor_handle.clone();
 
+  // Spawn cleanup monitor FIRST — guarantees cleanup even on panic/cancel
+  let cleanup_guard = spawn_connector_cleanup_monitor(
+    session_id.clone(),
+    persist_tx,
+    Arc::clone(&state),
+    orbitdock_protocol::Provider::Claude,
+  );
+
   tokio::spawn(async move {
+    // Hold the guard — if we do not disarm it, fallback cleanup runs.
+    let mut cleanup_guard = cleanup_guard;
+
     // Watchdog channel for synthetic events (interrupt timeout)
     let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
@@ -94,13 +108,14 @@ pub fn start_event_loop(
                           hook_session_id = %hook_sid,
                           "Registering hook session ID as managed thread"
                       );
+                      state.register_claude_runtime_owner(hook_sid, &session_id);
+                      // Write goes through PersistCommand only — single mutation path.
                       let _ = persist
                           .send(PersistCommand::SetClaudeSdkSessionId {
                               session_id: session_id.clone(),
                               claude_sdk_session_id: hook_sid.clone(),
                           })
                           .await;
-                      state.register_claude_thread(&session_id, hook_sid);
                       let _ = persist
                           .send(PersistCommand::CleanupClaudeShadowSession {
                               claude_sdk_session_id: hook_sid.clone(),
@@ -126,13 +141,14 @@ pub fn start_event_loop(
                           claude_sdk_session_id = %sdk_sid,
                           "Persisting Claude SDK session ID"
                       );
+                      state.register_claude_runtime_owner(&sdk_sid, &session_id);
+                      // Write goes through PersistCommand only — single mutation path.
                       let _ = persist
                           .send(PersistCommand::SetClaudeSdkSessionId {
                               session_id: session_id.clone(),
                               claude_sdk_session_id: sdk_sid.clone(),
                           })
                           .await;
-                      state.register_claude_thread(&session_id, &sdk_sid);
                       let _ = persist
                           .send(PersistCommand::CleanupClaudeShadowSession {
                               claude_sdk_session_id: sdk_sid.clone(),
@@ -395,24 +411,21 @@ pub fn start_event_loop(
       h.abort();
     }
 
-    // Apply detach state directly on the handle we own — the actor command
-    // channel is part of THIS task's select loop which has already broken, so
-    // sending via `actor.send()` would buffer the command but never process it.
-    crate::runtime::session_runtime_helpers::apply_connector_detached_directly(
+    apply_connector_detached_directly(
       &mut session_handle,
       &persist,
-      &state,
       &session_id,
       orbitdock_protocol::Provider::Claude,
     )
     .await;
     state.remove_claude_action_tx(&session_id);
+    cleanup_guard.disarm();
 
     info!(
         component = "claude_connector",
         event = "claude.event_loop.ended",
         session_id = %session_id,
-        "Claude session event loop ended"
+        "Claude session event loop ended and cleanup was applied in-loop"
     );
   });
 

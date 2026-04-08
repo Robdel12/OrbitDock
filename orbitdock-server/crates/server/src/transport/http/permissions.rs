@@ -48,6 +48,7 @@ pub async fn get_permission_rules(
         approval_policy: snap.approval_policy.clone(),
         approval_policy_details: snap.approval_policy_details.clone(),
         sandbox_mode: snap.sandbox_mode.clone(),
+        sandbox_policy_details: snap.sandbox_policy_details.clone(),
       };
       return Ok(Json(PermissionRulesResponse { session_id, rules }));
     }

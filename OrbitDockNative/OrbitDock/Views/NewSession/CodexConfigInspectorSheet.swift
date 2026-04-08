@@ -72,6 +72,10 @@ struct CodexConfigInspectorSheet: View {
       details: response.effectiveSettings.approvalPolicyDetails,
       fallbackPolicy: response.effectiveSettings.approvalPolicy
     )
+    let resolvedSandboxPolicy = ServerCodexSandboxPolicy.resolved(
+      details: response.effectiveSettings.sandboxPolicyDetails,
+      fallbackMode: response.effectiveSettings.sandboxMode
+    )
 
     return inspectorCard(title: "Effective Settings") {
       VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -80,7 +84,7 @@ struct CodexConfigInspectorSheet: View {
         settingRow("Provider", value: response.effectiveSettings.modelProvider)
         settingRow("Model", value: response.effectiveSettings.model)
         settingRow("Approval", value: resolvedApprovalPolicy?.displayName ?? response.effectiveSettings.approvalPolicy)
-        settingRow("Sandbox", value: response.effectiveSettings.sandboxMode)
+        settingRow("Sandbox", value: resolvedSandboxPolicy?.displayName ?? response.effectiveSettings.sandboxMode)
         settingRow("Collaboration", value: response.effectiveSettings.collaborationMode)
         settingRow("Workers", value: response.effectiveSettings.multiAgent.map { $0 ? "Enabled" : "Disabled" })
         settingRow("Personality", value: response.effectiveSettings.personality)

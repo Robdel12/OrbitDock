@@ -84,6 +84,10 @@ final class DashboardViewModel {
 
   // MARK: - Demo mode
 
+  func refreshNow() async {
+    await dataService.refreshNow()
+  }
+
   func applySnapshot(_ newSnapshot: DashboardSnapshot) {
     dataService.applyDemoSnapshot(newSnapshot)
   }

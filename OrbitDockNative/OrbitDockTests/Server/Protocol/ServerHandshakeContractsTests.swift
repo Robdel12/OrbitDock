@@ -2,6 +2,7 @@ import Foundation
 @testable import OrbitDock
 import Testing
 
+@MainActor
 struct ServerHandshakeContractsTests {
   @Test func transportRequestUsesLegacyServerHeaders() {
     let request = try? HTTPRequestBuilder(

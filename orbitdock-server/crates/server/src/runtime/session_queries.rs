@@ -387,6 +387,7 @@ fn session_summary_from_projection(projection: &PersistedDashboardProjection) ->
     approval_policy: projection.approval_policy.clone(),
     approval_policy_details: None,
     sandbox_mode: projection.sandbox_mode.clone(),
+    sandbox_policy_details: None,
     permission_mode: projection.permission_mode.clone(),
     allow_bypass_permissions: projection.allow_bypass_permissions,
     collaboration_mode: projection.collaboration_mode.clone(),

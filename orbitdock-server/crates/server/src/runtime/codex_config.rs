@@ -12,7 +12,8 @@ use codex_core::config::Config as CoreConfig;
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
 use orbitdock_protocol::{
   CodexApprovalMode, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode,
-  CodexConfigSource, CodexGranularApprovalPolicy, CodexSessionOverrides,
+  CodexConfigSource, CodexGranularApprovalPolicy, CodexSandboxMode, CodexSandboxPolicy,
+  CodexSessionOverrides,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -42,6 +43,8 @@ pub struct CodexResolvedSettings {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
   pub personality: Option<String>,
@@ -490,6 +493,9 @@ fn effective_settings(
     sandbox_mode: Some(core_sandbox_policy_to_string(
       &config.permissions.sandbox_policy,
     )),
+    sandbox_policy_details: Some(core_sandbox_policy_to_details(
+      &config.permissions.sandbox_policy,
+    )),
     collaboration_mode: selection.overrides.collaboration_mode.clone(),
     multi_agent: selection.overrides.multi_agent,
     personality: selection.overrides.personality.clone(),
@@ -580,6 +586,12 @@ fn apply_runtime_origin_overrides(
   if selection.overrides.sandbox_mode.is_some() {
     origins.insert("sandbox_mode".to_string(), runtime_origin("sandbox_mode"));
   }
+  if selection.overrides.sandbox_policy_details.is_some() {
+    origins.insert(
+      "sandbox_policy_details".to_string(),
+      runtime_origin("sandbox_policy_details"),
+    );
+  }
   if selection.overrides.multi_agent.is_some() {
     origins.insert(
       "features.multi_agent".to_string(),
@@ -636,6 +648,11 @@ fn runtime_override_layer(selection: &CodexConfigSelection) -> Option<CodexInspe
       "sandbox_mode".to_string(),
       Value::String(sandbox_mode.clone()),
     );
+  }
+  if let Some(sandbox_policy_details) = &selection.overrides.sandbox_policy_details {
+    if let Ok(value) = serde_json::to_value(sandbox_policy_details) {
+      config.insert("sandbox_policy_details".to_string(), value);
+    }
   }
   if let Some(collaboration_mode) = &selection.overrides.collaboration_mode {
     config.insert(
@@ -1193,6 +1210,35 @@ fn core_sandbox_policy_to_string(value: &codex_protocol::protocol::SandboxPolicy
     codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { .. } => "workspace-write",
   }
   .to_string()
+}
+
+fn core_sandbox_policy_to_details(
+  value: &codex_protocol::protocol::SandboxPolicy,
+) -> CodexSandboxPolicy {
+  match value {
+    codex_protocol::protocol::SandboxPolicy::DangerFullAccess => CodexSandboxPolicy {
+      mode: CodexSandboxMode::DangerFullAccess,
+      network_access: true,
+    },
+    codex_protocol::protocol::SandboxPolicy::ReadOnly { network_access, .. } => {
+      CodexSandboxPolicy {
+        mode: CodexSandboxMode::ReadOnly,
+        network_access: *network_access,
+      }
+    }
+    codex_protocol::protocol::SandboxPolicy::WorkspaceWrite { network_access, .. } => {
+      CodexSandboxPolicy {
+        mode: CodexSandboxMode::WorkspaceWrite,
+        network_access: *network_access,
+      }
+    }
+    codex_protocol::protocol::SandboxPolicy::ExternalSandbox { network_access, .. } => {
+      CodexSandboxPolicy {
+        mode: CodexSandboxMode::ExternalSandbox,
+        network_access: network_access.is_enabled(),
+      }
+    }
+  }
 }
 
 fn service_tier_to_string(value: codex_protocol::config_types::ServiceTier) -> String {

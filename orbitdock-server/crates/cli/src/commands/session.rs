@@ -2272,6 +2272,7 @@ mod tests {
       approval_policy: Some("on-request".to_string()),
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       started_at: Some("2026-03-26T14:51:01Z".to_string()),
       last_activity_at: Some("2026-03-26T15:08:29Z".to_string()),
       last_progress_at: Some("2026-03-26T15:08:29Z".to_string()),

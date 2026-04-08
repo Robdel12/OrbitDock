@@ -4,7 +4,8 @@
 //! together through create, restore, mutate, and project paths.
 
 use orbitdock_protocol::{
-  CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
+  CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSandboxPolicy,
+  CodexSessionOverrides, Provider,
 };
 
 /// Core identity fields that are immutable after creation.
@@ -29,6 +30,7 @@ pub struct SessionConfig {
   pub approval_policy: Option<String>,
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   pub sandbox_mode: Option<String>,
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
   pub personality: Option<String>,
@@ -56,6 +58,9 @@ impl SessionConfig {
     }
     if patch.sandbox_mode.is_some() {
       self.sandbox_mode = patch.sandbox_mode;
+    }
+    if patch.sandbox_policy_details.is_some() {
+      self.sandbox_policy_details = patch.sandbox_policy_details;
     }
     if patch.collaboration_mode.is_some() {
       self.collaboration_mode = patch.collaboration_mode;

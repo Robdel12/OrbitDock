@@ -11,6 +11,7 @@ use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::support::normalization::work_status_for_approval_decision;
+use codex_protocol::approvals::{NetworkPolicyAmendment, NetworkPolicyRuleAction};
 use orbitdock_protocol::{ApprovalType, ToolApprovalDecision};
 
 pub(crate) struct ApprovalDispatchResult {
@@ -22,6 +23,26 @@ pub(crate) struct ApprovalDispatchResult {
 enum ProviderApprovalAction {
   Codex(CodexAction),
   Claude(ClaudeAction),
+}
+
+fn claude_allow_response(
+  scope: ClaudeAllowToolApprovalScope,
+  updated_input: Option<serde_json::Value>,
+) -> ClaudeToolApprovalResponse {
+  ClaudeToolApprovalResponse::Allow(ClaudeAllowToolApproval {
+    scope,
+    updated_input,
+  })
+}
+
+fn claude_deny_response(
+  message: Option<String>,
+  interrupt: Option<bool>,
+) -> ClaudeToolApprovalResponse {
+  ClaudeToolApprovalResponse::Deny(ClaudeDenyToolApproval {
+    message,
+    interrupt: interrupt.unwrap_or(false),
+  })
 }
 
 struct ProviderApprovalContext {
@@ -50,6 +71,7 @@ fn provider_approval_action(
   } = context;
 
   if is_codex {
+    let network_policy_amendment = parse_network_policy_amendment(updated_input.as_ref())?;
     let action = match approval_type {
       Some(ApprovalType::Patch) => CodexAction::ApprovePatch {
         request_id,
@@ -69,9 +91,12 @@ fn provider_approval_action(
         decision: match decision {
           ToolApprovalDecision::Approved => CodexExecApproval::Approved,
           ToolApprovalDecision::ApprovedForSession => CodexExecApproval::ApprovedForSession,
-          ToolApprovalDecision::ApprovedAlways => {
-            CodexExecApproval::ApprovedAlways { proposed_amendment }
-          }
+          ToolApprovalDecision::ApprovedAlways => match network_policy_amendment {
+            Some(network_policy_amendment) => CodexExecApproval::NetworkPolicyAmendment {
+              network_policy_amendment,
+            },
+            None => CodexExecApproval::ApprovedAlways { proposed_amendment },
+          },
           ToolApprovalDecision::Denied => CodexExecApproval::Denied,
           ToolApprovalDecision::Abort => CodexExecApproval::Abort,
         },
@@ -81,26 +106,16 @@ fn provider_approval_action(
   }
 
   let response = match decision {
-    ToolApprovalDecision::Approved => ClaudeToolApprovalResponse::Allow(ClaudeAllowToolApproval {
-      scope: ClaudeAllowToolApprovalScope::Once,
-      updated_input,
-    }),
+    ToolApprovalDecision::Approved => {
+      claude_allow_response(ClaudeAllowToolApprovalScope::Once, updated_input)
+    }
     ToolApprovalDecision::ApprovedForSession => {
-      ClaudeToolApprovalResponse::Allow(ClaudeAllowToolApproval {
-        scope: ClaudeAllowToolApprovalScope::Session,
-        updated_input,
-      })
+      claude_allow_response(ClaudeAllowToolApprovalScope::Session, updated_input)
     }
     ToolApprovalDecision::ApprovedAlways => {
-      ClaudeToolApprovalResponse::Allow(ClaudeAllowToolApproval {
-        scope: ClaudeAllowToolApprovalScope::Always,
-        updated_input,
-      })
+      claude_allow_response(ClaudeAllowToolApprovalScope::Always, updated_input)
     }
-    ToolApprovalDecision::Denied => ClaudeToolApprovalResponse::Deny(ClaudeDenyToolApproval {
-      message,
-      interrupt: interrupt.unwrap_or(false),
-    }),
+    ToolApprovalDecision::Denied => claude_deny_response(message, interrupt),
     ToolApprovalDecision::Abort => ClaudeToolApprovalResponse::Deny(ClaudeDenyToolApproval {
       message,
       interrupt: interrupt.unwrap_or(true),
@@ -110,6 +125,46 @@ fn provider_approval_action(
   Ok(ProviderApprovalAction::Claude(ClaudeAction::ApproveTool {
     request_id,
     response,
+  }))
+}
+
+fn parse_network_policy_amendment(
+  updated_input: Option<&serde_json::Value>,
+) -> Result<Option<NetworkPolicyAmendment>, &'static str> {
+  let Some(updated_input) = updated_input else {
+    return Ok(None);
+  };
+
+  let candidate = updated_input
+    .get("network_policy_amendment")
+    .unwrap_or(updated_input);
+  let Some(host) = candidate
+    .get("host")
+    .and_then(serde_json::Value::as_str)
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  else {
+    return Ok(None);
+  };
+
+  let Some(action_raw) = candidate
+    .get("action")
+    .and_then(serde_json::Value::as_str)
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+  else {
+    return Ok(None);
+  };
+
+  let action = match action_raw {
+    "allow" => NetworkPolicyRuleAction::Allow,
+    "deny" => NetworkPolicyRuleAction::Deny,
+    _ => return Err("invalid_network_policy_action"),
+  };
+
+  Ok(Some(NetworkPolicyAmendment {
+    host: host.to_string(),
+    action,
   }))
 }
 
@@ -197,4 +252,38 @@ pub(crate) async fn dispatch_approve_tool(
     active_request_id: next_pending_request_id,
     approval_version,
   })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::parse_network_policy_amendment;
+  use serde_json::json;
+
+  #[test]
+  fn parses_nested_network_policy_amendment() {
+    let input = json!({
+      "network_policy_amendment": {
+        "host": "api.github.com",
+        "action": "allow"
+      }
+    });
+    let parsed = parse_network_policy_amendment(Some(&input))
+      .expect("parse result")
+      .expect("amendment");
+    assert_eq!(parsed.host, "api.github.com");
+    assert_eq!(
+      serde_json::to_value(parsed.action).expect("serialize action"),
+      json!("allow")
+    );
+  }
+
+  #[test]
+  fn rejects_unknown_network_policy_action() {
+    let input = json!({
+      "host": "api.github.com",
+      "action": "approve"
+    });
+    let parsed = parse_network_policy_amendment(Some(&input));
+    assert_eq!(parsed, Err("invalid_network_policy_action"));
+  }
 }

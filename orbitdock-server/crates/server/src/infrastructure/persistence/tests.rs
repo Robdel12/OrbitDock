@@ -1747,3 +1747,94 @@ fn row_append_fk_violation_rejects_orphan_message() {
     "orphan message must NOT be persisted (FK violation)"
   );
 }
+
+/// Test that provider session IDs are immutable once set.
+/// Uses the full migration path to ensure SQLite triggers are in place.
+#[test]
+fn provider_session_id_immutability_enforced_by_trigger() {
+  use crate::infrastructure::migration_runner;
+  use crate::infrastructure::paths;
+  use rusqlite::params;
+  use std::sync::Once;
+
+  static INIT_MIGRATIONS: Once = Once::new();
+  let _guard = persistence_test_db_guard().lock().unwrap();
+  crate::support::test_support::ensure_server_test_data_dir();
+
+  // Run migrations once to get the immutability triggers
+  INIT_MIGRATIONS.call_once(|| {
+    let mut conn = Connection::open(paths::db_path()).expect("open migrated db");
+    migration_runner::run_migrations(&mut conn).expect("run migrations");
+  });
+
+  let conn = Connection::open(paths::db_path()).expect("open db for test");
+  let session_id = format!("immutable-test-{}", std::process::id());
+  let original_sdk_id = "original-claude-sdk-id";
+  let overwrite_sdk_id = "overwrite-should-fail";
+  let original_thread_id = "original-codex-thread-id";
+  let overwrite_thread_id = "overwrite-should-fail";
+
+  // Create a test session
+  conn
+    .execute(
+      "INSERT OR REPLACE INTO sessions (
+         id, provider, status, work_status, lifecycle_state, project_path,
+         claude_sdk_session_id, codex_thread_id
+       ) VALUES (?1, 'claude', 'active', 'waiting', 'open', '/tmp/test', ?2, ?3)",
+      params![session_id, original_sdk_id, original_thread_id],
+    )
+    .expect("create test session");
+
+  // Verify the IDs are set
+  let (sdk_id, thread_id): (String, String) = conn
+    .query_row(
+      "SELECT claude_sdk_session_id, codex_thread_id FROM sessions WHERE id = ?1",
+      params![session_id],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .expect("read initial state");
+  assert_eq!(sdk_id, original_sdk_id);
+  assert_eq!(thread_id, original_thread_id);
+
+  // Try to overwrite claude_sdk_session_id — trigger should reject
+  let overwrite_result = conn.execute(
+    "UPDATE sessions SET claude_sdk_session_id = ?1 WHERE id = ?2",
+    params![overwrite_sdk_id, session_id],
+  );
+  assert!(
+    overwrite_result.is_err(),
+    "Overwriting claude_sdk_session_id should fail: {:?}",
+    overwrite_result
+  );
+
+  // Try to overwrite codex_thread_id — trigger should reject
+  let overwrite_result = conn.execute(
+    "UPDATE sessions SET codex_thread_id = ?1 WHERE id = ?2",
+    params![overwrite_thread_id, session_id],
+  );
+  assert!(
+    overwrite_result.is_err(),
+    "Overwriting codex_thread_id should fail: {:?}",
+    overwrite_result
+  );
+
+  // Verify original values are preserved
+  let (sdk_id, thread_id): (String, String) = conn
+    .query_row(
+      "SELECT claude_sdk_session_id, codex_thread_id FROM sessions WHERE id = ?1",
+      params![session_id],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .expect("read final state");
+  assert_eq!(
+    sdk_id, original_sdk_id,
+    "claude_sdk_session_id must remain unchanged"
+  );
+  assert_eq!(
+    thread_id, original_thread_id,
+    "codex_thread_id must remain unchanged"
+  );
+
+  // Cleanup
+  let _ = conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]);
+}

@@ -29,6 +29,24 @@ The repo rules are simple:
 - keep SQLite ownership in the Rust server
 - prefer focused docs in `docs/` over growing this file again
 
+## State Mutation Rules
+
+**Functional. Pure. Immutable. Single mutation path.**
+
+1. All database writes go through `PersistCommand` — no direct SQL outside persistence layer
+2. Immutable fields (`claude_sdk_session_id`, `codex_thread_id`) cannot be overwritten once set
+3. In-memory state is frozen after initial write
+4. SQLite triggers enforce immutability as hard stop — code bugs cannot corrupt data
+
+## Hooks Are Passive
+
+Hooks are passive reporters — they observe and report, nothing more.
+
+1. Hooks NEVER mutate direct session state
+2. Hooks NEVER write to `claude_sdk_session_id` or `codex_thread_id` of a direct session
+3. Hook sessions are ephemeral sugar — they report events, they don't own state
+4. If a hook is touching direct session state, the architecture is backwards
+
 ## Documentation Map
 
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — setup, build commands, testing, key patterns

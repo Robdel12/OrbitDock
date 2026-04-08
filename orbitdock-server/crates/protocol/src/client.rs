@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::types::{
-  CodexApprovalPolicy, CodexApprovalsReviewer, ImageInput, MentionInput, PermissionGrantScope,
-  Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput, ToolApprovalDecision,
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexSandboxPolicy, ImageInput, MentionInput,
+  PermissionGrantScope, Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput,
+  ToolApprovalDecision,
 };
 
 /// Messages sent from client to server
@@ -93,6 +94,8 @@ pub enum ClientMessage {
     approval_policy_details: Option<CodexApprovalPolicy>,
     sandbox_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    sandbox_policy_details: Option<CodexSandboxPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     approvals_reviewer: Option<CodexApprovalsReviewer>,
     permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -126,6 +129,8 @@ pub enum ClientMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval_policy_details: Option<CodexApprovalPolicy>,
     sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sandbox_policy_details: Option<CodexSandboxPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -162,6 +167,8 @@ pub enum ClientMessage {
     approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sandbox_policy_details: Option<CodexSandboxPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -191,6 +198,8 @@ pub enum ClientMessage {
     approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sandbox_policy_details: Option<CodexSandboxPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1519,6 +1528,7 @@ mod tests {
       approval_policy: Some("on-request".to_string()),
       approval_policy_details: None,
       sandbox_mode: Some("workspace-write".to_string()),
+      sandbox_policy_details: None,
       approvals_reviewer: Some(CodexApprovalsReviewer::GuardianSubagent),
       permission_mode: Some("default".to_string()),
       collaboration_mode: Some("default".to_string()),

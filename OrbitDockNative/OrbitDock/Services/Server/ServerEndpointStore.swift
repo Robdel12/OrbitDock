@@ -257,7 +257,6 @@ struct ServerEndpointStore {
 
     return merged
   }
-
   private func hydratedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
     endpoints.map { endpoint in
       var copy = endpoint

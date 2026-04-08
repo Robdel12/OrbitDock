@@ -4,7 +4,8 @@ use orbitdock_protocol::{
   conversation_contracts::{
     ConversationRow, ConversationRowEntry, NoticeRow, NoticeRowKind, NoticeRowSeverity, TurnStatus,
   },
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage, SessionSummary,
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, CodexSandboxPolicy, ServerMessage,
+  SessionSummary,
 };
 
 use crate::connectors::claude_session::ClaudeAction;
@@ -28,6 +29,7 @@ pub(crate) struct SessionConfigUpdate {
   pub approval_policy: Option<Option<String>>,
   pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
   pub sandbox_mode: Option<Option<String>>,
+  pub sandbox_policy_details: Option<Option<CodexSandboxPolicy>>,
   pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
   pub permission_mode: Option<Option<String>>,
   pub collaboration_mode: Option<Option<String>>,
@@ -117,6 +119,7 @@ pub(crate) async fn update_session_config(
     approval_policy,
     approval_policy_details,
     sandbox_mode,
+    sandbox_policy_details,
     approvals_reviewer,
     permission_mode,
     collaboration_mode,
@@ -153,7 +156,8 @@ pub(crate) async fn update_session_config(
   let (
     approval_policy,
     approval_policy_details,
-    sandbox_mode,
+    mut sandbox_mode,
+    sandbox_policy_details,
     collaboration_mode,
     multi_agent,
     personality,
@@ -188,6 +192,12 @@ pub(crate) async fn update_session_config(
     if let Some(ref value) = sandbox_mode {
       overrides.sandbox_mode = value.clone();
     }
+    if let Some(value) = sandbox_policy_details.clone() {
+      overrides.sandbox_policy_details = value;
+      if let Some(ref details) = overrides.sandbox_policy_details {
+        overrides.sandbox_mode = Some(details.legacy_summary());
+      }
+    }
     if let Some(value) = approvals_reviewer {
       overrides.approvals_reviewer = value;
     }
@@ -217,6 +227,7 @@ pub(crate) async fn update_session_config(
       approval_policy,
       approval_policy_details,
       sandbox_mode,
+      sandbox_policy_details,
       collaboration_mode,
       multi_agent,
       personality,
@@ -235,6 +246,7 @@ pub(crate) async fn update_session_config(
       approval_policy,
       approval_policy_details,
       sandbox_mode,
+      sandbox_policy_details,
       collaboration_mode,
       multi_agent,
       personality,
@@ -250,6 +262,11 @@ pub(crate) async fn update_session_config(
     )
   };
 
+  // Keep legacy compatibility in sync when canonical sandbox details are updated.
+  if let Some(ref details) = sandbox_policy_details {
+    sandbox_mode = Some(details.as_ref().map(CodexSandboxPolicy::legacy_summary));
+  }
+
   let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
   let send_result = actor
@@ -258,6 +275,7 @@ pub(crate) async fn update_session_config(
         approval_policy: approval_policy.clone(),
         approval_policy_details: approval_policy_details.clone(),
         sandbox_mode: sandbox_mode.clone(),
+        sandbox_policy_details: sandbox_policy_details.clone(),
         permission_mode: permission_mode.clone(),
         collaboration_mode: collaboration_mode.clone(),
         multi_agent,
@@ -411,7 +429,9 @@ pub(crate) async fn update_session_config(
     let _ = tx
       .send(CodexAction::UpdateConfig {
         approval_policy: approval_policy.flatten(),
+        approval_policy_details: approval_policy_details.flatten(),
         sandbox_mode: sandbox_mode.flatten(),
+        sandbox_policy_details: sandbox_policy_details.flatten(),
         approvals_reviewer: approvals_reviewer
           .flatten()
           .map(|value| value.as_str().to_string()),
@@ -848,8 +868,8 @@ mod tests {
   use std::sync::Arc;
 
   use orbitdock_protocol::{
-    conversation_contracts::ConversationRow, CodexIntegrationMode, Provider, ServerMessage,
-    SessionStatus, StateChanges, WorkStatus,
+    conversation_contracts::ConversationRow, CodexIntegrationMode, CodexSandboxPolicy, Provider,
+    ServerMessage, SessionStatus, StateChanges, WorkStatus,
   };
   use tokio::sync::{mpsc, oneshot};
   use tokio::time::{timeout, Duration};
@@ -989,6 +1009,51 @@ mod tests {
     assert_eq!(snapshot.effort.as_deref(), Some("high"));
     assert_eq!(snapshot.permission_mode.as_deref(), Some("full"));
     assert_eq!(snapshot.collaboration_mode.as_deref(), Some("enabled"));
+  }
+
+  #[tokio::test]
+  async fn update_session_config_syncs_legacy_sandbox_mode_from_details_only() {
+    let state = new_test_session_registry(true);
+    let session_id = "control-deck-sandbox-compat";
+
+    state.add_session(SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/control-deck-sandbox-compat".to_string(),
+    ));
+
+    update_session_config(
+      &state,
+      session_id,
+      SessionConfigUpdate {
+        sandbox_policy_details: Some(CodexSandboxPolicy::from_storage_text(
+          "workspace-write-network",
+        )),
+        ..Default::default()
+      },
+    )
+    .await
+    .expect("sandbox details update should succeed");
+
+    let summary = state
+      .get_session(session_id)
+      .expect("session still exists after config update")
+      .summary()
+      .await
+      .expect("summary command should be answered");
+
+    assert_eq!(
+      summary.sandbox_mode.as_deref(),
+      Some("workspace-write-network")
+    );
+    assert_eq!(
+      summary
+        .sandbox_policy_details
+        .as_ref()
+        .map(CodexSandboxPolicy::legacy_summary)
+        .as_deref(),
+      Some("workspace-write-network")
+    );
   }
 
   #[tokio::test]

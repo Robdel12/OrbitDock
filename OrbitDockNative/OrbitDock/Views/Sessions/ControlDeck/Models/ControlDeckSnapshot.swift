@@ -67,6 +67,7 @@ struct ControlDeckConfig: Sendable {
   let approvalPolicy: String?
   let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let sandboxPolicyDetails: ServerCodexSandboxPolicy?
   let approvalsReviewer: ServerCodexApprovalsReviewer?
   let permissionMode: String?
   let collaborationMode: String?
@@ -102,7 +103,9 @@ struct ControlDeckAutoReviewOption: Identifiable, Equatable, Sendable {
   let value: String
   let label: String
   let approvalPolicy: String?
+  let approvalPolicyDetails: ServerCodexApprovalPolicy?
   let sandboxMode: String?
+  let sandboxPolicyDetails: ServerCodexSandboxPolicy?
 
   var id: String {
     value

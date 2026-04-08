@@ -659,7 +659,8 @@ final class ServerRuntimeRegistry {
       let snapshot = ServerDashboardSnapshotPayload(
         revision: dashboardSnapshot.revision,
         conversations: dashboardSnapshot.conversations,
-        counts: dashboardSnapshot.counts
+        counts: dashboardSnapshot.counts,
+        projectGroups: dashboardSnapshot.projectGroups
       )
       runtime.connection.applyDashboardSnapshot(snapshot)
       return .success
