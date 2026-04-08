@@ -4,7 +4,7 @@ import Testing
 
 struct ServerEndpointStoreTests {
   private final class InMemoryCloudSync {
-    var endpoints: [ServerEndpoint]?
+    var endpoints: [ServerEndpointCloudRecord]?
   }
 
   @Test func startsEmptyWhenNoConfigExists() {
@@ -118,30 +118,62 @@ struct ServerEndpointStoreTests {
     #expect(ServerEndpointStore.hostInput(from: customPortURL, defaultPort: 4_000) == "10.0.0.8:4111")
   }
 
-  @Test func prefersCloudSyncedEndpointsOverLocalDefaults() throws {
+  @Test func mergesCloudSyncedDetailsWithLocalPreferenceState() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    let local = try ServerEndpoint(
-      name: "Local",
-      wsURL: #require(URL(string: "ws://10.0.0.10:4000/ws"))
-    )
-    let cloud = try ServerEndpoint(
-      name: "Cloud",
-      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
+    let endpointIdA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let endpointIdB = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
+
+    let localA = try ServerEndpoint(
+      id: endpointIdA,
+      name: "Local A",
+      wsURL: #require(URL(string: "ws://10.0.0.1:4000/ws")),
+      isEnabled: true,
       isDefault: true
     )
+    let localB = try ServerEndpoint(
+      id: endpointIdB,
+      name: "Local B",
+      wsURL: #require(URL(string: "ws://10.0.0.2:4000/ws")),
+      isEnabled: false,
+      isDefault: false
+    )
 
-    context.defaults.set(try JSONEncoder().encode([local]), forKey: context.endpointsKey)
-    context.cloudSync.endpoints = [cloud]
+    context.store.save([localA, localB])
+
+    var cloudA = try ServerEndpointCloudRecord(
+      id: endpointIdA,
+      name: "Cloud A",
+      wsURL: #require(URL(string: "wss://dock-a.example/ws"))
+    )
+    cloudA.legacyIsEnabled = false
+    cloudA.legacyIsDefault = false
+
+    var cloudB = try ServerEndpointCloudRecord(
+      id: endpointIdB,
+      name: "Cloud B",
+      wsURL: #require(URL(string: "wss://dock-b.example/ws"))
+    )
+    cloudB.legacyIsEnabled = true
+    cloudB.legacyIsDefault = true
+
+    context.cloudSync.endpoints = [cloudA, cloudB]
 
     let endpoints = context.store.endpoints()
 
-    #expect(endpoints.count == 1)
-    #expect(endpoints.first?.name == "Cloud")
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.name == "Cloud A")
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.wsURL == URL(string: "wss://dock-a.example/ws"))
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isDefault == true)
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isEnabled == true)
+
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.name == "Cloud B")
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.wsURL == URL(string: "wss://dock-b.example/ws"))
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.isDefault == false)
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.isEnabled == false)
   }
 
-  @Test func saveWritesRedactedEndpointsToCloudSync() throws {
+  @Test func saveWritesSyncedEndpointRecordsToCloudSync() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
@@ -157,7 +189,9 @@ struct ServerEndpointStoreTests {
 
     #expect(context.cloudSync.endpoints?.count == 1)
     #expect(context.cloudSync.endpoints?.first?.name == "Synced")
-    #expect(context.cloudSync.endpoints?.first?.authToken == nil)
+    #expect(context.cloudSync.endpoints?.first?.wsURL == endpoint.wsURL)
+    #expect(context.cloudSync.endpoints?.first?.legacyIsEnabled == nil)
+    #expect(context.cloudSync.endpoints?.first?.legacyIsDefault == nil)
   }
 
   private func makeStoreContext() -> (

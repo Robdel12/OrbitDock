@@ -5,10 +5,12 @@ import Security
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"
   static let endpointTokenIdsStorageKey = "orbitdock.server.endpoint-token-ids"
+  static let endpointLocalPrefsStorageKey = "orbitdock.server.endpoint-local-prefs"
 
   private let defaults: UserDefaults
   private let endpointsKey: String
   private let endpointTokenIdsKey: String
+  private let endpointLocalPrefsKey: String
   private let defaultPort: Int
   private let tokenStore: ServerEndpointTokenStore
   private let cloudSyncStore: ServerEndpointCloudSyncStore
@@ -19,6 +21,7 @@ struct ServerEndpointStore {
     defaults: UserDefaults = .standard,
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
     endpointTokenIdsKey: String = ServerEndpointStore.endpointTokenIdsStorageKey,
+    endpointLocalPrefsKey: String = ServerEndpointStore.endpointLocalPrefsStorageKey,
     tokenStore: ServerEndpointTokenStore = ServerEndpointTokenStore(),
     cloudSyncStore: ServerEndpointCloudSyncStore = .live(),
     defaultPort: Int = ServerEndpointSettings.defaultPort
@@ -26,32 +29,47 @@ struct ServerEndpointStore {
     self.defaults = defaults
     self.endpointsKey = endpointsKey
     self.endpointTokenIdsKey = endpointTokenIdsKey
+    self.endpointLocalPrefsKey = endpointLocalPrefsKey
     self.tokenStore = tokenStore
     self.cloudSyncStore = cloudSyncStore
     self.defaultPort = defaultPort
   }
 
   func endpoints() -> [ServerEndpoint] {
-    if let cloud = cloudSyncStore.load() {
-      let normalized = normalizedEndpoints(cloud)
+    let localEndpoints = persistedEndpoints() ?? []
+    let localPrefsById = persistedLocalPrefsByID()
+
+    if let cloudRecords = cloudSyncStore.load() {
+      let merged = mergedEndpoints(
+        cloudRecords: cloudRecords,
+        localEndpoints: localEndpoints,
+        localPrefsById: localPrefsById
+      )
+      let normalized = normalizedEndpoints(merged)
       let hydrated = hydratedEndpoints(normalized)
-      if normalized != persistedEndpoints() {
+
+      syncAuthTokens(from: hydrated)
+      if normalized != localEndpoints {
         writeRedactedEndpointsToDefaults(normalized)
       }
+      writeLocalPrefsToDefaults(normalized)
+      cloudSyncStore.save(syncedRecords(from: normalized))
       return hydrated
     }
 
-    guard let persisted = persistedEndpoints() else {
+    guard !localEndpoints.isEmpty else {
       return []
     }
 
-    let normalized = normalizedEndpoints(persisted)
+    let normalized = normalizedEndpoints(localEndpoints)
     let hydrated = hydratedEndpoints(normalized)
-    if normalized != persisted {
-      save(hydrated)
-      return hydrated
+    syncAuthTokens(from: hydrated)
+
+    if normalized != localEndpoints {
+      writeRedactedEndpointsToDefaults(normalized)
     }
-    cloudSyncStore.save(redactedEndpoints(normalized))
+    writeLocalPrefsToDefaults(normalized)
+    cloudSyncStore.save(syncedRecords(from: normalized))
     return hydrated
   }
 
@@ -84,7 +102,8 @@ struct ServerEndpointStore {
     let normalized = normalizedEndpoints(rawEndpoints)
     syncAuthTokens(from: normalized)
     writeRedactedEndpointsToDefaults(normalized)
-    cloudSyncStore.save(redactedEndpoints(normalized))
+    writeLocalPrefsToDefaults(normalized)
+    cloudSyncStore.save(syncedRecords(from: normalized))
   }
 
   func upsert(_ endpoint: ServerEndpoint) {
@@ -146,10 +165,36 @@ struct ServerEndpointStore {
     return try? decoder.decode([ServerEndpoint].self, from: data)
   }
 
+  private func persistedLocalPrefsByID() -> [UUID: ServerEndpointLocalPrefs] {
+    guard let data = defaults.data(forKey: endpointLocalPrefsKey), !data.isEmpty,
+          let persisted = try? decoder.decode([ServerEndpointLocalPrefs].self, from: data)
+    else {
+      return [:]
+    }
+
+    var byID: [UUID: ServerEndpointLocalPrefs] = [:]
+    for prefs in persisted {
+      byID[prefs.id] = prefs
+    }
+    return byID
+  }
+
   private func writeRedactedEndpointsToDefaults(_ endpoints: [ServerEndpoint]) {
     let redacted = redactedEndpoints(endpoints)
     guard let data = try? encoder.encode(redacted) else { return }
     defaults.set(data, forKey: endpointsKey)
+  }
+
+  private func writeLocalPrefsToDefaults(_ endpoints: [ServerEndpoint]) {
+    let prefs = endpoints.map { endpoint in
+      ServerEndpointLocalPrefs(
+        id: endpoint.id,
+        isEnabled: endpoint.isEnabled,
+        isDefault: endpoint.isDefault
+      )
+    }
+    guard let data = try? encoder.encode(prefs) else { return }
+    defaults.set(data, forKey: endpointLocalPrefsKey)
   }
 
   private func redactedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
@@ -158,6 +203,53 @@ struct ServerEndpointStore {
       copy.authToken = nil
       return copy
     }
+  }
+
+  private func syncedRecords(from endpoints: [ServerEndpoint]) -> [ServerEndpointCloudRecord] {
+    endpoints.map { endpoint in
+      ServerEndpointCloudRecord(id: endpoint.id, name: endpoint.name, wsURL: endpoint.wsURL)
+    }
+  }
+
+  private func mergedEndpoints(
+    cloudRecords: [ServerEndpointCloudRecord],
+    localEndpoints: [ServerEndpoint],
+    localPrefsById: [UUID: ServerEndpointLocalPrefs]
+  ) -> [ServerEndpoint] {
+    var localById: [UUID: ServerEndpoint] = [:]
+    for endpoint in localEndpoints {
+      localById[endpoint.id] = endpoint
+    }
+
+    var merged: [ServerEndpoint] = []
+    var seen = Set<UUID>()
+
+    for record in cloudRecords where seen.insert(record.id).inserted {
+      let localEndpoint = localById[record.id]
+      let localPrefs = localPrefsById[record.id]
+      merged.append(
+        ServerEndpoint(
+          id: record.id,
+          name: record.name,
+          wsURL: record.wsURL,
+          isEnabled: localPrefs?.isEnabled ?? localEndpoint?.isEnabled ?? record.legacyIsEnabled ?? true,
+          isDefault: localPrefs?.isDefault ?? localEndpoint?.isDefault ?? record.legacyIsDefault ?? false,
+          authToken: localEndpoint?.authToken
+        )
+      )
+    }
+
+    for endpoint in localEndpoints where seen.insert(endpoint.id).inserted {
+      let localPrefs = localPrefsById[endpoint.id]
+      var copy = endpoint
+      if let localPrefs {
+        copy.isEnabled = localPrefs.isEnabled
+        copy.isDefault = localPrefs.isDefault
+      }
+      merged.append(copy)
+    }
+
+    return merged
   }
 
   private func hydratedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
@@ -281,6 +373,52 @@ struct ServerEndpointStore {
   }
 }
 
+struct ServerEndpointLocalPrefs: Codable, Equatable {
+  var id: UUID
+  var isEnabled: Bool
+  var isDefault: Bool
+}
+
+struct ServerEndpointCloudRecord: Codable, Equatable {
+  var id: UUID
+  var name: String
+  var wsURL: URL
+  var legacyIsEnabled: Bool?
+  var legacyIsDefault: Bool?
+
+  init(id: UUID, name: String, wsURL: URL) {
+    self.id = id
+    self.name = name
+    self.wsURL = wsURL
+    legacyIsEnabled = nil
+    legacyIsDefault = nil
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case wsURL
+    case isEnabled
+    case isDefault
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    wsURL = try container.decode(URL.self, forKey: .wsURL)
+    legacyIsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled)
+    legacyIsDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(name, forKey: .name)
+    try container.encode(wsURL, forKey: .wsURL)
+  }
+}
+
 struct ServerEndpointTokenStore {
   private static let logger = Logger(subsystem: "com.orbitdock", category: "keychain")
   private let serviceName = "com.orbitdock.server-endpoint-token"
@@ -355,8 +493,8 @@ struct ServerEndpointTokenStore {
 }
 
 struct ServerEndpointCloudSyncStore {
-  let load: () -> [ServerEndpoint]?
-  let save: ([ServerEndpoint]) -> Void
+  let load: () -> [ServerEndpointCloudRecord]?
+  let save: ([ServerEndpointCloudRecord]) -> Void
 
   static func live() -> ServerEndpointCloudSyncStore {
     let keychain = ServerEndpointCloudSyncKeychain()
@@ -374,7 +512,7 @@ private struct ServerEndpointCloudSyncKeychain {
   private let serviceName = "com.orbitdock.server-endpoints-sync"
   private let accountName = "endpoints-json-v1"
 
-  func load() -> [ServerEndpoint]? {
+  func load() -> [ServerEndpointCloudRecord]? {
     var query = keychainQuery
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -389,16 +527,11 @@ private struct ServerEndpointCloudSyncKeychain {
       Self.logger.error("Synced endpoints read failed: \(Int(status))")
       return nil
     }
-    return try? decoder.decode([ServerEndpoint].self, from: data)
+    return try? decoder.decode([ServerEndpointCloudRecord].self, from: data)
   }
 
-  func save(_ endpoints: [ServerEndpoint]) {
-    let redacted = endpoints.map { endpoint -> ServerEndpoint in
-      var copy = endpoint
-      copy.authToken = nil
-      return copy
-    }
-    guard let data = try? encoder.encode(redacted) else { return }
+  func save(_ endpoints: [ServerEndpointCloudRecord]) {
+    guard let data = try? encoder.encode(endpoints) else { return }
 
     var updateQuery = keychainQuery
     updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
