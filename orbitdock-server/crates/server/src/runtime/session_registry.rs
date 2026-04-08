@@ -128,6 +128,12 @@ pub struct SessionRegistry {
   /// materialization. Keyed by Codex thread/session id from SessionStart.
   pending_codex_sessions: DashMap<String, PendingCodexSession>,
 
+  /// Immediate runtime ownership routing for provider session IDs.
+  /// SQLite remains durable truth; these maps close the hook race window
+  /// before persistence flushes.
+  claude_runtime_owners: DashMap<String, String>,
+  codex_runtime_owners: DashMap<String, String>,
+
   /// Provider-agnostic shell runtime service for user-initiated commands.
   shell_service: Arc<ShellService>,
 
@@ -198,6 +204,39 @@ impl SessionRegistry {
       .or_else(|| self.resolve_codex_thread(session_id))
   }
 
+  fn is_active_direct_owner_session(&self, owner_session_id: &str, provider: Provider) -> bool {
+    let Some(actor) = self.sessions.get(owner_session_id) else {
+      return false;
+    };
+    let snapshot = actor.snapshot();
+    snapshot.provider == provider
+      && snapshot.control_mode == orbitdock_protocol::SessionControlMode::Direct
+      && snapshot.status == orbitdock_protocol::SessionStatus::Active
+      && snapshot.lifecycle_state != orbitdock_protocol::SessionLifecycleState::Ended
+  }
+
+  fn purge_runtime_ownership_for_session(&self, session_id: &str) {
+    let claude_keys: Vec<String> = self
+      .claude_runtime_owners
+      .iter()
+      .filter(|entry| entry.value() == session_id)
+      .map(|entry| entry.key().clone())
+      .collect();
+    for key in claude_keys {
+      self.claude_runtime_owners.remove(&key);
+    }
+
+    let codex_keys: Vec<String> = self
+      .codex_runtime_owners
+      .iter()
+      .filter(|entry| entry.value() == session_id)
+      .map(|entry| entry.key().clone())
+      .collect();
+    for key in codex_keys {
+      self.codex_runtime_owners.remove(&key);
+    }
+  }
+
   #[cfg(test)]
   #[allow(dead_code)]
   pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
@@ -255,6 +294,8 @@ impl SessionRegistry {
       naming_guard: Arc::new(NamingGuard::new()),
       pending_claude_sessions: DashMap::new(),
       pending_codex_sessions: DashMap::new(),
+      claude_runtime_owners: DashMap::new(),
+      codex_runtime_owners: DashMap::new(),
       shell_service: Arc::new(ShellService::new()),
       terminal_service: Arc::new(TerminalService::new()),
       connections: ConnectionState::new(is_primary),
@@ -642,6 +683,7 @@ impl SessionRegistry {
   /// Remove a session
   pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
     self.connectors.remove_action_txs(id);
+    self.purge_runtime_ownership_for_session(id);
     let removed = self.sessions.remove(id).map(|(_, v)| v);
     if removed.is_some() {
       self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
@@ -652,6 +694,17 @@ impl SessionRegistry {
   /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
   #[allow(dead_code)]
   pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
+    if let Some(runtime_owner) = self
+      .claude_runtime_owners
+      .get(sdk_session_id)
+      .map(|entry| entry.value().clone())
+    {
+      if self.is_active_direct_owner_session(&runtime_owner, Provider::Claude) {
+        return Some(runtime_owner);
+      }
+      self.claude_runtime_owners.remove(sdk_session_id);
+    }
+
     let conn = self.open_ownership_db("resolve_claude_thread")?;
     conn
       .query_row(
@@ -687,6 +740,17 @@ impl SessionRegistry {
 
   /// Resolve a Codex thread ID to the owning OrbitDock session ID.
   pub fn resolve_codex_thread(&self, thread_id: &str) -> Option<String> {
+    if let Some(runtime_owner) = self
+      .codex_runtime_owners
+      .get(thread_id)
+      .map(|entry| entry.value().clone())
+    {
+      if self.is_active_direct_owner_session(&runtime_owner, Provider::Codex) {
+        return Some(runtime_owner);
+      }
+      self.codex_runtime_owners.remove(thread_id);
+    }
+
     let conn = self.open_ownership_db("resolve_codex_thread")?;
     conn
       .query_row(
@@ -805,6 +869,26 @@ impl SessionRegistry {
       .ok()
       .flatten()
       .flatten()
+  }
+
+  pub fn register_claude_runtime_owner(&self, sdk_session_id: &str, owner_session_id: &str) {
+    self
+      .claude_runtime_owners
+      .insert(sdk_session_id.to_string(), owner_session_id.to_string());
+  }
+
+  pub fn unregister_claude_runtime_owner(&self, sdk_session_id: &str) {
+    self.claude_runtime_owners.remove(sdk_session_id);
+  }
+
+  pub fn register_codex_runtime_owner(&self, thread_id: &str, owner_session_id: &str) {
+    self
+      .codex_runtime_owners
+      .insert(thread_id.to_string(), owner_session_id.to_string());
+  }
+
+  pub fn unregister_codex_runtime_owner(&self, thread_id: &str) {
+    self.codex_runtime_owners.remove(thread_id);
   }
 
   /// Subscribe to list updates
@@ -1270,8 +1354,44 @@ mod tests {
     assert_eq!(conversation.tool_count, 7);
   }
 
-  // Tests for register_*_thread and create_ownership_test_db were removed because
-  // those methods were deleted. Provider session ID writes now go through
-  // PersistCommand only (single mutation path).
-  // Provider session ID writes now go through PersistCommand only (single mutation path).
+  #[tokio::test]
+  async fn runtime_owner_registration_resolves_before_sqlite_flush() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+    let mut codex_session = SessionHandle::new(
+      "direct-codex-owner".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-direct-codex-owner".to_string(),
+    );
+    codex_session
+      .set_codex_integration_mode(Some(orbitdock_protocol::CodexIntegrationMode::Direct));
+    codex_session.set_status(orbitdock_protocol::SessionStatus::Active);
+    codex_session.refresh_snapshot();
+    registry.add_session(codex_session);
+
+    let mut claude_session = SessionHandle::new(
+      "direct-claude-owner".to_string(),
+      Provider::Claude,
+      "/tmp/orbitdock-direct-claude-owner".to_string(),
+    );
+    claude_session
+      .set_claude_integration_mode(Some(orbitdock_protocol::ClaudeIntegrationMode::Direct));
+    claude_session.set_status(orbitdock_protocol::SessionStatus::Active);
+    claude_session.refresh_snapshot();
+    registry.add_session(claude_session);
+
+    registry.register_codex_runtime_owner("thread-immediate", "direct-codex-owner");
+    registry.register_claude_runtime_owner("sdk-immediate", "direct-claude-owner");
+
+    assert_eq!(
+      registry.resolve_codex_thread("thread-immediate"),
+      Some("direct-codex-owner".to_string())
+    );
+    assert_eq!(
+      registry.resolve_claude_thread("sdk-immediate"),
+      Some("direct-claude-owner".to_string())
+    );
+  }
 }

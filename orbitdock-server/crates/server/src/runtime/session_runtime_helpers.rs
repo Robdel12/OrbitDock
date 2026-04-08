@@ -197,6 +197,8 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
   thread_id: &str,
   cleanup_reason: &str,
 ) {
+  state.register_codex_runtime_owner(thread_id, session_id);
+
   // Write goes through PersistCommand only — single mutation path with immutability guard.
   let persisted = persist_tx
     .send(PersistCommand::SetThreadId {
@@ -207,6 +209,7 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
     .is_ok();
 
   if !persisted {
+    state.unregister_codex_runtime_owner(thread_id);
     tracing::warn!(
       component = "session",
       event = "session.direct.codex_thread_claim_failed",

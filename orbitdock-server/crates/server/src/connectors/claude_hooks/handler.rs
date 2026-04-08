@@ -200,10 +200,11 @@ pub async fn handle_hook_message_with_options(
       // If there's a direct Claude session awaiting SDK ID registration, claim it eagerly.
       // Write goes through PersistCommand only — single mutation path with immutability guard.
       if let Some(owning_id) = state.find_unregistered_direct_claude_session(&cwd) {
+        state.register_claude_runtime_owner(&session_id, &owning_id);
         let persisted = state
           .persist()
           .send(PersistCommand::SetClaudeSdkSessionId {
-            session_id: owning_id,
+            session_id: owning_id.clone(),
             claude_sdk_session_id: session_id.clone(),
           })
           .await
@@ -211,6 +212,7 @@ pub async fn handle_hook_message_with_options(
         if persisted {
           return;
         }
+        state.unregister_claude_runtime_owner(&session_id);
       }
 
       // If session already exists (e.g. restored from DB), update it directly

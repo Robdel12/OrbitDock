@@ -290,19 +290,17 @@ fn create_codex_selection(
   let codex_overrides = CodexSessionOverrides {
     model: body.model.clone(),
     model_provider: body.codex_model_provider.clone(),
-    approval_policy: body.approval_policy.clone().or_else(|| {
-      body
-        .approval_policy_details
-        .as_ref()
-        .map(|details| details.legacy_summary())
-    }),
+    approval_policy: body
+      .approval_policy_details
+      .as_ref()
+      .map(|details| details.legacy_summary())
+      .or(body.approval_policy.clone()),
     approval_policy_details: body.approval_policy_details.clone(),
-    sandbox_mode: body.sandbox_mode.clone().or_else(|| {
-      body
-        .sandbox_policy_details
-        .as_ref()
-        .map(|details| details.legacy_summary())
-    }),
+    sandbox_mode: body
+      .sandbox_policy_details
+      .as_ref()
+      .map(|details| details.legacy_summary())
+      .or(body.sandbox_mode.clone()),
     sandbox_policy_details: body.sandbox_policy_details.clone(),
     approvals_reviewer: None,
     collaboration_mode: body.collaboration_mode.clone(),
@@ -688,19 +686,17 @@ pub async fn inspect_codex_config(
       overrides: CodexSessionOverrides {
         model: body.model,
         model_provider: body.codex_model_provider,
-        approval_policy: body.approval_policy.or_else(|| {
-          body
-            .approval_policy_details
-            .as_ref()
-            .map(|details| details.legacy_summary())
-        }),
+        approval_policy: body
+          .approval_policy_details
+          .as_ref()
+          .map(|details| details.legacy_summary())
+          .or(body.approval_policy),
         approval_policy_details: body.approval_policy_details,
-        sandbox_mode: body.sandbox_mode.or_else(|| {
-          body
-            .sandbox_policy_details
-            .as_ref()
-            .map(|details| details.legacy_summary())
-        }),
+        sandbox_mode: body
+          .sandbox_policy_details
+          .as_ref()
+          .map(|details| details.legacy_summary())
+          .or(body.sandbox_mode),
         sandbox_policy_details: body.sandbox_policy_details,
         approvals_reviewer: None,
         collaboration_mode: body.collaboration_mode,

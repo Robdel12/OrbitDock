@@ -268,15 +268,23 @@ async fn maybe_claim_direct_codex_session(
     return false;
   };
 
+  state.register_codex_runtime_owner(thread_id, &owning_id);
+
   // Write goes through PersistCommand only — single mutation path with immutability guard.
-  state
+  let persisted = state
     .persist()
     .send(PersistCommand::SetThreadId {
-      session_id: owning_id,
+      session_id: owning_id.clone(),
       thread_id: thread_id.to_string(),
     })
     .await
-    .is_ok()
+    .is_ok();
+
+  if !persisted {
+    state.unregister_codex_runtime_owner(thread_id);
+  }
+
+  persisted
 }
 
 async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {

@@ -108,6 +108,7 @@ pub fn start_event_loop(
                           hook_session_id = %hook_sid,
                           "Registering hook session ID as managed thread"
                       );
+                      state.register_claude_runtime_owner(hook_sid, &session_id);
                       // Write goes through PersistCommand only — single mutation path.
                       let _ = persist
                           .send(PersistCommand::SetClaudeSdkSessionId {
@@ -140,6 +141,7 @@ pub fn start_event_loop(
                           claude_sdk_session_id = %sdk_sid,
                           "Persisting Claude SDK session ID"
                       );
+                      state.register_claude_runtime_owner(&sdk_sid, &session_id);
                       // Write goes through PersistCommand only — single mutation path.
                       let _ = persist
                           .send(PersistCommand::SetClaudeSdkSessionId {

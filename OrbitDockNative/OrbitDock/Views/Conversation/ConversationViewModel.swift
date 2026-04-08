@@ -24,6 +24,7 @@ final class ConversationViewModel {
   @ObservationIgnored private var isLoadingOlder = false
   @ObservationIgnored private var isRefreshing = false
   @ObservationIgnored private var refreshQueued = false
+  @ObservationIgnored private var bufferedRowDeltas: [SessionStore.ConversationRowDelta] = []
 
   private let pageSize = 50
 
@@ -43,6 +44,7 @@ final class ConversationViewModel {
       hasMoreBefore = false
       isLoadingOlder = false
       forkOrigin = nil
+      bufferedRowDeltas.removeAll()
       rebuildPresentation(changedEntries: [])
     }
   }
@@ -76,6 +78,7 @@ final class ConversationViewModel {
       )
       guard currentSessionId == sessionId, currentSessionStore === store else { return }
       applyBootstrap(bootstrap, store: store)
+      drainBufferedRowDeltas()
     } catch {
       netLog(.error, cat: .store, "Conversation bootstrap failed", sid: sessionId, data: [
         "error": String(describing: error),
@@ -85,10 +88,15 @@ final class ConversationViewModel {
         conversationLoaded = true
         rebuildPresentation(changedEntries: [])
       }
+      drainBufferedRowDeltas()
     }
   }
 
   func handleConversationRowDelta(_ delta: SessionStore.ConversationRowDelta) {
+    if isRefreshing {
+      bufferedRowDeltas.append(delta)
+      return
+    }
     applyDelta(delta)
   }
 
@@ -180,6 +188,15 @@ final class ConversationViewModel {
     }
     contentRevision += 1
     rebuildPresentation(changedEntries: changed)
+  }
+
+  private func drainBufferedRowDeltas() {
+    guard !bufferedRowDeltas.isEmpty else { return }
+    let deltas = bufferedRowDeltas
+    bufferedRowDeltas.removeAll(keepingCapacity: true)
+    for delta in deltas {
+      applyDelta(delta)
+    }
   }
 
   private func rebuildPresentation(changedEntries: [ServerConversationRowEntry]) {
