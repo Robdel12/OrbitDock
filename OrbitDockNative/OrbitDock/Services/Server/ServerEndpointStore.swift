@@ -49,7 +49,7 @@ struct ServerEndpointStore {
       let hydrated = hydratedEndpoints(normalized)
 
       syncAuthTokens(from: hydrated)
-      if normalized != localEndpoints {
+      if normalized != localEndpoints || containsInlineAuthTokens(localEndpoints) {
         writeRedactedEndpointsToDefaults(normalized)
       }
       writeLocalPrefsToDefaults(normalized)
@@ -65,7 +65,7 @@ struct ServerEndpointStore {
     let hydrated = hydratedEndpoints(normalized)
     syncAuthTokens(from: hydrated)
 
-    if normalized != localEndpoints {
+    if normalized != localEndpoints || containsInlineAuthTokens(localEndpoints) {
       writeRedactedEndpointsToDefaults(normalized)
     }
     writeLocalPrefsToDefaults(normalized)
@@ -207,7 +207,13 @@ struct ServerEndpointStore {
 
   private func syncedRecords(from endpoints: [ServerEndpoint]) -> [ServerEndpointCloudRecord] {
     endpoints.map { endpoint in
-      ServerEndpointCloudRecord(id: endpoint.id, name: endpoint.name, wsURL: endpoint.wsURL)
+      ServerEndpointCloudRecord(
+        id: endpoint.id,
+        name: endpoint.name,
+        wsURL: endpoint.wsURL,
+        isEnabled: endpoint.isEnabled,
+        isDefault: endpoint.isDefault
+      )
     }
   }
 
@@ -232,8 +238,8 @@ struct ServerEndpointStore {
           id: record.id,
           name: record.name,
           wsURL: record.wsURL,
-          isEnabled: localPrefs?.isEnabled ?? localEndpoint?.isEnabled ?? record.legacyIsEnabled ?? true,
-          isDefault: localPrefs?.isDefault ?? localEndpoint?.isDefault ?? record.legacyIsDefault ?? false,
+          isEnabled: localPrefs?.isEnabled ?? localEndpoint?.isEnabled ?? record.isEnabled,
+          isDefault: localPrefs?.isDefault ?? localEndpoint?.isDefault ?? record.isDefault,
           authToken: localEndpoint?.authToken
         )
       )
@@ -371,6 +377,10 @@ struct ServerEndpointStore {
     }
     return trimmed
   }
+
+  private func containsInlineAuthTokens(_ endpoints: [ServerEndpoint]) -> Bool {
+    endpoints.contains { Self.normalizedToken($0.authToken) != nil }
+  }
 }
 
 struct ServerEndpointLocalPrefs: Codable, Equatable {
@@ -383,15 +393,15 @@ struct ServerEndpointCloudRecord: Codable, Equatable {
   var id: UUID
   var name: String
   var wsURL: URL
-  var legacyIsEnabled: Bool?
-  var legacyIsDefault: Bool?
+  var isEnabled: Bool
+  var isDefault: Bool
 
-  init(id: UUID, name: String, wsURL: URL) {
+  init(id: UUID, name: String, wsURL: URL, isEnabled: Bool = true, isDefault: Bool = false) {
     self.id = id
     self.name = name
     self.wsURL = wsURL
-    legacyIsEnabled = nil
-    legacyIsDefault = nil
+    self.isEnabled = isEnabled
+    self.isDefault = isDefault
   }
 
   private enum CodingKeys: String, CodingKey {
@@ -407,8 +417,8 @@ struct ServerEndpointCloudRecord: Codable, Equatable {
     id = try container.decode(UUID.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
     wsURL = try container.decode(URL.self, forKey: .wsURL)
-    legacyIsEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled)
-    legacyIsDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault)
+    isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
   }
 
   func encode(to encoder: Encoder) throws {
@@ -416,6 +426,8 @@ struct ServerEndpointCloudRecord: Codable, Equatable {
     try container.encode(id, forKey: .id)
     try container.encode(name, forKey: .name)
     try container.encode(wsURL, forKey: .wsURL)
+    try container.encode(isEnabled, forKey: .isEnabled)
+    try container.encode(isDefault, forKey: .isDefault)
   }
 }
 

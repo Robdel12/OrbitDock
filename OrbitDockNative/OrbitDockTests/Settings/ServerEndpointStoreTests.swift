@@ -142,21 +142,21 @@ struct ServerEndpointStoreTests {
 
     context.store.save([localA, localB])
 
-    var cloudA = try ServerEndpointCloudRecord(
+    let cloudA = try ServerEndpointCloudRecord(
       id: endpointIdA,
       name: "Cloud A",
-      wsURL: #require(URL(string: "wss://dock-a.example/ws"))
+      wsURL: #require(URL(string: "wss://dock-a.example/ws")),
+      isEnabled: false,
+      isDefault: false
     )
-    cloudA.legacyIsEnabled = false
-    cloudA.legacyIsDefault = false
 
-    var cloudB = try ServerEndpointCloudRecord(
+    let cloudB = try ServerEndpointCloudRecord(
       id: endpointIdB,
       name: "Cloud B",
-      wsURL: #require(URL(string: "wss://dock-b.example/ws"))
+      wsURL: #require(URL(string: "wss://dock-b.example/ws")),
+      isEnabled: true,
+      isDefault: true
     )
-    cloudB.legacyIsEnabled = true
-    cloudB.legacyIsDefault = true
 
     context.cloudSync.endpoints = [cloudA, cloudB]
 
@@ -190,8 +190,56 @@ struct ServerEndpointStoreTests {
     #expect(context.cloudSync.endpoints?.count == 1)
     #expect(context.cloudSync.endpoints?.first?.name == "Synced")
     #expect(context.cloudSync.endpoints?.first?.wsURL == endpoint.wsURL)
-    #expect(context.cloudSync.endpoints?.first?.legacyIsEnabled == nil)
-    #expect(context.cloudSync.endpoints?.first?.legacyIsDefault == nil)
+    #expect(context.cloudSync.endpoints?.first?.isEnabled == true)
+    #expect(context.cloudSync.endpoints?.first?.isDefault == true)
+  }
+
+  @Test func endpointsReadRedactsLegacyTokenFromPersistedDefaults() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let local = try ServerEndpoint(
+      id: endpointId,
+      name: "Legacy",
+      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
+      isEnabled: true,
+      isDefault: true,
+      authToken: "legacy-token"
+    )
+    context.defaults.set(try JSONEncoder().encode([local]), forKey: context.endpointsKey)
+    context.cloudSync.endpoints = [
+      ServerEndpointCloudRecord(
+        id: endpointId,
+        name: "Legacy",
+        wsURL: local.wsURL,
+        isEnabled: true,
+        isDefault: true
+      ),
+    ]
+
+    _ = context.store.endpoints()
+
+    let storedData = try #require(context.defaults.data(forKey: context.endpointsKey))
+    let storedEndpoints = try JSONDecoder().decode([ServerEndpoint].self, from: storedData)
+    #expect(storedEndpoints.first?.authToken == nil)
+  }
+
+  @Test func cloudRecordPayloadRemainsDecodableByLegacyServerEndpointSchema() throws {
+    let record = try ServerEndpointCloudRecord(
+      id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
+      name: "Compat",
+      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
+      isEnabled: false,
+      isDefault: true
+    )
+
+    let payload = try JSONEncoder().encode([record])
+    let decoded = try JSONDecoder().decode([ServerEndpoint].self, from: payload)
+
+    #expect(decoded.count == 1)
+    #expect(decoded[0].isEnabled == false)
+    #expect(decoded[0].isDefault == true)
   }
 
   private func makeStoreContext() -> (
