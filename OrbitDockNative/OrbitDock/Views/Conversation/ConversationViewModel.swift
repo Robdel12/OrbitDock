@@ -22,11 +22,13 @@ final class ConversationViewModel {
   @ObservationIgnored private var conversationLoaded = false
   @ObservationIgnored private var hasMoreBefore = false
   @ObservationIgnored private var isLoadingOlder = false
+  @ObservationIgnored private var isRefreshing = false
+  @ObservationIgnored private var refreshQueued = false
 
   private let pageSize = 50
 
   func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
-    let didChange = currentSessionId != sessionId
+    let didChange = currentSessionId != sessionId || currentSessionStore !== sessionStore
     currentSessionId = sessionId
     currentSessionStore = sessionStore
     currentViewMode = viewMode
@@ -40,50 +42,54 @@ final class ConversationViewModel {
       conversationLoaded = false
       hasMoreBefore = false
       isLoadingOlder = false
+      forkOrigin = nil
       rebuildPresentation(changedEntries: [])
     }
   }
 
-  /// Called from ConversationView's .task — bootstraps from HTTP then consumes WS row deltas.
-  func startStreaming() async {
+  /// Refresh the authoritative conversation bootstrap from HTTP.
+  /// The row-delta stream stays alive independently so transient transport
+  /// failures do not strand the screen.
+  func refresh() async {
     guard let sessionId = currentSessionId, !sessionId.isEmpty else { return }
+    if isRefreshing {
+      refreshQueued = true
+      return
+    }
+
+    isRefreshing = true
+    refreshQueued = false
+    defer {
+      isRefreshing = false
+      if refreshQueued {
+        refreshQueued = false
+        Task { await refresh() }
+      }
+    }
+
     let store = currentSessionStore
 
-    // 1. Bootstrap: fetch initial conversation page via HTTP
     do {
       let bootstrap = try await store.clients.conversation.fetchConversationBootstrap(
         sessionId,
         limit: pageSize
       )
-      rowEntries = bootstrap.rows
-      hasMoreBefore = bootstrap.hasMoreBefore
-      conversationLoaded = true
-      structureRevision += 1
-      contentRevision += 1
-      rebuildPresentation(changedEntries: bootstrap.rows)
-
-      if let sourceId = bootstrap.session.forkedFromSessionId {
-        forkOrigin = ConversationForkOriginPresentation(
-          sourceSessionId: sourceId,
-          sourceEndpointId: store.endpointId,
-          sourceName: nil
-        )
-      }
+      guard currentSessionId == sessionId, currentSessionStore === store else { return }
+      applyBootstrap(bootstrap, store: store)
     } catch {
       netLog(.error, cat: .store, "Conversation bootstrap failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
-      conversationLoaded = true
-      rebuildPresentation(changedEntries: [])
-      return
+      guard currentSessionId == sessionId else { return }
+      if rowEntries.isEmpty {
+        conversationLoaded = true
+        rebuildPresentation(changedEntries: [])
+      }
     }
+  }
 
-    // 2. Stream: consume WS row deltas
-    let (stream, _) = store.conversationRowChanges(for: sessionId)
-    for await delta in stream {
-      guard currentSessionId == sessionId else { break }
-      applyDelta(delta)
-    }
+  func handleConversationRowDelta(_ delta: SessionStore.ConversationRowDelta) {
+    applyDelta(delta)
   }
 
   func handleTimelineViewModeChange(_ viewMode: ChatViewMode) {
@@ -111,6 +117,7 @@ final class ConversationViewModel {
           beforeSequence: oldestSequence,
           limit: pageSize
         )
+        guard self.currentSessionId == currentSessionId, self.currentSessionStore === store else { return }
         hasMoreBefore = page.hasMoreBefore
         rowEntries.insert(contentsOf: page.rows, at: 0)
         structureRevision += 1
@@ -125,6 +132,25 @@ final class ConversationViewModel {
   }
 
   // MARK: - Private
+
+  private func applyBootstrap(_ bootstrap: ServerConversationBootstrap, store: SessionStore) {
+    rowEntries = bootstrap.rows
+    hasMoreBefore = bootstrap.hasMoreBefore
+    conversationLoaded = true
+    structureRevision += 1
+    contentRevision += 1
+    rebuildPresentation(changedEntries: bootstrap.rows)
+
+    if let sourceId = bootstrap.session.forkedFromSessionId {
+      forkOrigin = ConversationForkOriginPresentation(
+        sourceSessionId: sourceId,
+        sourceEndpointId: store.endpointId,
+        sourceName: nil
+      )
+    } else {
+      forkOrigin = nil
+    }
+  }
 
   private func applyDelta(_ delta: SessionStore.ConversationRowDelta) {
     var changed: [ServerConversationRowEntry] = []

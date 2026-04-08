@@ -29,6 +29,10 @@ struct DashboardView: View {
     }
     .navigationTitle(router.dashboardTab.navigationTitle)
     .toolbarTitleDisplayMode(.inline)
+    .refreshable {
+      await runtimeRegistry.refreshAll()
+      await viewModel.refreshNow()
+    }
   }
 
   // MARK: - Missions Tab
@@ -45,7 +49,6 @@ struct DashboardView: View {
       )
     }
   }
-
 }
 
 #Preview {

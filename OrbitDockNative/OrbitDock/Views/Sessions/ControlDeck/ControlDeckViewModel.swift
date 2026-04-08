@@ -447,16 +447,6 @@ final class ControlDeckViewModel {
     _ payload: ServerControlDeckSnapshotPayload,
     source: String
   ) {
-    // Never regress to an older revision.
-    if let current = snapshot?.revision, payload.revision < current {
-      netLog(.debug, cat: .store, "Skipping stale snapshot", sid: payload.sessionId, data: [
-        "source": source,
-        "currentRevision": current,
-        "incomingRevision": payload.revision,
-      ])
-      return
-    }
-
     lastError = nil
     netLog(
       .info,

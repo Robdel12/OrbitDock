@@ -41,7 +41,6 @@ final class SessionDetailViewModel {
   @ObservationIgnored private var conversationScrollCommandNonce = 0
   @ObservationIgnored private var isRefreshing = false
   @ObservationIgnored private var refreshQueued = false
-  @ObservationIgnored private var lastRevision: UInt64 = 0
 
   var screenPresentation = SessionDetailScreenPresentation.empty
   var usageSource = SessionDetailUsageSource.empty
@@ -77,7 +76,6 @@ final class SessionDetailViewModel {
       conversationScrollCommand = nil
       conversationScrollCommandNonce = 0
       pendingApprovalPanelOpenSignal = 0
-      lastRevision = 0
     }
   }
 
@@ -184,11 +182,17 @@ final class SessionDetailViewModel {
       }
     }
 
+    let targetSessionId = sessionId
+    let targetEndpointId = endpointId
+    let targetStore = sessionStore
+
     do {
-      let payload = try await sessionStore.clients.conversation.fetchSessionDetail(sessionId)
-      guard payload.revision >= lastRevision else { return }
-      lastRevision = payload.revision
-      apply(snapshot: Self.buildSnapshot(payload: payload, endpointId: endpointId))
+      let payload = try await targetStore.clients.conversation.fetchSessionDetail(targetSessionId)
+      guard sessionId == targetSessionId,
+            endpointId == targetEndpointId,
+            sessionStore === targetStore
+      else { return }
+      apply(snapshot: Self.buildSnapshot(payload: payload, endpointId: targetEndpointId))
     } catch {
       // Non-fatal: the view keeps showing the last snapshot
     }

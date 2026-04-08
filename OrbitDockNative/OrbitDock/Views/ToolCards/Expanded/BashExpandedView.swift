@@ -1,9 +1,16 @@
 import SwiftUI
 
 /// Terminal-first expanded view for Bash tool output using the shared Ghostty renderer.
+///
+/// Supports streaming output via `liveOutputPreview` when the tool is running,
+/// falling back to `content.outputDisplay` when complete.
 struct BashExpandedView: View {
   let content: ServerRowContent
   let isFailed: Bool
+  /// Streaming output preview from toolDisplay, updated via websocket while running.
+  var liveOutputPreview: String?
+  /// Whether the tool is currently running (enables streaming mode).
+  var isRunning: Bool = false
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -18,8 +25,23 @@ struct BashExpandedView: View {
     return input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input
   }
 
+  /// Output using context-aware fallback:
+  /// - Running: prefer streaming `liveOutputPreview` (real-time updates)
+  /// - Complete: prefer `content.outputDisplay` (full untruncated output from REST)
   private var outputText: String? {
-    trimmedOrNil(content.outputDisplay)
+    if isRunning {
+      // While running, streaming data is fresher
+      if let live = trimmedOrNil(liveOutputPreview) {
+        return live
+      }
+      return trimmedOrNil(content.outputDisplay)
+    } else {
+      // Once complete, REST fetch has full untruncated output
+      if let fetched = trimmedOrNil(content.outputDisplay) {
+        return fetched
+      }
+      return trimmedOrNil(liveOutputPreview)
+    }
   }
 
   private var transcript: String? {
