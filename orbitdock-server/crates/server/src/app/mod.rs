@@ -429,6 +429,14 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               .as_deref()
               .and_then(CodexApprovalPolicy::from_storage_text)
           });
+        let sandbox_policy_details = codex_config_overrides
+          .as_ref()
+          .and_then(|overrides| overrides.sandbox_policy_details.clone())
+          .or_else(|| {
+            sandbox_mode
+              .as_deref()
+              .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+          });
 
         let mut handle = crate::domain::sessions::session::SessionHandle::restore(
           crate::domain::sessions::session::SessionRestoreData {
@@ -444,6 +452,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               approval_policy: approval_policy.clone(),
               approval_policy_details,
               sandbox_mode: sandbox_mode.clone(),
+              sandbox_policy_details,
               collaboration_mode,
               multi_agent,
               personality,

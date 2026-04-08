@@ -196,6 +196,10 @@ fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection 
         approval_policy: request.approval_policy.clone(),
         approval_policy_details: None,
         sandbox_mode: request.sandbox_mode.clone(),
+        sandbox_policy_details: request
+          .sandbox_mode
+          .as_deref()
+          .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text),
         approvals_reviewer: None,
         collaboration_mode: request.collaboration_mode.clone(),
         multi_agent: request.multi_agent,

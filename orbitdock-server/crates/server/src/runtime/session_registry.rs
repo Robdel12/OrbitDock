@@ -551,6 +551,7 @@ impl SessionRegistry {
           approval_policy: snap.approval_policy.clone(),
           approval_policy_details: snap.approval_policy_details.clone(),
           sandbox_mode: snap.sandbox_mode.clone(),
+          sandbox_policy_details: snap.sandbox_policy_details.clone(),
           permission_mode: snap.permission_mode.clone(),
           collaboration_mode: snap.collaboration_mode.clone(),
           multi_agent: snap.multi_agent,

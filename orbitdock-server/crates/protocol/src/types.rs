@@ -183,6 +183,108 @@ impl CodexApprovalPolicy {
   }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodexSandboxMode {
+  DangerFullAccess,
+  ReadOnly,
+  WorkspaceWrite,
+  ExternalSandbox,
+}
+
+impl CodexSandboxMode {
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Self::DangerFullAccess => "danger-full-access",
+      Self::ReadOnly => "read-only",
+      Self::WorkspaceWrite => "workspace-write",
+      Self::ExternalSandbox => "external-sandbox",
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexSandboxPolicy {
+  pub mode: CodexSandboxMode,
+  #[serde(default)]
+  pub network_access: bool,
+}
+
+impl CodexSandboxPolicy {
+  pub fn legacy_summary(&self) -> String {
+    if self.network_access {
+      match self.mode {
+        CodexSandboxMode::DangerFullAccess => "danger-full-access".to_string(),
+        CodexSandboxMode::ReadOnly => "read-only-network".to_string(),
+        CodexSandboxMode::WorkspaceWrite => "workspace-write-network".to_string(),
+        CodexSandboxMode::ExternalSandbox => "external-sandbox-network".to_string(),
+      }
+    } else {
+      self.mode.as_str().to_string()
+    }
+  }
+
+  pub fn from_storage_text(value: &str) -> Option<Self> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+      return None;
+    }
+
+    if trimmed.starts_with('{') {
+      if let Ok(policy) = serde_json::from_str::<Self>(trimmed) {
+        return Some(policy);
+      }
+    }
+
+    let parsed = match trimmed {
+      "danger-full-access" => Self {
+        mode: CodexSandboxMode::DangerFullAccess,
+        network_access: true,
+      },
+      "read-only" => Self {
+        mode: CodexSandboxMode::ReadOnly,
+        network_access: false,
+      },
+      "read-only-network" => Self {
+        mode: CodexSandboxMode::ReadOnly,
+        network_access: true,
+      },
+      "workspace-write" => Self {
+        mode: CodexSandboxMode::WorkspaceWrite,
+        network_access: false,
+      },
+      "workspace-write-network" => Self {
+        mode: CodexSandboxMode::WorkspaceWrite,
+        network_access: true,
+      },
+      "external-sandbox" => Self {
+        mode: CodexSandboxMode::ExternalSandbox,
+        network_access: false,
+      },
+      "external-sandbox-network" => Self {
+        mode: CodexSandboxMode::ExternalSandbox,
+        network_access: true,
+      },
+      _ => return None,
+    };
+
+    Some(parsed)
+  }
+
+  pub fn storage_text(&self) -> String {
+    if self.network_access {
+      match self.mode {
+        CodexSandboxMode::DangerFullAccess => "danger-full-access".to_string(),
+        CodexSandboxMode::ReadOnly => "read-only-network".to_string(),
+        CodexSandboxMode::WorkspaceWrite => "workspace-write-network".to_string(),
+        CodexSandboxMode::ExternalSandbox => "external-sandbox-network".to_string(),
+      }
+    } else {
+      self.mode.as_str().to_string()
+    }
+  }
+}
+
 /// Claude integration mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -608,6 +710,8 @@ pub struct SessionSummary {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,
   #[serde(default)]
@@ -1088,6 +1192,8 @@ pub struct SessionState {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   pub started_at: Option<String>,
   pub last_activity_at: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1402,6 +1508,8 @@ pub struct StateChanges {
   pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<Option<String>>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<Option<CodexSandboxPolicy>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<Option<String>>,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -1469,6 +1577,8 @@ pub struct CodexSessionOverrides {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approvals_reviewer: Option<CodexApprovalsReviewer>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2278,6 +2388,8 @@ pub enum SessionPermissionRules {
     approval_policy_details: Option<CodexApprovalPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sandbox_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sandbox_policy_details: Option<CodexSandboxPolicy>,
   },
 }
 

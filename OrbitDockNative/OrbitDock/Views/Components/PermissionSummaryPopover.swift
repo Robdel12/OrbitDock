@@ -594,10 +594,19 @@ struct PermissionInlinePanel: View {
 
   @ViewBuilder
   private var codexRulesContent: some View {
-    if case let .codex(approvalPolicy, approvalPolicyDetails, sandboxMode) = state.permissionRules {
+    if case let .codex(
+      approvalPolicy,
+      approvalPolicyDetails,
+      sandboxMode,
+      sandboxPolicyDetails
+    ) = state.permissionRules {
       let resolvedPolicy = ServerCodexApprovalPolicy.resolved(
         details: approvalPolicyDetails,
         fallbackPolicy: approvalPolicy
+      )
+      let resolvedSandbox = ServerCodexSandboxPolicy.resolved(
+        details: sandboxPolicyDetails,
+        fallbackMode: sandboxMode
       )
 
       VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -607,7 +616,7 @@ struct PermissionInlinePanel: View {
         } else {
           codexRow("Approval Policy", approvalPolicy ?? "default")
         }
-        codexRow("Sandbox", sandboxMode ?? "default")
+        codexRow("Sandbox", resolvedSandbox?.displayName ?? sandboxMode ?? "default")
       }
       .padding(.horizontal, Spacing.sm)
     }

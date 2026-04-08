@@ -31,8 +31,8 @@ use crate::runtime::session_takeover::{
 };
 use orbitdock_protocol::CodexApprovalsReviewer;
 use orbitdock_protocol::{
-  CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
-  ServerMessage,
+  CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSandboxPolicy,
+  CodexSessionOverrides, Provider, ServerMessage,
 };
 use std::time::Duration;
 use tracing::{error, info};
@@ -106,6 +106,8 @@ pub struct UpdateSessionConfigRequest {
   #[serde(default)]
   pub sandbox_mode: Option<Option<String>>,
   #[serde(default)]
+  pub sandbox_policy_details: Option<Option<CodexSandboxPolicy>>,
+  #[serde(default)]
   pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
   #[serde(default)]
   pub permission_mode: Option<Option<String>>,
@@ -137,6 +139,7 @@ impl UpdateSessionConfigRequest {
       approval_policy: self.approval_policy,
       approval_policy_details: self.approval_policy_details,
       sandbox_mode: self.sandbox_mode,
+      sandbox_policy_details: self.sandbox_policy_details,
       approvals_reviewer: self.approvals_reviewer,
       permission_mode: self.permission_mode,
       collaboration_mode: self.collaboration_mode,
@@ -218,6 +221,8 @@ pub struct CreateSessionRequest {
   #[serde(default)]
   pub sandbox_mode: Option<String>,
   #[serde(default)]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
+  #[serde(default)]
   pub permission_mode: Option<String>,
   #[serde(default)]
   pub allowed_tools: Vec<String>,
@@ -292,7 +297,13 @@ fn create_codex_selection(
         .map(|details| details.legacy_summary())
     }),
     approval_policy_details: body.approval_policy_details.clone(),
-    sandbox_mode: body.sandbox_mode.clone(),
+    sandbox_mode: body.sandbox_mode.clone().or_else(|| {
+      body
+        .sandbox_policy_details
+        .as_ref()
+        .map(|details| details.legacy_summary())
+    }),
+    sandbox_policy_details: body.sandbox_policy_details.clone(),
     approvals_reviewer: None,
     collaboration_mode: body.collaboration_mode.clone(),
     multi_agent: body.multi_agent,
@@ -597,6 +608,8 @@ pub struct InspectCodexConfigRequest {
   #[serde(default)]
   pub sandbox_mode: Option<String>,
   #[serde(default)]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
+  #[serde(default)]
   pub collaboration_mode: Option<String>,
   #[serde(default)]
   pub multi_agent: Option<bool>,
@@ -682,7 +695,13 @@ pub async fn inspect_codex_config(
             .map(|details| details.legacy_summary())
         }),
         approval_policy_details: body.approval_policy_details,
-        sandbox_mode: body.sandbox_mode,
+        sandbox_mode: body.sandbox_mode.or_else(|| {
+          body
+            .sandbox_policy_details
+            .as_ref()
+            .map(|details| details.legacy_summary())
+        }),
+        sandbox_policy_details: body.sandbox_policy_details,
         approvals_reviewer: None,
         collaboration_mode: body.collaboration_mode,
         multi_agent: body.multi_agent,
@@ -1173,6 +1192,7 @@ mod tests {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       permission_mode: None,
       allowed_tools: Vec::new(),
       disallowed_tools: Vec::new(),
@@ -1251,6 +1271,7 @@ mod tests {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       approvals_reviewer: Some(Some(CodexApprovalsReviewer::GuardianSubagent)),
       permission_mode: None,
       collaboration_mode: None,

@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  ApprovalRequest, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, Provider,
-  SessionControlMode, SessionLifecycleState, TokenUsage, TokenUsageSnapshotKind,
+  ApprovalRequest, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode,
+  CodexSandboxPolicy, Provider, SessionControlMode, SessionLifecycleState, TokenUsage,
+  TokenUsageSnapshotKind,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +64,8 @@ pub struct ControlDeckConfigState {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approvals_reviewer: Option<CodexApprovalsReviewer>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,
@@ -109,6 +112,8 @@ pub struct ControlDeckAutoReviewOption {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +179,8 @@ pub struct ControlDeckConfigUpdate {
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approvals_reviewer: Option<CodexApprovalsReviewer>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

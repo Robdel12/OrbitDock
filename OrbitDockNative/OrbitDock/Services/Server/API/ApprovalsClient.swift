@@ -14,6 +14,15 @@ struct ApprovalsClient: Sendable {
     let decision: ToolApprovalDecision
     var message: String?
     var interrupt: Bool?
+    var updatedInput: AnyCodable?
+
+    enum CodingKeys: String, CodingKey {
+      case requestId = "request_id"
+      case decision
+      case message
+      case interrupt
+      case updatedInput = "updated_input"
+    }
   }
 
   struct ApprovalDecisionResponse: Decodable {

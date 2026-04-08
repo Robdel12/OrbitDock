@@ -346,6 +346,7 @@ struct NewSessionSheet: View {
       approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
       approvalPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicyDetails : nil,
       sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
+      sandboxPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.sandboxPolicyDetails : nil,
       collaborationMode: shouldApplyOverrides ? model.codexCollaborationMode.rawValue : nil,
       multiAgent: shouldApplyOverrides ? model.codexMultiAgentEnabled : nil,
       personality: shouldApplyOverrides ? model.codexPersonality.requestValue : nil,

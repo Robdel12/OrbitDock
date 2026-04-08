@@ -171,6 +171,9 @@ struct ControlDeckScreen: View {
       onResume: resumeSession,
       onApprove: { Task { await viewModel.approveTool(decision: .approved) } },
       onApproveForSession: { Task { await viewModel.approveTool(decision: .approvedForSession) } },
+      onApproveAlwaysForHost: { host in
+        Task { await viewModel.approveToolAlwaysAllowHost(host) }
+      },
       onDeny: { Task { await viewModel.approveTool(decision: .denied) } },
       onAnswer: { answer, promptId in
         Task { await viewModel.answerQuestion(answer: answer, questionId: promptId) }

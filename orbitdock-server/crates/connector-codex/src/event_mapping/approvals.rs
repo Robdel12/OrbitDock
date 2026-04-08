@@ -1,6 +1,8 @@
 use crate::runtime::row_entry;
 use crate::workers::iso_now;
-use codex_protocol::approvals::ElicitationRequestEvent;
+use codex_protocol::approvals::{
+  ElicitationRequestEvent, NetworkApprovalProtocol, NetworkPolicyAmendment,
+};
 use codex_protocol::protocol::{
   ApplyPatchApprovalRequestEvent, ExecApprovalRequestEvent, FileChange, RequestUserInputEvent,
 };
@@ -14,6 +16,32 @@ use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+fn network_protocol_label(protocol: NetworkApprovalProtocol) -> &'static str {
+  match protocol {
+    NetworkApprovalProtocol::Http => "http",
+    NetworkApprovalProtocol::Https => "https",
+    NetworkApprovalProtocol::Socks5Tcp => "socks5_tcp",
+    NetworkApprovalProtocol::Socks5Udp => "socks5_udp",
+  }
+}
+
+fn approval_suggestions(
+  amendments: Option<&[NetworkPolicyAmendment]>,
+  available_decisions: Option<&[codex_protocol::protocol::ReviewDecision]>,
+  additional_permissions: Option<&codex_protocol::models::PermissionProfile>,
+) -> Option<serde_json::Value> {
+  if amendments.is_none() && available_decisions.is_none() && additional_permissions.is_none() {
+    return None;
+  }
+
+  Some(json!({
+    "source": "codex_exec_approval_request",
+    "proposed_network_policy_amendments": amendments,
+    "available_decisions": available_decisions,
+    "additional_permissions": additional_permissions,
+  }))
+}
 
 fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
   let row = with_display(row);
@@ -42,6 +70,19 @@ pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> V
   let amendment = event
     .proposed_execpolicy_amendment
     .map(|amendment| amendment.command().to_vec());
+  let network_host = event
+    .network_approval_context
+    .as_ref()
+    .map(|context| context.host.clone());
+  let network_protocol = event
+    .network_approval_context
+    .as_ref()
+    .map(|context| network_protocol_label(context.protocol).to_string());
+  let permission_suggestions = approval_suggestions(
+    event.proposed_network_policy_amendments.as_deref(),
+    event.available_decisions.as_deref(),
+    event.additional_permissions.as_ref(),
+  );
   let request_id = event
     .approval_id
     .clone()
@@ -58,14 +99,14 @@ pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> V
     permission_reason: None,
     requested_permissions: None,
     proposed_amendment: amendment,
-    permission_suggestions: None,
+    permission_suggestions,
     elicitation_mode: None,
     elicitation_schema: None,
     elicitation_url: None,
     elicitation_message: None,
     mcp_server_name: None,
-    network_host: None,
-    network_protocol: None,
+    network_host,
+    network_protocol,
   }]
 }
 
@@ -240,11 +281,10 @@ pub(crate) fn handle_elicitation_request(
   event: ElicitationRequestEvent,
   msg_counter: &AtomicU64,
 ) -> Vec<ConnectorEvent> {
-  let question_text = if event.request.message().is_empty() {
-    Some(format!("{} request", event.server_name))
-  } else {
-    Some(event.request.message().to_string())
-  };
+  let request_message = event.request.message();
+  let question_text = (!request_message.is_empty())
+    .then(|| request_message.to_string())
+    .or_else(|| Some(format!("{} request", event.server_name)));
   let tool_input = serde_json::to_string(&event).ok();
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
 
@@ -273,11 +313,7 @@ pub(crate) fn handle_elicitation_request(
     tool_display: None,
   };
 
-  let elicitation_message = if event.request.message().is_empty() {
-    None
-  } else {
-    Some(event.request.message().to_string())
-  };
+  let elicitation_message = (!request_message.is_empty()).then(|| request_message.to_string());
 
   vec![
     ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),

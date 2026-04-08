@@ -13,9 +13,9 @@ use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
   ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
   ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
-  CodexIntegrationMode, CodexSessionOverrides, Provider, SessionControlMode, SessionLifecycleState,
-  SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage,
-  TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+  CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides, Provider, SessionControlMode,
+  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
+  TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
 pub use super::facets::{
@@ -113,6 +113,15 @@ fn resolve_approval_policy_details(
     .or_else(|| {
       approval_policy.and_then(orbitdock_protocol::CodexApprovalPolicy::from_storage_text)
     })
+}
+
+fn resolve_sandbox_policy_details(
+  sandbox_mode: Option<&str>,
+  codex_config_overrides: Option<&CodexSessionOverrides>,
+) -> Option<CodexSandboxPolicy> {
+  codex_config_overrides
+    .and_then(|overrides| overrides.sandbox_policy_details.clone())
+    .or_else(|| sandbox_mode.and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text))
 }
 
 fn approval_requests_effectively_equal(left: &ApprovalRequest, right: &ApprovalRequest) -> bool {
@@ -374,6 +383,7 @@ pub struct SessionSnapshot {
   pub approval_policy: Option<String>,
   pub approval_policy_details: Option<CodexApprovalPolicy>,
   pub sandbox_mode: Option<String>,
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   pub permission_mode: Option<String>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
@@ -807,6 +817,7 @@ impl SessionHandle {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       permission_mode: None,
       collaboration_mode: None,
       multi_agent: None,
@@ -951,6 +962,7 @@ impl SessionHandle {
       approval_policy: config.approval_policy.clone(),
       approval_policy_details: config.approval_policy_details.clone(),
       sandbox_mode: config.sandbox_mode.clone(),
+      sandbox_policy_details: config.sandbox_policy_details.clone(),
       permission_mode: permission_mode.clone(),
       collaboration_mode: config.collaboration_mode.clone(),
       multi_agent: config.multi_agent,
@@ -1131,6 +1143,7 @@ impl SessionHandle {
       approval_policy: self.config.approval_policy.clone(),
       approval_policy_details: self.config.approval_policy_details.clone(),
       sandbox_mode: self.config.sandbox_mode.clone(),
+      sandbox_policy_details: self.config.sandbox_policy_details.clone(),
       permission_mode: self.permission_mode.clone(),
       collaboration_mode: self.config.collaboration_mode.clone(),
       multi_agent: self.config.multi_agent,
@@ -1232,6 +1245,7 @@ impl SessionHandle {
       approval_policy: self.config.approval_policy.clone(),
       approval_policy_details: self.config.approval_policy_details.clone(),
       sandbox_mode: self.config.sandbox_mode.clone(),
+      sandbox_policy_details: self.config.sandbox_policy_details.clone(),
       started_at: self.timestamps.started_at.clone(),
       last_activity_at: self.timestamps.last_activity_at.clone(),
       last_progress_at: self.timestamps.last_progress_at.clone(),
@@ -1439,8 +1453,10 @@ impl SessionHandle {
   /// Set autonomy configuration
   pub fn set_config(&mut self, patch: SessionConfigPatch) {
     let has_approval_policy = patch.approval_policy.is_some();
+    let has_sandbox_mode = patch.sandbox_mode.is_some();
     let has_codex_config_overrides = patch.codex_config_overrides.is_some();
     let had_explicit_details = patch.approval_policy_details.is_some();
+    let had_explicit_sandbox_details = patch.sandbox_policy_details.is_some();
 
     self.config.merge_from(patch);
 
@@ -1449,6 +1465,12 @@ impl SessionHandle {
     if !had_explicit_details && (has_approval_policy || has_codex_config_overrides) {
       self.config.approval_policy_details = resolve_approval_policy_details(
         self.config.approval_policy.as_deref(),
+        self.config.codex_config_overrides.as_ref(),
+      );
+    }
+    if !had_explicit_sandbox_details && (has_sandbox_mode || has_codex_config_overrides) {
+      self.config.sandbox_policy_details = resolve_sandbox_policy_details(
+        self.config.sandbox_mode.as_deref(),
         self.config.codex_config_overrides.as_ref(),
       );
     }
@@ -2066,6 +2088,9 @@ impl SessionHandle {
     if let Some(ref sandbox_mode) = changes.sandbox_mode {
       self.config.sandbox_mode = sandbox_mode.clone();
     }
+    if let Some(ref sandbox_policy_details) = changes.sandbox_policy_details {
+      self.config.sandbox_policy_details = sandbox_policy_details.clone();
+    }
     if let Some(ref permission_mode) = changes.permission_mode {
       self.permission_mode = permission_mode.clone();
     }
@@ -2104,6 +2129,14 @@ impl SessionHandle {
     {
       self.config.approval_policy_details = resolve_approval_policy_details(
         self.config.approval_policy.as_deref(),
+        self.config.codex_config_overrides.as_ref(),
+      );
+    }
+    if changes.sandbox_policy_details.is_none()
+      && (changes.sandbox_mode.is_some() || changes.codex_config_overrides.is_some())
+    {
+      self.config.sandbox_policy_details = resolve_sandbox_policy_details(
+        self.config.sandbox_mode.as_deref(),
         self.config.codex_config_overrides.as_ref(),
       );
     }
@@ -2207,6 +2240,7 @@ impl SessionHandle {
       approval_policy: self.config.approval_policy.clone(),
       approval_policy_details: self.config.approval_policy_details.clone(),
       sandbox_mode: self.config.sandbox_mode.clone(),
+      sandbox_policy_details: self.config.sandbox_policy_details.clone(),
       permission_mode: self.permission_mode.clone(),
       collaboration_mode: self.config.collaboration_mode.clone(),
       multi_agent: self.config.multi_agent,

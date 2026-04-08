@@ -36,6 +36,9 @@ pub enum CodexExecApproval {
   ApprovedAlways {
     proposed_amendment: Option<Vec<String>>,
   },
+  NetworkPolicyAmendment {
+    network_policy_amendment: codex_protocol::approvals::NetworkPolicyAmendment,
+  },
   Denied,
   Abort,
 }
@@ -46,6 +49,7 @@ impl CodexExecApproval {
       Self::Approved => "approved",
       Self::ApprovedForSession => "approved_for_session",
       Self::ApprovedAlways { .. } => "approved_always",
+      Self::NetworkPolicyAmendment { .. } => "network_policy_amendment",
       Self::Denied => "denied",
       Self::Abort => "abort",
     }
@@ -133,7 +137,9 @@ pub enum CodexAction {
   },
   UpdateConfig {
     approval_policy: Option<String>,
+    approval_policy_details: Option<orbitdock_protocol::CodexApprovalPolicy>,
     sandbox_mode: Option<String>,
+    sandbox_policy_details: Option<orbitdock_protocol::CodexSandboxPolicy>,
     approvals_reviewer: Option<String>,
     permission_mode: Option<String>,
     collaboration_mode: Option<String>,
@@ -256,7 +262,9 @@ impl std::fmt::Debug for CodexAction {
         .finish(),
       Self::UpdateConfig {
         approval_policy,
+        approval_policy_details,
         sandbox_mode,
+        sandbox_policy_details,
         approvals_reviewer,
         permission_mode,
         collaboration_mode,
@@ -269,7 +277,9 @@ impl std::fmt::Debug for CodexAction {
       } => f
         .debug_struct("UpdateConfig")
         .field("approval_policy", approval_policy)
+        .field("approval_policy_details", approval_policy_details)
         .field("sandbox_mode", sandbox_mode)
+        .field("sandbox_policy_details", sandbox_policy_details)
         .field("approvals_reviewer", approvals_reviewer)
         .field("permission_mode", permission_mode)
         .field("collaboration_mode", collaboration_mode)
@@ -673,7 +683,9 @@ impl CodexSession {
       }
       CodexAction::UpdateConfig {
         approval_policy,
+        approval_policy_details,
         sandbox_mode,
+        sandbox_policy_details,
         approvals_reviewer,
         permission_mode,
         collaboration_mode,
@@ -687,7 +699,9 @@ impl CodexSession {
         connector
           .update_config(UpdateConfigOptions {
             approval_policy: approval_policy.as_deref(),
+            approval_policy_details: approval_policy_details.as_ref(),
             sandbox_mode: sandbox_mode.as_deref(),
+            sandbox_policy_details: sandbox_policy_details.as_ref(),
             approvals_reviewer: approvals_reviewer.as_deref(),
             permission_mode: permission_mode.as_deref(),
             collaboration_mode: collaboration_mode.as_deref(),

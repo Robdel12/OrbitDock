@@ -11,9 +11,7 @@ use codex_app_server_protocol::{
 use codex_core::auth::{AuthCredentialsStoreMode, AuthManager};
 use codex_core::SteerInputError;
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::{
-  AskForApproval, GranularApprovalConfig, McpServerRefreshConfig, Op, ReviewDecision, SandboxPolicy,
-};
+use codex_protocol::protocol::{McpServerRefreshConfig, Op, ReviewDecision};
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
@@ -24,6 +22,7 @@ use super::config::{
   collaboration_mode_for_update, parse_approvals_reviewer, parse_personality,
   parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
 };
+use super::policy_bridge::{parse_approval_policy_with_details, parse_sandbox_policy_with_details};
 use super::{
   CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
 };
@@ -504,6 +503,11 @@ impl CodexConnector {
           ReviewDecision::ApprovedForSession
         }
       }
+      CodexExecApproval::NetworkPolicyAmendment {
+        network_policy_amendment,
+      } => ReviewDecision::NetworkPolicyAmendment {
+        network_policy_amendment,
+      },
       CodexExecApproval::Abort => ReviewDecision::Abort,
       CodexExecApproval::Denied => ReviewDecision::Denied,
     };
@@ -624,7 +628,9 @@ impl CodexConnector {
   ) -> Result<(), ConnectorError> {
     let UpdateConfigOptions {
       approval_policy,
+      approval_policy_details,
       sandbox_mode,
+      sandbox_policy_details,
       approvals_reviewer,
       permission_mode,
       collaboration_mode,
@@ -636,42 +642,10 @@ impl CodexConnector {
       effort,
     } = options;
 
-    let policy = approval_policy.map(|p| match p {
-      "untrusted" => AskForApproval::UnlessTrusted,
-      "on-failure" => AskForApproval::OnFailure,
-      "on-request" => AskForApproval::OnRequest,
-      "reject" => AskForApproval::Granular(GranularApprovalConfig {
-        sandbox_approval: false,
-        rules: false,
-        skill_approval: false,
-        request_permissions: false,
-        mcp_elicitations: false,
-      }),
-      "never" => AskForApproval::Never,
-      _ => AskForApproval::OnRequest,
-    });
-
-    let sandbox = sandbox_mode.map(|s| match s {
-      "danger-full-access" => SandboxPolicy::DangerFullAccess,
-      "read-only" => SandboxPolicy::ReadOnly {
-        access: Default::default(),
-        network_access: false,
-      },
-      "workspace-write" => SandboxPolicy::WorkspaceWrite {
-        writable_roots: Vec::new(),
-        read_only_access: Default::default(),
-        network_access: false,
-        exclude_tmpdir_env_var: false,
-        exclude_slash_tmp: false,
-      },
-      _ => SandboxPolicy::WorkspaceWrite {
-        writable_roots: Vec::new(),
-        read_only_access: Default::default(),
-        network_access: false,
-        exclude_tmpdir_env_var: false,
-        exclude_slash_tmp: false,
-      },
-    });
+    let policy = parse_approval_policy_with_details(approval_policy, approval_policy_details)
+      .map_err(|e| ConnectorError::ProviderError(format!("Invalid approval policy: {e}")))?;
+    let sandbox = parse_sandbox_policy_with_details(sandbox_mode, sandbox_policy_details)
+      .map_err(|e| ConnectorError::ProviderError(format!("Invalid sandbox mode: {e}")))?;
 
     let current_model = {
       let current = self.current_model.lock().await;

@@ -39,6 +39,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var permissionMode: String?
     var collaborationMode: String?
     var multiAgent: Bool?
@@ -80,6 +81,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var collaborationMode: String?
     var multiAgent: Bool?
     var personality: String?
@@ -119,6 +121,7 @@ struct SessionsClient: Sendable {
     let approvalPolicy: String?
     let approvalPolicyDetails: ServerCodexApprovalPolicy?
     let sandboxMode: String?
+    let sandboxPolicyDetails: ServerCodexSandboxPolicy?
     let collaborationMode: String?
     let multiAgent: Bool?
     let personality: String?
@@ -135,6 +138,7 @@ struct SessionsClient: Sendable {
       case approvalPolicy = "approval_policy"
       case approvalPolicyDetails = "approval_policy_details"
       case sandboxMode = "sandbox_mode"
+      case sandboxPolicyDetails = "sandbox_policy_details"
       case collaborationMode = "collaboration_mode"
       case multiAgent = "multi_agent"
       case personality
@@ -419,6 +423,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var permissionMode: String?
     var collaborationMode: String?
     var multiAgent: Bool?
@@ -443,6 +448,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var approvalsReviewer: ServerCodexApprovalsReviewer?
     var permissionMode: String?
     var collaborationMode: String?
@@ -482,6 +488,7 @@ struct SessionsClient: Sendable {
     var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxMode: String?
+    var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var cwd: String?
     var permissionMode: String?
     var allowedTools: [String] = []

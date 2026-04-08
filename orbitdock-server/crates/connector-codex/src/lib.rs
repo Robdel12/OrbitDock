@@ -6,6 +6,7 @@
 pub mod auth;
 mod config;
 mod event_mapping;
+mod policy_bridge;
 pub mod rollout_parser;
 mod runtime;
 pub mod session;
@@ -64,7 +65,9 @@ pub struct CodexConfigOverrides {
 
 pub struct UpdateConfigOptions<'a> {
   pub approval_policy: Option<&'a str>,
+  pub approval_policy_details: Option<&'a orbitdock_protocol::CodexApprovalPolicy>,
   pub sandbox_mode: Option<&'a str>,
+  pub sandbox_policy_details: Option<&'a orbitdock_protocol::CodexSandboxPolicy>,
   pub approvals_reviewer: Option<&'a str>,
   pub permission_mode: Option<&'a str>,
   pub collaboration_mode: Option<&'a str>,

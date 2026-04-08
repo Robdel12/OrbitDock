@@ -4,7 +4,8 @@ use orbitdock_protocol::{
   conversation_contracts::{
     ConversationRow, ConversationRowEntry, NoticeRow, NoticeRowKind, NoticeRowSeverity, TurnStatus,
   },
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, ServerMessage, SessionSummary,
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, CodexSandboxPolicy, ServerMessage,
+  SessionSummary,
 };
 
 use crate::connectors::claude_session::ClaudeAction;
@@ -28,6 +29,7 @@ pub(crate) struct SessionConfigUpdate {
   pub approval_policy: Option<Option<String>>,
   pub approval_policy_details: Option<Option<CodexApprovalPolicy>>,
   pub sandbox_mode: Option<Option<String>>,
+  pub sandbox_policy_details: Option<Option<CodexSandboxPolicy>>,
   pub approvals_reviewer: Option<Option<CodexApprovalsReviewer>>,
   pub permission_mode: Option<Option<String>>,
   pub collaboration_mode: Option<Option<String>>,
@@ -117,6 +119,7 @@ pub(crate) async fn update_session_config(
     approval_policy,
     approval_policy_details,
     sandbox_mode,
+    sandbox_policy_details,
     approvals_reviewer,
     permission_mode,
     collaboration_mode,
@@ -154,6 +157,7 @@ pub(crate) async fn update_session_config(
     approval_policy,
     approval_policy_details,
     sandbox_mode,
+    sandbox_policy_details,
     collaboration_mode,
     multi_agent,
     personality,
@@ -188,6 +192,12 @@ pub(crate) async fn update_session_config(
     if let Some(ref value) = sandbox_mode {
       overrides.sandbox_mode = value.clone();
     }
+    if let Some(value) = sandbox_policy_details.clone() {
+      overrides.sandbox_policy_details = value;
+      if let Some(ref details) = overrides.sandbox_policy_details {
+        overrides.sandbox_mode = Some(details.legacy_summary());
+      }
+    }
     if let Some(value) = approvals_reviewer {
       overrides.approvals_reviewer = value;
     }
@@ -217,6 +227,7 @@ pub(crate) async fn update_session_config(
       approval_policy,
       approval_policy_details,
       sandbox_mode,
+      sandbox_policy_details,
       collaboration_mode,
       multi_agent,
       personality,
@@ -235,6 +246,7 @@ pub(crate) async fn update_session_config(
       approval_policy,
       approval_policy_details,
       sandbox_mode,
+      sandbox_policy_details,
       collaboration_mode,
       multi_agent,
       personality,
@@ -258,6 +270,7 @@ pub(crate) async fn update_session_config(
         approval_policy: approval_policy.clone(),
         approval_policy_details: approval_policy_details.clone(),
         sandbox_mode: sandbox_mode.clone(),
+        sandbox_policy_details: sandbox_policy_details.clone(),
         permission_mode: permission_mode.clone(),
         collaboration_mode: collaboration_mode.clone(),
         multi_agent,
@@ -411,7 +424,9 @@ pub(crate) async fn update_session_config(
     let _ = tx
       .send(CodexAction::UpdateConfig {
         approval_policy: approval_policy.flatten(),
+        approval_policy_details: approval_policy_details.flatten(),
         sandbox_mode: sandbox_mode.flatten(),
+        sandbox_policy_details: sandbox_policy_details.flatten(),
         approvals_reviewer: approvals_reviewer
           .flatten()
           .map(|value| value.as_str().to_string()),

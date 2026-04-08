@@ -1615,6 +1615,7 @@ mod tests {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       permission_mode: None,
       collaboration_mode: None,
       multi_agent: None,

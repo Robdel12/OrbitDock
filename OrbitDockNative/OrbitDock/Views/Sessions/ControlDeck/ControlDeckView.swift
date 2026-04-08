@@ -34,6 +34,7 @@ struct ControlDeckView: View {
   // Approval callbacks
   var onApprove: (() -> Void)?
   var onApproveForSession: (() -> Void)?
+  var onApproveAlwaysForHost: ((String) -> Void)?
   var onDeny: (() -> Void)?
   var onAnswer: ((String, String?) -> Void)?
   var onGrantPermission: (() -> Void)?
@@ -78,6 +79,7 @@ struct ControlDeckView: View {
           approval: approval,
           onApprove: onApprove,
           onApproveForSession: onApproveForSession,
+          onApproveAlwaysForHost: onApproveAlwaysForHost,
           onDeny: onDeny,
           onAnswer: { answer, promptId in onAnswer?(answer, promptId) },
           onGrantPermission: onGrantPermission,

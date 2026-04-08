@@ -199,7 +199,9 @@ enum ControlDeckPresentationBuilder {
       case .autoReview:
         let currentAutoReview = autoReviewOption(
           approvalPolicy: state.config.approvalPolicy,
+          approvalPolicyDetails: state.config.approvalPolicyDetails,
           sandboxMode: state.config.sandboxMode,
+          sandboxPolicyDetails: state.config.sandboxPolicyDetails,
           options: capabilities.autoReviewOptions
         )
         return ControlDeckStatusModuleItem(
@@ -318,11 +320,30 @@ enum ControlDeckPresentationBuilder {
 
   private static func autoReviewOption(
     approvalPolicy: String?,
+    approvalPolicyDetails: ServerCodexApprovalPolicy?,
     sandboxMode: String?,
+    sandboxPolicyDetails: ServerCodexSandboxPolicy?,
     options: [ControlDeckAutoReviewOption]
   ) -> ControlDeckAutoReviewOption? {
-    options.first { option in
-      option.approvalPolicy == approvalPolicy && option.sandboxMode == sandboxMode
+    let resolvedApproval = ServerCodexApprovalPolicy.resolved(
+      details: approvalPolicyDetails,
+      fallbackPolicy: approvalPolicy
+    )
+    let resolvedSandbox = ServerCodexSandboxPolicy.resolved(
+      details: sandboxPolicyDetails,
+      fallbackMode: sandboxMode
+    )
+
+    return options.first { option in
+      let optionApproval = ServerCodexApprovalPolicy.resolved(
+        details: option.approvalPolicyDetails,
+        fallbackPolicy: option.approvalPolicy
+      )
+      let optionSandbox = ServerCodexSandboxPolicy.resolved(
+        details: option.sandboxPolicyDetails,
+        fallbackMode: option.sandboxMode
+      )
+      return optionApproval == resolvedApproval && optionSandbox == resolvedSandbox
     }
   }
 

@@ -119,6 +119,16 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
         .as_deref()
         .and_then(CodexApprovalPolicy::from_storage_text)
     });
+  let sandbox_policy_details = restored
+    .codex_config_overrides
+    .as_ref()
+    .and_then(|overrides| overrides.sandbox_policy_details.clone())
+    .or_else(|| {
+      restored
+        .sandbox_mode
+        .as_deref()
+        .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+    });
 
   let turn_diffs: Vec<TurnDiff> = restored
     .turn_diffs
@@ -202,6 +212,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     approval_policy_details,
     approval_policy: restored.approval_policy,
     sandbox_mode: restored.sandbox_mode,
+    sandbox_policy_details,
     started_at: restored.started_at,
     last_activity_at: restored.last_activity_at,
     last_progress_at: restored.last_progress_at,
@@ -248,6 +259,16 @@ pub(crate) fn restored_session_to_handle(
         .as_deref()
         .and_then(CodexApprovalPolicy::from_storage_text)
     });
+  let sandbox_policy_details = restored
+    .codex_config_overrides
+    .as_ref()
+    .and_then(|overrides| overrides.sandbox_policy_details.clone())
+    .or_else(|| {
+      restored
+        .sandbox_mode
+        .as_deref()
+        .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+    });
 
   let mut handle = SessionHandle::restore(SessionRestoreData {
     identity: SessionIdentity {
@@ -262,6 +283,7 @@ pub(crate) fn restored_session_to_handle(
       approval_policy: restored.approval_policy,
       approval_policy_details,
       sandbox_mode: restored.sandbox_mode,
+      sandbox_policy_details,
       collaboration_mode: restored.collaboration_mode,
       multi_agent: restored.multi_agent,
       personality: restored.personality,
