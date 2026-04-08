@@ -30,7 +30,8 @@ use crate::runtime::session_command_handler::{
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  should_detach_direct_connector_after_send_error, spawn_connector_cleanup_monitor,
+  apply_connector_detached_directly, should_detach_direct_connector_after_send_error,
+  spawn_connector_cleanup_monitor,
 };
 
 // Re-export so existing server code doesn't break
@@ -330,8 +331,8 @@ pub fn start_event_loop(
   );
 
   tokio::spawn(async move {
-    // Hold the guard — when this task ends (for any reason), cleanup runs
-    let _cleanup_guard = cleanup_guard;
+    // Hold the guard — if we do not disarm it, fallback cleanup runs.
+    let mut cleanup_guard = cleanup_guard;
 
     // Watchdog channel for synthetic events (interrupt timeout)
     let (watchdog_tx, mut watchdog_rx) =
@@ -570,12 +571,16 @@ pub fn start_event_loop(
       h.abort();
     }
 
-    // Cleanup is handled by _cleanup_guard drop — guarantees cleanup even on panic
+    apply_connector_detached_directly(&mut session_handle, &persist, &session_id, Provider::Codex)
+      .await;
+    state.remove_codex_action_tx(&session_id);
+    cleanup_guard.disarm();
+
     info!(
         component = "codex_connector",
         event = "codex.event_loop.ended",
         session_id = %session_id,
-        "Codex session event loop ended, cleanup guard will mark session resumable"
+        "Codex session event loop ended and cleanup was applied in-loop"
     );
   });
 
