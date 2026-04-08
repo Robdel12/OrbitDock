@@ -69,14 +69,18 @@ struct ServerSettingsSheet: View {
   }
 
   private var healthSummaryText: String {
-    guard !enabledEndpoints.isEmpty else { return "No enabled endpoints" }
+    guard !enabledEndpoints.isEmpty else { return "No enabled endpoints on this device" }
     if failedEndpointCount > 0 {
-      return failedEndpointCount == 1 ? "1 endpoint needs attention" : "\(failedEndpointCount) endpoints need attention"
+      return failedEndpointCount == 1
+        ? "1 endpoint on this device needs attention"
+        : "\(failedEndpointCount) endpoints on this device need attention"
     }
     if connectedEndpointCount == enabledEndpoints.count {
-      return connectedEndpointCount == 1 ? "1 endpoint live" : "\(connectedEndpointCount) endpoints live"
+      return connectedEndpointCount == 1
+        ? "1 endpoint on this device is live"
+        : "\(connectedEndpointCount) endpoints on this device are live"
     }
-    return "Sync in progress"
+    return "Sync in progress on this device"
   }
 
   private var healthSummaryColor: Color {
@@ -295,7 +299,7 @@ struct ServerSettingsSheet: View {
             }
 
             if !isPrimary, endpoint.isEnabled {
-              actionPill("Set Primary", icon: "crown", color: Color.accent) {
+              actionPill("Set Primary on This Device", icon: "crown", color: Color.accent) {
                 setDefaultEndpoint(endpoint.id)
               }
             }
@@ -379,7 +383,7 @@ struct ServerSettingsSheet: View {
     HStack(spacing: Spacing.gap) {
       Image(systemName: "crown.fill")
         .font(.system(size: 8))
-      Text("Primary")
+      Text("Primary on This Device")
         .font(.system(size: TypeScale.micro, weight: .bold))
     }
     .foregroundStyle(Color.accent)
@@ -492,15 +496,15 @@ struct ServerSettingsSheet: View {
 
             accentDivider
 
-            toggleRow(icon: "power", "Enabled", $draft.isEnabled)
+            toggleRow(icon: "power", "Enabled on This Device", $draft.isEnabled)
 
             accentDivider
 
             VStack(alignment: .leading, spacing: Spacing.xs) {
-              toggleRow(icon: "crown", "Control Plane", $draft.isDefault)
+              toggleRow(icon: "crown", "Primary on This Device", $draft.isDefault)
                 .disabled(!draft.isEnabled)
 
-              Text("Route usage and dashboard data through this endpoint.")
+              Text("Make this endpoint primary for usage and dashboard data on this device.")
                 .font(.system(size: TypeScale.caption))
                 .foregroundStyle(Color.textTertiary)
                 .padding(.horizontal, Spacing.lg)
@@ -666,7 +670,7 @@ struct ServerSettingsSheet: View {
       return nil
     }
     let names = claims.map(\.deviceName).joined(separator: ", ")
-    return "Claimed as control plane by: \(names)"
+    return "Claimed as primary by: \(names)"
   }
 
   private func failurePresentation(for status: ConnectionStatus) -> FailurePresentation? {
