@@ -493,9 +493,7 @@ async fn complete_claude_takeover(
 
   match tokio::time::timeout(Duration::from_secs(15), connector_task).await {
     Ok(Ok(Ok(claude_session))) => {
-      if let Some(ref sdk_id) = takeover_sdk_id {
-        state.register_claude_thread(&session_id, sdk_id.as_str());
-      }
+      // claude_sdk_session_id is already in DB — no registration needed on takeover.
 
       let persist_tx = state.persist().clone();
       let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(

@@ -272,16 +272,7 @@ impl CodexSandboxPolicy {
   }
 
   pub fn storage_text(&self) -> String {
-    if self.network_access {
-      match self.mode {
-        CodexSandboxMode::DangerFullAccess => "danger-full-access".to_string(),
-        CodexSandboxMode::ReadOnly => "read-only-network".to_string(),
-        CodexSandboxMode::WorkspaceWrite => "workspace-write-network".to_string(),
-        CodexSandboxMode::ExternalSandbox => "external-sandbox-network".to_string(),
-      }
-    } else {
-      self.mode.as_str().to_string()
-    }
+    self.legacy_summary()
   }
 }
 
@@ -1939,11 +1930,41 @@ pub struct DashboardCounts {
   pub direct: u32,
 }
 
+/// Pre-computed project group for dashboard display.
+/// Server computes grouping once; clients render directly without re-grouping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DashboardProjectGroup {
+  /// Project path used for grouping (e.g., "/Users/dev/myproject")
+  pub path: String,
+  /// Display name for the project (e.g., "myproject")
+  pub name: String,
+  /// Endpoint ID for multi-server setups
+  pub endpoint_id: String,
+  /// Optional endpoint display name
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub endpoint_name: Option<String>,
+  /// Count of sessions needing attention (permission/question)
+  pub attention_count: u32,
+  /// Count of sessions currently working
+  pub working_count: u32,
+  /// Count of sessions ready/waiting
+  pub ready_count: u32,
+  /// Session IDs in this group (references into conversations array)
+  pub session_ids: Vec<String>,
+  /// Most recent activity timestamp in this group
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_activity_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardSnapshot {
   pub revision: u64,
   pub conversations: Vec<DashboardConversationItem>,
   pub counts: DashboardCounts,
+  /// Pre-computed project groups for efficient client rendering.
+  /// Groups are sorted alphabetically by name.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub project_groups: Vec<DashboardProjectGroup>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2545,6 +2566,7 @@ mod tests {
       approval_policy: None,
       approval_policy_details: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       permission_mode: None,
       collaboration_mode: None,
       multi_agent: None,

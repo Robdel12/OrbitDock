@@ -160,6 +160,9 @@ struct SessionDetailView: View {
     .onChange(of: viewModel.reviewState.turnCount) { oldCount, newCount in
       handleReviewTurnCountChange(oldCount: oldCount, newCount: newCount)
     }
+    .focusedSceneValue(\.sessionDetailTerminalToggle) {
+      viewModel.showTerminalPanel.toggle()
+    }
   }
 
   var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
@@ -678,6 +681,17 @@ struct SessionDetailView: View {
 
   var shouldSubscribeToServerSession: Bool {
     viewModel.shouldSubscribeToServerSession
+  }
+}
+
+private struct SessionDetailTerminalToggleFocusedValueKey: FocusedValueKey {
+  typealias Value = () -> Void
+}
+
+extension FocusedValues {
+  var sessionDetailTerminalToggle: (() -> Void)? {
+    get { self[SessionDetailTerminalToggleFocusedValueKey.self] }
+    set { self[SessionDetailTerminalToggleFocusedValueKey.self] = newValue }
   }
 }
 

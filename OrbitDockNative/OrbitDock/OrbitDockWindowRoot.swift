@@ -77,7 +77,8 @@ struct OrbitDockWindowRoot: View {
           conversations: conversations,
           counts: DashboardTriageCounts(conversations: conversations),
           directCount: conversations.filter(\.isDirect).count,
-          hasMultipleEndpoints: false
+          hasMultipleEndpoints: false,
+          projectGroups: []
         ))
         appRuntime.dashboardDataService.applyDemoSessions(appRuntime.demoExperience.rootSessions)
         notificationSessionMonitor.applySessions(appRuntime.demoExperience.rootSessions)

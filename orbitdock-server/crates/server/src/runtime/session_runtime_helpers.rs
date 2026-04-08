@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, UNIX_EPOCH};
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -17,7 +17,6 @@ use orbitdock_protocol::{
 
 use orbitdock_protocol::ServerMessage;
 
-use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
   load_messages_for_session, load_messages_from_transcript_path,
   load_token_usage_from_transcript_path, PersistCommand,
@@ -198,6 +197,7 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
   thread_id: &str,
   cleanup_reason: &str,
 ) {
+  // Write goes through PersistCommand only — single mutation path with immutability guard.
   let persisted = persist_tx
     .send(PersistCommand::SetThreadId {
       session_id: session_id.to_string(),
@@ -205,9 +205,8 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
     })
     .await
     .is_ok();
-  let registered = state.register_codex_thread(session_id, thread_id);
 
-  if !registered && !persisted {
+  if !persisted {
     tracing::warn!(
       component = "session",
       event = "session.direct.codex_thread_claim_failed",
@@ -416,62 +415,6 @@ pub(crate) async fn mark_direct_session_connector_detached(
     .await;
 }
 
-/// Apply connector-detached state directly on a `SessionHandle` owned by the
-/// caller. This is used by the connector event loop cleanup where the actor
-/// command channel is part of the same select loop and can no longer process
-/// commands after the loop breaks.
-pub(crate) async fn apply_connector_detached_directly(
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  _state: &Arc<SessionRegistry>,
-  session_id: &str,
-  provider: Provider,
-) {
-  let snap = handle.to_snapshot();
-  if snap.status != SessionStatus::Active
-    || snap.control_mode != orbitdock_protocol::SessionControlMode::Direct
-    || snap.lifecycle_state != SessionLifecycleState::Open
-  {
-    return;
-  }
-
-  let mut changes = StateChanges {
-    lifecycle_state: Some(SessionLifecycleState::Resumable),
-    work_status: Some(WorkStatus::Waiting),
-    steerable: Some(false),
-    ..Default::default()
-  };
-
-  match provider {
-    Provider::Codex => {
-      changes.codex_integration_mode = Some(Some(CodexIntegrationMode::Direct));
-    }
-    Provider::Claude => {
-      changes.claude_integration_mode = Some(Some(ClaudeIntegrationMode::Direct));
-    }
-  }
-
-  handle.apply_changes(&changes);
-  handle.refresh_snapshot();
-
-  let _ = persist_tx
-    .send(PersistCommand::SessionUpdate {
-      id: session_id.to_string(),
-      status: None,
-      work_status: Some(WorkStatus::Waiting),
-      control_mode: None,
-      lifecycle_state: Some(SessionLifecycleState::Resumable),
-      last_activity_at: None,
-      last_progress_at: None,
-    })
-    .await;
-
-  handle.broadcast(ServerMessage::SessionDelta {
-    session_id: session_id.to_string(),
-    changes: Box::new(changes),
-  });
-}
-
 pub(crate) fn is_stale_empty_claude_shell(
   summary: &orbitdock_protocol::SessionSummary,
   current_session_id: &str,
@@ -640,6 +583,79 @@ pub(crate) async fn sync_transcript_messages(
   if let Some(state) = next_guard_state {
     remember_transcript_sync_guard(&session_id, state);
   }
+}
+
+/// Spawns a cleanup monitor that guarantees session cleanup even if the main
+/// event loop panics or is cancelled. Returns a guard that must be held for the
+/// lifetime of the event loop — when dropped, the monitor marks the session resumable.
+///
+/// This solves the "stuck session" problem where a connector crash could leave
+/// sessions in `lifecycle_state=open` with no active connector.
+pub(crate) fn spawn_connector_cleanup_monitor(
+  session_id: String,
+  persist_tx: mpsc::Sender<PersistCommand>,
+  state: Arc<SessionRegistry>,
+  provider: Provider,
+) -> ConnectorCleanupGuard {
+  let (drop_tx, drop_rx) = oneshot::channel::<()>();
+
+  let cleanup_session_id = session_id.clone();
+  tokio::spawn(async move {
+    // This completes when drop_tx is dropped (normal exit, panic, or cancel)
+    let _ = drop_rx.await;
+
+    // Always mark as resumable — the connector is gone
+    let _ = persist_tx
+      .send(PersistCommand::SessionUpdate {
+        id: cleanup_session_id.clone(),
+        status: None,
+        work_status: Some(WorkStatus::Waiting),
+        control_mode: None,
+        lifecycle_state: Some(SessionLifecycleState::Resumable),
+        last_activity_at: None,
+        last_progress_at: None,
+      })
+      .await;
+
+    // Remove action channel from registry
+    match provider {
+      Provider::Codex => state.remove_codex_action_tx(&cleanup_session_id),
+      Provider::Claude => state.remove_claude_action_tx(&cleanup_session_id),
+    }
+
+    // Broadcast the state change
+    let changes = StateChanges {
+      lifecycle_state: Some(SessionLifecycleState::Resumable),
+      work_status: Some(WorkStatus::Waiting),
+      steerable: Some(false),
+      ..Default::default()
+    };
+    let _ = state.list_tx().send(ServerMessage::SessionDelta {
+      session_id: cleanup_session_id.clone(),
+      changes: Box::new(changes),
+    });
+
+    tracing::info!(
+      component = "connector_cleanup",
+      event = "connector_cleanup.session_marked_resumable",
+      session_id = %cleanup_session_id,
+      provider = ?provider,
+      "Cleanup monitor marked session as resumable after connector exit"
+    );
+  });
+
+  ConnectorCleanupGuard {
+    _drop_tx: drop_tx,
+    session_id,
+  }
+}
+
+/// Guard that triggers cleanup when dropped. Hold this for the lifetime of the
+/// connector event loop.
+pub(crate) struct ConnectorCleanupGuard {
+  _drop_tx: oneshot::Sender<()>,
+  #[allow(dead_code)]
+  session_id: String,
 }
 
 #[cfg(test)]

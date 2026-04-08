@@ -6,28 +6,36 @@ struct SessionSidebar: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  @State private var isAttentionExpanded = true
-  @State private var isOrbitExpanded = true
-  @State private var isDockedExpanded = true
+  /// Tracks manually collapsed projects. By default all are expanded.
+  @State private var collapsedProjects: Set<String> = []
 
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  private var conversations: [DashboardConversationRecord] {
-    viewModel.presentation?.sidebarConversations ?? []
+  /// Pre-computed project groups from server, filtered to only show groups with active sessions.
+  private var projectGroups: [DashboardProjectGroup] {
+    viewModel.snapshot?.projectGroups.filter { $0.totalCount > 0 } ?? []
   }
 
-  private var attentionSessions: [DashboardConversationRecord] {
-    conversations.filter(\.displayStatus.needsAttention)
+  /// Lookup from session ID to conversation record for rendering.
+  private var conversationsBySessionId: [String: DashboardConversationRecord] {
+    Dictionary(
+      uniqueKeysWithValues: (viewModel.snapshot?.conversations ?? []).map { ($0.sessionId, $0) }
+    )
   }
 
-  private var orbitSessions: [DashboardConversationRecord] {
-    conversations.filter { $0.displayStatus == .working }
+  /// Total counts from server.
+  private var totalAttentionCount: Int {
+    viewModel.snapshot?.counts.attention ?? 0
   }
 
-  private var dockedSessions: [DashboardConversationRecord] {
-    conversations.filter { $0.displayStatus == .reply }
+  private var totalWorkingCount: Int {
+    viewModel.snapshot?.counts.running ?? 0
+  }
+
+  private var totalReadyCount: Int {
+    viewModel.snapshot?.counts.ready ?? 0
   }
 
   /// Server health — only shown when degraded or offline.
@@ -52,35 +60,11 @@ struct SessionSidebar: View {
 
       ScrollView {
         LazyVStack(alignment: .leading, spacing: Spacing.sm_) {
-          if !attentionSessions.isEmpty {
-            tierSection(
-              title: "Attention",
-              color: .statusPermission,
-              sessions: attentionSessions,
-              isExpanded: $isAttentionExpanded,
-              forceExpanded: true
-            )
+          ForEach(projectGroups) { group in
+            projectSection(group)
           }
 
-          if !orbitSessions.isEmpty {
-            tierSection(
-              title: "In Orbit",
-              color: .statusWorking,
-              sessions: orbitSessions,
-              isExpanded: $isOrbitExpanded
-            )
-          }
-
-          if !dockedSessions.isEmpty {
-            tierSection(
-              title: "Docked",
-              color: .statusReply,
-              sessions: dockedSessions,
-              isExpanded: $isDockedExpanded
-            )
-          }
-
-          if conversations.isEmpty && !viewModel.isLoading {
+          if projectGroups.isEmpty && !viewModel.isLoading {
             noSessionsPlaceholder
               .padding(.top, Spacing.xl)
           }
@@ -101,12 +85,12 @@ struct SessionSidebar: View {
 
   private var sidebarHeader: some View {
     HStack(spacing: Spacing.md) {
-      if attentionSessions.count > 0 {
-        signalFilter(.attention, count: attentionSessions.count, color: .statusPermission, label: "incoming")
+      if totalAttentionCount > 0 {
+        signalFilter(.attention, count: totalAttentionCount, color: .statusPermission, label: "incoming")
       }
 
-      signalFilter(.running, count: orbitSessions.count, color: .statusWorking, label: "orbit")
-      signalFilter(.ready, count: dockedSessions.count, color: .statusReply, label: "docked")
+      signalFilter(.running, count: totalWorkingCount, color: .statusWorking, label: "orbit")
+      signalFilter(.ready, count: totalReadyCount, color: .statusReply, label: "docked")
 
       Spacer(minLength: 0)
 
@@ -178,45 +162,46 @@ struct SessionSidebar: View {
     .buttonStyle(.plain)
   }
 
-  // MARK: - Tier Section
+  // MARK: - Project Section
 
   @ViewBuilder
-  private func tierSection(
-    title: String,
-    color: Color,
-    sessions: [DashboardConversationRecord],
-    isExpanded: Binding<Bool>,
-    forceExpanded: Bool = false
-  ) -> some View {
-    let expanded = forceExpanded || isExpanded.wrappedValue
+  private func projectSection(_ group: DashboardProjectGroup) -> some View {
+    let isExpanded = !collapsedProjects.contains(group.id)
+    let hasAttention = group.attentionCount > 0
 
     VStack(alignment: .leading, spacing: 0) {
       SectorHeader(
-        title: title,
-        color: color,
-        count: sessions.count,
-        isCollapsed: forceExpanded ? nil : !expanded
+        title: group.name,
+        color: group.signalColor,
+        count: group.totalCount,
+        isCollapsed: hasAttention ? nil : !isExpanded
       ) {
-        guard !forceExpanded else { return }
+        guard !hasAttention else { return }
         withAnimation(Motion.hover) {
-          isExpanded.wrappedValue.toggle()
+          if collapsedProjects.contains(group.id) {
+            collapsedProjects.remove(group.id)
+          } else {
+            collapsedProjects.insert(group.id)
+          }
         }
       }
       .padding(.horizontal, Spacing.xs)
 
-      if expanded {
-        ForEach(sessions) { session in
-          let isSelected = router.workspaceSelection == .session(session.sessionRef)
+      if isExpanded || hasAttention {
+        ForEach(group.sessionIds, id: \.self) { sessionId in
+          if let session = conversationsBySessionId[sessionId] {
+            let isSelected = router.workspaceSelection == .session(session.sessionRef)
 
-          Button {
-            withAnimation(Motion.hover) {
-              router.selectSession(session.sessionRef, source: .dashboardSidebar)
+            Button {
+              withAnimation(Motion.hover) {
+                router.selectSession(session.sessionRef, source: .dashboardSidebar)
+              }
+            } label: {
+              SidebarSessionRow(session: session, isSelected: isSelected)
+                .frame(minHeight: layoutMode.isPhoneCompact ? 44 : 0)
             }
-          } label: {
-            SidebarSessionRow(session: session, isSelected: isSelected)
-              .frame(minHeight: layoutMode.isPhoneCompact ? 44 : 0)
+            .buttonStyle(.plain)
           }
-          .buttonStyle(.plain)
         }
       }
     }

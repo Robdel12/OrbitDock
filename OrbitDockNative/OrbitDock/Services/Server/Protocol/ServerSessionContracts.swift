@@ -494,10 +494,41 @@ struct ServerDashboardCounts: Codable, Sendable {
   let direct: UInt32
 }
 
+/// Pre-computed project group from server.
+/// Server computes grouping once; clients render directly without re-grouping.
+struct ServerDashboardProjectGroup: Codable, Sendable {
+  let path: String
+  let name: String
+  let endpointId: String
+  let endpointName: String?
+  let attentionCount: UInt32
+  let workingCount: UInt32
+  let readyCount: UInt32
+  let sessionIds: [String]
+  let lastActivityAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case path, name
+    case endpointId = "endpoint_id"
+    case endpointName = "endpoint_name"
+    case attentionCount = "attention_count"
+    case workingCount = "working_count"
+    case readyCount = "ready_count"
+    case sessionIds = "session_ids"
+    case lastActivityAt = "last_activity_at"
+  }
+}
+
 struct ServerDashboardSnapshotPayload: Codable, Sendable {
   let revision: UInt64
   let conversations: [ServerDashboardConversationItem]
   let counts: ServerDashboardCounts
+  let projectGroups: [ServerDashboardProjectGroup]?
+
+  enum CodingKeys: String, CodingKey {
+    case revision, conversations, counts
+    case projectGroups = "project_groups"
+  }
 }
 
 struct ServerLibrarySnapshotPayload: Codable, Sendable {

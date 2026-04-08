@@ -52,7 +52,8 @@ struct PreviewRuntime {
       ServerDashboardSnapshotPayload(
         revision: 1,
         conversations: [],
-        counts: ServerDashboardCounts(attention: 0, running: 0, ready: 0, direct: 0)
+        counts: ServerDashboardCounts(attention: 0, running: 0, ready: 0, direct: 0),
+        projectGroups: nil
       )
     )
     self.sessionStore = sessionStore

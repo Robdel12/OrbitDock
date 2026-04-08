@@ -32,7 +32,7 @@ struct OrbitDockApp: App {
 
   var body: some Scene {
     #if os(macOS)
-      WindowGroup {
+      WindowGroup(id: "main") {
         OrbitDockWindowRoot(appRuntime: appRuntime)
           .environment(appRuntime)
           .environment(\.modelPricingService, modelPricingService)
@@ -87,6 +87,8 @@ struct OrbitDockApp: App {
 
 struct OrbitDockWindowCommands: Commands {
   @FocusedValue(\.orbitDockRouter) private var router
+  @FocusedValue(\.sessionDetailTerminalToggle) private var toggleTerminal
+  @Environment(\.openWindow) private var openWindow
 
   var body: some Commands {
     CommandGroup(replacing: .appSettings) {
@@ -95,6 +97,19 @@ struct OrbitDockWindowCommands: Commands {
       }
       .keyboardShortcut(",", modifiers: .command)
       .disabled(router == nil)
+    }
+
+    CommandGroup(replacing: .newItem) {
+      Button("New Session") {
+        router?.openNewSessionSheet()
+      }
+      .keyboardShortcut("n", modifiers: .command)
+      .disabled(router == nil)
+
+      Button("New Window") {
+        openWindow(id: "main")
+      }
+      .keyboardShortcut("n", modifiers: [.command, .shift])
     }
 
     CommandGroup(after: .toolbar) {
@@ -109,6 +124,12 @@ struct OrbitDockWindowCommands: Commands {
       }
       .keyboardShortcut("k", modifiers: .command)
       .disabled(router == nil)
+
+      Button("Terminal") {
+        toggleTerminal?()
+      }
+      .keyboardShortcut("t", modifiers: .command)
+      .disabled(toggleTerminal == nil)
     }
   }
 }

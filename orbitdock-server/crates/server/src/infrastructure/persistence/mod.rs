@@ -822,8 +822,10 @@ pub(super) fn execute_command(
       session_id,
       thread_id,
     } => {
+      // Only set if not already set — codex_thread_id is immutable once written.
+      // This prevents hook thread IDs from overwriting the real thread ID on resume.
       conn.execute(
-        "UPDATE sessions SET codex_thread_id = ? WHERE id = ?",
+        "UPDATE sessions SET codex_thread_id = ? WHERE id = ? AND codex_thread_id IS NULL",
         params![thread_id, session_id],
       )?;
     }
@@ -852,8 +854,10 @@ pub(super) fn execute_command(
       session_id,
       claude_sdk_session_id,
     } => {
+      // Only set if not already set — claude_sdk_session_id is immutable once written.
+      // This prevents hook session IDs from overwriting the real session ID on resume.
       conn.execute(
-        "UPDATE sessions SET claude_sdk_session_id = ? WHERE id = ?",
+        "UPDATE sessions SET claude_sdk_session_id = ? WHERE id = ? AND claude_sdk_session_id IS NULL",
         params![claude_sdk_session_id, session_id],
       )?;
     }

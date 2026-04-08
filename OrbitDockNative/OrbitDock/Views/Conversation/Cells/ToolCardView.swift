@@ -1062,7 +1062,12 @@ struct ToolCardView: View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       switch toolType {
         case "bash":
-          BashExpandedView(content: content, isFailed: isFailed)
+          BashExpandedView(
+            content: content,
+            isFailed: isFailed,
+            liveOutputPreview: display?.liveOutputPreview,
+            isRunning: isRunning
+          )
         case "read":
           ReadExpandedView(content: content)
         case "edit":

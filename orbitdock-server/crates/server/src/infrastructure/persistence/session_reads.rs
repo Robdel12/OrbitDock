@@ -407,7 +407,7 @@ async fn load_sessions_for_startup_with_db_path(
             // Mark all active direct sessions as resumable on startup.
             // The connector process from the previous server run is gone,
             // so the user must explicitly resume each session.
-            conn.execute(
+            let resumable_count = conn.execute(
                 "UPDATE sessions
                  SET lifecycle_state = 'resumable',
                      work_status = 'waiting'
@@ -418,6 +418,12 @@ async fn load_sessions_for_startup_with_db_path(
                    AND COALESCE(lifecycle_state, 'open') != 'ended'",
                 [],
             )?;
+            tracing::info!(
+                component = "restore",
+                event = "restore.startup_cleanup.resumable",
+                sessions_updated = resumable_count,
+                "Set active direct sessions to resumable"
+            );
 
             conn.execute(
                 "UPDATE sessions
@@ -792,13 +798,11 @@ async fn load_sessions_for_startup_with_db_path(
                     )
                     .unwrap_or(None);
 
+                // Extract summary from transcript if missing (read-only — no DB write during read).
+                // Summary will be persisted separately via PersistCommand if needed.
                 if summary.is_none() && provider == "claude" {
                     if let Some(path) = transcript_path.as_deref() {
                         if let Some(extracted) = extract_summary_from_transcript(path) {
-                            let _ = conn.execute(
-                                "UPDATE sessions SET summary = ? WHERE id = ?",
-                                params![extracted, id],
-                            );
                             summary = Some(extracted);
                         }
                     }

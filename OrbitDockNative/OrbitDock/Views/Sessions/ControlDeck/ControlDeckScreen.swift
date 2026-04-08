@@ -187,6 +187,7 @@ struct ControlDeckScreen: View {
       onToggleTerminal: onToggleTerminal,
       onModuleAction: handleModuleAction,
       onApprovalReviewerAction: handleApprovalReviewerAction,
+      onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
       isSessionWorking: viewModel.steerable,
       onDictation: dictationAction,
@@ -379,6 +380,15 @@ struct ControlDeckScreen: View {
     ])
     Task {
       await viewModel.updateApprovalsReviewer(reviewer)
+    }
+  }
+
+  private func handleSandboxPolicyAction(_ policy: ServerCodexSandboxPolicy) {
+    netLog(.info, cat: .store, "ControlDeck sandbox policy action tapped", sid: sessionId, data: [
+      "policy": policy.legacySummary,
+    ])
+    Task {
+      await viewModel.updateSandboxPolicy(policy)
     }
   }
 

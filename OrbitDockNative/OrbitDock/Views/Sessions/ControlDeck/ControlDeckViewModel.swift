@@ -371,6 +371,13 @@ final class ControlDeckViewModel {
     }
   }
 
+  func updateSandboxPolicy(_ policy: ServerCodexSandboxPolicy) async {
+    await applyConfigUpdate(action: "updateSandboxPolicy", value: policy.legacySummary) { request in
+      request.sandboxMode = policy.legacySummary
+      request.sandboxPolicyDetails = policy
+    }
+  }
+
   func updateCollaborationMode(_ mode: String) async {
     await applyConfigUpdate(action: "updateCollaborationMode", value: mode) { request in
       request.collaborationMode = mode

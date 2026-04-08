@@ -4,6 +4,7 @@ struct ControlDeckStatusBar: View {
   let modules: [ControlDeckStatusModuleItem]
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
   var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
+  var onSandboxPolicyAction: ((ServerCodexSandboxPolicy) -> Void)?
 
   // Action buttons
   var supportsImages: Bool = false
@@ -326,6 +327,7 @@ struct ControlDeckStatusBar: View {
           CodexApprovalPill(
             currentMode: CodexApprovalMode.from(rawValue: module.selectedValue),
             currentReviewer: CodexApprovalsReviewer.from(rawValue: module.reviewerValue),
+            currentSandboxPolicy: module.sandboxPolicyDetails,
             supportedModes: CodexApprovalMode.supportedCases(from: pickerOptions(for: module)),
             size: .statusBar,
             onUpdate: { mode in
@@ -333,6 +335,9 @@ struct ControlDeckStatusBar: View {
             },
             onReviewerUpdate: { reviewer in
               onApprovalReviewerAction?(ServerCodexApprovalsReviewer(rawValue: reviewer.rawValue) ?? .user)
+            },
+            onSandboxUpdate: { policy in
+              onSandboxPolicyAction?(policy)
             }
           )
         )

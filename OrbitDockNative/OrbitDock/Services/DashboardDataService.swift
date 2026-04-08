@@ -153,7 +153,8 @@ final class DashboardDataService {
         conversations: [],
         counts: DashboardTriageCounts(),
         directCount: 0,
-        hasMultipleEndpoints: false
+        hasMultipleEndpoints: false,
+        projectGroups: []
       )
       return
     }
@@ -182,12 +183,14 @@ final class DashboardDataService {
     // Preserve existing conversations for endpoints that failed to refresh
     if let existing = snapshot, !failedEndpointIds.isEmpty {
       let preserved = existing.conversations.filter { failedEndpointIds.contains($0.sessionRef.endpointId) }
+      let preservedGroups = existing.projectGroups.filter { failedEndpointIds.contains($0.endpointId) }
       endpointResults.append(DashboardSnapshotMapper.EndpointResult(
         revision: existing.revision,
         conversations: preserved,
         counts: DashboardTriageCounts(conversations: preserved),
         directCount: preserved.filter(\.isDirect).count,
-        endpointId: failedEndpointIds.first!
+        endpointId: failedEndpointIds.first!,
+        projectGroups: preservedGroups
       ))
     }
 

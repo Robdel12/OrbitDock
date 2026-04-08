@@ -96,7 +96,7 @@ pub(crate) async fn launch_resumed_session(
         return Err(ResumeSessionError::MissingClaudeResumeId);
       };
 
-      state.register_claude_thread(&session_id, provider_resume_id.as_str());
+      // claude_sdk_session_id is already in DB — no registration needed on resume.
       let startup_ready = spawn_claude_resume(
         state,
         ClaudeResumeParams {
@@ -258,7 +258,7 @@ async fn spawn_claude_resume(
 
     match tokio::time::timeout(connector_timeout, connector_task).await {
       Ok(Ok(Ok(claude_session))) => {
-        state.register_claude_thread(&session_id, provider_resume_id.as_str());
+        // claude_sdk_session_id is already in DB — no registration needed on resume.
         handle.set_list_tx(state.list_tx());
         handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(

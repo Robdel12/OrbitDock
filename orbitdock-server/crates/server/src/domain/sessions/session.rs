@@ -1474,6 +1474,13 @@ impl SessionHandle {
         self.config.codex_config_overrides.as_ref(),
       );
     }
+    if had_explicit_sandbox_details {
+      self.config.sandbox_mode = self
+        .config
+        .sandbox_policy_details
+        .as_ref()
+        .map(CodexSandboxPolicy::legacy_summary);
+    }
     self.refresh_snapshot();
   }
 
@@ -2090,6 +2097,9 @@ impl SessionHandle {
     }
     if let Some(ref sandbox_policy_details) = changes.sandbox_policy_details {
       self.config.sandbox_policy_details = sandbox_policy_details.clone();
+      self.config.sandbox_mode = sandbox_policy_details
+        .as_ref()
+        .map(CodexSandboxPolicy::legacy_summary);
     }
     if let Some(ref permission_mode) = changes.permission_mode {
       self.permission_mode = permission_mode.clone();
@@ -2682,6 +2692,43 @@ mod tests {
     assert!(!payload.contains("\"aggregated_output\""));
     assert!(!payload.contains("\"terminal_snapshot\""));
     assert!(payload.contains("\"live_output_preview\""));
+  }
+
+  #[test]
+  fn set_config_syncs_legacy_sandbox_mode_from_explicit_details() {
+    let mut session = session_handle(Provider::Codex);
+
+    session.set_config(SessionConfigPatch {
+      sandbox_policy_details: CodexSandboxPolicy::from_storage_text("workspace-write-network"),
+      ..Default::default()
+    });
+
+    assert_eq!(
+      session.config.sandbox_mode.as_deref(),
+      Some("workspace-write-network")
+    );
+  }
+
+  #[test]
+  fn apply_changes_syncs_legacy_sandbox_mode_from_explicit_details() {
+    let mut session = session_handle(Provider::Codex);
+
+    session.apply_changes(&StateChanges {
+      sandbox_policy_details: Some(CodexSandboxPolicy::from_storage_text("read-only-network")),
+      ..Default::default()
+    });
+
+    assert_eq!(
+      session.config.sandbox_mode.as_deref(),
+      Some("read-only-network")
+    );
+
+    session.apply_changes(&StateChanges {
+      sandbox_policy_details: Some(None),
+      ..Default::default()
+    });
+
+    assert!(session.config.sandbox_mode.is_none());
   }
 
   #[test]

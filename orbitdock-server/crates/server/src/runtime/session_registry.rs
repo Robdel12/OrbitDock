@@ -270,6 +270,7 @@ impl SessionRegistry {
             ready: 0,
             direct: 0,
           },
+          project_groups: vec![],
         },
       )),
       mission_revision: AtomicU64::new(0),
@@ -646,184 +647,6 @@ impl SessionRegistry {
       self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
     }
     removed
-  }
-
-  /// Register codex-core thread ID for a direct session.
-  ///
-  /// Ownership is DB-driven; this helper writes the mapping to SQLite so hook
-  /// routing and reverse lookups do not depend on in-memory aliases.
-  pub fn register_codex_thread(&self, session_id: &str, thread_id: &str) -> bool {
-    if orbitdock_protocol::is_orbitdock_id(thread_id) {
-      tracing::error!(
-          component = "state",
-          event = "state.register_codex_thread.rejected",
-          session_id = %session_id,
-          thread_id = %thread_id,
-          "Rejected OrbitDock ID as codex thread ID"
-      );
-      return false;
-    }
-
-    let Some(mut conn) = self.open_ownership_db("register_codex_thread") else {
-      return false;
-    };
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let project_path = self
-      .get_session(session_id)
-      .map(|actor| actor.snapshot().project_path.clone())
-      .unwrap_or_else(|| "/unknown".to_string());
-
-    let tx = match conn.transaction() {
-      Ok(tx) => tx,
-      Err(error) => {
-        warn!(
-          component = "state",
-          event = "state.register_codex_thread.transaction_failed",
-          session_id = %session_id,
-          thread_id = %thread_id,
-          error = %error,
-          "Failed to start SQLite transaction for codex thread registration"
-        );
-        return false;
-      }
-    };
-
-    if let Err(error) = tx.execute(
-      "INSERT OR IGNORE INTO sessions (
-         id, provider, control_mode, codex_integration_mode, status, work_status,
-         project_path, started_at, last_activity_at
-       ) VALUES (?1, 'codex', 'direct', 'direct', 'active', 'waiting', ?2, ?3, ?3)",
-      params![session_id, project_path, now],
-    ) {
-      warn!(
-        component = "state",
-        event = "state.register_codex_thread.insert_failed",
-        session_id = %session_id,
-        thread_id = %thread_id,
-        error = %error,
-        "Failed to ensure direct Codex owner row before thread registration"
-      );
-      return false;
-    }
-
-    if let Err(error) = tx.execute(
-      "UPDATE sessions SET codex_thread_id = ?1 WHERE id = ?2",
-      params![thread_id, session_id],
-    ) {
-      warn!(
-        component = "state",
-        event = "state.register_codex_thread.update_failed",
-        session_id = %session_id,
-        thread_id = %thread_id,
-        error = %error,
-        "Failed to persist Codex thread ownership mapping"
-      );
-      return false;
-    }
-
-    if let Err(error) = tx.commit() {
-      warn!(
-        component = "state",
-        event = "state.register_codex_thread.commit_failed",
-        session_id = %session_id,
-        thread_id = %thread_id,
-        error = %error,
-        "Failed to commit Codex thread ownership mapping transaction"
-      );
-      return false;
-    }
-
-    true
-  }
-
-  /// Register Claude SDK session ID for a direct session.
-  ///
-  /// Ownership is DB-driven; this helper writes the mapping to SQLite so hook
-  /// routing and reverse lookups do not depend on in-memory aliases.
-  pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) -> bool {
-    if orbitdock_protocol::is_orbitdock_id(sdk_session_id) {
-      tracing::error!(
-          component = "state",
-          event = "state.register_claude_thread.rejected",
-          session_id = %session_id,
-          sdk_session_id = %sdk_session_id,
-          "Rejected OrbitDock ID as Claude SDK session ID"
-      );
-      return false;
-    }
-
-    let Some(mut conn) = self.open_ownership_db("register_claude_thread") else {
-      return false;
-    };
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let project_path = self
-      .get_session(session_id)
-      .map(|actor| actor.snapshot().project_path.clone())
-      .unwrap_or_else(|| "/unknown".to_string());
-
-    let tx = match conn.transaction() {
-      Ok(tx) => tx,
-      Err(error) => {
-        warn!(
-          component = "state",
-          event = "state.register_claude_thread.transaction_failed",
-          session_id = %session_id,
-          sdk_session_id = %sdk_session_id,
-          error = %error,
-          "Failed to start SQLite transaction for Claude SDK registration"
-        );
-        return false;
-      }
-    };
-
-    if let Err(error) = tx.execute(
-      "INSERT OR IGNORE INTO sessions (
-         id, provider, control_mode, claude_integration_mode, status, work_status,
-         project_path, started_at, last_activity_at
-       ) VALUES (?1, 'claude', 'direct', 'direct', 'active', 'waiting', ?2, ?3, ?3)",
-      params![session_id, project_path, now],
-    ) {
-      warn!(
-        component = "state",
-        event = "state.register_claude_thread.insert_failed",
-        session_id = %session_id,
-        sdk_session_id = %sdk_session_id,
-        error = %error,
-        "Failed to ensure direct Claude owner row before SDK registration"
-      );
-      return false;
-    }
-
-    if let Err(error) = tx.execute(
-      "UPDATE sessions SET claude_sdk_session_id = ?1 WHERE id = ?2",
-      params![sdk_session_id, session_id],
-    ) {
-      warn!(
-        component = "state",
-        event = "state.register_claude_thread.update_failed",
-        session_id = %session_id,
-        sdk_session_id = %sdk_session_id,
-        error = %error,
-        "Failed to persist Claude SDK ownership mapping"
-      );
-      return false;
-    }
-
-    if let Err(error) = tx.commit() {
-      warn!(
-        component = "state",
-        event = "state.register_claude_thread.commit_failed",
-        session_id = %session_id,
-        sdk_session_id = %sdk_session_id,
-        error = %error,
-        "Failed to commit Claude SDK ownership mapping transaction"
-      );
-      return false;
-    }
-
-    true
   }
 
   /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
@@ -1232,11 +1055,8 @@ mod tests {
   use crate::support::test_support::ensure_server_test_data_dir;
   use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
-    SubagentInfo, SubagentStatus, WorkStatus, WorkspaceProviderKind,
+    SubagentInfo, SubagentStatus, WorkStatus,
   };
-  use rusqlite::Connection;
-  use std::sync::Arc;
-  use std::time::Duration;
   use tokio::sync::mpsc;
 
   #[test]
@@ -1450,95 +1270,8 @@ mod tests {
     assert_eq!(conversation.tool_count, 7);
   }
 
-  fn create_ownership_test_db() -> std::path::PathBuf {
-    let db_path = std::env::temp_dir().join(format!(
-      "orbitdock-session-registry-ownership-{}-{}.db",
-      std::process::id(),
-      std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-    ));
-    let _ = std::fs::remove_file(&db_path);
-    let conn = Connection::open(&db_path).expect("open temp ownership db");
-    conn
-      .execute(
-        "CREATE TABLE sessions (
-           id TEXT PRIMARY KEY,
-           provider TEXT,
-           control_mode TEXT,
-           codex_integration_mode TEXT,
-           claude_integration_mode TEXT,
-           status TEXT,
-           work_status TEXT,
-           project_path TEXT,
-           started_at TEXT,
-           last_activity_at TEXT,
-           codex_thread_id TEXT,
-           claude_sdk_session_id TEXT
-         )",
-        [],
-      )
-      .expect("create ownership sessions table");
-    drop(conn);
-    db_path
-  }
-
-  #[test]
-  fn register_codex_thread_succeeds_after_transient_sqlite_lock() {
-    let db_path = create_ownership_test_db();
-    let (persist_tx, _persist_rx) = mpsc::channel(8);
-    let registry = Arc::new(SessionRegistry::new_with_primary_and_db_path(
-      persist_tx,
-      db_path.clone(),
-      true,
-      WorkspaceProviderKind::default(),
-    ));
-
-    let lock_conn = Connection::open(&db_path).expect("open lock connection");
-    lock_conn
-      .execute_batch("BEGIN IMMEDIATE")
-      .expect("acquire write lock");
-
-    let registry_for_thread = registry.clone();
-    let join = std::thread::spawn(move || {
-      registry_for_thread.register_codex_thread("od-lock-owner", "codex-thread-lock")
-    });
-
-    std::thread::sleep(Duration::from_millis(150));
-    lock_conn
-      .execute_batch("COMMIT")
-      .expect("release write lock");
-
-    assert!(join.join().expect("registration thread should join"));
-    assert_eq!(
-      registry.resolve_codex_thread("codex-thread-lock"),
-      Some("od-lock-owner".to_string())
-    );
-
-    let _ = std::fs::remove_file(db_path);
-  }
-
-  #[test]
-  fn register_thread_reports_failure_when_db_is_unavailable() {
-    let missing_dir = std::env::temp_dir().join(format!(
-      "orbitdock-session-registry-missing-{}-{}",
-      std::process::id(),
-      std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-    ));
-    let db_path = missing_dir.join("missing.db");
-    let (persist_tx, _persist_rx) = mpsc::channel(8);
-    let registry = SessionRegistry::new_with_primary_and_db_path(
-      persist_tx,
-      db_path,
-      true,
-      WorkspaceProviderKind::default(),
-    );
-
-    assert!(!registry.register_codex_thread("od-fail-owner", "codex-thread-fail"));
-    assert!(!registry.register_claude_thread("od-fail-owner", "claude-thread-fail"));
-  }
+  // Tests for register_*_thread and create_ownership_test_db were removed because
+  // those methods were deleted. Provider session ID writes now go through
+  // PersistCommand only (single mutation path).
+  // Provider session ID writes now go through PersistCommand only (single mutation path).
 }

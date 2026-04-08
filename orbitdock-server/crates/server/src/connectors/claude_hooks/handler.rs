@@ -141,7 +141,8 @@ async fn resolve_claude_hook_routing(
     return ClaudeHookRoutingDecision::IgnoreShadowedByDirect;
   }
 
-  state.register_claude_thread(&owner_session_id, hook_session_id);
+  // Hooks are passive reporters — they never mutate direct session state.
+  // The direct session already has its claude_sdk_session_id set via PersistCommand.
   ClaudeHookRoutingDecision::ManagedDirect { owner_session_id }
 }
 
@@ -197,8 +198,8 @@ pub async fn handle_hook_message_with_options(
       }
 
       // If there's a direct Claude session awaiting SDK ID registration, claim it eagerly.
+      // Write goes through PersistCommand only — single mutation path with immutability guard.
       if let Some(owning_id) = state.find_unregistered_direct_claude_session(&cwd) {
-        let registered = state.register_claude_thread(&owning_id, &session_id);
         let persisted = state
           .persist()
           .send(PersistCommand::SetClaudeSdkSessionId {
@@ -207,7 +208,7 @@ pub async fn handle_hook_message_with_options(
           })
           .await
           .is_ok();
-        if registered || persisted {
+        if persisted {
           return;
         }
       }

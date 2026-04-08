@@ -234,6 +234,7 @@ pub(crate) async fn update_control_deck_config(
       approval_policy: update.approval_policy.map(Some),
       approval_policy_details: update.approval_policy_details.map(Some),
       sandbox_mode: update.sandbox_mode.map(Some),
+      sandbox_policy_details: update.sandbox_policy_details.map(Some),
       approvals_reviewer: update.approvals_reviewer.map(Some),
       permission_mode: update.permission_mode.map(Some),
       collaboration_mode: update.collaboration_mode.map(Some),

@@ -1528,6 +1528,7 @@ mod tests {
       approval_policy: Some("on-request".to_string()),
       approval_policy_details: None,
       sandbox_mode: Some("workspace-write".to_string()),
+      sandbox_policy_details: None,
       approvals_reviewer: Some(CodexApprovalsReviewer::GuardianSubagent),
       permission_mode: Some("default".to_string()),
       collaboration_mode: Some("default".to_string()),

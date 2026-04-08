@@ -180,6 +180,10 @@ enum ControlDeckPresentationBuilder {
           tintName: "accent",
           selectedValue: state.config.approvalPolicy,
           reviewerValue: state.config.approvalsReviewer?.rawValue,
+          sandboxPolicyDetails: ServerCodexSandboxPolicy.resolved(
+            details: state.config.sandboxPolicyDetails,
+            fallbackMode: state.config.sandboxMode
+          ),
           interaction: .picker(options: pickerOptions(from: capabilities.approvalModeOptions))
         )
       case .collaborationMode:

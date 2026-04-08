@@ -48,6 +48,7 @@ struct ControlDeckView: View {
   var onToggleTerminal: (() -> Void)?
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
   var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
+  var onSandboxPolicyAction: ((ServerCodexSandboxPolicy) -> Void)?
   var isDictating: Bool = false
   var isSessionWorking: Bool = false
   var onDictation: (() -> Void)?
@@ -95,6 +96,7 @@ struct ControlDeckView: View {
             modules: presentation.statusModules,
             onModuleAction: onModuleAction,
             onApprovalReviewerAction: onApprovalReviewerAction,
+            onSandboxPolicyAction: onSandboxPolicyAction,
             supportsImages: isInputEnabled && presentation.supportsImages,
             canPasteImage: isInputEnabled && canPasteImage(),
             canSubmit: canSubmit,
