@@ -304,6 +304,7 @@ struct StreamingRowEmitState {
 }
 
 impl SessionHandle {
+  #[cfg(test)]
   fn conversation_state(&self) -> ConversationState {
     ConversationState::new(self.rows.clone(), self.total_row_count)
   }
@@ -321,7 +322,11 @@ impl SessionHandle {
   }
 
   fn next_row_sequence(&self) -> u64 {
-    self.conversation_state().next_row_sequence()
+    self
+      .rows
+      .last()
+      .map(|entry| entry.sequence + 1)
+      .unwrap_or(self.total_row_count)
   }
 
   #[allow(dead_code)]
@@ -330,7 +335,11 @@ impl SessionHandle {
   }
 
   pub fn latest_row_sequence(&self) -> u64 {
-    self.conversation_state().latest_row_sequence()
+    self
+      .rows
+      .last()
+      .map(|entry| entry.sequence)
+      .unwrap_or_else(|| self.total_row_count.saturating_sub(1))
   }
 
   #[allow(dead_code)]

@@ -28,6 +28,7 @@ impl ConversationState {
     }
   }
 
+  #[cfg(test)]
   pub fn next_row_sequence(&self) -> u64 {
     self
       .rows
@@ -36,6 +37,7 @@ impl ConversationState {
       .unwrap_or(self.total_row_count)
   }
 
+  #[cfg(test)]
   pub fn latest_row_sequence(&self) -> u64 {
     self
       .rows
