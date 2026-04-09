@@ -21,6 +21,7 @@ final class ConversationViewModel {
   @ObservationIgnored private var lastNewestSequence: UInt64 = 0
   @ObservationIgnored private var conversationLoaded = false
   @ObservationIgnored private var hasMoreBefore = false
+  @ObservationIgnored private var totalRowCount: UInt64 = 0
   @ObservationIgnored private var isLoadingOlder = false
   @ObservationIgnored private var isRefreshing = false
   @ObservationIgnored private var refreshQueued = false
@@ -42,6 +43,7 @@ final class ConversationViewModel {
       lastNewestSequence = 0
       conversationLoaded = false
       hasMoreBefore = false
+      totalRowCount = 0
       isLoadingOlder = false
       forkOrigin = nil
       bufferedRowDeltas.removeAll()
@@ -126,8 +128,13 @@ final class ConversationViewModel {
           limit: pageSize
         )
         guard self.currentSessionId == currentSessionId, self.currentSessionStore === store else { return }
-        hasMoreBefore = page.hasMoreBefore
-        rowEntries.insert(contentsOf: page.rows, at: 0)
+        let mergedPage = ConversationHistoryPaging.mergeOlderPage(
+          existingRows: rowEntries,
+          page: page
+        )
+        hasMoreBefore = mergedPage.hasMoreBefore
+        totalRowCount = mergedPage.totalRowCount
+        rowEntries = mergedPage.rows
         structureRevision += 1
         contentRevision += 1
         rebuildPresentation(changedEntries: page.rows)
@@ -142,8 +149,17 @@ final class ConversationViewModel {
   // MARK: - Private
 
   private func applyBootstrap(_ bootstrap: ServerConversationBootstrap, store: SessionStore) {
-    rowEntries = bootstrap.rows
-    hasMoreBefore = bootstrap.hasMoreBefore
+    let mergedBootstrap = ConversationHistoryPaging.mergeBootstrap(
+      existingRows: rowEntries,
+      existingHasMoreBefore: hasMoreBefore,
+      existingTotalRowCount: totalRowCount,
+      bootstrapRows: bootstrap.rows,
+      bootstrapHasMoreBefore: bootstrap.hasMoreBefore,
+      bootstrapTotalRowCount: bootstrap.totalRowCount
+    )
+    rowEntries = mergedBootstrap.rows
+    hasMoreBefore = mergedBootstrap.hasMoreBefore
+    totalRowCount = mergedBootstrap.totalRowCount
     conversationLoaded = true
     structureRevision += 1
     contentRevision += 1
@@ -184,6 +200,8 @@ final class ConversationViewModel {
     }
 
     if structureChanged {
+      rowEntries.sort { $0.sequence < $1.sequence }
+      totalRowCount = max(totalRowCount, UInt64(rowEntries.count))
       structureRevision += 1
     }
     contentRevision += 1
@@ -238,6 +256,77 @@ final class ConversationViewModel {
 
     if loadState != nextLoadState {
       loadState = nextLoadState
+    }
+  }
+}
+
+enum ConversationHistoryPaging {
+  struct MergeResult {
+    let rows: [ServerConversationRowEntry]
+    let hasMoreBefore: Bool
+    let totalRowCount: UInt64
+  }
+
+  static func mergeBootstrap(
+    existingRows: [ServerConversationRowEntry],
+    existingHasMoreBefore: Bool,
+    existingTotalRowCount: UInt64,
+    bootstrapRows: [ServerConversationRowEntry],
+    bootstrapHasMoreBefore: Bool,
+    bootstrapTotalRowCount: UInt64
+  ) -> MergeResult {
+    let normalizedBootstrapRows = normalizedRows(bootstrapRows)
+    guard
+      let bootstrapOldestSequence = normalizedBootstrapRows.first?.sequence,
+      existingTotalRowCount >= UInt64(existingRows.count),
+      bootstrapTotalRowCount >= UInt64(existingRows.count)
+    else {
+      return MergeResult(
+        rows: normalizedBootstrapRows,
+        hasMoreBefore: bootstrapHasMoreBefore,
+        totalRowCount: bootstrapTotalRowCount
+      )
+    }
+
+    let preservedOlderRows = existingRows.filter { $0.sequence < bootstrapOldestSequence }
+    guard !preservedOlderRows.isEmpty else {
+      return MergeResult(
+        rows: normalizedBootstrapRows,
+        hasMoreBefore: bootstrapHasMoreBefore,
+        totalRowCount: bootstrapTotalRowCount
+      )
+    }
+
+    return MergeResult(
+      rows: normalizedRows(preservedOlderRows + normalizedBootstrapRows),
+      hasMoreBefore: existingHasMoreBefore,
+      totalRowCount: bootstrapTotalRowCount
+    )
+  }
+
+  static func mergeOlderPage(
+    existingRows: [ServerConversationRowEntry],
+    page: ServerConversationHistoryPage
+  ) -> MergeResult {
+    MergeResult(
+      rows: normalizedRows(page.rows + existingRows),
+      hasMoreBefore: page.hasMoreBefore,
+      totalRowCount: page.totalRowCount
+    )
+  }
+
+  private static func normalizedRows(
+    _ rows: [ServerConversationRowEntry]
+  ) -> [ServerConversationRowEntry] {
+    var entriesByID: [String: ServerConversationRowEntry] = [:]
+    for row in rows {
+      entriesByID[row.id] = row
+    }
+    return entriesByID.values.sorted { lhs, rhs in
+      if lhs.sequence == rhs.sequence {
+        return lhs.id < rhs.id
+      }
+      return lhs.sequence < rhs.sequence
     }
   }
 }

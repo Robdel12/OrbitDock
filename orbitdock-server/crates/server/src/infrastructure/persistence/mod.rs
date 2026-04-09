@@ -234,7 +234,7 @@ fn persist_subagent_upsert(
         params![
             info.id,
             session_id,
-            info.agent_type,
+            info.agent_type.as_str(),
             info.started_at,
             info.ended_at,
             info.provider.map(|provider| match provider {
@@ -1265,7 +1265,7 @@ pub(super) fn execute_command(
       }
       if let Some(subagent_type) = active_subagent_type {
         updates.push("active_subagent_type = ?".to_string());
-        params_vec.push(Box::new(subagent_type));
+        params_vec.push(Box::new(subagent_type.map(|at| at.as_str().to_string())));
       }
       if let Some(prompt) = first_prompt {
         updates.push("first_prompt = COALESCE(first_prompt, ?)".to_string());
@@ -1411,7 +1411,13 @@ pub(super) fn execute_command(
                    status = excluded.status,
                    started_at = excluded.started_at,
                    last_activity_at = excluded.last_activity_at",
-        params![id, session_id, agent_type, agent_type, now],
+        params![
+          id,
+          session_id,
+          agent_type.as_str(),
+          agent_type.as_str(),
+          now
+        ],
       )?;
     }
 

@@ -6,6 +6,7 @@ struct ServerEndpointSettingsClient {
   let defaultEndpoint: () -> ServerEndpoint
   let hasRemoteEndpoint: () -> Bool
   let saveEndpoints: ([ServerEndpoint]) -> Void
+  let recordServerIdentity: (UUID, String) -> Void
   let buildURL: (String) -> URL?
   let hostInput: (URL) -> String?
   let defaultPort: Int
@@ -16,6 +17,7 @@ struct ServerEndpointSettingsClient {
       defaultEndpoint: { ServerEndpointSettings.defaultEndpoint },
       hasRemoteEndpoint: { ServerEndpointSettings.hasRemoteEndpoint },
       saveEndpoints: { ServerEndpointSettings.saveEndpoints($0) },
+      recordServerIdentity: { ServerEndpointSettings.recordServerIdentity(id: $0, serverInstanceId: $1) },
       buildURL: { ServerEndpointSettings.buildURL(from: $0) },
       hostInput: { ServerEndpointSettings.hostInput(from: $0) },
       defaultPort: ServerEndpointSettings.defaultPort

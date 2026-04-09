@@ -3,10 +3,10 @@ use orbitdock_protocol::conversation_contracts::{
   NoticeRowKind, NoticeRowSeverity, PlanRow, QuestionRow, RenderHints, WorkerRow,
 };
 use orbitdock_protocol::domain_events::{
-  ApprovalPreview, ApprovalRequestKind, ApprovalRequestPayload, GenericInvocationPayload,
-  HandoffPayload, HookPayload, PermissionRequestPayload, PermissionScope, PlanModePayload,
-  PlanStepPayload, PlanStepStatus, QuestionPrompt, ToolFamily, ToolInvocationPayload, ToolStatus,
-  WorkerOperationKind, WorkerStateSnapshot,
+  AgentType, ApprovalPreview, ApprovalRequestKind, ApprovalRequestPayload,
+  GenericInvocationPayload, HandoffPayload, HookPayload, PermissionRequestPayload, PermissionScope,
+  PlanModePayload, PlanStepPayload, PlanStepStatus, QuestionPrompt, ToolFamily,
+  ToolInvocationPayload, ToolStatus, WorkerOperationKind, WorkerStateSnapshot,
 };
 use orbitdock_protocol::provider_normalization::shared::{
   NormalizedApprovalKind, NormalizedHookLifecycle, NormalizedQuestionKind,
@@ -318,7 +318,7 @@ fn parse_subagent_notification(id: &str, content: &str) -> Option<WorkerRow> {
       agent_type: payload
         .get("agent_type")
         .and_then(Value::as_str)
-        .map(ToString::to_string),
+        .map(AgentType::from_str_normalized),
       provider: Some(Provider::Codex),
       model: payload
         .get("model")

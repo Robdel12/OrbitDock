@@ -178,6 +178,9 @@ struct ControlDeckScreen: View {
       onAnswer: { answer, promptId in
         Task { await viewModel.answerQuestion(answer: answer, questionId: promptId) }
       },
+      onSubmitAllAnswers: { answers in
+        Task { await viewModel.answerQuestionBatch(answers: answers) }
+      },
       onGrantPermission: { Task { await viewModel.respondToPermission(grant: true, scope: .turn) } },
       onGrantPermissionForSession: { Task { await viewModel.respondToPermission(grant: true, scope: .session) } },
       onDenyPermission: { Task { await viewModel.respondToPermission(grant: false) } },

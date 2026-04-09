@@ -213,10 +213,16 @@ extension SessionStore {
 
   func renameSession(_ sessionId: String, name: String?) async throws {
     try await clients.sessions.renameSession(sessionId, name: name)
+    updateLocalNamingState(sessionId: sessionId) { state in
+      state.customName = LocalConversationNamingPlanner.cleanOptionalText(name)
+    }
   }
 
   func setSummary(_ sessionId: String, summary: String) async throws {
     try await clients.sessions.setSummary(sessionId, summary: summary)
+    updateLocalNamingState(sessionId: sessionId) { state in
+      state.summary = LocalConversationNamingPlanner.cleanOptionalText(summary)
+    }
   }
 
   func updateSessionConfig(
@@ -408,18 +414,96 @@ extension SessionStore {
   // MARK: - Local Conversation Naming
 
   private func triggerLocalNamingIfNeeded(sessionId: String, prompt: String) {
-    guard LocalNamingAvailabilityResolver.current == .available else { return }
-    guard _localNamingClaimedSessions.insert(sessionId).inserted else { return }
+    let availability = _localNamingAvailabilityOverride ?? LocalNamingAvailabilityResolver.current
+    guard availability == .available else { return }
+    guard !_localNamingClaimedSessions.contains(sessionId) else { return }
+    guard _localNamingInFlightSessions.insert(sessionId).inserted else { return }
 
     Task {
-      #if canImport(FoundationModels)
-        if #available(macOS 26.0, iOS 26.0, *) {
-          guard let name = await LocalConversationNamingService.generateTitle(from: prompt) else {
-            return
-          }
-          try? await setSummary(sessionId, summary: name)
-        }
-      #endif
+      defer { _localNamingInFlightSessions.remove(sessionId) }
+
+      guard let context = await localNamingContextIfEligible(sessionId: sessionId, prompt: prompt) else {
+        return
+      }
+
+      guard let name = await generateLocalTitle(for: context) else {
+        return
+      }
+      guard await localNamingContextIfEligible(sessionId: sessionId, prompt: context.firstPrompt) != nil else {
+        return
+      }
+      do {
+        try await setSummary(sessionId, summary: name)
+      } catch {
+        netLog(
+          .error,
+          cat: .store,
+          "Local conversation naming summary update failed",
+          sid: sessionId,
+          data: ["error": error.localizedDescription]
+        )
+      }
     }
+  }
+
+  private func localNamingContextIfEligible(
+    sessionId: String,
+    prompt: String
+  ) async -> LocalConversationNamingContext? {
+    let state = await authoritativeLocalNamingState(sessionId: sessionId)
+    let decision = LocalConversationNamingPlanner.decision(prompt: prompt, sessionState: state)
+    switch decision {
+      case let .skip(claimSession):
+        if claimSession {
+          claimLocalNamingSession(sessionId)
+        }
+        return nil
+      case let .generate(context):
+        return context
+    }
+  }
+
+  private func authoritativeLocalNamingState(sessionId: String) async -> LocalConversationNamingSessionState? {
+    if let cached = _localNamingStateBySessionId[sessionId] {
+      return cached
+    }
+
+    do {
+      let snapshot = try await clients.conversation.fetchSessionDetail(sessionId)
+      rememberLocalNamingState(snapshot.session)
+      return _localNamingStateBySessionId[sessionId]
+    } catch {
+      netLog(
+        .debug,
+        cat: .store,
+        "Local naming detail fetch skipped",
+        sid: sessionId,
+        data: ["error": error.localizedDescription]
+      )
+      return nil
+    }
+  }
+
+  private func updateLocalNamingState(
+    sessionId: String,
+    _ update: (inout LocalConversationNamingSessionState) -> Void
+  ) {
+    var state = _localNamingStateBySessionId[sessionId] ?? LocalConversationNamingSessionState()
+    update(&state)
+    cacheLocalNamingState(state, for: sessionId)
+  }
+
+  private func generateLocalTitle(for context: LocalConversationNamingContext) async -> String? {
+    if let generator = _localTitleGenerator {
+      return await generator(context)
+    }
+
+    #if canImport(FoundationModels)
+      if #available(macOS 26.0, iOS 26.0, *) {
+        return await LocalConversationNamingService.generateTitle(from: context)
+      }
+    #endif
+
+    return nil
   }
 }

@@ -192,7 +192,12 @@ final class SessionDetailViewModel {
             endpointId == targetEndpointId,
             sessionStore === targetStore
       else { return }
-      apply(snapshot: Self.buildSnapshot(payload: payload, endpointId: targetEndpointId))
+      apply(snapshot: Self.buildSnapshot(
+        payload: payload,
+        endpointId: targetEndpointId,
+        sourceServerInstanceId: targetStore.serverInstanceId,
+        sourceIsRemoteConnection: targetStore.isRemoteConnection
+      ))
     } catch {
       // Non-fatal: the view keeps showing the last snapshot
     }
@@ -451,7 +456,9 @@ final class SessionDetailViewModel {
 
   private static func buildSnapshot(
     payload: ServerSessionDetailSnapshotPayload,
-    endpointId: UUID
+    endpointId: UUID,
+    sourceServerInstanceId: String?,
+    sourceIsRemoteConnection: Bool
   ) -> SessionDetailSnapshot {
     let s = payload.session
     let sessionId = s.id
@@ -485,7 +492,9 @@ final class SessionDetailViewModel {
           displayName: displayName,
           projectPath: s.projectPath,
           model: s.model,
-          hasGitRepository: hasGitRepository
+          hasGitRepository: hasGitRepository,
+          sourceServerInstanceId: sourceServerInstanceId,
+          sourceIsRemoteConnection: sourceIsRemoteConnection
         ),
         debugContext: SessionDetailDebugContext(
           sessionId: sessionId,
@@ -658,7 +667,9 @@ struct SessionDetailScreenPresentation {
       displayName: "Session",
       projectPath: "",
       model: nil,
-      hasGitRepository: false
+      hasGitRepository: false,
+      sourceServerInstanceId: nil,
+      sourceIsRemoteConnection: false
     ),
     debugContext: .empty
   )

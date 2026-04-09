@@ -36,12 +36,6 @@ pub struct CodexHookHandlingOptions {
 }
 
 impl CodexHookHandlingOptions {
-  pub fn for_spool_replay() -> Self {
-    Self {
-      transcript_sync_gate: Some(Arc::new(tokio::sync::Mutex::new(HashSet::new()))),
-    }
-  }
-
   async fn should_sync_transcript(&self, session_id: &str) -> bool {
     let Some(gate) = self.transcript_sync_gate.as_ref() else {
       return true;
@@ -698,7 +692,7 @@ pub async fn handle_hook_message_with_options(
 
 #[cfg(test)]
 mod tests {
-  use super::{handle_hook_message, CodexHookHandlingOptions};
+  use super::handle_hook_message;
   use crate::domain::sessions::session::SessionHandle;
   use crate::infrastructure::migration_runner;
   use crate::infrastructure::paths;
@@ -1203,14 +1197,5 @@ mod tests {
           && last_tool.as_ref() == Some(&Some("Bash".to_string()))
           && pending_tool_name.as_ref() == Some(&Some("Bash".to_string()))
     )));
-  }
-
-  #[tokio::test]
-  async fn spool_replay_transcript_sync_gate_allows_one_sync_per_session() {
-    let options = CodexHookHandlingOptions::for_spool_replay();
-
-    assert!(options.should_sync_transcript("session-1").await);
-    assert!(!options.should_sync_transcript("session-1").await);
-    assert!(options.should_sync_transcript("session-2").await);
   }
 }

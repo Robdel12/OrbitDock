@@ -50,6 +50,7 @@ struct AppRuntimeModeTests {
       },
       hasRemoteEndpoint: { true },
       saveEndpoints: { _ in },
+      recordServerIdentity: { _, _ in },
       buildURL: { _ in nil },
       hostInput: { _ in nil },
       defaultPort: 4_000

@@ -4,6 +4,7 @@ use tokio::sync::oneshot;
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, MessageRowContent,
 };
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{
   ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionPrompt,
   ApprovalRiskLevel, ApprovalType, CodexConfigMode, CodexConfigSource, Provider, SessionStatus,
@@ -44,7 +45,7 @@ fn sample_usage() -> TokenUsage {
 fn sample_subagent() -> SubagentInfo {
   SubagentInfo {
     id: "subagent-1".into(),
-    agent_type: "worker".into(),
+    agent_type: AgentType::BackgroundTask,
     started_at: "2026-03-24T12:00:00Z".into(),
     ended_at: Some("2026-03-24T12:05:00Z".into()),
     provider: Some(Provider::Codex),
@@ -230,7 +231,7 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
       agent_type: Some(Some("planner".into())),
       permission_mode: Some(Some("default".into())),
       active_subagent_id: Some(Some("subagent-1".into())),
-      active_subagent_type: Some(Some("worker".into())),
+      active_subagent_type: Some(Some(AgentType::BackgroundTask)),
       first_prompt: Some("Implement phase 2".into()),
       compact_count_increment: true,
     },
@@ -259,7 +260,7 @@ fn sample_syncable_persist_commands() -> Vec<PersistCommand> {
     PersistCommand::ClaudeSubagentStart {
       id: "subagent-1".into(),
       session_id: "session-1".into(),
-      agent_type: "worker".into(),
+      agent_type: AgentType::BackgroundTask,
     },
     PersistCommand::ClaudeSubagentEnd {
       id: "subagent-1".into(),

@@ -158,6 +158,65 @@ struct ConversationTimelineViewModelTests {
     #expect(group.status == .failed)
   }
 
+  @Test func bootstrapMergePreservesLoadedHistoryOutsideLatestWindow() {
+    let existingRows = (0..<100).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") }
+    let bootstrapRows = Array(existingRows.suffix(50))
+
+    let merged = ConversationHistoryPaging.mergeBootstrap(
+      existingRows: existingRows,
+      existingHasMoreBefore: false,
+      existingTotalRowCount: 100,
+      bootstrapRows: bootstrapRows,
+      bootstrapHasMoreBefore: true,
+      bootstrapTotalRowCount: 100
+    )
+
+    #expect(merged.rows.count == 100)
+    #expect(merged.rows.first?.sequence == 0)
+    #expect(merged.rows.last?.sequence == 99)
+    #expect(merged.hasMoreBefore == false)
+  }
+
+  @Test func bootstrapMergeDropsRetainedHistoryWhenConversationShrinks() {
+    let existingRows = (0..<100).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") }
+    let bootstrapRows = Array(existingRows.suffix(40))
+
+    let merged = ConversationHistoryPaging.mergeBootstrap(
+      existingRows: existingRows,
+      existingHasMoreBefore: false,
+      existingTotalRowCount: 100,
+      bootstrapRows: bootstrapRows,
+      bootstrapHasMoreBefore: false,
+      bootstrapTotalRowCount: 40
+    )
+
+    #expect(merged.rows.count == 40)
+    #expect(merged.rows.first?.sequence == 60)
+    #expect(merged.rows.last?.sequence == 99)
+    #expect(merged.hasMoreBefore == false)
+  }
+
+  @Test func olderPageMergeKeepsRowsSortedWithoutDuplicates() {
+    let existingRows = (50..<100).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") }
+    let page = ServerConversationHistoryPage(
+      rows: (0..<60).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") },
+      totalRowCount: 100,
+      hasMoreBefore: false,
+      oldestSequence: 0,
+      newestSequence: 59
+    )
+
+    let merged = ConversationHistoryPaging.mergeOlderPage(
+      existingRows: existingRows,
+      page: page
+    )
+
+    #expect(merged.rows.count == 100)
+    #expect(merged.rows.first?.sequence == 0)
+    #expect(merged.rows.last?.sequence == 99)
+    #expect(merged.hasMoreBefore == false)
+  }
+
   private func makeToolEntry(
     id: String,
     sequence: UInt64,

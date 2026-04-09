@@ -53,6 +53,10 @@ enum ServerEndpointSettings {
     store.clearRemoteEndpoints()
   }
 
+  static func recordServerIdentity(id: UUID, serverInstanceId: String) {
+    store.recordServerIdentity(id: id, serverInstanceId: serverInstanceId)
+  }
+
   /// Build a ws:// URL from a host string like "192.168.1.100" or "10.0.0.5:4001".
   static func buildURL(from input: String) -> URL? {
     ServerEndpointStore.buildURL(fromHostInput: input, defaultPort: defaultPort)

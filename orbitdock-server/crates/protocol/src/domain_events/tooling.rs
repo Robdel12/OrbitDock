@@ -82,6 +82,87 @@ pub enum ToolStatus {
   NeedsInput,
 }
 
+/// Strongly typed agent/subagent type.
+///
+/// Claude Code and other providers spawn agents with a `subagent_type` string.
+/// This enum normalizes those into typed variants for consistent client rendering.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AgentType {
+  /// General-purpose agent (Claude Code default)
+  GeneralPurpose,
+  /// Fast codebase exploration agent
+  Explore,
+  /// Software architect / planning agent
+  Plan,
+  /// Claude Code documentation helper
+  ClaudeCodeGuide,
+  /// Status line configuration agent
+  StatuslineSetup,
+  /// Linear project management agent
+  LinearProjectManager,
+  /// Test runner agent
+  TestRunner,
+  /// Build validator agent
+  BuildValidator,
+  /// Background task (generic, not a specialized agent)
+  BackgroundTask,
+  /// Unknown agent type — preserves the original string for display
+  #[serde(untagged)]
+  Custom(String),
+}
+
+impl AgentType {
+  /// Parse a raw agent type string into a strongly typed variant.
+  pub fn from_str_normalized(s: &str) -> Self {
+    match s.trim().to_lowercase().as_str() {
+      "general-purpose" | "generalpurpose" | "general" => Self::GeneralPurpose,
+      "explore" | "explorer" => Self::Explore,
+      "plan" | "planner" | "architect" => Self::Plan,
+      "claude-code-guide" | "claudecodeguide" | "guide" => Self::ClaudeCodeGuide,
+      "statusline-setup" | "statuslinesetup" | "statusline" => Self::StatuslineSetup,
+      "linear-project-manager" | "linearprojectmanager" | "linear" => Self::LinearProjectManager,
+      "test-runner" | "testrunner" | "test" => Self::TestRunner,
+      "build-validator" | "buildvalidator" | "build" => Self::BuildValidator,
+      "background-task" | "backgroundtask" | "task" | "agent" => Self::BackgroundTask,
+      "" | "unknown" => Self::BackgroundTask,
+      other => Self::Custom(other.to_string()),
+    }
+  }
+
+  /// Returns the canonical string representation for storage/serialization.
+  pub fn as_str(&self) -> &str {
+    match self {
+      Self::GeneralPurpose => "general-purpose",
+      Self::Explore => "explore",
+      Self::Plan => "plan",
+      Self::ClaudeCodeGuide => "claude-code-guide",
+      Self::StatuslineSetup => "statusline-setup",
+      Self::LinearProjectManager => "linear-project-manager",
+      Self::TestRunner => "test-runner",
+      Self::BuildValidator => "build-validator",
+      Self::BackgroundTask => "background-task",
+      Self::Custom(s) => s.as_str(),
+    }
+  }
+
+  /// Returns a display label for the agent type.
+  pub fn display_label(&self) -> &str {
+    match self {
+      Self::GeneralPurpose => "Agent",
+      Self::Explore => "Explore",
+      Self::Plan => "Plan",
+      Self::ClaudeCodeGuide => "Guide",
+      Self::StatuslineSetup => "Setup",
+      Self::LinearProjectManager => "Linear",
+      Self::TestRunner => "Tests",
+      Self::BuildValidator => "Build",
+      Self::BackgroundTask => "Task",
+      Self::Custom(s) => s.as_str(),
+    }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GroupingKey {
   pub turn_id: Option<String>,
@@ -252,7 +333,7 @@ pub struct WorkerInvocationPayload {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub label: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub agent_type: Option<String>,
+  pub agent_type: Option<AgentType>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub task_summary: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

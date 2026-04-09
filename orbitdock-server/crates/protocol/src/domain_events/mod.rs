@@ -21,7 +21,7 @@ pub use conversation::{
 };
 pub use lifecycle::{SessionLifecycleEvent, SessionLifecycleKind};
 pub use tooling::{
-  CommandExecutionPayload, ConfigPayload, ContextCompactionPayload, FileChangePayload,
+  AgentType, CommandExecutionPayload, ConfigPayload, ContextCompactionPayload, FileChangePayload,
   FileReadPayload, GenericInvocationPayload, GenericResultPayload, GroupingKey,
   GuardianAssessmentPayload, HandoffPayload, HookOutputEntry, HookPayload, ImageGenerationPayload,
   ImageViewPayload, McpToolPayload, PlanModePayload, PlanStepPayload, PlanStepStatus,

@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex};
 use tracing::warn;
+use uuid::Uuid;
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::DashboardSnapshot;
@@ -149,6 +150,7 @@ pub struct SessionRegistry {
   dashboard_cache: ArcSwap<(u64, DashboardSnapshot)>,
   mission_revision: AtomicU64,
   workspace_provider_kind: std::sync::RwLock<WorkspaceProviderKind>,
+  server_instance_id: std::sync::RwLock<String>,
 
   /// Channel for manual mission trigger requests (HTTP → orchestrator).
   mission_trigger_tx: mpsc::Sender<String>,
@@ -316,6 +318,7 @@ impl SessionRegistry {
       )),
       mission_revision: AtomicU64::new(0),
       workspace_provider_kind: std::sync::RwLock::new(workspace_provider_kind),
+      server_instance_id: std::sync::RwLock::new(Uuid::new_v4().to_string()),
       mission_trigger_tx,
       mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
       update_status: std::sync::RwLock::new(None),
@@ -344,6 +347,25 @@ impl SessionRegistry {
       .workspace_provider_kind
       .write()
       .expect("workspace provider lock poisoned") = provider_kind;
+  }
+
+  pub fn server_instance_id(&self) -> String {
+    self
+      .server_instance_id
+      .read()
+      .expect("server instance id lock poisoned")
+      .clone()
+  }
+
+  pub fn set_server_instance_id(&self, server_instance_id: String) {
+    let trimmed = server_instance_id.trim();
+    if trimmed.is_empty() {
+      return;
+    }
+    *self
+      .server_instance_id
+      .write()
+      .expect("server instance id lock poisoned") = trimmed.to_string();
   }
 
   /// Read the cached update check result.
@@ -1137,6 +1159,7 @@ mod tests {
   use super::SessionRegistry;
   use crate::domain::sessions::session::SessionHandle;
   use crate::support::test_support::ensure_server_test_data_dir;
+  use orbitdock_protocol::domain_events::AgentType;
   use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
     SubagentInfo, SubagentStatus, WorkStatus,
@@ -1279,7 +1302,7 @@ mod tests {
     session.set_subagents(vec![
       SubagentInfo {
         id: "worker-1".to_string(),
-        agent_type: "worker".to_string(),
+        agent_type: AgentType::BackgroundTask,
         started_at: "2026-03-30T10:00:00Z".to_string(),
         ended_at: None,
         provider: None,
@@ -1294,7 +1317,7 @@ mod tests {
       },
       SubagentInfo {
         id: "worker-2".to_string(),
-        agent_type: "worker".to_string(),
+        agent_type: AgentType::BackgroundTask,
         started_at: "2026-03-30T09:00:00Z".to_string(),
         ended_at: Some("2026-03-30T09:30:00Z".to_string()),
         provider: None,

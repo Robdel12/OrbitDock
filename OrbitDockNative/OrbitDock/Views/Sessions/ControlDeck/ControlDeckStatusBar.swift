@@ -43,7 +43,7 @@ struct ControlDeckStatusBar: View {
 
   private func isControlModule(_ module: ControlDeckStatusModuleItem) -> Bool {
     switch module.id {
-      case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort:
+      case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort, .model:
         return true
       default:
         return false
@@ -374,6 +374,19 @@ struct ControlDeckStatusBar: View {
             size: .statusBar,
             onUpdate: { level in
               onModuleAction?(module.id, effortValue(level, for: module))
+            }
+          )
+        )
+      case .model:
+        let options = pickerOptions(for: module)
+        guard !options.isEmpty else { return nil }
+        return AnyView(
+          ModelPill(
+            currentModel: module.selectedValue,
+            availableModels: options.map(\.value),
+            size: .statusBar,
+            onUpdate: { model in
+              onModuleAction?(module.id, model)
             }
           )
         )

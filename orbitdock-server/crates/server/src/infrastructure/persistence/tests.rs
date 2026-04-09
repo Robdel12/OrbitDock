@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{CodexConfigMode, Provider, SessionLifecycleState, SessionStatus};
 
 use super::commands::{PersistCommand, SessionCreateParams};
@@ -1536,7 +1537,7 @@ fn claude_session_update_preserves_ended_shadow_when_direct_owner_exists() {
       agent_type: None,
       permission_mode: None,
       active_subagent_id: Some(Some("subagent-1".to_string())),
-      active_subagent_type: Some(Some("worker".to_string())),
+      active_subagent_type: Some(Some(AgentType::BackgroundTask)),
       first_prompt: Some("hello".to_string()),
       compact_count_increment: true,
     }],

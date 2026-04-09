@@ -2,75 +2,89 @@ import Foundation
 import os.log
 import Security
 
+/// Stores server endpoint configuration with iCloud sync.
+///
+/// **Synced via iCloud Keychain:**
+/// - `id`, `name`, `wsURL`, `authToken`, `serverInstanceId`, `modifiedAt`
+///
+/// **Local-only (UserDefaults):**
+/// - `isEnabled`, `isDefault`
+///
+/// This separation prevents iOS/macOS from fighting over enabled state.
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"
-  static let endpointTokenIdsStorageKey = "orbitdock.server.endpoint-token-ids"
   static let endpointLocalPrefsStorageKey = "orbitdock.server.endpoint-local-prefs"
+  static let lastCloudHashKey = "orbitdock.server.endpoints-cloud-hash"
 
   private let defaults: UserDefaults
   private let endpointsKey: String
-  private let endpointTokenIdsKey: String
   private let endpointLocalPrefsKey: String
+  private let lastCloudHashKeyName: String
   private let defaultPort: Int
-  private let tokenStore: ServerEndpointTokenStore
   private let cloudSyncStore: ServerEndpointCloudSyncStore
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
+  private static let logger = Logger(subsystem: "com.orbitdock", category: "endpoint-store")
 
   init(
     defaults: UserDefaults = .standard,
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
-    endpointTokenIdsKey: String = ServerEndpointStore.endpointTokenIdsStorageKey,
     endpointLocalPrefsKey: String = ServerEndpointStore.endpointLocalPrefsStorageKey,
-    tokenStore: ServerEndpointTokenStore = ServerEndpointTokenStore(),
+    lastCloudHashKey: String = ServerEndpointStore.lastCloudHashKey,
     cloudSyncStore: ServerEndpointCloudSyncStore = .live(),
     defaultPort: Int = ServerEndpointSettings.defaultPort
   ) {
     self.defaults = defaults
     self.endpointsKey = endpointsKey
-    self.endpointTokenIdsKey = endpointTokenIdsKey
     self.endpointLocalPrefsKey = endpointLocalPrefsKey
-    self.tokenStore = tokenStore
+    self.lastCloudHashKeyName = lastCloudHashKey
     self.cloudSyncStore = cloudSyncStore
     self.defaultPort = defaultPort
   }
 
   func endpoints() -> [ServerEndpoint] {
-    let localEndpoints = persistedEndpoints() ?? []
     let localPrefsById = persistedLocalPrefsByID()
 
-    if let cloudRecords = cloudSyncStore.load() {
-      let merged = mergedEndpoints(
-        cloudRecords: cloudRecords,
-        localEndpoints: localEndpoints,
-        localPrefsById: localPrefsById
-      )
-      let normalized = normalizedEndpoints(merged)
-      let hydrated = hydratedEndpoints(normalized)
-
-      syncAuthTokens(from: hydrated)
-      if normalized != localEndpoints || containsInlineAuthTokens(localEndpoints) {
-        writeRedactedEndpointsToDefaults(normalized)
+    // Try cloud first
+    if let cloudRecords = cloudSyncStore.load(), !cloudRecords.isEmpty {
+      let endpoints = cloudRecords.map { record in
+        let localPrefs = localPrefsById[record.id]
+        return ServerEndpoint(
+          id: record.id,
+          name: record.name,
+          wsURL: record.wsURL,
+          isEnabled: localPrefs?.isEnabled ?? true,
+          isDefault: localPrefs?.isDefault ?? false,
+          authToken: record.authToken
+        )
       }
-      writeLocalPrefsToDefaults(normalized)
-      cloudSyncStore.save(syncedRecords(from: normalized))
-      return hydrated
+      let serverInstanceIdByEndpointId = Dictionary(
+        uniqueKeysWithValues: cloudRecords.map {
+          ($0.id, Self.normalizedServerInstanceId($0.serverInstanceId))
+        }
+      )
+      return normalizedEndpoints(
+        endpoints,
+        serverInstanceIdByEndpointId: serverInstanceIdByEndpointId
+      )
     }
 
-    guard !localEndpoints.isEmpty else {
-      return []
+    // Fall back to legacy UserDefaults migration
+    if let legacyEndpoints = migrateFromLegacyDefaults() {
+      save(legacyEndpoints)
+      defaults.removeObject(forKey: endpointsKey)
+      Self.logger.info("Migrated \(legacyEndpoints.count) endpoints from legacy UserDefaults")
+      return normalizedEndpoints(legacyEndpoints)
     }
 
-    let normalized = normalizedEndpoints(localEndpoints)
-    let hydrated = hydratedEndpoints(normalized)
-    syncAuthTokens(from: hydrated)
+    return []
+  }
 
-    if normalized != localEndpoints || containsInlineAuthTokens(localEndpoints) {
-      writeRedactedEndpointsToDefaults(normalized)
+  private func migrateFromLegacyDefaults() -> [ServerEndpoint]? {
+    guard let data = defaults.data(forKey: endpointsKey), !data.isEmpty else {
+      return nil
     }
-    writeLocalPrefsToDefaults(normalized)
-    cloudSyncStore.save(syncedRecords(from: normalized))
-    return hydrated
+    return try? decoder.decode([ServerEndpoint].self, from: data)
   }
 
   func defaultEndpoint() -> ServerEndpoint {
@@ -99,11 +113,44 @@ struct ServerEndpointStore {
   }
 
   func save(_ rawEndpoints: [ServerEndpoint]) {
-    let normalized = normalizedEndpoints(rawEndpoints)
-    syncAuthTokens(from: normalized)
-    writeRedactedEndpointsToDefaults(normalized)
+    let existingCloudRecords = cloudSyncStore.load() ?? []
+    let existingCloudRecordsById = Dictionary(
+      uniqueKeysWithValues: existingCloudRecords.map { ($0.id, $0) }
+    )
+    let normalized = normalizedEndpoints(
+      rawEndpoints,
+      serverInstanceIdByEndpointId: Dictionary(
+        uniqueKeysWithValues: existingCloudRecords.map {
+          ($0.id, Self.normalizedServerInstanceId($0.serverInstanceId))
+        }
+      )
+    )
+    let now = Date()
+
+    // Build cloud records with current timestamp
+    let cloudRecords = normalized.map { endpoint in
+      ServerEndpointCloudRecord(
+        id: endpoint.id,
+        name: endpoint.name,
+        wsURL: endpoint.wsURL,
+        authToken: endpoint.authToken,
+        serverInstanceId: existingCloudRecordsById[endpoint.id]?.serverInstanceId,
+        modifiedAt: now
+      )
+    }
+
+    // Only write to cloud if data actually changed
+    let newHash = hashCloudRecords(cloudRecords)
+    let previousHash = defaults.string(forKey: lastCloudHashKeyName)
+
+    if newHash != previousHash {
+      cloudSyncStore.save(cloudRecords)
+      defaults.set(newHash, forKey: lastCloudHashKeyName)
+      Self.logger.debug("Saved \(cloudRecords.count) endpoints to cloud sync")
+    }
+
+    // Always save local prefs
     writeLocalPrefsToDefaults(normalized)
-    cloudSyncStore.save(syncedRecords(from: normalized))
   }
 
   func upsert(_ endpoint: ServerEndpoint) {
@@ -129,14 +176,17 @@ struct ServerEndpointStore {
       updated[idx].isDefault = idx == index
     }
     updated[index].isEnabled = true
-    save(updated)
+    // Only update local prefs, not cloud (default is local-only)
+    writeLocalPrefsToDefaults(updated)
   }
 
   func setEndpointEnabled(id: UUID, isEnabled: Bool) {
     var updated = endpoints()
     guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
     updated[index].isEnabled = isEnabled
-    save(updated)
+    // Only update local prefs, not cloud (enabled is local-only)
+    let normalized = normalizedEndpoints(updated)
+    writeLocalPrefsToDefaults(normalized)
   }
 
   func replaceRemoteEndpoint(hostInput: String) {
@@ -158,12 +208,21 @@ struct ServerEndpointStore {
     save([])
   }
 
-  private func persistedEndpoints() -> [ServerEndpoint]? {
-    guard let data = defaults.data(forKey: endpointsKey), !data.isEmpty else {
-      return nil
-    }
-    return try? decoder.decode([ServerEndpoint].self, from: data)
+  func recordServerIdentity(id: UUID, serverInstanceId: String) {
+    let normalizedServerInstanceId = Self.normalizedServerInstanceId(serverInstanceId)
+    guard let normalizedServerInstanceId else { return }
+
+    var cloudRecords = cloudSyncStore.load() ?? []
+    guard let index = cloudRecords.firstIndex(where: { $0.id == id }) else { return }
+    guard cloudRecords[index].serverInstanceId != normalizedServerInstanceId else { return }
+
+    cloudRecords[index].serverInstanceId = normalizedServerInstanceId
+    cloudRecords[index].modifiedAt = Date()
+    cloudSyncStore.save(cloudRecords)
+    defaults.set(hashCloudRecords(cloudRecords), forKey: lastCloudHashKeyName)
   }
+
+  // MARK: - Private
 
   private func persistedLocalPrefsByID() -> [UUID: ServerEndpointLocalPrefs] {
     guard let data = defaults.data(forKey: endpointLocalPrefsKey), !data.isEmpty,
@@ -179,12 +238,6 @@ struct ServerEndpointStore {
     return byID
   }
 
-  private func writeRedactedEndpointsToDefaults(_ endpoints: [ServerEndpoint]) {
-    let redacted = redactedEndpoints(endpoints)
-    guard let data = try? encoder.encode(redacted) else { return }
-    defaults.set(data, forKey: endpointsKey)
-  }
-
   private func writeLocalPrefsToDefaults(_ endpoints: [ServerEndpoint]) {
     let prefs = endpoints.map { endpoint in
       ServerEndpointLocalPrefs(
@@ -197,93 +250,41 @@ struct ServerEndpointStore {
     defaults.set(data, forKey: endpointLocalPrefsKey)
   }
 
-  private func redactedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
-    endpoints.map { endpoint -> ServerEndpoint in
-      var copy = endpoint
-      copy.authToken = nil
-      return copy
+  private func hashCloudRecords(_ records: [ServerEndpointCloudRecord]) -> String {
+    // Hash based on durable synced fields, not timestamp, to avoid loops.
+    let components = records.map {
+      "\($0.id)|\($0.name)|\($0.wsURL)|\($0.authToken ?? "")|\($0.serverInstanceId ?? "")"
     }
+    return components.sorted().joined(separator: ";")
   }
 
-  private func syncedRecords(from endpoints: [ServerEndpoint]) -> [ServerEndpointCloudRecord] {
-    endpoints.map { endpoint in
-      ServerEndpointCloudRecord(
-        id: endpoint.id,
-        name: endpoint.name,
-        wsURL: endpoint.wsURL,
-        isEnabled: endpoint.isEnabled,
-        isDefault: endpoint.isDefault
-      )
-    }
-  }
-
-  private func mergedEndpoints(
-    cloudRecords: [ServerEndpointCloudRecord],
-    localEndpoints: [ServerEndpoint],
-    localPrefsById: [UUID: ServerEndpointLocalPrefs]
+  private func normalizedEndpoints(
+    _ rawEndpoints: [ServerEndpoint],
+    serverInstanceIdByEndpointId: [UUID: String?] = [:]
   ) -> [ServerEndpoint] {
-    var localById: [UUID: ServerEndpoint] = [:]
-    for endpoint in localEndpoints {
-      localById[endpoint.id] = endpoint
-    }
-
-    var merged: [ServerEndpoint] = []
-    var seen = Set<UUID>()
-
-    for record in cloudRecords where seen.insert(record.id).inserted {
-      let localEndpoint = localById[record.id]
-      let localPrefs = localPrefsById[record.id]
-      merged.append(
-        ServerEndpoint(
-          id: record.id,
-          name: record.name,
-          wsURL: record.wsURL,
-          isEnabled: localPrefs?.isEnabled ?? localEndpoint?.isEnabled ?? record.isEnabled,
-          isDefault: localPrefs?.isDefault ?? localEndpoint?.isDefault ?? record.isDefault,
-          authToken: localEndpoint?.authToken
-        )
-      )
-    }
-
-    for endpoint in localEndpoints where seen.insert(endpoint.id).inserted {
-      let localPrefs = localPrefsById[endpoint.id]
-      var copy = endpoint
-      if let localPrefs {
-        copy.isEnabled = localPrefs.isEnabled
-        copy.isDefault = localPrefs.isDefault
-      }
-      merged.append(copy)
-    }
-
-    return merged
-  }
-  private func hydratedEndpoints(_ endpoints: [ServerEndpoint]) -> [ServerEndpoint] {
-    endpoints.map { endpoint in
-      var copy = endpoint
-      copy.authToken = tokenStore.token(for: endpoint.id) ?? Self.normalizedToken(endpoint.authToken)
-      return copy
-    }
-  }
-
-  private func syncAuthTokens(from endpoints: [ServerEndpoint]) {
-    let currentIds = Set(endpoints.map(\.id.uuidString))
-    let previousIds = Set(defaults.stringArray(forKey: endpointTokenIdsKey) ?? [])
-
-    for removedId in previousIds.subtracting(currentIds) {
-      tokenStore.remove(forEndpointID: removedId)
-    }
-
-    for endpoint in endpoints {
-      tokenStore.set(Self.normalizedToken(endpoint.authToken), for: endpoint.id)
-    }
-
-    defaults.set(Array(currentIds).sorted(), forKey: endpointTokenIdsKey)
-  }
-
-  private func normalizedEndpoints(_ rawEndpoints: [ServerEndpoint]) -> [ServerEndpoint] {
     var endpoints = rawEndpoints
-    var seen = Set<UUID>()
-    endpoints = endpoints.filter { seen.insert($0.id).inserted }
+    var seenIDs = Set<UUID>()
+    endpoints = endpoints.filter { seenIDs.insert($0.id).inserted }
+
+    var endpointsByIdentity: [String: ServerEndpoint] = [:]
+    var identityOrder: [String] = []
+    for endpoint in endpoints {
+      let identity = serverInstanceIdByEndpointId[endpoint.id].flatMap { $0 }
+        .map { "server:\($0)" }
+        ?? "url:\(Self.endpointIdentity(for: endpoint.wsURL))"
+      guard let existing = endpointsByIdentity[identity] else {
+        endpointsByIdentity[identity] = endpoint
+        identityOrder.append(identity)
+        continue
+      }
+
+      let shouldReplace = Self.shouldPrefer(endpoint, over: existing)
+      if shouldReplace {
+        endpointsByIdentity[identity] = endpoint
+      }
+    }
+
+    endpoints = identityOrder.compactMap { endpointsByIdentity[$0] }
 
     // Reconcile the default flag: pick the first enabled+default, or first enabled
     if let defaultIndex = endpoints.firstIndex(where: { $0.isDefault && $0.isEnabled })
@@ -300,6 +301,60 @@ struct ServerEndpointStore {
     }
 
     return endpoints
+  }
+
+  private static func endpointIdentity(for wsURL: URL) -> String {
+    guard let components = URLComponents(url: wsURL, resolvingAgainstBaseURL: false) else {
+      return wsURL.absoluteString.lowercased()
+    }
+
+    let scheme = (components.scheme ?? "ws").lowercased()
+    let host = (components.host ?? "").lowercased()
+    let port = components.port ?? (scheme == "wss" ? 443 : 80)
+    var path = components.percentEncodedPath
+    if path.isEmpty {
+      path = "/ws"
+    }
+    while path.count > 1 && path.hasSuffix("/") {
+      path.removeLast()
+    }
+
+    let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+    return "\(scheme)://\(host):\(port)\(path)\(query)"
+  }
+
+  private static func shouldPrefer(_ candidate: ServerEndpoint, over existing: ServerEndpoint) -> Bool {
+    let candidateScore = endpointPreferenceScore(candidate)
+    let existingScore = endpointPreferenceScore(existing)
+    if candidateScore != existingScore {
+      return candidateScore > existingScore
+    }
+    return candidate.id.uuidString < existing.id.uuidString
+  }
+
+  private static func endpointPreferenceScore(_ endpoint: ServerEndpoint) -> Int {
+    var score = 0
+    if endpoint.isDefault {
+      score += 8
+    }
+    if endpoint.isEnabled {
+      score += 4
+    }
+    if endpoint.isRemote {
+      score += 2
+    }
+    return score
+  }
+
+  private static func normalizedServerInstanceId(_ serverInstanceId: String?) -> String? {
+    guard let normalized = serverInstanceId?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased(),
+      !normalized.isEmpty
+    else {
+      return nil
+    }
+    return normalized
   }
 
   static func buildURL(fromHostInput input: String, defaultPort: Int) -> URL? {
@@ -369,18 +424,9 @@ struct ServerEndpointStore {
     }
     return host
   }
-
-  private static func normalizedToken(_ token: String?) -> String? {
-    guard let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
-      return nil
-    }
-    return trimmed
-  }
-
-  private func containsInlineAuthTokens(_ endpoints: [ServerEndpoint]) -> Bool {
-    endpoints.contains { Self.normalizedToken($0.authToken) != nil }
-  }
 }
+
+// MARK: - Supporting Types
 
 struct ServerEndpointLocalPrefs: Codable, Equatable {
   var id: UUID
@@ -388,27 +434,40 @@ struct ServerEndpointLocalPrefs: Codable, Equatable {
   var isDefault: Bool
 }
 
+/// Cloud-synced endpoint record.
+/// Contains only the data that should sync across devices.
+/// `isEnabled` and `isDefault` are intentionally NOT included — those are local-only.
 struct ServerEndpointCloudRecord: Codable, Equatable {
   var id: UUID
   var name: String
   var wsURL: URL
-  var isEnabled: Bool
-  var isDefault: Bool
+  var authToken: String?
+  var serverInstanceId: String?
+  var modifiedAt: Date
 
-  init(id: UUID, name: String, wsURL: URL, isEnabled: Bool = true, isDefault: Bool = false) {
+  init(
+    id: UUID,
+    name: String,
+    wsURL: URL,
+    authToken: String? = nil,
+    serverInstanceId: String? = nil,
+    modifiedAt: Date = Date()
+  ) {
     self.id = id
     self.name = name
     self.wsURL = wsURL
-    self.isEnabled = isEnabled
-    self.isDefault = isDefault
+    self.authToken = authToken
+    self.serverInstanceId = serverInstanceId
+    self.modifiedAt = modifiedAt
   }
 
   private enum CodingKeys: String, CodingKey {
     case id
     case name
     case wsURL
-    case isEnabled
-    case isDefault
+    case authToken
+    case serverInstanceId = "server_instance_id"
+    case modifiedAt
   }
 
   init(from decoder: Decoder) throws {
@@ -416,92 +475,13 @@ struct ServerEndpointCloudRecord: Codable, Equatable {
     id = try container.decode(UUID.self, forKey: .id)
     name = try container.decode(String.self, forKey: .name)
     wsURL = try container.decode(URL.self, forKey: .wsURL)
-    isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
-    isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(id, forKey: .id)
-    try container.encode(name, forKey: .name)
-    try container.encode(wsURL, forKey: .wsURL)
-    try container.encode(isEnabled, forKey: .isEnabled)
-    try container.encode(isDefault, forKey: .isDefault)
+    authToken = try container.decodeIfPresent(String.self, forKey: .authToken)
+    serverInstanceId = try container.decodeIfPresent(String.self, forKey: .serverInstanceId)
+    modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? Date.distantPast
   }
 }
 
-struct ServerEndpointTokenStore {
-  private static let logger = Logger(subsystem: "com.orbitdock", category: "keychain")
-  private let serviceName = "com.orbitdock.server-endpoint-token"
-
-  func token(for id: UUID) -> String? {
-    token(forEndpointID: id.uuidString)
-  }
-
-  func token(forEndpointID endpointID: String) -> String? {
-    var query = keychainQuery(forEndpointID: endpointID)
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
-    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
-
-    var result: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-    if status != errSecSuccess, status != errSecItemNotFound {
-      Self.logger.error("Keychain read failed: \(Int(status))")
-    }
-    guard status == errSecSuccess, let data = result as? Data else { return nil }
-    return String(data: data, encoding: .utf8)
-  }
-
-  func set(_ token: String?, for id: UUID) {
-    set(token, forEndpointID: id.uuidString)
-  }
-
-  func set(_ token: String?, forEndpointID endpointID: String) {
-    guard let token, let tokenData = token.data(using: .utf8) else {
-      remove(forEndpointID: endpointID)
-      return
-    }
-
-    var updateQuery = keychainQuery(forEndpointID: endpointID)
-    updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
-    let updateStatus = SecItemUpdate(
-      updateQuery as CFDictionary,
-      [kSecValueData as String: tokenData] as CFDictionary
-    )
-    if updateStatus == errSecSuccess {
-      return
-    }
-    if updateStatus != errSecItemNotFound {
-      Self.logger.error("Keychain update failed: \(Int(updateStatus))")
-      return
-    }
-
-    var addQuery = keychainQuery(forEndpointID: endpointID)
-    addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
-    addQuery[kSecValueData as String] = tokenData
-    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-    if addStatus != errSecSuccess {
-      Self.logger.error("Keychain add failed: \(Int(addStatus))")
-    }
-  }
-
-  func remove(forEndpointID endpointID: String) {
-    var query = keychainQuery(forEndpointID: endpointID)
-    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
-    SecItemDelete(query as CFDictionary)
-  }
-
-  private func keychainQuery(forEndpointID endpointID: String) -> [String: Any] {
-    [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: serviceName,
-      kSecAttrAccount as String: endpointID,
-      kSecUseDataProtectionKeychain as String: true,
-      kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
-    ]
-  }
-}
+// MARK: - Cloud Sync Store
 
 struct ServerEndpointCloudSyncStore {
   let load: () -> [ServerEndpointCloudRecord]?
@@ -521,30 +501,36 @@ private struct ServerEndpointCloudSyncKeychain {
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
   private let serviceName = "com.orbitdock.server-endpoints-sync"
-  private let accountName = "endpoints-json-v1"
+  private let accountNameV2 = "endpoints-json-v2"
+  private let accountNameV1 = "endpoints-json-v1"
+  private let legacyTokenServiceName = "com.orbitdock.server-endpoint-token"
 
   func load() -> [ServerEndpointCloudRecord]? {
-    var query = keychainQuery
-    query[kSecReturnData as String] = true
-    query[kSecMatchLimit as String] = kSecMatchLimitOne
-    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    // Try v2 first
+    if let v2Data = loadFromKeychain(accountName: accountNameV2),
+       let records = try? decoder.decode([ServerEndpointCloudRecord].self, from: v2Data)
+    {
+      return records
+    }
 
-    var result: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-    if status == errSecItemNotFound {
+    // Fall back to v1 migration
+    guard let v1Data = loadFromKeychain(accountName: accountNameV1) else {
       return nil
     }
-    guard status == errSecSuccess, let data = result as? Data else {
-      Self.logger.error("Synced endpoints read failed: \(Int(status))")
-      return nil
+
+    let migrated = migrateV1ToV2(v1Data)
+    if !migrated.isEmpty {
+      save(migrated)
+      deleteFromKeychain(accountName: accountNameV1)
+      Self.logger.info("Migrated \(migrated.count) endpoints from v1 to v2")
     }
-    return try? decoder.decode([ServerEndpointCloudRecord].self, from: data)
+    return migrated
   }
 
   func save(_ endpoints: [ServerEndpointCloudRecord]) {
     guard let data = try? encoder.encode(endpoints) else { return }
 
-    var updateQuery = keychainQuery
+    var updateQuery = keychainQuery(accountName: accountNameV2)
     updateQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
     let updateStatus = SecItemUpdate(
       updateQuery as CFDictionary,
@@ -558,7 +544,7 @@ private struct ServerEndpointCloudSyncKeychain {
       return
     }
 
-    var addQuery = keychainQuery
+    var addQuery = keychainQuery(accountName: accountNameV2)
     addQuery[kSecAttrSynchronizable as String] = kCFBooleanTrue
     addQuery[kSecValueData as String] = data
     let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
@@ -567,7 +553,72 @@ private struct ServerEndpointCloudSyncKeychain {
     }
   }
 
-  private var keychainQuery: [String: Any] {
+  // MARK: - Migration
+
+  private func migrateV1ToV2(_ v1Data: Data) -> [ServerEndpointCloudRecord] {
+    guard let v1Records = try? decoder.decode([LegacyV1CloudRecord].self, from: v1Data) else {
+      return []
+    }
+
+    return v1Records.map { v1 in
+      let token = loadLegacyToken(forEndpointID: v1.id.uuidString)
+      return ServerEndpointCloudRecord(
+        id: v1.id,
+        name: v1.name,
+        wsURL: v1.wsURL,
+        authToken: token,
+        serverInstanceId: nil,
+        modifiedAt: Date()
+      )
+    }
+  }
+
+  private func loadLegacyToken(forEndpointID endpointID: String) -> String? {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: legacyTokenServiceName,
+      kSecAttrAccount as String: endpointID,
+      kSecUseDataProtectionKeychain as String: true,
+      kSecReturnData as String: true,
+      kSecMatchLimit as String: kSecMatchLimitOne,
+      kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+    ]
+
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    guard status == errSecSuccess, let data = result as? Data else {
+      return nil
+    }
+    return String(data: data, encoding: .utf8)
+  }
+
+  // MARK: - Keychain Helpers
+
+  private func loadFromKeychain(accountName: String) -> Data? {
+    var query = keychainQuery(accountName: accountName)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
+    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    if status == errSecItemNotFound {
+      return nil
+    }
+    guard status == errSecSuccess, let data = result as? Data else {
+      Self.logger.error("Keychain read failed for \(accountName): \(Int(status))")
+      return nil
+    }
+    return data
+  }
+
+  private func deleteFromKeychain(accountName: String) {
+    var query = keychainQuery(accountName: accountName)
+    query[kSecAttrSynchronizable as String] = kSecAttrSynchronizableAny
+    SecItemDelete(query as CFDictionary)
+  }
+
+  private func keychainQuery(accountName: String) -> [String: Any] {
     [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: serviceName,
@@ -575,5 +626,27 @@ private struct ServerEndpointCloudSyncKeychain {
       kSecUseDataProtectionKeychain as String: true,
       kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
     ]
+  }
+}
+
+/// Legacy v1 cloud record format (had isEnabled/isDefault, no authToken/modifiedAt)
+private struct LegacyV1CloudRecord: Codable {
+  var id: UUID
+  var name: String
+  var wsURL: URL
+  var isEnabled: Bool
+  var isDefault: Bool
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    wsURL = try container.decode(URL.self, forKey: .wsURL)
+    isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id, name, wsURL, isEnabled, isDefault
   }
 }

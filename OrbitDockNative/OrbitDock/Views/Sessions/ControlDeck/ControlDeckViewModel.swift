@@ -280,6 +280,25 @@ final class ControlDeckViewModel {
     }
   }
 
+  func answerQuestionBatch(answers: [String: [String]]) async {
+    guard let sessionId = currentSessionId,
+          let store = currentSessionStore,
+          let requestId = pendingApproval?.requestId else { return }
+    do {
+      _ = try await store.answerQuestion(
+        sessionId: sessionId,
+        requestId: requestId,
+        answer: "",
+        questionId: nil,
+        answers: answers
+      )
+      clearPendingApprovalOptimistically()
+      await refresh()
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
   func respondToPermission(grant: Bool, scope: ServerPermissionGrantScope = .turn) async {
     guard let sessionId = currentSessionId,
           let store = currentSessionStore,

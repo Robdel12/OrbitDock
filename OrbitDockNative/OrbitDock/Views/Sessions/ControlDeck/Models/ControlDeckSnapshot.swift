@@ -39,6 +39,8 @@ struct ControlDeckSessionState: Sendable {
   let lifecycle: ControlDeckLifecycle
   let acceptsUserInput: Bool
   let steerable: Bool
+  /// True when a connector process is attached and can receive actions.
+  let connectorAttached: Bool
   let projectPath: String
   let currentCwd: String?
   let gitBranch: String?

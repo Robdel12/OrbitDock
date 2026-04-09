@@ -29,12 +29,14 @@ struct TimelineScrollView: View {
 
   private static let bottomSentinelID = "timeline-bottom"
   private static let bottomAnchorHeight: CGFloat = 20
+  private static let topThreshold: CGFloat = 36
   private static let bottomThreshold: CGFloat = 36
   private static let defaultRecentRenderWindow = 60
 
   @Environment(\.horizontalSizeClass) private var sizeClass
 
   @State private var localFollowState = ConversationFollowState.initial
+  @State private var isNearTop = false
   @State private var isNearBottom = true
   @State private var commandedScrollPositionID: String? = bottomSentinelID
   @State private var observedScrollPositionID: String? = bottomSentinelID
@@ -43,6 +45,7 @@ struct TimelineScrollView: View {
   @State private var hasDetachedFromBottomDuringCurrentGesture = false
   @State private var renderedEntryLimit = Self.defaultRecentRenderWindow
   @State private var pendingHistoryReveal = false
+  @State private var pendingNearTopLoad = false
 
   private var recentRenderWindow: Int {
     sizeClass == .compact ? 40 : 60
@@ -73,17 +76,13 @@ struct TimelineScrollView: View {
             .frame(height: 1)
             .id("pagination-\(rendered.first?.sequence ?? 0)")
             .onAppear {
-              guard hasInitializedScrollPosition, !localFollowState.mode.isFollowing else { return }
-              if hiddenRenderedCount > 0 {
-                revealOlderRenderedEntries(
-                  totalCount: displayedCount,
-                  anchorID: rendered.first?.id,
-                  with: proxy
-                )
-              } else {
-                pendingHistoryReveal = true
-                onLoadMore?()
-              }
+              guard isNearTop else { return }
+              requestLoadMoreIfNeeded(
+                totalCount: displayedCount,
+                hiddenRenderedCount: hiddenRenderedCount,
+                firstRenderedAnchorID: rendered.first?.id,
+                with: proxy
+              )
             }
 
           ForEach(rendered) { entry in
@@ -105,7 +104,9 @@ struct TimelineScrollView: View {
         .background {
           TimelineUserScrollDetector(
             isUserScrolling: $isUserScrolling,
+            isNearTop: $isNearTop,
             isNearBottom: $isNearBottom,
+            topThreshold: Self.topThreshold,
             bottomThreshold: Self.bottomThreshold
           )
           .frame(width: 0, height: 0)
@@ -122,6 +123,14 @@ struct TimelineScrollView: View {
         if localFollowState.mode.isFollowing {
           syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
           setPinnedScrollPosition()
+        }
+        if pendingNearTopLoad || isNearTop {
+          requestLoadMoreIfNeeded(
+            totalCount: displayedCount,
+            hiddenRenderedCount: hiddenRenderedCount,
+            firstRenderedAnchorID: rendered.first?.id,
+            with: proxy
+          )
         }
       }
       .onChange(of: displayedCount) { oldCount, newCount in
@@ -150,6 +159,15 @@ struct TimelineScrollView: View {
       }
       .onChange(of: sizeClass) { _, _ in
         syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
+      }
+      .onChange(of: isNearTop) { _, isVisible in
+        guard isVisible else { return }
+        requestLoadMoreIfNeeded(
+          totalCount: displayedCount,
+          hiddenRenderedCount: hiddenRenderedCount,
+          firstRenderedAnchorID: rendered.first?.id,
+          with: proxy
+        )
       }
       .onChange(of: isNearBottom) { _, isVisible in
         if isVisible, !localFollowState.mode.isFollowing {
@@ -324,6 +342,46 @@ struct TimelineScrollView: View {
         proxy.scrollTo(anchorID, anchor: .top)
       }
     }
+  }
+
+  private func loadMoreIfNeeded(
+    totalCount: Int,
+    hiddenRenderedCount: Int,
+    firstRenderedAnchorID: String?,
+    with proxy: ScrollViewProxy
+  ) {
+    if hiddenRenderedCount > 0 {
+      revealOlderRenderedEntries(
+        totalCount: totalCount,
+        anchorID: firstRenderedAnchorID,
+        with: proxy
+      )
+      return
+    }
+
+    pendingHistoryReveal = true
+    onLoadMore?()
+  }
+
+  private func requestLoadMoreIfNeeded(
+    totalCount: Int,
+    hiddenRenderedCount: Int,
+    firstRenderedAnchorID: String?,
+    with proxy: ScrollViewProxy
+  ) {
+    guard !localFollowState.mode.isFollowing else { return }
+    guard hasInitializedScrollPosition else {
+      pendingNearTopLoad = true
+      return
+    }
+
+    pendingNearTopLoad = false
+    loadMoreIfNeeded(
+      totalCount: totalCount,
+      hiddenRenderedCount: hiddenRenderedCount,
+      firstRenderedAnchorID: firstRenderedAnchorID,
+      with: proxy
+    )
   }
 
 }

@@ -94,6 +94,65 @@ struct ServerEndpointStoreTests {
     #expect(afterRemove.contains(where: { $0.id == remoteA.id }) == false)
   }
 
+  @Test func dedupesEndpointsWithEquivalentWsURLs() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let firstID = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let secondID = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
+
+    let duplicateA = try ServerEndpoint(
+      id: firstID,
+      name: "Primary",
+      wsURL: #require(URL(string: "wss://Dock.Example.com/ws")),
+      isEnabled: true,
+      isDefault: false
+    )
+    let duplicateB = try ServerEndpoint(
+      id: secondID,
+      name: "Preferred",
+      wsURL: #require(URL(string: "wss://dock.example.com:443/ws/")),
+      isEnabled: true,
+      isDefault: true
+    )
+
+    context.store.save([duplicateA, duplicateB])
+    let endpoints = context.store.endpoints()
+
+    #expect(endpoints.count == 1)
+    #expect(endpoints.first?.id == secondID)
+    #expect(endpoints.first?.isDefault == true)
+  }
+
+  @Test func dedupesEndpointsWithSharedServerIdentityAcrossDifferentURLs() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let loopback = try ServerEndpoint(
+      name: "Loopback",
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
+      isEnabled: true,
+      isDefault: true
+    )
+    let remote = try ServerEndpoint(
+      name: "LAN",
+      wsURL: #require(URL(string: "ws://192.168.0.230:4000/ws")),
+      isEnabled: true,
+      isDefault: false
+    )
+
+    context.store.save([loopback, remote])
+    context.store.recordServerIdentity(id: loopback.id, serverInstanceId: "server-1")
+    context.store.recordServerIdentity(id: remote.id, serverInstanceId: "server-1")
+
+    let endpoints = context.store.endpoints()
+
+    #expect(endpoints.count == 1)
+    #expect(endpoints.first?.id == loopback.id)
+    #expect(endpoints.first?.wsURL == loopback.wsURL)
+    #expect(context.cloudSync.endpoints?.allSatisfy { $0.serverInstanceId == "server-1" } == true)
+  }
+
   @Test func buildURLNormalizesHostInputs() {
     let plain = ServerEndpointStore.buildURL(fromHostInput: "10.0.0.8", defaultPort: 4_000)
     let withPath = ServerEndpointStore.buildURL(fromHostInput: "ws://10.0.0.9:4010/ws", defaultPort: 4_000)
@@ -118,62 +177,52 @@ struct ServerEndpointStoreTests {
     #expect(ServerEndpointStore.hostInput(from: customPortURL, defaultPort: 4_000) == "10.0.0.8:4111")
   }
 
-  @Test func mergesCloudSyncedDetailsWithLocalPreferenceState() throws {
+  @Test func appliesLocalPrefsToCloudSyncedEndpoints() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
     let endpointIdA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
     let endpointIdB = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
 
-    let localA = try ServerEndpoint(
-      id: endpointIdA,
-      name: "Local A",
-      wsURL: #require(URL(string: "ws://10.0.0.1:4000/ws")),
-      isEnabled: true,
-      isDefault: true
-    )
-    let localB = try ServerEndpoint(
-      id: endpointIdB,
-      name: "Local B",
-      wsURL: #require(URL(string: "ws://10.0.0.2:4000/ws")),
-      isEnabled: false,
-      isDefault: false
-    )
+    // Set up cloud records (synced from another device)
+    context.cloudSync.endpoints = [
+      try ServerEndpointCloudRecord(
+        id: endpointIdA,
+        name: "Cloud A",
+        wsURL: #require(URL(string: "wss://dock-a.example/ws")),
+        authToken: "token-a"
+      ),
+      try ServerEndpointCloudRecord(
+        id: endpointIdB,
+        name: "Cloud B",
+        wsURL: #require(URL(string: "wss://dock-b.example/ws")),
+        authToken: "token-b"
+      ),
+    ]
 
-    context.store.save([localA, localB])
-
-    let cloudA = try ServerEndpointCloudRecord(
-      id: endpointIdA,
-      name: "Cloud A",
-      wsURL: #require(URL(string: "wss://dock-a.example/ws")),
-      isEnabled: false,
-      isDefault: false
-    )
-
-    let cloudB = try ServerEndpointCloudRecord(
-      id: endpointIdB,
-      name: "Cloud B",
-      wsURL: #require(URL(string: "wss://dock-b.example/ws")),
-      isEnabled: true,
-      isDefault: true
-    )
-
-    context.cloudSync.endpoints = [cloudA, cloudB]
+    // Set local prefs (device-specific enabled/default state)
+    let localPrefs = [
+      ServerEndpointLocalPrefs(id: endpointIdA, isEnabled: true, isDefault: true),
+      ServerEndpointLocalPrefs(id: endpointIdB, isEnabled: false, isDefault: false),
+    ]
+    let prefsData = try JSONEncoder().encode(localPrefs)
+    context.defaults.set(prefsData, forKey: context.localPrefsKey)
 
     let endpoints = context.store.endpoints()
 
+    // Cloud data (name, url, token) comes from cloud
     #expect(endpoints.first(where: { $0.id == endpointIdA })?.name == "Cloud A")
     #expect(endpoints.first(where: { $0.id == endpointIdA })?.wsURL == URL(string: "wss://dock-a.example/ws"))
-    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isDefault == true)
-    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isEnabled == true)
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.authToken == "token-a")
 
-    #expect(endpoints.first(where: { $0.id == endpointIdB })?.name == "Cloud B")
-    #expect(endpoints.first(where: { $0.id == endpointIdB })?.wsURL == URL(string: "wss://dock-b.example/ws"))
-    #expect(endpoints.first(where: { $0.id == endpointIdB })?.isDefault == false)
+    // Local prefs (enabled, default) come from local storage
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isEnabled == true)
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isDefault == true)
     #expect(endpoints.first(where: { $0.id == endpointIdB })?.isEnabled == false)
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.isDefault == false)
   }
 
-  @Test func saveWritesSyncedEndpointRecordsToCloudSync() throws {
+  @Test func saveWritesEndpointRecordsToCloudSync() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
@@ -190,56 +239,150 @@ struct ServerEndpointStoreTests {
     #expect(context.cloudSync.endpoints?.count == 1)
     #expect(context.cloudSync.endpoints?.first?.name == "Synced")
     #expect(context.cloudSync.endpoints?.first?.wsURL == endpoint.wsURL)
-    #expect(context.cloudSync.endpoints?.first?.isEnabled == true)
-    #expect(context.cloudSync.endpoints?.first?.isDefault == true)
+    #expect(context.cloudSync.endpoints?.first?.authToken == "secret-token")
   }
 
-  @Test func endpointsReadRedactsLegacyTokenFromPersistedDefaults() throws {
+  @Test func enabledAndDefaultAreNotSyncedToCloud() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
-    let local = try ServerEndpoint(
-      id: endpointId,
-      name: "Legacy",
-      wsURL: #require(URL(string: "wss://dock.example.com/ws")),
-      isEnabled: true,
-      isDefault: true,
-      authToken: "legacy-token"
-    )
-    context.defaults.set(try JSONEncoder().encode([local]), forKey: context.endpointsKey)
-    context.cloudSync.endpoints = [
-      ServerEndpointCloudRecord(
-        id: endpointId,
-        name: "Legacy",
-        wsURL: local.wsURL,
-        isEnabled: true,
-        isDefault: true
-      ),
-    ]
-
-    _ = context.store.endpoints()
-
-    let storedData = try #require(context.defaults.data(forKey: context.endpointsKey))
-    let storedEndpoints = try JSONDecoder().decode([ServerEndpoint].self, from: storedData)
-    #expect(storedEndpoints.first?.authToken == nil)
-  }
-
-  @Test func cloudRecordPayloadRemainsDecodableByLegacyServerEndpointSchema() throws {
-    let record = try ServerEndpointCloudRecord(
-      id: #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")),
-      name: "Compat",
+    let endpoint = try ServerEndpoint(
+      name: "Test",
       wsURL: #require(URL(string: "wss://dock.example.com/ws")),
       isEnabled: false,
       isDefault: true
     )
 
-    let payload = try JSONEncoder().encode([record])
-    let decoded = try JSONDecoder().decode([ServerEndpoint].self, from: payload)
+    context.store.save([endpoint])
 
-    #expect(decoded.count == 1)
-    #expect(decoded[0].isEnabled == false)
-    #expect(decoded[0].isDefault == true)
+    // Cloud record should NOT have isEnabled/isDefault
+    let cloudRecord = context.cloudSync.endpoints?.first
+    #expect(cloudRecord != nil)
+
+    // Verify by encoding and checking the JSON doesn't contain these keys
+    let encoder = JSONEncoder()
+    let data = try encoder.encode(cloudRecord)
+    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    #expect(json?["isEnabled"] == nil)
+    #expect(json?["isDefault"] == nil)
+  }
+
+  @Test func setEnabledOnlyUpdatesLocalPrefs() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    context.cloudSync.endpoints = [
+      try ServerEndpointCloudRecord(
+        id: endpointId,
+        name: "Test",
+        wsURL: #require(URL(string: "wss://dock.example/ws"))
+      ),
+    ]
+
+    // Record initial cloud state
+    let initialCloudEndpoints = context.cloudSync.endpoints
+
+    // Toggle enabled state
+    context.store.setEndpointEnabled(id: endpointId, isEnabled: false)
+
+    // Cloud should NOT have been modified
+    #expect(context.cloudSync.endpoints == initialCloudEndpoints)
+
+    // But local state should reflect the change
+    let endpoints = context.store.endpoints()
+    #expect(endpoints.first(where: { $0.id == endpointId })?.isEnabled == false)
+  }
+
+  @Test func setDefaultOnlyUpdatesLocalPrefs() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let endpointIdA = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+    let endpointIdB = try #require(UUID(uuidString: "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB"))
+    context.cloudSync.endpoints = [
+      try ServerEndpointCloudRecord(
+        id: endpointIdA,
+        name: "A",
+        wsURL: #require(URL(string: "wss://a.example/ws"))
+      ),
+      try ServerEndpointCloudRecord(
+        id: endpointIdB,
+        name: "B",
+        wsURL: #require(URL(string: "wss://b.example/ws"))
+      ),
+    ]
+
+    // Record initial cloud state
+    let initialCloudEndpoints = context.cloudSync.endpoints
+
+    // Change default
+    context.store.setDefaultEndpoint(id: endpointIdB)
+
+    // Cloud should NOT have been modified
+    #expect(context.cloudSync.endpoints == initialCloudEndpoints)
+
+    // But local state should reflect the change
+    let endpoints = context.store.endpoints()
+    #expect(endpoints.first(where: { $0.id == endpointIdB })?.isDefault == true)
+    #expect(endpoints.first(where: { $0.id == endpointIdA })?.isDefault == false)
+  }
+
+  @Test func skipsCloudWriteWhenDataUnchanged() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    var saveCount = 0
+    let trackingCloudSync = InMemoryCloudSync()
+    let trackingStore = ServerEndpointStore(
+      defaults: context.defaults,
+      endpointsKey: context.endpointsKey,
+      endpointLocalPrefsKey: context.localPrefsKey,
+      cloudSyncStore: ServerEndpointCloudSyncStore(
+        load: { trackingCloudSync.endpoints },
+        save: {
+          saveCount += 1
+          trackingCloudSync.endpoints = $0
+        }
+      ),
+      defaultPort: 4_000
+    )
+
+    let endpoint = try ServerEndpoint(
+      name: "Test",
+      wsURL: #require(URL(string: "wss://dock.example.com/ws"))
+    )
+
+    // First save should write
+    trackingStore.save([endpoint])
+    #expect(saveCount == 1)
+
+    // Second save with same data should skip cloud write
+    trackingStore.save([endpoint])
+    #expect(saveCount == 1) // Still 1, not 2
+  }
+
+  @Test func newEndpointDefaultsToEnabledWhenNoLocalPrefs() throws {
+    let context = makeStoreContext()
+    defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
+
+    let endpointId = try #require(UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"))
+
+    // Cloud has endpoint but no local prefs exist
+    context.cloudSync.endpoints = [
+      try ServerEndpointCloudRecord(
+        id: endpointId,
+        name: "New from Cloud",
+        wsURL: #require(URL(string: "wss://dock.example/ws"))
+      ),
+    ]
+
+    let endpoints = context.store.endpoints()
+
+    // Should default to enabled
+    #expect(endpoints.first?.isEnabled == true)
+    // First endpoint should become default
+    #expect(endpoints.first?.isDefault == true)
   }
 
   private func makeStoreContext() -> (
@@ -247,10 +390,12 @@ struct ServerEndpointStoreTests {
     defaults: UserDefaults,
     suiteName: String,
     endpointsKey: String,
+    localPrefsKey: String,
     cloudSync: InMemoryCloudSync
   ) {
     let suiteName = "ServerEndpointStoreTests.\(UUID().uuidString)"
     let endpointsKey = "endpoints.\(UUID().uuidString)"
+    let localPrefsKey = "local-prefs.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
     let cloudSync = InMemoryCloudSync()
@@ -258,6 +403,7 @@ struct ServerEndpointStoreTests {
     let store = ServerEndpointStore(
       defaults: defaults,
       endpointsKey: endpointsKey,
+      endpointLocalPrefsKey: localPrefsKey,
       cloudSyncStore: ServerEndpointCloudSyncStore(
         load: { cloudSync.endpoints },
         save: { cloudSync.endpoints = $0 }
@@ -265,6 +411,6 @@ struct ServerEndpointStoreTests {
       defaultPort: 4_000
     )
 
-    return (store, defaults, suiteName, endpointsKey, cloudSync)
+    return (store, defaults, suiteName, endpointsKey, localPrefsKey, cloudSync)
   }
 }

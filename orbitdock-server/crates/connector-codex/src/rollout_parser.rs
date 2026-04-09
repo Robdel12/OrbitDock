@@ -19,6 +19,7 @@ use codex_protocol::protocol::{
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
 pub use codex_protocol::protocol::{SessionSource, SubAgentSource};
 use notify::EventKind;
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::provider_normalization::shared::{
   NormalizedApprovalKind, NormalizedApprovalRequest, NormalizedHandoff, NormalizedHandoffKind,
   NormalizedHookEvent, NormalizedHookLifecycle, NormalizedPlanEvent, NormalizedQuestion,
@@ -1642,12 +1643,12 @@ fn map_rollout_agent_status(
   }
 }
 
-fn normalized_rollout_agent_type(role: Option<&str>) -> String {
-  role
+fn normalized_rollout_agent_type(role: Option<&str>) -> AgentType {
+  let raw = role
     .map(str::trim)
-    .filter(|role| !role.is_empty())
-    .unwrap_or("agent")
-    .to_string()
+    .filter(|r| !r.is_empty())
+    .unwrap_or("agent");
+  AgentType::from_str_normalized(raw)
 }
 
 fn normalized_rollout_agent_label(

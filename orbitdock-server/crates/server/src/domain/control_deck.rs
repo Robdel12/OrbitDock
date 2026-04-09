@@ -216,6 +216,7 @@ pub(crate) fn build_control_deck_snapshot(
   session: &SessionState,
   preferences: ControlDeckPreferences,
   effort_options: Vec<ControlDeckPickerOption>,
+  connector_attached: bool,
 ) -> ControlDeckSnapshot {
   let state = ControlDeckState {
     provider: session.provider,
@@ -223,6 +224,7 @@ pub(crate) fn build_control_deck_snapshot(
     lifecycle_state: session.lifecycle_state,
     accepts_user_input: session.accepts_user_input,
     steerable: session.steerable,
+    connector_attached,
     project_path: session.project_path.clone(),
     current_cwd: session.current_cwd.clone(),
     git_branch: session.git_branch.clone(),
@@ -535,6 +537,7 @@ mod tests {
       &session,
       default_control_deck_preferences(),
       control_deck_effort_options(session.provider, None),
+      true, // connector_attached
     );
 
     assert_eq!(snapshot.session_id, "session-1");

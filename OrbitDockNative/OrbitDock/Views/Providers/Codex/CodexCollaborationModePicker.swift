@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum CodexCollaborationMode: String, CaseIterable, Identifiable {
+enum CodexCollaborationMode: String, Codable, CaseIterable, Identifiable {
   case `default`
   case plan
 
@@ -80,7 +80,7 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
   }
 }
 
-enum CodexPersonalityPreset: String, CaseIterable, Identifiable {
+enum CodexPersonalityPreset: String, Codable, CaseIterable, Identifiable {
   case automatic
   case neutral
   case friendly
@@ -153,7 +153,7 @@ enum CodexPersonalityPreset: String, CaseIterable, Identifiable {
   }
 }
 
-enum CodexServiceTierPreset: String, CaseIterable, Identifiable {
+enum CodexServiceTierPreset: String, Codable, CaseIterable, Identifiable {
   case automatic
   case fast
   case flex
