@@ -61,6 +61,8 @@ struct SessionContinuation: Hashable, Sendable {
   let projectPath: String
   let model: String?
   let hasGitRepository: Bool
+  let sourceServerInstanceId: String?
+  let sourceIsRemoteConnection: Bool
 
   var sourceSummary: String {
     [provider.displayName, projectName, model]
@@ -69,8 +71,23 @@ struct SessionContinuation: Hashable, Sendable {
       .joined(separator: " · ")
   }
 
-  func isSupported(on endpointId: UUID, isRemoteConnection: Bool) -> Bool {
-    !isRemoteConnection && self.endpointId == endpointId
+  func isSupported(
+    on endpointId: UUID,
+    isRemoteConnection: Bool,
+    selectedServerInstanceId: String?
+  ) -> Bool {
+    guard !sourceIsRemoteConnection, !isRemoteConnection else { return false }
+
+    let sourceId = sourceServerInstanceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let selectedId = selectedServerInstanceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let sourceId, !sourceId.isEmpty, let selectedId, !selectedId.isEmpty {
+      return sourceId == selectedId
+    }
+
+    // Legacy fallback for older servers that do not report instance IDs yet.
+    // In that case, permit local-to-local continuation rather than hard-failing
+    // on endpoint UUID mismatches.
+    return true
   }
 
   func bootstrapPrompt() -> String {

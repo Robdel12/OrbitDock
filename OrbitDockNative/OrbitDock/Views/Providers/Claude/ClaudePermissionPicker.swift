@@ -10,7 +10,7 @@ import SwiftUI
 
 // MARK: - Claude Permission Mode
 
-enum ClaudePermissionMode: String, CaseIterable, Identifiable {
+enum ClaudePermissionMode: String, Codable, CaseIterable, Identifiable {
   case plan
   case dontAsk
   case `default`

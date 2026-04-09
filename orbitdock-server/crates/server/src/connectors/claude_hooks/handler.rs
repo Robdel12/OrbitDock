@@ -17,6 +17,7 @@ use std::time::Instant;
 use serde_json::Value;
 use tracing::warn;
 
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{
   ClientMessage, Provider, SessionControlMode, SessionLifecycleState, SessionStatus, SubagentInfo,
   SubagentStatus,
@@ -54,12 +55,6 @@ pub struct ClaudeHookHandlingOptions {
 }
 
 impl ClaudeHookHandlingOptions {
-  pub fn for_spool_replay() -> Self {
-    Self {
-      transcript_sync_gate: Some(Arc::new(tokio::sync::Mutex::new(HashSet::new()))),
-    }
-  }
-
   async fn should_sync_transcript(&self, session_id: &str) -> bool {
     let Some(gate) = self.transcript_sync_gate.as_ref() else {
       return true;
@@ -1232,7 +1227,8 @@ pub async fn handle_hook_message_with_options(
 
           match hook_event_name.as_str() {
             "SubagentStart" => {
-              let normalized_type = agent_type.clone().unwrap_or_else(|| "unknown".to_string());
+              let raw_type = agent_type.as_deref().unwrap_or("unknown");
+              let normalized_type = AgentType::from_str_normalized(raw_type);
               let _ = persist_tx
                 .send(PersistCommand::ClaudeSubagentStart {
                   id: agent_id.clone(),
@@ -1347,7 +1343,8 @@ pub async fn handle_hook_message_with_options(
 
       match hook_event_name.as_str() {
         "SubagentStart" => {
-          let normalized_type = agent_type.clone().unwrap_or_else(|| "unknown".to_string());
+          let raw_type = agent_type.as_deref().unwrap_or("unknown");
+          let normalized_type = AgentType::from_str_normalized(raw_type);
           let _ = persist_tx
             .send(PersistCommand::ClaudeSubagentStart {
               id: agent_id.clone(),
@@ -1450,7 +1447,7 @@ async fn maybe_sync_transcript_messages(
 enum ClaudeSubagentUpdate {
   Started {
     agent_id: String,
-    agent_type: String,
+    agent_type: AgentType,
   },
   Stopped {
     agent_id: String,
@@ -1548,7 +1545,7 @@ fn apply_claude_subagent_update(
       if !updated {
         next_subagents.push(SubagentInfo {
           id: agent_id,
-          agent_type: "unknown".to_string(),
+          agent_type: AgentType::BackgroundTask,
           started_at: now.clone(),
           ended_at: Some(now.clone()),
           provider: Some(Provider::Claude),
@@ -1570,6 +1567,7 @@ fn apply_claude_subagent_update(
 
 #[cfg(test)]
 mod tests {
+  use orbitdock_protocol::domain_events::AgentType;
   use orbitdock_protocol::{
     ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionControlMode,
     SessionLifecycleState, SessionStatus, SessionSummary, SubagentInfo, SubagentStatus, TokenUsage,
@@ -1579,8 +1577,7 @@ mod tests {
 
   use super::{
     apply_claude_subagent_update, classify_permission_request, extract_plan_from_tool_input,
-    extract_question_from_tool_input, is_codex_rollout_payload, ClaudeHookHandlingOptions,
-    ClaudeSubagentUpdate,
+    extract_question_from_tool_input, is_codex_rollout_payload, ClaudeSubagentUpdate,
   };
   use crate::connectors::claude_hooks::session_materialization::most_recent_claude_session_id;
   use crate::support::session_time::chrono_now;
@@ -1769,7 +1766,7 @@ mod tests {
   fn claude_subagent_start_creates_or_reactivates_running_worker() {
     let subagents = vec![SubagentInfo {
       id: "worker-1".to_string(),
-      agent_type: "worker".to_string(),
+      agent_type: AgentType::BackgroundTask,
       started_at: "2026-03-12T09:00:00Z".to_string(),
       ended_at: Some("2026-03-12T09:05:00Z".to_string()),
       provider: Some(Provider::Claude),
@@ -1787,12 +1784,12 @@ mod tests {
       subagents,
       ClaudeSubagentUpdate::Started {
         agent_id: "worker-1".to_string(),
-        agent_type: "explorer".to_string(),
+        agent_type: AgentType::Explore,
       },
     );
 
     assert_eq!(updated.len(), 1);
-    assert_eq!(updated[0].agent_type, "explorer");
+    assert_eq!(updated[0].agent_type, AgentType::Explore);
     assert_eq!(updated[0].status, SubagentStatus::Running);
     assert_eq!(updated[0].provider, Some(Provider::Claude));
     assert_eq!(updated[0].ended_at, None);
@@ -1812,16 +1809,7 @@ mod tests {
     assert_eq!(updated[0].id, "worker-2");
     assert_eq!(updated[0].status, SubagentStatus::Completed);
     assert_eq!(updated[0].provider, Some(Provider::Claude));
-    assert_eq!(updated[0].agent_type, "unknown");
+    assert_eq!(updated[0].agent_type, AgentType::BackgroundTask);
     assert!(updated[0].ended_at.is_some());
-  }
-
-  #[tokio::test]
-  async fn spool_replay_transcript_sync_gate_allows_one_sync_per_session() {
-    let options = ClaudeHookHandlingOptions::for_spool_replay();
-
-    assert!(options.should_sync_transcript("session-1").await);
-    assert!(!options.should_sync_transcript("session-1").await);
-    assert!(options.should_sync_transcript("session-2").await);
   }
 }

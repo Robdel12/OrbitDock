@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum SessionProvider: String, CaseIterable, Identifiable {
+enum SessionProvider: String, Codable, CaseIterable, Identifiable {
   case claude
   case codex
 
@@ -30,7 +30,7 @@ enum SessionProvider: String, CaseIterable, Identifiable {
   }
 }
 
-enum ClaudeEffortLevel: String, CaseIterable, Identifiable {
+enum ClaudeEffortLevel: String, Codable, CaseIterable, Identifiable {
   case `default` = ""
   case low
   case medium

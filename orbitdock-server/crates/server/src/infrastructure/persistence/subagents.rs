@@ -1,4 +1,5 @@
 use super::*;
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{Provider, SubagentInfo, SubagentStatus};
 
 /// Load subagents for a session (for snapshot building)
@@ -71,9 +72,10 @@ pub async fn load_subagents_for_session(
           _ => SubagentStatus::Running,
         };
 
+        let agent_type_str: String = row.get(1)?;
         Ok(SubagentInfo {
           id: row.get(0)?,
-          agent_type: row.get(1)?,
+          agent_type: AgentType::from_str_normalized(&agent_type_str),
           started_at: row.get(2)?,
           ended_at: row.get(3)?,
           provider,

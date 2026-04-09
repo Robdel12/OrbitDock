@@ -26,7 +26,7 @@ use codex_protocol::protocol::{
 };
 use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
-use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
+use orbitdock_protocol::domain_events::{AgentType, ToolKind, ToolStatus};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
@@ -1039,7 +1039,7 @@ fn build_authoritative_codex_subagent_maps_completed_status_and_metadata() {
   );
 
   assert_eq!(subagent.id, "worker-1");
-  assert_eq!(subagent.agent_type, "explorer");
+  assert_eq!(subagent.agent_type, AgentType::Explore);
   assert_eq!(subagent.label.as_deref(), Some("Repo Scout"));
   assert_eq!(subagent.task_summary.as_deref(), Some("Map the repository"));
   assert_eq!(
@@ -1068,7 +1068,7 @@ fn build_authoritative_codex_subagent_maps_error_status() {
     &AgentStatus::Errored("sandbox denied".to_string()),
   );
 
-  assert_eq!(subagent.agent_type, "agent");
+  assert_eq!(subagent.agent_type, AgentType::BackgroundTask);
   assert_eq!(subagent.label.as_deref(), Some("worker-2"));
   assert_eq!(subagent.status, orbitdock_protocol::SubagentStatus::Failed);
   assert_eq!(subagent.error_summary.as_deref(), Some("sandbox denied"));

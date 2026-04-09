@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::tooling::ToolStatus;
+use super::tooling::{AgentType, ToolStatus};
 use crate::Provider;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -42,7 +42,7 @@ pub struct WorkerStateSnapshot {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub label: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub agent_type: Option<String>,
+  pub agent_type: Option<AgentType>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub provider: Option<Provider>,
   #[serde(default, skip_serializing_if = "Option::is_none")]

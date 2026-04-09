@@ -37,6 +37,7 @@ struct ControlDeckView: View {
   var onApproveAlwaysForHost: ((String) -> Void)?
   var onDeny: (() -> Void)?
   var onAnswer: ((String, String?) -> Void)?
+  var onSubmitAllAnswers: (([String: [String]]) -> Void)?
   var onGrantPermission: (() -> Void)?
   var onGrantPermissionForSession: (() -> Void)?
   var onDenyPermission: (() -> Void)?
@@ -83,6 +84,7 @@ struct ControlDeckView: View {
           onApproveAlwaysForHost: onApproveAlwaysForHost,
           onDeny: onDeny,
           onAnswer: { answer, promptId in onAnswer?(answer, promptId) },
+          onSubmitAllAnswers: { answers in onSubmitAllAnswers?(answers) },
           onGrantPermission: onGrantPermission,
           onGrantPermissionForSession: onGrantPermissionForSession,
           onDenyPermission: onDenyPermission

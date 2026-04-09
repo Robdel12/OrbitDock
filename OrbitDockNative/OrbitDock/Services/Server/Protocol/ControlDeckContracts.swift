@@ -80,6 +80,8 @@ struct ServerControlDeckState: Codable, Sendable {
   let lifecycleState: ServerSessionLifecycleState
   let acceptsUserInput: Bool
   let steerable: Bool
+  /// True when a connector process is attached and can receive actions.
+  let connectorAttached: Bool
   let projectPath: String
   let currentCwd: String?
   let gitBranch: String?
@@ -91,10 +93,25 @@ struct ServerControlDeckState: Codable, Sendable {
     case lifecycleState = "lifecycle_state"
     case acceptsUserInput = "accepts_user_input"
     case steerable
+    case connectorAttached = "connector_attached"
     case projectPath = "project_path"
     case currentCwd = "current_cwd"
     case gitBranch = "git_branch"
     case config
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    provider = try container.decode(ServerProvider.self, forKey: .provider)
+    controlMode = try container.decode(ServerSessionControlMode.self, forKey: .controlMode)
+    lifecycleState = try container.decode(ServerSessionLifecycleState.self, forKey: .lifecycleState)
+    acceptsUserInput = try container.decode(Bool.self, forKey: .acceptsUserInput)
+    steerable = try container.decode(Bool.self, forKey: .steerable)
+    connectorAttached = try container.decodeIfPresent(Bool.self, forKey: .connectorAttached) ?? true
+    projectPath = try container.decode(String.self, forKey: .projectPath)
+    currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
+    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
+    config = try container.decode(ServerControlDeckConfigState.self, forKey: .config)
   }
 }
 

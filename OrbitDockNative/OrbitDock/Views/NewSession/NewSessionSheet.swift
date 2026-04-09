@@ -35,6 +35,8 @@ struct NewSessionSheet: View {
   @State private var codexScopedModelsError: String?
   @State private var codexScopedModelsRequestID = 0
   @State private var showOptions = false
+  @State private var presetStore = SessionPresetStore()
+  @State private var activePresetName: String?
 
   @MainActor
   init(
@@ -142,7 +144,8 @@ struct NewSessionSheet: View {
     guard let continuation else { return true }
     return continuation.isSupported(
       on: model.selectedEndpointId,
-      isRemoteConnection: endpointAppState.isRemoteConnection
+      isRemoteConnection: endpointAppState.isRemoteConnection,
+      selectedServerInstanceId: endpointAppState.serverInstanceId
     )
   }
 
@@ -156,6 +159,9 @@ struct NewSessionSheet: View {
   }
 
   private var optionsSummary: String {
+    if let presetName = activePresetName {
+      return presetName
+    }
     switch model.provider {
       case .claude:
         let modelName = model.claudeModelId.isEmpty ? "Default" : model.claudeModelId
@@ -250,6 +256,7 @@ struct NewSessionSheet: View {
     }
     .onChange(of: model.provider) { _, _ in
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
+      activePresetName = nil
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
@@ -280,7 +287,10 @@ struct NewSessionSheet: View {
   private var formSections: some View {
     NewSessionQuickForm(
       showOptions: showOptions,
-      onToggleOptions: { showOptions.toggle() },
+      onToggleOptions: {
+        showOptions.toggle()
+        if showOptions { activePresetName = nil }
+      },
       shouldShowEndpointSection: shouldShowEndpointSection,
       continuation: continuation,
       isCodexProvider: model.provider == .codex,
@@ -289,17 +299,42 @@ struct NewSessionSheet: View {
       hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
       provider: model.provider,
       optionsSummary: optionsSummary,
+      hasActivePreset: activePresetName != nil,
       providerToggle: { providerPicker },
       endpointSection: { endpointSection },
       continuationSection: { continuationSection($0) },
       authGateSection: { authGateSection },
       codexCapabilityNotice: { codexCapabilityNoticeSection },
       directorySection: { directorySection },
+      presetRow: { presetRowContent },
       optionsPanel: { optionsPanel },
       errorBanner: {
         if let error = model.codexErrorMessage {
           errorBanner(error)
         }
+      }
+    )
+  }
+
+  // MARK: - Preset Row
+
+  private var presetRowContent: some View {
+    SessionPresetRow(
+      provider: model.provider,
+      presets: presetStore.presets(for: model.provider),
+      onSelect: { preset in
+        model.applyPreset(preset)
+        syncModelSelections()
+        withAnimation(Motion.standard) {
+          activePresetName = preset.name
+        }
+      },
+      onSave: { name in
+        let preset = SessionPresetPlanner.capture(name: name, from: model)
+        presetStore.save(preset)
+      },
+      onDelete: { id in
+        presetStore.remove(id: id)
       }
     )
   }
@@ -826,10 +861,7 @@ struct NewSessionSheet: View {
         return response.sessionId
       },
       sendBootstrapPrompt: { sessionId, prompt in
-        _ = try await store.clients.conversation.sendMessage(
-          sessionId,
-          request: ConversationClient.SendMessageRequest(content: prompt)
-        )
+        try await store.sendMessage(sessionId: sessionId, content: prompt)
       }
     )
   }

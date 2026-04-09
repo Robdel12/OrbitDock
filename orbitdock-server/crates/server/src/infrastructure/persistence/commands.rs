@@ -2,6 +2,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, TurnStatus};
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{
   ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, CodexConfigMode, CodexConfigSource,
   Provider, SessionControlMode, SessionLifecycleState, SessionStatus, SubagentInfo, TokenUsage,
@@ -187,7 +188,7 @@ pub enum PersistCommand {
     agent_type: Option<Option<String>>,
     permission_mode: Option<Option<String>>,
     active_subagent_id: Option<Option<String>>,
-    active_subagent_type: Option<Option<String>>,
+    active_subagent_type: Option<Option<AgentType>>,
     first_prompt: Option<String>,
     compact_count_increment: bool,
   },
@@ -220,7 +221,7 @@ pub enum PersistCommand {
   ClaudeSubagentStart {
     id: String,
     session_id: String,
-    agent_type: String,
+    agent_type: AgentType,
   },
 
   /// End subagent row

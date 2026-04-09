@@ -73,6 +73,11 @@ pub fn spawn_naming_task(session_id: String, first_prompt: String, actor: Sessio
 
     match generate_name(&api_key, &first_prompt).await {
       Ok(name) => {
+        let refreshed = actor.snapshot();
+        if refreshed.summary.is_some() || refreshed.custom_name.is_some() {
+          return;
+        }
+
         info!(
             session_id = %session_id,
             name = %name,

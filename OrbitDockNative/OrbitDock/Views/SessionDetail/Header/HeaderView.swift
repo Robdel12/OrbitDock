@@ -396,7 +396,9 @@ struct HeaderView: View {
       displayName: "Preview Session",
       projectPath: "/Users/preview/project",
       model: "claude-opus-4-6",
-      hasGitRepository: true
+      hasGitRepository: true,
+      sourceServerInstanceId: nil,
+      sourceIsRemoteConnection: false
     ),
     debugContext: SessionDetailDebugContext(
       sessionId: "test-123",

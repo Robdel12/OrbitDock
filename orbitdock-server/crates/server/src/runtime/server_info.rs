@@ -44,6 +44,7 @@ pub(crate) fn server_meta(state: &SessionRegistry) -> ServerMeta {
     minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
     compatibility: Some(legacy_compatibility_status()),
     capabilities: capabilities(),
+    server_instance_id: Some(state.server_instance_id()),
     is_primary: state.is_primary(),
     client_primary_claims: state.active_client_primary_claims(),
     update_status: state.update_status(),

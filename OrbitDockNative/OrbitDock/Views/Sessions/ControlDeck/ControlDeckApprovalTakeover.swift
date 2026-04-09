@@ -11,12 +11,14 @@ struct ControlDeckApprovalTakeover: View {
   var onApproveAlwaysForHost: ((String) -> Void)?
   var onDeny: (() -> Void)?
   var onAnswer: ((String, String?) -> Void)?
+  var onSubmitAllAnswers: (([String: [String]]) -> Void)?
   var onGrantPermission: (() -> Void)?
   var onGrantPermissionForSession: (() -> Void)?
   var onDenyPermission: (() -> Void)?
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @State private var answerDrafts: [String: String] = [:]
+  @State private var selectedAnswers: [String: [String]] = [:]
 
   // MARK: - Layout Constants
 
@@ -319,15 +321,84 @@ struct ControlDeckApprovalTakeover: View {
 
   // MARK: - Question Content
 
-  private func questionContent(prompts: [ControlDeckApproval.Prompt]) -> some View {
-    VStack(alignment: .leading, spacing: Spacing.sm_) {
-      ForEach(Array(prompts.enumerated()), id: \.element.id) { index, prompt in
-        questionPromptView(prompt, index: index, total: prompts.count)
+  private var isMultiPromptQuestion: Bool {
+    guard case let .question(prompts) = approval.kind else { return false }
+    return prompts.count > 1
+  }
+
+  private var allPromptsAnswered: Bool {
+    guard case let .question(prompts) = approval.kind else { return false }
+    return prompts.allSatisfy { prompt in
+      if prompt.isFreeForm {
+        let draft = answerDrafts[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !draft.isEmpty
+      } else {
+        return !(selectedAnswers[prompt.id] ?? []).isEmpty
       }
     }
   }
 
-  private func questionPromptView(_ prompt: ControlDeckApproval.Prompt, index: Int, total: Int) -> some View {
+  private func questionContent(prompts: [ControlDeckApproval.Prompt]) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm_) {
+      ForEach(Array(prompts.enumerated()), id: \.element.id) { index, prompt in
+        questionPromptView(prompt, index: index, total: prompts.count, isMultiPrompt: prompts.count > 1)
+      }
+
+      if prompts.count > 1 {
+        questionSubmitBar
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var questionSubmitBar: some View {
+    Button {
+      submitAllAnswers()
+    } label: {
+      HStack(spacing: Spacing.xs) {
+        Image(systemName: "checkmark")
+          .font(.system(size: 10, weight: .bold))
+        Text("Submit Answers")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      .foregroundStyle(allPromptsAnswered ? Color.backgroundPrimary : Color.textTertiary)
+      .frame(maxWidth: .infinity)
+      .frame(height: isCompact ? 40 : 32)
+      .background(
+        allPromptsAnswered ? Color.statusQuestion : Color.backgroundTertiary,
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      )
+      .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .disabled(!allPromptsAnswered)
+    .padding(.top, Spacing.xs)
+  }
+
+  private func submitAllAnswers() {
+    guard case let .question(prompts) = approval.kind else { return }
+
+    // Claude Code expects answers keyed by question text, not prompt ID
+    var answers: [String: [String]] = [:]
+    for prompt in prompts {
+      if prompt.isFreeForm {
+        let draft = answerDrafts[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !draft.isEmpty {
+          answers[prompt.question] = [draft]
+        }
+      } else if let selected = selectedAnswers[prompt.id], !selected.isEmpty {
+        answers[prompt.question] = selected
+      }
+    }
+
+    if !answers.isEmpty {
+      onSubmitAllAnswers?(answers)
+      selectedAnswers = [:]
+      answerDrafts = [:]
+    }
+  }
+
+  private func questionPromptView(_ prompt: ControlDeckApproval.Prompt, index: Int, total: Int, isMultiPrompt: Bool = false) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm_) {
       if total > 1 || prompt.header != nil {
         HStack(spacing: Spacing.xs) {
@@ -351,26 +422,34 @@ struct ControlDeckApprovalTakeover: View {
         .fixedSize(horizontal: false, vertical: true)
 
       if prompt.isFreeForm {
-        answerField(prompt: prompt)
+        answerField(prompt: prompt, isMultiPrompt: isMultiPrompt)
       } else {
-        questionOptions(prompt)
+        questionOptions(prompt, isMultiPrompt: isMultiPrompt)
         if prompt.allowsOther {
-          answerField(prompt: prompt, placeholder: "Or type a custom answer")
+          answerField(prompt: prompt, placeholder: "Or type a custom answer", isMultiPrompt: isMultiPrompt)
         }
       }
     }
   }
 
-  private func questionOptions(_ prompt: ControlDeckApproval.Prompt) -> some View {
-    VStack(spacing: Spacing.xs) {
+  private func questionOptions(_ prompt: ControlDeckApproval.Prompt, isMultiPrompt: Bool = false) -> some View {
+    let currentSelections = selectedAnswers[prompt.id] ?? []
+
+    return VStack(spacing: Spacing.xs) {
       ForEach(prompt.options) { option in
+        let isSelected = currentSelections.contains(option.label)
+
         Button {
-          onAnswer?(option.label, prompt.id)
+          if isMultiPrompt {
+            toggleSelection(option: option.label, promptId: prompt.id, allowsMultiple: prompt.allowsMultipleSelection)
+          } else {
+            onAnswer?(option.label, prompt.id)
+          }
         } label: {
           HStack(spacing: Spacing.sm_) {
-            Image(systemName: prompt.allowsMultipleSelection ? "square" : "circle")
+            Image(systemName: optionIcon(isSelected: isSelected, allowsMultiple: prompt.allowsMultipleSelection))
               .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(Color.statusQuestion.opacity(0.6))
+              .foregroundStyle(isSelected ? Color.statusQuestion : Color.statusQuestion.opacity(0.6))
 
             VStack(alignment: .leading, spacing: 1) {
               Text(option.label)
@@ -389,7 +468,16 @@ struct ControlDeckApprovalTakeover: View {
           }
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, optionVerticalPadding)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+          .background(
+            isSelected ? Color.statusQuestion.opacity(OpacityTier.light) : Color.backgroundTertiary,
+            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          )
+          .overlay {
+            if isSelected {
+              RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .strokeBorder(Color.statusQuestion.opacity(0.4), lineWidth: 1)
+            }
+          }
           .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -397,11 +485,33 @@ struct ControlDeckApprovalTakeover: View {
     }
   }
 
+  private func optionIcon(isSelected: Bool, allowsMultiple: Bool) -> String {
+    if allowsMultiple {
+      return isSelected ? "checkmark.square.fill" : "square"
+    } else {
+      return isSelected ? "circle.inset.filled" : "circle"
+    }
+  }
+
+  private func toggleSelection(option: String, promptId: String, allowsMultiple: Bool) {
+    var current = selectedAnswers[promptId] ?? []
+    if let index = current.firstIndex(of: option) {
+      current.remove(at: index)
+    } else {
+      if allowsMultiple {
+        current.append(option)
+      } else {
+        current = [option]
+      }
+    }
+    selectedAnswers[promptId] = current
+  }
+
   private var optionVerticalPadding: CGFloat {
     isCompact ? Spacing.sm : Spacing.sm_
   }
 
-  private func answerField(prompt: ControlDeckApproval.Prompt, placeholder: String = "Type your answer") -> some View {
+  private func answerField(prompt: ControlDeckApproval.Prompt, placeholder: String = "Type your answer", isMultiPrompt: Bool = false) -> some View {
     let text = Binding<String>(
       get: { answerDrafts[prompt.id] ?? "" },
       set: { answerDrafts[prompt.id] = $0 }
@@ -418,24 +528,28 @@ struct ControlDeckApprovalTakeover: View {
       .font(.system(size: TypeScale.caption))
       .textFieldStyle(.plain)
 
-      Button {
-        let answer = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !answer.isEmpty else { return }
-        onAnswer?(answer, prompt.id)
-        answerDrafts[prompt.id] = ""
-      } label: {
-        Image(systemName: "arrow.up")
-          .font(.system(size: 10, weight: .bold))
-          .foregroundStyle(submissionText(prompt.id).isEmpty ? Color.textQuaternary : Color.backgroundPrimary)
-          .frame(width: answerSubmitSize, height: answerSubmitSize)
-          .background(
-            submissionText(prompt.id).isEmpty ? Color.backgroundTertiary : Color.statusQuestion,
-            in: Circle()
-          )
-          .contentShape(Circle())
+      // For multi-prompt questions, the submit button is at the bottom.
+      // Only show inline submit for single-prompt free-form questions.
+      if !isMultiPrompt {
+        Button {
+          let answer = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !answer.isEmpty else { return }
+          onAnswer?(answer, prompt.id)
+          answerDrafts[prompt.id] = ""
+        } label: {
+          Image(systemName: "arrow.up")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(submissionText(prompt.id).isEmpty ? Color.textQuaternary : Color.backgroundPrimary)
+            .frame(width: answerSubmitSize, height: answerSubmitSize)
+            .background(
+              submissionText(prompt.id).isEmpty ? Color.backgroundTertiary : Color.statusQuestion,
+              in: Circle()
+            )
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(submissionText(prompt.id).isEmpty)
       }
-      .buttonStyle(.plain)
-      .disabled(submissionText(prompt.id).isEmpty)
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.sm_)

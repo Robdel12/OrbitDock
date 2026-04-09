@@ -7,6 +7,7 @@ struct NewSessionQuickForm<
   AuthGateSection: View,
   CodexCapabilityNotice: View,
   DirectorySection: View,
+  PresetRow: View,
   OptionsPanel: View,
   ErrorBanner: View
 >: View {
@@ -20,6 +21,7 @@ struct NewSessionQuickForm<
   let hasCodexError: Bool
   let provider: SessionProvider
   let optionsSummary: String
+  let hasActivePreset: Bool
 
   @ViewBuilder let providerToggle: () -> ProviderToggle
   @ViewBuilder let endpointSection: () -> EndpointSection
@@ -27,6 +29,7 @@ struct NewSessionQuickForm<
   @ViewBuilder let authGateSection: () -> AuthGateSection
   @ViewBuilder let codexCapabilityNotice: () -> CodexCapabilityNotice
   @ViewBuilder let directorySection: () -> DirectorySection
+  @ViewBuilder let presetRow: () -> PresetRow
   @ViewBuilder let optionsPanel: () -> OptionsPanel
   @ViewBuilder let errorBanner: () -> ErrorBanner
 
@@ -53,6 +56,8 @@ struct NewSessionQuickForm<
       sectionDivider("Workspace")
 
       directorySection()
+
+      presetRow()
 
       optionsDisclosure
 
@@ -98,10 +103,18 @@ struct NewSessionQuickForm<
             .foregroundStyle(Color.textSecondary)
 
           if !showOptions, !optionsSummary.isEmpty {
-            Text(optionsSummary)
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textQuaternary)
-              .lineLimit(1)
+            HStack(spacing: Spacing.xs) {
+              if hasActivePreset {
+                Image(systemName: "bookmark.fill")
+                  .font(.system(size: 9, weight: .semibold))
+                  .foregroundStyle(provider.color)
+              }
+              Text(optionsSummary)
+                .font(.system(size: TypeScale.caption, weight: .medium))
+                .foregroundStyle(hasActivePreset ? provider.color : Color.textQuaternary)
+                .lineLimit(1)
+            }
+            .animation(Motion.standard, value: optionsSummary)
           }
 
           Spacer()

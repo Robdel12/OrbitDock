@@ -93,8 +93,13 @@ pub(crate) async fn load_control_deck_snapshot(
   match load_full_session_state(state, session_id, false, false).await {
     Ok(session) => {
       let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
-      let snapshot =
-        build_control_deck_snapshot(&session, load_control_deck_preferences(), effort_options);
+      let connector_attached = state.has_active_connector_action_tx(session_id);
+      let snapshot = build_control_deck_snapshot(
+        &session,
+        load_control_deck_preferences(),
+        effort_options,
+        connector_attached,
+      );
       debug!(
         component = "control_deck",
         event = "snapshot.loaded",
@@ -105,6 +110,7 @@ pub(crate) async fn load_control_deck_snapshot(
         effort = ?snapshot.state.config.effort,
         effort_options = snapshot.capabilities.effort_options.len(),
         pending_approval = snapshot.pending_approval.is_some(),
+        connector_attached = connector_attached,
         "Loaded control deck snapshot"
       );
       Ok(snapshot)

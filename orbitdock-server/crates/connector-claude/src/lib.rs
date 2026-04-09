@@ -1706,21 +1706,34 @@ impl ClaudeConnector {
         }
       }
       "task_started" => {
-        // Background task/subagent spawned.
+        // Background task/subagent spawned. If an Agent tool_use block already
+        // created a row for this tool_use_id, we just set up the ID mapping.
+        // Otherwise, create a generic task row (for tasks without rich tool_use).
         let task_id = raw
           .get("task_id")
           .and_then(Value::as_str)
           .unwrap_or("unknown-task");
+        let tool_use_id_opt = raw.get("tool_use_id").and_then(Value::as_str);
+        let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+
+        // Check if we already have a row from the Agent tool_use block
+        if let Some(tool_use_id) = tool_use_id_opt {
+          if let Some(existing_row) = tool_rows.remove(tool_use_id) {
+            // Row exists from tool_use block — re-key it by task_id and set up mapping
+            task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
+            tool_rows.insert(task_id.to_string(), existing_row);
+            return vec![];
+          }
+          // No existing row, but we have tool_use_id — set up mapping for later
+          task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
+        }
+
+        // No existing row — create a generic task row
         let description = raw.get("description").and_then(Value::as_str).unwrap_or("");
         let task_type = raw
           .get("task_type")
           .and_then(Value::as_str)
           .unwrap_or("Agent");
-        let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
-
-        if let Some(tool_use_id) = raw.get("tool_use_id").and_then(Value::as_str) {
-          task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
-        }
 
         let raw_input = Some(serde_json::json!({
             "subagent_type": task_type,
@@ -1737,7 +1750,9 @@ impl ClaudeConnector {
         } else {
           Some(description.to_string())
         };
+
         tool_rows.insert(task_id.to_string(), tr.clone());
+
         vec![ConnectorEvent::ConversationRowCreated(make_entry(
           &session_id,
           ConversationRow::Tool(tr),
@@ -2193,6 +2208,13 @@ impl ClaudeConnector {
       None => return events,
     };
 
+    // Check if this is a subagent prompt (has parent_tool_use_id).
+    // These are internal messages sent TO agents, not user input.
+    let is_subagent_prompt = raw
+      .get("parent_tool_use_id")
+      .or_else(|| message.get("parent_tool_use_id"))
+      .is_some();
+
     let content_blocks = match message.get("content").and_then(|v| v.as_array()) {
       Some(arr) => arr,
       None => return events,
@@ -2221,9 +2243,11 @@ impl ClaudeConnector {
       }
     }
 
-    // Emit a User row if there's any text or images
+    // Emit a User row if there's any text or images, UNLESS this is a
+    // subagent prompt (internal message) — those should not appear in the
+    // parent conversation timeline.
     let user_text = text_parts.join("\n");
-    if !user_text.is_empty() || !images.is_empty() {
+    if (!user_text.is_empty() || !images.is_empty()) && !is_subagent_prompt {
       let msg_id = raw
         .get("message")
         .and_then(|m| m.get("id"))

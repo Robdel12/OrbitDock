@@ -5,7 +5,7 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use anyhow::Context;
 use clap::ValueEnum;
@@ -126,7 +126,7 @@ pub fn forward_hook_event(
     .enable_all()
     .build()?;
 
-  runtime.block_on(forward_with_spool(&plan.target, &plan.body))
+  runtime.block_on(forward_hook(&plan.target, &plan.body))
 }
 
 pub fn write_transport_config(
@@ -300,75 +300,13 @@ fn inject_session_start_terminal_fields(obj: &mut Map<String, Value>) {
   }
 }
 
-async fn forward_with_spool(target: &HookTarget, current_body: &str) -> anyhow::Result<()> {
-  paths::ensure_dirs().context("ensure hook spool directory")?;
-  let spool_dir = paths::spool_dir();
+async fn forward_hook(target: &HookTarget, body: &str) -> anyhow::Result<()> {
   let client = reqwest::Client::builder()
     .connect_timeout(Duration::from_secs(2))
     .timeout(Duration::from_secs(5))
     .build()?;
 
-  let mut queued = load_spool_files(&spool_dir);
-  queued.sort_by(|a, b| a.0.cmp(&b.0));
-
-  for (path, body) in queued {
-    if post_hook(&client, target, &body).await.is_err() {
-      spool_event(&spool_dir, current_body)?;
-      return Ok(());
-    }
-    let _ = std::fs::remove_file(path);
-  }
-
-  if post_hook(&client, target, current_body).await.is_err() {
-    spool_event(&spool_dir, current_body)?;
-  }
-
-  Ok(())
-}
-
-fn load_spool_files(spool_dir: &Path) -> Vec<(PathBuf, String)> {
-  let entries = match std::fs::read_dir(spool_dir) {
-    Ok(entries) => entries,
-    Err(_) => return Vec::new(),
-  };
-
-  entries
-    .filter_map(|entry| entry.ok().map(|e| e.path()))
-    .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
-    .filter_map(|path| std::fs::read_to_string(&path).ok().map(|body| (path, body)))
-    .collect()
-}
-
-fn spool_event(spool_dir: &Path, body: &str) -> anyhow::Result<()> {
-  std::fs::create_dir_all(spool_dir)?;
-  let ts = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_millis();
-  let pid = std::process::id();
-  let filename = format!("{ts}-{pid}.json");
-
-  let path = spool_dir.join(filename);
-  #[cfg(unix)]
-  {
-    let mut file = std::fs::OpenOptions::new()
-      .write(true)
-      .create_new(true)
-      .mode(0o600)
-      .open(&path)
-      .with_context(|| format!("open {} for write", path.display()))?;
-    file
-      .write_all(body.as_bytes())
-      .with_context(|| format!("write {}", path.display()))?;
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
-      .with_context(|| format!("chmod 600 {}", path.display()))?;
-  }
-  #[cfg(not(unix))]
-  {
-    std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
-  }
-
-  Ok(())
+  post_hook(&client, target, body).await
 }
 
 async fn post_hook(

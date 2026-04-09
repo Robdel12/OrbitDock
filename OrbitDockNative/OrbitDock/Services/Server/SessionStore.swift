@@ -82,6 +82,7 @@ final class SessionStore {
   @ObservationIgnored lazy var codexAccountService = CodexAccountService(store: self)
   var lastServerError: (code: String, message: String)?
   var worktreesByRepo: [String: [ServerWorktreeSummary]] = [:]
+  var serverInstanceId: String?
   var serverIsPrimary: Bool?
   var serverPrimaryClaims: [ServerClientPrimaryClaim] = []
   let selectionRequests: AsyncStream<SessionRef>
@@ -160,7 +161,11 @@ final class SessionStore {
   @ObservationIgnored var recoveredSessionGenerations: [String: UInt64] = [:]
   @ObservationIgnored var recoveredSessionSurfaceGenerations: [String: [ServerSessionSurface: UInt64]] = [:]
   @ObservationIgnored var lastOlderMessagesRequestBeforeSequence: [String: UInt64] = [:]
+  @ObservationIgnored var _localNamingStateBySessionId: [String: LocalConversationNamingSessionState] = [:]
   @ObservationIgnored var _localNamingClaimedSessions: Set<String> = []
+  @ObservationIgnored var _localNamingInFlightSessions: Set<String> = []
+  @ObservationIgnored var _localNamingAvailabilityOverride: LocalNamingAvailability?
+  @ObservationIgnored var _localTitleGenerator: LocalConversationTitleGenerator?
   @ObservationIgnored var connectionRecoveryTask: GenerationTask<Void>?
   @ObservationIgnored var eventProcessingTask: Task<Void, Never>?
   @ObservationIgnored private(set) var eventProcessingStartCount = 0
@@ -198,6 +203,20 @@ final class SessionStore {
 
   deinit {
     selectionRequestContinuation.finish()
+  }
+
+  func cacheLocalNamingState(
+    _ state: LocalConversationNamingSessionState,
+    for sessionId: String
+  ) {
+    _localNamingStateBySessionId[sessionId] = state
+    if state.hasResolvedTitle {
+      claimLocalNamingSession(sessionId)
+    }
+  }
+
+  func claimLocalNamingSession(_ sessionId: String) {
+    _localNamingClaimedSessions.insert(sessionId)
   }
 
   // MARK: - Per-session accessors

@@ -26,6 +26,7 @@ struct ServerMetaResponse: Codable, Sendable {
   let serverVersion: String
   let minimumClientVersion: String
   let capabilities: [String]
+  let serverInstanceId: String?
   let isPrimary: Bool
   let clientPrimaryClaims: [ServerClientPrimaryClaim]
   let updateStatus: ServerUpdateStatus?
@@ -34,6 +35,7 @@ struct ServerMetaResponse: Codable, Sendable {
     case serverVersion = "server_version"
     case minimumClientVersion = "minimum_client_version"
     case capabilities
+    case serverInstanceId = "server_instance_id"
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
     case updateStatus = "update_status"
@@ -43,6 +45,7 @@ struct ServerMetaResponse: Codable, Sendable {
     serverVersion: String,
     minimumClientVersion: String,
     capabilities: [String],
+    serverInstanceId: String?,
     isPrimary: Bool,
     clientPrimaryClaims: [ServerClientPrimaryClaim],
     updateStatus: ServerUpdateStatus? = nil
@@ -50,6 +53,7 @@ struct ServerMetaResponse: Codable, Sendable {
     self.serverVersion = serverVersion
     self.minimumClientVersion = minimumClientVersion
     self.capabilities = capabilities
+    self.serverInstanceId = serverInstanceId
     self.isPrimary = isPrimary
     self.clientPrimaryClaims = clientPrimaryClaims
     self.updateStatus = updateStatus
@@ -61,6 +65,7 @@ struct ServerMetaResponse: Codable, Sendable {
     minimumClientVersion = try container.decodeIfPresent(String.self, forKey: .minimumClientVersion)
       ?? fallbackServerMetaMinimumClientVersion
     capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    serverInstanceId = try container.decodeIfPresent(String.self, forKey: .serverInstanceId)
     isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? false
     clientPrimaryClaims =
       try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []

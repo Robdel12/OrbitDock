@@ -34,7 +34,8 @@ enum ControlDeckPresentationBuilder {
 
   private static func resolveMode(state: ControlDeckSessionState, hasPendingApproval: Bool = false) -> ControlDeckMode {
     if state.lifecycle == .ended { return .disabled }
-    if hasPendingApproval { return .approval }
+    // Only show approval mode if connector is attached — otherwise user needs to resume first
+    if hasPendingApproval, state.connectorAttached { return .approval }
     if state.steerable, !state.acceptsUserInput { return .steer }
     if state.acceptsUserInput { return .compose }
     return .disabled

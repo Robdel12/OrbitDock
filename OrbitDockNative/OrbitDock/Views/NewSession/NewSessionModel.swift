@@ -212,6 +212,32 @@ struct NewSessionModel {
     codexErrorMessage = state.codexErrorMessage
   }
 
+  mutating func applyPreset(_ preset: SessionPreset) {
+    switch preset.configuration {
+      case let .claude(config):
+        claudeModelId = config.modelId
+        customModelInput = config.customModelInput
+        useCustomModel = config.useCustomModel
+        selectedPermissionMode = config.permissionMode
+        allowBypassPermissions = config.allowBypassPermissions
+        allowedToolsText = config.allowedToolsText
+        disallowedToolsText = config.disallowedToolsText
+        showToolConfig = !config.allowedToolsText.isEmpty || !config.disallowedToolsText.isEmpty
+        selectedEffort = config.effort
+      case let .codex(config):
+        codexModel = config.model
+        codexConfigMode = config.configMode
+        codexConfigProfile = config.configProfile
+        codexModelProvider = config.modelProvider
+        selectedAutonomy = config.autonomy
+        codexCollaborationMode = config.collaborationMode
+        codexMultiAgentEnabled = config.multiAgentEnabled
+        codexPersonality = config.personality
+        codexServiceTier = config.serviceTier
+        codexInstructions = config.instructions
+    }
+  }
+
   mutating func syncClaudeModelSelection(models: [ServerClaudeModelOption]) {
     let selection = NewSessionProviderStatePlanner.syncClaudeModelSelection(
       currentModelId: claudeModelId,

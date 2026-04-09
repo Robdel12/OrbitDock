@@ -536,6 +536,17 @@ final class ServerRuntimeRegistry {
     let endpointId = runtime.endpoint.id
     connectionStatusByEndpointId[endpointId] = runtime.connection.connectionStatus
     readinessByEndpointId[endpointId] = runtime.readiness
+    runtime.onServerMetaRefreshed = { [weak self, weak runtime] meta in
+      guard let self, let runtime else { return }
+      if let serverInstanceId = meta.serverInstanceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !serverInstanceId.isEmpty
+      {
+        self.endpointSettings.recordServerIdentity(runtime.endpoint.id, serverInstanceId)
+      }
+      runtime.sessionStore.serverIsPrimary = meta.isPrimary
+      runtime.sessionStore.serverPrimaryClaims = meta.clientPrimaryClaims
+      self.configureFromSettings(startEnabled: true)
+    }
 
     // Cancel any existing observation for this endpoint
     runtimeObservationTasks[endpointId]?.cancel()
@@ -616,6 +627,7 @@ final class ServerRuntimeRegistry {
 
   private func unbindRuntimeState(_ runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
+    runtime.onServerMetaRefreshed = nil
     if let token = connectionListenerTokensByEndpointId.removeValue(forKey: endpointId) {
       runtime.connection.removeListener(token)
     }

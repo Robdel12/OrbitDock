@@ -231,6 +231,14 @@ final class DashboardDataService {
 
     var endpointResults: [DashboardSnapshotMapper.EndpointResult] = []
     var failedEndpointIds: Set<UUID> = []
+    var endpointIdentityByEndpointId: [UUID: String] = [:]
+    var defaultEndpointById: [UUID: Bool] = [:]
+
+    for runtime in runtimes {
+      let endpointId = runtime.endpoint.id
+      endpointIdentityByEndpointId[endpointId] = endpointIdentity(for: runtime)
+      defaultEndpointById[endpointId] = runtime.endpoint.isDefault
+    }
 
     for runtime in runtimes {
       do {
@@ -250,14 +258,31 @@ final class DashboardDataService {
       }
     }
 
+    let successfulIdentities = Set(
+      endpointResults.map { result in
+        endpointIdentityByEndpointId[result.endpointId]
+          ?? "endpoint:\(result.endpointId.uuidString.lowercased())"
+      }
+    )
+    let failedEndpointIdsWithoutSuccessfulIdentity = failedEndpointIds.filter { endpointId in
+      let identity = endpointIdentityByEndpointId[endpointId]
+        ?? "endpoint:\(endpointId.uuidString.lowercased())"
+      return !successfulIdentities.contains(identity)
+    }
+
     // Preserve existing endpoint slices that failed this refresh.
-    if let existing = snapshot, !failedEndpointIds.isEmpty {
+    if let existing = snapshot, !failedEndpointIdsWithoutSuccessfulIdentity.isEmpty {
       endpointResults.append(
-        contentsOf: preservedResults(for: failedEndpointIds, from: existing)
+        contentsOf: preservedResults(for: Set(failedEndpointIdsWithoutSuccessfulIdentity), from: existing)
       )
     }
 
-    let merged = DashboardSnapshotMapper.merge(endpointResults)
+    let dedupedResults = dedupeEndpointResults(
+      endpointResults,
+      endpointIdentityByEndpointId: endpointIdentityByEndpointId,
+      defaultEndpointById: defaultEndpointById
+    )
+    let merged = DashboardSnapshotMapper.merge(dedupedResults)
     guard generation == dashboardRefreshGeneration else { return }
     snapshot = merged
   }
@@ -292,6 +317,67 @@ final class DashboardDataService {
         projectGroups: projectGroups
       )
     }
+  }
+
+  private func endpointIdentity(for runtime: ServerRuntime) -> String {
+    if let serverInstanceId = runtime.sessionStore.serverInstanceId?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased(),
+      !serverInstanceId.isEmpty
+    {
+      return "server:\(serverInstanceId)"
+    }
+    return Self.endpointIdentity(for: runtime.endpoint.wsURL)
+  }
+
+  private static func endpointIdentity(for wsURL: URL) -> String {
+    guard let components = URLComponents(url: wsURL, resolvingAgainstBaseURL: false) else {
+      return "url:\(wsURL.absoluteString.lowercased())"
+    }
+
+    let scheme = (components.scheme ?? "ws").lowercased()
+    let host = (components.host ?? "").lowercased()
+    let port = components.port ?? (scheme == "wss" ? 443 : 80)
+    var path = components.percentEncodedPath
+
+    if path.isEmpty {
+      path = "/ws"
+    }
+
+    while path.count > 1 && path.hasSuffix("/") {
+      path.removeLast()
+    }
+
+    let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
+    return "url:\(scheme)://\(host):\(port)\(path)\(query)"
+  }
+
+  private func dedupeEndpointResults(
+    _ results: [DashboardSnapshotMapper.EndpointResult],
+    endpointIdentityByEndpointId: [UUID: String],
+    defaultEndpointById: [UUID: Bool]
+  ) -> [DashboardSnapshotMapper.EndpointResult] {
+    var keptByIdentity: [String: DashboardSnapshotMapper.EndpointResult] = [:]
+    var identityOrder: [String] = []
+
+    for result in results {
+      let identity = endpointIdentityByEndpointId[result.endpointId]
+        ?? "endpoint:\(result.endpointId.uuidString.lowercased())"
+
+      guard let existing = keptByIdentity[identity] else {
+        keptByIdentity[identity] = result
+        identityOrder.append(identity)
+        continue
+      }
+
+      let existingIsDefault = defaultEndpointById[existing.endpointId] == true
+      let candidateIsDefault = defaultEndpointById[result.endpointId] == true
+      if !existingIsDefault && candidateIsDefault {
+        keptByIdentity[identity] = result
+      }
+    }
+
+    return identityOrder.compactMap { keptByIdentity[$0] }
   }
 
   // MARK: - Demo mode

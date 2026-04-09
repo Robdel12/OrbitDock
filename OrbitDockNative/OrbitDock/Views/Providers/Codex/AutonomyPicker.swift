@@ -10,7 +10,7 @@ import SwiftUI
 
 // MARK: - Autonomy Level
 
-enum AutonomyLevel: String, CaseIterable, Identifiable {
+enum AutonomyLevel: String, Codable, CaseIterable, Identifiable {
   case locked
   case guarded
   case autonomous

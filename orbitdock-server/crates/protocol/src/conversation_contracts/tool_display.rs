@@ -1035,8 +1035,9 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
       let prompt = input.get("prompt").and_then(|v| v.as_str());
       let agent_type = input.get("subagent_type").and_then(|v| v.as_str());
       let label = desc.or(prompt).unwrap_or("");
+      // Use " — " (em-dash) format so Swift client can parse agent type
       match agent_type {
-        Some(t) if !label.is_empty() => Some(format!("{t}: {label}")),
+        Some(t) if !label.is_empty() => Some(format!("{t} — {label}")),
         Some(t) => Some(t.to_string()),
         None if !label.is_empty() => Some(label.to_string()),
         _ => None,

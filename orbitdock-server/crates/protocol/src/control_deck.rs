@@ -88,12 +88,20 @@ pub struct ControlDeckState {
   pub lifecycle_state: SessionLifecycleState,
   pub accepts_user_input: bool,
   pub steerable: bool,
+  /// True when a connector process is attached and can receive actions.
+  /// False for hook sessions or when the connector has disconnected.
+  #[serde(default = "default_connector_attached")]
+  pub connector_attached: bool,
   pub project_path: String,
   #[serde(default)]
   pub current_cwd: Option<String>,
   #[serde(default)]
   pub git_branch: Option<String>,
   pub config: ControlDeckConfigState,
+}
+
+fn default_connector_attached() -> bool {
+  true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

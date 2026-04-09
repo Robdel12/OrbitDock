@@ -101,7 +101,7 @@ struct OrbitDockWindowCommands: Commands {
 
     CommandGroup(replacing: .newItem) {
       Button("New Session") {
-        router?.openNewSessionSheet()
+        openNewSessionSheet()
       }
       .keyboardShortcut("n", modifiers: .command)
       .disabled(router == nil)
@@ -132,6 +132,34 @@ struct OrbitDockWindowCommands: Commands {
       .disabled(toggleTerminal == nil)
     }
   }
+
+  private func openNewSessionSheet() {
+    #if os(macOS)
+      focusPrimaryWindowForModalPresentation()
+    #endif
+    router?.openNewSessionSheet()
+  }
+
+  #if os(macOS)
+    private func focusPrimaryWindowForModalPresentation() {
+      if let window = NSApp.windows.first(where: isPrimaryAppWindow) {
+        NSApp.activate(ignoringOtherApps: true)
+        if NSApp.keyWindow !== window {
+          window.makeKeyAndOrderFront(nil)
+        }
+      } else {
+        openWindow(id: "main")
+      }
+    }
+
+    private func isPrimaryAppWindow(_ window: NSWindow) -> Bool {
+      let className = String(describing: type(of: window))
+      if className.contains("NSStatusBarWindow") {
+        return false
+      }
+      return window.canBecomeKey && window.isVisible
+    }
+  #endif
 }
 
 #if os(iOS)

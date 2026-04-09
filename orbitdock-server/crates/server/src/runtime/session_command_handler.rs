@@ -12,7 +12,7 @@ use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
   compute_tool_display, ConversationRow, ToolDisplayInput,
 };
-use orbitdock_protocol::domain_events::ToolKind;
+use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use orbitdock_protocol::{
   CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus,
 };
@@ -424,6 +424,8 @@ pub async fn handle_session_command(
           tool.result = Some(serde_json::json!({
               "output": answer_text,
           }));
+          // Mark as completed now that the answer is recorded
+          tool.status = ToolStatus::Completed;
           // Recompute display with the answer
           let raw_input = if tool.invocation.is_object() {
             Some(&tool.invocation)

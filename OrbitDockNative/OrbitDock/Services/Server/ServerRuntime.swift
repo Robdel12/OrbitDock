@@ -7,6 +7,7 @@ final class ServerRuntime: Identifiable {
   let controlPlaneClient: ControlPlaneClient
   let connection: ServerConnection
   let sessionStore: SessionStore
+  var onServerMetaRefreshed: ((ServerMetaResponse) -> Void)?
 
   private(set) var isStarted = false
 
@@ -79,6 +80,7 @@ final class ServerRuntime: Identifiable {
     sessionStore.startProcessingEvents()
     connection.connect(to: endpoint.wsURL)
     isStarted = true
+    refreshServerIdentity()
   }
 
   func stop() {
@@ -96,6 +98,7 @@ final class ServerRuntime: Identifiable {
     }
     connection.connect(to: endpoint.wsURL)
     isStarted = true
+    refreshServerIdentity()
   }
 
   func reconnectIfNeeded() {
@@ -105,5 +108,18 @@ final class ServerRuntime: Identifiable {
 
   func suspendInactive() {
     stop()
+  }
+
+  private func refreshServerIdentity() {
+    Task {
+      do {
+        let meta = try await clients.updates.fetchServerMeta()
+        let normalized = meta.serverInstanceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        sessionStore.serverInstanceId = (normalized?.isEmpty == false) ? normalized : nil
+        onServerMetaRefreshed?(meta)
+      } catch {
+        // Best-effort metadata fetch for server identity gating.
+      }
+    }
   }
 }

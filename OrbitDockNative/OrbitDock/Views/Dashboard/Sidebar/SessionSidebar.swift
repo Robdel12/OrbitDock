@@ -18,11 +18,27 @@ struct SessionSidebar: View {
     viewModel.snapshot?.projectGroups.filter { $0.totalCount > 0 } ?? []
   }
 
-  /// Lookup from session ID to conversation record for rendering.
-  private var conversationsBySessionId: [String: DashboardConversationRecord] {
+  /// Lookup from scoped session reference to conversation record for rendering.
+  private var conversationsBySessionRef: [SessionRef: DashboardConversationRecord] {
     Dictionary(
-      uniqueKeysWithValues: (viewModel.snapshot?.conversations ?? []).map { ($0.sessionId, $0) }
+      (viewModel.snapshot?.conversations ?? []).map { ($0.sessionRef, $0) },
+      uniquingKeysWith: { first, _ in first }
     )
+  }
+
+  private func sessionRefs(for group: DashboardProjectGroup) -> [SessionRef] {
+    var seen: Set<SessionRef> = []
+    var refs: [SessionRef] = []
+    refs.reserveCapacity(group.sessionIds.count)
+
+    for sessionId in group.sessionIds {
+      let sessionRef = SessionRef(endpointId: group.endpointId, sessionId: sessionId)
+      if seen.insert(sessionRef).inserted {
+        refs.append(sessionRef)
+      }
+    }
+
+    return refs
   }
 
   /// Total counts from server.
@@ -188,8 +204,8 @@ struct SessionSidebar: View {
       .padding(.horizontal, Spacing.xs)
 
       if isExpanded || hasAttention {
-        ForEach(group.sessionIds, id: \.self) { sessionId in
-          if let session = conversationsBySessionId[sessionId] {
+        ForEach(sessionRefs(for: group), id: \.self) { sessionRef in
+          if let session = conversationsBySessionRef[sessionRef] {
             let isSelected = router.workspaceSelection == .session(session.sessionRef)
 
             Button {

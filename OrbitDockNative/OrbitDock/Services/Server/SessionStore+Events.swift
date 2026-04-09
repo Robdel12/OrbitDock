@@ -11,7 +11,8 @@ extension SessionStore {
     switch event {
       case .hello, .dashboardInvalidated, .missionsInvalidated:
         break
-      case let .sessionDelta(sessionId, _):
+      case let .sessionDelta(sessionId, changes):
+        applyLocalNamingStateDelta(sessionId: sessionId, changes: changes)
         notifySessionChanged(sessionId)
       case let .sessionEnded(sessionId, _):
         notifySessionChanged(sessionId)
@@ -112,6 +113,7 @@ extension SessionStore {
 
     subscribedSessions.insert(state.id)
     lastOlderMessagesRequestBeforeSequence.removeValue(forKey: state.id)
+    rememberLocalNamingState(state)
 
     // Deliver bootstrap rows through the conversation row stream so the
     // ConversationViewModel picks them up via its AsyncStream subscription.
@@ -124,11 +126,13 @@ extension SessionStore {
 
   func handleSessionDetailSnapshot(_ snapshot: ServerSessionDetailSnapshotPayload) {
     lastSurfaceRevision[snapshot.session.id, default: [:]][.detail] = snapshot.revision
+    rememberLocalNamingState(snapshot.session)
     notifySessionChanged(snapshot.session.id)
   }
 
   func handleSessionComposerSnapshot(_ snapshot: ServerSessionComposerSnapshotPayload) {
     lastSurfaceRevision[snapshot.session.id, default: [:]][.composer] = snapshot.revision
+    rememberLocalNamingState(snapshot.session)
     notifySessionChanged(snapshot.session.id)
   }
 
@@ -179,5 +183,14 @@ extension SessionStore {
       }
     }
     connectionRecoveryTask = GenerationTask(generation: generation, task: task)
+  }
+
+  func rememberLocalNamingState(_ session: ServerSessionState) {
+    cacheLocalNamingState(LocalConversationNamingSessionState(session: session), for: session.id)
+  }
+
+  func applyLocalNamingStateDelta(sessionId: String, changes: ServerStateChanges) {
+    let current = _localNamingStateBySessionId[sessionId] ?? LocalConversationNamingSessionState()
+    cacheLocalNamingState(current.applying(changes), for: sessionId)
   }
 }

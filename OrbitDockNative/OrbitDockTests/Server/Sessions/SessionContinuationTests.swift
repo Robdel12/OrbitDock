@@ -11,7 +11,9 @@ struct SessionContinuationTests {
       displayName: "Investigate rate limits",
       projectPath: "/tmp/orbitdock",
       model: "claude-sonnet-4",
-      hasGitRepository: true
+      hasGitRepository: true,
+      sourceServerInstanceId: nil,
+      sourceIsRemoteConnection: false
     )
 
     let prompt = continuation.bootstrapPrompt()
@@ -21,7 +23,7 @@ struct SessionContinuationTests {
     #expect(prompt.contains("Then continue the work in this session"))
   }
 
-  @Test func supportRequiresSameEndpointAndLocalServer() {
+  @Test func supportRequiresLocalServerAndAllowsLegacyFallbackWithoutInstanceIds() {
     let sourceEndpointId = UUID()
     let otherEndpointId = UUID()
     let continuation = SessionContinuation(
@@ -31,11 +33,13 @@ struct SessionContinuationTests {
       displayName: "Continue API cleanup",
       projectPath: "/tmp/orbitdock",
       model: "openai/gpt-5.3-codex",
-      hasGitRepository: false
+      hasGitRepository: false,
+      sourceServerInstanceId: nil,
+      sourceIsRemoteConnection: false
     )
 
-    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false))
-    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false) == false)
-    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: true) == false)
+    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil))
+    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil))
+    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: true, selectedServerInstanceId: nil) == false)
   }
 }

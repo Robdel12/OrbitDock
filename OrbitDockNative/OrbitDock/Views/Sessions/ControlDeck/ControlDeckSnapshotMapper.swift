@@ -22,6 +22,7 @@ nonisolated enum ControlDeckSnapshotMapper {
       lifecycle: mapLifecycle(state.lifecycleState),
       acceptsUserInput: state.acceptsUserInput,
       steerable: state.steerable,
+      connectorAttached: state.connectorAttached,
       projectPath: state.projectPath,
       currentCwd: state.currentCwd,
       gitBranch: state.gitBranch,

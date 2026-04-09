@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codex_protocol::protocol::AgentStatus;
+use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{Provider, SubagentInfo, SubagentStatus};
 
 static ISO_NOW_FALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -191,12 +192,12 @@ fn map_agent_status(
   }
 }
 
-fn normalized_agent_type(role: Option<&str>) -> String {
-  role
+fn normalized_agent_type(role: Option<&str>) -> AgentType {
+  let raw = role
     .map(str::trim)
-    .filter(|role| !role.is_empty())
-    .unwrap_or("agent")
-    .to_string()
+    .filter(|r| !r.is_empty())
+    .unwrap_or("agent");
+  AgentType::from_str_normalized(raw)
 }
 
 fn normalized_agent_label(nickname: Option<&str>, role: Option<&str>, id: &str) -> Option<String> {

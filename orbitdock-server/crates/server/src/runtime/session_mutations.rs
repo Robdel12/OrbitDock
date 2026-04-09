@@ -425,6 +425,16 @@ pub(crate) async fn update_session_config(
     }
   }
 
+  if let Some(Some(ref model_value)) = model {
+    if let Some(tx) = state.get_claude_action_tx(session_id) {
+      let _ = tx
+        .send(ClaudeAction::SetModel {
+          model: model_value.clone(),
+        })
+        .await;
+    }
+  }
+
   if let Some(tx) = state.get_codex_action_tx(session_id) {
     let _ = tx
       .send(CodexAction::UpdateConfig {
