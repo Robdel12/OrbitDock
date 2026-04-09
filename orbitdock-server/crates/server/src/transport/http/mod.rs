@@ -30,9 +30,7 @@ use axum::{
   response::IntoResponse,
   Json,
 };
-use orbitdock_protocol::{
-  ApprovalHistoryItem, ImageInput, MentionInput, SessionSummary, SkillInput,
-};
+use orbitdock_protocol::{ApprovalHistoryItem, ImageInput, MentionInput, SkillInput};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 

@@ -10,12 +10,16 @@
 //! If `SessionEnd` arrives first the pending entry is silently discarded, preventing
 //! ghost sessions from `claude -c` bootstrap processes.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::Value;
 use tracing::warn;
+
+#[path = "routing.rs"]
+mod routing;
+#[path = "subagent_updates.rs"]
+mod subagent_updates;
 
 use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::{
@@ -24,15 +28,20 @@ use orbitdock_protocol::{
 };
 
 use crate::domain::sessions::transition::{approval_question, Input};
-use crate::infrastructure::persistence::{
-  load_direct_claude_owner_by_sdk_session_id, PersistCommand,
-};
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingClaudeSession, PendingHookSession, SessionRegistry};
-use crate::runtime::session_runtime_helpers::sync_transcript_messages;
 use crate::support::session_paths::{claude_transcript_path_from_cwd, project_name_from_cwd};
 use crate::support::session_time::chrono_now;
 
+use self::routing::{
+  cleanup_claude_shadow_session, resolve_claude_hook_routing, ClaudeHookHandlingOptions,
+  ClaudeHookRoutingDecision,
+};
+use self::subagent_updates::{
+  apply_claude_subagent_update, maybe_sync_transcript_messages, publish_claude_subagent_update,
+  ClaudeSubagentUpdate,
+};
 use super::approval::{
   classify_permission_request, claude_permission_request_id, extract_plan_from_tool_input,
   extract_question_from_tool_input, permission_request_matches_snapshot,
@@ -41,105 +50,6 @@ use super::approval::{
 use super::session_materialization::{
   emit_capabilities_from_transcript, is_codex_rollout_payload, materialize_claude_session,
 };
-
-enum ClaudeHookRoutingDecision {
-  ManagedDirect { owner_session_id: String },
-  IgnoreShadowedByDirect,
-  IgnoreOwnershipLookupFailed,
-  Passive,
-}
-
-#[derive(Clone, Default)]
-pub struct ClaudeHookHandlingOptions {
-  transcript_sync_gate: Option<Arc<tokio::sync::Mutex<HashSet<String>>>>,
-}
-
-impl ClaudeHookHandlingOptions {
-  async fn should_sync_transcript(&self, session_id: &str) -> bool {
-    let Some(gate) = self.transcript_sync_gate.as_ref() else {
-      return true;
-    };
-
-    let mut seen = gate.lock().await;
-    seen.insert(session_id.to_string())
-  }
-}
-
-async fn cleanup_claude_shadow_session(
-  state: &Arc<SessionRegistry>,
-  hook_session_id: &str,
-  reason: &str,
-) {
-  let _ = state
-    .persist()
-    .send(PersistCommand::CleanupClaudeShadowSession {
-      claude_sdk_session_id: hook_session_id.to_string(),
-      reason: reason.to_string(),
-    })
-    .await;
-
-  let should_remove_runtime_shadow = state.get_session(hook_session_id).is_some_and(|actor| {
-    let snapshot = actor.snapshot();
-    snapshot.provider == Provider::Claude
-      && snapshot.control_mode != SessionControlMode::Direct
-      && snapshot.id == hook_session_id
-  });
-
-  if should_remove_runtime_shadow && state.remove_session(hook_session_id).is_some() {
-    let _ = state
-      .list_tx()
-      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-        session_id: hook_session_id.to_string(),
-      });
-  }
-}
-
-async fn resolve_claude_hook_routing(
-  state: &Arc<SessionRegistry>,
-  hook_session_id: &str,
-) -> ClaudeHookRoutingDecision {
-  let managed_owner = state.resolve_claude_thread(hook_session_id);
-  let persisted_owner = if managed_owner.is_none() {
-    match load_direct_claude_owner_by_sdk_session_id(hook_session_id).await {
-      Ok(owner) => owner.map(|owner| owner.session_id),
-      Err(error) => {
-        warn!(
-            component = "hook_handler",
-            event = "claude.hook.ownership_lookup_failed",
-            session_id = %hook_session_id,
-            error = %error,
-            "Failed to resolve Claude direct-session ownership; suppressing hook to avoid shadow session materialization"
-        );
-        return ClaudeHookRoutingDecision::IgnoreOwnershipLookupFailed;
-      }
-    }
-  } else {
-    None
-  };
-
-  let Some(owner_session_id) = managed_owner.or(persisted_owner) else {
-    return ClaudeHookRoutingDecision::Passive;
-  };
-
-  let Some(actor) = state.get_session(&owner_session_id) else {
-    return ClaudeHookRoutingDecision::IgnoreShadowedByDirect;
-  };
-
-  let snapshot = actor.snapshot();
-  if snapshot.provider != Provider::Claude || snapshot.control_mode != SessionControlMode::Direct {
-    return ClaudeHookRoutingDecision::IgnoreShadowedByDirect;
-  }
-
-  if snapshot.status != SessionStatus::Active
-    || snapshot.lifecycle_state == SessionLifecycleState::Ended
-  {
-    return ClaudeHookRoutingDecision::IgnoreShadowedByDirect;
-  }
-
-  // Hooks are passive reporters — they never mutate direct session state.
-  // The direct session already has its claude_sdk_session_id set via PersistCommand.
-  ClaudeHookRoutingDecision::ManagedDirect { owner_session_id }
-}
 
 /// Process a Claude hook message.
 /// These handlers never need `client_tx` or `conn_id` — only `state`.
@@ -1427,140 +1337,6 @@ pub async fn handle_hook_message_with_options(
         event = "hook_handler.unexpected_message",
         "Received non-hook message type in hook handler"
       );
-    }
-  }
-}
-
-async fn maybe_sync_transcript_messages(
-  actor: &crate::runtime::session_actor::SessionActorHandle,
-  persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
-  options: &ClaudeHookHandlingOptions,
-) {
-  let session_id = actor.snapshot().id.clone();
-  if !options.should_sync_transcript(&session_id).await {
-    return;
-  }
-
-  sync_transcript_messages(actor, persist_tx).await;
-}
-
-enum ClaudeSubagentUpdate {
-  Started {
-    agent_id: String,
-    agent_type: AgentType,
-  },
-  Stopped {
-    agent_id: String,
-  },
-}
-
-async fn publish_claude_subagent_update(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  update: ClaudeSubagentUpdate,
-) {
-  let Some(actor) = state.get_session(session_id) else {
-    return;
-  };
-
-  let current_subagents = actor
-    .retained_state()
-    .await
-    .map(|session| session.subagents)
-    .unwrap_or_default();
-
-  let updated_subagents = apply_claude_subagent_update(current_subagents, update);
-  actor
-    .send(SessionCommand::ProcessEvent {
-      event: Input::SubagentsUpdated {
-        subagents: updated_subagents,
-      },
-    })
-    .await;
-}
-
-fn apply_claude_subagent_update(
-  subagents: Vec<SubagentInfo>,
-  update: ClaudeSubagentUpdate,
-) -> Vec<SubagentInfo> {
-  let now = chrono_now();
-
-  match update {
-    ClaudeSubagentUpdate::Started {
-      agent_id,
-      agent_type,
-    } => {
-      let mut updated = false;
-      let mut next_subagents: Vec<SubagentInfo> = subagents
-        .into_iter()
-        .map(|mut subagent| {
-          if subagent.id == agent_id {
-            subagent.agent_type = agent_type.clone();
-            subagent.provider = Some(Provider::Claude);
-            subagent.status = SubagentStatus::Running;
-            subagent.ended_at = None;
-            subagent.last_activity_at = Some(now.clone());
-            updated = true;
-          }
-          subagent
-        })
-        .collect();
-
-      if !updated {
-        next_subagents.push(SubagentInfo {
-          id: agent_id,
-          agent_type,
-          started_at: now.clone(),
-          ended_at: None,
-          provider: Some(Provider::Claude),
-          label: None,
-          status: SubagentStatus::Running,
-          task_summary: None,
-          result_summary: None,
-          error_summary: None,
-          parent_subagent_id: None,
-          model: None,
-          last_activity_at: Some(now),
-        });
-      }
-
-      next_subagents
-    }
-    ClaudeSubagentUpdate::Stopped { agent_id } => {
-      let mut updated = false;
-      let mut next_subagents: Vec<SubagentInfo> = subagents
-        .into_iter()
-        .map(|mut subagent| {
-          if subagent.id == agent_id {
-            subagent.provider = Some(Provider::Claude);
-            subagent.status = SubagentStatus::Completed;
-            subagent.ended_at = Some(now.clone());
-            subagent.last_activity_at = Some(now.clone());
-            updated = true;
-          }
-          subagent
-        })
-        .collect();
-
-      if !updated {
-        next_subagents.push(SubagentInfo {
-          id: agent_id,
-          agent_type: AgentType::BackgroundTask,
-          started_at: now.clone(),
-          ended_at: Some(now.clone()),
-          provider: Some(Provider::Claude),
-          label: None,
-          status: SubagentStatus::Completed,
-          task_summary: None,
-          result_summary: None,
-          error_summary: None,
-          parent_subagent_id: None,
-          model: None,
-          last_activity_at: Some(now),
-        });
-      }
-
-      next_subagents
     }
   }
 }

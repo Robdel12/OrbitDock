@@ -51,7 +51,7 @@ Date: 2026-04-09
 - `orbitdock-server/crates/server/src/runtime/session_mutations.rs` — 1457 LOC
 - `orbitdock-server/crates/server/src/infrastructure/persistence/session_reads.rs` — 1421 LOC
 - `orbitdock-server/crates/server/src/runtime/session_registry.rs` — 1420 LOC
-- `orbitdock-server/crates/server/src/transport/http/session_lifecycle.rs` — 1334 LOC
+- `orbitdock-server/crates/server/src/transport/http/session_lifecycle/` — split across endpoint-family modules
 
 ## Target Design
 
@@ -252,9 +252,9 @@ Progress note:
 
 ### Phase 2: Refactor Runtime into Coordination Modules
 
-- [ ] Split config mutations, notice-row construction, and plan snapshot IO.
-- [ ] Break `SessionRegistry` into smaller internal ownership modules.
-- [ ] Keep `runtime/` focused on command flow, effect execution, and caches.
+- [x] Split config mutations, notice-row construction, and plan snapshot IO.
+- [x] Break `SessionRegistry` into smaller internal ownership modules.
+- [x] Keep `runtime/` focused on command flow, effect execution, and caches.
 
 Why this phase is next:
 
@@ -263,29 +263,50 @@ Why this phase is next:
 
 Done when:
 
-- [ ] Runtime modules no longer mix pure notice rendering with filesystem or actor wiring.
-- [ ] Registry responsibilities are easier to locate and reason about.
+- [x] Runtime modules no longer mix pure notice rendering with filesystem or actor wiring.
+- [x] Registry responsibilities are easier to locate and reason about.
+
+Progress note:
+
+- `session_mutations.rs` now delegates plan snapshotting, config notice construction, and session lifecycle side effects into `config_notices.rs`, `plan_snapshots.rs`, and `session_lifecycle.rs`.
+- `session_registry.rs` now delegates ownership lookup, pending hook caching, missions snapshot state, dashboard publication, and session summary/list access into smaller sibling modules under `runtime/session_registry/`.
+- The registry helpers keep the mutable shell in runtime while leaving the business rules in the domain layer.
+- `cargo fmt --all` passed on 2026-04-09.
+- `cargo check -p orbitdock` passed on 2026-04-09.
+- `make rust-check` passed on 2026-04-09 after integration.
+- `make rust-check-workspace` passed on 2026-04-09 after integration.
+- `make rust-test` passed on 2026-04-09 after integration.
 
 ### Phase 3: Split Transport by Endpoint Family
 
-- [ ] Split mission-control handlers into mission, issue, key, defaults, orchestrator, and file modules.
-- [ ] Split session lifecycle handlers into create, config, lifecycle, fork, and Codex config modules.
-- [ ] Keep transport files thin and mapping-focused.
+- [x] Split mission-control handlers into mission, issue, key, defaults, orchestrator, and file modules.
+- [x] Split session lifecycle handlers into create, config, lifecycle, fork, and Codex config modules.
+- [x] Keep transport files thin and mapping-focused.
+- [x] Split `session_lifecycle.rs` into coherent submodules under `transport/http/session_lifecycle/`.
 
 Why this phase is next:
 
 - It cleans the outermost layer after domain and runtime seams are clearer.
 - It lowers the odds of new business logic getting reintroduced into transport.
 
+Progress note:
+
+- `session_lifecycle.rs` was split into `common.rs`, `create.rs`, `codex_config.rs`, `fork.rs`, `mutations.rs`, `resume.rs`, `takeover.rs`, and `mod.rs` under `transport/http/session_lifecycle/`.
+- `mission_control.rs` now acts as a façade for the remaining mission CRUD flow and re-exports endpoint families split into `defaults.rs`, `tracker_keys.rs`, `orchestrator.rs`, `issue_reports.rs`, and `files.rs`.
+- `transport/http/mod.rs` kept the same public re-exports, so the router and callers still see the same endpoint surface.
+- `cargo fmt --all` passed on 2026-04-09 for the touched transport files.
+- `cargo check -p orbitdock-server` passed on 2026-04-09 after transport integration.
+- `make rust-test` passed on 2026-04-09 after the transport split, including `transport::http::session_lifecycle::*` and `transport::http::mission_control::*` coverage.
+
 Done when:
 
-- [ ] Each handler module maps to one coherent API family.
-- [ ] Business decisions are delegated downward instead of accumulating in handler files.
+- [x] Each handler module maps to one coherent API family.
+- [x] Business decisions are delegated downward instead of accumulating in handler files.
 
 ### Phase 4: Split Persistence by Read and Write Family
 
 - [ ] Break the persistence write executor into family-specific modules.
-- [ ] Separate startup recovery, hydration, and ownership reads.
+- [x] Separate startup recovery, hydration, and ownership reads.
 - [ ] Preserve the single-writer path and existing transactional guarantees.
 
 Why this phase is next:
@@ -297,6 +318,12 @@ Done when:
 
 - [ ] No single persistence file acts like the entire database layer.
 - [ ] Write-family and read-family responsibilities are clearly separated.
+
+Progress note:
+
+- `session_reads.rs` now delegates into `startup_recovery.rs`, `session_hydration.rs`, and `ownership_reads.rs` under `infrastructure/persistence/session_reads/`.
+- The single-writer executor in `persistence/mod.rs` is still centralized and remains the main unfinished piece for this phase.
+- `cargo check -p orbitdock-server` passed on 2026-04-09 with the split read path in place.
 
 ### Phase 5: Split Connector and Runtime Support Buckets
 
@@ -313,6 +340,13 @@ Done when:
 
 - [ ] Connector code is mostly translation and routing.
 - [ ] Runtime support modules are not mixing transport, business policy, and environment probing.
+
+Progress note:
+
+- Claude hook handling now delegates routing and subagent update concerns into `connectors/claude_hooks/routing.rs` and `connectors/claude_hooks/subagent_updates.rs`, with `handler.rs` correspondingly reduced.
+- Codex config support now has a first extracted support module in `runtime/codex_config_types.rs`, but the resolver, documents, RPC, and binary-discovery concerns are still housed in `runtime/codex_config.rs`.
+- Mission config domain types now have a first extracted support module in `domain/mission_control/config_model.rs`, while parser/serializer/migration/scaffold logic still remains in `config.rs`.
+- `cargo check -p orbitdock-server`, `make rust-check`, `make rust-check-workspace`, and `make rust-test` all passed on 2026-04-09 with these intermediate support splits in place.
 
 ## Files To Modify First
 
