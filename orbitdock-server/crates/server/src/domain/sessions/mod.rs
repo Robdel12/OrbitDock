@@ -7,4 +7,5 @@ pub(crate) mod restore;
 pub(crate) mod session;
 pub(crate) mod session_naming;
 pub(crate) mod snapshot;
+pub(crate) mod state;
 pub(crate) mod transition;

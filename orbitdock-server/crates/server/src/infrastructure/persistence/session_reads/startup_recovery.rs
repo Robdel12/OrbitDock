@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection};
+#[cfg(test)]
+use rusqlite::OptionalExtension;
 
 use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
 

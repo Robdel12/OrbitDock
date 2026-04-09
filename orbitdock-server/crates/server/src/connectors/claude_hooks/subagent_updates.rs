@@ -6,23 +6,7 @@ use orbitdock_protocol::{Provider, SubagentInfo, SubagentStatus};
 use crate::domain::sessions::transition::Input;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::sync_transcript_messages;
 use crate::support::session_time::chrono_now;
-
-use super::routing::ClaudeHookHandlingOptions;
-
-pub async fn maybe_sync_transcript_messages(
-  actor: &crate::runtime::session_actor::SessionActorHandle,
-  persist_tx: &tokio::sync::mpsc::Sender<crate::infrastructure::persistence::PersistCommand>,
-  options: &ClaudeHookHandlingOptions,
-) {
-  let session_id = actor.snapshot().id.clone();
-  if !options.should_sync_transcript(&session_id).await {
-    return;
-  }
-
-  sync_transcript_messages(actor, persist_tx).await;
-}
 
 pub enum ClaudeSubagentUpdate {
   Started {

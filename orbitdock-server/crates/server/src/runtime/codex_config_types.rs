@@ -1,14 +1,9 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use codex_app_server_protocol::{
-  ConfigBatchWriteParams, ConfigEdit, ConfigLayer, ConfigLayerMetadata, ConfigLayerSource,
-  ConfigReadParams, ConfigReadResponse, ConfigValueWriteParams, ConfigWriteResponse, MergeStrategy,
-  OverriddenMetadata, WriteStatus,
-};
+use codex_app_server_protocol::MergeStrategy;
 use orbitdock_protocol::{
-  CodexApprovalMode, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode,
-  CodexConfigSource, CodexGranularApprovalPolicy, CodexSandboxMode, CodexSandboxPolicy,
+  CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSandboxPolicy,
   CodexSessionOverrides,
 };
 use serde::{Deserialize, Serialize};

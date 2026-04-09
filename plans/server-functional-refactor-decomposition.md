@@ -222,7 +222,7 @@ Design intent:
 ### Phase 1: Extract the Sessions Functional Core
 
 - [x] Split `domain/sessions/session.rs` into state, conversation, approvals, snapshot, and restore modules.
-- [ ] Introduce a thinner actor-owned runtime shell for session state.
+- [x] Introduce a thinner actor-owned runtime shell for session state.
 - [x] Keep behavior identical while moving pure logic into pure functions.
 - [x] Add or preserve focused tests for row sequencing, unread counts, approval queueing, and snapshot projection.
 
@@ -233,12 +233,13 @@ Why this phase is first:
 
 Done when:
 
-- [ ] `SessionHandle` mostly delegates instead of implementing business rules directly.
+- [x] `SessionHandle` mostly delegates instead of implementing business rules directly.
 - [x] Conversation and approval logic can be tested without actor setup or IO.
 
 Progress note:
 
 - `conversation_state.rs`, `approval_state.rs`, `snapshot.rs`, and `restore.rs` were added and wired into `session.rs`.
+- `state.rs` now owns the session aggregate state and pure session-domain mutations, while `SessionHandle` keeps broadcast, replay, dashboard publication, and snapshot-cache responsibilities.
 - A follow-up `code-simplifier` pass removed duplicate test attributes, deleted an unused helper, and added a small `SessionHandle::conversation_state()` delegator to keep the shell readable without changing behavior.
 - `cargo fmt --all` passed on 2026-04-09.
 - `cargo check -p orbitdock` passed on 2026-04-09.
@@ -249,6 +250,13 @@ Progress note:
 - Mutation-path grep checks were re-run on 2026-04-09:
   - `rg "ApplyDelta \\{ persist_op: None \\}" orbitdock-server/crates/server/src docs/ARCHITECTURE.md`
   - `rg "ProcessEvent" orbitdock-server/crates/server/src`
+- Final shell-thinning verification was re-run on 2026-04-09:
+  - `cargo check -p orbitdock-server`
+  - `cargo test -p orbitdock-server domain::sessions::session --lib`
+  - `cargo test -p orbitdock-server domain::sessions --lib`
+  - `make rust-check`
+  - `make rust-check-workspace`
+  - `make rust-test`
 
 ### Phase 2: Refactor Runtime into Coordination Modules
 
@@ -305,9 +313,9 @@ Done when:
 
 ### Phase 4: Split Persistence by Read and Write Family
 
-- [ ] Break the persistence write executor into family-specific modules.
+- [x] Break the persistence write executor into family-specific modules.
 - [x] Separate startup recovery, hydration, and ownership reads.
-- [ ] Preserve the single-writer path and existing transactional guarantees.
+- [x] Preserve the single-writer path and existing transactional guarantees.
 
 Why this phase is next:
 
@@ -316,20 +324,22 @@ Why this phase is next:
 
 Done when:
 
-- [ ] No single persistence file acts like the entire database layer.
-- [ ] Write-family and read-family responsibilities are clearly separated.
+- [x] No single persistence file acts like the entire database layer.
+- [x] Write-family and read-family responsibilities are clearly separated.
 
 Progress note:
 
 - `session_reads.rs` now delegates into `startup_recovery.rs`, `session_hydration.rs`, and `ownership_reads.rs` under `infrastructure/persistence/session_reads/`.
-- The single-writer executor in `persistence/mod.rs` is still centralized and remains the main unfinished piece for this phase.
-- `cargo check -p orbitdock-server` passed on 2026-04-09 with the split read path in place.
+- `persistence/mod.rs` now keeps one authoritative entrypoint while dispatching writes into `session_writes.rs`, `connector_writes.rs`, `mission_writes.rs`, `review_writes.rs`, `config_writes.rs`, `subagent_writes.rs`, and `worktree_writes.rs`.
+- The write path still preserves the single-writer authority boundary through `execute_command`, but the file-family ownership is now explicit instead of one giant persistence match.
+- `cargo check -p orbitdock-server` passed on 2026-04-09 after the write-family dispatcher landed.
+- `make rust-check`, `make rust-check-workspace`, and `make rust-test` all passed on 2026-04-09 after the persistence split.
 
 ### Phase 5: Split Connector and Runtime Support Buckets
 
-- [ ] Split Claude hook handling by hook family.
-- [ ] Split Codex config support into types, resolution, transport, and binary discovery.
-- [ ] Split mission config domain helpers into model/parser/serializer/migration/scaffold modules.
+- [x] Split Claude hook handling by hook family.
+- [x] Split Codex config support into types, resolution, transport, and binary discovery.
+- [x] Split mission config domain helpers into model/parser/serializer/migration/scaffold modules.
 
 Why this phase is last:
 
@@ -338,15 +348,16 @@ Why this phase is last:
 
 Done when:
 
-- [ ] Connector code is mostly translation and routing.
-- [ ] Runtime support modules are not mixing transport, business policy, and environment probing.
+- [x] Connector code is mostly translation and routing.
+- [x] Runtime support modules are not mixing transport, business policy, and environment probing.
 
 Progress note:
 
-- Claude hook handling now delegates routing and subagent update concerns into `connectors/claude_hooks/routing.rs` and `connectors/claude_hooks/subagent_updates.rs`, with `handler.rs` correspondingly reduced.
-- Codex config support now has a first extracted support module in `runtime/codex_config_types.rs`, but the resolver, documents, RPC, and binary-discovery concerns are still housed in `runtime/codex_config.rs`.
-- Mission config domain types now have a first extracted support module in `domain/mission_control/config_model.rs`, while parser/serializer/migration/scaffold logic still remains in `config.rs`.
-- `cargo check -p orbitdock-server`, `make rust-check`, `make rust-check-workspace`, and `make rust-test` all passed on 2026-04-09 with these intermediate support splits in place.
+- `connectors/claude_hooks/handler.rs` now acts as a dispatcher over `session_start.rs`, `session_end.rs`, `status_events.rs`, `tool_events.rs`, `subagent_events.rs`, `routing.rs`, `subagent_updates.rs`, and `transcript_sync.rs`.
+- `runtime/codex_config.rs` now fronts dedicated support modules for binary discovery, catalog shaping, document rendering, resolver logic, preferences, and RPC transport under `runtime/codex_config/`.
+- Mission config parsing and generation now live behind `config/parser.rs`, `config/serializer.rs`, `config/migration.rs`, and `config/scaffold.rs`, with `config.rs` reduced to a façade over the split domain helpers.
+- `cargo check -p orbitdock-server`, `cargo test -p orbitdock-server connectors::claude_hooks::handler --lib`, and `cargo test -p orbitdock-server domain::mission_control::config --lib` all passed on 2026-04-09 after these splits landed.
+- `make rust-check`, `make rust-check-workspace`, and `make rust-test` also passed on 2026-04-09 after the full Phase 5 integration.
 
 ## Files To Modify First
 
@@ -382,6 +393,9 @@ Progress note:
 - [x] Run `make rust-check-workspace`
 - [x] Run `make rust-test`
 - [x] Run targeted tests for any touched session, persistence, or transport area.
+- [x] Run targeted tests for Phase 5 splits:
+  - `cargo test -p orbitdock-server connectors::claude_hooks::handler --lib`
+  - `cargo test -p orbitdock-server domain::mission_control::config --lib`
 - [x] Grep for mutation-path drift:
   - `rg "ApplyDelta \\{ persist_op: None \\}" orbitdock-server/crates/server/src docs/ARCHITECTURE.md`
   - `rg "ProcessEvent" orbitdock-server/crates/server/src`
@@ -389,9 +403,15 @@ Progress note:
 
 ## Definition Of Done
 
-- [ ] The server layout reflects authority boundaries instead of feature buckets alone.
-- [ ] Business rules are easier to find in pure modules under `domain/`.
-- [ ] Runtime is coordination-heavy but decision-light.
-- [ ] Transport is mapping-heavy but policy-light.
-- [ ] Persistence preserves the single-writer and server-authoritative model.
-- [ ] The sessions slice sets a clear pattern for future refactors: pure core, mutable shell, explicit effects.
+- [x] The server layout reflects authority boundaries instead of feature buckets alone.
+- [x] Business rules are easier to find in pure modules under `domain/`.
+- [x] Runtime is coordination-heavy but decision-light.
+- [x] Transport is mapping-heavy but policy-light.
+- [x] Persistence preserves the single-writer and server-authoritative model.
+- [x] The sessions slice sets a clear pattern for future refactors: pure core, mutable shell, explicit effects.
+
+Completion note:
+
+- Phases 1 through 5 are now complete and verified.
+- `SessionHandle` now acts as the mutable shell over `SessionCoreState`, with the session aggregate, approval queue behavior, conversation mutation rules, snapshot projection inputs, and transition bridging owned by the domain modules instead of the shell.
+- Some warning cleanup still exists in support modules outside the core architectural work (`runtime/codex_config*`, `session_reads.rs`, `session_mutations.rs`, `config_model.rs`), but the refactor goals in this plan are now complete and the full verification suite passed.
