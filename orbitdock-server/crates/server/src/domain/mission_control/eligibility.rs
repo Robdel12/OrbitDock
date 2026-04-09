@@ -56,22 +56,16 @@ mod tests {
   }
 
   #[test]
-  fn eligible_when_not_running_and_under_limit() {
-    let issue = make_issue("1", None, None);
-    assert!(is_eligible(&issue, &HashSet::new(), &HashSet::new(), 3, 0));
-  }
-
-  #[test]
-  fn ineligible_when_already_running() {
+  fn eligibility_depends_on_running_claimed_and_capacity_constraints() {
     let issue = make_issue("1", None, None);
     let mut running = HashSet::new();
     running.insert("1".to_string());
-    assert!(!is_eligible(&issue, &running, &HashSet::new(), 3, 0));
-  }
+    let mut claimed = HashSet::new();
+    claimed.insert("1".to_string());
 
-  #[test]
-  fn ineligible_when_at_max_concurrent() {
-    let issue = make_issue("1", None, None);
+    assert!(is_eligible(&issue, &HashSet::new(), &HashSet::new(), 3, 0));
+    assert!(!is_eligible(&issue, &running, &HashSet::new(), 3, 0));
+    assert!(!is_eligible(&issue, &HashSet::new(), &claimed, 3, 0));
     assert!(!is_eligible(&issue, &HashSet::new(), &HashSet::new(), 3, 3));
   }
 

@@ -22,23 +22,16 @@ mod tests {
   use super::*;
 
   #[test]
-  fn attempt_zero_is_immediate() {
-    assert_eq!(compute_delay(0, 300_000), Duration::from_millis(0));
-  }
-
-  #[test]
-  fn attempt_one_is_10s() {
-    assert_eq!(compute_delay(1, 300_000), Duration::from_secs(10));
-  }
-
-  #[test]
-  fn attempt_two_is_20s() {
-    assert_eq!(compute_delay(2, 300_000), Duration::from_secs(20));
-  }
-
-  #[test]
-  fn attempt_three_is_40s() {
-    assert_eq!(compute_delay(3, 300_000), Duration::from_secs(40));
+  fn compute_delay_matches_expected_curve() {
+    let cases = [
+      (0, Duration::from_millis(0)),
+      (1, Duration::from_secs(10)),
+      (2, Duration::from_secs(20)),
+      (3, Duration::from_secs(40)),
+    ];
+    for (attempt, expected) in cases {
+      assert_eq!(compute_delay(attempt, 300_000), expected);
+    }
   }
 
   #[test]
