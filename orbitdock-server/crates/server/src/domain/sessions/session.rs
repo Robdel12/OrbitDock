@@ -7,21 +7,29 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::conversation_contracts::{
-  ConversationRow, ConversationRowEntry, ConversationRowSummary, RowEntrySummary, TurnStatus,
+  ConversationRow, ConversationRowEntry, RowEntrySummary, TurnStatus,
 };
-use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
-  ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-  ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
-  CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides, Provider, SessionControlMode,
-  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
-  TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+  ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode,
+  CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides, Provider,
+  SessionControlMode, SessionLifecycleState, SessionState, SessionStatus, SessionSummary,
+  StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
+use super::approval_state::{
+  normalize_request_id, pending_tool_family_from_state, resolve_approval_policy_details,
+  resolve_sandbox_policy_details, ApprovalQueueState, PendingApprovalEntry,
+  PendingApprovalMutation,
+};
+use super::conversation_state::{
+  is_actively_streaming_message_row_summary, is_message_row_summary, is_non_user_row,
+  is_non_user_row_summary, streaming_message_row_summary_content_len, ConversationState,
+};
 pub use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
-use serde::Serialize;
+use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInput};
+use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use tokio::sync::broadcast;
 use tracing::info;
 
@@ -29,305 +37,11 @@ use orbitdock_protocol::ServerMessage;
 
 #[cfg(test)]
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
-use crate::domain::sessions::transition::{
-  approval_preview, ApprovalPreviewInput, TransitionState, WorkPhase,
-};
+use crate::domain::sessions::transition::{TransitionState, WorkPhase};
 use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
 
 fn is_session_ended(msg: &ServerMessage) -> bool {
   matches!(msg, ServerMessage::SessionEnded { .. })
-}
-
-fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
-  if let Some(name) = approval.tool_name.as_ref().filter(|name| !name.is_empty()) {
-    return Some(name.clone());
-  }
-
-  match approval.approval_type {
-    ApprovalType::Exec => Some("Bash".to_string()),
-    ApprovalType::Patch => Some("Edit".to_string()),
-    ApprovalType::Permissions => Some("Permissions".to_string()),
-    ApprovalType::Question => None,
-  }
-}
-
-fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
-  if let Some(input) = approval
-    .tool_input
-    .as_ref()
-    .filter(|input| !input.is_empty())
-  {
-    return Some(input.clone());
-  }
-
-  let mut payload = serde_json::Map::new();
-  if let Some(command) = approval.command.as_ref().filter(|cmd| !cmd.is_empty()) {
-    payload.insert(
-      "command".to_string(),
-      serde_json::Value::String(command.clone()),
-    );
-  }
-  if let Some(path) = approval.file_path.as_ref().filter(|path| !path.is_empty()) {
-    payload.insert(
-      "file_path".to_string(),
-      serde_json::Value::String(path.clone()),
-    );
-  }
-  if payload.is_empty() {
-    if let Some(preview) = approval.preview.as_ref() {
-      let key = match preview.preview_type {
-        orbitdock_protocol::ApprovalPreviewType::ShellCommand => "command",
-        orbitdock_protocol::ApprovalPreviewType::Url => "url",
-        orbitdock_protocol::ApprovalPreviewType::SearchQuery => "query",
-        orbitdock_protocol::ApprovalPreviewType::Pattern => "pattern",
-        orbitdock_protocol::ApprovalPreviewType::Prompt => "prompt",
-        orbitdock_protocol::ApprovalPreviewType::Diff => "diff",
-        orbitdock_protocol::ApprovalPreviewType::FilePath => "file_path",
-        orbitdock_protocol::ApprovalPreviewType::Value
-        | orbitdock_protocol::ApprovalPreviewType::Action => "value",
-      };
-      payload.insert(
-        key.to_string(),
-        serde_json::Value::String(preview.value.clone()),
-      );
-    }
-  }
-
-  if payload.is_empty() {
-    None
-  } else {
-    Some(serde_json::Value::Object(payload).to_string())
-  }
-}
-
-fn serialized_value_eq<T: Serialize>(left: &T, right: &T) -> bool {
-  serde_json::to_value(left).ok() == serde_json::to_value(right).ok()
-}
-
-fn resolve_approval_policy_details(
-  approval_policy: Option<&str>,
-  codex_config_overrides: Option<&CodexSessionOverrides>,
-) -> Option<CodexApprovalPolicy> {
-  codex_config_overrides
-    .and_then(|overrides| overrides.approval_policy_details.clone())
-    .or_else(|| {
-      approval_policy.and_then(orbitdock_protocol::CodexApprovalPolicy::from_storage_text)
-    })
-}
-
-fn resolve_sandbox_policy_details(
-  sandbox_mode: Option<&str>,
-  codex_config_overrides: Option<&CodexSessionOverrides>,
-) -> Option<CodexSandboxPolicy> {
-  codex_config_overrides
-    .and_then(|overrides| overrides.sandbox_policy_details.clone())
-    .or_else(|| sandbox_mode.and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text))
-}
-
-fn approval_requests_effectively_equal(left: &ApprovalRequest, right: &ApprovalRequest) -> bool {
-  serialized_value_eq(left, right)
-}
-
-fn pending_approval_entries_effectively_equal(
-  left: &PendingApprovalEntry,
-  right: &PendingApprovalEntry,
-) -> bool {
-  left.approval_type == right.approval_type
-    && left.proposed_amendment == right.proposed_amendment
-    && approval_requests_effectively_equal(&left.request, &right.request)
-}
-
-fn parse_bool_value(value: Option<&serde_json::Value>) -> bool {
-  let Some(value) = value else {
-    return false;
-  };
-  if let Some(flag) = value.as_bool() {
-    return flag;
-  }
-  if let Some(number) = value.as_u64() {
-    return number > 0;
-  }
-  if let Some(text) = value.as_str() {
-    let normalized = text.trim().to_ascii_lowercase();
-    return normalized == "true" || normalized == "1" || normalized == "yes";
-  }
-  false
-}
-
-fn parse_question_options(
-  payload: &serde_json::Map<String, serde_json::Value>,
-) -> Vec<ApprovalQuestionOption> {
-  let Some(options) = payload.get("options").and_then(serde_json::Value::as_array) else {
-    return vec![];
-  };
-
-  options
-    .iter()
-    .filter_map(|raw_option| {
-      let option = raw_option.as_object()?;
-      let label = option
-        .get("label")
-        .or_else(|| option.get("value"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())?
-        .to_string();
-      let description = option
-        .get("description")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(ToString::to_string);
-      Some(ApprovalQuestionOption { label, description })
-    })
-    .collect()
-}
-
-fn parse_question_prompt(
-  payload: &serde_json::Map<String, serde_json::Value>,
-  fallback_id: &str,
-) -> Option<ApprovalQuestionPrompt> {
-  let id = payload
-    .get("id")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .unwrap_or(fallback_id)
-    .to_string();
-  let header = payload
-    .get("header")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .map(ToString::to_string);
-  let question = payload
-    .get("question")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .unwrap_or("Question")
-    .to_string();
-  if question.is_empty() {
-    return None;
-  }
-
-  Some(ApprovalQuestionPrompt {
-    id,
-    header,
-    question,
-    options: parse_question_options(payload),
-    allows_multiple_selection: parse_bool_value(
-      payload
-        .get("multiSelect")
-        .or_else(|| payload.get("multi_select")),
-    ),
-    allows_other: parse_bool_value(payload.get("isOther").or_else(|| payload.get("is_other"))),
-    is_secret: parse_bool_value(payload.get("isSecret").or_else(|| payload.get("is_secret"))),
-  })
-}
-
-fn extract_question_prompts(
-  tool_input: Option<&str>,
-  fallback_question: Option<&str>,
-) -> Vec<ApprovalQuestionPrompt> {
-  let from_tool_input: Vec<ApprovalQuestionPrompt> = tool_input
-    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-    .and_then(|value| value.as_object().cloned())
-    .map(|payload| {
-      if let Some(questions) = payload
-        .get("questions")
-        .and_then(serde_json::Value::as_array)
-      {
-        return questions
-          .iter()
-          .enumerate()
-          .filter_map(|(index, raw_question)| {
-            let prompt = raw_question.as_object()?;
-            parse_question_prompt(prompt, index.to_string().as_str())
-          })
-          .collect();
-      }
-      if payload.contains_key("question") || payload.contains_key("options") {
-        return parse_question_prompt(&payload, "0")
-          .map(|prompt| vec![prompt])
-          .unwrap_or_default();
-      }
-      vec![]
-    })
-    .unwrap_or_default();
-
-  if !from_tool_input.is_empty() {
-    return from_tool_input;
-  }
-
-  let fallback_question = fallback_question
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .map(ToString::to_string);
-  match fallback_question {
-    Some(question) => vec![ApprovalQuestionPrompt {
-      id: "0".to_string(),
-      header: None,
-      question,
-      options: vec![],
-      allows_multiple_selection: false,
-      allows_other: true,
-      is_secret: false,
-    }],
-    None => vec![],
-  }
-}
-
-fn preview_for_pending_approval(
-  request_id: Option<&str>,
-  approval_type: ApprovalType,
-  tool_name: Option<&str>,
-  tool_input: Option<&str>,
-  question: Option<&str>,
-) -> Option<ApprovalPreview> {
-  let request_id = request_id
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .unwrap_or("pending-approval");
-  approval_preview(ApprovalPreviewInput {
-    request_id,
-    approval_type,
-    tool_name,
-    tool_input,
-    command: None,
-    file_path: None,
-    diff: None,
-    question,
-    permission_reason: None,
-  })
-}
-
-fn pending_tool_family_from_state(
-  pending_approval: Option<&ApprovalRequest>,
-  pending_tool_name: Option<&str>,
-  pending_question: Option<&str>,
-) -> Option<ToolFamily> {
-  if pending_question.is_some()
-    || pending_approval.is_some_and(|request| request.approval_type == ApprovalType::Question)
-  {
-    return Some(ToolFamily::Question);
-  }
-
-  pending_tool_name.map(|name| match name {
-    "Bash" | "bash" => ToolFamily::Shell,
-    "Read" | "read" | "FileRead" => ToolFamily::FileRead,
-    "Edit" | "edit" | "FileEdit" | "MultiEdit" | "Write" | "write" | "FileWrite"
-    | "NotebookEdit" => ToolFamily::FileChange,
-    "Glob" | "glob" | "Grep" | "grep" | "ToolSearch" => ToolFamily::Search,
-    "WebSearch" | "websearch" | "WebFetch" | "webfetch" => ToolFamily::Web,
-    "Agent" | "agent" | "task" => ToolFamily::Agent,
-    "AskUserQuestion" => ToolFamily::Question,
-    "EnterPlanMode" | "ExitPlanMode" => ToolFamily::Plan,
-    "TodoWrite" => ToolFamily::Todo,
-    "CompactContext" => ToolFamily::Context,
-    value if value.starts_with("mcp__") => ToolFamily::Mcp,
-    _ => ToolFamily::Generic,
-  })
 }
 
 pub fn control_mode_from_parts(
@@ -436,20 +150,6 @@ pub struct SessionSnapshot {
   /// ID of the newest row that has been synced from the transcript.
   /// Used for sequence-based sync comparison (immune to count inflation).
   pub newest_synced_row_id: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct PendingApprovalEntry {
-  request: ApprovalRequest,
-  approval_type: ApprovalType,
-  proposed_amendment: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PendingApprovalMutation {
-  Unchanged,
-  Updated,
-  Enqueued,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -597,67 +297,6 @@ pub struct SessionRestoreData {
   pub unread_count: u64,
 }
 
-/// Returns true if the row is NOT a user message (used for unread counting).
-fn is_non_user_row(entry: &ConversationRowEntry) -> bool {
-  !entry.row.is_user_input()
-}
-
-fn is_non_user_row_summary(entry: &RowEntrySummary) -> bool {
-  !matches!(
-    entry.row,
-    ConversationRowSummary::User(_) | ConversationRowSummary::Steer(_)
-  )
-}
-
-#[allow(dead_code)]
-fn is_message_row(entry: &ConversationRowEntry) -> bool {
-  matches!(
-    entry.row,
-    ConversationRow::User(_)
-      | ConversationRow::Steer(_)
-      | ConversationRow::Assistant(_)
-      | ConversationRow::Thinking(_)
-      | ConversationRow::System(_)
-  )
-}
-
-fn is_message_row_summary(entry: &RowEntrySummary) -> bool {
-  matches!(
-    entry.row,
-    ConversationRowSummary::User(_)
-      | ConversationRowSummary::Steer(_)
-      | ConversationRowSummary::Assistant(_)
-      | ConversationRowSummary::Thinking(_)
-      | ConversationRowSummary::System(_)
-  )
-}
-
-#[allow(dead_code)]
-fn is_actively_streaming_message_row(entry: &ConversationRowEntry) -> bool {
-  matches!(
-      &entry.row,
-      ConversationRow::Assistant(msg) | ConversationRow::Thinking(msg) | ConversationRow::System(msg)
-          if msg.is_streaming
-  )
-}
-
-fn is_actively_streaming_message_row_summary(entry: &RowEntrySummary) -> bool {
-  matches!(
-      &entry.row,
-      ConversationRowSummary::Assistant(msg) | ConversationRowSummary::Thinking(msg) | ConversationRowSummary::System(msg)
-          if msg.is_streaming
-  )
-}
-
-fn streaming_message_row_summary_content_len(entry: &RowEntrySummary) -> Option<usize> {
-  match &entry.row {
-    ConversationRowSummary::Assistant(msg)
-    | ConversationRowSummary::Thinking(msg)
-    | ConversationRowSummary::System(msg) => Some(msg.content.chars().count()),
-    _ => None,
-  }
-}
-
 #[derive(Debug, Clone)]
 struct StreamingRowEmitState {
   last_emit_at: Instant,
@@ -665,6 +304,10 @@ struct StreamingRowEmitState {
 }
 
 impl SessionHandle {
+  fn conversation_state(&self) -> ConversationState {
+    ConversationState::new(self.rows.clone(), self.total_row_count)
+  }
+
   fn sync_control_mode_from_integrations(&mut self) {
     self.control_mode = control_mode_from_parts(
       self.identity.provider,
@@ -678,17 +321,7 @@ impl SessionHandle {
   }
 
   fn next_row_sequence(&self) -> u64 {
-    self
-      .rows
-      .last()
-      .map(|entry| entry.sequence + 1)
-      .unwrap_or(self.total_row_count)
-  }
-
-  fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
-    for (index, entry) in rows.iter_mut().enumerate() {
-      entry.sequence = index as u64;
-    }
+    self.conversation_state().next_row_sequence()
   }
 
   #[allow(dead_code)]
@@ -696,14 +329,8 @@ impl SessionHandle {
     self.rows.first().map(|entry| entry.sequence)
   }
 
-  fn newest_retained_sequence(&self) -> Option<u64> {
-    self.rows.last().map(|entry| entry.sequence)
-  }
-
   pub fn latest_row_sequence(&self) -> u64 {
-    self
-      .newest_retained_sequence()
-      .unwrap_or_else(|| self.total_row_count.saturating_sub(1))
+    self.conversation_state().latest_row_sequence()
   }
 
   #[allow(dead_code)]
@@ -714,68 +341,22 @@ impl SessionHandle {
   }
 
   fn trim_retained_rows(&mut self) {
-    let Some(newest_sequence) = self.newest_retained_sequence() else {
-      return;
-    };
-    let Some(oldest_allowed_sequence) = newest_sequence
-      .checked_add(1)
-      .and_then(|count| count.checked_sub(RETAINED_FINALIZED_ROW_LIMIT as u64))
-    else {
-      return;
-    };
-
-    self
-      .rows
-      .retain(|entry| entry.sequence >= oldest_allowed_sequence);
+    let state = ConversationState::new(std::mem::take(&mut self.rows), self.total_row_count)
+      .trim_retained_rows(RETAINED_FINALIZED_ROW_LIMIT);
+    self.rows = state.rows;
+    self.total_row_count = state.total_row_count;
   }
 
   #[cfg(test)]
   pub fn conversation_page(&self, before_sequence: Option<u64>, limit: usize) -> ConversationPage {
-    if self.rows.is_empty() || limit == 0 {
-      return ConversationPage {
-        rows: vec![],
-        total_row_count: self.total_row_count,
-        has_more_before: false,
-        oldest_sequence: None,
-        newest_sequence: None,
-      };
-    }
-
-    let upper_bound = before_sequence.unwrap_or(u64::MAX);
-    let mut page: Vec<ConversationRowEntry> = self
-      .rows
-      .iter()
-      .filter(|entry| entry.sequence < upper_bound)
-      .rev()
-      .take(limit)
-      .cloned()
-      .collect();
-    page.reverse();
-
-    let oldest_sequence = page.first().map(|entry| entry.sequence);
-    let newest_sequence = page.last().map(|entry| entry.sequence);
-    let has_more_before = oldest_sequence.is_some_and(|sequence| sequence > 0);
-
-    ConversationPage {
-      rows: page,
-      total_row_count: self.total_row_count,
-      has_more_before,
-      oldest_sequence,
-      newest_sequence,
-    }
+    self.conversation_state().page(before_sequence, limit)
   }
 
   #[cfg(test)]
   pub fn conversation_bootstrap(&self, limit: usize) -> ConversationBootstrap {
-    let page = self.conversation_page(None, limit);
-    let session = self.retained_state();
-    ConversationBootstrap {
-      session,
-      total_row_count: page.total_row_count,
-      has_more_before: page.has_more_before,
-      oldest_sequence: page.oldest_sequence,
-      newest_sequence: page.newest_sequence,
-    }
+    self
+      .conversation_state()
+      .bootstrap(self.retained_state(), limit)
   }
 
   /// Create a new session handle
@@ -796,62 +377,40 @@ impl SessionHandle {
       last_progress_at: Some(now),
     };
 
-    let snapshot = SessionSnapshot {
-      id: identity.id.clone(),
-      provider,
+    let default_config = SessionConfig::default();
+    let default_display = SessionDisplay::default();
+    let default_environment = SessionEnvironment::default();
+    let default_usage = TokenUsage::default();
+    let snapshot = build_session_snapshot(SessionSnapshotInput {
+      identity: &identity,
+      config: &default_config,
+      display: &default_display,
+      environment: &default_environment,
+      timestamps: &timestamps,
       status: SessionStatus::Active,
       work_status: WorkStatus::Waiting,
       control_mode: SessionControlMode::Passive,
       lifecycle_state: SessionLifecycleState::Open,
       steerable: false,
-      project_path: identity.project_path.clone(),
-      project_name: None,
-      transcript_path: None,
-      custom_name: None,
-      summary: None,
-      first_prompt: None,
-      last_message: None,
-      model: None,
       codex_integration_mode: None,
       claude_integration_mode: None,
-      approval_policy: None,
-      approval_policy_details: None,
-      sandbox_mode: None,
-      sandbox_policy_details: None,
-      permission_mode: None,
-      collaboration_mode: None,
-      multi_agent: None,
-      personality: None,
-      service_tier: None,
-      developer_instructions: None,
-      codex_config_mode: None,
-      codex_config_profile: None,
-      codex_model_provider: None,
-      codex_config_source: None,
-      codex_config_overrides: None,
-      has_pending_approval: false,
+      pending_approval: None,
       pending_tool_name: None,
       pending_tool_input: None,
       pending_question: None,
       pending_approval_id: None,
+      permission_mode: None,
       message_count: 0,
       active_worker_count: 0,
       tool_count: 0,
-      token_usage: TokenUsage::default(),
+      token_usage: &default_usage,
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
-      started_at: timestamps.started_at.clone(),
-      last_activity_at: timestamps.last_activity_at.clone(),
-      last_progress_at: timestamps.last_progress_at.clone(),
       revision: 0,
       current_plan: None,
       current_diff: None,
-      git_branch: None,
-      git_sha: None,
-      current_cwd: None,
-      effort: None,
+      approval_version: 0,
       terminal_session_id: None,
       terminal_app: None,
-      approval_version: 0,
       repository_root: None,
       is_worktree: false,
       worktree_id: None,
@@ -862,7 +421,7 @@ impl SessionHandle {
       issue_identifier: None,
       allow_bypass_permissions: false,
       newest_synced_row_id: None,
-    };
+    });
     Self {
       identity,
       config: SessionConfig::default(),
@@ -943,75 +502,32 @@ impl SessionHandle {
       unread_count,
     } = data;
     let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
-    let snapshot = SessionSnapshot {
-      id: identity.id.clone(),
-      provider: identity.provider,
+    let snapshot = build_restored_session_snapshot(SessionRestoreSnapshotInput {
+      identity: &identity,
+      config: &config,
+      display: &display,
+      environment: &environment,
+      timestamps: &timestamps,
       status,
       work_status,
       control_mode,
       lifecycle_state,
-      steerable: work_status == WorkStatus::Working,
-      project_path: identity.project_path.clone(),
-      project_name: identity.project_name.clone(),
-      transcript_path: identity.transcript_path.clone(),
-      custom_name: display.custom_name.clone(),
-      summary: display.summary.clone(),
-      model: config.model.clone(),
-      codex_integration_mode: None,
-      claude_integration_mode: None,
-      approval_policy: config.approval_policy.clone(),
-      approval_policy_details: config.approval_policy_details.clone(),
-      sandbox_mode: config.sandbox_mode.clone(),
-      sandbox_policy_details: config.sandbox_policy_details.clone(),
-      permission_mode: permission_mode.clone(),
-      collaboration_mode: config.collaboration_mode.clone(),
-      multi_agent: config.multi_agent,
-      personality: config.personality.clone(),
-      service_tier: config.service_tier.clone(),
-      developer_instructions: config.developer_instructions.clone(),
-      codex_config_mode: config.codex_config_mode,
-      codex_config_profile: config.codex_config_profile.clone(),
-      codex_model_provider: config.codex_model_provider.clone(),
-      codex_config_source: config.codex_config_source,
-      codex_config_overrides: config.codex_config_overrides.clone(),
-      has_pending_approval: pending_tool_name.is_some()
-        || pending_question.is_some()
-        || pending_approval_id.is_some(),
-      pending_tool_name: pending_tool_name.clone(),
-      pending_tool_input: pending_tool_input.clone(),
-      pending_question: pending_question.clone(),
-      pending_approval_id: pending_approval_id.clone(),
-      message_count: rows.len(),
-      active_worker_count: 0,
-      tool_count: 0,
-      token_usage: token_usage.clone(),
+      permission_mode: permission_mode.as_deref(),
+      token_usage: &token_usage,
       token_usage_snapshot_kind,
-      started_at: timestamps.started_at.clone(),
-      last_activity_at: timestamps.last_activity_at.clone(),
-      last_progress_at: timestamps.last_progress_at.clone(),
-      revision: 0,
-      current_plan: current_plan.as_deref().map(Arc::from),
-      current_diff: current_diff.as_deref().map(Arc::from),
-      git_branch: environment.git_branch.clone(),
-      git_sha: environment.git_sha.clone(),
-      current_cwd: environment.current_cwd.clone(),
-      effort: config.effort.clone(),
-      first_prompt: display.first_prompt.clone(),
-      last_message: display.last_message.clone(),
-      terminal_session_id: terminal_session_id.clone(),
-      terminal_app: terminal_app.clone(),
+      rows: &rows,
+      current_diff: current_diff.as_deref(),
+      current_plan: current_plan.as_deref(),
+      turn_diffs: &turn_diffs,
+      pending_tool_name: pending_tool_name.as_deref(),
+      pending_tool_input: pending_tool_input.as_deref(),
+      pending_question: pending_question.as_deref(),
+      pending_approval_id: pending_approval_id.as_deref(),
+      terminal_session_id: terminal_session_id.as_deref(),
+      terminal_app: terminal_app.as_deref(),
       approval_version,
-      repository_root: None,
-      is_worktree: false,
-      worktree_id: None,
-      has_turn_diff: current_diff.is_some() || !turn_diffs.is_empty(),
-      subscriber_count: 0,
       unread_count,
-      mission_id: None,
-      issue_identifier: None,
-      allow_bypass_permissions: false,
-      newest_synced_row_id: None, // Will be derived from rows below
-    };
+    });
 
     let mut handle = Self {
       identity,
@@ -1727,8 +1243,8 @@ impl SessionHandle {
   }
 
   /// Replace all rows (used for snapshot hydration from transcript fallback)
-  pub fn replace_rows(&mut self, mut rows: Vec<ConversationRowEntry>) {
-    Self::normalize_row_sequences(&mut rows);
+  pub fn replace_rows(&mut self, rows: Vec<ConversationRowEntry>) {
+    let rows = super::conversation_state::ConversationState::normalize_row_sequences(rows);
     self.newest_synced_row_id = rows.last().map(|r| r.id().to_string());
     self.total_row_count = rows.len() as u64;
     self.rows = rows;
@@ -1798,44 +1314,32 @@ impl SessionHandle {
     self.current_plan = Some(Arc::from(plan));
   }
 
-  fn inferred_approval_type_from_pending_fields(&self) -> ApprovalType {
-    if self.pending_question.is_some() {
-      return ApprovalType::Question;
-    }
-    if let Some(tool_name) = self.pending_tool_name.as_ref() {
-      let normalized = tool_name.to_ascii_lowercase();
-      if normalized.contains("edit") || normalized.contains("patch") || normalized.contains("write")
-      {
-        return ApprovalType::Patch;
-      }
-    }
-    ApprovalType::Exec
-  }
-
-  fn work_status_for_approval_type(approval_type: ApprovalType) -> WorkStatus {
-    match approval_type {
-      ApprovalType::Question => WorkStatus::Question,
-      ApprovalType::Exec | ApprovalType::Patch | ApprovalType::Permissions => {
-        WorkStatus::Permission
-      }
-    }
-  }
-
   /// Get the current approval version.
   pub fn approval_version(&self) -> u64 {
     self.approval_version
   }
 
-  fn is_active_pending_approval(&self, entry: &PendingApprovalEntry) -> bool {
-    self
-      .pending_approval
-      .as_ref()
-      .is_some_and(|current| approval_requests_effectively_equal(current, &entry.request))
-      && self.pending_tool_name == fallback_tool_name(&entry.request)
-      && self.pending_tool_input == fallback_tool_input(&entry.request)
-      && self.pending_question.as_deref() == entry.request.question.as_deref()
-      && self.pending_approval_id.as_deref() == Some(entry.request.id.as_str())
-      && self.work_status == Self::work_status_for_approval_type(entry.approval_type)
+  fn approval_queue_state(&self) -> ApprovalQueueState {
+    let mut state = ApprovalQueueState::new(self.work_status);
+    state.pending_approval = self.pending_approval.clone();
+    state.pending_tool_name = self.pending_tool_name.clone();
+    state.pending_tool_input = self.pending_tool_input.clone();
+    state.pending_question = self.pending_question.clone();
+    state.pending_approval_id = self.pending_approval_id.clone();
+    state.pending_approvals = self.pending_approvals.clone();
+    state.approval_version = self.approval_version;
+    state
+  }
+
+  fn apply_approval_queue_state(&mut self, state: ApprovalQueueState) {
+    self.pending_approval = state.pending_approval;
+    self.pending_tool_name = state.pending_tool_name;
+    self.pending_tool_input = state.pending_tool_input;
+    self.pending_question = state.pending_question;
+    self.pending_approval_id = state.pending_approval_id;
+    self.pending_approvals = state.pending_approvals;
+    self.approval_version = state.approval_version;
+    self.work_status = state.work_status;
   }
 
   fn queue_pending_approval(
@@ -1845,63 +1349,52 @@ impl SessionHandle {
     proposed_amendment: Option<Vec<String>>,
   ) -> PendingApprovalMutation {
     let normalized_request_id = normalize_request_id(&approval.id).to_string();
-    let next_entry = PendingApprovalEntry {
-      request: approval,
+    let (state, mutation) = self.approval_queue_state().queue_pending_approval(
+      approval,
       approval_type,
       proposed_amendment,
-    };
-    if let Some(index) = self
-      .pending_approvals
-      .iter()
-      .position(|entry| normalize_request_id(&entry.request.id) == normalized_request_id)
-    {
-      if let Some(existing) = self.pending_approvals.get_mut(index) {
-        if pending_approval_entries_effectively_equal(existing, &next_entry) {
-          return PendingApprovalMutation::Unchanged;
-        }
-        *existing = next_entry;
-      }
-      self.approval_version += 1;
-      info!(
-          component = "approval",
-          event = "approval.updated",
-          session_id = %self.identity.id,
-          request_id = %normalized_request_id,
-          approval_version = self.approval_version,
-          approval_type = ?self.pending_approvals[index].approval_type,
-          queue_depth = self.pending_approvals.len(),
-          "Approval request updated in place"
-      );
-      return PendingApprovalMutation::Updated;
-    }
+    );
+    self.apply_approval_queue_state(state);
 
-    self.pending_approvals.push_back(next_entry);
-    self.approval_version += 1;
-    info!(
+    match mutation {
+      PendingApprovalMutation::Unchanged => {}
+      PendingApprovalMutation::Updated => info!(
+        component = "approval",
+        event = "approval.updated",
+        session_id = %self.identity.id,
+        request_id = %normalized_request_id,
+        approval_version = self.approval_version,
+        approval_type = ?approval_type,
+        queue_depth = self.pending_approvals.len(),
+        "Approval request updated in place"
+      ),
+      PendingApprovalMutation::Enqueued => info!(
         component = "approval",
         event = "approval.enqueued",
         session_id = %self.identity.id,
         request_id = %normalized_request_id,
         approval_version = self.approval_version,
-        approval_type = ?self.pending_approvals.back().map(|entry| entry.approval_type).unwrap_or(approval_type),
+        approval_type = ?approval_type,
         queue_depth = self.pending_approvals.len(),
         "Approval request enqueued"
-    );
-    PendingApprovalMutation::Enqueued
+      ),
+    }
+
+    mutation
   }
 
   fn promote_queue_front(&mut self) {
-    if let Some(entry) = self.pending_approvals.front() {
-      if self.is_active_pending_approval(entry) {
-        return;
-      }
-      self.pending_approval = Some(entry.request.clone());
-      self.pending_tool_name = fallback_tool_name(&entry.request);
-      self.pending_tool_input = fallback_tool_input(&entry.request);
-      self.pending_question = entry.request.question.clone();
-      self.pending_approval_id = Some(entry.request.id.clone());
-      self.work_status = Self::work_status_for_approval_type(entry.approval_type);
-      info!(
+    let active_before = self.pending_approval_id.clone();
+    let work_status_before = self.work_status;
+    let front_before = self.pending_approvals.front().cloned();
+    let state = self.approval_queue_state().promote_queue_front();
+    self.apply_approval_queue_state(state);
+
+    if let Some(entry) = front_before {
+      if active_before.as_deref() != Some(entry.request.id.as_str())
+        || work_status_before != self.work_status
+      {
+        info!(
           component = "approval",
           event = "approval.promoted",
           session_id = %self.identity.id,
@@ -1910,88 +1403,34 @@ impl SessionHandle {
           approval_type = ?entry.approval_type,
           queue_depth = self.pending_approvals.len(),
           "Promoted next approval to active"
-      );
-      return;
+        );
+      }
     }
-
-    let had_active_pending = self.pending_approval.is_some()
-      || self.pending_tool_name.is_some()
-      || self.pending_tool_input.is_some()
-      || self.pending_question.is_some()
-      || self.pending_approval_id.is_some();
-    if !had_active_pending {
-      return;
-    }
-    self.pending_approval = None;
-    self.pending_tool_name = None;
-    self.pending_tool_input = None;
-    self.pending_question = None;
-    self.pending_approval_id = None;
   }
 
   fn clear_pending_approvals(&mut self) {
     let had_approvals = !self.pending_approvals.is_empty() || self.pending_approval.is_some();
     let cleared_count = self.pending_approvals.len();
-    self.pending_approvals.clear();
-    self.pending_approval = None;
-    self.pending_tool_name = None;
-    self.pending_tool_input = None;
-    self.pending_question = None;
-    self.pending_approval_id = None;
     if had_approvals {
-      self.approval_version += 1;
+      let state = self.approval_queue_state().clear_pending_approvals();
+      self.apply_approval_queue_state(state);
       info!(
-          component = "approval",
-          event = "approval.cleared",
-          session_id = %self.identity.id,
-          approval_version = self.approval_version,
-          cleared_count,
-          "Cleared all pending approvals"
+        component = "approval",
+        event = "approval.cleared",
+        session_id = %self.identity.id,
+        approval_version = self.approval_version,
+        cleared_count,
+        "Cleared all pending approvals"
       );
     }
   }
 
   fn bootstrap_pending_approval_from_persisted_fields(&mut self) {
     if self.pending_approvals.is_empty() {
-      if let Some(request_id) = self.pending_approval_id.clone() {
-        let approval_type = self.inferred_approval_type_from_pending_fields();
-        let approval = ApprovalRequest {
-          id: request_id,
-          session_id: self.identity.id.clone(),
-          approval_type,
-          tool_name: self.pending_tool_name.clone(),
-          tool_input: self.pending_tool_input.clone(),
-          command: None,
-          file_path: None,
-          diff: None,
-          question: self.pending_question.clone(),
-          question_prompts: extract_question_prompts(
-            self.pending_tool_input.as_deref(),
-            self.pending_question.as_deref(),
-          ),
-          preview: preview_for_pending_approval(
-            self.pending_approval_id.as_deref(),
-            approval_type,
-            self.pending_tool_name.as_deref(),
-            self.pending_tool_input.as_deref(),
-            self.pending_question.as_deref(),
-          ),
-          permission_reason: None,
-          requested_permissions: None,
-          granted_permissions: None,
-          proposed_amendment: None,
-          permission_suggestions: None,
-          elicitation_mode: None,
-          elicitation_schema: None,
-          elicitation_url: None,
-          elicitation_message: None,
-          mcp_server_name: None,
-          network_host: None,
-          network_protocol: None,
-        };
-        self.queue_pending_approval(approval, approval_type, None);
-        self.promote_queue_front();
-      }
+      let state = self
+        .approval_queue_state()
+        .bootstrap_from_persisted_fields(&self.identity.id);
+      self.apply_approval_queue_state(state);
     }
   }
 
@@ -2006,45 +1445,29 @@ impl SessionHandle {
     Option<ApprovalRequest>,
     WorkStatus,
   ) {
-    let Some(head) = self.pending_approvals.front() else {
-      return (None, None, self.pending_approval.clone(), self.work_status);
-    };
-    if normalize_request_id(&head.request.id) != normalize_request_id(request_id) {
-      return (None, None, self.pending_approval.clone(), self.work_status);
-    }
+    let (state, resolution) = self
+      .approval_queue_state()
+      .resolve_pending_approval(request_id, fallback_work_status);
+    self.apply_approval_queue_state(state);
 
-    let removed = self
-      .pending_approvals
-      .pop_front()
-      .expect("pending approval queue should have head entry");
-    let removed_request_id = normalize_request_id(&removed.request.id);
-    while matches!(
-        self.pending_approvals.front(),
-        Some(entry) if normalize_request_id(&entry.request.id) == removed_request_id
-    ) {
-      let _ = self.pending_approvals.pop_front();
-    }
-    self.approval_version += 1;
-    info!(
+    if let Some(approval_type) = resolution.approval_type {
+      info!(
         component = "approval",
         event = "approval.decided",
         session_id = %self.identity.id,
-        request_id = %removed.request.id,
+        request_id = %request_id,
         approval_version = self.approval_version,
-        approval_type = ?removed.approval_type,
+        approval_type = ?approval_type,
         queue_depth = self.pending_approvals.len(),
         "Approval decided and removed from queue"
-    );
-    self.promote_queue_front();
-    if self.pending_approvals.is_empty() {
-      self.work_status = fallback_work_status;
+      );
     }
 
     (
-      Some(removed.approval_type),
-      removed.proposed_amendment,
-      self.pending_approval.clone(),
-      self.work_status,
+      resolution.approval_type,
+      resolution.proposed_amendment,
+      resolution.active_approval,
+      resolution.work_status,
     )
   }
 
@@ -2231,48 +1654,25 @@ impl SessionHandle {
 
   /// Create a snapshot of current session metadata
   pub fn to_snapshot(&self) -> SessionSnapshot {
-    SessionSnapshot {
-      id: self.identity.id.clone(),
-      provider: self.identity.provider,
+    build_session_snapshot(SessionSnapshotInput {
+      identity: &self.identity,
+      config: &self.config,
+      display: &self.display,
+      environment: &self.environment,
+      timestamps: &self.timestamps,
       status: self.status,
       work_status: self.work_status,
       control_mode: self.control_mode,
       lifecycle_state: self.lifecycle_state,
       steerable: self.steerable,
-      project_path: self.identity.project_path.clone(),
-      project_name: self.identity.project_name.clone(),
-      transcript_path: self.identity.transcript_path.clone(),
-      custom_name: self.display.custom_name.clone(),
-      summary: self.display.summary.clone(),
-      model: self.config.model.clone(),
       codex_integration_mode: self.codex_integration_mode,
       claude_integration_mode: self.claude_integration_mode,
-      approval_policy: self.config.approval_policy.clone(),
-      approval_policy_details: self.config.approval_policy_details.clone(),
-      sandbox_mode: self.config.sandbox_mode.clone(),
-      sandbox_policy_details: self.config.sandbox_policy_details.clone(),
-      permission_mode: self.permission_mode.clone(),
-      collaboration_mode: self.config.collaboration_mode.clone(),
-      multi_agent: self.config.multi_agent,
-      personality: self.config.personality.clone(),
-      service_tier: self.config.service_tier.clone(),
-      developer_instructions: self.config.developer_instructions.clone(),
-      codex_config_mode: self.config.codex_config_mode,
-      codex_config_profile: self.config.codex_config_profile.clone(),
-      codex_model_provider: self.config.codex_model_provider.clone(),
-      codex_config_source: self.config.codex_config_source,
-      codex_config_overrides: self.config.codex_config_overrides.clone(),
-      has_pending_approval: self.pending_approval.is_some()
-        || self.pending_tool_name.is_some()
-        || self.pending_question.is_some()
-        || self.pending_approval_id.is_some(),
-      pending_tool_name: self.pending_tool_name.clone(),
-      pending_tool_input: self.pending_tool_input.clone(),
-      pending_question: self.pending_question.clone(),
-      pending_approval_id: self
-        .pending_approval_id
-        .clone()
-        .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
+      pending_approval: self.pending_approval.as_ref(),
+      pending_tool_name: self.pending_tool_name.as_deref(),
+      pending_tool_input: self.pending_tool_input.as_deref(),
+      pending_question: self.pending_question.as_deref(),
+      pending_approval_id: self.pending_approval_id.as_deref(),
+      permission_mode: self.permission_mode.as_deref(),
       message_count: self.total_row_count as usize,
       active_worker_count: self
         .subagents
@@ -2280,34 +1680,25 @@ impl SessionHandle {
         .filter(|subagent| subagent.ended_at.is_none())
         .count() as u32,
       tool_count: self.tool_count,
-      token_usage: self.token_usage.clone(),
+      token_usage: &self.token_usage,
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
-      started_at: self.timestamps.started_at.clone(),
-      last_activity_at: self.timestamps.last_activity_at.clone(),
-      last_progress_at: self.timestamps.last_progress_at.clone(),
       revision: self.revision,
-      current_plan: self.current_plan.clone(),
-      current_diff: self.current_diff.clone(),
-      git_branch: self.environment.git_branch.clone(),
-      git_sha: self.environment.git_sha.clone(),
-      current_cwd: self.environment.current_cwd.clone(),
-      effort: self.config.effort.clone(),
-      first_prompt: self.display.first_prompt.clone(),
-      last_message: self.display.last_message.clone(),
-      terminal_session_id: self.terminal_session_id.clone(),
-      terminal_app: self.terminal_app.clone(),
+      current_plan: self.current_plan.as_deref(),
+      current_diff: self.current_diff.as_deref(),
       approval_version: self.approval_version,
-      repository_root: self.environment.repository_root.clone(),
+      terminal_session_id: self.terminal_session_id.as_deref(),
+      terminal_app: self.terminal_app.as_deref(),
+      repository_root: self.environment.repository_root.as_deref(),
       is_worktree: self.environment.is_worktree,
-      worktree_id: self.environment.worktree_id.clone(),
+      worktree_id: self.environment.worktree_id.as_deref(),
       has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
       subscriber_count: self.broadcast_tx.receiver_count(),
       unread_count: self.unread_count,
-      mission_id: self.mission_id.clone(),
-      issue_identifier: self.issue_identifier.clone(),
+      mission_id: self.mission_id.as_deref(),
+      issue_identifier: self.issue_identifier.as_deref(),
       allow_bypass_permissions: self.allow_bypass_permissions,
-      newest_synced_row_id: self.newest_synced_row_id.clone(),
-    }
+      newest_synced_row_id: self.newest_synced_row_id.as_deref(),
+    })
   }
 
   /// Update the ArcSwap snapshot (call after mutations)
@@ -2544,10 +1935,6 @@ fn serialize_with_revision(
 
 fn chrono_now() -> String {
   crate::support::session_time::chrono_now()
-}
-
-fn normalize_request_id(value: &str) -> &str {
-  value.trim()
 }
 
 #[cfg(test)]

@@ -1,6 +1,10 @@
+pub(crate) mod approval_state;
 pub(crate) mod conversation;
+pub(crate) mod conversation_state;
 pub(crate) mod dashboard_projection;
 pub(crate) mod facets;
+pub(crate) mod restore;
 pub(crate) mod session;
 pub(crate) mod session_naming;
+pub(crate) mod snapshot;
 pub(crate) mod transition;
