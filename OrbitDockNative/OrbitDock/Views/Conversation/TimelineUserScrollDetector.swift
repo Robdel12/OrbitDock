@@ -19,18 +19,23 @@ import SwiftUI
 
   struct TimelineUserScrollDetector: NSViewRepresentable {
     @Binding var isUserScrolling: Bool
+    @Binding var isNearTop: Bool
     @Binding var isNearBottom: Bool
+    let topThreshold: CGFloat
     let bottomThreshold: CGFloat
 
     func makeNSView(context: Context) -> ScrollDetectorNSView {
       ScrollDetectorNSView(
         isUserScrolling: $isUserScrolling,
+        isNearTop: $isNearTop,
         isNearBottom: $isNearBottom,
+        topThreshold: topThreshold,
         bottomThreshold: bottomThreshold
       )
     }
 
     func updateNSView(_ nsView: ScrollDetectorNSView, context: Context) {
+      nsView.topThreshold = topThreshold
       nsView.bottomThreshold = bottomThreshold
       nsView.refreshMetrics()
     }
@@ -38,24 +43,31 @@ import SwiftUI
 
   final class ScrollDetectorNSView: NSView {
     private let isUserScrolling: Binding<Bool>
+    private let isNearTop: Binding<Bool>
     private let isNearBottom: Binding<Bool>
     private weak var observedScrollView: NSScrollView?
+    var topThreshold: CGFloat
     var bottomThreshold: CGFloat
 
     // Track last-written values to coalesce redundant async dispatches.
     // Binding writes are deferred to the next run loop iteration so they
     // never fire during SwiftUI's layout pass (which triggers the
     // "Modifying state during view update" warnings).
+    private var lastWrittenNearTop: Bool = false
     private var lastWrittenNearBottom: Bool = true
     private var lastWrittenUserScrolling: Bool = false
 
     init(
       isUserScrolling: Binding<Bool>,
+      isNearTop: Binding<Bool>,
       isNearBottom: Binding<Bool>,
+      topThreshold: CGFloat,
       bottomThreshold: CGFloat
     ) {
       self.isUserScrolling = isUserScrolling
+      self.isNearTop = isNearTop
       self.isNearBottom = isNearBottom
+      self.topThreshold = topThreshold
       self.bottomThreshold = bottomThreshold
       super.init(frame: .zero)
     }
@@ -148,14 +160,26 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = observedScrollView, let documentView = scrollView.documentView else {
+        deferNearTop(true)
         deferNearBottom(true)
         return
       }
 
+      let distanceFromTop = max(scrollView.contentView.documentVisibleRect.minY, 0)
       let visibleMaxY = scrollView.contentView.documentVisibleRect.maxY
       let contentMaxY = documentView.bounds.maxY
       let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
+      deferNearTop(distanceFromTop <= topThreshold)
       deferNearBottom(distanceFromBottom <= bottomThreshold)
+    }
+
+    private func deferNearTop(_ value: Bool) {
+      guard lastWrittenNearTop != value else { return }
+      lastWrittenNearTop = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isNearTop.wrappedValue = value
+      }
     }
 
     private func deferNearBottom(_ value: Bool) {
@@ -200,18 +224,23 @@ import SwiftUI
 
   struct TimelineUserScrollDetector: UIViewRepresentable {
     @Binding var isUserScrolling: Bool
+    @Binding var isNearTop: Bool
     @Binding var isNearBottom: Bool
+    let topThreshold: CGFloat
     let bottomThreshold: CGFloat
 
     func makeUIView(context: Context) -> ScrollDetectorUIView {
       ScrollDetectorUIView(
         isUserScrolling: $isUserScrolling,
+        isNearTop: $isNearTop,
         isNearBottom: $isNearBottom,
+        topThreshold: topThreshold,
         bottomThreshold: bottomThreshold
       )
     }
 
     func updateUIView(_ uiView: ScrollDetectorUIView, context: Context) {
+      uiView.topThreshold = topThreshold
       uiView.bottomThreshold = bottomThreshold
       uiView.refreshMetrics()
     }
@@ -219,7 +248,9 @@ import SwiftUI
 
   final class ScrollDetectorUIView: UIView {
     var isUserScrolling: Binding<Bool>
+    var isNearTop: Binding<Bool>
     var isNearBottom: Binding<Bool>
+    var topThreshold: CGFloat
     var bottomThreshold: CGFloat
     private var panObservation: NSKeyValueObservation?
     private var decelerationObservation: NSKeyValueObservation?
@@ -228,16 +259,21 @@ import SwiftUI
     private var boundsObservation: NSKeyValueObservation?
 
     // Track last-written values to coalesce redundant async dispatches.
+    private var lastWrittenNearTop: Bool = false
     private var lastWrittenNearBottom: Bool = true
     private var lastWrittenUserScrolling: Bool = false
 
     init(
       isUserScrolling: Binding<Bool>,
+      isNearTop: Binding<Bool>,
       isNearBottom: Binding<Bool>,
+      topThreshold: CGFloat,
       bottomThreshold: CGFloat
     ) {
       self.isUserScrolling = isUserScrolling
+      self.isNearTop = isNearTop
       self.isNearBottom = isNearBottom
+      self.topThreshold = topThreshold
       self.bottomThreshold = bottomThreshold
       super.init(frame: .zero)
       isUserInteractionEnabled = false
@@ -316,15 +352,27 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = findScrollView() else {
+        deferNearTop(true)
         deferNearBottom(true)
         return
       }
 
+      let distanceFromTop = max(scrollView.contentOffset.y + scrollView.adjustedContentInset.top, 0)
       let insetBottom = scrollView.adjustedContentInset.bottom
       let visibleMaxY = scrollView.contentOffset.y + scrollView.bounds.height - insetBottom
       let contentMaxY = scrollView.contentSize.height
       let distanceFromBottom = max(contentMaxY - visibleMaxY, 0)
+      deferNearTop(distanceFromTop <= topThreshold)
       deferNearBottom(distanceFromBottom <= bottomThreshold)
+    }
+
+    private func deferNearTop(_ value: Bool) {
+      guard lastWrittenNearTop != value else { return }
+      lastWrittenNearTop = value
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.isNearTop.wrappedValue = value
+      }
     }
 
     private func deferNearBottom(_ value: Bool) {
