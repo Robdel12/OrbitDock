@@ -23,7 +23,7 @@ struct SessionContinuationTests {
     #expect(prompt.contains("Then continue the work in this session"))
   }
 
-  @Test func supportRequiresLocalServerAndAllowsLegacyFallbackWithoutInstanceIds() {
+  @Test func supportRequiresLocalServerAndRestrictsLegacyFallbackToSameEndpoint() {
     let sourceEndpointId = UUID()
     let otherEndpointId = UUID()
     let continuation = SessionContinuation(
@@ -39,7 +39,7 @@ struct SessionContinuationTests {
     )
 
     #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil))
-    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil))
+    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil) == false)
     #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: true, selectedServerInstanceId: nil) == false)
   }
 }

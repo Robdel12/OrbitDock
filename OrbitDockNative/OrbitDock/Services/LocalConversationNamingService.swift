@@ -85,6 +85,16 @@ enum LocalConversationNamingDecision: Equatable {
 }
 
 nonisolated enum LocalConversationNamingPlanner {
+  private static let bootstrapPromptMarkers = [
+    "<environment_context>",
+    "<permissions instructions>",
+    "<collaboration_mode>",
+    "<skill>",
+    "<turn_aborted>",
+    "the user interrupted the previous turn on purpose",
+    "agents.md instructions for",
+  ]
+
   static func decision(
     prompt: String,
     sessionState: LocalConversationNamingSessionState?
@@ -138,25 +148,15 @@ nonisolated enum LocalConversationNamingPlanner {
 
   static func isBootstrapPrompt(_ value: String) -> Bool {
     let lower = value.lowercased()
-    return lower.contains("<environment_context>")
-      || lower.contains("<permissions instructions>")
-      || lower.contains("<collaboration_mode>")
-      || lower.contains("<skill>")
-      || lower.contains("<turn_aborted>")
-      || lower.contains("the user interrupted the previous turn on purpose")
-      || lower.contains("agents.md instructions for")
+    return bootstrapPromptMarkers.contains { lower.contains($0) }
   }
 
   static func matchesProjectLabel(_ title: String, projectName: String?, projectLeaf: String?) -> Bool {
     let normalizedTitle = normalizedLabel(title)
     guard !normalizedTitle.isEmpty else { return false }
 
-    let candidates = [projectName, projectLeaf]
-      .compactMap(cleanOptionalText)
-      .map(normalizedLabel)
-      .filter { !$0.isEmpty }
-
-    return candidates.contains(normalizedTitle)
+    return normalizedProjectLabels(projectName: projectName, projectLeaf: projectLeaf)
+      .contains(normalizedTitle)
   }
 
   private static func normalizedLabel(_ value: String) -> String {
@@ -165,6 +165,16 @@ nonisolated enum LocalConversationNamingPlanner {
       .components(separatedBy: CharacterSet.alphanumerics.inverted)
       .filter { !$0.isEmpty }
       .joined(separator: " ")
+  }
+
+  private static func normalizedProjectLabels(
+    projectName: String?,
+    projectLeaf: String?
+  ) -> [String] {
+    [projectName, projectLeaf]
+      .compactMap(cleanOptionalText)
+      .map(normalizedLabel)
+      .filter { !$0.isEmpty }
   }
 }
 
@@ -262,23 +272,9 @@ nonisolated enum LocalNamingAvailabilityResolver {
       projectName: String?,
       projectLeaf: String?
     ) -> String {
-      var lines = [
-        "First user prompt:",
-        firstPrompt,
-      ]
-
-      if let projectName = LocalConversationNamingPlanner.cleanOptionalText(projectName) {
-        lines.append("")
-        lines.append("Project name:")
-        lines.append(projectName)
-      }
-
-      if let projectLeaf = LocalConversationNamingPlanner.cleanOptionalText(projectLeaf) {
-        lines.append("")
-        lines.append("Project folder:")
-        lines.append(projectLeaf)
-      }
-
+      var lines = ["First user prompt:", firstPrompt]
+      appendContextSection("Project name:", value: projectName, to: &lines)
+      appendContextSection("Project folder:", value: projectLeaf, to: &lines)
       return lines.joined(separator: "\n")
     }
 
@@ -313,6 +309,17 @@ nonisolated enum LocalNamingAvailabilityResolver {
       }
 
       return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func appendContextSection(
+      _ title: String,
+      value: String?,
+      to lines: inout [String]
+    ) {
+      guard let value = LocalConversationNamingPlanner.cleanOptionalText(value) else { return }
+      lines.append("")
+      lines.append(title)
+      lines.append(value)
     }
   }
 #endif

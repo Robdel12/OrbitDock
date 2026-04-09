@@ -85,9 +85,9 @@ struct SessionContinuation: Hashable, Sendable {
     }
 
     // Legacy fallback for older servers that do not report instance IDs yet.
-    // In that case, permit local-to-local continuation rather than hard-failing
-    // on endpoint UUID mismatches.
-    return true
+    // Only allow continuation on the same selected endpoint so we do not offer
+    // cross-endpoint continuation before server metadata has loaded.
+    return self.endpointId == endpointId
   }
 
   func bootstrapPrompt() -> String {

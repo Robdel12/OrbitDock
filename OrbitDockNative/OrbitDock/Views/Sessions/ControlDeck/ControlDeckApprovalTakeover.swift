@@ -322,20 +322,11 @@ struct ControlDeckApprovalTakeover: View {
   // MARK: - Question Content
 
   private var isMultiPromptQuestion: Bool {
-    guard case let .question(prompts) = approval.kind else { return false }
-    return prompts.count > 1
+    questionPrompts.count > 1
   }
 
   private var allPromptsAnswered: Bool {
-    guard case let .question(prompts) = approval.kind else { return false }
-    return prompts.allSatisfy { prompt in
-      if prompt.isFreeForm {
-        let draft = answerDrafts[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return !draft.isEmpty
-      } else {
-        return !(selectedAnswers[prompt.id] ?? []).isEmpty
-      }
-    }
+    questionPrompts.allSatisfy(hasAnswer(for:))
   }
 
   private func questionContent(prompts: [ControlDeckApproval.Prompt]) -> some View {
@@ -376,18 +367,11 @@ struct ControlDeckApprovalTakeover: View {
   }
 
   private func submitAllAnswers() {
-    guard case let .question(prompts) = approval.kind else { return }
-
     // Claude Code expects answers keyed by question text, not prompt ID
     var answers: [String: [String]] = [:]
-    for prompt in prompts {
-      if prompt.isFreeForm {
-        let draft = answerDrafts[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !draft.isEmpty {
-          answers[prompt.question] = [draft]
-        }
-      } else if let selected = selectedAnswers[prompt.id], !selected.isEmpty {
-        answers[prompt.question] = selected
+    for prompt in questionPrompts {
+      if let response = responseValues(for: prompt) {
+        answers[prompt.question] = response
       }
     }
 
@@ -433,7 +417,7 @@ struct ControlDeckApprovalTakeover: View {
   }
 
   private func questionOptions(_ prompt: ControlDeckApproval.Prompt, isMultiPrompt: Bool = false) -> some View {
-    let currentSelections = selectedAnswers[prompt.id] ?? []
+    let currentSelections = responseValues(for: prompt) ?? []
 
     return VStack(spacing: Spacing.xs) {
       ForEach(prompt.options) { option in
@@ -513,7 +497,7 @@ struct ControlDeckApprovalTakeover: View {
 
   private func answerField(prompt: ControlDeckApproval.Prompt, placeholder: String = "Type your answer", isMultiPrompt: Bool = false) -> some View {
     let text = Binding<String>(
-      get: { answerDrafts[prompt.id] ?? "" },
+      get: { draftedAnswer(for: prompt) },
       set: { answerDrafts[prompt.id] = $0 }
     )
 
@@ -532,23 +516,23 @@ struct ControlDeckApprovalTakeover: View {
       // Only show inline submit for single-prompt free-form questions.
       if !isMultiPrompt {
         Button {
-          let answer = text.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+          let answer = draftedAnswer(for: prompt)
           guard !answer.isEmpty else { return }
           onAnswer?(answer, prompt.id)
           answerDrafts[prompt.id] = ""
         } label: {
           Image(systemName: "arrow.up")
             .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(submissionText(prompt.id).isEmpty ? Color.textQuaternary : Color.backgroundPrimary)
+            .foregroundStyle(draftedAnswer(for: prompt).isEmpty ? Color.textQuaternary : Color.backgroundPrimary)
             .frame(width: answerSubmitSize, height: answerSubmitSize)
             .background(
-              submissionText(prompt.id).isEmpty ? Color.backgroundTertiary : Color.statusQuestion,
+              draftedAnswer(for: prompt).isEmpty ? Color.backgroundTertiary : Color.statusQuestion,
               in: Circle()
             )
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(submissionText(prompt.id).isEmpty)
+        .disabled(draftedAnswer(for: prompt).isEmpty)
       }
     }
     .padding(.horizontal, Spacing.sm)
@@ -558,6 +542,29 @@ struct ControlDeckApprovalTakeover: View {
 
   private var answerSubmitSize: CGFloat {
     isCompact ? 28 : 24
+  }
+
+  private var questionPrompts: [ControlDeckApproval.Prompt] {
+    guard case let .question(prompts) = approval.kind else { return [] }
+    return prompts
+  }
+
+  private func draftedAnswer(for prompt: ControlDeckApproval.Prompt) -> String {
+    answerDrafts[prompt.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+  }
+
+  private func responseValues(for prompt: ControlDeckApproval.Prompt) -> [String]? {
+    if prompt.isFreeForm {
+      let answer = draftedAnswer(for: prompt)
+      return answer.isEmpty ? nil : [answer]
+    }
+
+    guard let values = selectedAnswers[prompt.id], !values.isEmpty else { return nil }
+    return values
+  }
+
+  private func hasAnswer(for prompt: ControlDeckApproval.Prompt) -> Bool {
+    responseValues(for: prompt) != nil
   }
 
   // MARK: - Permission Content
@@ -746,9 +753,5 @@ struct ControlDeckApprovalTakeover: View {
     .padding(.horizontal, Spacing.sm_)
     .padding(.vertical, Spacing.gap)
     .background(tint.opacity(OpacityTier.light), in: Capsule())
-  }
-
-  private func submissionText(_ promptId: String) -> String {
-    answerDrafts[promptId]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
   }
 }

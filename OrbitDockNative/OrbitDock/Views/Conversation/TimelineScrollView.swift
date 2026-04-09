@@ -45,6 +45,7 @@ struct TimelineScrollView: View {
   @State private var hasDetachedFromBottomDuringCurrentGesture = false
   @State private var renderedEntryLimit = Self.defaultRecentRenderWindow
   @State private var pendingHistoryReveal = false
+  @State private var pendingNearTopLoad = false
 
   private var recentRenderWindow: Int {
     sizeClass == .compact ? 40 : 60
@@ -76,8 +77,7 @@ struct TimelineScrollView: View {
             .id("pagination-\(rendered.first?.sequence ?? 0)")
             .onAppear {
               guard isNearTop else { return }
-              guard hasInitializedScrollPosition, !localFollowState.mode.isFollowing else { return }
-              loadMoreIfNeeded(
+              requestLoadMoreIfNeeded(
                 totalCount: displayedCount,
                 hiddenRenderedCount: hiddenRenderedCount,
                 firstRenderedAnchorID: rendered.first?.id,
@@ -124,6 +124,14 @@ struct TimelineScrollView: View {
           syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
           setPinnedScrollPosition()
         }
+        if pendingNearTopLoad || isNearTop {
+          requestLoadMoreIfNeeded(
+            totalCount: displayedCount,
+            hiddenRenderedCount: hiddenRenderedCount,
+            firstRenderedAnchorID: rendered.first?.id,
+            with: proxy
+          )
+        }
       }
       .onChange(of: displayedCount) { oldCount, newCount in
         let countDelta = newCount - oldCount
@@ -154,8 +162,7 @@ struct TimelineScrollView: View {
       }
       .onChange(of: isNearTop) { _, isVisible in
         guard isVisible else { return }
-        guard hasInitializedScrollPosition, !localFollowState.mode.isFollowing else { return }
-        loadMoreIfNeeded(
+        requestLoadMoreIfNeeded(
           totalCount: displayedCount,
           hiddenRenderedCount: hiddenRenderedCount,
           firstRenderedAnchorID: rendered.first?.id,
@@ -354,6 +361,27 @@ struct TimelineScrollView: View {
 
     pendingHistoryReveal = true
     onLoadMore?()
+  }
+
+  private func requestLoadMoreIfNeeded(
+    totalCount: Int,
+    hiddenRenderedCount: Int,
+    firstRenderedAnchorID: String?,
+    with proxy: ScrollViewProxy
+  ) {
+    guard !localFollowState.mode.isFollowing else { return }
+    guard hasInitializedScrollPosition else {
+      pendingNearTopLoad = true
+      return
+    }
+
+    pendingNearTopLoad = false
+    loadMoreIfNeeded(
+      totalCount: totalCount,
+      hiddenRenderedCount: hiddenRenderedCount,
+      firstRenderedAnchorID: firstRenderedAnchorID,
+      with: proxy
+    )
   }
 
 }

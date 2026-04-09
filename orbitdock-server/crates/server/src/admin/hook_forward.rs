@@ -18,6 +18,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use crate::infrastructure::{crypto, paths};
 
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
+const HOOK_SPOOL_DIR_NAME: &str = "hook-forward-spool";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 
@@ -306,7 +307,22 @@ async fn forward_hook(target: &HookTarget, body: &str) -> anyhow::Result<()> {
     .timeout(Duration::from_secs(5))
     .build()?;
 
-  post_hook(&client, target, body).await
+  let spool_dir = hook_spool_dir();
+  let queued = load_spooled_hooks(&spool_dir);
+
+  for (path, queued_body) in queued {
+    if post_hook(&client, target, &queued_body).await.is_err() {
+      spool_hook(&spool_dir, body)?;
+      return Ok(());
+    }
+    let _ = std::fs::remove_file(path);
+  }
+
+  if post_hook(&client, target, body).await.is_err() {
+    spool_hook(&spool_dir, body)?;
+  }
+
+  Ok(())
 }
 
 async fn post_hook(
@@ -328,6 +344,56 @@ async fn post_hook(
   if !response.status().is_success() {
     anyhow::bail!("hook request failed with status {}", response.status());
   }
+  Ok(())
+}
+
+fn hook_spool_dir() -> PathBuf {
+  paths::data_dir().join(HOOK_SPOOL_DIR_NAME)
+}
+
+fn load_spooled_hooks(spool_dir: &Path) -> Vec<(PathBuf, String)> {
+  let entries = match std::fs::read_dir(spool_dir) {
+    Ok(entries) => entries,
+    Err(_) => return Vec::new(),
+  };
+
+  let mut queued: Vec<_> = entries
+    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+    .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+    .filter_map(|path| std::fs::read_to_string(&path).ok().map(|body| (path, body)))
+    .collect();
+  queued.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+  queued
+}
+
+fn spool_hook(spool_dir: &Path, body: &str) -> anyhow::Result<()> {
+  std::fs::create_dir_all(spool_dir)?;
+  let filename = format!(
+    "{}-{}.json",
+    chrono::Utc::now().timestamp_millis(),
+    std::process::id()
+  );
+  let path = spool_dir.join(filename);
+
+  #[cfg(unix)]
+  {
+    let mut file = std::fs::OpenOptions::new()
+      .write(true)
+      .create_new(true)
+      .mode(0o600)
+      .open(&path)
+      .with_context(|| format!("open {} for write", path.display()))?;
+    file
+      .write_all(body.as_bytes())
+      .with_context(|| format!("write {}", path.display()))?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+      .with_context(|| format!("chmod 600 {}", path.display()))?;
+  }
+  #[cfg(not(unix))]
+  {
+    std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+  }
+
   Ok(())
 }
 

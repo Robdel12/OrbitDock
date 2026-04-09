@@ -160,7 +160,7 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = observedScrollView, let documentView = scrollView.documentView else {
-        deferNearTop(true)
+        deferNearTop(false)
         deferNearBottom(true)
         return
       }
@@ -352,7 +352,7 @@ import SwiftUI
 
     func refreshMetrics() {
       guard let scrollView = findScrollView() else {
-        deferNearTop(true)
+        deferNearTop(false)
         deferNearBottom(true)
         return
       }

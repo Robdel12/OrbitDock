@@ -144,21 +144,10 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   let is_primary = persisted_is_primary.unwrap_or(options.startup_is_primary);
   let persisted_workspace_provider_value =
     crate::infrastructure::persistence::load_config_value("workspace_provider");
-  let persisted_server_instance_id = crate::infrastructure::persistence::load_config_value(
-    "server_instance_id",
-  )
-  .and_then(|value| {
-    let trimmed = value.trim().to_string();
-    if trimmed.is_empty() {
-      None
-    } else {
-      Some(trimmed)
-    }
-  });
-  let server_instance_id =
-    persisted_server_instance_id
-      .clone()
-      .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+  let persisted_server_instance_id = load_trimmed_config_value("server_instance_id");
+  let server_instance_id = persisted_server_instance_id
+    .clone()
+    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
   let workspace_provider_kind = resolve_workspace_provider_kind(
     options.workspace_provider_override,
     persisted_workspace_provider_value.clone(),
@@ -1005,6 +994,17 @@ fn binary_metadata(path: &str) -> (u64, i64) {
     .map(|duration| duration.as_secs() as i64)
     .unwrap_or(0);
   (size, modified)
+}
+
+fn load_trimmed_config_value(key: &str) -> Option<String> {
+  crate::infrastructure::persistence::load_config_value(key).and_then(|value| {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+      None
+    } else {
+      Some(trimmed.to_string())
+    }
+  })
 }
 
 #[cfg(test)]

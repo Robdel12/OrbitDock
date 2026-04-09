@@ -31,17 +31,7 @@ pub fn dashboard_snapshot_from_registry(registry: &SessionRegistry) -> Dashboard
       .then_with(|| rhs.last_activity_at.cmp(&lhs.last_activity_at))
       .then_with(|| lhs.display_title.cmp(&rhs.display_title))
   });
-  let pre_dedupe_count = conversations.len();
   conversations = dedupe_conversations_by_session_id(conversations);
-  let duplicate_count = pre_dedupe_count.saturating_sub(conversations.len());
-  if duplicate_count > 0 {
-    tracing::warn!(
-      component = "dashboard",
-      event = "dashboard.snapshot.duplicate_session_ids",
-      duplicate_count,
-      "Dropped duplicate dashboard conversations by session_id"
-    );
-  }
 
   let mut counts = DashboardCounts {
     attention: 0,
@@ -82,6 +72,7 @@ pub fn dashboard_snapshot_from_registry(registry: &SessionRegistry) -> Dashboard
 fn dedupe_conversations_by_session_id(
   conversations: Vec<DashboardConversationItem>,
 ) -> Vec<DashboardConversationItem> {
+  let original_len = conversations.len();
   let mut seen_session_ids: HashSet<String> = HashSet::with_capacity(conversations.len());
   let mut deduped: Vec<DashboardConversationItem> = Vec::with_capacity(conversations.len());
 
@@ -89,6 +80,16 @@ fn dedupe_conversations_by_session_id(
     if seen_session_ids.insert(conversation.session_id.clone()) {
       deduped.push(conversation);
     }
+  }
+
+  let duplicate_count = original_len.saturating_sub(deduped.len());
+  if duplicate_count > 0 {
+    tracing::warn!(
+      component = "dashboard",
+      event = "dashboard.snapshot.duplicate_session_ids",
+      duplicate_count,
+      "Dropped duplicate dashboard conversations by session_id"
+    );
   }
 
   deduped
@@ -187,8 +188,8 @@ struct ProjectGroupBuilder {
 mod tests {
   use super::dedupe_conversations_by_session_id;
   use orbitdock_protocol::{
-    DashboardConversationItem, Provider, SessionControlMode, SessionLifecycleState, SessionListStatus,
-    SessionStatus, WorkStatus,
+    DashboardConversationItem, Provider, SessionControlMode, SessionLifecycleState,
+    SessionListStatus, SessionStatus, WorkStatus,
   };
 
   #[test]
@@ -197,11 +198,8 @@ mod tests {
     let duplicate = dashboard_item("dup", "Older Duplicate", Some("2026-04-08T11:00:00Z"));
     let distinct = dashboard_item("other", "Other Session", Some("2026-04-08T10:00:00Z"));
 
-    let deduped = dedupe_conversations_by_session_id(vec![
-      first.clone(),
-      duplicate,
-      distinct.clone(),
-    ]);
+    let deduped =
+      dedupe_conversations_by_session_id(vec![first.clone(), duplicate, distinct.clone()]);
 
     assert_eq!(deduped.len(), 2);
     assert_eq!(deduped[0].session_id, "dup");
