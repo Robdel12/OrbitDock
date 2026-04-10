@@ -475,25 +475,22 @@ mod tests {
   use orbitdock_protocol::{SessionControlMode, SessionLifecycleState, TokenUsageSnapshotKind};
 
   #[test]
-  fn parse_provider_valid_lowercase() {
-    assert_eq!(parse_provider("claude"), Provider::Claude);
-    assert_eq!(parse_provider("codex"), Provider::Codex);
-  }
-
-  #[test]
-  fn parse_provider_valid_mixed_case() {
-    assert_eq!(parse_provider("Claude"), Provider::Claude);
-    assert_eq!(parse_provider("CLAUDE"), Provider::Claude);
-    assert_eq!(parse_provider("Codex"), Provider::Codex);
-    assert_eq!(parse_provider("CODEX"), Provider::Codex);
-  }
-
-  #[test]
-  fn parse_provider_invalid_falls_back_to_claude() {
-    assert_eq!(parse_provider(""), Provider::Claude);
-    assert_eq!(parse_provider("gpt4"), Provider::Claude);
-    assert_eq!(parse_provider("unknown"), Provider::Claude);
-    assert_eq!(parse_provider("  codex  "), Provider::Claude);
+  fn parse_provider_accepts_known_values_and_falls_back_for_unknowns() {
+    let cases = [
+      ("claude", Provider::Claude),
+      ("Claude", Provider::Claude),
+      ("CLAUDE", Provider::Claude),
+      ("codex", Provider::Codex),
+      ("Codex", Provider::Codex),
+      ("CODEX", Provider::Codex),
+      ("", Provider::Claude),
+      ("gpt4", Provider::Claude),
+      ("unknown", Provider::Claude),
+      ("  codex  ", Provider::Claude),
+    ];
+    for (raw, expected) in cases {
+      assert_eq!(parse_provider(raw), expected, "raw input: {raw:?}");
+    }
   }
 
   #[test]

@@ -886,130 +886,100 @@ mod tests {
     }
   }
 
+  fn issue_items_for_filter_contracts() -> Vec<ProjectItem> {
+    let mut empty_status = issue_item(None, &[]);
+    empty_status.field_value_by_name = Some(StatusFieldValue { name: None });
+
+    vec![
+      issue_item(Some("In Progress"), &["Bug"]),
+      issue_item(Some("in progress"), &["bug"]),
+      issue_item(Some("IN PROGRESS"), &["BUG"]),
+      issue_item(Some("Todo"), &["feature"]),
+      issue_item(None, &["bug"]),
+      empty_status,
+    ]
+  }
+
+  fn issue_items_for_unfiltered_contract() -> Vec<ProjectItem> {
+    vec![
+      issue_item(Some("Todo"), &[]),
+      issue_item(None, &["bug"]),
+      issue_item(None, &["enhancement", "p1"]),
+      issue_item(None, &["docs"]),
+    ]
+  }
+
   // ── parse_identifier ─────────────────────────────────────────────
 
   #[test]
-  fn parse_valid_identifier() {
-    let (owner, repo, number) = GitHubClient::parse_identifier("owner/repo#42").unwrap();
-    assert_eq!(owner, "owner");
-    assert_eq!(repo, "repo");
-    assert_eq!(number, 42);
-  }
+  fn parse_identifier_accepts_valid_inputs_and_rejects_invalid_ones() {
+    for (input, expected_owner, expected_repo, expected_number) in [
+      ("owner/repo#42", "owner", "repo", 42),
+      ("my-org/my-repo#99999", "my-org", "my-repo", 99_999),
+    ] {
+      let (owner, repo, number) = GitHubClient::parse_identifier(input).unwrap();
+      assert_eq!(owner, expected_owner);
+      assert_eq!(repo, expected_repo);
+      assert_eq!(number, expected_number);
+    }
 
-  #[test]
-  fn parse_valid_identifier_large_number() {
-    let (owner, repo, number) = GitHubClient::parse_identifier("my-org/my-repo#99999").unwrap();
-    assert_eq!(owner, "my-org");
-    assert_eq!(repo, "my-repo");
-    assert_eq!(number, 99999);
-  }
-
-  #[test]
-  fn parse_missing_hash() {
-    let err = GitHubClient::parse_identifier("owner/repo42").unwrap_err();
-    assert!(
-      err.to_string().contains("Invalid GitHub identifier format"),
-      "unexpected error: {err}"
-    );
-  }
-
-  #[test]
-  fn parse_missing_owner() {
-    let err = GitHubClient::parse_identifier("/repo#42").unwrap_err();
-    assert!(
-      err.to_string().contains("Invalid GitHub identifier format"),
-      "unexpected error: {err}"
-    );
-  }
-
-  #[test]
-  fn parse_missing_repo() {
-    let err = GitHubClient::parse_identifier("owner/#42").unwrap_err();
-    assert!(
-      err.to_string().contains("Invalid GitHub identifier format"),
-      "unexpected error: {err}"
-    );
-  }
-
-  #[test]
-  fn parse_non_numeric_issue_number() {
-    let err = GitHubClient::parse_identifier("owner/repo#abc").unwrap_err();
-    assert!(
-      err.to_string().contains("Invalid issue number"),
-      "unexpected error: {err}"
-    );
+    for (input, expected_message) in [
+      ("owner/repo42", "Invalid GitHub identifier format"),
+      ("/repo#42", "Invalid GitHub identifier format"),
+      ("owner/#42", "Invalid GitHub identifier format"),
+      ("owner/repo#abc", "Invalid issue number"),
+    ] {
+      let err = GitHubClient::parse_identifier(input).unwrap_err();
+      assert!(
+        err.to_string().contains(expected_message),
+        "unexpected error for {input}: {err}"
+      );
+    }
   }
 
   // ── filter_project_items ─────────────────────────────────────────
 
   #[test]
-  fn no_filters_returns_all_issues() {
+  fn filter_project_items_honors_case_insensitive_status_and_label_filters() {
     let client = make_client();
-    let items = vec![issue_item(Some("Todo"), &[]), issue_item(None, &["bug"])];
-    let result = client.filter_project_items(items, &[], &[]);
-    assert_eq!(result.len(), 2);
+    let status_matches = client.filter_project_items(
+      issue_items_for_filter_contracts(),
+      &["in progress".to_string()],
+      &[],
+    );
+    assert_eq!(status_matches.len(), 3);
+
+    let label_matches = client.filter_project_items(
+      issue_items_for_filter_contracts(),
+      &[],
+      &["bug".to_string()],
+    );
+    assert_eq!(label_matches.len(), 4);
+
+    let combined = client.filter_project_items(
+      issue_items_for_filter_contracts(),
+      &["in progress".to_string()],
+      &["bug".to_string()],
+    );
+    assert_eq!(combined.len(), 3);
+    assert!(combined
+      .iter()
+      .all(|issue| issue.state.eq_ignore_ascii_case("In Progress")));
   }
 
   #[test]
-  fn status_filter_case_insensitive() {
+  fn filter_project_items_returns_all_issues_without_filters_and_requires_a_real_match() {
     let client = make_client();
-    let items = vec![
-      issue_item(Some("In Progress"), &[]),
-      issue_item(Some("in progress"), &[]),
-      issue_item(Some("IN PROGRESS"), &[]),
-      issue_item(Some("Todo"), &[]),
-    ];
-    let filter = vec!["in progress".to_string()];
-    let result = client.filter_project_items(items, &filter, &[]);
-    assert_eq!(result.len(), 3);
-  }
+    let unfiltered = client.filter_project_items(issue_items_for_unfiltered_contract(), &[], &[]);
+    assert_eq!(unfiltered.len(), 4);
 
-  #[test]
-  fn status_filter_skips_items_without_status() {
-    let client = make_client();
-    let items = vec![issue_item(Some("Todo"), &[]), issue_item(None, &[])];
-    let filter = vec!["Todo".to_string()];
-    let result = client.filter_project_items(items, &filter, &[]);
-    assert_eq!(result.len(), 1);
-  }
-
-  #[test]
-  fn status_filter_skips_items_with_empty_field_value() {
-    let client = make_client();
-    // field_value_by_name is Some but name is None
-    let mut item = issue_item(None, &[]);
-    item.field_value_by_name = Some(StatusFieldValue { name: None });
-    let items = vec![item, issue_item(Some("Todo"), &[])];
-    let filter = vec!["Todo".to_string()];
-    let result = client.filter_project_items(items, &filter, &[]);
-    assert_eq!(result.len(), 1);
-  }
-
-  #[test]
-  fn label_filter_case_insensitive() {
-    let client = make_client();
-    let items = vec![
-      issue_item(None, &["Bug"]),
-      issue_item(None, &["bug"]),
-      issue_item(None, &["BUG"]),
-      issue_item(None, &["feature"]),
-    ];
-    let filter = vec!["bug".to_string()];
-    let result = client.filter_project_items(items, &[], &filter);
-    assert_eq!(result.len(), 3);
-  }
-
-  #[test]
-  fn label_filter_requires_at_least_one_match() {
-    let client = make_client();
-    let items = vec![
-      issue_item(None, &["enhancement", "p1"]),
-      issue_item(None, &["docs"]),
-    ];
-    let filter = vec!["p1".to_string()];
-    let result = client.filter_project_items(items, &[], &filter);
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].title, "Test issue");
+    let label_filtered = client.filter_project_items(
+      issue_items_for_unfiltered_contract(),
+      &[],
+      &["p1".to_string()],
+    );
+    assert_eq!(label_filtered.len(), 1);
+    assert_eq!(label_filtered[0].title, "Test issue");
   }
 
   #[test]

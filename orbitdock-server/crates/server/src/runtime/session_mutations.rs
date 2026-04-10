@@ -1,22 +1,21 @@
 use std::sync::Arc;
 
 use orbitdock_protocol::{
-  conversation_contracts::{
-    ConversationRow, ConversationRowEntry, NoticeRow, NoticeRowKind, NoticeRowSeverity, TurnStatus,
-  },
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, CodexSandboxPolicy, ServerMessage,
-  SessionSummary,
+  CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, CodexSandboxPolicy,
 };
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
-use crate::domain::codex_tools::{write_plan_markdown, CodexWorkspaceToolContext};
-use crate::domain::sessions::session::SessionSnapshot;
-use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::codex_config::serialize_codex_overrides;
 use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
 use crate::runtime::session_registry::SessionRegistry;
-use crate::support::session_modes::is_passive_rollout_session;
+
+pub(crate) mod config_notices;
+pub(crate) mod plan_snapshots;
+pub(crate) mod session_lifecycle;
+pub(crate) use session_lifecycle::{
+  end_failed_direct_session, end_session, send_continuation_message, sync_mission_issue_on_resume,
+};
 
 #[derive(Debug)]
 pub(crate) enum SessionMutationError {
@@ -331,9 +330,11 @@ pub(crate) async fn update_session_config(
     .await
     .map_err(|_| SessionMutationError::NotFound(session_id.to_string()))?;
 
-  if let Some(entry) =
-    build_session_config_change_notice_row(session_id, &current_summary, &updated_summary)
-  {
+  if let Some(entry) = config_notices::build_session_config_change_notice_row(
+    session_id,
+    &current_summary,
+    &updated_summary,
+  ) {
     let row_id = entry.id().to_string();
     actor
       .send_checked(SessionCommand::AddRowAndBroadcast { entry })
@@ -348,7 +349,7 @@ pub(crate) async fn update_session_config(
     );
   }
 
-  if let Some(result) = maybe_save_plan_on_collaboration_mode_exit(
+  if let Some(result) = plan_snapshots::maybe_save_plan_on_collaboration_mode_exit(
     session_id,
     current_summary.collaboration_mode.as_deref(),
     updated_summary.collaboration_mode.as_deref(),
@@ -356,7 +357,8 @@ pub(crate) async fn update_session_config(
   ) {
     match result {
       Ok(saved) => {
-        let entry = build_plan_snapshot_saved_notice_row(session_id, &saved.relative_path);
+        let entry =
+          plan_snapshots::build_plan_snapshot_saved_notice_row(session_id, &saved.relative_path);
         let row_id = entry.id().to_string();
         actor
           .send_checked(SessionCommand::AddRowAndBroadcast { entry })
@@ -372,7 +374,7 @@ pub(crate) async fn update_session_config(
         );
       }
       Err(error) => {
-        let entry = build_plan_snapshot_failed_notice_row(session_id, &error);
+        let entry = plan_snapshots::build_plan_snapshot_failed_notice_row(session_id, &error);
         let row_id = entry.id().to_string();
         actor
           .send_checked(SessionCommand::AddRowAndBroadcast { entry })
@@ -390,7 +392,7 @@ pub(crate) async fn update_session_config(
     }
   }
 
-  if let Some(entry) = maybe_build_plan_reentry_notice_row(
+  if let Some(entry) = plan_snapshots::maybe_build_plan_reentry_notice_row(
     session_id,
     current_summary.collaboration_mode.as_deref(),
     updated_summary.collaboration_mode.as_deref(),
@@ -458,418 +460,6 @@ pub(crate) async fn update_session_config(
   }
 
   Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct SavedPlanSnapshot {
-  path: String,
-  relative_path: String,
-}
-
-fn maybe_save_plan_on_collaboration_mode_exit(
-  session_id: &str,
-  before_mode: Option<&str>,
-  after_mode: Option<&str>,
-  updated_snapshot: &SessionSnapshot,
-) -> Option<Result<SavedPlanSnapshot, String>> {
-  if !did_exit_plan_mode(before_mode, after_mode) {
-    return None;
-  }
-
-  let plan = updated_snapshot
-    .current_plan
-    .as_deref()
-    .map(str::trim)
-    .filter(|value| !value.is_empty())?;
-  let relative_path = plan_snapshot_relative_path(session_id);
-  let markdown = render_plan_snapshot_markdown(session_id, plan, after_mode);
-  let context = CodexWorkspaceToolContext {
-    project_path: updated_snapshot.project_path.clone(),
-    current_cwd: updated_snapshot.current_cwd.clone(),
-  };
-  Some(
-    write_plan_markdown(&context, &relative_path, &markdown, true).map(|path| SavedPlanSnapshot {
-      path: path.to_string_lossy().to_string(),
-      relative_path: format!("plans/{relative_path}"),
-    }),
-  )
-}
-
-fn maybe_build_plan_reentry_notice_row(
-  session_id: &str,
-  before_mode: Option<&str>,
-  after_mode: Option<&str>,
-  updated_snapshot: &SessionSnapshot,
-) -> Option<ConversationRowEntry> {
-  if !did_enter_plan_mode(before_mode, after_mode) {
-    return None;
-  }
-
-  let has_non_empty_plan = updated_snapshot
-    .current_plan
-    .as_deref()
-    .map(str::trim)
-    .is_some_and(|value| !value.is_empty());
-  if !has_non_empty_plan {
-    return None;
-  }
-
-  let relative_path = format!("plans/{}", plan_snapshot_relative_path(session_id));
-  Some(build_plan_reentry_notice_row(session_id, &relative_path))
-}
-
-fn did_exit_plan_mode(before_mode: Option<&str>, after_mode: Option<&str>) -> bool {
-  is_plan_mode(before_mode) && !is_plan_mode(after_mode)
-}
-
-fn did_enter_plan_mode(before_mode: Option<&str>, after_mode: Option<&str>) -> bool {
-  !is_plan_mode(before_mode) && is_plan_mode(after_mode)
-}
-
-fn is_plan_mode(mode: Option<&str>) -> bool {
-  mode.is_some_and(|value| value.trim().eq_ignore_ascii_case("plan"))
-}
-
-fn plan_snapshot_relative_path(session_id: &str) -> String {
-  format!("auto/{}.md", sanitize_plan_snapshot_stem(session_id))
-}
-
-fn sanitize_plan_snapshot_stem(input: &str) -> String {
-  let mut stem = String::with_capacity(input.len());
-  for ch in input.chars() {
-    if ch.is_ascii_alphanumeric() {
-      stem.push(ch.to_ascii_lowercase());
-    } else if matches!(ch, '-' | '_') {
-      stem.push(ch);
-    } else {
-      stem.push('-');
-    }
-  }
-  let sanitized = stem.trim_matches('-');
-  if sanitized.is_empty() {
-    return "session".to_string();
-  }
-  sanitized.to_string()
-}
-
-fn render_plan_snapshot_markdown(session_id: &str, plan: &str, next_mode: Option<&str>) -> String {
-  let saved_at = chrono::Utc::now().to_rfc3339();
-  let next_mode = next_mode.unwrap_or("default");
-  format!(
-    "# Plan Snapshot\n\n- Session: `{session_id}`\n- Saved at: `{saved_at}`\n- Trigger: collaboration mode exit (`plan` -> `{next_mode}`)\n\n## Latest Plan\n\n{plan}\n"
-  )
-}
-
-fn build_plan_snapshot_saved_notice_row(
-  session_id: &str,
-  relative_path: &str,
-) -> ConversationRowEntry {
-  ConversationRowEntry {
-    session_id: session_id.to_string(),
-    sequence: 0,
-    turn_id: None,
-    turn_status: TurnStatus::Active,
-    row: ConversationRow::Notice(NoticeRow {
-      id: orbitdock_protocol::new_id(),
-      kind: NoticeRowKind::Generic,
-      severity: NoticeRowSeverity::Info,
-      title: "Plan snapshot saved".to_string(),
-      summary: Some(format!("Saved latest plan to {relative_path}")),
-      body: None,
-      render_hints: Default::default(),
-    }),
-  }
-}
-
-fn build_plan_snapshot_failed_notice_row(session_id: &str, error: &str) -> ConversationRowEntry {
-  ConversationRowEntry {
-    session_id: session_id.to_string(),
-    sequence: 0,
-    turn_id: None,
-    turn_status: TurnStatus::Active,
-    row: ConversationRow::Notice(NoticeRow {
-      id: orbitdock_protocol::new_id(),
-      kind: NoticeRowKind::Generic,
-      severity: NoticeRowSeverity::Warning,
-      title: "Plan snapshot failed".to_string(),
-      summary: Some("Could not save latest plan to plans/".to_string()),
-      body: Some(error.to_string()),
-      render_hints: Default::default(),
-    }),
-  }
-}
-
-fn build_plan_reentry_notice_row(session_id: &str, relative_path: &str) -> ConversationRowEntry {
-  ConversationRowEntry {
-    session_id: session_id.to_string(),
-    sequence: 0,
-    turn_id: None,
-    turn_status: TurnStatus::Active,
-    row: ConversationRow::Notice(NoticeRow {
-      id: orbitdock_protocol::new_id(),
-      kind: NoticeRowKind::Generic,
-      severity: NoticeRowSeverity::Info,
-      title: "Plan context restored".to_string(),
-      summary: Some(format!(
-        "Existing plan loaded. Auto-save path: {relative_path}"
-      )),
-      body: Some("Use `plan_write` to persist named plan markdown in `plans/`.".to_string()),
-      render_hints: Default::default(),
-    }),
-  }
-}
-
-fn build_session_config_change_notice_row(
-  session_id: &str,
-  before: &SessionSummary,
-  after: &SessionSummary,
-) -> Option<ConversationRowEntry> {
-  let mut changes = Vec::new();
-  for (label, before_value, after_value) in [
-    ("Model", before.model.as_deref(), after.model.as_deref()),
-    (
-      "Reasoning effort",
-      before.effort.as_deref(),
-      after.effort.as_deref(),
-    ),
-    (
-      "Approval mode",
-      before.approval_policy.as_deref(),
-      after.approval_policy.as_deref(),
-    ),
-    (
-      "Sandbox mode",
-      before.sandbox_mode.as_deref(),
-      after.sandbox_mode.as_deref(),
-    ),
-    (
-      "Permission mode",
-      before.permission_mode.as_deref(),
-      after.permission_mode.as_deref(),
-    ),
-    (
-      "Collaboration mode",
-      before.collaboration_mode.as_deref(),
-      after.collaboration_mode.as_deref(),
-    ),
-    (
-      "Reviewer",
-      codex_overrides_reviewer(before),
-      codex_overrides_reviewer(after),
-    ),
-  ] {
-    push_config_change(&mut changes, label, before_value, after_value);
-  }
-
-  if changes.is_empty() {
-    return None;
-  }
-
-  let summary = changes.join(" | ");
-  let body = if changes.len() > 1 {
-    Some(
-      changes
-        .iter()
-        .map(|change| format!("- {change}"))
-        .collect::<Vec<_>>()
-        .join("\n"),
-    )
-  } else {
-    None
-  };
-
-  Some(ConversationRowEntry {
-    session_id: session_id.to_string(),
-    sequence: 0,
-    turn_id: None,
-    turn_status: TurnStatus::Active,
-    row: ConversationRow::Notice(NoticeRow {
-      id: orbitdock_protocol::new_id(),
-      kind: NoticeRowKind::Generic,
-      severity: NoticeRowSeverity::Info,
-      title: "Session settings updated".to_string(),
-      summary: Some(summary),
-      body,
-      render_hints: Default::default(),
-    }),
-  })
-}
-
-fn push_config_change(
-  changes: &mut Vec<String>,
-  label: &str,
-  before: Option<&str>,
-  after: Option<&str>,
-) {
-  if before == after {
-    return;
-  }
-  changes.push(format!(
-    "{label}: {} -> {}",
-    format_config_value(before),
-    format_config_value(after)
-  ));
-}
-
-fn format_config_value(value: Option<&str>) -> String {
-  value.unwrap_or("default").to_owned()
-}
-
-fn codex_overrides_reviewer(summary: &SessionSummary) -> Option<&'static str> {
-  summary
-    .codex_config_overrides
-    .as_ref()
-    .and_then(|overrides| overrides.approvals_reviewer)
-    .map(|reviewer| reviewer.as_str())
-}
-
-pub(crate) async fn end_session(state: &Arc<SessionRegistry>, session_id: &str) -> usize {
-  let actor = state.get_session(session_id);
-  let is_passive_rollout = actor.as_ref().is_some_and(|actor| {
-    let snap = actor.snapshot();
-    is_passive_rollout_session(
-      snap.provider,
-      snap.codex_integration_mode,
-      snap.transcript_path.is_some(),
-    )
-  });
-
-  let canceled_shells = state.shell_service().cancel_session(session_id);
-
-  if !is_passive_rollout {
-    if let Some(tx) = state.get_codex_action_tx(session_id) {
-      let _ = tx.send(CodexAction::EndSession).await;
-    } else if let Some(tx) = state.get_claude_action_tx(session_id) {
-      let _ = tx.send(ClaudeAction::EndSession).await;
-    }
-  }
-
-  let _ = state
-    .persist()
-    .send(PersistCommand::SessionEnd {
-      id: session_id.to_string(),
-      reason: "user_requested".to_string(),
-    })
-    .await;
-
-  // Emit an authoritative local ended delta before any potential runtime teardown,
-  // so detail/composer/conversation subscribers observe the state transition.
-  if let Some(actor) = actor.as_ref() {
-    actor.send(SessionCommand::EndLocally).await;
-  }
-
-  if is_passive_rollout || state.remove_session(session_id).is_some() {
-    state.broadcast_to_list(ServerMessage::SessionEnded {
-      session_id: session_id.to_string(),
-      reason: "user_requested".to_string(),
-    });
-  }
-
-  canceled_shells
-}
-
-pub(crate) async fn send_continuation_message(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  content: &str,
-) -> bool {
-  if let Some(tx) = state.get_claude_action_tx(session_id) {
-    tx.send(ClaudeAction::SendMessage {
-      content: content.to_string(),
-      model: None,
-      effort: None,
-      images: vec![],
-    })
-    .await
-    .is_ok()
-  } else {
-    false
-  }
-}
-
-/// When a session with a mission_id is resumed, update the linked mission issue
-/// back to `running` so mission control reflects reality.
-pub(crate) async fn sync_mission_issue_on_resume(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  mission_id: &str,
-) {
-  let now = chrono::Utc::now().to_rfc3339();
-
-  // Find the mission issue linked to this session_id
-  let db_path = state.db_path().clone();
-  let sid = session_id.to_string();
-  let mid = mission_id.to_string();
-  let issue_id = tokio::task::spawn_blocking(move || {
-    let conn = rusqlite::Connection::open(&db_path).ok()?;
-    let mut stmt = conn
-      .prepare(
-        "SELECT issue_id FROM mission_issues \
-                 WHERE mission_id = ?1 AND session_id = ?2 \
-                 LIMIT 1",
-      )
-      .ok()?;
-    stmt
-      .query_row(rusqlite::params![mid, sid], |row| row.get::<_, String>(0))
-      .ok()
-  })
-  .await
-  .ok()
-  .flatten();
-
-  let Some(issue_id) = issue_id else {
-    tracing::debug!(
-        component = "mission_control",
-        event = "resume_hook.no_linked_issue",
-        session_id = %session_id,
-        mission_id = %mission_id,
-        "No mission issue linked to resumed session"
-    );
-    return;
-  };
-
-  // Update the issue back to running
-  let _ = state
-    .persist()
-    .send(PersistCommand::MissionIssueUpdateState {
-      mission_id: mission_id.to_string(),
-      issue_id: issue_id.clone(),
-      orchestration_state: "running".to_string(),
-      session_id: Some(session_id.to_string()),
-      workspace_id: None,
-      attempt: None,
-      last_error: Some(None), // clear error
-      retry_due_at: None,
-      started_at: Some(Some(now)),
-      completed_at: Some(None), // clear completed_at
-    })
-    .await;
-
-  // Broadcast updated mission state
-  crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(state, mission_id).await;
-
-  tracing::info!(
-      component = "mission_control",
-      event = "resume_hook.issue_reactivated",
-      session_id = %session_id,
-      mission_id = %mission_id,
-      issue_id = %issue_id,
-      "Reactivated mission issue on session resume"
-  );
-}
-
-pub(crate) async fn end_failed_direct_session(state: &Arc<SessionRegistry>, session_id: &str) {
-  let _ = state
-    .persist()
-    .send(PersistCommand::SessionEnd {
-      id: session_id.to_string(),
-      reason: "connector_failed".to_string(),
-    })
-    .await;
-  state.broadcast_to_list(ServerMessage::SessionEnded {
-    session_id: session_id.to_string(),
-    reason: "connector_failed".into(),
-  });
 }
 
 #[cfg(test)]

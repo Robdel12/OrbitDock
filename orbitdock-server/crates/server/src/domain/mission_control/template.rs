@@ -142,40 +142,20 @@ mod tests {
   use super::*;
 
   #[test]
-  fn template_includes_provider() {
+  fn template_includes_provider_and_core_structure() {
     let tmpl = default_mission_template("codex", "linear");
     assert!(tmpl.contains("primary: codex"));
     assert!(!tmpl.contains("PROVIDER_PLACEHOLDER"));
-  }
-
-  #[test]
-  fn template_has_front_matter() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.starts_with("---\n"));
     assert!(tmpl.matches("---").count() >= 2);
-  }
-
-  #[test]
-  fn template_has_top_level_schema() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(!tmpl.contains("orbitdock:"));
     assert!(tmpl.contains("provider:"));
     assert!(tmpl.contains("strategy: single"));
     assert!(tmpl.contains("trigger:"));
     assert!(tmpl.contains("orchestration:"));
-  }
-
-  #[test]
-  fn template_has_liquid_variables() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("{{ issue.identifier }}"));
     assert!(tmpl.contains("{{ issue.title }}"));
     assert!(tmpl.contains("{% if attempt > 1 %}"));
-  }
-
-  #[test]
-  fn template_has_workflow_structure() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("## Workflow"));
     assert!(tmpl.contains("## Rules"));
     assert!(tmpl.contains("workpad"));
@@ -198,21 +178,14 @@ mod tests {
     assert_eq!(def.config.orchestration.state_on_complete, "In Review");
   }
 
-  // ── Commented option docs ─────────────────────────────────────────
-
   #[test]
-  fn template_documents_provider_strategy_options() {
+  fn template_documents_authoring_knobs() {
     let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("single"));
     assert!(tmpl.contains("priority"));
     assert!(tmpl.contains("round_robin"));
     assert!(tmpl.contains("secondary:"));
     assert!(tmpl.contains("max_concurrent_primary:"));
-  }
-
-  #[test]
-  fn template_documents_agent_claude_options() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("permission_mode:"));
     assert!(tmpl.contains("plan | default | auto-edit | auto | bypass"));
     assert!(tmpl.contains("allowed_tools:"));
@@ -220,11 +193,6 @@ mod tests {
     assert!(tmpl.contains("effort:"));
     assert!(tmpl.contains("low | medium | high"));
     assert!(tmpl.contains("skills:"));
-  }
-
-  #[test]
-  fn template_documents_agent_codex_options() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("approval_policy:"));
     assert!(tmpl.contains("untrusted | on-failure | on-request | never"));
     assert!(tmpl.contains("sandbox_mode:"));
@@ -233,21 +201,11 @@ mod tests {
     assert!(tmpl.contains("multi_agent:"));
     assert!(tmpl.contains("service_tier:"));
     assert!(tmpl.contains("developer_instructions:"));
-  }
-
-  #[test]
-  fn template_documents_trigger_options() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("polling | manual_only"));
     assert!(tmpl.contains("labels:"));
     assert!(tmpl.contains("states:"));
     assert!(tmpl.contains("project:"));
     assert!(tmpl.contains("team:"));
-  }
-
-  #[test]
-  fn template_documents_orchestration_options() {
-    let tmpl = default_mission_template("claude", "linear");
     assert!(tmpl.contains("worktree_root_dir:"));
     assert!(tmpl.contains("stall_timeout:"));
     assert!(tmpl.contains("state_on_dispatch:"));

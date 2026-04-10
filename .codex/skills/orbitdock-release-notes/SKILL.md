@@ -1,6 +1,6 @@
 ---
 name: orbitdock-release-notes
-description: "Standardize OrbitDock changelogs using two modes: (1) GitHub tag release notes with the stable long-form template (`Quick start`, `OrbitDock vX`, `Highlights`, `Important release notes`, `Full changelog`) and (2) TestFlight build-train changelogs based on build-marker commits like `🔖 v0.7.0-b7` to `🔖 v0.7.0-b8` that are not tags. Use when editing releases with `gh`, generating TestFlight notes, or producing platform-specific diffs (iOS/iPadOS vs macOS)."
+description: "Standardize OrbitDock changelogs using two modes: (1) GitHub tag release notes with the stable long-form template (`Quick start`, `OrbitDock vX`, `Highlights`, `Important release notes`, `Full changelog`) and (2) TestFlight build-train changelogs based on build-marker commits like `🔖 v0.7.0-b7` to `🔖 v0.7.0-b8` that are not tags. Use when editing releases with `gh`, generating TestFlight notes, or producing native-app notes with optional platform nuance when it is genuinely meaningful."
 ---
 
 # OrbitDock Release Notes
@@ -9,6 +9,7 @@ description: "Standardize OrbitDock changelogs using two modes: (1) GitHub tag r
 
 Write and update OrbitDock release notes in a consistent, high-signal format.
 Use `gh` and `git` as the source of truth before publishing edits.
+For OrbitDock Native TestFlight notes, assume one shared app experience first and only split by platform when the diff proves a meaningful user-facing difference.
 
 ## Modes
 
@@ -46,7 +47,7 @@ Collect these inputs:
 - Optional release lookup by display name (if needed):
   - `gh api repos/Robdel12/OrbitDock/releases --paginate --jq '.[] | select(.name=="🔖 v0.7.0-b8") | {name,tag_name,target_commitish,published_at,url}'`
 
-For platform-specific slices (iOS/iPadOS vs macOS):
+Only gather platform-specific signal when the diff or the user suggests meaningful divergence:
 
 - Native file list in range:
   - `git diff --name-only "$BASE_SHA..$HEAD_SHA" -- OrbitDockNative/OrbitDock`
@@ -55,11 +56,23 @@ For platform-specific slices (iOS/iPadOS vs macOS):
 - UIKit/AppKit signal:
   - `git diff "$BASE_SHA..$HEAD_SHA" -- OrbitDockNative/OrbitDock | rg 'import (UIKit|AppKit)'`
 
+If the native changes are broadly shared, stop there and write one universal note instead of forcing a platform breakdown.
+
 ## Build Release Body
 
 ### Tag-release mode
 
 Follow [references/release-template.md](references/release-template.md).
+Match the recent stable OrbitDock release style used for releases like `v0.8.0`, `v0.9.0`, `v0.10.0`, and newer:
+
+- `Quick start`
+- `OrbitDock vX.Y.Z`
+- Intro paragraph with compare range and release characterization
+- `Highlights`
+- `Important release notes`
+- `Full changelog`
+
+For server-heavy releases, keep the same structure but center the narrative on server/runtime behavior, attached binaries, upgrade implications, and operational changes instead of client UI detail.
 
 ### Build-train mode (TestFlight)
 
@@ -74,8 +87,11 @@ Rules:
 - Keep claims grounded in compare data and observable file/commit changes.
 - Include only real attached server asset names in `Quick start`.
 - Use a full compare URL in `## Full changelog`.
+- For stable tag releases, keep the body aligned with the established long-form release shape instead of switching to ad hoc `Highlights` / `Detailed Changes` / `Notes` sections.
 - For build-train notes, always include the marker range (`🔖 ... -> 🔖 ...`) and avoid tag language unless tags are truly involved.
-- For platform notes, explicitly separate shared/native changes from iOS/iPadOS-only and macOS-only changes when possible.
+- For native TestFlight notes, treat OrbitDock Native as one universal app by default.
+- Add platform-specific callouts only when the range shows meaningful user-facing divergence beyond normal responsive/layout polish.
+- Responsive layout tuning, modal presentation differences, and compile-guarded plumbing alone are not enough reason to create separate platform sections.
 - For TestFlight output, remove markdown syntax (no `#`, `##`, `###`, `-`, or backticks in final copy).
 - For TestFlight output, remove emoji from user-facing text. If marker commits include an emoji prefix, strip it in the changelog text (for example, `🔖 v0.7.0-b8` -> `v0.7.0-b8`).
 
@@ -92,17 +108,22 @@ TestFlight mode:
 
 1. Resolve marker SHAs and verify both exist.
 2. Generate a copy/paste plain-text note from the template.
-3. Keep a short "Platform breakdown" section when platform-specific changes are non-trivial.
+3. Default to a short "App-wide details" section for native TestFlight notes.
+4. Add a brief platform-specific callout only when the range contains meaningful iPhone/iPad-only or Mac-only behavior.
+5. If there is no meaningful divergence, omit platform notes entirely instead of adding "no platform-specific changes" filler.
 
 ## Guardrails
 
 - Do not invent features that are not visible in commit/file history.
 - Do not drop `Quick start` or `Full changelog` when targeting the v0.8.0/v0.9.0 style.
+- Do not collapse stable release notes into a short changelog when the established release format is the long-form template.
 - Do not leave stale version text from prior releases.
 - Prefer plain language over marketing-heavy copy.
 - Keep release channel notes accurate (`stable` vs `nightly`).
 - Do not assume build markers are tags; treat them as commit anchors unless verified otherwise.
 - Do not claim iOS-only or macOS-only changes without file or compile-guard evidence.
+- Do not force iOS/macOS sections for native notes when the app behavior is effectively shared.
+- Do not turn minor responsive tweaks or windowing differences into separate platform narratives.
 - Do not include markdown formatting in final TestFlight text.
 - Do not include emojis in final TestFlight text.
 
