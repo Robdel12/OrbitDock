@@ -1,16 +1,30 @@
 use rusqlite::{params, Connection};
 
+pub(super) struct ReviewCommentCreateRecord {
+  pub id: String,
+  pub session_id: String,
+  pub turn_id: Option<String>,
+  pub file_path: String,
+  pub line_start: Option<i64>,
+  pub line_end: Option<i64>,
+  pub body: String,
+  pub tag: Option<String>,
+}
+
 pub(super) fn persist_review_comment_create(
   conn: &Connection,
-  id: String,
-  session_id: String,
-  turn_id: Option<String>,
-  file_path: String,
-  line_start: Option<i64>,
-  line_end: Option<i64>,
-  body: String,
-  tag: Option<String>,
+  record: ReviewCommentCreateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let ReviewCommentCreateRecord {
+    id,
+    session_id,
+    turn_id,
+    file_path,
+    line_start,
+    line_end,
+    body,
+    tag,
+  } = record;
   let now = super::chrono_now();
   conn.execute(
     "INSERT INTO review_comments (id, session_id, turn_id, file_path, line_start, line_end, body, tag, status, created_at)

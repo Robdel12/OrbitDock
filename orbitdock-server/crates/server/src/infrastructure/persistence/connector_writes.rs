@@ -4,25 +4,47 @@ use orbitdock_protocol::domain_events::AgentType;
 
 use super::preserve_direct_owned_claude_shadow;
 
+pub(super) struct ClaudeSessionUpsertRecord {
+  pub id: String,
+  pub project_path: String,
+  pub project_name: Option<String>,
+  pub branch: Option<String>,
+  pub model: Option<String>,
+  pub context_label: Option<String>,
+  pub transcript_path: Option<String>,
+  pub source: Option<String>,
+  pub agent_type: Option<String>,
+  pub permission_mode: Option<String>,
+  pub terminal_session_id: Option<String>,
+  pub terminal_app: Option<String>,
+  pub forked_from_session_id: Option<String>,
+  pub repository_root: Option<String>,
+  pub is_worktree: bool,
+  pub git_sha: Option<String>,
+}
+
 pub(super) fn persist_claude_session_upsert(
   conn: &Connection,
-  id: String,
-  project_path: String,
-  project_name: Option<String>,
-  branch: Option<String>,
-  model: Option<String>,
-  context_label: Option<String>,
-  transcript_path: Option<String>,
-  source: Option<String>,
-  agent_type: Option<String>,
-  permission_mode: Option<String>,
-  terminal_session_id: Option<String>,
-  terminal_app: Option<String>,
-  forked_from_session_id: Option<String>,
-  repository_root: Option<String>,
-  is_worktree: bool,
-  git_sha: Option<String>,
+  record: ClaudeSessionUpsertRecord,
 ) -> Result<(), rusqlite::Error> {
+  let ClaudeSessionUpsertRecord {
+    id,
+    project_path,
+    project_name,
+    branch,
+    model,
+    context_label,
+    transcript_path,
+    source,
+    agent_type,
+    permission_mode,
+    terminal_session_id,
+    terminal_app,
+    forked_from_session_id,
+    repository_root,
+    is_worktree,
+    git_sha,
+  } = record;
   if preserve_direct_owned_claude_shadow(conn, &id, "direct_owner_exists")? {
     return Ok(());
   }
@@ -85,24 +107,45 @@ pub(super) fn persist_claude_session_upsert(
   Ok(())
 }
 
+pub(super) struct ClaudeSessionUpdateRecord {
+  pub id: String,
+  pub work_status: Option<String>,
+  pub attention_reason: Option<Option<String>>,
+  pub last_tool: Option<Option<String>>,
+  pub last_tool_at: Option<Option<String>>,
+  pub pending_tool_name: Option<Option<String>>,
+  pub pending_tool_input: Option<Option<String>>,
+  pub pending_question: Option<Option<String>>,
+  pub source: Option<Option<String>>,
+  pub agent_type: Option<Option<String>>,
+  pub permission_mode: Option<Option<String>>,
+  pub active_subagent_id: Option<Option<String>>,
+  pub active_subagent_type: Option<Option<AgentType>>,
+  pub first_prompt: Option<String>,
+  pub compact_count_increment: bool,
+}
+
 pub(super) fn persist_claude_session_update(
   conn: &Connection,
-  id: String,
-  work_status: Option<String>,
-  attention_reason: Option<Option<String>>,
-  last_tool: Option<Option<String>>,
-  last_tool_at: Option<Option<String>>,
-  pending_tool_name: Option<Option<String>>,
-  pending_tool_input: Option<Option<String>>,
-  pending_question: Option<Option<String>>,
-  source: Option<Option<String>>,
-  agent_type: Option<Option<String>>,
-  permission_mode: Option<Option<String>>,
-  active_subagent_id: Option<Option<String>>,
-  active_subagent_type: Option<Option<AgentType>>,
-  first_prompt: Option<String>,
-  compact_count_increment: bool,
+  record: ClaudeSessionUpdateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let ClaudeSessionUpdateRecord {
+    id,
+    work_status,
+    attention_reason,
+    last_tool,
+    last_tool_at,
+    pending_tool_name,
+    pending_tool_input,
+    pending_question,
+    source,
+    agent_type,
+    permission_mode,
+    active_subagent_id,
+    active_subagent_type,
+    first_prompt,
+    compact_count_increment,
+  } = record;
   if preserve_direct_owned_claude_shadow(conn, &id, "direct_owner_exists")? {
     return Ok(());
   }

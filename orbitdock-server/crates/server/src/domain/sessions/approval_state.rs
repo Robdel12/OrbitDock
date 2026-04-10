@@ -598,28 +598,43 @@ mod tests {
   use orbitdock_protocol::ApprovalPreviewType;
   use serde_json::json;
 
-  fn approval_request(
-    id: &str,
+  struct ApprovalRequestFixture<'a> {
+    id: &'a str,
     approval_type: ApprovalType,
-    tool_name: Option<&str>,
-    tool_input: Option<&str>,
-    command: Option<&str>,
-    file_path: Option<&str>,
-    question: Option<&str>,
+    tool_name: Option<&'a str>,
+    tool_input: Option<&'a str>,
+    command: Option<&'a str>,
+    file_path: Option<&'a str>,
+    question: Option<&'a str>,
     preview: Option<ApprovalPreview>,
-  ) -> ApprovalRequest {
-    ApprovalRequest {
-      id: id.to_string(),
-      session_id: "session-1".to_string(),
+  }
+
+  fn base_fixture<'a>(approval_type: ApprovalType) -> ApprovalRequestFixture<'a> {
+    ApprovalRequestFixture {
+      id: "a",
       approval_type,
-      tool_name: tool_name.map(ToString::to_string),
-      tool_input: tool_input.map(ToString::to_string),
-      command: command.map(ToString::to_string),
-      file_path: file_path.map(ToString::to_string),
+      tool_name: None,
+      tool_input: None,
+      command: None,
+      file_path: None,
+      question: None,
+      preview: None,
+    }
+  }
+
+  fn approval_request(fixture: ApprovalRequestFixture<'_>) -> ApprovalRequest {
+    ApprovalRequest {
+      id: fixture.id.to_string(),
+      session_id: "session-1".to_string(),
+      approval_type: fixture.approval_type,
+      tool_name: fixture.tool_name.map(ToString::to_string),
+      tool_input: fixture.tool_input.map(ToString::to_string),
+      command: fixture.command.map(ToString::to_string),
+      file_path: fixture.file_path.map(ToString::to_string),
       diff: None,
-      question: question.map(ToString::to_string),
+      question: fixture.question.map(ToString::to_string),
       question_prompts: vec![],
-      preview,
+      preview: fixture.preview,
       permission_reason: None,
       requested_permissions: None,
       granted_permissions: None,
@@ -637,33 +652,27 @@ mod tests {
 
   #[test]
   fn fallback_tool_shape_matches_approval_type() {
-    let exec = approval_request("a", ApprovalType::Exec, None, None, None, None, None, None);
-    let patch = approval_request("a", ApprovalType::Patch, None, None, None, None, None, None);
-    let question = approval_request(
-      "a",
-      ApprovalType::Question,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-    );
+    let exec = approval_request(ApprovalRequestFixture {
+      ..base_fixture(ApprovalType::Exec)
+    });
+    let patch = approval_request(ApprovalRequestFixture {
+      ..base_fixture(ApprovalType::Patch)
+    });
+    let question = approval_request(ApprovalRequestFixture {
+      ..base_fixture(ApprovalType::Question)
+    });
 
     assert_eq!(fallback_tool_name(&exec), Some("Bash".to_string()));
     assert_eq!(fallback_tool_name(&patch), Some("Edit".to_string()));
     assert_eq!(fallback_tool_name(&question), None);
 
-    let with_command = approval_request(
-      "a",
-      ApprovalType::Exec,
-      None,
-      None,
-      Some("ls"),
-      Some("/tmp"),
-      None,
-      None,
-    );
+    let with_command = approval_request(ApprovalRequestFixture {
+      tool_name: None,
+      tool_input: None,
+      command: Some("ls"),
+      file_path: Some("/tmp"),
+      ..base_fixture(ApprovalType::Exec)
+    });
     assert_eq!(
       fallback_tool_input(&with_command),
       Some("{\"command\":\"ls\",\"file_path\":\"/tmp\"}".to_string())
@@ -672,15 +681,8 @@ mod tests {
 
   #[test]
   fn fallback_tool_input_uses_preview_value_when_needed() {
-    let approval = approval_request(
-      "a",
-      ApprovalType::Exec,
-      None,
-      None,
-      None,
-      None,
-      None,
-      Some(ApprovalPreview {
+    let approval = approval_request(ApprovalRequestFixture {
+      preview: Some(ApprovalPreview {
         preview_type: ApprovalPreviewType::Url,
         value: "https://example.com".to_string(),
         shell_segments: vec![],
@@ -690,7 +692,8 @@ mod tests {
         risk_findings: vec![],
         manifest: None,
       }),
-    );
+      ..base_fixture(ApprovalType::Exec)
+    });
 
     assert_eq!(
       fallback_tool_input(&approval),
@@ -732,16 +735,13 @@ mod tests {
   #[test]
   fn queue_resolve_and_bootstrap_follow_queue_semantics() {
     let base = ApprovalQueueState::new(WorkStatus::Waiting);
-    let request = approval_request(
-      " approval-1 ",
-      ApprovalType::Question,
-      Some("AskUserQuestion"),
-      Some("{\"question\":\"Ship it?\"}"),
-      None,
-      None,
-      Some("Ship it?"),
-      None,
-    );
+    let request = approval_request(ApprovalRequestFixture {
+      id: " approval-1 ",
+      tool_name: Some("AskUserQuestion"),
+      tool_input: Some("{\"question\":\"Ship it?\"}"),
+      question: Some("Ship it?"),
+      ..base_fixture(ApprovalType::Question)
+    });
 
     let (state, mutation) =
       base
@@ -757,16 +757,13 @@ mod tests {
     assert_eq!(mutation, PendingApprovalMutation::Unchanged);
     assert_eq!(state.approval_version, 1);
 
-    let updated = approval_request(
-      "approval-1",
-      ApprovalType::Question,
-      Some("AskUserQuestion"),
-      Some("{\"question\":\"Ship now?\"}"),
-      None,
-      None,
-      Some("Ship now?"),
-      None,
-    );
+    let updated = approval_request(ApprovalRequestFixture {
+      id: "approval-1",
+      tool_name: Some("AskUserQuestion"),
+      tool_input: Some("{\"question\":\"Ship now?\"}"),
+      question: Some("Ship now?"),
+      ..base_fixture(ApprovalType::Question)
+    });
     let (state, mutation) =
       state.queue_pending_approval(updated.clone(), ApprovalType::Question, None);
     assert_eq!(mutation, PendingApprovalMutation::Updated);
@@ -786,16 +783,7 @@ mod tests {
 
   #[test]
   fn pending_tool_family_prefers_question_and_known_tool_mappings() {
-    let request = approval_request(
-      "a",
-      ApprovalType::Question,
-      None,
-      None,
-      None,
-      None,
-      None,
-      None,
-    );
+    let request = approval_request(base_fixture(ApprovalType::Question));
     assert_eq!(
       pending_tool_family_from_state(Some(&request), Some("Bash"), None),
       Some(ToolFamily::Question)

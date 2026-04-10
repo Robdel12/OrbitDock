@@ -21,16 +21,7 @@ pub(crate) use startup_recovery::load_sessions_for_startup;
 pub(crate) use startup_recovery::load_session_lifecycle_state;
 
 #[cfg(test)]
-pub(crate) use ownership_reads::{
-  load_direct_claude_owner_by_sdk_session_id_from_db_path,
-  load_direct_codex_owner_by_thread_id_from_db_path,
-};
-#[cfg(test)]
-pub(crate) use session_hydration::load_session_by_id_from_db_path;
-#[cfg(test)]
-pub(crate) use startup_recovery::{
-  load_session_lifecycle_state_from_db_path, load_sessions_for_startup_from_db_path,
-};
+pub(crate) use startup_recovery::load_sessions_for_startup_from_db_path;
 
 type StoredCodexConfigRow = (
   Option<String>,

@@ -474,9 +474,7 @@ mod tests {
   use tokio::sync::{mpsc, oneshot};
   use tokio::time::{timeout, Duration};
 
-  use super::{
-    config_notices, end_session, plan_snapshots, update_session_config, SessionConfigUpdate,
-  };
+  use super::{end_session, update_session_config, SessionConfigUpdate};
   use crate::domain::sessions::session::SessionHandle;
   use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
   use crate::runtime::session_registry::SessionRegistry;

@@ -22,19 +22,34 @@ use super::routing::{
 use super::session_materialization::materialize_claude_session;
 use super::transcript_sync::maybe_sync_transcript_messages;
 
+pub(crate) struct ClaudeToolEventPayload {
+  pub session_id: String,
+  pub cwd: String,
+  pub hook_event_name: String,
+  pub tool_name: String,
+  pub tool_input: Option<Value>,
+  pub tool_use_id: Option<String>,
+  pub permission_suggestions: Option<Value>,
+  pub is_interrupt: Option<bool>,
+  pub permission_mode: Option<String>,
+}
+
 pub(crate) async fn handle_claude_tool_event(
   state: &Arc<SessionRegistry>,
   options: &ClaudeHookHandlingOptions,
-  session_id: String,
-  cwd: String,
-  hook_event_name: String,
-  tool_name: String,
-  tool_input: Option<Value>,
-  tool_use_id: Option<String>,
-  permission_suggestions: Option<Value>,
-  is_interrupt: Option<bool>,
-  permission_mode: Option<String>,
+  event: ClaudeToolEventPayload,
 ) {
+  let ClaudeToolEventPayload {
+    session_id,
+    cwd,
+    hook_event_name,
+    tool_name,
+    tool_input,
+    tool_use_id,
+    permission_suggestions,
+    is_interrupt,
+    permission_mode,
+  } = event;
   match resolve_claude_hook_routing(state, &session_id).await {
     ClaudeHookRoutingDecision::ManagedDirect { owner_session_id } => {
       cleanup_claude_shadow_session(state, &session_id, "managed_direct_session").await;

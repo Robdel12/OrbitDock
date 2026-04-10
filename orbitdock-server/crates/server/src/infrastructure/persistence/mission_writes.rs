@@ -1,17 +1,32 @@
 use rusqlite::{params, Connection};
 
+pub(super) struct MissionCreateRecord {
+  pub id: String,
+  pub name: String,
+  pub repo_root: String,
+  pub tracker_kind: String,
+  pub provider: String,
+  pub config_json: Option<String>,
+  pub prompt_template: Option<String>,
+  pub mission_file_path: Option<String>,
+  pub tracker_api_key: Option<String>,
+}
+
 pub(super) fn persist_mission_create(
   conn: &Connection,
-  id: String,
-  name: String,
-  repo_root: String,
-  tracker_kind: String,
-  provider: String,
-  config_json: Option<String>,
-  prompt_template: Option<String>,
-  mission_file_path: Option<String>,
-  tracker_api_key: Option<String>,
+  record: MissionCreateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let MissionCreateRecord {
+    id,
+    name,
+    repo_root,
+    tracker_kind,
+    provider,
+    config_json,
+    prompt_template,
+    mission_file_path,
+    tracker_api_key,
+  } = record;
   let encrypted_key = tracker_api_key.as_deref().and_then(|key| {
     crate::infrastructure::crypto::encrypt(key)
       .map_err(|error| tracing::warn!("Failed to encrypt tracker key: {error}"))
@@ -35,18 +50,33 @@ pub(super) fn persist_mission_create(
   Ok(())
 }
 
+pub(super) struct MissionUpdateRecord {
+  pub id: String,
+  pub name: Option<String>,
+  pub enabled: Option<bool>,
+  pub paused: Option<bool>,
+  pub tracker_kind: Option<String>,
+  pub config_json: Option<String>,
+  pub prompt_template: Option<String>,
+  pub parse_error: Option<Option<String>>,
+  pub mission_file_path: Option<Option<String>>,
+}
+
 pub(super) fn persist_mission_update(
   conn: &Connection,
-  id: String,
-  name: Option<String>,
-  enabled: Option<bool>,
-  paused: Option<bool>,
-  tracker_kind: Option<String>,
-  config_json: Option<String>,
-  prompt_template: Option<String>,
-  parse_error: Option<Option<String>>,
-  mission_file_path: Option<Option<String>>,
+  record: MissionUpdateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let MissionUpdateRecord {
+    id,
+    name,
+    enabled,
+    paused,
+    tracker_kind,
+    config_json,
+    prompt_template,
+    parse_error,
+    mission_file_path,
+  } = record;
   if let Some(ref name) = name {
     conn.execute(
       "UPDATE missions SET name = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?2",
@@ -128,18 +158,33 @@ pub(super) fn persist_mission_delete(conn: &Connection, id: String) -> Result<()
   Ok(())
 }
 
+pub(super) struct MissionIssueUpsertRecord {
+  pub id: String,
+  pub mission_id: String,
+  pub issue_id: String,
+  pub issue_identifier: String,
+  pub issue_title: Option<String>,
+  pub issue_state: Option<String>,
+  pub orchestration_state: String,
+  pub provider: Option<String>,
+  pub url: Option<String>,
+}
+
 pub(super) fn persist_mission_issue_upsert(
   conn: &Connection,
-  id: String,
-  mission_id: String,
-  issue_id: String,
-  issue_identifier: String,
-  issue_title: Option<String>,
-  issue_state: Option<String>,
-  orchestration_state: String,
-  provider: Option<String>,
-  url: Option<String>,
+  record: MissionIssueUpsertRecord,
 ) -> Result<(), rusqlite::Error> {
+  let MissionIssueUpsertRecord {
+    id,
+    mission_id,
+    issue_id,
+    issue_identifier,
+    issue_title,
+    issue_state,
+    orchestration_state,
+    provider,
+    url,
+  } = record;
   conn.execute(
     "INSERT INTO mission_issues (id, mission_id, issue_id, issue_identifier, issue_title, issue_state, orchestration_state, provider, url)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
@@ -153,19 +198,35 @@ pub(super) fn persist_mission_issue_upsert(
   Ok(())
 }
 
+pub(super) struct MissionIssueStateUpdate {
+  pub mission_id: String,
+  pub issue_id: String,
+  pub orchestration_state: String,
+  pub session_id: Option<Option<String>>,
+  pub workspace_id: Option<Option<String>>,
+  pub attempt: Option<Option<u32>>,
+  pub last_error: Option<Option<Option<String>>>,
+  pub retry_due_at: Option<Option<Option<String>>>,
+  pub started_at: Option<Option<Option<String>>>,
+  pub completed_at: Option<Option<Option<String>>>,
+}
+
 pub(super) fn persist_mission_issue_update_state(
   conn: &Connection,
-  mission_id: String,
-  issue_id: String,
-  orchestration_state: String,
-  session_id: Option<Option<String>>,
-  workspace_id: Option<Option<String>>,
-  attempt: Option<Option<u32>>,
-  last_error: Option<Option<Option<String>>>,
-  retry_due_at: Option<Option<Option<String>>>,
-  started_at: Option<Option<Option<String>>>,
-  completed_at: Option<Option<Option<String>>>,
+  update: MissionIssueStateUpdate,
 ) -> Result<(), rusqlite::Error> {
+  let MissionIssueStateUpdate {
+    mission_id,
+    issue_id,
+    orchestration_state,
+    session_id,
+    workspace_id,
+    attempt,
+    last_error,
+    retry_due_at,
+    started_at,
+    completed_at,
+  } = update;
   let mut sets = vec![
     "orchestration_state = ?1".to_string(),
     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')".to_string(),

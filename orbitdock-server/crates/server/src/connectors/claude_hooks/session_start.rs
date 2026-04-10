@@ -13,19 +13,35 @@ use super::routing::{
 };
 use super::session_materialization::is_codex_rollout_payload;
 
+pub(crate) struct ClaudeSessionStartEvent {
+  pub session_id: String,
+  pub cwd: String,
+  pub model: Option<String>,
+  pub source: Option<String>,
+  pub context_label: Option<String>,
+  pub transcript_path: Option<String>,
+  pub permission_mode: Option<String>,
+  pub agent_type: Option<String>,
+  pub terminal_session_id: Option<String>,
+  pub terminal_app: Option<String>,
+}
+
 pub(crate) async fn handle_claude_session_start(
   state: &Arc<SessionRegistry>,
-  session_id: String,
-  cwd: String,
-  model: Option<String>,
-  source: Option<String>,
-  context_label: Option<String>,
-  transcript_path: Option<String>,
-  permission_mode: Option<String>,
-  agent_type: Option<String>,
-  terminal_session_id: Option<String>,
-  terminal_app: Option<String>,
+  event: ClaudeSessionStartEvent,
 ) {
+  let ClaudeSessionStartEvent {
+    session_id,
+    cwd,
+    model,
+    source,
+    context_label,
+    transcript_path,
+    permission_mode,
+    agent_type,
+    terminal_session_id,
+    terminal_app,
+  } = event;
   if context_label.as_deref() == Some("codex_cli_rs") {
     return;
   }

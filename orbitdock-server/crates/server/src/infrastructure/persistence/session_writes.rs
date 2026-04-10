@@ -6,6 +6,57 @@ use orbitdock_protocol::{
   TokenUsageSnapshotKind, WorkStatus,
 };
 
+pub(super) struct SessionUpdateRecord {
+  pub id: String,
+  pub status: Option<SessionStatus>,
+  pub work_status: Option<WorkStatus>,
+  pub control_mode: Option<SessionControlMode>,
+  pub lifecycle_state: Option<SessionLifecycleState>,
+  pub last_activity_at: Option<String>,
+  pub last_progress_at: Option<String>,
+}
+
+pub(super) struct TurnDiffInsertRecord {
+  pub session_id: String,
+  pub turn_id: String,
+  pub turn_seq: u64,
+  pub diff: Option<String>,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub context_window: u64,
+  pub snapshot_kind: TokenUsageSnapshotKind,
+}
+
+pub(super) struct SessionAttentionUpdateRecord {
+  pub session_id: String,
+  pub attention_reason: Option<Option<String>>,
+  pub last_tool: Option<Option<String>>,
+  pub last_tool_at: Option<Option<String>>,
+  pub pending_tool_name: Option<Option<String>>,
+  pub pending_tool_input: Option<Option<String>>,
+  pub pending_question: Option<Option<String>>,
+}
+
+pub(super) struct SessionConfigRecord {
+  pub session_id: String,
+  pub approval_policy: Option<Option<String>>,
+  pub sandbox_mode: Option<Option<String>>,
+  pub permission_mode: Option<Option<String>>,
+  pub collaboration_mode: Option<Option<String>>,
+  pub multi_agent: Option<Option<bool>>,
+  pub personality: Option<Option<String>>,
+  pub service_tier: Option<Option<String>>,
+  pub developer_instructions: Option<Option<String>>,
+  pub model: Option<Option<String>>,
+  pub effort: Option<Option<String>>,
+  pub codex_config_mode: Option<Option<orbitdock_protocol::CodexConfigMode>>,
+  pub codex_config_profile: Option<Option<String>>,
+  pub codex_model_provider: Option<Option<String>>,
+  pub codex_config_source: Option<Option<orbitdock_protocol::CodexConfigSource>>,
+  pub codex_config_overrides_json: Option<Option<String>>,
+}
+
 pub(super) fn persist_session_create(
   conn: &Connection,
   params: super::SessionCreateParams,
@@ -153,14 +204,17 @@ pub(super) fn persist_session_create(
 
 pub(super) fn persist_session_update(
   conn: &Connection,
-  id: String,
-  status: Option<SessionStatus>,
-  work_status: Option<WorkStatus>,
-  control_mode: Option<SessionControlMode>,
-  lifecycle_state: Option<SessionLifecycleState>,
-  last_activity_at: Option<String>,
-  last_progress_at: Option<String>,
+  record: SessionUpdateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let SessionUpdateRecord {
+    id,
+    status,
+    work_status,
+    control_mode,
+    lifecycle_state,
+    last_activity_at,
+    last_progress_at,
+  } = record;
   let status_str = status.map(|s| match s {
     SessionStatus::Active => "active",
     SessionStatus::Ended => "ended",
@@ -510,16 +564,19 @@ pub(super) fn persist_turn_state_update(
 
 pub(super) fn persist_turn_diff_insert(
   conn: &Connection,
-  session_id: String,
-  turn_id: String,
-  turn_seq: u64,
-  diff: Option<String>,
-  input_tokens: u64,
-  output_tokens: u64,
-  cached_tokens: u64,
-  context_window: u64,
-  snapshot_kind: TokenUsageSnapshotKind,
+  record: TurnDiffInsertRecord,
 ) -> Result<(), rusqlite::Error> {
+  let TurnDiffInsertRecord {
+    session_id,
+    turn_id,
+    turn_seq,
+    diff,
+    input_tokens,
+    output_tokens,
+    cached_tokens,
+    context_window,
+    snapshot_kind,
+  } = record;
   if let Some(ref diff_content) = diff {
     conn.execute(
       "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -659,14 +716,17 @@ pub(super) fn persist_set_transcript_path(
 
 pub(super) fn persist_session_attention_update(
   conn: &Connection,
-  session_id: String,
-  attention_reason: Option<Option<String>>,
-  last_tool: Option<Option<String>>,
-  last_tool_at: Option<Option<String>>,
-  pending_tool_name: Option<Option<String>>,
-  pending_tool_input: Option<Option<String>>,
-  pending_question: Option<Option<String>>,
+  record: SessionAttentionUpdateRecord,
 ) -> Result<(), rusqlite::Error> {
+  let SessionAttentionUpdateRecord {
+    session_id,
+    attention_reason,
+    last_tool,
+    last_tool_at,
+    pending_tool_name,
+    pending_tool_input,
+    pending_question,
+  } = record;
   let mut updates: Vec<String> = Vec::new();
   let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -712,23 +772,26 @@ pub(super) fn persist_session_attention_update(
 
 pub(super) fn persist_set_session_config(
   conn: &Connection,
-  session_id: String,
-  approval_policy: Option<Option<String>>,
-  sandbox_mode: Option<Option<String>>,
-  permission_mode: Option<Option<String>>,
-  collaboration_mode: Option<Option<String>>,
-  multi_agent: Option<Option<bool>>,
-  personality: Option<Option<String>>,
-  service_tier: Option<Option<String>>,
-  developer_instructions: Option<Option<String>>,
-  model: Option<Option<String>>,
-  effort: Option<Option<String>>,
-  codex_config_mode: Option<Option<orbitdock_protocol::CodexConfigMode>>,
-  codex_config_profile: Option<Option<String>>,
-  codex_model_provider: Option<Option<String>>,
-  codex_config_source: Option<Option<orbitdock_protocol::CodexConfigSource>>,
-  codex_config_overrides_json: Option<Option<String>>,
+  record: SessionConfigRecord,
 ) -> Result<(), rusqlite::Error> {
+  let SessionConfigRecord {
+    session_id,
+    approval_policy,
+    sandbox_mode,
+    permission_mode,
+    collaboration_mode,
+    multi_agent,
+    personality,
+    service_tier,
+    developer_instructions,
+    model,
+    effort,
+    codex_config_mode,
+    codex_config_profile,
+    codex_model_provider,
+    codex_config_source,
+    codex_config_overrides_json,
+  } = record;
   let codex_config_source = codex_config_source.flatten().map(|source| match source {
     orbitdock_protocol::CodexConfigSource::Orbitdock => "orbitdock",
     orbitdock_protocol::CodexConfigSource::User => "user",

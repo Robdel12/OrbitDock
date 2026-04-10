@@ -271,7 +271,7 @@ impl SessionHandle {
     let (broadcast_tx, _) = broadcast::channel(broadcast_capacity());
     let state = SessionCoreState::restore(data);
     let snapshot = state.restored_snapshot();
-    let handle = Self {
+    Self {
       state,
       broadcast_tx,
       list_tx: None,
@@ -280,8 +280,7 @@ impl SessionHandle {
       event_log: VecDeque::new(),
       streaming_row_emit_at: HashMap::new(),
       snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
-    };
-    handle
+    }
   }
 
   /// Set the list broadcast sender (for dashboard sidebar updates)

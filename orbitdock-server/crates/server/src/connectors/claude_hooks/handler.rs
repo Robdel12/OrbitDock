@@ -36,12 +36,12 @@ use crate::runtime::session_registry::SessionRegistry;
 
 use self::routing::ClaudeHookHandlingOptions;
 use self::session_end::handle_claude_session_end;
-use self::session_start::handle_claude_session_start;
+use self::session_start::{handle_claude_session_start, ClaudeSessionStartEvent};
 use self::status_events::handle_claude_status_event;
 use self::subagent_events::handle_claude_subagent_event;
 #[cfg(test)]
 use self::subagent_updates::{apply_claude_subagent_update, ClaudeSubagentUpdate};
-use self::tool_events::handle_claude_tool_event;
+use self::tool_events::{handle_claude_tool_event, ClaudeToolEventPayload};
 pub(super) use super::approval;
 #[cfg(test)]
 use super::approval::{
@@ -77,16 +77,18 @@ pub async fn handle_hook_message_with_options(
     } => {
       handle_claude_session_start(
         state,
-        session_id,
-        cwd,
-        model,
-        source,
-        context_label,
-        transcript_path,
-        permission_mode,
-        agent_type,
-        terminal_session_id,
-        terminal_app,
+        ClaudeSessionStartEvent {
+          session_id,
+          cwd,
+          model,
+          source,
+          context_label,
+          transcript_path,
+          permission_mode,
+          agent_type,
+          terminal_session_id,
+          terminal_app,
+        },
       )
       .await;
     }
@@ -149,15 +151,17 @@ pub async fn handle_hook_message_with_options(
       handle_claude_tool_event(
         state,
         &options,
-        session_id,
-        cwd,
-        hook_event_name,
-        tool_name,
-        tool_input,
-        tool_use_id,
-        permission_suggestions,
-        is_interrupt,
-        permission_mode,
+        ClaudeToolEventPayload {
+          session_id,
+          cwd,
+          hook_event_name,
+          tool_name,
+          tool_input,
+          tool_use_id,
+          permission_suggestions,
+          is_interrupt,
+          permission_mode,
+        },
       )
       .await;
     }
