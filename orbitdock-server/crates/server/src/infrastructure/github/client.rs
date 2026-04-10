@@ -949,8 +949,11 @@ mod tests {
     );
     assert_eq!(status_matches.len(), 3);
 
-    let label_matches =
-      client.filter_project_items(issue_items_for_filter_contracts(), &[], &["bug".to_string()]);
+    let label_matches = client.filter_project_items(
+      issue_items_for_filter_contracts(),
+      &[],
+      &["bug".to_string()],
+    );
     assert_eq!(label_matches.len(), 4);
 
     let combined = client.filter_project_items(
@@ -959,7 +962,9 @@ mod tests {
       &["bug".to_string()],
     );
     assert_eq!(combined.len(), 3);
-    assert!(combined.iter().all(|issue| issue.state.eq_ignore_ascii_case("In Progress")));
+    assert!(combined
+      .iter()
+      .all(|issue| issue.state.eq_ignore_ascii_case("In Progress")));
   }
 
   #[test]
@@ -968,8 +973,11 @@ mod tests {
     let unfiltered = client.filter_project_items(issue_items_for_unfiltered_contract(), &[], &[]);
     assert_eq!(unfiltered.len(), 4);
 
-    let label_filtered =
-      client.filter_project_items(issue_items_for_unfiltered_contract(), &[], &["p1".to_string()]);
+    let label_filtered = client.filter_project_items(
+      issue_items_for_unfiltered_contract(),
+      &[],
+      &["p1".to_string()],
+    );
     assert_eq!(label_filtered.len(), 1);
     assert_eq!(label_filtered[0].title, "Test issue");
   }
