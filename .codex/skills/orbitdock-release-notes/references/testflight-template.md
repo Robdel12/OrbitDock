@@ -7,17 +7,12 @@ Highlights
 [Second most important user-facing improvement]
 [Stability/performance/reliability improvement]
 
-Platform breakdown
-
-Shared (iPhone, iPad, and Mac)
+App-wide details
 [Change]
 [Change]
 
-iPhone and iPad specific
-[Change or "No platform-specific changes in this build."]
-
-Mac specific
-[Change or "No platform-specific changes in this build."]
+Platform notes
+[Optional. Include only when there are meaningful user-facing differences between iPhone/iPad and Mac. Otherwise omit this section entirely.]
 
 Notes
 This build focuses on [scope summary].
