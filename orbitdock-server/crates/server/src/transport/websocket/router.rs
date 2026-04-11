@@ -79,6 +79,11 @@ pub(crate) fn handle_client_message<'a>(
           .await;
       }
 
+      MessageGroup::ToolPty => {
+        crate::transport::websocket::handlers::tool_pty::handle(msg, client_tx, state, conn_id)
+          .await;
+      }
+
       MessageGroup::RestOnly => {
         crate::transport::websocket::handlers::rest_only::handle(msg, client_tx).await;
       }

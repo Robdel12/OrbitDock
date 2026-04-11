@@ -37,6 +37,19 @@ Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a p
 
 The app is a client. It does not install or configure the server. Connect to your running local server via the endpoint UI in app settings.
 
+### Native Tooling Cheat Sheet
+
+- iOS simulator run / tap / type / screenshot / logs: `Build iOS Apps` plugin + `build-ios-apps:ios-debugger-agent`
+- iOS SwiftUI build patterns: `build-ios-apps:swiftui-ui-patterns`
+- iOS SwiftUI cleanup: `build-ios-apps:swiftui-view-refactor`
+- iOS SwiftUI perf work: `build-ios-apps:swiftui-performance-audit`
+- App Intents / Shortcuts / Siri / Spotlight: `build-ios-apps:ios-app-intents`
+- macOS build / run / launch debugging: `Build macOS Apps` plugin + `build-macos-apps:build-run-debug`
+- macOS failing tests: `build-macos-apps:test-triage`
+- macOS logging / telemetry verification: `build-macos-apps:telemetry`
+- AppKit bridges and window behavior: `build-macos-apps:appkit-interop`, `build-macos-apps:window-management`
+- Prefer `mcp__xcodebuildmcp__*` tools for simulator control, screenshots, UI snapshots, logs, and Xcode-backed build/test actions
+
 ### Build the Rust Server
 
 ```bash

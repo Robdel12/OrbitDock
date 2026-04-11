@@ -18,19 +18,43 @@ use codex_core::{ModelProviderInfo, WireApi};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use codex_protocol::openai_models::{ApplyPatchToolType, ReasoningEffort};
+use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::{
   AgentStatus, CodexErrorInfo, HookCompletedEvent, HookEventName, HookExecutionMode,
   HookHandlerType, HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
   HookStartedEvent, RawResponseItemEvent, RealtimeHandoffRequested, RealtimeTranscriptEntry,
-  StreamErrorEvent, WarningEvent,
+  RequestUserInputEvent, StreamErrorEvent, WarningEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::{
+  ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
+};
 use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::domain_events::{AgentType, ToolKind, ToolStatus};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+
+fn created_row(
+  output: &ConnectorOutput,
+) -> &orbitdock_protocol::conversation_contracts::ConversationRow {
+  match output.as_state_event() {
+    Some(ConnectorStateEvent::ConversationRowCreated(entry)) => &entry.row,
+    _ => panic!("expected row creation event, got {output:?}"),
+  }
+}
+
+fn updated_row(
+  output: &ConnectorOutput,
+) -> (
+  &str,
+  &orbitdock_protocol::conversation_contracts::ConversationRow,
+) {
+  match output.as_state_event() {
+    Some(ConnectorStateEvent::ConversationRowUpdated { row_id, entry }) => (row_id, &entry.row),
+    _ => panic!("expected row update event, got {output:?}"),
+  }
+}
 
 #[test]
 fn collaboration_mode_maps_plan() {
@@ -504,6 +528,49 @@ fn custom_provider_force_enables_apply_patch_feature() {
 }
 
 #[test]
+fn codex_output_classifies_pty_events_as_transport_only() {
+  let created = ConnectorOutput::Transport(ConnectorTransportEffect::ToolPtyCreated {
+    tool_id: "tool-pty-1".to_string(),
+  });
+  match &created {
+    ConnectorOutput::Transport(ConnectorTransportEffect::ToolPtyCreated { tool_id }) => {
+      assert_eq!(tool_id, "tool-pty-1");
+    }
+    other => panic!("expected transport PTY create output, got {other:?}"),
+  }
+
+  let output = ConnectorOutput::Transport(ConnectorTransportEffect::ToolPtyOutput {
+    tool_id: "tool-pty-1".to_string(),
+    bytes: b"hello".to_vec(),
+  });
+  match &output {
+    ConnectorOutput::Transport(ConnectorTransportEffect::ToolPtyOutput { tool_id, bytes }) => {
+      assert_eq!(tool_id, "tool-pty-1");
+      assert_eq!(bytes, b"hello");
+    }
+    other => panic!("expected transport PTY output, got {other:?}"),
+  }
+
+  let runtime = ConnectorOutput::Runtime(ConnectorRuntimeDirective::DynamicToolCallRequested {
+    call_id: "call-1".to_string(),
+    tool_name: "file_read".to_string(),
+    arguments: serde_json::json!({"path":"README.md"}),
+  });
+  match &runtime {
+    ConnectorOutput::Runtime(ConnectorRuntimeDirective::DynamicToolCallRequested {
+      call_id,
+      tool_name,
+      arguments,
+    }) => {
+      assert_eq!(call_id, "call-1");
+      assert_eq!(tool_name, "file_read");
+      assert_eq!(arguments["path"], "README.md");
+    }
+    other => panic!("expected runtime directive output, got {other:?}"),
+  }
+}
+
+#[test]
 fn openai_provider_does_not_force_enable_apply_patch_feature() {
   let mut config = config_with_provider(
     "openai",
@@ -674,10 +741,7 @@ async fn raw_response_function_call_surfaces_read_tool_rows() {
   .await;
 
   assert_eq!(created.len(), 1);
-  let ConnectorEvent::ConversationRowCreated(entry) = &created[0] else {
-    panic!("expected tool row create event");
-  };
-  let ConversationRow::Tool(tool) = &entry.row else {
+  let ConversationRow::Tool(tool) = created_row(&created[0]) else {
     panic!("expected tool row");
   };
   assert_eq!(tool.id, "call-read-1");
@@ -705,11 +769,9 @@ async fn raw_response_function_call_surfaces_read_tool_rows() {
   .await;
 
   assert_eq!(updated.len(), 1);
-  let ConnectorEvent::ConversationRowUpdated { row_id, entry } = &updated[0] else {
-    panic!("expected tool row update event");
-  };
+  let (row_id, row) = updated_row(&updated[0]);
   assert_eq!(row_id, "call-read-1");
-  let ConversationRow::Tool(tool) = &entry.row else {
+  let ConversationRow::Tool(tool) = row else {
     panic!("expected tool row");
   };
   assert_eq!(tool.kind, ToolKind::Read);
@@ -746,10 +808,7 @@ async fn raw_response_tool_search_surfaces_tool_search_rows() {
   .await;
 
   assert_eq!(created.len(), 1);
-  let ConnectorEvent::ConversationRowCreated(entry) = &created[0] else {
-    panic!("expected tool row create event");
-  };
-  let ConversationRow::Tool(tool) = &entry.row else {
+  let ConversationRow::Tool(tool) = created_row(&created[0]) else {
     panic!("expected tool row");
   };
   assert_eq!(tool.kind, ToolKind::ToolSearch);
@@ -771,11 +830,9 @@ async fn raw_response_tool_search_surfaces_tool_search_rows() {
   .await;
 
   assert_eq!(updated.len(), 1);
-  let ConnectorEvent::ConversationRowUpdated { row_id, entry } = &updated[0] else {
-    panic!("expected tool row update event");
-  };
+  let (row_id, row) = updated_row(&updated[0]);
   assert_eq!(row_id, "call-tool-search-1");
-  let ConversationRow::Tool(tool) = &entry.row else {
+  let ConversationRow::Tool(tool) = row else {
     panic!("expected tool row");
   };
   assert_eq!(tool.kind, ToolKind::ToolSearch);
@@ -880,14 +937,93 @@ fn surfaces_failed_hook_completed_rows() {
   });
 
   assert_eq!(events.len(), 1);
-  let ConnectorEvent::ConversationRowCreated(entry) = &events[0] else {
-    panic!("expected hook failure row");
-  };
-  let ConversationRow::Hook(hook) = &entry.row else {
+  let ConversationRow::Hook(hook) = created_row(&events[0]) else {
     panic!("expected hook row");
   };
   assert_eq!(hook.id, "hook-hook-error-complete");
   assert!(hook.title.contains("failed via hooks.json"));
+}
+
+#[test]
+fn handle_plan_update_emits_plan_state_and_timeline_row() {
+  let msg_counter = AtomicU64::new(0);
+  let event: UpdatePlanArgs = serde_json::from_value(serde_json::json!({
+    "explanation": "Refine the connector boundary",
+    "plan": [
+      { "step": "Split connector outputs", "status": "in_progress" },
+      { "step": "Rewrite tests around typed outputs", "status": "pending" }
+    ]
+  }))
+  .expect("valid plan update payload");
+
+  let events = runtime_signals::handle_plan_update("event-plan-1", event, &msg_counter);
+
+  let mut saw_plan_update = false;
+  let mut saw_tool_row = false;
+  for output in &events {
+    match output.as_state_event() {
+      Some(ConnectorStateEvent::PlanUpdated(plan)) => {
+        saw_plan_update = plan.contains("Split connector outputs");
+      }
+      Some(ConnectorStateEvent::ConversationRowCreated(entry)) => {
+        if let ConversationRow::Tool(tool) = &entry.row {
+          saw_tool_row = tool.kind == ToolKind::UpdatePlan;
+        }
+      }
+      _ => {}
+    }
+  }
+
+  assert!(saw_plan_update, "expected PlanUpdated side-state output");
+  assert!(saw_tool_row, "expected UpdatePlan timeline row");
+}
+
+#[test]
+fn request_user_input_emits_question_row_and_submission_request() {
+  let msg_counter = AtomicU64::new(0);
+  let event: RequestUserInputEvent = serde_json::from_value(serde_json::json!({
+    "call_id": "call-user-input-1",
+    "questions": [
+      {
+        "header": "Scope",
+        "id": "scope",
+        "question": "Which path should we take?",
+        "options": [
+          { "label": "Typed", "description": "Keep reducer-safe outputs only." },
+          { "label": "Mixed", "description": "Keep the legacy mixed event path." }
+        ]
+      }
+    ]
+  }))
+  .expect("valid user-input request payload");
+
+  let events = super::event_mapping::approvals::handle_request_user_input(
+    "request-user-input-1",
+    event,
+    &msg_counter,
+  );
+
+  let mut saw_question_row = false;
+  let mut saw_submission_request = false;
+  for output in &events {
+    match output.as_state_event() {
+      Some(ConnectorStateEvent::ConversationRowCreated(entry)) => {
+        if let ConversationRow::Tool(tool) = &entry.row {
+          saw_question_row = tool.kind == ToolKind::AskUserQuestion;
+        }
+      }
+      Some(ConnectorStateEvent::ApprovalRequested { request_id, .. }) => {
+        saw_submission_request = request_id == "request-user-input-1";
+      }
+      _ => {}
+    }
+  }
+
+  assert!(saw_question_row, "expected AskUserQuestion timeline row");
+  assert!(
+    saw_submission_request,
+    "expected approval request keyed by event id"
+  );
 }
 
 #[test]
@@ -1139,10 +1275,7 @@ async fn handle_agent_message_preserves_memory_citations() {
   )
   .await;
 
-  let row = match &events[0] {
-    ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
-    other => panic!("expected row creation event, got {other:?}"),
-  };
+  let row = created_row(&events[0]);
 
   let message = match row {
     ConversationRow::Assistant(message) => message,
@@ -1173,10 +1306,7 @@ fn handle_guardian_assessment_creates_guardian_tool_row_while_running() {
       rationale: Some("Deletes a broad path".to_string()),
     });
 
-  let row = match &events[0] {
-    ConnectorEvent::ConversationRowCreated(entry) => &entry.row,
-    other => panic!("expected row creation event, got {other:?}"),
-  };
+  let row = created_row(&events[0]);
 
   let tool = match row {
     ConversationRow::Tool(tool) => tool,
@@ -1210,13 +1340,8 @@ fn handle_guardian_assessment_updates_guardian_tool_row_when_terminal() {
       rationale: Some("Deletes a broad path".to_string()),
     });
 
-  let row = match &events[0] {
-    ConnectorEvent::ConversationRowUpdated { row_id, entry } => {
-      assert_eq!(row_id, "guardian-guardian-1");
-      &entry.row
-    }
-    other => panic!("expected row update event, got {other:?}"),
-  };
+  let (row_id, row) = updated_row(&events[0]);
+  assert_eq!(row_id, "guardian-guardian-1");
 
   let tool = match row {
     ConversationRow::Tool(tool) => tool,

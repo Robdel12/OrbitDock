@@ -29,6 +29,18 @@ The repo rules are simple:
 - keep SQLite ownership in the Rust server
 - prefer focused docs in `docs/` over growing this file again
 
+## Native App Workflow
+
+For Swift app work, prefer the newer plugin skills and MCP tools over ad hoc shell workflows.
+
+- use the `Build iOS Apps` plugin for iOS build, simulator, UI inspection, screenshots, logs, and debugger flows
+- use the `Build macOS Apps` plugin for macOS build, run, test, debug, telemetry, and packaging flows
+- when the task clearly matches one of the native skills, load it first instead of reaching straight for raw `xcodebuild`
+- prefer `build-ios-apps:ios-debugger-agent` for simulator runs and interactive iOS debugging
+- prefer `build-macos-apps:build-run-debug` for local macOS build and launch work, and `build-macos-apps:test-triage` when macOS tests fail
+- prefer the `mcp__xcodebuildmcp__*` tool family for simulator control, screenshots, UI snapshots, log capture, and Xcode-backed build/test actions
+- use shell `xcodebuild` or `swift build` as a fallback when the MCP/plugin path does not cover the task cleanly
+
 ## State Mutation Rules
 
 **Functional. Pure. Immutable. Single mutation path.**

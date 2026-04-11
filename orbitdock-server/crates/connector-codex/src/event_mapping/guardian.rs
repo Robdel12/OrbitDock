@@ -1,39 +1,14 @@
-use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, extract_compact_result_text, ConversationRow, ToolDisplayInput, ToolRow,
-};
+use super::{row_created_output, row_updated_output, tool_row_entry, ConnectorOutputs};
+use orbitdock_protocol::conversation_contracts::ToolRow;
 use orbitdock_protocol::domain_events::{
   GuardianAssessmentPayload, ToolFamily, ToolInvocationPayload, ToolKind, ToolResultPayload,
   ToolStatus,
 };
 use orbitdock_protocol::Provider;
 
-fn tool_row_entry(
-  row: ToolRow,
-) -> orbitdock_protocol::conversation_contracts::ConversationRowEntry {
-  crate::runtime::row_entry(ConversationRow::Tool(with_display(row)))
-}
-
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_json = row.invocation.is_object().then_some(&row.invocation);
-  let result_text = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_json,
-    result_output: result_text.as_deref(),
-  }));
-  row
-}
-
 pub(crate) fn handle_guardian_assessment(
   event: codex_protocol::approvals::GuardianAssessmentEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let is_in_progress = matches!(
     event.status,
     codex_protocol::approvals::GuardianAssessmentStatus::InProgress
@@ -102,8 +77,8 @@ pub(crate) fn handle_guardian_assessment(
   let row_id = row.id.clone();
   let entry = tool_row_entry(row);
   vec![if is_in_progress {
-    ConnectorEvent::ConversationRowCreated(entry)
+    row_created_output(entry)
   } else {
-    ConnectorEvent::ConversationRowUpdated { row_id, entry }
+    row_updated_output(row_id, entry)
   }]
 }

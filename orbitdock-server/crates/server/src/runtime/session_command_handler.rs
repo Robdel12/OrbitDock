@@ -5,9 +5,12 @@
 //! event loops (Claude, Codex) and the passive session actor.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::{
+  ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
+};
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
   compute_tool_display, ConversationRow, ToolDisplayInput,
@@ -144,14 +147,53 @@ async fn persist_and_broadcast_mark_read(
   });
 }
 
-fn should_suppress_connector_user_echo(handle: &SessionHandle, event: &ConnectorEvent) -> bool {
+async fn persist_upserted_row_and_broadcast(
+  handle: &mut SessionHandle,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+) {
+  let session_id = handle.id().to_string();
+  let row_id = entry.id().to_string();
+  let entry = handle.upsert_row(entry);
+
+  let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
+  let _ = persist_tx
+    .send(PersistCommand::RowUpsert {
+      session_id: session_id.clone(),
+      entry: entry.clone(),
+      viewer_present: handle.has_active_viewers(),
+      assigned_sequence: None,
+      sequence_tx: Some(seq_tx),
+    })
+    .await;
+
+  if let Ok(db_seq) = seq_rx.await {
+    handle.set_row_sequence(&row_id, db_seq);
+  }
+
+  let summary = handle
+    .row_by_id(&row_id)
+    .map(|row| row.to_transport_summary())
+    .unwrap_or_else(|| entry.to_transport_summary());
+  handle.broadcast(ServerMessage::ConversationRowsChanged {
+    session_id,
+    upserted: vec![summary],
+    removed_row_ids: vec![],
+    total_row_count: handle.message_count() as u64,
+  });
+}
+
+fn should_suppress_connector_user_echo(
+  handle: &SessionHandle,
+  event: &ConnectorStateEvent,
+) -> bool {
   if handle.provider() != Provider::Codex
     || handle.to_snapshot().codex_integration_mode != Some(CodexIntegrationMode::Direct)
   {
     return false;
   }
 
-  let ConnectorEvent::ConversationRowCreated(entry) = event else {
+  let ConnectorStateEvent::ConversationRowCreated(entry) = event else {
     return false;
   };
 
@@ -160,6 +202,57 @@ fn should_suppress_connector_user_echo(handle: &SessionHandle, event: &Connector
   };
 
   handle.has_user_row_with_content(&message.content)
+}
+
+fn upgrade_connector_row_event(
+  provider: Provider,
+  event: ConnectorStateEvent,
+) -> ConnectorStateEvent {
+  match event {
+    ConnectorStateEvent::ConversationRowCreated(mut entry) => {
+      entry.row = crate::domain::conversation_semantics::upgrade_row(provider, entry.row);
+      ConnectorStateEvent::ConversationRowCreated(entry)
+    }
+    ConnectorStateEvent::ConversationRowUpdated { row_id, mut entry } => {
+      entry.row = crate::domain::conversation_semantics::upgrade_row(provider, entry.row);
+      ConnectorStateEvent::ConversationRowUpdated { row_id, entry }
+    }
+    other => other,
+  }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ConnectorDispatch {
+  State(Box<ConnectorStateEvent>),
+  RuntimeDirective(ConnectorRuntimeDirective),
+  TransportEffect(ConnectorTransportEffect),
+}
+
+pub(crate) fn classify_connector_output(output: ConnectorOutput) -> ConnectorDispatch {
+  match output {
+    ConnectorOutput::State(event) => ConnectorDispatch::State(event),
+    ConnectorOutput::Runtime(directive) => ConnectorDispatch::RuntimeDirective(directive),
+    ConnectorOutput::Transport(effect) => ConnectorDispatch::TransportEffect(effect),
+  }
+}
+
+pub(crate) async fn handle_connector_transport_effect(
+  effect: ConnectorTransportEffect,
+  state: &Arc<crate::runtime::session_registry::SessionRegistry>,
+  session_id: &str,
+) {
+  let tool_pty = state.tool_pty_service();
+  match effect {
+    ConnectorTransportEffect::ToolPtyCreated { tool_id } => {
+      tool_pty.create_for_tool(tool_id, session_id.to_string());
+    }
+    ConnectorTransportEffect::ToolPtyOutput { tool_id, bytes } => {
+      tool_pty.feed_output(&tool_id, &bytes);
+    }
+    ConnectorTransportEffect::ToolPtyExited { tool_id, exit_code } => {
+      tool_pty.finish(&tool_id, exit_code);
+    }
+  }
 }
 
 /// Handle a SessionCommand on the owned SessionHandle.
@@ -374,35 +467,7 @@ pub async fn handle_session_command(
         return;
       }
 
-      let session_id = handle.id().to_string();
-      let row_id = entry.id().to_string();
-      let entry = handle.upsert_row(entry);
-
-      let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-      let _ = persist_tx
-        .send(PersistCommand::RowUpsert {
-          session_id: session_id.clone(),
-          entry: entry.clone(),
-          viewer_present: handle.has_active_viewers(),
-          assigned_sequence: None,
-          sequence_tx: Some(seq_tx),
-        })
-        .await;
-
-      if let Ok(db_seq) = seq_rx.await {
-        handle.set_row_sequence(&row_id, db_seq);
-      }
-
-      let summary = handle
-        .row_by_id(&row_id)
-        .map(|row| row.to_transport_summary())
-        .unwrap_or_else(|| entry.to_transport_summary());
-      handle.broadcast(ServerMessage::ConversationRowsChanged {
-        session_id,
-        upserted: vec![summary],
-        removed_row_ids: vec![],
-        total_row_count: handle.message_count() as u64,
-      });
+      persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
     }
     SessionCommand::RecordQuestionAnswer { answer_text } => {
       // Find the newest AskUserQuestion tool row that has no result yet.
@@ -445,34 +510,7 @@ pub async fn handle_session_command(
           }));
         }
 
-        let session_id = handle.id().to_string();
-        let row_id = entry.id().to_string();
-        let entry = handle.upsert_row(entry);
-
-        let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-        let _ = persist_tx
-          .send(PersistCommand::RowUpsert {
-            session_id: session_id.clone(),
-            entry: entry.clone(),
-            viewer_present: handle.has_active_viewers(),
-            assigned_sequence: None,
-            sequence_tx: Some(seq_tx),
-          })
-          .await;
-        if let Ok(db_seq) = seq_rx.await {
-          handle.set_row_sequence(&row_id, db_seq);
-        }
-
-        let summary = handle
-          .row_by_id(&row_id)
-          .map(|row| row.to_transport_summary())
-          .unwrap_or_else(|| entry.to_transport_summary());
-        handle.broadcast(ServerMessage::ConversationRowsChanged {
-          session_id,
-          upserted: vec![summary],
-          removed_row_ids: vec![],
-          total_row_count: handle.message_count() as u64,
-        });
+        persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
       }
     }
     SessionCommand::ResolvePendingApproval {
@@ -545,19 +583,19 @@ pub async fn handle_session_command(
   handle.refresh_snapshot();
 }
 
-/// Dispatch a `ConnectorEvent` through the transition state machine.
+/// Dispatch a reducer-safe connector state event through the transition state machine.
 ///
 /// Shared by both provider event loops (Claude, Codex). Converts the event
 /// to a transition `Input`, runs the state machine, applies effects (persist
 /// + broadcast with approval version injection), and refreshes the snapshot.
 pub(crate) async fn dispatch_connector_event(
   session_id: &str,
-  event: ConnectorEvent,
+  event: ConnectorStateEvent,
   handle: &mut SessionHandle,
   persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
   if should_suppress_connector_user_echo(handle, &event) {
-    if let ConnectorEvent::ConversationRowCreated(entry) = &event {
+    if let ConnectorStateEvent::ConversationRowCreated(entry) = &event {
       debug!(
           component = "session",
           event = "session.message.connector_user_echo_suppressed",
@@ -569,17 +607,7 @@ pub(crate) async fn dispatch_connector_event(
     return;
   }
 
-  let event = match event {
-    ConnectorEvent::ConversationRowCreated(mut entry) => {
-      entry.row = crate::domain::conversation_semantics::upgrade_row(handle.provider(), entry.row);
-      ConnectorEvent::ConversationRowCreated(entry)
-    }
-    ConnectorEvent::ConversationRowUpdated { row_id, mut entry } => {
-      entry.row = crate::domain::conversation_semantics::upgrade_row(handle.provider(), entry.row);
-      ConnectorEvent::ConversationRowUpdated { row_id, entry }
-    }
-    other => other,
-  };
+  let event = upgrade_connector_row_event(handle.provider(), event);
   let input = transition::Input::from(event);
   dispatch_transition_input(session_id, input, handle, persist_tx).await;
 }
@@ -772,19 +800,19 @@ pub(crate) async fn dispatch_transition_input(
 
 /// Returns `true` if the event signals the end of a turn (used to cancel
 /// interrupt watchdogs).
-pub(crate) fn is_turn_ending(event: &ConnectorEvent) -> bool {
+pub(crate) fn is_turn_ending(event: &ConnectorStateEvent) -> bool {
   matches!(
     event,
-    ConnectorEvent::TurnAborted { .. }
-      | ConnectorEvent::TurnCompleted
-      | ConnectorEvent::SessionEnded { .. }
+    ConnectorStateEvent::TurnAborted { .. }
+      | ConnectorStateEvent::TurnCompleted
+      | ConnectorStateEvent::SessionEnded { .. }
   )
 }
 
 /// Spawn an interrupt watchdog that sends a synthetic `TurnAborted` after
 /// 10 seconds if no turn-ending event arrives.
 pub(crate) fn spawn_interrupt_watchdog(
-  tx: mpsc::Sender<ConnectorEvent>,
+  tx: mpsc::Sender<ConnectorStateEvent>,
   session_id: String,
   component: &'static str,
 ) -> JoinHandle<()> {
@@ -797,11 +825,46 @@ pub(crate) fn spawn_interrupt_watchdog(
         "Interrupt watchdog fired — forcing TurnAborted"
     );
     let _ = tx
-      .send(ConnectorEvent::TurnAborted {
+      .send(ConnectorStateEvent::TurnAborted {
         reason: "interrupt_timeout".to_string(),
       })
       .await;
   })
+}
+
+pub(crate) fn abort_interrupt_watchdog(watchdog: &mut Option<JoinHandle<()>>) {
+  if let Some(handle) = watchdog.take() {
+    handle.abort();
+  }
+}
+
+pub(crate) fn restart_interrupt_watchdog(
+  watchdog: &mut Option<JoinHandle<()>>,
+  tx: mpsc::Sender<ConnectorStateEvent>,
+  session_id: &str,
+  component: &'static str,
+) {
+  abort_interrupt_watchdog(watchdog);
+  *watchdog = Some(spawn_interrupt_watchdog(
+    tx,
+    session_id.to_string(),
+    component,
+  ));
+}
+
+pub(crate) async fn emit_connector_error(
+  session_id: &str,
+  message: impl Into<String>,
+  handle: &mut SessionHandle,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+  dispatch_connector_event(
+    session_id,
+    ConnectorStateEvent::Error(message.into()),
+    handle,
+    persist_tx,
+  )
+  .await;
 }
 
 #[cfg(test)]
@@ -853,6 +916,38 @@ mod tests {
   }
 
   #[test]
+  fn classifies_tool_pty_created_as_transport_effect() {
+    let dispatch = classify_connector_output(ConnectorOutput::Transport(
+      ConnectorTransportEffect::ToolPtyCreated {
+        tool_id: "tool-1".to_string(),
+      },
+    ));
+
+    match dispatch {
+      ConnectorDispatch::TransportEffect(ConnectorTransportEffect::ToolPtyCreated { tool_id }) => {
+        assert_eq!(tool_id, "tool-1");
+      }
+      other => panic!("expected ToolPtyCreated transport effect, got {other:?}"),
+    }
+  }
+
+  #[test]
+  fn classifies_hook_session_id_as_runtime_directive() {
+    let dispatch = classify_connector_output(ConnectorOutput::Runtime(
+      ConnectorRuntimeDirective::HookSessionId("hook-session-1".to_string()),
+    ));
+
+    match dispatch {
+      ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::HookSessionId(
+        hook_session_id,
+      )) => {
+        assert_eq!(hook_session_id, "hook-session-1");
+      }
+      other => panic!("expected HookSessionId runtime directive, got {other:?}"),
+    }
+  }
+
+  #[test]
   fn suppresses_duplicate_codex_user_echo_for_direct_sessions() {
     let mut handle = SessionHandle::new(
       "session-1".to_string(),
@@ -862,7 +957,7 @@ mod tests {
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     handle.add_row(user_entry("session-1", "user-http-1", "hello world"));
 
-    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+    let event = ConnectorStateEvent::ConversationRowCreated(user_entry(
       "session-1",
       "user-codex-1",
       "hello world",
@@ -881,8 +976,11 @@ mod tests {
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
     handle.add_row(user_entry("session-1", "user-http-1", "hello world"));
 
-    let event =
-      ConnectorEvent::ConversationRowCreated(user_entry("session-1", "user-codex-1", "different"));
+    let event = ConnectorStateEvent::ConversationRowCreated(user_entry(
+      "session-1",
+      "user-codex-1",
+      "different",
+    ));
 
     assert!(!should_suppress_connector_user_echo(&handle, &event));
   }
@@ -913,7 +1011,7 @@ mod tests {
       }),
     });
 
-    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+    let event = ConnectorStateEvent::ConversationRowCreated(user_entry(
       "session-1",
       "user-codex-1",
       "hello world",
@@ -930,7 +1028,7 @@ mod tests {
       "/repo".to_string(),
     );
 
-    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+    let event = ConnectorStateEvent::ConversationRowCreated(user_entry(
       "session-1",
       "user-codex-1",
       "hello world",
@@ -948,7 +1046,7 @@ mod tests {
     );
     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
 
-    let event = ConnectorEvent::ConversationRowCreated(user_entry(
+    let event = ConnectorStateEvent::ConversationRowCreated(user_entry(
       "session-1",
       "user-codex-1",
       "hello world",

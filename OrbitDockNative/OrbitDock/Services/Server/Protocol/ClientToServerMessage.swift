@@ -17,12 +17,15 @@ enum ClientToServerMessage: Codable, Sendable {
   case subscribeMissions(sinceRevision: UInt64? = nil)
   case subscribeSessionSurface(sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64? = nil)
   case unsubscribeSessionSurface(sessionId: String, surface: ServerSessionSurface)
+  case subscribeToolPty(toolId: String, sessionId: String)
+  case unsubscribeToolPty(toolId: String)
 
   enum CodingKeys: String, CodingKey {
     case type
     case sessionId = "session_id"
     case surface
     case sinceRevision = "since_revision"
+    case toolId = "tool_id"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -50,6 +53,15 @@ enum ClientToServerMessage: Codable, Sendable {
         try container.encode("unsubscribe_session_surface", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(surface, forKey: .surface)
+
+      case let .subscribeToolPty(toolId, sessionId):
+        try container.encode("subscribe_tool_pty", forKey: .type)
+        try container.encode(toolId, forKey: .toolId)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .unsubscribeToolPty(toolId):
+        try container.encode("unsubscribe_tool_pty", forKey: .type)
+        try container.encode(toolId, forKey: .toolId)
     }
   }
 
@@ -78,6 +90,15 @@ enum ClientToServerMessage: Codable, Sendable {
         self = try .unsubscribeSessionSurface(
           sessionId: container.decode(String.self, forKey: .sessionId),
           surface: container.decode(ServerSessionSurface.self, forKey: .surface)
+        )
+      case "subscribe_tool_pty":
+        self = try .subscribeToolPty(
+          toolId: container.decode(String.self, forKey: .toolId),
+          sessionId: container.decode(String.self, forKey: .sessionId)
+        )
+      case "unsubscribe_tool_pty":
+        self = try .unsubscribeToolPty(
+          toolId: container.decode(String.self, forKey: .toolId)
         )
       default:
         throw DecodingError.dataCorrupted(

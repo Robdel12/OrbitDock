@@ -15,4 +15,5 @@ pub(crate) mod paths;
 pub(crate) mod persistence;
 pub(crate) mod shell;
 pub(crate) mod terminal;
+pub(crate) mod tool_pty;
 pub(crate) mod usage_probe;

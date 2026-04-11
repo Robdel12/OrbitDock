@@ -1,4 +1,4 @@
-use crate::runtime::row_entry;
+use super::{row_created_output, state_output, tool_row_entry, ConnectorOutputs};
 use crate::workers::iso_now;
 use codex_protocol::approvals::{
   ElicitationRequestEvent, NetworkApprovalProtocol, NetworkPolicyAmendment,
@@ -7,11 +7,8 @@ use codex_protocol::protocol::{
   ApplyPatchApprovalRequestEvent, ExecApprovalRequestEvent, FileChange, RequestUserInputEvent,
 };
 use codex_protocol::request_permissions::RequestPermissionsEvent;
-use orbitdock_connector_core::{ApprovalType, ConnectorEvent};
-use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
-  ToolDisplayInput, ToolRow,
-};
+use orbitdock_connector_core::{ApprovalType, ConnectorStateEvent};
+use orbitdock_protocol::conversation_contracts::ToolRow;
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
@@ -43,29 +40,7 @@ fn approval_suggestions(
   }))
 }
 
-fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-  let row = with_display(row);
-  row_entry(ConversationRow::Tool(row))
-}
-
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
-  let result_str = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_ref,
-    result_output: result_str.as_deref(),
-  }));
-  row
-}
-
-pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> ConnectorOutputs {
   let command = event.command.join(" ");
   let amendment = event
     .proposed_execpolicy_amendment
@@ -87,7 +62,7 @@ pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> V
     .approval_id
     .clone()
     .unwrap_or_else(|| event.call_id.clone());
-  vec![ConnectorEvent::ApprovalRequested {
+  vec![state_output(ConnectorStateEvent::ApprovalRequested {
     request_id,
     approval_type: ApprovalType::Exec,
     tool_name: None,
@@ -107,12 +82,12 @@ pub(crate) fn handle_exec_approval_request(event: ExecApprovalRequestEvent) -> V
     mcp_server_name: None,
     network_host,
     network_protocol,
-  }]
+  })]
 }
 
 pub(crate) fn handle_apply_patch_approval_request(
   event: ApplyPatchApprovalRequestEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let files: Vec<String> = event
     .changes
     .keys()
@@ -158,7 +133,7 @@ pub(crate) fn handle_apply_patch_approval_request(
     .collect::<Vec<_>>()
     .join("\n\n");
 
-  vec![ConnectorEvent::ApprovalRequested {
+  vec![state_output(ConnectorStateEvent::ApprovalRequested {
     request_id: event.call_id.clone(),
     approval_type: ApprovalType::Patch,
     tool_name: None,
@@ -178,14 +153,14 @@ pub(crate) fn handle_apply_patch_approval_request(
     mcp_server_name: None,
     network_host: None,
     network_protocol: None,
-  }]
+  })]
 }
 
 pub(crate) fn handle_request_user_input(
   event_id: &str,
   event: RequestUserInputEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let question_text = event
     .questions
     .first()
@@ -221,8 +196,8 @@ pub(crate) fn handle_request_user_input(
   };
 
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
-    ConnectorEvent::ApprovalRequested {
+    row_created_output(tool_row_entry(row)),
+    state_output(ConnectorStateEvent::ApprovalRequested {
       request_id: event_id.to_string(),
       approval_type: ApprovalType::Question,
       tool_name: None,
@@ -242,18 +217,18 @@ pub(crate) fn handle_request_user_input(
       mcp_server_name: None,
       network_host: None,
       network_protocol: None,
-    },
+    }),
   ]
 }
 
-pub(crate) fn handle_request_permissions(event: RequestPermissionsEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_request_permissions(event: RequestPermissionsEvent) -> ConnectorOutputs {
   let tool_input = serde_json::to_string(&json!({
       "reason": event.reason,
       "permissions": event.permissions,
   }))
   .ok();
   let requested_permissions = serde_json::to_value(&event.permissions).ok();
-  vec![ConnectorEvent::ApprovalRequested {
+  vec![state_output(ConnectorStateEvent::ApprovalRequested {
     request_id: event.call_id,
     approval_type: ApprovalType::Permissions,
     tool_name: Some("request_permissions".to_string()),
@@ -273,14 +248,14 @@ pub(crate) fn handle_request_permissions(event: RequestPermissionsEvent) -> Vec<
     mcp_server_name: None,
     network_host: None,
     network_protocol: None,
-  }]
+  })]
 }
 
 pub(crate) fn handle_elicitation_request(
   event_id: &str,
   event: ElicitationRequestEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let request_message = event.request.message();
   let question_text = (!request_message.is_empty())
     .then(|| request_message.to_string())
@@ -316,8 +291,8 @@ pub(crate) fn handle_elicitation_request(
   let elicitation_message = (!request_message.is_empty()).then(|| request_message.to_string());
 
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
-    ConnectorEvent::ApprovalRequested {
+    row_created_output(tool_row_entry(row)),
+    state_output(ConnectorStateEvent::ApprovalRequested {
       request_id: format!(
         "elicitation-{}-{}",
         event.server_name,
@@ -342,6 +317,6 @@ pub(crate) fn handle_elicitation_request(
       mcp_server_name: Some(event.server_name),
       network_host: None,
       network_protocol: None,
-    },
+    }),
   ]
 }

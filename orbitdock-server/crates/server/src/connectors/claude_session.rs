@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::ConnectorRuntimeDirective;
+use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
 use orbitdock_protocol::{McpAuthStatus, McpResource, McpResourceTemplate, McpTool, ServerMessage};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
@@ -17,13 +18,16 @@ use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_command_handler::{
-  dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
+  abort_interrupt_watchdog, classify_connector_output, dispatch_connector_event,
+  emit_connector_error, handle_connector_transport_effect, handle_session_command, is_turn_ending,
+  restart_interrupt_watchdog, ConnectorDispatch,
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  apply_connector_detached_directly, should_detach_direct_connector_after_send_error,
-  spawn_connector_cleanup_monitor,
+  apply_connector_detached_directly, rebind_session_as_passive_actor, run_connector_loop_step,
+  should_detach_direct_connector_after_send_error, spawn_connector_cleanup_monitor,
+  ConnectorLoopControl,
 };
 
 // Re-export so existing server code doesn't break
@@ -32,6 +36,37 @@ pub use orbitdock_connector_claude::session::{
   ClaudeAllowToolApprovalScope, ClaudeDenyToolApproval, ClaudeSession, ClaudeSessionConfig,
   ClaudeToolApprovalResponse,
 };
+
+async fn register_managed_claude_session(
+  state: &Arc<SessionRegistry>,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  session_id: &str,
+  claude_sdk_session_id: &str,
+  remove_shadow_runtime_session: bool,
+) {
+  state.register_claude_runtime_owner(claude_sdk_session_id, session_id);
+
+  let _ = persist_tx
+    .send(PersistCommand::SetClaudeSdkSessionId {
+      session_id: session_id.to_string(),
+      claude_sdk_session_id: claude_sdk_session_id.to_string(),
+    })
+    .await;
+  let _ = persist_tx
+    .send(PersistCommand::CleanupClaudeShadowSession {
+      claude_sdk_session_id: claude_sdk_session_id.to_string(),
+      reason: "managed_direct_session".to_string(),
+    })
+    .await;
+
+  if remove_shadow_runtime_session && state.remove_session(claude_sdk_session_id).is_some() {
+    let _ = state
+      .list_tx()
+      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
+        session_id: claude_sdk_session_id.to_string(),
+      });
+  }
+}
 
 /// Start the Claude session event forwarding loop.
 ///
@@ -53,7 +88,7 @@ pub fn start_event_loop(
 
   let actor_handle = SessionActorHandle::new(id.clone(), command_tx, snapshot);
 
-  let mut event_rx = session.connector.take_event_rx().unwrap();
+  let mut output_rx = session.connector.take_output_rx().unwrap();
   let session_id = session.session_id.clone();
 
   let mut session_handle = handle;
@@ -75,341 +110,377 @@ pub fn start_event_loop(
     let mut cleanup_guard = cleanup_guard;
 
     // Watchdog channel for synthetic events (interrupt timeout)
-    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
+    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorStateEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
-    'session_loop: loop {
+    loop {
       tokio::select! {
-          event = event_rx.recv() => {
-              let Some(event) = event else {
-                  // Channel closed — CLI process exited, stdout reader dropped the sender.
-                  info!(
-                      component = "claude_connector",
-                      event = "claude.event_rx.closed",
-                      session_id = %session_id,
-                      "Connector event channel closed, CLI process likely exited"
-                  );
+          output = output_rx.recv() => {
+              let control = run_connector_loop_step(
+                  "claude_connector",
+                  "claude.event_loop.step_panicked",
+                  &session_id,
+                  "output_rx",
+                  async {
+                      let Some(output) = output else {
+                          info!(
+                              component = "claude_connector",
+                              event = "claude.output_rx.closed",
+                              session_id = %session_id,
+                              "Connector output channel closed, CLI process likely exited"
+                          );
+                          return ConnectorLoopControl::Break;
+                      };
+
+                      let turn_ending = matches!(
+                          &output,
+                          ConnectorOutput::State(event) if is_turn_ending(event.as_ref())
+                      );
+                      let pending_state_event = match classify_connector_output(output) {
+                          ConnectorDispatch::TransportEffect(effect) => {
+                              handle_connector_transport_effect(effect, &state, &session_id).await;
+                              return ConnectorLoopControl::Continue;
+                          }
+                          ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::HookSessionId(hook_sid)) => {
+                              if hook_sid != session_id {
+                                  info!(
+                                      component = "claude_connector",
+                                      event = "claude.hook_session_id.registered",
+                                      session_id = %session_id,
+                                      hook_session_id = %hook_sid,
+                                      "Registering hook session ID as managed thread"
+                                  );
+                                  register_managed_claude_session(
+                                      &state,
+                                      &persist,
+                                      &session_id,
+                                      &hook_sid,
+                                      true,
+                                  ).await;
+                              }
+                              None
+                          }
+                          ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::DynamicToolCallRequested { .. }) => {
+                              warn!(
+                                  component = "claude_connector",
+                                  event = "claude.directive.unexpected",
+                                  session_id = %session_id,
+                                      "Claude emitted an unexpected dynamic tool directive"
+                              );
+                              return ConnectorLoopControl::Continue;
+                          }
+                          ConnectorDispatch::State(state_event) => Some(*state_event),
+                      };
+
+                      if turn_ending {
+                          abort_interrupt_watchdog(&mut interrupt_watchdog);
+                      }
+
+                      if !claude_sdk_session_persisted {
+                          if let Some(sdk_sid) = session.connector.claude_session_id().await {
+                              claude_sdk_session_persisted = true;
+                              info!(
+                                  component = "claude_connector",
+                                  event = "claude.session_id.persisted",
+                                  session_id = %session_id,
+                                  claude_sdk_session_id = %sdk_sid,
+                                  "Persisting Claude SDK session ID"
+                              );
+                              register_managed_claude_session(
+                                  &state,
+                                  &persist,
+                                  &session_id,
+                                  &sdk_sid,
+                                  should_remove_shadow_runtime_session(&session_id, &sdk_sid),
+                              ).await;
+                          }
+                      }
+
+                      if let Some(event) = pending_state_event {
+                          dispatch_connector_event(
+                              &session_id, event, &mut session_handle, &persist,
+                          ).await;
+                      }
+
+                      ConnectorLoopControl::Continue
+                  },
+              ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
                   break;
-              };
-
-              if is_turn_ending(&event) {
-                  if let Some(h) = interrupt_watchdog.take() { h.abort(); }
-              }
-
-              // Register hook session IDs as managed threads so the hook
-              // handler doesn't create duplicate passive sessions. On --resume
-              // the CLI creates a new session_id for hooks.
-              if let ConnectorEvent::HookSessionId(ref hook_sid) = event {
-                  if hook_sid != &session_id {
-                      info!(
-                          component = "claude_connector",
-                          event = "claude.hook_session_id.registered",
-                          session_id = %session_id,
-                          hook_session_id = %hook_sid,
-                          "Registering hook session ID as managed thread"
-                      );
-                      state.register_claude_runtime_owner(hook_sid, &session_id);
-                      // Write goes through PersistCommand only — single mutation path.
-                      let _ = persist
-                          .send(PersistCommand::SetClaudeSdkSessionId {
-                              session_id: session_id.clone(),
-                              claude_sdk_session_id: hook_sid.clone(),
-                          })
-                          .await;
-                      let _ = persist
-                          .send(PersistCommand::CleanupClaudeShadowSession {
-                              claude_sdk_session_id: hook_sid.clone(),
-                              reason: "managed_direct_session".to_string(),
-                          })
-                          .await;
-                      if state.remove_session(hook_sid).is_some() {
-                          let _ = state.list_tx().send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-                              session_id: hook_sid.to_string(),
-                          });
-                      }
-                  }
-              }
-
-              // Persist the Claude SDK session ID on first opportunity
-              if !claude_sdk_session_persisted {
-                  if let Some(sdk_sid) = session.connector.claude_session_id().await {
-                      claude_sdk_session_persisted = true;
-                      info!(
-                          component = "claude_connector",
-                          event = "claude.session_id.persisted",
-                          session_id = %session_id,
-                          claude_sdk_session_id = %sdk_sid,
-                          "Persisting Claude SDK session ID"
-                      );
-                      state.register_claude_runtime_owner(&sdk_sid, &session_id);
-                      // Write goes through PersistCommand only — single mutation path.
-                      let _ = persist
-                          .send(PersistCommand::SetClaudeSdkSessionId {
-                              session_id: session_id.clone(),
-                              claude_sdk_session_id: sdk_sid.clone(),
-                          })
-                          .await;
-                      let _ = persist
-                          .send(PersistCommand::CleanupClaudeShadowSession {
-                              claude_sdk_session_id: sdk_sid.clone(),
-                              reason: "managed_direct_session".to_string(),
-                          })
-                          .await;
-                      if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
-                          && state.remove_session(&sdk_sid).is_some()
-                      {
-                          let _ = state.list_tx().send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-                              session_id: sdk_sid.clone(),
-                          });
-                      }
-                  }
-              }
-
-              // HookSessionId is fully handled above; skip transition
-              if !matches!(event, ConnectorEvent::HookSessionId(_)) {
-                  dispatch_connector_event(
-                      &session_id, event, &mut session_handle, &persist,
-                  ).await;
               }
           }
 
           Some(event) = watchdog_rx.recv() => {
-              dispatch_connector_event(
-                  &session_id, event, &mut session_handle, &persist,
+              let control = run_connector_loop_step(
+                  "claude_connector",
+                  "claude.event_loop.step_panicked",
+                  &session_id,
+                  "watchdog_rx",
+                  async {
+                      dispatch_connector_event(
+                          &session_id, event, &mut session_handle, &persist,
+                      ).await;
+                      ConnectorLoopControl::Continue
+                  },
               ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
+              }
           }
 
           Some(action) = action_rx.recv() => {
-              let is_send_action = matches!(&action, ClaudeAction::SendMessage { .. });
-              // Capture first user message as first_prompt
-              if !first_prompt_captured {
-                  if let ClaudeAction::SendMessage { ref content, .. } = action {
-                      first_prompt_captured = true;
-                      let prompt = content.clone();
-                      actor_for_naming
-                          .send(crate::runtime::session_commands::SessionCommand::ProcessEvent {
-                              event: crate::domain::sessions::transition::Input::FirstPromptCaptured(prompt.clone()),
-                          })
-                          .await;
+              let control = run_connector_loop_step(
+                  "claude_connector",
+                  "claude.event_loop.step_panicked",
+                  &session_id,
+                  "action_rx",
+                  async {
+                      let is_send_action = matches!(&action, ClaudeAction::SendMessage { .. });
+                      if !first_prompt_captured {
+                          if let ClaudeAction::SendMessage { ref content, .. } = action {
+                              first_prompt_captured = true;
+                              let prompt = content.clone();
+                              actor_for_naming
+                                  .send(crate::runtime::session_commands::SessionCommand::ProcessEvent {
+                                      event: crate::domain::sessions::transition::Input::FirstPromptCaptured(prompt.clone()),
+                                  })
+                                  .await;
 
-                      crate::support::ai_naming::spawn_naming_task(
-                          session_id.clone(),
-                          prompt,
-                          actor_for_naming.clone(),
-                      );
-                  }
-              }
-
-              match &action {
-                  ClaudeAction::Interrupt => {
-                      match session.connector.interrupt().await {
-                          Ok(()) => {
-                              if let Some(h) = interrupt_watchdog.take() { h.abort(); }
-                              interrupt_watchdog = Some(spawn_interrupt_watchdog(
-                                  watchdog_tx.clone(),
+                              crate::support::ai_naming::spawn_naming_task(
                                   session_id.clone(),
-                                  "claude_connector",
-                              ));
-                          }
-                          Err(e) => {
-                              error!(
-                                  component = "claude_connector",
-                                  event = "claude.interrupt.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Interrupt failed, injecting error event"
-                              );
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::Error(format!("Interrupt failed: {e}")),
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                      }
-                  }
-                  ClaudeAction::ListMcpTools => {
-                      match session.connector.mcp_status().await {
-                          Ok(response) => {
-                              let event = parse_mcp_status_response(response);
-                              dispatch_connector_event(
-                                  &session_id,
-                                  event,
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                          Err(e) => {
-                              error!(
-                                  component = "claude_connector",
-                                  event = "claude.mcp_status.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "MCP status request failed"
+                                  prompt,
+                                  actor_for_naming.clone(),
                               );
                           }
                       }
-                  }
-                  ClaudeAction::RewindFiles { user_message_id } => {
-                      dispatch_connector_event(
-                          &session_id,
-                          ConnectorEvent::UndoStarted { message: Some("Rewinding files...".to_string()) },
-                          &mut session_handle,
-                          &persist,
-                      ).await;
-                      match session.connector.rewind_files(user_message_id, false).await {
-                          Ok(response) => {
-                              let can_rewind = response.get("canRewind").and_then(|v| v.as_bool()).unwrap_or(false);
-                              let message = if can_rewind {
-                                  let files_changed = response.get("filesChanged")
-                                      .and_then(|v| v.as_array())
-                                      .map(|arr| arr.len())
-                                      .unwrap_or(0);
-                                  Some(format!("Rewound {files_changed} file(s)"))
-                              } else {
-                                  let err = response.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
-                                  Some(format!("Cannot rewind: {err}"))
-                              };
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::UndoCompleted { success: can_rewind, message },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                          Err(e) => {
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::UndoCompleted { success: false, message: Some(format!("Rewind failed: {e}")) },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                      }
-                  }
-                  ClaudeAction::Undo => {
-                      dispatch_connector_event(
-                          &session_id,
-                          ConnectorEvent::UndoStarted { message: Some("Undoing last turn...".to_string()) },
-                          &mut session_handle,
-                          &persist,
-                      ).await;
-                      match session.connector.send_message("/undo", None, None, &[]).await {
-                          Ok(()) => {
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::UndoCompleted { success: true, message: None },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                          Err(e) => {
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::UndoCompleted { success: false, message: Some(format!("Undo failed: {e}")) },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                      }
-                  }
-                  ClaudeAction::SteerTurn { content, message_id, images } => {
-                      match session.connector.send_message(content, None, None, images).await {
-                          Ok(()) => {
-                              handle_session_command(
-                                  SessionCommand::UpdateSteerOutcome {
-                                      message_id: message_id.clone(),
-                                      outcome: orbitdock_protocol::SteerOutcome::Accepted,
-                                  },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                              session_handle.broadcast(
-                                  ServerMessage::SteerOutcome {
-                                      session_id: session_id.clone(),
-                                      message_id: message_id.clone(),
-                                      outcome: orbitdock_protocol::SteerOutcome::Accepted,
-                                  },
-                              );
-                          }
-                          Err(e) => {
-                              let should_detach =
-                                  should_detach_direct_connector_after_send_error(&e.to_string());
-                              if should_detach {
-                                  warn!(
-                                      component = "claude_connector",
-                                      event = "claude.connector.detached_after_fatal_send_error",
-                                      session_id = %session_id,
-                                      error = %e,
-                                      "Detaching direct connector after fatal steer error"
-                                  );
-                              } else {
-                                  error!(
-                                      component = "claude_connector",
-                                      event = "claude.steer.failed",
-                                      session_id = %session_id,
-                                      error = %e,
-                                      "Steer turn failed"
-                                  );
-                              }
-                              dispatch_connector_event(
-                                  &session_id,
-                                  ConnectorEvent::Error(format!("Steer failed: {e}")),
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                              if should_detach {
-                                  break 'session_loop;
+
+                      match &action {
+                          ClaudeAction::Interrupt => {
+                              match session.connector.interrupt().await {
+                                  Ok(()) => {
+                                      restart_interrupt_watchdog(
+                                          &mut interrupt_watchdog,
+                                          watchdog_tx.clone(),
+                                          &session_id,
+                                          "claude_connector",
+                                      );
+                                  }
+                                  Err(e) => {
+                                      error!(
+                                          component = "claude_connector",
+                                          event = "claude.interrupt.failed",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Interrupt failed, injecting error event"
+                                      );
+                                      emit_connector_error(
+                                          &session_id,
+                                          format!("Interrupt failed: {e}"),
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
                               }
                           }
-                      }
-                  }
-                  _ => {
-                      if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
-                          let should_detach = is_send_action
-                              && should_detach_direct_connector_after_send_error(&e.to_string());
-                          if should_detach {
-                              warn!(
-                                  component = "claude_connector",
-                                  event = "claude.connector.detached_after_fatal_send_error",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Detaching direct connector after fatal send error"
-                              );
-                          } else {
-                              error!(
-                                  component = "claude_connector",
-                                  event = "claude.action.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Failed to handle Claude action"
-                              );
+                          ClaudeAction::ListMcpTools => {
+                              match session.connector.mcp_status().await {
+                                  Ok(response) => {
+                                      let event = parse_mcp_status_response(response);
+                                      dispatch_connector_event(
+                                          &session_id,
+                                          event,
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                                  Err(e) => {
+                                      error!(
+                                          component = "claude_connector",
+                                          event = "claude.mcp_status.failed",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "MCP status request failed"
+                                      );
+                                  }
+                              }
                           }
-                          dispatch_connector_event(
-                              &session_id,
-                              ConnectorEvent::Error(format!("Action failed: {e}")),
-                              &mut session_handle,
-                              &persist,
-                          ).await;
-                          if should_detach {
-                              break 'session_loop;
+                          ClaudeAction::RewindFiles { user_message_id } => {
+                              dispatch_connector_event(
+                                  &session_id,
+                                  ConnectorStateEvent::UndoStarted { message: Some("Rewinding files...".to_string()) },
+                                  &mut session_handle,
+                                  &persist,
+                              ).await;
+                              match session.connector.rewind_files(user_message_id, false).await {
+                                  Ok(response) => {
+                                      let can_rewind = response.get("canRewind").and_then(|v| v.as_bool()).unwrap_or(false);
+                                      let message = if can_rewind {
+                                          let files_changed = response.get("filesChanged")
+                                              .and_then(|v| v.as_array())
+                                              .map(|arr| arr.len())
+                                              .unwrap_or(0);
+                                          Some(format!("Rewound {files_changed} file(s)"))
+                                      } else {
+                                          let err = response.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                          Some(format!("Cannot rewind: {err}"))
+                                      };
+                                      dispatch_connector_event(
+                                          &session_id,
+                                          ConnectorStateEvent::UndoCompleted { success: can_rewind, message },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                                  Err(e) => {
+                                      dispatch_connector_event(
+                                          &session_id,
+                                          ConnectorStateEvent::UndoCompleted { success: false, message: Some(format!("Rewind failed: {e}")) },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                              }
+                          }
+                          ClaudeAction::Undo => {
+                              dispatch_connector_event(
+                                  &session_id,
+                                  ConnectorStateEvent::UndoStarted { message: Some("Undoing last turn...".to_string()) },
+                                  &mut session_handle,
+                                  &persist,
+                              ).await;
+                              match session.connector.send_message("/undo", None, None, &[]).await {
+                                  Ok(()) => {
+                                      dispatch_connector_event(
+                                          &session_id,
+                                          ConnectorStateEvent::UndoCompleted { success: true, message: None },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                                  Err(e) => {
+                                      dispatch_connector_event(
+                                          &session_id,
+                                          ConnectorStateEvent::UndoCompleted { success: false, message: Some(format!("Undo failed: {e}")) },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                              }
+                          }
+                          ClaudeAction::SteerTurn { content, message_id, images } => {
+                              match session.connector.send_message(content, None, None, images).await {
+                                  Ok(()) => {
+                                      handle_session_command(
+                                          SessionCommand::UpdateSteerOutcome {
+                                              message_id: message_id.clone(),
+                                              outcome: orbitdock_protocol::SteerOutcome::Accepted,
+                                          },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                      session_handle.broadcast(
+                                          ServerMessage::SteerOutcome {
+                                              session_id: session_id.clone(),
+                                              message_id: message_id.clone(),
+                                              outcome: orbitdock_protocol::SteerOutcome::Accepted,
+                                          },
+                                      );
+                                  }
+                                  Err(e) => {
+                                      let should_detach =
+                                          should_detach_direct_connector_after_send_error(&e.to_string());
+                                      if should_detach {
+                                          warn!(
+                                              component = "claude_connector",
+                                              event = "claude.connector.detached_after_fatal_send_error",
+                                              session_id = %session_id,
+                                              error = %e,
+                                              "Detaching direct connector after fatal steer error"
+                                          );
+                                      } else {
+                                          error!(
+                                              component = "claude_connector",
+                                              event = "claude.steer.failed",
+                                              session_id = %session_id,
+                                              error = %e,
+                                              "Steer turn failed"
+                                          );
+                                      }
+                                      emit_connector_error(
+                                          &session_id,
+                                          format!("Steer failed: {e}"),
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                      if should_detach {
+                                          return ConnectorLoopControl::Break;
+                                      }
+                                  }
+                              }
+                          }
+                          _ => {
+                              if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
+                                  let should_detach = is_send_action
+                                      && should_detach_direct_connector_after_send_error(&e.to_string());
+                                  if should_detach {
+                                      warn!(
+                                          component = "claude_connector",
+                                          event = "claude.connector.detached_after_fatal_send_error",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Detaching direct connector after fatal send error"
+                                      );
+                                  } else {
+                                      error!(
+                                          component = "claude_connector",
+                                          event = "claude.action.failed",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Failed to handle Claude action"
+                                      );
+                                  }
+                                  emit_connector_error(
+                                      &session_id,
+                                      format!("Action failed: {e}"),
+                                      &mut session_handle,
+                                      &persist,
+                                  ).await;
+                                  if should_detach {
+                                      return ConnectorLoopControl::Break;
+                                  }
+                              }
                           }
                       }
-                  }
+
+                      ConnectorLoopControl::Continue
+                  },
+              ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
               }
           }
 
           Some(cmd) = command_rx.recv() => {
-              handle_session_command(cmd, &mut session_handle, &persist).await;
+              let control = run_connector_loop_step(
+                  "claude_connector",
+                  "claude.event_loop.step_panicked",
+                  &session_id,
+                  "command_rx",
+                  async {
+                      handle_session_command(cmd, &mut session_handle, &persist).await;
+                      ConnectorLoopControl::Continue
+                  },
+              ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
+              }
           }
 
           else => break,
       }
     }
 
-    if let Some(h) = interrupt_watchdog.take() {
-      h.abort();
-    }
+    abort_interrupt_watchdog(&mut interrupt_watchdog);
 
     apply_connector_detached_directly(
       &mut session_handle,
@@ -419,13 +490,14 @@ pub fn start_event_loop(
     )
     .await;
     state.remove_claude_action_tx(&session_id);
+    rebind_session_as_passive_actor(&state, session_handle);
     cleanup_guard.disarm();
 
     info!(
         component = "claude_connector",
         event = "claude.event_loop.ended",
         session_id = %session_id,
-        "Claude session event loop ended and cleanup was applied in-loop"
+        "Claude session event loop ended; cleanup was applied and a passive actor was rebound"
     );
   });
 
@@ -436,7 +508,7 @@ pub fn start_event_loop(
 ///
 /// The response from the CLI contains `mcpServers` — an array of objects with
 /// `name`, `status`, `tools`, `resources`, `resourceTemplates`, and `authStatus`.
-fn parse_mcp_status_response(response: Value) -> ConnectorEvent {
+fn parse_mcp_status_response(response: Value) -> ConnectorStateEvent {
   let mut tools: HashMap<String, McpTool> = HashMap::new();
   let mut resources: HashMap<String, Vec<McpResource>> = HashMap::new();
   let mut resource_templates: HashMap<String, Vec<McpResourceTemplate>> = HashMap::new();
@@ -556,7 +628,7 @@ fn parse_mcp_status_response(response: Value) -> ConnectorEvent {
     }
   }
 
-  ConnectorEvent::McpToolsList {
+  ConnectorStateEvent::McpToolsList {
     tools,
     resources,
     resource_templates,

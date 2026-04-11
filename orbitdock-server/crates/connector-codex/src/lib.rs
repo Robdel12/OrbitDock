@@ -30,7 +30,7 @@ use tracing::debug;
 
 pub use self::config::{discover_models, discover_models_for_context};
 use self::runtime::EventLoopState;
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::ConnectorOutput;
 
 /// Re-export from protocol for connector use.
 pub use orbitdock_protocol::SteerOutcome;
@@ -40,7 +40,7 @@ pub struct CodexConnector {
   thread: Arc<CodexThread>,
   thread_manager: Arc<ThreadManager>,
   codex_home: PathBuf,
-  event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
+  output_rx: Option<mpsc::Receiver<ConnectorOutput>>,
   thread_id: String,
   current_model: Arc<tokio::sync::Mutex<Option<String>>>,
   current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
@@ -80,8 +80,11 @@ pub struct UpdateConfigOptions<'a> {
 }
 
 impl CodexConnector {
-  /// Translate a codex-core Event to ConnectorEvent(s)
-  async fn translate_event(event: Event, state: &EventLoopState) -> Vec<ConnectorEvent> {
+  /// Translate a codex-core Event into typed connector outputs.
+  async fn translate_event(
+    event: Event,
+    state: &EventLoopState,
+  ) -> event_mapping::ConnectorOutputs {
     let EventLoopState {
       output_buffers,
       delta_buffers,
@@ -98,7 +101,7 @@ impl CodexConnector {
     #[allow(unreachable_patterns)]
     match event.msg {
       EventMsg::UserMessage(e) => {
-        event_mapping::messages::handle_user_message(&event.id, e, msg_counter).await
+        event_mapping::messages::handle_user_message(&event.id, e, msg_counter)
       }
 
       EventMsg::TurnStarted(_) => {
@@ -424,9 +427,9 @@ impl CodexConnector {
     }
   }
 
-  /// Get the event receiver (can only be called once)
-  pub fn take_event_rx(&mut self) -> Option<mpsc::Receiver<ConnectorEvent>> {
-    self.event_rx.take()
+  /// Get the typed output receiver (can only be called once).
+  pub fn take_output_rx(&mut self) -> Option<mpsc::Receiver<ConnectorOutput>> {
+    self.output_rx.take()
   }
 
   /// Get the codex-core thread ID (used to link with rollout files)

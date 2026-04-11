@@ -1960,6 +1960,9 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
     ServerMessage::UpdateAvailable { .. } => "update_available",
     ServerMessage::TerminalCreated { .. } => "terminal_created",
     ServerMessage::TerminalExited { .. } => "terminal_exited",
+    ServerMessage::ToolPtyAttached { .. } => "tool_pty_attached",
+    ServerMessage::ToolPtyDetached { .. } => "tool_pty_detached",
+    ServerMessage::ToolPtyExited { .. } => "tool_pty_exited",
   }
 }
 

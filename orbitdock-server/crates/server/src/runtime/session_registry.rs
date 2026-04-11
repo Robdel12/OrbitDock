@@ -26,6 +26,7 @@ use crate::connectors::codex_session::CodexAction;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::infrastructure::shell::ShellService;
 use crate::infrastructure::terminal::TerminalService;
+use crate::infrastructure::tool_pty::ToolPtyService;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
@@ -139,6 +140,9 @@ pub struct SessionRegistry {
   /// Interactive PTY terminal sessions.
   terminal_service: Arc<TerminalService>,
 
+  /// Virtual PTY service for streaming bash tool output.
+  tool_pty_service: Arc<ToolPtyService>,
+
   /// Primary claim and WebSocket connection state.
   connections: ConnectionState,
 
@@ -225,6 +229,7 @@ impl SessionRegistry {
       codex_runtime_owners: DashMap::new(),
       shell_service: Arc::new(ShellService::new()),
       terminal_service: Arc::new(TerminalService::new()),
+      tool_pty_service: Arc::new(ToolPtyService::new()),
       connections: ConnectionState::new(is_primary),
       dashboard_revision: Arc::new(AtomicU64::new(0)),
       dashboard_cache: ArcSwap::from_pointee((
@@ -422,6 +427,10 @@ impl SessionRegistry {
 
   pub fn terminal_service(&self) -> Arc<TerminalService> {
     self.terminal_service.clone()
+  }
+
+  pub fn tool_pty_service(&self) -> Arc<ToolPtyService> {
+    self.tool_pty_service.clone()
   }
 
   pub fn set_codex_action_tx(&self, session_id: &str, tx: mpsc::Sender<CodexAction>) {

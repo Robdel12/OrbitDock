@@ -36,12 +36,15 @@ extension SessionStore {
         break
       case let .contextCompacted(sessionId):
         notifySessionChanged(sessionId)
+        notifyConversationRefreshRequested(sessionId)
       case let .undoCompleted(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifyConversationRefreshRequested(sessionId)
       case .undoStarted:
         break
       case let .threadRolledBack(sessionId, _):
         notifySessionChanged(sessionId)
+        notifyConversationRefreshRequested(sessionId)
       case let .sessionForked(sourceSessionId, newSessionId, _):
         notifySessionChanged(sourceSessionId)
         requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
@@ -139,16 +142,21 @@ extension SessionStore {
   func handleError(_ code: String, _ message: String, _ sessionId: String?) {
     netLog(.error, cat: .store, "Server error", sid: sessionId, data: ["code": code, "message": message])
 
-    if code == "lagged"
-      || code == "replay_oversized"
-      || code == "session_detail_resync_required"
-      || code == "session_composer_resync_required"
-      || code == "conversation_resync_required"
-    {
-      if let sessionId {
-        notifySessionChanged(sessionId)
+    if let sessionId {
+      switch code {
+        case "lagged", "replay_oversized":
+          notifySessionChanged(sessionId)
+          notifyConversationRefreshRequested(sessionId)
+          return
+        case "session_detail_resync_required", "session_composer_resync_required":
+          notifySessionChanged(sessionId)
+          return
+        case "conversation_resync_required":
+          notifyConversationRefreshRequested(sessionId)
+          return
+        default:
+          break
       }
-      return
     }
 
     if code == "codex_auth_error" {

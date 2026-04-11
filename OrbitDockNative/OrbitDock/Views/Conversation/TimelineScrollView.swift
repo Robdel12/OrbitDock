@@ -21,6 +21,7 @@ import SwiftUI
 struct TimelineScrollView: View {
   let viewModel: ConversationTimelineViewModel
   let sessionId: String
+  let endpointId: UUID?
   let clients: ServerClients
   @Binding var scrollCommand: ConversationScrollCommand?
   let onLoadMore: (() -> Void)?
@@ -89,6 +90,7 @@ struct TimelineScrollView: View {
             TimelineRowHost(
               entry: entry,
               sessionId: sessionId,
+              endpointId: endpointId,
               clients: clients,
               viewModel: viewModel
             )
@@ -389,6 +391,7 @@ struct TimelineScrollView: View {
 private struct TimelineRowHost: View {
   let entry: ServerConversationRowEntry
   let sessionId: String
+  let endpointId: UUID?
   let clients: ServerClients
   let viewModel: ConversationTimelineViewModel
 
@@ -431,6 +434,7 @@ private struct TimelineRowHost: View {
       entry: entry,
       isExpanded: isExpanded,
       sessionId: sessionId,
+      endpointId: endpointId,
       clients: clients,
       fetchedContent: fetchId.flatMap { viewModel.content(for: $0) },
       isLoadingContent: fetchId.map { viewModel.isFetching($0) } ?? false,

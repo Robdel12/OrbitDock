@@ -15,12 +15,14 @@ struct ToolCardView: View {
   let toolRow: ServerConversationToolRow
   let isExpanded: Bool
   let sessionId: String
+  let endpointId: UUID?
   let clients: ServerClients?
   var fetchedContent: ServerRowContent?
   var isLoadingContent: Bool = false
   var onToggle: (() -> Void)?
 
   @Environment(\.horizontalSizeClass) private var sizeClass
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   private var isCompactLayout: Bool {
     sizeClass == .compact
@@ -104,6 +106,28 @@ struct ToolCardView: View {
     isFailed ? Color.feedbackNegative : glyphColor
   }
 
+  // MARK: - Tool PTY Support
+
+  private var runtime: ServerRuntime? {
+    guard let endpointId else { return nil }
+    return runtimeRegistry.runtimesByEndpointId[endpointId]
+  }
+
+  private var toolPtyManager: ToolPtySessionManager? {
+    runtime?.toolPtyManager
+  }
+
+  private var toolPtySession: TerminalSessionController? {
+    guard toolType == "bash", isRunning else {
+      return nil
+    }
+    return toolPtyManager?.session(for: toolRow.id)
+  }
+
+  private var shouldSubscribeToolPty: Bool {
+    toolType == "bash" && isExpanded && isRunning
+  }
+
   private var summary: String {
     if isFileChangeCard, let fileName = compactFileName {
       return fileName
@@ -132,6 +156,27 @@ struct ToolCardView: View {
     .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.xs)
     .contentShape(Rectangle())
     .onTapGesture { onToggle?() }
+    .task(id: shouldSubscribeToolPty) {
+      // Subscribe to live PTY output when bash card is expanded and running
+      guard shouldSubscribeToolPty,
+            let manager = toolPtyManager,
+            let connection = runtime?.connection else { return }
+
+      manager.attach(toolId: toolRow.id, sessionId: sessionId, connection: connection)
+
+      // Keep task alive until cancelled (when expanded becomes false or tool stops running)
+      // On cancellation, unsubscribe from the PTY stream
+      await withTaskCancellationHandler {
+        // Wait indefinitely until the task is cancelled
+        while !Task.isCancelled {
+          try? await Task.sleep(for: .seconds(60))
+        }
+      } onCancel: {
+        Task { @MainActor in
+          manager.detach(toolId: toolRow.id, connection: connection)
+        }
+      }
+    }
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1066,7 +1111,8 @@ struct ToolCardView: View {
             content: content,
             isFailed: isFailed,
             liveOutputPreview: display?.liveOutputPreview,
-            isRunning: isRunning
+            isRunning: isRunning,
+            toolPtySession: toolPtySession
           )
         case "read":
           ReadExpandedView(content: content)

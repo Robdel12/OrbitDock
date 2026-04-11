@@ -1,9 +1,10 @@
 use super::workers::iso_now;
 use super::CodexConnector;
 use crate::event_mapping::OutputBufferState;
+use crate::event_mapping::{row_created_output, row_updated_output, ConnectorOutputs};
 use codex_core::{CodexThread, ThreadManager};
 use codex_protocol::openai_models::ReasoningEffort;
-use orbitdock_connector_core::{ConnectorError, ConnectorEvent};
+use orbitdock_connector_core::{ConnectorError, ConnectorOutput, ConnectorStateEvent};
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, MessageRowContent,
 };
@@ -143,7 +144,7 @@ impl CodexConnector {
     let thread_id = new_thread.thread_id;
     info!("Started codex thread: {:?}", thread_id);
 
-    let (event_tx, event_rx) = mpsc::channel(256);
+    let (output_tx, output_rx) = mpsc::channel(256);
 
     let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
     let current_reasoning_effort =
@@ -173,16 +174,16 @@ impl CodexConnector {
     };
 
     let thread_for_loop = thread.clone();
-    let tx = event_tx.clone();
+    let output_tx = output_tx.clone();
     tokio::spawn(async move {
-      Self::event_loop(thread_for_loop, tx, state).await;
+      Self::event_loop(thread_for_loop, output_tx, state).await;
     });
 
     Ok(Self {
       thread,
       thread_manager,
       codex_home,
-      event_rx: Some(event_rx),
+      output_rx: Some(output_rx),
       thread_id: thread_id.to_string(),
       current_model,
       current_reasoning_effort,
@@ -192,28 +193,24 @@ impl CodexConnector {
   /// Async event loop — pulls events from CodexThread and translates them
   async fn event_loop(
     thread: Arc<CodexThread>,
-    tx: mpsc::Sender<ConnectorEvent>,
+    output_tx: mpsc::Sender<ConnectorOutput>,
     state: EventLoopState,
   ) {
     loop {
       match thread.next_event().await {
         Ok(event) => {
           let events = Box::pin(Self::translate_event(event, &state)).await;
-          for event in events {
-            if tx.send(event).await.is_err() {
-              debug!("Event channel closed, stopping event loop");
+          for output in events {
+            if output_tx.send(output).await.is_err() {
+              debug!("Typed codex output channel closed");
               return;
             }
           }
         }
         Err(error) => {
           error!("Error reading codex event: {}", error);
-          let _ = tx
-            .send(ConnectorEvent::Error(format!(
-              "Event read error: {}",
-              error
-            )))
-            .await;
+          let output = ConnectorStateEvent::Error(format!("Event read error: {}", error)).into();
+          let _ = output_tx.send(output).await;
           return;
         }
       }
@@ -264,7 +261,7 @@ pub(crate) async fn apply_delta_thinking(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   message_id: String,
   delta: String,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let (is_new, content) = {
     let mut buffers = delta_buffers.lock().await;
     match buffers.get_mut(&message_id) {
@@ -282,11 +279,8 @@ pub(crate) async fn apply_delta_thinking(
   let entry = thinking_row_entry(message_id.clone(), content);
 
   if is_new {
-    vec![ConnectorEvent::ConversationRowCreated(entry)]
+    vec![row_created_output(entry)]
   } else {
-    vec![ConnectorEvent::ConversationRowUpdated {
-      row_id: message_id,
-      entry,
-    }]
+    vec![row_updated_output(message_id, entry)]
   }
 }

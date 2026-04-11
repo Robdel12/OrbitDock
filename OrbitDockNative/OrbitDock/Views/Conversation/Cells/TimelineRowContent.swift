@@ -14,6 +14,7 @@ struct TimelineRowContent: View {
   let entry: ServerConversationRowEntry
   let isExpanded: Bool
   var sessionId: String = ""
+  var endpointId: UUID?
   var clients: ServerClients?
   var fetchedContent: ServerRowContent?
   var isLoadingContent: Bool = false
@@ -151,7 +152,7 @@ struct TimelineRowContent: View {
       case let .tool(toolRow):
         ToolCardView(
           toolRow: toolRow, isExpanded: isExpanded,
-          sessionId: sessionId, clients: clients,
+          sessionId: sessionId, endpointId: endpointId, clients: clients,
           fetchedContent: fetchedContent,
           isLoadingContent: isLoadingContent,
           onToggle: { onToggle?(toolRow.id) }
@@ -160,7 +161,7 @@ struct TimelineRowContent: View {
       case let .activityGroup(group):
         ActivityGroupRowView(
           group: group, isExpanded: isExpanded,
-          sessionId: sessionId, clients: clients,
+          sessionId: sessionId, endpointId: endpointId, clients: clients,
           onToggle: onToggle, isItemExpanded: isItemExpanded,
           contentForChild: contentForChild,
           isChildLoading: isChildLoading

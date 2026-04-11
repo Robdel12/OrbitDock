@@ -1,3 +1,4 @@
+use super::{row_created_output, state_output, tool_row_entry, ConnectorOutputs};
 use crate::runtime::{apply_delta_thinking, row_entry};
 use crate::timeline::{
   hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
@@ -11,10 +12,9 @@ use codex_protocol::protocol::{
   ThreadNameUpdatedEvent, ThreadRolledBackEvent, TokenCountEvent, TurnDiffEvent,
   UndoCompletedEvent, UndoStartedEvent, WarningEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
-  HandoffRow, HookRow, MessageRowContent, ToolDisplayInput, ToolRow,
+  ConversationRow, HandoffRow, HookRow, MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{
   HandoffPayload, HookPayload, PlanStepPayload, PlanStepStatus, ToolFamily, ToolKind, ToolStatus,
@@ -26,29 +26,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tracing::warn;
 
-fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-  let row = with_display(row);
-  row_entry(ConversationRow::Tool(row))
-}
-
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
-  let result_str = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_ref,
-    result_output: result_str.as_deref(),
-  }));
-  row
-}
-
-pub(crate) fn handle_token_count(event: TokenCountEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_token_count(event: TokenCountEvent) -> ConnectorOutputs {
   if let Some(info) = event.info {
     let last = &info.last_token_usage;
     let usage = orbitdock_protocol::TokenUsage {
@@ -57,24 +35,26 @@ pub(crate) fn handle_token_count(event: TokenCountEvent) -> Vec<ConnectorEvent> 
       cached_tokens: last.cached_input_tokens.max(0) as u64,
       context_window: info.model_context_window.unwrap_or(200_000).max(0) as u64,
     };
-    vec![ConnectorEvent::TokensUpdated {
+    vec![state_output(ConnectorStateEvent::TokensUpdated {
       usage,
       snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::ContextTurn,
-    }]
+    })]
   } else {
     vec![]
   }
 }
 
-pub(crate) fn handle_turn_diff(event: TurnDiffEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::DiffUpdated(event.unified_diff)]
+pub(crate) fn handle_turn_diff(event: TurnDiffEvent) -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::DiffUpdated(
+    event.unified_diff,
+  ))]
 }
 
 pub(crate) fn handle_plan_update(
   event_id: &str,
   event: UpdatePlanArgs,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let plan = serde_json::to_string(&event).unwrap_or_default();
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let explanation = event.explanation.as_deref().map(str::trim);
@@ -83,21 +63,18 @@ pub(crate) fn handle_plan_update(
     _ => "Plan updated",
   };
   let content = format!("{} ({} steps)", explanation, event.plan.len());
-
-  let steps: Vec<PlanStepPayload> = event
+  let steps_json: Vec<serde_json::Value> = event
     .plan
     .iter()
-    .map(|step| PlanStepPayload {
-      id: None,
-      title: step.step.clone(),
-      status: PlanStepStatus::Pending,
-      detail: None,
+    .map(|step| {
+      serde_json::to_value(PlanStepPayload {
+        id: None,
+        title: step.step.clone(),
+        status: PlanStepStatus::Pending,
+        detail: None,
+      })
+      .unwrap_or_default()
     })
-    .collect();
-
-  let steps_json: Vec<serde_json::Value> = steps
-    .iter()
-    .map(|step| serde_json::to_value(step).unwrap_or_default())
     .collect();
 
   let row = ToolRow {
@@ -125,15 +102,15 @@ pub(crate) fn handle_plan_update(
     tool_display: None,
   };
   vec![
-    ConnectorEvent::PlanUpdated(plan),
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(row)),
+    state_output(ConnectorStateEvent::PlanUpdated(plan)),
+    row_created_output(tool_row_entry(row)),
   ]
 }
 
 pub(crate) async fn handle_plan_delta(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   event: PlanDeltaEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   apply_delta_thinking(
     delta_buffers,
     format!("plan-{}", event.item_id),
@@ -146,7 +123,7 @@ pub(crate) fn handle_warning(
   event_id: &str,
   event: WarningEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   if is_suppressed_runtime_warning(&event.message) {
     warn!(
       event_id,
@@ -166,7 +143,7 @@ pub(crate) fn handle_warning(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
 pub(crate) fn is_suppressed_runtime_warning(message: &str) -> bool {
@@ -181,7 +158,7 @@ pub(crate) async fn handle_model_reroute(
   event: ModelRerouteEvent,
   current_model: &Arc<tokio::sync::Mutex<Option<String>>>,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   {
     let mut model = current_model.lock().await;
     *model = Some(event.to_model.clone());
@@ -201,10 +178,10 @@ pub(crate) async fn handle_model_reroute(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_realtime_conversation_started() -> Vec<ConnectorEvent> {
+pub(crate) fn handle_realtime_conversation_started() -> ConnectorOutputs {
   vec![]
 }
 
@@ -212,7 +189,7 @@ pub(crate) fn handle_realtime_conversation_realtime(
   event_id: &str,
   event: RealtimeConversationRealtimeEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   match event.payload {
     codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
     | codex_protocol::protocol::RealtimeEvent::InputAudioSpeechStarted(_)
@@ -238,7 +215,7 @@ pub(crate) fn handle_realtime_conversation_realtime(
         },
         render_hints: Default::default(),
       }));
-      vec![ConnectorEvent::ConversationRowCreated(entry)]
+      vec![row_created_output(entry)]
     }
     codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_) => vec![],
     codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
@@ -254,12 +231,12 @@ pub(crate) fn handle_realtime_conversation_realtime(
         memory_citation: None,
         delivery_status: None,
       }));
-      vec![ConnectorEvent::ConversationRowCreated(entry)]
+      vec![row_created_output(entry)]
     }
   }
 }
 
-pub(crate) fn handle_realtime_conversation_closed() -> Vec<ConnectorEvent> {
+pub(crate) fn handle_realtime_conversation_closed() -> ConnectorOutputs {
   vec![]
 }
 
@@ -267,7 +244,7 @@ pub(crate) fn handle_deprecation_notice(
   event_id: &str,
   event: DeprecationNoticeEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let details = event.details.unwrap_or_default();
   let content = if details.is_empty() {
@@ -285,14 +262,14 @@ pub(crate) fn handle_deprecation_notice(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
 pub(crate) fn handle_background_event(
   event_id: &str,
   event: BackgroundEventEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
     id: format!("background-event-{}-{}", event_id, seq),
@@ -304,10 +281,10 @@ pub(crate) fn handle_background_event(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_hook_started(event: HookStartedEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_hook_started(event: HookStartedEvent) -> ConnectorOutputs {
   if !hook_run_is_error(event.run.status) {
     return vec![];
   }
@@ -330,10 +307,10 @@ pub(crate) fn handle_hook_started(event: HookStartedEvent) -> Vec<ConnectorEvent
     },
     render_hints: Default::default(),
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> ConnectorOutputs {
   if !hook_run_is_error(event.run.status) {
     return vec![];
   }
@@ -365,31 +342,33 @@ pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> Vec<ConnectorE
     },
     render_hints: Default::default(),
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_thread_name_updated(event: ThreadNameUpdatedEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_thread_name_updated(event: ThreadNameUpdatedEvent) -> ConnectorOutputs {
   match event.thread_name {
-    Some(thread_name) => vec![ConnectorEvent::ThreadNameUpdated(thread_name)],
+    Some(thread_name) => vec![state_output(ConnectorStateEvent::ThreadNameUpdated(
+      thread_name,
+    ))],
     None => vec![],
   }
 }
 
-pub(crate) fn handle_shutdown_complete() -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::SessionEnded {
+pub(crate) fn handle_shutdown_complete() -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::SessionEnded {
     reason: "shutdown".to_string(),
-  }]
+  })]
 }
 
-pub(crate) fn handle_error(message: String) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::Error(message)]
+pub(crate) fn handle_error(message: String) -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::Error(message))]
 }
 
 pub(crate) fn handle_stream_error(
   event_id: &str,
   event: StreamErrorEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   if !stream_error_should_surface_to_timeline(&event) {
     return vec![];
   }
@@ -411,32 +390,32 @@ pub(crate) fn handle_stream_error(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_context_compacted() -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::ContextCompacted]
+pub(crate) fn handle_context_compacted() -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::ContextCompacted)]
 }
 
-pub(crate) fn handle_undo_started(event: UndoStartedEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::UndoStarted {
+pub(crate) fn handle_undo_started(event: UndoStartedEvent) -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::UndoStarted {
     message: event.message,
-  }]
+  })]
 }
 
-pub(crate) fn handle_undo_completed(event: UndoCompletedEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::UndoCompleted {
+pub(crate) fn handle_undo_completed(event: UndoCompletedEvent) -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::UndoCompleted {
     success: event.success,
     message: event.message,
-  }]
+  })]
 }
 
-pub(crate) fn handle_thread_rolled_back(event: ThreadRolledBackEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::ThreadRolledBack {
+pub(crate) fn handle_thread_rolled_back(event: ThreadRolledBackEvent) -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::ThreadRolledBack {
     num_turns: event.num_turns,
-  }]
+  })]
 }
 
-pub(crate) fn handle_skills_update_available() -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::SkillsUpdateAvailable]
+pub(crate) fn handle_skills_update_available() -> ConnectorOutputs {
+  vec![state_output(ConnectorStateEvent::SkillsUpdateAvailable)]
 }
