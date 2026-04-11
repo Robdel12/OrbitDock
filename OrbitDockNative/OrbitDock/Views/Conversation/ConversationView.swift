@@ -79,9 +79,9 @@ struct ConversationView: View {
       viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
       await viewModel.refresh()
     }
-    .task(id: bindingIdentity + ":changes") {
+    .task(id: bindingIdentity + ":resync") {
       guard let sessionId, !sessionId.isEmpty else { return }
-      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      let (stream, _) = sessionStore.conversationRefreshRequests(for: sessionId)
       for await _ in stream {
         guard !Task.isCancelled else { break }
         await viewModel.refresh()
@@ -113,6 +113,7 @@ struct ConversationView: View {
       TimelineScrollView(
         viewModel: viewModel.timelineViewModel,
         sessionId: sessionId,
+        endpointId: endpointId,
         clients: sessionStore.clients,
         scrollCommand: $scrollCommand,
         onLoadMore: {

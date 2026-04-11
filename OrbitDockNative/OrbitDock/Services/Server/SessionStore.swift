@@ -124,6 +124,7 @@ final class SessionStore {
   }
 
   @ObservationIgnored private var _rowDeltaContinuations: [String: [UUID: AsyncStream<ConversationRowDelta>.Continuation]] = [:]
+  @ObservationIgnored private var _conversationRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
 
   /// Returns an AsyncStream that yields conversation row deltas as they arrive via WS.
   /// The conversation surface consumes this directly — rows are the one exception
@@ -146,6 +147,30 @@ final class SessionStore {
 
   func notifyConversationRowDelta(_ sessionId: String, _ delta: ConversationRowDelta) {
     _rowDeltaContinuations[sessionId]?.values.forEach { $0.yield(delta) }
+  }
+
+  /// Returns an AsyncStream that yields whenever the conversation surface needs
+  /// an authoritative HTTP resync. This is intentionally narrower than the
+  /// generic session change stream so normal row deltas do not fan out into
+  /// duplicate conversation bootstrap GETs.
+  func conversationRefreshRequests(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _conversationRefreshContinuations[sessionId] == nil {
+        _conversationRefreshContinuations[sessionId] = [:]
+      }
+      _conversationRefreshContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._conversationRefreshContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifyConversationRefreshRequested(_ sessionId: String) {
+    _conversationRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
   }
 
   // MARK: - Private tracking
@@ -368,6 +393,7 @@ final class SessionStore {
       cancelInFlightSessionTasks(sessionId)
       _sessionChangeContinuations.removeValue(forKey: sessionId)
       _rowDeltaContinuations.removeValue(forKey: sessionId)
+      _conversationRefreshContinuations.removeValue(forKey: sessionId)
     } else {
       removeRecoveredSurfaces(sessionId: sessionId, surfaces: targetSurfaces)
     }

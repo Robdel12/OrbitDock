@@ -1,4 +1,6 @@
-use crate::runtime::row_entry;
+use super::{
+  row_created_output, row_updated_output, state_output, tool_row_entry, ConnectorOutputs,
+};
 use crate::workers::{
   agent_status_failed, build_authoritative_codex_subagent, build_codex_subagent_for_status,
   build_running_codex_subagent, collab_agent_label, iso_now,
@@ -8,75 +10,46 @@ use codex_protocol::protocol::{
   CollabAgentSpawnEndEvent, CollabCloseBeginEvent, CollabCloseEndEvent, CollabResumeBeginEvent,
   CollabResumeEndEvent, CollabWaitingBeginEvent, CollabWaitingEndEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
-  ToolDisplayInput, ToolRow,
-};
+use orbitdock_connector_core::ConnectorStateEvent;
+use orbitdock_protocol::conversation_contracts::ToolRow;
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::json;
 
-fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-  let row = with_display(row);
-  row_entry(ConversationRow::Tool(row))
-}
-
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
-  let result_str = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_ref,
-    result_output: result_str.as_deref(),
-  }));
-  row
-}
-
 pub(crate) fn handle_collab_agent_spawn_begin(
   event: CollabAgentSpawnBeginEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let description = if event.prompt.trim().is_empty() {
     "Spawning agent".to_string()
   } else {
     event.prompt.clone()
   };
 
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: event.call_id,
-      provider: Provider::Codex,
-      family: ToolFamily::Agent,
-      kind: ToolKind::SpawnAgent,
-      status: ToolStatus::Running,
-      title: "Spawn agent".to_string(),
-      subtitle: Some(description),
-      summary: None,
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "agent_type": "spawn_agent",
-          "task_summary": event.prompt,
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Agent,
+    kind: ToolKind::SpawnAgent,
+    status: ToolStatus::Running,
+    title: "Spawn agent".to_string(),
+    subtitle: Some(description),
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "agent_type": "spawn_agent",
+        "task_summary": event.prompt,
+    }),
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
-pub(crate) fn handle_collab_agent_spawn_end(
-  event: CollabAgentSpawnEndEvent,
-) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_agent_spawn_end(event: CollabAgentSpawnEndEvent) -> ConnectorOutputs {
   let receiver = event
     .new_thread_id
     .map(|id| id.to_string())
@@ -123,12 +96,9 @@ pub(crate) fn handle_collab_agent_spawn_end(
     tool_display: None,
   });
 
-  let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }];
+  let mut connector_events = vec![row_updated_output(event.call_id, entry)];
   if let Some(thread_id) = event.new_thread_id {
-    connector_events.push(ConnectorEvent::SubagentsUpdated {
+    connector_events.push(state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_codex_subagent_for_status(
         thread_id.to_string(),
         event.new_agent_role.clone(),
@@ -137,16 +107,16 @@ pub(crate) fn handle_collab_agent_spawn_end(
         Some(event.sender_thread_id.to_string()),
         &event.status,
       )],
-    });
+    }));
   }
   connector_events
 }
 
 pub(crate) fn handle_collab_agent_interaction_begin(
   event: CollabAgentInteractionBeginEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
+    row_created_output(tool_row_entry(ToolRow {
       id: event.call_id,
       provider: Provider::Codex,
       family: ToolFamily::Agent,
@@ -169,7 +139,7 @@ pub(crate) fn handle_collab_agent_interaction_begin(
       render_hints: Default::default(),
       tool_display: None,
     })),
-    ConnectorEvent::SubagentsUpdated {
+    state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_running_codex_subagent(
         event.receiver_thread_id.to_string(),
         None,
@@ -177,13 +147,13 @@ pub(crate) fn handle_collab_agent_interaction_begin(
         Some(event.prompt),
         Some(event.sender_thread_id.to_string()),
       )],
-    },
+    }),
   ]
 }
 
 pub(crate) fn handle_collab_agent_interaction_end(
   event: CollabAgentInteractionEndEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let status_text = format!("{:?}", event.status);
   let receiver_label = collab_agent_label(
     &event.receiver_thread_id.to_string(),
@@ -226,11 +196,8 @@ pub(crate) fn handle_collab_agent_interaction_end(
     tool_display: None,
   });
 
-  let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }];
-  connector_events.push(ConnectorEvent::SubagentsUpdated {
+  let mut connector_events = vec![row_updated_output(event.call_id, entry)];
+  connector_events.push(state_output(ConnectorStateEvent::SubagentsUpdated {
     subagents: vec![build_codex_subagent_for_status(
       event.receiver_thread_id.to_string(),
       event.receiver_agent_role.clone(),
@@ -239,11 +206,11 @@ pub(crate) fn handle_collab_agent_interaction_end(
       Some(event.sender_thread_id.to_string()),
       &event.status,
     )],
-  });
+  }));
   connector_events
 }
 
-pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> ConnectorOutputs {
   let receiver_ids: Vec<String> = event
     .receiver_thread_ids
     .iter()
@@ -281,7 +248,7 @@ pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> Vec
   };
 
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
+    row_created_output(tool_row_entry(ToolRow {
       id: event.call_id,
       provider: Provider::Codex,
       family: ToolFamily::Agent,
@@ -303,11 +270,11 @@ pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> Vec
       render_hints: Default::default(),
       tool_display: None,
     })),
-    ConnectorEvent::SubagentsUpdated { subagents },
+    state_output(ConnectorStateEvent::SubagentsUpdated { subagents }),
   ]
 }
 
-pub(crate) fn handle_collab_waiting_end(event: CollabWaitingEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_waiting_end(event: CollabWaitingEndEvent) -> ConnectorOutputs {
   let mut lines: Vec<String> = Vec::new();
   let mut has_error = false;
   let mut subagents = Vec::new();
@@ -382,45 +349,42 @@ pub(crate) fn handle_collab_waiting_end(event: CollabWaitingEndEvent) -> Vec<Con
     tool_display: None,
   });
 
-  let mut connector_events = vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }];
+  let mut connector_events = vec![row_updated_output(event.call_id, entry)];
   if !subagents.is_empty() {
-    connector_events.push(ConnectorEvent::SubagentsUpdated { subagents });
+    connector_events.push(state_output(ConnectorStateEvent::SubagentsUpdated {
+      subagents,
+    }));
   }
   connector_events
 }
 
-pub(crate) fn handle_collab_close_begin(event: CollabCloseBeginEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: event.call_id,
-      provider: Provider::Codex,
-      family: ToolFamily::Agent,
-      kind: ToolKind::CloseAgent,
-      status: ToolStatus::Running,
-      title: "Close agent".to_string(),
-      subtitle: Some(event.receiver_thread_id.to_string()),
-      summary: None,
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "worker_id": event.receiver_thread_id.to_string(),
-          "agent_type": "close",
-          "task_summary": "Closing agent",
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+pub(crate) fn handle_collab_close_begin(event: CollabCloseBeginEvent) -> ConnectorOutputs {
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Agent,
+    kind: ToolKind::CloseAgent,
+    status: ToolStatus::Running,
+    title: "Close agent".to_string(),
+    subtitle: Some(event.receiver_thread_id.to_string()),
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "worker_id": event.receiver_thread_id.to_string(),
+        "agent_type": "close",
+        "task_summary": "Closing agent",
+    }),
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
-pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> ConnectorOutputs {
   let status_text = format!("{:?}", event.status);
   let receiver_label = collab_agent_label(
     &event.receiver_thread_id.to_string(),
@@ -465,11 +429,8 @@ pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> Vec<Connect
   });
 
   vec![
-    ConnectorEvent::ConversationRowUpdated {
-      row_id: event.call_id,
-      entry,
-    },
-    ConnectorEvent::SubagentsUpdated {
+    row_updated_output(event.call_id, entry),
+    state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_codex_subagent_for_status(
         event.receiver_thread_id.to_string(),
         event.receiver_agent_role.clone(),
@@ -478,13 +439,13 @@ pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> Vec<Connect
         Some(event.sender_thread_id.to_string()),
         &event.status,
       )],
-    },
+    }),
   ]
 }
 
-pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> ConnectorOutputs {
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
+    row_created_output(tool_row_entry(ToolRow {
       id: event.call_id,
       provider: Provider::Codex,
       family: ToolFamily::Agent,
@@ -507,7 +468,7 @@ pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> Vec<C
       render_hints: Default::default(),
       tool_display: None,
     })),
-    ConnectorEvent::SubagentsUpdated {
+    state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_running_codex_subagent(
         event.receiver_thread_id.to_string(),
         event.receiver_agent_role.clone(),
@@ -515,11 +476,11 @@ pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> Vec<C
         None,
         Some(event.sender_thread_id.to_string()),
       )],
-    },
+    }),
   ]
 }
 
-pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> ConnectorOutputs {
   let status_text = format!("{:?}", event.status);
   let receiver_label = collab_agent_label(
     &event.receiver_thread_id.to_string(),
@@ -564,11 +525,8 @@ pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> Vec<Conne
   });
 
   vec![
-    ConnectorEvent::ConversationRowUpdated {
-      row_id: event.call_id,
-      entry,
-    },
-    ConnectorEvent::SubagentsUpdated {
+    row_updated_output(event.call_id, entry),
+    state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_authoritative_codex_subagent(
         event.receiver_thread_id.to_string(),
         event.receiver_agent_role.clone(),
@@ -577,6 +535,6 @@ pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> Vec<Conne
         Some(event.sender_thread_id.to_string()),
         &event.status,
       )],
-    },
+    }),
   ]
 }

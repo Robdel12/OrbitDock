@@ -5,13 +5,16 @@
 
 pub mod session;
 
+use std::any::Any;
 use std::collections::{HashMap, VecDeque};
+use std::panic::AssertUnwindSafe;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Instant;
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use futures::FutureExt;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -19,7 +22,10 @@ use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{error, info, warn};
 
-use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
+use orbitdock_connector_core::{
+  panic_payload_message, ApprovalType, ConnectorError, ConnectorOutput, ConnectorRuntimeDirective,
+  ConnectorStateEvent, ConnectorTransportEffect,
+};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
   classify_tool_name, ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
@@ -84,6 +90,18 @@ fn classify_tool(name: &str) -> (ToolFamily, ToolKind) {
     _ => {}
   }
   classify_tool_name(name)
+}
+
+fn state_output(event: ConnectorStateEvent) -> ConnectorOutput {
+  event.into()
+}
+
+fn runtime_output(event: ConnectorRuntimeDirective) -> ConnectorOutput {
+  event.into()
+}
+
+fn transport_output(event: ConnectorTransportEffect) -> ConnectorOutput {
+  event.into()
 }
 
 /// Build a flat JSON invocation value from a tool name and optional raw JSON input.
@@ -641,7 +659,7 @@ impl ClaudeEventLoopState {
 pub struct ClaudeConnector {
   stdin_tx: mpsc::Sender<String>,
   child: Arc<Mutex<Child>>,
-  event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
+  output_rx: Option<mpsc::Receiver<ConnectorOutput>>,
   claude_session_id: Arc<Mutex<Option<String>>>,
   pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
   pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
@@ -763,7 +781,7 @@ impl ClaudeConnector {
       .take()
       .ok_or_else(|| ConnectorError::ProviderError("No stdout on child".into()))?;
 
-    let (event_tx, event_rx) = mpsc::channel::<ConnectorEvent>(256);
+    let (output_tx, output_rx) = mpsc::channel::<ConnectorOutput>(256);
     let (stdin_tx, stdin_rx) = mpsc::channel::<String>(256);
     let claude_session_id = Arc::new(Mutex::new(None));
     let pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>> =
@@ -855,13 +873,13 @@ impl ClaudeConnector {
     );
 
     tokio::spawn(async move {
-      Self::event_loop(stdout, event_tx, loop_state).await;
+      Self::event_loop(stdout, output_tx, loop_state).await;
     });
 
     let connector = Self {
       stdin_tx,
       child: child_arc,
-      event_rx: Some(event_rx),
+      output_rx: Some(output_rx),
       claude_session_id,
       pending_controls,
       pending_approvals,
@@ -885,9 +903,9 @@ impl ClaudeConnector {
     Ok(connector)
   }
 
-  /// Take the event receiver (can only be called once).
-  pub fn take_event_rx(&mut self) -> Option<mpsc::Receiver<ConnectorEvent>> {
-    self.event_rx.take()
+  /// Take the typed output receiver (can only be called once).
+  pub fn take_output_rx(&mut self) -> Option<mpsc::Receiver<ConnectorOutput>> {
+    self.output_rx.take()
   }
 
   /// Get the Claude session ID (set after init event).
@@ -1307,10 +1325,10 @@ impl ClaudeConnector {
     }
   }
 
-  /// Read stdout line-by-line, parse JSON, translate to ConnectorEvent.
+  /// Read stdout line-by-line, parse JSON, and emit typed connector outputs.
   async fn event_loop(
     stdout: tokio::process::ChildStdout,
-    event_tx: mpsc::Sender<ConnectorEvent>,
+    output_tx: mpsc::Sender<ConnectorOutput>,
     mut state: ClaudeEventLoopState,
   ) {
     let reader = BufReader::new(stdout);
@@ -1339,10 +1357,33 @@ impl ClaudeConnector {
             }
           };
 
-          let events = Self::dispatch_stdout_message(&raw, &mut state).await;
+          let events = match AssertUnwindSafe(Self::dispatch_stdout_message(&raw, &mut state))
+            .catch_unwind()
+            .await
+          {
+            Ok(events) => events,
+            Err(payload) => {
+              let payload: Box<dyn Any + Send> = payload;
+              error!(
+                component = "claude_connector",
+                event = "claude.stdout.dispatch_panicked",
+                session_id = %state.orbitdock_session_id,
+                line_count = state.line_count,
+                panic = %panic_payload_message(payload.as_ref()),
+                raw_type = %raw.get("type").and_then(|v| v.as_str()).unwrap_or("unknown"),
+                "Claude stdout dispatch panicked; ending connector loop safely"
+              );
+              let _ = output_tx
+                .send(state_output(ConnectorStateEvent::SessionEnded {
+                  reason: "dispatch_panic".to_string(),
+                }))
+                .await;
+              return;
+            }
+          };
 
-          for ev in events {
-            if event_tx.send(ev).await.is_err() {
+          for event in events {
+            if output_tx.send(event).await.is_err() {
               return;
             }
           }
@@ -1355,10 +1396,10 @@ impl ClaudeConnector {
             lines_read = state.line_count,
             "Claude CLI stdout EOF"
           );
-          let _ = event_tx
-            .send(ConnectorEvent::SessionEnded {
+          let _ = output_tx
+            .send(state_output(ConnectorStateEvent::SessionEnded {
               reason: "cli_exited".to_string(),
-            })
+            }))
             .await;
           return;
         }
@@ -1370,10 +1411,10 @@ impl ClaudeConnector {
               error = %e,
               "Error reading CLI stdout"
           );
-          let _ = event_tx
-            .send(ConnectorEvent::SessionEnded {
+          let _ = output_tx
+            .send(state_output(ConnectorStateEvent::SessionEnded {
               reason: format!("read_error: {}", e),
-            })
+            }))
             .await;
           return;
         }
@@ -1385,7 +1426,7 @@ impl ClaudeConnector {
   async fn dispatch_stdout_message(
     raw: &Value,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
     let session_id = state.session_id.lock().await.clone().unwrap_or_default();
 
@@ -1405,7 +1446,7 @@ impl ClaudeConnector {
     if !state.in_turn && matches!(msg_type, "assistant" | "stream_event") {
       state.in_turn = true;
       state.turn_patch_diff.clear();
-      turn_start_event.push(ConnectorEvent::TurnStarted);
+      turn_start_event.push(state_output(ConnectorStateEvent::TurnStarted));
     }
 
     let mut events = match msg_type {
@@ -1434,7 +1475,9 @@ impl ClaudeConnector {
         // notify the server so the approval card is cleared.
         if let Some(req_id) = string_field(raw, "request_id", "requestId") {
           state.pending_approvals.lock().await.remove(req_id.as_str());
-          vec![ConnectorEvent::ApprovalCancelled { request_id: req_id }]
+          vec![state_output(ConnectorStateEvent::ApprovalCancelled {
+            request_id: req_id,
+          })]
         } else {
           vec![]
         }
@@ -1454,9 +1497,9 @@ impl ClaudeConnector {
           .or_else(|| raw.get("permissionMode"))
           .and_then(Value::as_str)
         {
-          status_events.push(ConnectorEvent::PermissionModeChanged {
+          status_events.push(state_output(ConnectorStateEvent::PermissionModeChanged {
             mode: mode.to_string(),
-          });
+          }));
         }
         status_events
       }
@@ -1478,9 +1521,8 @@ impl ClaudeConnector {
             memory_citation: None,
             delivery_status: None,
           });
-          vec![ConnectorEvent::ConversationRowCreated(make_entry(
-            &session_id,
-            row,
+          vec![state_output(ConnectorStateEvent::ConversationRowCreated(
+            make_entry(&session_id, row),
           ))]
         }
       }
@@ -1512,7 +1554,7 @@ impl ClaudeConnector {
           .get("surpassed_threshold")
           .and_then(|v| v.as_f64());
 
-        vec![ConnectorEvent::RateLimitEvent {
+        vec![state_output(ConnectorStateEvent::RateLimitEvent {
           info: orbitdock_protocol::RateLimitInfo {
             status,
             resets_at,
@@ -1522,7 +1564,7 @@ impl ClaudeConnector {
             overage_status,
             surpassed_threshold,
           },
-        }]
+        })]
       }
 
       "prompt_suggestion" => {
@@ -1535,7 +1577,9 @@ impl ClaudeConnector {
         if suggestion.is_empty() {
           vec![]
         } else {
-          vec![ConnectorEvent::PromptSuggestion { suggestion }]
+          vec![state_output(ConnectorStateEvent::PromptSuggestion {
+            suggestion,
+          })]
         }
       }
 
@@ -1565,7 +1609,7 @@ impl ClaudeConnector {
   async fn handle_system_message(
     raw: &Value,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let session_id_slot = &state.session_id;
     let task_tool_use_map = &mut state.task_tool_use_map;
     let compacting_msg_id = &mut state.compacting_msg_id;
@@ -1608,19 +1652,21 @@ impl ClaudeConnector {
           );
 
           if let Some(m) = model {
-            events.push(ConnectorEvent::ModelUpdated(m.to_string()));
+            events.push(state_output(ConnectorStateEvent::ModelUpdated(
+              m.to_string(),
+            )));
           }
 
           // Don't read models from the mutex here — the system init
           // message arrives on stdout before the control_response that
           // populates the models mutex. Models are emitted separately
           // from new() after send_initialize() completes.
-          events.push(ConnectorEvent::ClaudeInitialized {
+          events.push(state_output(ConnectorStateEvent::ClaudeInitialized {
             slash_commands,
             skills,
             tools,
             models: vec![],
-          });
+          }));
 
           // Parse MCP servers from init message
           if let Some(mcp_servers) = raw.get("mcp_servers").and_then(|v| v.as_array()) {
@@ -1658,16 +1704,16 @@ impl ClaudeConnector {
                 _ => orbitdock_protocol::McpStartupStatus::Connecting,
               };
 
-              events.push(ConnectorEvent::McpStartupUpdate {
+              events.push(state_output(ConnectorStateEvent::McpStartupUpdate {
                 server: name,
                 status: mcp_status,
-              });
+              }));
             }
-            events.push(ConnectorEvent::McpStartupComplete {
+            events.push(state_output(ConnectorStateEvent::McpStartupComplete {
               ready,
               failed,
               cancelled: vec![],
-            });
+            }));
           }
         }
         events
@@ -1685,13 +1731,13 @@ impl ClaudeConnector {
 
                 "summary": "Done",
             }));
-            events.push(ConnectorEvent::ConversationRowUpdated {
+            events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
               row_id: row_id.clone(),
               entry: make_entry(&session_id, ConversationRow::Tool(tr)),
-            });
+            }));
           }
         }
-        events.push(ConnectorEvent::ContextCompacted);
+        events.push(state_output(ConnectorStateEvent::ContextCompacted));
         events
       }
       "hook_started" => {
@@ -1700,7 +1746,9 @@ impl ClaudeConnector {
         // the original. Without registering it, the hook handler creates a
         // duplicate passive session.
         if let Some(sid) = raw.get("session_id").and_then(|v| v.as_str()) {
-          vec![ConnectorEvent::HookSessionId(sid.to_string())]
+          vec![runtime_output(ConnectorRuntimeDirective::HookSessionId(
+            sid.to_string(),
+          ))]
         } else {
           vec![]
         }
@@ -1753,9 +1801,8 @@ impl ClaudeConnector {
 
         tool_rows.insert(task_id.to_string(), tr.clone());
 
-        vec![ConnectorEvent::ConversationRowCreated(make_entry(
-          &session_id,
-          ConversationRow::Tool(tr),
+        vec![state_output(ConnectorStateEvent::ConversationRowCreated(
+          make_entry(&session_id, ConversationRow::Tool(tr)),
         ))]
       }
       "task_progress" => {
@@ -1790,10 +1837,10 @@ impl ClaudeConnector {
         if let Some(tr) = tool_rows.get_mut(task_id) {
           tr.summary = Some(progress);
           tr.duration_ms = Some(duration_ms);
-          vec![ConnectorEvent::ConversationRowUpdated {
+          vec![state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id: task_id.to_string(),
             entry: make_entry(&session_id, ConversationRow::Tool(tr.clone())),
-          }]
+          })]
         } else {
           vec![]
         }
@@ -1825,10 +1872,10 @@ impl ClaudeConnector {
 
               "summary": summary,
           }));
-          vec![ConnectorEvent::ConversationRowUpdated {
+          vec![state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id: task_id.to_string(),
             entry: make_entry(&session_id, ConversationRow::Tool(tr)),
-          }]
+          })]
         } else {
           vec![]
         }
@@ -1843,9 +1890,9 @@ impl ClaudeConnector {
           .or_else(|| raw.get("permission_mode"))
           .and_then(Value::as_str)
         {
-          events.push(ConnectorEvent::PermissionModeChanged {
+          events.push(state_output(ConnectorStateEvent::PermissionModeChanged {
             mode: mode.to_string(),
-          });
+          }));
         }
 
         // "compacting" status means context compaction is in progress.
@@ -1866,9 +1913,8 @@ impl ClaudeConnector {
               ToolStatus::Running,
             );
             tool_rows.insert(msg_id.clone(), tr.clone());
-            events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-              &session_id,
-              ConversationRow::Tool(tr),
+            events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+              make_entry(&session_id, ConversationRow::Tool(tr)),
             )));
           }
         }
@@ -1887,18 +1933,18 @@ impl ClaudeConnector {
               .collect()
           })
           .unwrap_or_default();
-        vec![ConnectorEvent::FilesPersisted { files }]
+        vec![state_output(ConnectorStateEvent::FilesPersisted { files })]
       }
       _ => vec![],
     }
   }
 
-  /// Handle `assistant` messages — extract content blocks into ConnectorEvents.
+  /// Handle `assistant` messages — extract content blocks into ConnectorOutput values.
   fn handle_assistant_message(
     raw: &Value,
     session_id: &str,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let mut events = Vec::new();
 
     // Track whether streaming was active before flushing — if so, the text
@@ -1964,10 +2010,17 @@ impl ClaudeConnector {
         input_value,
         ToolStatus::Running,
       );
+
+      // Emit ToolPtyCreated for bash tools to enable live PTY streaming
+      if tr.kind == ToolKind::Bash {
+        events.push(transport_output(ConnectorTransportEffect::ToolPtyCreated {
+          tool_id: message_id.clone(),
+        }));
+      }
+
       state.tool_rows.insert(message_id.clone(), tr.clone());
-      events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-        session_id,
-        ConversationRow::Tool(tr),
+      events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+        make_entry(session_id, ConversationRow::Tool(tr)),
       )));
 
       // Build an aggregated per-turn patch diff stream from direct edit/write tools.
@@ -1977,7 +2030,9 @@ impl ClaudeConnector {
             state.turn_patch_diff.push_str("\n\n");
           }
           state.turn_patch_diff.push_str(&diff);
-          events.push(ConnectorEvent::DiffUpdated(state.turn_patch_diff.clone()));
+          events.push(state_output(ConnectorStateEvent::DiffUpdated(
+            state.turn_patch_diff.clone(),
+          )));
         }
       }
     }
@@ -2075,10 +2130,26 @@ impl ClaudeConnector {
               },
             ),
           );
-          events.push(ConnectorEvent::ConversationRowUpdated {
+
+          // Emit PTY events for bash tools - feed the complete output then mark exited
+          if tr.kind == ToolKind::Bash && !content.is_empty() {
+            events.push(transport_output(ConnectorTransportEffect::ToolPtyOutput {
+              tool_id: row_id.clone(),
+              bytes: content.as_bytes().to_vec(),
+            }));
+          }
+          if tr.kind == ToolKind::Bash {
+            let exit_code = if is_error { Some(1) } else { Some(0) };
+            events.push(transport_output(ConnectorTransportEffect::ToolPtyExited {
+              tool_id: row_id.clone(),
+              exit_code,
+            }));
+          }
+
+          events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id: row_id.clone(),
             entry: make_entry(session_id, ConversationRow::Tool(tr)),
-          });
+          }));
         } else {
           // No tracked row — create a minimal completed tool row.
           let mut tr = make_tool_row(
@@ -2096,10 +2167,10 @@ impl ClaudeConnector {
               "tool_name": "unknown",
               "output": content.clone(),
           }));
-          events.push(ConnectorEvent::ConversationRowUpdated {
+          events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id,
             entry: make_entry(session_id, ConversationRow::Tool(tr)),
-          });
+          }));
         }
       } else {
         warn!(
@@ -2133,8 +2204,8 @@ impl ClaudeConnector {
             memory_citation: None,
             delivery_status: None,
           });
-          events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-            session_id, row,
+          events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+            make_entry(session_id, row),
           )));
         }
         "thinking" => {
@@ -2149,8 +2220,8 @@ impl ClaudeConnector {
             memory_citation: None,
             delivery_status: None,
           });
-          events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-            session_id, row,
+          events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+            make_entry(session_id, row),
           )));
         }
         _ => {}
@@ -2173,10 +2244,10 @@ impl ClaudeConnector {
         cached_tokens: cached,
         context_window: state.last_context_window,
       };
-      events.push(ConnectorEvent::TokensUpdated {
+      events.push(state_output(ConnectorStateEvent::TokensUpdated {
         usage: live_usage,
         snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
-      });
+      }));
     }
 
     events
@@ -2199,7 +2270,7 @@ impl ClaudeConnector {
     raw: &Value,
     session_id: &str,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let task_tool_use_map = &mut state.task_tool_use_map;
     let tool_rows = &mut state.tool_rows;
     let mut events = Vec::new();
@@ -2255,18 +2326,20 @@ impl ClaudeConnector {
         .map(String::from)
         .unwrap_or_else(|| format!("claude-user-{}", uuid::Uuid::new_v4()));
 
-      events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-        session_id,
-        ConversationRow::User(MessageRowContent {
-          id: msg_id,
-          content: user_text,
-          turn_id: None,
-          timestamp: Some(now_iso()),
-          is_streaming: false,
-          images,
-          memory_citation: None,
-          delivery_status: None,
-        }),
+      events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+        make_entry(
+          session_id,
+          ConversationRow::User(MessageRowContent {
+            id: msg_id,
+            content: user_text,
+            turn_id: None,
+            timestamp: Some(now_iso()),
+            is_streaming: false,
+            images,
+            memory_citation: None,
+            delivery_status: None,
+          }),
+        ),
       )));
     }
 
@@ -2374,10 +2447,10 @@ impl ClaudeConnector {
               },
             ),
           );
-          events.push(ConnectorEvent::ConversationRowUpdated {
+          events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id: row_id.clone(),
             entry: make_entry(session_id, ConversationRow::Tool(tr)),
-          });
+          }));
         } else {
           // No tracked row — create a minimal completed tool row.
           let mut tr = make_tool_row(
@@ -2395,10 +2468,10 @@ impl ClaudeConnector {
               "tool_name": "unknown",
               "output": content.clone(),
           }));
-          events.push(ConnectorEvent::ConversationRowUpdated {
+          events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id,
             entry: make_entry(session_id, ConversationRow::Tool(tr)),
-          });
+          }));
         }
       } else {
         warn!(
@@ -2418,7 +2491,7 @@ impl ClaudeConnector {
     raw: &Value,
     session_id: &str,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let streaming_content = &mut state.streaming_content;
     let streaming_msg_id = &mut state.streaming_msg_id;
     let streaming_last_broadcast = &mut state.streaming_last_broadcast;
@@ -2458,8 +2531,8 @@ impl ClaudeConnector {
               memory_citation: None,
               delivery_status: None,
             });
-            events.push(ConnectorEvent::ConversationRowCreated(make_entry(
-              session_id, row,
+            events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+              make_entry(session_id, row),
             )));
             *streaming_msg_id = Some(msg_id);
             *streaming_last_broadcast = Some(Instant::now());
@@ -2471,7 +2544,37 @@ impl ClaudeConnector {
               return events;
             }
             *streaming_last_broadcast = Some(now);
-            let msg_id = streaming_msg_id.clone().unwrap();
+            let msg_id = match streaming_msg_id.clone() {
+              Some(msg_id) => msg_id,
+              None => {
+                warn!(
+                  component = "claude_connector",
+                  event = "claude.stream_event.missing_streaming_msg_id",
+                  session_id = %session_id,
+                  "Received streaming delta without an active streaming row; creating a replacement row"
+                );
+                let msg_id = format!(
+                  "claude-msg-{}-{}",
+                  &session_id[..8.min(session_id.len())],
+                  uuid::Uuid::new_v4()
+                );
+                *streaming_msg_id = Some(msg_id.clone());
+                let row = ConversationRow::Assistant(MessageRowContent {
+                  id: msg_id.clone(),
+                  content: streaming_content.clone(),
+                  turn_id: None,
+                  timestamp: Some(now_iso()),
+                  is_streaming: true,
+                  images: vec![],
+                  memory_citation: None,
+                  delivery_status: None,
+                });
+                events.push(state_output(ConnectorStateEvent::ConversationRowCreated(
+                  make_entry(session_id, row),
+                )));
+                return events;
+              }
+            };
             let row = ConversationRow::Assistant(MessageRowContent {
               id: msg_id.clone(),
               content: streaming_content.clone(),
@@ -2482,10 +2585,10 @@ impl ClaudeConnector {
               memory_citation: None,
               delivery_status: None,
             });
-            events.push(ConnectorEvent::ConversationRowUpdated {
+            events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
               row_id: msg_id,
               entry: make_entry(session_id, row),
-            });
+            }));
           }
         }
       }
@@ -2499,7 +2602,7 @@ impl ClaudeConnector {
     raw: &Value,
     session_id: &str,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let tool_rows = &mut state.tool_rows;
     let Some(tool_use_id) = raw.get("tool_use_id").and_then(|v| v.as_str()) else {
       return vec![];
@@ -2517,10 +2620,10 @@ impl ClaudeConnector {
     if let Some(tr) = tool_rows.get_mut(tool_use_id) {
       tr.summary = Some(format!("{} running ({}s)", tool_name, elapsed));
       tr.duration_ms = Some(elapsed * 1000);
-      vec![ConnectorEvent::ConversationRowUpdated {
+      vec![state_output(ConnectorStateEvent::ConversationRowUpdated {
         row_id: tool_use_id.to_string(),
         entry: make_entry(session_id, ConversationRow::Tool(tr.clone())),
-      }]
+      })]
     } else {
       vec![]
     }
@@ -2531,7 +2634,7 @@ impl ClaudeConnector {
     raw: &Value,
     session_id: &str,
     state: &mut ClaudeEventLoopState,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let mut events = Vec::new();
 
     // Flush streaming content
@@ -2570,9 +2673,9 @@ impl ClaudeConnector {
       } else {
         subtype.to_string()
       };
-      events.push(ConnectorEvent::TurnAborted { reason });
+      events.push(state_output(ConnectorStateEvent::TurnAborted { reason }));
     } else {
-      events.push(ConnectorEvent::TurnCompleted);
+      events.push(state_output(ConnectorStateEvent::TurnCompleted));
     }
 
     events
@@ -2583,7 +2686,7 @@ impl ClaudeConnector {
     raw: &Value,
     pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
     stdin_tx: &mpsc::Sender<String>,
-  ) -> Vec<ConnectorEvent> {
+  ) -> Vec<ConnectorOutput> {
     let request = match value_field(raw, "request", "request") {
       Some(r) => r,
       None => return vec![],
@@ -2712,7 +2815,7 @@ impl ClaudeConnector {
       input
         .as_ref()
         .and_then(Self::plan_text_from_tool_input)
-        .map(ConnectorEvent::PlanUpdated)
+        .map(|plan| state_output(ConnectorStateEvent::PlanUpdated(plan)))
     } else {
       None
     };
@@ -2722,7 +2825,7 @@ impl ClaudeConnector {
     if let Some(plan_update) = plan_update {
       events.push(plan_update);
     }
-    events.push(ConnectorEvent::ApprovalRequested {
+    events.push(state_output(ConnectorStateEvent::ApprovalRequested {
       request_id,
       approval_type,
       tool_name: tool_name.clone(),
@@ -2742,7 +2845,7 @@ impl ClaudeConnector {
       mcp_server_name: None,
       network_host: None,
       network_protocol: None,
-    });
+    }));
     events
   }
 
@@ -2895,7 +2998,7 @@ fn parse_epoch_ms(s: &str) -> Option<u64> {
 
 /// Flush accumulated streaming content into a final ConversationRowUpdated.
 fn flush_streaming(
-  events: &mut Vec<ConnectorEvent>,
+  events: &mut Vec<ConnectorOutput>,
   streaming_content: &mut String,
   streaming_msg_id: &mut Option<String>,
   streaming_last_broadcast: &mut Option<Instant>,
@@ -2914,10 +3017,10 @@ fn flush_streaming(
         memory_citation: None,
         delivery_status: None,
       });
-      events.push(ConnectorEvent::ConversationRowUpdated {
+      events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
         row_id: mid,
         entry: make_entry(session_id, row),
-      });
+      }));
     }
   }
 }
@@ -3001,6 +3104,7 @@ fn resolve_claude_binary() -> Result<String, ConnectorError> {
 mod tests {
   use std::collections::HashMap;
   use std::sync::Arc;
+  use std::time::Instant;
 
   use serde_json::{json, Value};
   use tokio::sync::Mutex;
@@ -3009,7 +3113,7 @@ mod tests {
     parse_data_uri_base64, transform_image, ClaudeConnector, ImageSource, PendingApproval,
     UserContentBlock,
   };
-  use crate::ConnectorEvent;
+  use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
 
   #[test]
   fn parse_data_uri_base64_extracts_media_type_and_payload() {
@@ -3084,12 +3188,12 @@ mod tests {
       ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
     assert_eq!(events.len(), 1);
     match &events[0] {
-      ConnectorEvent::ApprovalRequested {
+      ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested {
         request_id,
         tool_name,
         command,
         ..
-      } => {
+      }) => {
         assert_eq!(request_id, "req-camel-1");
         assert_eq!(tool_name.as_deref(), Some("Bash"));
         assert_eq!(command.as_deref(), Some("npm test"));
@@ -3171,18 +3275,18 @@ mod tests {
     assert_eq!(events.len(), 2);
 
     match &events[0] {
-      ConnectorEvent::PlanUpdated(plan) => {
+      ConnectorOutput::State(ConnectorStateEvent::PlanUpdated(plan)) => {
         assert_eq!(plan, "# Phase 5\n- Simplify toolbar ordering UX");
       }
       other => panic!("expected PlanUpdated event, got {:?}", other),
     }
 
     match &events[1] {
-      ConnectorEvent::ApprovalRequested {
+      ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested {
         request_id,
         tool_name,
         ..
-      } => {
+      }) => {
         assert_eq!(request_id, "req-plan-1");
         assert_eq!(tool_name.as_deref(), Some("ExitPlanMode"));
       }
@@ -3251,7 +3355,7 @@ mod tests {
     let has_diff = events.iter().any(|event| {
       matches!(
           event,
-          ConnectorEvent::DiffUpdated(diff)
+          ConnectorOutput::State(ConnectorStateEvent::DiffUpdated(diff))
               if diff.contains("--- src/main.rs")
                   && diff.contains("+++ src/main.rs")
                   && diff.contains("-old value")
@@ -3305,7 +3409,7 @@ mod tests {
     let second_events = ClaudeConnector::handle_assistant_message(&raw_write, "sess-1", &mut state);
 
     let aggregated = second_events.iter().find_map(|event| {
-      if let ConnectorEvent::DiffUpdated(diff) = event {
+      if let ConnectorOutput::State(ConnectorStateEvent::DiffUpdated(diff)) = event {
         Some(diff.as_str())
       } else {
         None
@@ -3318,5 +3422,36 @@ mod tests {
         && diff.contains("+++ src/b.txt"),
       "expected combined diff for both edits"
     );
+  }
+
+  #[test]
+  fn handle_stream_event_recovers_when_streaming_row_id_is_missing() {
+    let raw = json!({
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "delta": {
+                "type": "text_delta",
+                "text": "hello world"
+            }
+        }
+    });
+
+    let mut state = test_event_loop_state();
+    state.streaming_content = "hello world".to_string();
+    state.streaming_last_broadcast = Some(Instant::now() - std::time::Duration::from_millis(100));
+
+    let events = ClaudeConnector::handle_stream_event(&raw, "sess-1", &mut state);
+
+    assert!(
+      matches!(
+        events.first(),
+        Some(ConnectorOutput::State(
+          ConnectorStateEvent::ConversationRowCreated(_)
+        ))
+      ),
+      "expected a replacement streaming row to be created"
+    );
+    assert!(state.streaming_msg_id.is_some());
   }
 }

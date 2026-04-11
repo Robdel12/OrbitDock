@@ -1,3 +1,6 @@
+use super::{
+  row_created_output, row_updated_output, state_output, tool_row_entry, ConnectorOutputs,
+};
 use crate::runtime::{
   apply_delta_thinking, finalized_thinking_row_entry, row_entry, thinking_row_entry,
   RawToolCallContext, ReasoningEventTracker, StreamingMessage, STREAM_THROTTLE_MS,
@@ -13,10 +16,9 @@ use codex_protocol::protocol::{
   ItemCompletedEvent, ItemStartedEvent, RawResponseItemEvent, ReasoningContentDeltaEvent,
   ReasoningRawContentDeltaEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{
-  classify_tool_name, compute_tool_display, extract_compact_result_text, ConversationRow,
-  ConversationRowEntry, MessageRowContent, ToolDisplayInput, ToolRow,
+  classify_tool_name, ConversationRow, MessageRowContent, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -24,28 +26,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-
-fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-  let row = with_display(row);
-  row_entry(ConversationRow::Tool(row))
-}
-
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
-  let result_str = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_ref,
-    result_output: result_str.as_deref(),
-  }));
-  row
-}
 
 fn raw_tool_output_text(output: &codex_protocol::models::FunctionCallOutputPayload) -> String {
   output
@@ -69,7 +49,7 @@ fn normalize_function_arguments(arguments: &str) -> serde_json::Value {
 pub(crate) async fn handle_agent_message_content_delta(
   event: AgentMessageContentDeltaEvent,
   streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let mut streaming = streaming_message.lock().await;
   match streaming.as_mut() {
     None => {
@@ -90,7 +70,7 @@ pub(crate) async fn handle_agent_message_content_delta(
         last_broadcast: std::time::Instant::now(),
         from_content_delta: true,
       });
-      vec![ConnectorEvent::ConversationRowCreated(entry)]
+      vec![row_created_output(entry)]
     }
     Some(streaming_msg) => {
       streaming_msg.content.push_str(&event.delta);
@@ -107,10 +87,7 @@ pub(crate) async fn handle_agent_message_content_delta(
           memory_citation: None,
           delivery_status: None,
         }));
-        vec![ConnectorEvent::ConversationRowUpdated {
-          row_id: streaming_msg.message_id.clone(),
-          entry,
-        }]
+        vec![row_updated_output(streaming_msg.message_id.clone(), entry)]
       } else {
         vec![]
       }
@@ -122,7 +99,7 @@ pub(crate) async fn handle_agent_message_delta(
   event_id: &str,
   event: AgentMessageDeltaEvent,
   streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let mut streaming = streaming_message.lock().await;
   match streaming.as_mut() {
     None => {
@@ -143,7 +120,7 @@ pub(crate) async fn handle_agent_message_delta(
         last_broadcast: std::time::Instant::now(),
         from_content_delta: false,
       });
-      vec![ConnectorEvent::ConversationRowCreated(entry)]
+      vec![row_created_output(entry)]
     }
     Some(streaming_msg) => {
       if streaming_msg.from_content_delta {
@@ -165,10 +142,7 @@ pub(crate) async fn handle_agent_message_delta(
         memory_citation: None,
         delivery_status: None,
       }));
-      vec![ConnectorEvent::ConversationRowUpdated {
-        row_id: streaming_msg.message_id.clone(),
-        entry,
-      }]
+      vec![row_updated_output(streaming_msg.message_id.clone(), entry)]
     }
   }
 }
@@ -177,7 +151,7 @@ pub(crate) async fn handle_reasoning_content_delta(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   event: ReasoningContentDeltaEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_modern_summary()
@@ -200,7 +174,7 @@ pub(crate) async fn handle_reasoning_raw_content_delta(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   event: ReasoningRawContentDeltaEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_modern_raw()
@@ -221,7 +195,7 @@ pub(crate) async fn handle_agent_reasoning_delta(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   event: AgentReasoningDeltaEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_legacy_summary()
@@ -242,7 +216,7 @@ pub(crate) async fn handle_agent_reasoning_raw_content(
   event: AgentReasoningRawContentEvent,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_legacy_raw()
@@ -252,7 +226,7 @@ pub(crate) async fn handle_agent_reasoning_raw_content(
   }
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let entry = thinking_row_entry(format!("reasoning-raw-{}-{}", event_id, seq), event.text);
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
 pub(crate) async fn handle_agent_reasoning_raw_content_delta(
@@ -260,7 +234,7 @@ pub(crate) async fn handle_agent_reasoning_raw_content_delta(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   event: AgentReasoningRawContentDeltaEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_legacy_raw()
@@ -278,7 +252,7 @@ pub(crate) async fn handle_agent_reasoning_raw_content_delta(
 
 pub(crate) async fn handle_agent_reasoning_section_break(
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let mut tracker = reasoning_tracker.lock().await;
   tracker.mark_modern_summary_seen();
   vec![]
@@ -288,109 +262,103 @@ pub(crate) fn handle_entered_review_mode(
   event_id: &str,
   event: ReviewRequest,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let summary = review_request_summary(&event);
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
 
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: format!("review-entered-{}-{}", event_id, seq),
-      provider: Provider::Codex,
-      family: ToolFamily::Plan,
-      kind: ToolKind::EnterPlanMode,
-      status: ToolStatus::Completed,
-      title: "Enter review mode".to_string(),
-      subtitle: None,
-      summary: Some(summary),
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: Some(iso_now()),
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "mode": "review",
-          "steps": [],
-          "review_mode": "enter",
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: format!("review-entered-{}-{}", event_id, seq),
+    provider: Provider::Codex,
+    family: ToolFamily::Plan,
+    kind: ToolKind::EnterPlanMode,
+    status: ToolStatus::Completed,
+    title: "Enter review mode".to_string(),
+    subtitle: None,
+    summary: Some(summary),
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: Some(iso_now()),
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "mode": "review",
+        "steps": [],
+        "review_mode": "enter",
+    }),
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
 pub(crate) fn handle_exited_review_mode(
   event_id: &str,
   event: ExitedReviewModeEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let output = event
     .review_output
     .map(|review_output| render_review_output(&review_output))
     .unwrap_or_else(|| "Review mode exited.".to_string());
 
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: format!("review-exited-{}-{}", event_id, seq),
-      provider: Provider::Codex,
-      family: ToolFamily::Plan,
-      kind: ToolKind::ExitPlanMode,
-      status: ToolStatus::Completed,
-      title: "Exit review mode".to_string(),
-      subtitle: None,
-      summary: Some(output.clone()),
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: Some(iso_now()),
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "mode": "review",
-          "steps": [],
-          "review_mode": "exit",
-      }),
-      result: Some(json!({
-          "tool_name": "task",
-          "raw_output": output.clone(),
-          "summary": output,
-      })),
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: format!("review-exited-{}-{}", event_id, seq),
+    provider: Provider::Codex,
+    family: ToolFamily::Plan,
+    kind: ToolKind::ExitPlanMode,
+    status: ToolStatus::Completed,
+    title: "Exit review mode".to_string(),
+    subtitle: None,
+    summary: Some(output.clone()),
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: Some(iso_now()),
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "mode": "review",
+        "steps": [],
+        "review_mode": "exit",
+    }),
+    result: Some(json!({
+        "tool_name": "task",
+        "raw_output": output.clone(),
+        "summary": output,
+    })),
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
 pub(crate) async fn handle_item_started(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   event: ItemStartedEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   match event.item {
     TurnItem::Plan(item) => {
       apply_delta_thinking(delta_buffers, format!("plan-{}", item.id), item.text).await
     }
     TurnItem::ContextCompaction(item) => {
-      vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-        ToolRow {
-          id: item.id,
-          provider: Provider::Codex,
-          family: ToolFamily::Context,
-          kind: ToolKind::CompactContext,
-          status: ToolStatus::Running,
-          title: "Compacting context".to_string(),
-          subtitle: None,
-          summary: None,
-          preview: None,
-          started_at: Some(iso_now()),
-          ended_at: None,
-          duration_ms: None,
-          grouping_key: None,
-          invocation: json!({}),
-          result: None,
-          render_hints: Default::default(),
-          tool_display: None,
-        },
-      ))]
+      vec![row_created_output(tool_row_entry(ToolRow {
+        id: item.id,
+        provider: Provider::Codex,
+        family: ToolFamily::Context,
+        kind: ToolKind::CompactContext,
+        status: ToolStatus::Running,
+        title: "Compacting context".to_string(),
+        subtitle: None,
+        summary: None,
+        preview: None,
+        started_at: Some(iso_now()),
+        ended_at: None,
+        duration_ms: None,
+        grouping_key: None,
+        invocation: json!({}),
+        result: None,
+        render_hints: Default::default(),
+        tool_display: None,
+      }))]
     }
     _ => vec![],
   }
@@ -399,7 +367,7 @@ pub(crate) async fn handle_item_started(
 pub(crate) async fn handle_item_completed(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   event: ItemCompletedEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   match event.item {
     TurnItem::Plan(item) => {
       let message_id = format!("plan-{}", item.id);
@@ -409,19 +377,16 @@ pub(crate) async fn handle_item_completed(
       }
       let plan_text = item.text.clone();
       let entry = finalized_thinking_row_entry(message_id.clone(), item.text);
-      let mut events = vec![ConnectorEvent::ConversationRowUpdated {
-        row_id: message_id,
-        entry,
-      }];
+      let mut events = vec![row_updated_output(message_id, entry)];
       // Store plan content in session state so auto-save on collaboration
       // mode exit has something to write to plans/auto/<session>.md.
       if !plan_text.trim().is_empty() {
-        events.push(ConnectorEvent::PlanUpdated(plan_text));
+        events.push(state_output(ConnectorStateEvent::PlanUpdated(plan_text)));
       }
       events
     }
     TurnItem::Reasoning(item) => {
-      let mut events: Vec<ConnectorEvent> = Vec::new();
+      let mut events: ConnectorOutputs = Vec::new();
 
       for (idx, summary) in item.summary_text.into_iter().enumerate() {
         let message_id = format!("reasoning-summary-{}-{}", item.id, idx);
@@ -431,12 +396,9 @@ pub(crate) async fn handle_item_completed(
         };
         let entry = finalized_thinking_row_entry(message_id.clone(), summary);
         if had_buffer {
-          events.push(ConnectorEvent::ConversationRowUpdated {
-            row_id: message_id,
-            entry,
-          });
+          events.push(row_updated_output(message_id, entry));
         } else {
-          events.push(ConnectorEvent::ConversationRowCreated(entry));
+          events.push(row_created_output(entry));
         }
       }
 
@@ -448,12 +410,9 @@ pub(crate) async fn handle_item_completed(
         };
         let entry = finalized_thinking_row_entry(message_id.clone(), raw);
         if had_buffer {
-          events.push(ConnectorEvent::ConversationRowUpdated {
-            row_id: message_id,
-            entry,
-          });
+          events.push(row_updated_output(message_id, entry));
         } else {
-          events.push(ConnectorEvent::ConversationRowCreated(entry));
+          events.push(row_created_output(entry));
         }
       }
 
@@ -483,10 +442,7 @@ pub(crate) async fn handle_item_completed(
         render_hints: Default::default(),
         tool_display: None,
       });
-      vec![ConnectorEvent::ConversationRowUpdated {
-        row_id: item.id,
-        entry,
-      }]
+      vec![row_updated_output(item.id, entry)]
     }
     _ => vec![],
   }
@@ -497,7 +453,7 @@ pub(crate) async fn handle_raw_response_item(
   event: RawResponseItemEvent,
   msg_counter: &AtomicU64,
   raw_tool_calls: &Arc<tokio::sync::Mutex<HashMap<String, RawToolCallContext>>>,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   match event.item {
     ResponseItem::FunctionCall {
       name,
@@ -543,7 +499,7 @@ pub(crate) async fn handle_raw_response_item(
         },
       );
 
-      vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(row))]
+      vec![row_created_output(tool_row_entry(row))]
     }
     ResponseItem::FunctionCallOutput { call_id, output } => {
       let Some(context) = raw_tool_calls.lock().await.remove(&call_id) else {
@@ -574,10 +530,7 @@ pub(crate) async fn handle_raw_response_item(
         tool_display: None,
       };
 
-      vec![ConnectorEvent::ConversationRowUpdated {
-        row_id: call_id,
-        entry: tool_row_entry(row),
-      }]
+      vec![row_updated_output(call_id, tool_row_entry(row))]
     }
     ResponseItem::ToolSearchCall {
       call_id: Some(call_id),
@@ -619,7 +572,7 @@ pub(crate) async fn handle_raw_response_item(
         },
       );
 
-      vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(row))]
+      vec![row_created_output(tool_row_entry(row))]
     }
     ResponseItem::ToolSearchOutput {
       call_id: Some(call_id),
@@ -657,10 +610,7 @@ pub(crate) async fn handle_raw_response_item(
         tool_display: None,
       };
 
-      vec![ConnectorEvent::ConversationRowUpdated {
-        row_id: call_id,
-        entry: tool_row_entry(row),
-      }]
+      vec![row_updated_output(call_id, tool_row_entry(row))]
     }
     ResponseItem::Other => {
       let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
@@ -674,7 +624,7 @@ pub(crate) async fn handle_raw_response_item(
         memory_citation: None,
         delivery_status: None,
       }));
-      vec![ConnectorEvent::ConversationRowCreated(entry)]
+      vec![row_created_output(entry)]
     }
     _ => vec![],
   }

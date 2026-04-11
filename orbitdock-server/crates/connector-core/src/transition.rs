@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::ConnectorEvent;
+use crate::{ConnectorOutput, ConnectorStateEvent};
 use orbitdock_protocol::conversation_contracts::{
   compute_tool_display, extract_compact_result_text, ConversationRow, ConversationRowEntry,
   MessageRowContent, ToolDisplayInput, ToolRow, TurnStatus,
@@ -136,7 +136,7 @@ pub struct TransitionState {
 }
 
 // ---------------------------------------------------------------------------
-// Input — one variant per ConnectorEvent
+// Input — one variant per reducer-safe ConnectorStateEvent
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -260,17 +260,17 @@ pub enum Input {
   Error(String),
 }
 
-impl From<ConnectorEvent> for Input {
-  fn from(event: ConnectorEvent) -> Self {
+impl From<ConnectorStateEvent> for Input {
+  fn from(event: ConnectorStateEvent) -> Self {
     match event {
-      ConnectorEvent::TurnStarted => Input::TurnStarted,
-      ConnectorEvent::TurnCompleted => Input::TurnCompleted,
-      ConnectorEvent::TurnAborted { reason } => Input::TurnAborted { reason },
-      ConnectorEvent::ConversationRowCreated(entry) => Input::RowCreated(entry),
-      ConnectorEvent::ConversationRowUpdated { row_id, entry } => {
+      ConnectorStateEvent::TurnStarted => Input::TurnStarted,
+      ConnectorStateEvent::TurnCompleted => Input::TurnCompleted,
+      ConnectorStateEvent::TurnAborted { reason } => Input::TurnAborted { reason },
+      ConnectorStateEvent::ConversationRowCreated(entry) => Input::RowCreated(entry),
+      ConnectorStateEvent::ConversationRowUpdated { row_id, entry } => {
         Input::RowUpdated { row_id, entry }
       }
-      ConnectorEvent::ApprovalRequested {
+      ConnectorStateEvent::ApprovalRequested {
         request_id,
         approval_type,
         tool_name,
@@ -311,20 +311,20 @@ impl From<ConnectorEvent> for Input {
         network_host,
         network_protocol,
       },
-      ConnectorEvent::TokensUpdated {
+      ConnectorStateEvent::TokensUpdated {
         usage,
         snapshot_kind,
       } => Input::TokensUpdated {
         usage,
         snapshot_kind,
       },
-      ConnectorEvent::DiffUpdated(diff) => Input::DiffUpdated(diff),
-      ConnectorEvent::PlanUpdated(plan) => Input::PlanUpdated(plan),
-      ConnectorEvent::ThreadNameUpdated(name) => Input::ThreadNameUpdated(name),
-      ConnectorEvent::SessionEnded { reason } => Input::SessionEnded { reason },
-      ConnectorEvent::SkillsList { skills, errors } => Input::SkillsList { skills, errors },
-      ConnectorEvent::SkillsUpdateAvailable => Input::SkillsUpdateAvailable,
-      ConnectorEvent::McpToolsList {
+      ConnectorStateEvent::DiffUpdated(diff) => Input::DiffUpdated(diff),
+      ConnectorStateEvent::PlanUpdated(plan) => Input::PlanUpdated(plan),
+      ConnectorStateEvent::ThreadNameUpdated(name) => Input::ThreadNameUpdated(name),
+      ConnectorStateEvent::SessionEnded { reason } => Input::SessionEnded { reason },
+      ConnectorStateEvent::SkillsList { skills, errors } => Input::SkillsList { skills, errors },
+      ConnectorStateEvent::SkillsUpdateAvailable => Input::SkillsUpdateAvailable,
+      ConnectorStateEvent::McpToolsList {
         tools,
         resources,
         resource_templates,
@@ -335,10 +335,10 @@ impl From<ConnectorEvent> for Input {
         resource_templates,
         auth_statuses,
       },
-      ConnectorEvent::McpStartupUpdate { server, status } => {
+      ConnectorStateEvent::McpStartupUpdate { server, status } => {
         Input::McpStartupUpdate { server, status }
       }
-      ConnectorEvent::McpStartupComplete {
+      ConnectorStateEvent::McpStartupComplete {
         ready,
         failed,
         cancelled,
@@ -347,7 +347,7 @@ impl From<ConnectorEvent> for Input {
         failed,
         cancelled,
       },
-      ConnectorEvent::ClaudeInitialized {
+      ConnectorStateEvent::ClaudeInitialized {
         slash_commands,
         skills,
         tools,
@@ -358,14 +358,14 @@ impl From<ConnectorEvent> for Input {
         tools,
         models,
       },
-      ConnectorEvent::ModelUpdated(model) => Input::ModelUpdated(model),
-      ConnectorEvent::ContextCompacted => Input::ContextCompacted,
-      ConnectorEvent::UndoStarted { message } => Input::UndoStarted { message },
-      ConnectorEvent::UndoCompleted { success, message } => {
+      ConnectorStateEvent::ModelUpdated(model) => Input::ModelUpdated(model),
+      ConnectorStateEvent::ContextCompacted => Input::ContextCompacted,
+      ConnectorStateEvent::UndoStarted { message } => Input::UndoStarted { message },
+      ConnectorStateEvent::UndoCompleted { success, message } => {
         Input::UndoCompleted { success, message }
       }
-      ConnectorEvent::ThreadRolledBack { num_turns } => Input::ThreadRolledBack { num_turns },
-      ConnectorEvent::EnvironmentChanged {
+      ConnectorStateEvent::ThreadRolledBack { num_turns } => Input::ThreadRolledBack { num_turns },
+      ConnectorStateEvent::EnvironmentChanged {
         cwd,
         git_branch,
         git_sha,
@@ -376,18 +376,26 @@ impl From<ConnectorEvent> for Input {
         repository_root: None,
         is_worktree: None,
       },
-      ConnectorEvent::ApprovalCancelled { request_id } => Input::ApprovalCancelled { request_id },
-      ConnectorEvent::PermissionModeChanged { mode } => Input::PermissionModeChanged { mode },
-      ConnectorEvent::RateLimitEvent { info } => Input::RateLimitEvent { info },
-      ConnectorEvent::PromptSuggestion { suggestion } => Input::PromptSuggestion { suggestion },
-      ConnectorEvent::FilesPersisted { files } => Input::FilesPersisted { files },
-      ConnectorEvent::Error(msg) => Input::Error(msg),
-      ConnectorEvent::SubagentsUpdated { subagents } => Input::SubagentsUpdated { subagents },
-      // Handled in event loop before reaching transitions
-      ConnectorEvent::HookSessionId(_) | ConnectorEvent::DynamicToolCallRequested { .. } => {
-        unreachable!()
+      ConnectorStateEvent::ApprovalCancelled { request_id } => {
+        Input::ApprovalCancelled { request_id }
       }
+      ConnectorStateEvent::PermissionModeChanged { mode } => Input::PermissionModeChanged { mode },
+      ConnectorStateEvent::RateLimitEvent { info } => Input::RateLimitEvent { info },
+      ConnectorStateEvent::PromptSuggestion { suggestion } => {
+        Input::PromptSuggestion { suggestion }
+      }
+      ConnectorStateEvent::FilesPersisted { files } => Input::FilesPersisted { files },
+      ConnectorStateEvent::Error(msg) => Input::Error(msg),
+      ConnectorStateEvent::SubagentsUpdated { subagents } => Input::SubagentsUpdated { subagents },
     }
+  }
+}
+
+impl TryFrom<ConnectorOutput> for Input {
+  type Error = ConnectorOutput;
+
+  fn try_from(output: ConnectorOutput) -> Result<Self, ConnectorOutput> {
+    output.into_state_event().map(Input::from)
   }
 }
 
@@ -2941,6 +2949,39 @@ mod tests {
         tool_display: None,
       }),
     }
+  }
+
+  #[test]
+  fn connector_output_state_lane_converts_to_input() {
+    let output = ConnectorOutput::State(ConnectorStateEvent::TurnStarted);
+    let input = Input::try_from(output).expect("state output should convert to input");
+    assert!(matches!(input, Input::TurnStarted));
+  }
+
+  #[test]
+  fn connector_output_runtime_lane_is_rejected_by_input_conversion() {
+    let output = ConnectorOutput::Runtime(crate::ConnectorRuntimeDirective::HookSessionId(
+      "hook-123".to_string(),
+    ));
+
+    let err = Input::try_from(output).expect_err("runtime directives must not reach reducer");
+    assert!(matches!(
+      err,
+      ConnectorOutput::Runtime(crate::ConnectorRuntimeDirective::HookSessionId(_))
+    ));
+  }
+
+  #[test]
+  fn connector_output_transport_lane_is_rejected_by_input_conversion() {
+    let output = ConnectorOutput::Transport(crate::ConnectorTransportEffect::ToolPtyCreated {
+      tool_id: "tool-123".to_string(),
+    });
+
+    let err = Input::try_from(output).expect_err("transport effects must not reach reducer");
+    assert!(matches!(
+      err,
+      ConnectorOutput::Transport(crate::ConnectorTransportEffect::ToolPtyCreated { .. })
+    ));
   }
 
   const NOW: &str = "1000Z";

@@ -4,9 +4,12 @@
 //! synchronization. Pure time/path helpers live in `support/`.
 
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, UNIX_EPOCH};
 
+use futures::FutureExt;
 use tokio::sync::{mpsc, oneshot};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
@@ -18,8 +21,12 @@ use orbitdock_protocol::{
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
-  load_messages_for_session, load_messages_from_transcript_path,
+  load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
   load_token_usage_from_transcript_path, PersistCommand,
+};
+use crate::runtime::restored_sessions::{
+  hydrate_restored_rows_if_missing, parse_session_status, parse_work_status,
+  restored_session_to_handle,
 };
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
@@ -28,9 +35,16 @@ use crate::runtime::transcript_sync_policy::{
   plan_transcript_sync, TranscriptMessageSyncDecision, TranscriptSyncInputs,
 };
 use crate::support::session_time::parse_unix_z;
+use orbitdock_connector_core::panic_payload_message;
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 pub(crate) const DIRECT_RUNTIME_STARTUP_GRACE: Duration = Duration::from_millis(250);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectorLoopControl {
+  Continue,
+  Break,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TranscriptSyncUsageSignature {
@@ -489,6 +503,85 @@ pub(crate) async fn apply_connector_detached_directly(
   });
 }
 
+pub(crate) async fn run_connector_loop_step<F>(
+  component: &'static str,
+  event: &'static str,
+  session_id: &str,
+  branch: &'static str,
+  future: F,
+) -> ConnectorLoopControl
+where
+  F: Future<Output = ConnectorLoopControl>,
+{
+  match AssertUnwindSafe(future).catch_unwind().await {
+    Ok(control) => control,
+    Err(payload) => {
+      tracing::error!(
+        component = component,
+        event = event,
+        session_id = %session_id,
+        branch = branch,
+        panic = %panic_payload_message(payload.as_ref()),
+        "Connector loop step panicked; downgrading runtime to resumable"
+      );
+      ConnectorLoopControl::Break
+    }
+  }
+}
+
+pub(crate) fn rebind_session_as_passive_actor(
+  state: &Arc<SessionRegistry>,
+  handle: SessionHandle,
+) -> SessionActorHandle {
+  let session_id = handle.id().to_string();
+  let actor = state.add_session(handle);
+  tracing::debug!(
+    component = "connector_cleanup",
+    event = "connector_cleanup.passive_actor_rebound",
+    session_id = %session_id,
+    "Rebound detached direct runtime to a passive session actor"
+  );
+  actor
+}
+
+pub(crate) async fn restore_passive_session_actor_from_persistence(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> bool {
+  let restored = match load_session_by_id(session_id).await {
+    Ok(Some(restored)) => restored,
+    Ok(None) => {
+      tracing::warn!(
+        component = "connector_cleanup",
+        event = "connector_cleanup.passive_actor_restore_missing",
+        session_id = %session_id,
+        "Cannot restore passive actor because the persisted session was not found"
+      );
+      return false;
+    }
+    Err(error) => {
+      tracing::warn!(
+        component = "connector_cleanup",
+        event = "connector_cleanup.passive_actor_restore_failed",
+        session_id = %session_id,
+        error = %error,
+        "Failed to load persisted session for passive actor restore"
+      );
+      return false;
+    }
+  };
+
+  let mut restored = restored;
+  hydrate_restored_rows_if_missing(&mut restored, session_id).await;
+  let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
+  let work_status = parse_work_status(status, &restored.work_status);
+  rebind_session_as_passive_actor(
+    state,
+    restored_session_to_handle(restored, status, work_status),
+  );
+  true
+}
+
 pub(crate) fn is_stale_empty_claude_shell(
   summary: &orbitdock_protocol::SessionSummary,
   current_session_id: &str,
@@ -720,6 +813,20 @@ pub(crate) fn spawn_connector_cleanup_monitor(
       Provider::Claude => state.remove_claude_action_tx(&cleanup_session_id),
     }
 
+    if !updated_via_actor {
+      let restored =
+        restore_passive_session_actor_from_persistence(&state, &cleanup_session_id).await;
+      if !restored {
+        tracing::warn!(
+          component = "connector_cleanup",
+          event = "connector_cleanup.passive_actor_restore_unavailable",
+          session_id = %cleanup_session_id,
+          provider = ?provider,
+          "Failed to replace dead direct runtime with a passive session actor"
+        );
+      }
+    }
+
     tracing::info!(
       component = "connector_cleanup",
       event = "connector_cleanup.session_marked_resumable",
@@ -760,11 +867,12 @@ mod tests {
   use std::sync::Arc;
 
   use crate::infrastructure::persistence::PersistCommand;
+  use crate::runtime::session_commands::SubscribeResult;
   use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
   use orbitdock_protocol::{
     ClaudeIntegrationMode, SessionLifecycleState, SessionStatus, TokenUsageSnapshotKind, WorkStatus,
   };
-  use tokio::sync::mpsc;
+  use tokio::sync::{mpsc, oneshot};
 
   use super::*;
   use crate::support::test_support::ensure_server_test_data_dir;
@@ -1013,5 +1121,61 @@ mod tests {
     assert_eq!(item.session_id, "cleanup-session");
     assert_eq!(item.lifecycle_state, SessionLifecycleState::Resumable);
     assert_eq!(item.work_status, WorkStatus::Waiting);
+  }
+
+  #[tokio::test]
+  async fn connector_loop_step_breaks_on_panic() {
+    let control = run_connector_loop_step(
+      "test_connector",
+      "test_connector.loop_step_panicked",
+      "panic-session",
+      "unit_test",
+      async {
+        panic!("boom");
+      },
+    )
+    .await;
+
+    assert_eq!(control, ConnectorLoopControl::Break);
+  }
+
+  #[tokio::test]
+  async fn rebound_passive_actor_keeps_session_subscribable() {
+    ensure_server_test_data_dir();
+
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = Arc::new(
+      crate::runtime::session_registry::SessionRegistry::new_with_primary(persist_tx, true),
+    );
+
+    let mut handle = direct_codex_session("rebind-session");
+    handle.apply_changes(&StateChanges {
+      lifecycle_state: Some(SessionLifecycleState::Resumable),
+      work_status: Some(WorkStatus::Waiting),
+      steerable: Some(false),
+      ..Default::default()
+    });
+
+    rebind_session_as_passive_actor(&registry, handle);
+
+    let actor = registry
+      .get_session("rebind-session")
+      .expect("passive actor should be registered");
+    let (reply_tx, reply_rx) = oneshot::channel();
+    actor
+      .send_checked(SessionCommand::Subscribe {
+        since_revision: None,
+        reply: reply_tx,
+      })
+      .await
+      .expect("passive actor should accept subscribe commands");
+
+    match reply_rx.await.expect("subscribe result") {
+      SubscribeResult::ResyncRequired { .. } | SubscribeResult::Replay { .. } => {}
+    }
+
+    let snapshot = actor.snapshot();
+    assert_eq!(snapshot.lifecycle_state, SessionLifecycleState::Resumable);
+    assert_eq!(snapshot.work_status, WorkStatus::Waiting);
   }
 }

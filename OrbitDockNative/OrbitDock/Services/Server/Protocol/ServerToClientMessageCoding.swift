@@ -98,5 +98,7 @@ extension ServerToClientMessage {
     case nextTickAt = "next_tick_at"
     case terminalId = "terminal_id"
     case item
+    case toolId = "tool_id"
+    case bufferedOutput = "buffered_output"
   }
 }

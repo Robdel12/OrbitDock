@@ -224,6 +224,22 @@ pub enum ServerMessage {
     exit_code: Option<i32>,
   },
 
+  // Tool PTY streaming (live bash tool output)
+  ToolPtyAttached {
+    tool_id: String,
+    /// Base64-encoded replay buffer for late-joining clients.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    buffered_output: Option<String>,
+  },
+  ToolPtyDetached {
+    tool_id: String,
+  },
+  ToolPtyExited {
+    tool_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exit_code: Option<i32>,
+  },
+
   // Shell execution results
   ShellStarted {
     session_id: String,

@@ -1,5 +1,11 @@
 use super::runtime::EnvironmentTracker;
-use orbitdock_protocol::conversation_contracts::CommandExecutionAction;
+use orbitdock_connector_core::{
+  ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
+};
+use orbitdock_protocol::conversation_contracts::{
+  compute_tool_display, extract_compact_result_text, CommandExecutionAction, ConversationRow,
+  ConversationRowEntry, ToolDisplayInput, ToolRow,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -70,6 +76,48 @@ fn trim_front_to_char_limit(value: &mut String, limit: usize) {
 pub(super) type SharedOutputBuffers = Arc<tokio::sync::Mutex<HashMap<String, OutputBufferState>>>;
 pub(super) type SharedEnvironmentTracker = Arc<tokio::sync::Mutex<EnvironmentTracker>>;
 pub(super) type SharedPatchContexts = Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>;
+pub(super) type ConnectorOutputs = Vec<ConnectorOutput>;
+
+pub(super) fn state_output(event: ConnectorStateEvent) -> ConnectorOutput {
+  event.into()
+}
+
+pub(super) fn runtime_output(event: ConnectorRuntimeDirective) -> ConnectorOutput {
+  event.into()
+}
+
+pub(super) fn transport_output(event: ConnectorTransportEffect) -> ConnectorOutput {
+  event.into()
+}
+
+pub(super) fn row_created_output(entry: ConversationRowEntry) -> ConnectorOutput {
+  state_output(ConnectorStateEvent::ConversationRowCreated(entry))
+}
+
+pub(super) fn row_updated_output(row_id: String, entry: ConversationRowEntry) -> ConnectorOutput {
+  state_output(ConnectorStateEvent::ConversationRowUpdated { row_id, entry })
+}
+
+pub(super) fn with_tool_display(mut row: ToolRow) -> ToolRow {
+  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
+  let result_str = extract_compact_result_text(row.result.as_ref());
+  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
+    kind: row.kind,
+    family: row.family,
+    status: row.status,
+    title: &row.title,
+    subtitle: row.subtitle.as_deref(),
+    summary: row.summary.as_deref(),
+    duration_ms: row.duration_ms,
+    invocation_input: invocation_ref,
+    result_output: result_str.as_deref(),
+  }));
+  row
+}
+
+pub(super) fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
+  crate::runtime::row_entry(ConversationRow::Tool(with_tool_display(row)))
+}
 
 #[cfg(test)]
 mod tests {

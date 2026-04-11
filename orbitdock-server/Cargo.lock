@@ -5537,6 +5537,7 @@ name = "orbitdock-connector-claude"
 version = "0.13.0"
 dependencies = [
  "base64 0.22.1",
+ "futures",
  "orbitdock-connector-core",
  "orbitdock-protocol",
  "serde",

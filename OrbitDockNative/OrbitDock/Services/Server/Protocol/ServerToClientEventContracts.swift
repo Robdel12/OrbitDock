@@ -124,6 +124,12 @@ enum ServerToClientMessage: Codable {
   case terminalCreated(terminalId: String, sessionId: String?)
   case terminalExited(terminalId: String, exitCode: Int32?)
 
+  // MARK: Tool PTY streaming (live bash tool output)
+
+  case toolPtyAttached(toolId: String, bufferedOutput: String?)
+  case toolPtyDetached(toolId: String)
+  case toolPtyExited(toolId: String, exitCode: Int32?)
+
   // MARK: Errors
 
   case error(code: String, message: String, sessionId: String?)

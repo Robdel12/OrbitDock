@@ -1,15 +1,16 @@
+use super::{row_created_output, state_output, ConnectorOutputs};
 use crate::runtime::row_entry;
 use crate::workers::iso_now;
 use codex_protocol::protocol::{
   GetHistoryEntryResponseEvent, ListCustomPromptsResponseEvent, ListSkillsResponseEvent,
   McpListToolsResponseEvent, McpStartupCompleteEvent, McpStartupUpdateEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub(crate) fn handle_list_skills_response(event: ListSkillsResponseEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_list_skills_response(event: ListSkillsResponseEvent) -> ConnectorOutputs {
   let skills = event
     .skills
     .into_iter()
@@ -43,17 +44,17 @@ pub(crate) fn handle_list_skills_response(event: ListSkillsResponseEvent) -> Vec
     })
     .collect();
 
-  vec![ConnectorEvent::SkillsList {
+  vec![state_output(ConnectorStateEvent::SkillsList {
     skills,
     errors: Vec::new(),
-  }]
+  })]
 }
 
 pub(crate) fn handle_list_custom_prompts_response(
   event_id: &str,
   event: ListCustomPromptsResponseEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let mut lines = vec![format!(
     "Custom prompts available: {}",
@@ -83,14 +84,14 @@ pub(crate) fn handle_list_custom_prompts_response(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
 pub(crate) fn handle_get_history_entry_response(
   event_id: &str,
   event: GetHistoryEntryResponseEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let content = if let Some(entry) = event.entry {
     format!(
@@ -114,12 +115,10 @@ pub(crate) fn handle_get_history_entry_response(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
-pub(crate) fn handle_mcp_list_tools_response(
-  event: McpListToolsResponseEvent,
-) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_list_tools_response(event: McpListToolsResponseEvent) -> ConnectorOutputs {
   let tools: HashMap<String, orbitdock_protocol::McpTool> = event
     .tools
     .into_iter()
@@ -188,15 +187,15 @@ pub(crate) fn handle_mcp_list_tools_response(
     })
     .collect();
 
-  vec![ConnectorEvent::McpToolsList {
+  vec![state_output(ConnectorStateEvent::McpToolsList {
     tools,
     resources,
     resource_templates,
     auth_statuses,
-  }]
+  })]
 }
 
-pub(crate) fn handle_mcp_startup_update(event: McpStartupUpdateEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_startup_update(event: McpStartupUpdateEvent) -> ConnectorOutputs {
   let status = match event.status {
     codex_protocol::protocol::McpStartupStatus::Starting => {
       orbitdock_protocol::McpStartupStatus::Starting
@@ -211,13 +210,13 @@ pub(crate) fn handle_mcp_startup_update(event: McpStartupUpdateEvent) -> Vec<Con
       orbitdock_protocol::McpStartupStatus::Cancelled
     }
   };
-  vec![ConnectorEvent::McpStartupUpdate {
+  vec![state_output(ConnectorStateEvent::McpStartupUpdate {
     server: event.server,
     status,
-  }]
+  })]
 }
 
-pub(crate) fn handle_mcp_startup_complete(event: McpStartupCompleteEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_startup_complete(event: McpStartupCompleteEvent) -> ConnectorOutputs {
   let failed = event
     .failed
     .into_iter()
@@ -226,9 +225,9 @@ pub(crate) fn handle_mcp_startup_complete(event: McpStartupCompleteEvent) -> Vec
       error: failure.error,
     })
     .collect();
-  vec![ConnectorEvent::McpStartupComplete {
+  vec![state_output(ConnectorStateEvent::McpStartupComplete {
     ready: event.ready,
     failed,
     cancelled: event.cancelled,
-  }]
+  })]
 }

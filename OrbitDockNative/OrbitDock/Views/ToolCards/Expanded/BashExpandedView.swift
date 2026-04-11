@@ -2,8 +2,11 @@ import SwiftUI
 
 /// Terminal-first expanded view for Bash tool output using the shared Ghostty renderer.
 ///
-/// Supports streaming output via `liveOutputPreview` when the tool is running,
-/// falling back to `content.outputDisplay` when complete.
+/// Supports two rendering modes:
+/// 1. **Live PTY mode**: When `toolPtySession` is provided, streams raw bytes directly
+///    to Ghostty for true terminal rendering with ANSI colors and cursor control.
+/// 2. **Transcript mode**: Falls back to building a transcript from text output when
+///    live PTY isn't available.
 struct BashExpandedView: View {
   let content: ServerRowContent
   let isFailed: Bool
@@ -11,6 +14,9 @@ struct BashExpandedView: View {
   var liveOutputPreview: String?
   /// Whether the tool is currently running (enables streaming mode).
   var isRunning: Bool = false
+  /// Live PTY session for streaming raw terminal output.
+  /// When provided, uses TerminalContainerView instead of transcript rendering.
+  var toolPtySession: TerminalSessionController?
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -54,7 +60,17 @@ struct BashExpandedView: View {
 
   var body: some View {
     Group {
-      if let transcript {
+      if let session = toolPtySession {
+        // Live PTY mode: stream raw bytes to Ghostty
+        TerminalContainerView(
+          session: session,
+          shouldAutoFocusOnFirstAttachment: false,
+          captureScrollWithoutFocus: false,
+          titleOverride: title
+        )
+        .frame(maxHeight: outputViewportMaxHeight)
+      } else if let transcript {
+        // Transcript mode: render from text output
         TerminalTranscriptSurface(
           output: transcript,
           maxHeight: outputViewportMaxHeight
@@ -63,6 +79,10 @@ struct BashExpandedView: View {
         emptyOutputState
       }
     }
+  }
+
+  private var title: String {
+    commandText.map { "$ \($0)" } ?? "Terminal"
   }
 
   private var emptyOutputState: some View {

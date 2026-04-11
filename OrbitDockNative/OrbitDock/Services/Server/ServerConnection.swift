@@ -125,6 +125,11 @@ enum ServerEvent: Sendable {
   case terminalOutput(terminalId: String, data: Data)
   case terminalExited(terminalId: String, exitCode: Int32?)
 
+  // Tool PTY streaming (live bash tool output)
+  case toolPtyAttached(toolId: String, bufferedOutput: Data?)
+  case toolPtyDetached(toolId: String)
+  case toolPtyExited(toolId: String, exitCode: Int32?)
+
   /// Error
   case error(code: String, message: String, sessionId: String?)
 
@@ -1004,6 +1009,13 @@ final class ServerConnection {
         emit(.terminalCreated(terminalId: terminalId, sessionId: sessionId))
       case let .terminalExited(terminalId, exitCode):
         emit(.terminalExited(terminalId: terminalId, exitCode: exitCode))
+      case let .toolPtyAttached(toolId, bufferedOutput):
+        let data = bufferedOutput.flatMap { Data(base64Encoded: $0) }
+        emit(.toolPtyAttached(toolId: toolId, bufferedOutput: data))
+      case let .toolPtyDetached(toolId):
+        emit(.toolPtyDetached(toolId: toolId))
+      case let .toolPtyExited(toolId, exitCode):
+        emit(.toolPtyExited(toolId: toolId, exitCode: exitCode))
       case .steerOutcome:
         break // Outcome is informational; steerable state flows via session_delta
       case .directoryListing, .recentProjectsList, .openAiKeyStatus,
@@ -1154,6 +1166,16 @@ final class ServerConnection {
       terminalId: terminalId
     )
     sendJSON(payload)
+  }
+
+  // MARK: - Tool PTY Streaming
+
+  func subscribeToolPty(toolId: String, sessionId: String) {
+    send(.subscribeToolPty(toolId: toolId, sessionId: sessionId))
+  }
+
+  func unsubscribeToolPty(toolId: String) {
+    send(.unsubscribeToolPty(toolId: toolId))
   }
 
   /// Send an arbitrary Encodable payload as JSON text frame.

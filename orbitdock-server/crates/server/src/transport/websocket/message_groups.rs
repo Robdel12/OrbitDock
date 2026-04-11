@@ -12,6 +12,7 @@ pub(crate) enum MessageGroup {
   ClaudeHooks,
   Shell,
   Terminal,
+  ToolPty,
   RestOnly,
 }
 
@@ -61,6 +62,10 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     | ClientMessage::TerminalInput { .. }
     | ClientMessage::TerminalResize { .. }
     | ClientMessage::DestroyTerminal { .. } => MessageGroup::Terminal,
+
+    ClientMessage::SubscribeToolPty { .. } | ClientMessage::UnsubscribeToolPty { .. } => {
+      MessageGroup::ToolPty
+    }
 
     _ => unreachable!("rest-only messages should be handled before classification"),
   }

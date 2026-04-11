@@ -8,3 +8,4 @@ pub(crate) mod session_management;
 pub(crate) mod shell;
 pub(crate) mod subscribe;
 pub(crate) mod terminal;
+pub(crate) mod tool_pty;

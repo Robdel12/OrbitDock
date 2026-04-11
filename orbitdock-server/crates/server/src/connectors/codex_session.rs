@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use codex_protocol::dynamic_tools::{DynamicToolCallOutputContentItem, DynamicToolResponse};
+use orbitdock_connector_core::{ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent};
 use orbitdock_protocol::Provider;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -24,14 +25,16 @@ use crate::infrastructure::persistence::{load_mission_by_id, load_mission_issues
 use crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_command_handler::{
-  dispatch_connector_event, dispatch_transition_input, handle_session_command, is_turn_ending,
-  spawn_interrupt_watchdog,
+  abort_interrupt_watchdog, classify_connector_output, dispatch_connector_event,
+  dispatch_transition_input, emit_connector_error, handle_connector_transport_effect,
+  handle_session_command, is_turn_ending, restart_interrupt_watchdog, ConnectorDispatch,
 };
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  apply_connector_detached_directly, should_detach_direct_connector_after_send_error,
-  spawn_connector_cleanup_monitor,
+  apply_connector_detached_directly, rebind_session_as_passive_actor, run_connector_loop_step,
+  should_detach_direct_connector_after_send_error, spawn_connector_cleanup_monitor,
+  ConnectorLoopControl,
 };
 
 // Re-export so existing server code doesn't break
@@ -204,7 +207,7 @@ async fn flush_dynamic_workspace_diff_if_any(
   let merged_diff = tracker.merge_with_current_turn_diff(current_diff.as_deref(), &diff);
   dispatch_connector_event(
     session_id,
-    orbitdock_connector_core::ConnectorEvent::DiffUpdated(merged_diff.clone()),
+    ConnectorStateEvent::DiffUpdated(merged_diff.clone()),
     session_handle,
     persist,
   )
@@ -315,7 +318,7 @@ pub fn start_event_loop(
 
   let actor_handle = SessionActorHandle::new(id.clone(), command_tx, snapshot);
 
-  let mut event_rx = session.connector.take_event_rx().unwrap();
+  let mut output_rx = session.connector.take_output_rx().unwrap();
   let session_id = session.session_id.clone();
 
   let mut session_handle = handle;
@@ -335,252 +338,312 @@ pub fn start_event_loop(
     let mut cleanup_guard = cleanup_guard;
 
     // Watchdog channel for synthetic events (interrupt timeout)
-    let (watchdog_tx, mut watchdog_rx) =
-      mpsc::channel::<orbitdock_connector_core::ConnectorEvent>(4);
+    let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorStateEvent>(4);
     let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
-    'session_loop: loop {
+    loop {
       tokio::select! {
-          Some(event) = event_rx.recv() => {
-              if is_turn_ending(&event) {
-                  if let Some(h) = interrupt_watchdog.take() { h.abort(); }
-              }
-              if matches!(event, orbitdock_connector_core::ConnectorEvent::TurnStarted) {
-                  dynamic_diff_tracker.clear();
-              }
-              let clear_dynamic_diff_after_event = matches!(
-                  event,
-                  orbitdock_connector_core::ConnectorEvent::TurnCompleted
-                  | orbitdock_connector_core::ConnectorEvent::TurnAborted { .. }
-                  | orbitdock_connector_core::ConnectorEvent::SessionEnded { .. }
-              );
-
-              if matches!(
-                  event,
-                  orbitdock_connector_core::ConnectorEvent::TurnCompleted
-                  | orbitdock_connector_core::ConnectorEvent::TurnAborted { .. }
-                  | orbitdock_connector_core::ConnectorEvent::SessionEnded { .. }
-              ) {
-                  flush_dynamic_workspace_diff_if_any(
-                      &session_id,
-                      &mut session_handle,
-                      &mut dynamic_diff_tracker,
-                      &persist,
-                  ).await;
-              }
-
-              if let orbitdock_connector_core::ConnectorEvent::DynamicToolCallRequested {
-                  call_id,
-                  tool_name,
-                  arguments,
-              } = &event
-              {
-                  handle_dynamic_tool_call(DynamicToolCallRequest {
-                      session: &mut session,
-                      session_handle: &mut session_handle,
-                      dynamic_diff_tracker: &mut dynamic_diff_tracker,
-                      state: &state,
-                      persist_tx: &persist,
-                      session_id: &session_id,
-                      call_id: call_id.clone(),
-                      tool_name: tool_name.clone(),
-                      arguments: arguments.clone(),
-                  })
-                  .await;
-                  continue;
-              }
-
-              // Enrich EnvironmentChanged events with worktree info
-              let enriched_event = match &event {
-                  orbitdock_connector_core::ConnectorEvent::EnvironmentChanged {
-                      cwd: Some(cwd), ..
-                  } => {
-                      let git_info = crate::domain::git::repo::resolve_git_info(cwd).await;
-                      if let Some(ref info) = git_info {
-                          let mut input = crate::domain::sessions::transition::Input::from(event);
-                          if let crate::domain::sessions::transition::Input::EnvironmentChanged {
-                              ref mut repository_root,
-                              ref mut is_worktree,
-                              ..
-                          } = input
-                          {
-                              *repository_root = Some(info.common_dir_root.clone());
-                              *is_worktree = Some(info.is_worktree);
+          Some(output) = output_rx.recv() => {
+              let control = run_connector_loop_step(
+                  "codex_connector",
+                  "codex.event_loop.step_panicked",
+                  &session_id,
+                  "output_rx",
+                  async {
+                      let turn_ending = matches!(
+                          &output,
+                          ConnectorOutput::State(event) if is_turn_ending(event)
+                      );
+                      let event = match classify_connector_output(output) {
+                          ConnectorDispatch::TransportEffect(effect) => {
+                              handle_connector_transport_effect(effect, &state, &session_id).await;
+                              return ConnectorLoopControl::Continue;
                           }
-                          // Dispatch enriched input directly
-                          dispatch_transition_input(
-                              &session_id, input, &mut session_handle, &persist,
-                          ).await;
-                          continue;
-                      }
-                      event
-                  }
-                  _ => event,
-              };
+                          ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::DynamicToolCallRequested {
+                              call_id,
+                              tool_name,
+                              arguments,
+                          }) => {
+                              handle_dynamic_tool_call(DynamicToolCallRequest {
+                                  session: &mut session,
+                                  session_handle: &mut session_handle,
+                                  dynamic_diff_tracker: &mut dynamic_diff_tracker,
+                                  state: &state,
+                                  persist_tx: &persist,
+                                  session_id: &session_id,
+                                  call_id,
+                                  tool_name,
+                                  arguments,
+                              })
+                              .await;
+                              return ConnectorLoopControl::Continue;
+                          }
+                          ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::HookSessionId(hook_sid)) => {
+                              warn!(
+                                  component = "codex_connector",
+                                  event = "codex.directive.unexpected",
+                                  session_id = %session_id,
+                                  hook_session_id = %hook_sid,
+                                  "Codex emitted an unexpected hook-session directive"
+                              );
+                              return ConnectorLoopControl::Continue;
+                          }
+                          ConnectorDispatch::State(event) => event,
+                      };
 
-              dispatch_connector_event(
-                  &session_id, enriched_event, &mut session_handle, &persist,
+                      if turn_ending {
+                          abort_interrupt_watchdog(&mut interrupt_watchdog);
+                      }
+
+                      if matches!(event, ConnectorStateEvent::TurnStarted) {
+                          dynamic_diff_tracker.clear();
+                      }
+                      let clear_dynamic_diff_after_event = matches!(
+                          event,
+                          ConnectorStateEvent::TurnCompleted
+                          | ConnectorStateEvent::TurnAborted { .. }
+                          | ConnectorStateEvent::SessionEnded { .. }
+                      );
+
+                      if matches!(
+                          event,
+                          ConnectorStateEvent::TurnCompleted
+                          | ConnectorStateEvent::TurnAborted { .. }
+                          | ConnectorStateEvent::SessionEnded { .. }
+                      ) {
+                          flush_dynamic_workspace_diff_if_any(
+                              &session_id,
+                              &mut session_handle,
+                              &mut dynamic_diff_tracker,
+                              &persist,
+                          ).await;
+                      }
+
+                      let enriched_event = match &event {
+                          ConnectorStateEvent::EnvironmentChanged {
+                              cwd: Some(cwd), ..
+                          } => {
+                              let git_info = crate::domain::git::repo::resolve_git_info(cwd).await;
+                              if let Some(ref info) = git_info {
+                                  let mut input = crate::domain::sessions::transition::Input::from(event);
+                                  if let crate::domain::sessions::transition::Input::EnvironmentChanged {
+                                      ref mut repository_root,
+                                      ref mut is_worktree,
+                                      ..
+                                  } = input
+                                  {
+                                      *repository_root = Some(info.common_dir_root.clone());
+                                      *is_worktree = Some(info.is_worktree);
+                                  }
+                                  dispatch_transition_input(
+                                          &session_id, input, &mut session_handle, &persist,
+                                  ).await;
+                                  return ConnectorLoopControl::Continue;
+                              }
+                              event
+                          }
+                          _ => event,
+                      };
+
+                      dispatch_connector_event(
+                          &session_id, enriched_event, &mut session_handle, &persist,
+                      ).await;
+                      if clear_dynamic_diff_after_event {
+                          dynamic_diff_tracker.clear();
+                      }
+                      ConnectorLoopControl::Continue
+                  },
               ).await;
-              if clear_dynamic_diff_after_event {
-                  dynamic_diff_tracker.clear();
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
               }
           }
 
           Some(event) = watchdog_rx.recv() => {
-              dispatch_connector_event(
-                  &session_id, event, &mut session_handle, &persist,
+              let control = run_connector_loop_step(
+                  "codex_connector",
+                  "codex.event_loop.step_panicked",
+                  &session_id,
+                  "watchdog_rx",
+                  async {
+                      dispatch_connector_event(
+                          &session_id, event, &mut session_handle, &persist,
+                      ).await;
+                      ConnectorLoopControl::Continue
+                  },
               ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
+              }
           }
 
           Some(action) = action_rx.recv() => {
-              match action {
-                  CodexAction::SteerTurn {
-                      content,
-                      message_id,
-                      images,
-                      mentions,
-                  } => {
-                      match session.connector.steer_turn(&content, &images, &mentions).await {
-                          Ok(outcome) => {
-                              handle_session_command(
-                                  SessionCommand::UpdateSteerOutcome {
-                                      message_id: message_id.clone(),
-                                      outcome,
-                                  },
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                              session_handle.broadcast(
-                                  orbitdock_protocol::ServerMessage::SteerOutcome {
-                                      session_id: session_id.clone(),
-                                      message_id,
-                                      outcome,
-                                  },
-                              );
-                          }
-                          Err(e) => {
-                              let should_detach =
-                                  should_detach_direct_connector_after_send_error(&e.to_string());
-                              if should_detach {
-                                  warn!(
-                                      component = "codex_connector",
-                                      event = "codex.connector.detached_after_fatal_send_error",
-                                      session_id = %session_id,
-                                      error = %e,
-                                      "Detaching direct connector after fatal steer error"
-                                  );
-                              } else {
-                                  error!(
-                                      component = "codex_connector",
-                                      event = "codex.steer.failed",
-                                      session_id = %session_id,
-                                      error = %e,
-                                      "Steer turn failed"
-                                  );
+              let control = run_connector_loop_step(
+                  "codex_connector",
+                  "codex.event_loop.step_panicked",
+                  &session_id,
+                  "action_rx",
+                  async {
+                      match action {
+                          CodexAction::SteerTurn {
+                              content,
+                              message_id,
+                              images,
+                              mentions,
+                          } => {
+                              match session.connector.steer_turn(&content, &images, &mentions).await {
+                                  Ok(outcome) => {
+                                      handle_session_command(
+                                          SessionCommand::UpdateSteerOutcome {
+                                              message_id: message_id.clone(),
+                                              outcome,
+                                          },
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                      session_handle.broadcast(
+                                          orbitdock_protocol::ServerMessage::SteerOutcome {
+                                              session_id: session_id.clone(),
+                                              message_id,
+                                              outcome,
+                                          },
+                                      );
+                                  }
+                                  Err(e) => {
+                                      let should_detach =
+                                          should_detach_direct_connector_after_send_error(&e.to_string());
+                                      if should_detach {
+                                          warn!(
+                                              component = "codex_connector",
+                                              event = "codex.connector.detached_after_fatal_send_error",
+                                              session_id = %session_id,
+                                              error = %e,
+                                              "Detaching direct connector after fatal steer error"
+                                          );
+                                      } else {
+                                          error!(
+                                              component = "codex_connector",
+                                              event = "codex.steer.failed",
+                                              session_id = %session_id,
+                                              error = %e,
+                                              "Steer turn failed"
+                                          );
+                                      }
+                                      emit_connector_error(
+                                          &session_id,
+                                          format!("Steer failed: {e}"),
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                      if should_detach {
+                                          return ConnectorLoopControl::Break;
+                                      }
+                                  }
                               }
-                              dispatch_connector_event(
-                                  &session_id,
-                                  orbitdock_connector_core::ConnectorEvent::Error(
-                                      format!("Steer failed: {e}"),
-                                  ),
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                              if should_detach {
-                                  break 'session_loop;
+                          }
+                          CodexAction::Interrupt => {
+                              match session.connector.interrupt().await {
+                                  Ok(()) => {
+                                      restart_interrupt_watchdog(
+                                          &mut interrupt_watchdog,
+                                          watchdog_tx.clone(),
+                                          &session_id,
+                                          "codex_connector",
+                                      );
+                                  }
+                                  Err(e) => {
+                                      error!(
+                                          component = "codex_connector",
+                                          event = "codex.interrupt.failed",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Interrupt failed, injecting error event"
+                                      );
+                                      emit_connector_error(
+                                          &session_id,
+                                          format!("Interrupt failed: {e}"),
+                                          &mut session_handle,
+                                          &persist,
+                                      ).await;
+                                  }
+                              }
+                          }
+                          other => {
+                              let is_send_action = matches!(&other, CodexAction::SendMessage { .. });
+                              if let Err(e) = CodexSession::handle_action(&mut session.connector, other).await {
+                                  let should_detach = is_send_action
+                                      && should_detach_direct_connector_after_send_error(&e.to_string());
+                                  if should_detach {
+                                      warn!(
+                                          component = "codex_connector",
+                                          event = "codex.connector.detached_after_fatal_send_error",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Detaching direct connector after fatal send error"
+                                      );
+                                  } else {
+                                      error!(
+                                          component = "codex_connector",
+                                          event = "codex.action.failed",
+                                          session_id = %session_id,
+                                          error = %e,
+                                          "Failed to handle codex action"
+                                      );
+                                  }
+                                  emit_connector_error(
+                                      &session_id,
+                                      format!("Action failed: {e}"),
+                                      &mut session_handle,
+                                      &persist,
+                                  ).await;
+                                  if should_detach {
+                                      return ConnectorLoopControl::Break;
+                                  }
                               }
                           }
                       }
-                  }
-                  CodexAction::Interrupt => {
-                      match session.connector.interrupt().await {
-                          Ok(()) => {
-                              if let Some(h) = interrupt_watchdog.take() { h.abort(); }
-                              interrupt_watchdog = Some(spawn_interrupt_watchdog(
-                                  watchdog_tx.clone(),
-                                  session_id.clone(),
-                                  "codex_connector",
-                              ));
-                          }
-                          Err(e) => {
-                              error!(
-                                  component = "codex_connector",
-                                  event = "codex.interrupt.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Interrupt failed, injecting error event"
-                              );
-                              dispatch_connector_event(
-                                  &session_id,
-                                  orbitdock_connector_core::ConnectorEvent::Error(
-                                      format!("Interrupt failed: {e}"),
-                                  ),
-                                  &mut session_handle,
-                                  &persist,
-                              ).await;
-                          }
-                      }
-                  }
-                  other => {
-                      let is_send_action = matches!(&other, CodexAction::SendMessage { .. });
-                      if let Err(e) = CodexSession::handle_action(&mut session.connector, other).await {
-                          let should_detach = is_send_action
-                              && should_detach_direct_connector_after_send_error(&e.to_string());
-                          if should_detach {
-                              warn!(
-                                  component = "codex_connector",
-                                  event = "codex.connector.detached_after_fatal_send_error",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Detaching direct connector after fatal send error"
-                              );
-                          } else {
-                              error!(
-                                  component = "codex_connector",
-                                  event = "codex.action.failed",
-                                  session_id = %session_id,
-                                  error = %e,
-                                  "Failed to handle codex action"
-                              );
-                          }
-                          dispatch_connector_event(
-                              &session_id,
-                              orbitdock_connector_core::ConnectorEvent::Error(
-                                  format!("Action failed: {e}"),
-                              ),
-                              &mut session_handle,
-                              &persist,
-                          ).await;
-                          if should_detach {
-                              break 'session_loop;
-                          }
-                      }
-                  }
+
+                      ConnectorLoopControl::Continue
+                  },
+              ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
               }
           }
 
           Some(cmd) = command_rx.recv() => {
-              handle_session_command(cmd, &mut session_handle, &persist).await;
+              let control = run_connector_loop_step(
+                  "codex_connector",
+                  "codex.event_loop.step_panicked",
+                  &session_id,
+                  "command_rx",
+                  async {
+                      handle_session_command(cmd, &mut session_handle, &persist).await;
+                      ConnectorLoopControl::Continue
+                  },
+              ).await;
+              if matches!(control, ConnectorLoopControl::Break) {
+                  break;
+              }
           }
 
           else => break,
       }
     }
 
-    if let Some(h) = interrupt_watchdog.take() {
-      h.abort();
-    }
+    abort_interrupt_watchdog(&mut interrupt_watchdog);
 
     apply_connector_detached_directly(&mut session_handle, &persist, &session_id, Provider::Codex)
       .await;
     state.remove_codex_action_tx(&session_id);
+    rebind_session_as_passive_actor(&state, session_handle);
     cleanup_guard.disarm();
 
     info!(
         component = "codex_connector",
         event = "codex.event_loop.ended",
         session_id = %session_id,
-        "Codex session event loop ended and cleanup was applied in-loop"
+        "Codex session event loop ended; cleanup was applied and a passive actor was rebound"
     );
   });
 

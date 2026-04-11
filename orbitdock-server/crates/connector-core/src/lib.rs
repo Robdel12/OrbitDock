@@ -5,10 +5,17 @@
 
 mod error;
 mod event;
+pub mod panic;
 pub mod transition;
 
 pub use error::ConnectorError;
+#[allow(deprecated)]
 pub use event::ConnectorEvent;
+pub use event::ConnectorOutput;
+pub use event::ConnectorRuntimeDirective;
+pub use event::ConnectorStateEvent;
+pub use event::ConnectorTransportEffect;
+pub use panic::panic_payload_message;
 
 // Re-export ApprovalType from protocol so consumers don't need a
 // separate protocol dependency just for this enum.

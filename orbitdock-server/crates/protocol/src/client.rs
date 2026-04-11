@@ -558,6 +558,15 @@ pub enum ClientMessage {
     terminal_id: String,
   },
 
+  // Tool PTY streaming (for live bash tool output)
+  SubscribeToolPty {
+    tool_id: String,
+    session_id: String,
+  },
+  UnsubscribeToolPty {
+    tool_id: String,
+  },
+
   // Remote filesystem browsing (for iOS project picker)
   BrowseDirectory {
     #[serde(default)]

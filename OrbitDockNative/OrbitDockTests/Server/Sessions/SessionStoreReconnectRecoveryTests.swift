@@ -147,6 +147,44 @@ struct SessionStoreReconnectRecoveryTests {
     #expect(await fixture.conversationRequestCount == 0)
   }
 
+  @Test func conversationResyncErrorOnlySignalsConversationRefresh() async throws {
+    let store = try makeStore(
+      loader: { request in try await RequestCounter().loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    let (conversationRefreshes, _) = store.conversationRefreshRequests(for: "session-1")
+    let (sessionChanges, _) = store.sessionChanges(for: "session-1")
+    let conversationRecorder = VoidStreamRecorder(stream: conversationRefreshes)
+    let sessionRecorder = VoidStreamRecorder(stream: sessionChanges)
+
+    store.handleError("conversation_resync_required", "conversation needs resync", "session-1")
+
+    await conversationRecorder.waitForCount(1)
+    await Task.yield()
+
+    #expect(await conversationRecorder.currentCount() == 1)
+    #expect(await sessionRecorder.currentCount() == 0)
+
+    await conversationRecorder.cancel()
+    await sessionRecorder.cancel()
+  }
+
+  @Test func genericSessionChangesDoNotTriggerConversationRefreshRequests() async throws {
+    let store = try makeStore(
+      loader: { request in try await RequestCounter().loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    let (conversationRefreshes, _) = store.conversationRefreshRequests(for: "session-1")
+    let conversationRecorder = VoidStreamRecorder(stream: conversationRefreshes)
+
+    store.routeEvent(.sessionDelta(sessionId: "session-1", changes: ServerStateChanges()))
+
+    await Task.yield()
+    #expect(await conversationRecorder.currentCount() == 0)
+
+    await conversationRecorder.cancel()
+  }
+
   @Test func unsubscribeDropsInFlightBootstrapResults() async throws {
     let fixture = BlockingBootstrapFixture()
     let store = try makeStore(
@@ -529,5 +567,52 @@ actor BlockingBootstrapFixture {
       waiter.resume()
     }
     bootstrapReleaseWaiters.removeAll()
+  }
+}
+
+actor VoidStreamRecorder {
+  private var count = 0
+  private var waiters: [(target: Int, continuation: CheckedContinuation<Void, Never>)] = []
+  private var task: Task<Void, Never>?
+
+  init(stream: AsyncStream<Void>) {
+    task = Task {
+      for await _ in stream {
+        await self.recordEvent()
+      }
+    }
+  }
+
+  func waitForCount(_ target: Int) async {
+    if count >= target {
+      return
+    }
+
+    await withCheckedContinuation { continuation in
+      waiters.append((target: target, continuation: continuation))
+    }
+  }
+
+  func currentCount() -> Int {
+    count
+  }
+
+  func cancel() {
+    task?.cancel()
+    task = nil
+    let resumableWaiters = waiters
+    waiters.removeAll()
+    for waiter in resumableWaiters {
+      waiter.continuation.resume()
+    }
+  }
+
+  private func recordEvent() {
+    count += 1
+    let readyWaiters = waiters.filter { count >= $0.target }
+    waiters.removeAll { count >= $0.target }
+    for waiter in readyWaiters {
+      waiter.continuation.resume()
+    }
   }
 }

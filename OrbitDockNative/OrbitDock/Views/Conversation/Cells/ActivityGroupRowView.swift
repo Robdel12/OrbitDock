@@ -13,6 +13,7 @@ struct ActivityGroupRowView: View {
   let group: ServerConversationActivityGroupRow
   let isExpanded: Bool
   var sessionId: String = ""
+  var endpointId: UUID?
   var clients: ServerClients?
   var onToggle: ((String) -> Void)?
   var isItemExpanded: ((String) -> Bool)?
@@ -239,6 +240,7 @@ struct ActivityGroupRowView: View {
           toolRow: tool,
           isExpanded: isItemExpanded?(tool.id) ?? false,
           sessionId: sessionId,
+          endpointId: endpointId,
           clients: clients,
           fetchedContent: contentForChild?(tool.id),
           isLoadingContent: isChildLoading?(tool.id) ?? false,

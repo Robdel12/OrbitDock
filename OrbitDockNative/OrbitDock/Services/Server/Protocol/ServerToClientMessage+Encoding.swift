@@ -355,6 +355,20 @@ extension ServerToClientMessage {
         try container.encode(terminalId, forKey: .terminalId)
         try container.encodeIfPresent(exitCode, forKey: .exitCode)
 
+      case let .toolPtyAttached(toolId, bufferedOutput):
+        try container.encode("tool_pty_attached", forKey: .type)
+        try container.encode(toolId, forKey: .toolId)
+        try container.encodeIfPresent(bufferedOutput, forKey: .bufferedOutput)
+
+      case let .toolPtyDetached(toolId):
+        try container.encode("tool_pty_detached", forKey: .type)
+        try container.encode(toolId, forKey: .toolId)
+
+      case let .toolPtyExited(toolId, exitCode):
+        try container.encode("tool_pty_exited", forKey: .type)
+        try container.encode(toolId, forKey: .toolId)
+        try container.encodeIfPresent(exitCode, forKey: .exitCode)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)

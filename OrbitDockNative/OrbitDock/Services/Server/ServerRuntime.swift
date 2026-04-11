@@ -7,9 +7,11 @@ final class ServerRuntime: Identifiable {
   let controlPlaneClient: ControlPlaneClient
   let connection: ServerConnection
   let sessionStore: SessionStore
+  let toolPtyManager: ToolPtySessionManager
   var onServerMetaRefreshed: ((ServerMetaResponse) -> Void)?
 
   private(set) var isStarted = false
+  private var toolPtyListenerToken: ServerConnectionListenerToken?
 
   init(endpoint: ServerEndpoint) {
     let connection = ServerConnection(authToken: endpoint.authToken)
@@ -33,6 +35,7 @@ final class ServerRuntime: Identifiable {
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
+    self.toolPtyManager = ToolPtySessionManager()
   }
 
   init(
@@ -40,7 +43,8 @@ final class ServerRuntime: Identifiable {
     clients: ServerClients,
     controlPlaneClient: ControlPlaneClient? = nil,
     connection: ServerConnection,
-    sessionStore: SessionStore? = nil
+    sessionStore: SessionStore? = nil,
+    toolPtyManager: ToolPtySessionManager? = nil
   ) {
     self.endpoint = endpoint
     self.clients = clients
@@ -53,6 +57,7 @@ final class ServerRuntime: Identifiable {
         endpointId: endpoint.id,
         endpointName: endpoint.name
       )
+    self.toolPtyManager = toolPtyManager ?? ToolPtySessionManager()
   }
 
   var id: UUID {
@@ -78,6 +83,7 @@ final class ServerRuntime: Identifiable {
     guard endpoint.isEnabled else { return }
     guard !isStarted else { return }
     sessionStore.startProcessingEvents()
+    startToolPtyEventRouting()
     connection.connect(to: endpoint.wsURL)
     isStarted = true
     refreshServerIdentity()
@@ -85,6 +91,7 @@ final class ServerRuntime: Identifiable {
 
   func stop() {
     guard isStarted else { return }
+    stopToolPtyEventRouting()
     connection.disconnect()
     sessionStore.stopProcessingEvents()
     isStarted = false
@@ -120,6 +127,44 @@ final class ServerRuntime: Identifiable {
       } catch {
         // Best-effort metadata fetch for server identity gating.
       }
+    }
+  }
+
+  // MARK: - Tool PTY Event Routing
+
+  private func startToolPtyEventRouting() {
+    guard toolPtyListenerToken == nil else { return }
+
+    toolPtyListenerToken = connection.addListener { [weak self] event in
+      guard let self else { return }
+      switch event {
+      case let .toolPtyAttached(toolId, bufferedOutput):
+        toolPtyManager.handleAttached(toolId: toolId, bufferedOutput: bufferedOutput)
+
+      case let .toolPtyDetached(toolId):
+        toolPtyManager.handleDetached(toolId: toolId)
+
+      case let .toolPtyExited(toolId, exitCode):
+        toolPtyManager.handleExited(toolId: toolId, exitCode: exitCode)
+
+      case let .terminalOutput(terminalId, data):
+        // Route binary output frames for tool PTY sessions while the client is
+        // actively attached. Completed tools should fall back to transcript-backed
+        // REST content instead of holding onto the capped PTY replay buffer.
+        if toolPtyManager.isAttached(terminalId) {
+          toolPtyManager.feedOutput(toolId: terminalId, data: data)
+        }
+
+      default:
+        break
+      }
+    }
+  }
+
+  private func stopToolPtyEventRouting() {
+    if let token = toolPtyListenerToken {
+      connection.removeListener(token)
+      toolPtyListenerToken = nil
     }
   }
 }

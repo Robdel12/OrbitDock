@@ -1,18 +1,36 @@
+use super::{row_created_output, row_updated_output, ConnectorOutputs};
 use crate::runtime::{row_entry, thinking_row_entry, ReasoningEventTracker};
 use crate::workers::iso_now;
 use codex_protocol::protocol::{AgentMessageEvent, AgentReasoningEvent, UserMessageEvent};
-use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, MemoryCitation, MemoryCitationEntry, MessageRowContent,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-pub(crate) async fn handle_user_message(
+fn map_memory_citation(
+  citation: codex_protocol::memory_citation::MemoryCitation,
+) -> MemoryCitation {
+  MemoryCitation {
+    entries: citation
+      .entries
+      .into_iter()
+      .map(|entry| MemoryCitationEntry {
+        path: entry.path,
+        line_start: entry.line_start,
+        line_end: entry.line_end,
+        note: entry.note,
+      })
+      .collect(),
+    rollout_ids: citation.rollout_ids,
+  }
+}
+
+pub(crate) fn handle_user_message(
   event_id: &str,
   event: UserMessageEvent,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let msg_id = format!("user-{}-{}", event_id, seq);
 
@@ -26,14 +44,14 @@ pub(crate) async fn handle_user_message(
     memory_citation: None,
     delivery_status: None,
   }));
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }
 
 pub(crate) async fn handle_agent_message(
   event_id: &str,
   event: AgentMessageEvent,
   streaming_message: &Arc<tokio::sync::Mutex<Option<crate::runtime::StreamingMessage>>>,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let mut streaming = streaming_message.lock().await;
   if let Some(streaming_msg) = streaming.take() {
     let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
@@ -43,25 +61,10 @@ pub(crate) async fn handle_agent_message(
       timestamp: Some(iso_now()),
       is_streaming: false,
       images: vec![],
-      memory_citation: event.memory_citation.map(|citation| MemoryCitation {
-        entries: citation
-          .entries
-          .into_iter()
-          .map(|entry| MemoryCitationEntry {
-            path: entry.path,
-            line_start: entry.line_start,
-            line_end: entry.line_end,
-            note: entry.note,
-          })
-          .collect(),
-        rollout_ids: citation.rollout_ids,
-      }),
+      memory_citation: event.memory_citation.map(map_memory_citation),
       delivery_status: None,
     }));
-    vec![ConnectorEvent::ConversationRowUpdated {
-      row_id: streaming_msg.message_id,
-      entry,
-    }]
+    vec![row_updated_output(streaming_msg.message_id, entry)]
   } else {
     let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
       id: event_id.to_string(),
@@ -70,22 +73,10 @@ pub(crate) async fn handle_agent_message(
       timestamp: Some(iso_now()),
       is_streaming: false,
       images: vec![],
-      memory_citation: event.memory_citation.map(|citation| MemoryCitation {
-        entries: citation
-          .entries
-          .into_iter()
-          .map(|entry| MemoryCitationEntry {
-            path: entry.path,
-            line_start: entry.line_start,
-            line_end: entry.line_end,
-            note: entry.note,
-          })
-          .collect(),
-        rollout_ids: citation.rollout_ids,
-      }),
+      memory_citation: event.memory_citation.map(map_memory_citation),
       delivery_status: None,
     }));
-    vec![ConnectorEvent::ConversationRowCreated(entry)]
+    vec![row_created_output(entry)]
   }
 }
 
@@ -94,7 +85,7 @@ pub(crate) async fn handle_agent_reasoning(
   event: AgentReasoningEvent,
   reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   msg_counter: &AtomicU64,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let should_process = {
     let mut tracker = reasoning_tracker.lock().await;
     tracker.should_process_legacy_summary()
@@ -105,5 +96,5 @@ pub(crate) async fn handle_agent_reasoning(
 
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
   let entry = thinking_row_entry(format!("thinking-{}-{}", event_id, seq), event.text);
-  vec![ConnectorEvent::ConversationRowCreated(entry)]
+  vec![row_created_output(entry)]
 }

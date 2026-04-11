@@ -403,6 +403,20 @@ extension ServerToClientMessage {
         let exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
         self = .terminalExited(terminalId: terminalId, exitCode: exitCode)
 
+      case "tool_pty_attached":
+        let toolId = try container.decode(String.self, forKey: .toolId)
+        let bufferedOutput = try container.decodeIfPresent(String.self, forKey: .bufferedOutput)
+        self = .toolPtyAttached(toolId: toolId, bufferedOutput: bufferedOutput)
+
+      case "tool_pty_detached":
+        let toolId = try container.decode(String.self, forKey: .toolId)
+        self = .toolPtyDetached(toolId: toolId)
+
+      case "tool_pty_exited":
+        let toolId = try container.decode(String.self, forKey: .toolId)
+        let exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+        self = .toolPtyExited(toolId: toolId, exitCode: exitCode)
+
       default:
         netLog(.error, cat: .ws, "Unknown server message type: \(type)")
         self = .unknown(type: type)

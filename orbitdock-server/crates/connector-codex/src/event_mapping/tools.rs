@@ -1,4 +1,8 @@
-use super::{SharedEnvironmentTracker, SharedOutputBuffers, SharedPatchContexts};
+use super::{
+  row_created_output, row_updated_output, runtime_output, state_output, tool_row_entry,
+  transport_output, ConnectorOutputs, SharedEnvironmentTracker, SharedOutputBuffers,
+  SharedPatchContexts,
+};
 use crate::runtime::row_entry;
 use crate::timeline::dynamic_tool_output_to_text;
 use crate::workers::iso_now;
@@ -10,12 +14,13 @@ use codex_protocol::protocol::{
   McpToolCallBeginEvent, McpToolCallEndEvent, PatchApplyBeginEvent, PatchApplyEndEvent,
   TerminalInteractionEvent, ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
 };
-use orbitdock_connector_core::ConnectorEvent;
+use orbitdock_connector_core::{
+  ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
+};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  command_execution_terminal_snapshot, compute_command_execution_preview, compute_tool_display,
-  extract_compact_result_text, CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus,
-  ConversationRow, ConversationRowEntry, ToolDisplayInput, ToolRow,
+  command_execution_terminal_snapshot, compute_command_execution_preview, CommandExecutionAction,
+  CommandExecutionRow, CommandExecutionStatus, ConversationRow, ConversationRowEntry, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
@@ -78,10 +83,6 @@ fn command_execution_status(event: &ExecCommandEndEvent) -> CommandExecutionStat
       }
     }
   }
-}
-
-fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
-  row_entry(ConversationRow::Tool(with_display(row)))
 }
 
 fn command_execution_row_entry(row: CommandExecutionRow) -> ConversationRowEntry {
@@ -228,24 +229,6 @@ fn command_preview(
   compute_command_execution_preview(actions, aggregated_output.or(live_output_preview))
 }
 
-/// Compute and attach tool_display to a ToolRow from its own fields.
-fn with_display(mut row: ToolRow) -> ToolRow {
-  let invocation_ref = row.invocation.is_object().then_some(&row.invocation);
-  let result_str = extract_compact_result_text(row.result.as_ref());
-  row.tool_display = Some(compute_tool_display(ToolDisplayInput {
-    kind: row.kind,
-    family: row.family,
-    status: row.status,
-    title: &row.title,
-    subtitle: row.subtitle.as_deref(),
-    summary: row.summary.as_deref(),
-    duration_ms: row.duration_ms,
-    invocation_input: invocation_ref,
-    result_output: result_str.as_deref(),
-  }));
-  row
-}
-
 fn dynamic_tool_identity_from_name(
   tool_name: &str,
 ) -> Option<(ToolFamily, ToolKind, &'static str)> {
@@ -381,7 +364,7 @@ pub(crate) async fn handle_exec_command_begin(
   event: ExecCommandBeginEvent,
   output_buffers: &SharedOutputBuffers,
   env_tracker: &SharedEnvironmentTracker,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let command_str = display_command_from_exec_tokens(&event.command);
   let cwd = event.cwd.display().to_string();
   let command_actions = command_actions_from_parsed(&event.parsed_cmd);
@@ -407,7 +390,7 @@ pub(crate) async fn handle_exec_command_begin(
     None => (None, None),
   };
 
-  let mut connector_events = Vec::new();
+  let mut connector_events: ConnectorOutputs = Vec::new();
   {
     let mut tracker = env_tracker.lock().await;
     let cwd_changed = tracker.cwd.as_deref() != Some(&new_cwd);
@@ -417,17 +400,23 @@ pub(crate) async fn handle_exec_command_begin(
       tracker.cwd = Some(new_cwd.clone());
       tracker.branch = new_branch.clone();
       tracker.sha = new_sha.clone();
-      connector_events.push(ConnectorEvent::EnvironmentChanged {
+      connector_events.push(state_output(ConnectorStateEvent::EnvironmentChanged {
         cwd: Some(new_cwd.clone()),
         git_branch: new_branch,
         git_sha: new_sha,
-      });
+      }));
     }
   }
 
   let terminal_snapshot = command_execution_terminal_snapshot(&command_str, &cwd, None);
-  connector_events.push(ConnectorEvent::ConversationRowCreated(
-    command_execution_row_entry(CommandExecutionRow {
+
+  // Emit ToolPtyCreated for live PTY streaming support
+  connector_events.push(transport_output(ConnectorTransportEffect::ToolPtyCreated {
+    tool_id: event.call_id.clone(),
+  }));
+
+  connector_events.push(row_created_output(command_execution_row_entry(
+    CommandExecutionRow {
       id: event.call_id.clone(),
       status: CommandExecutionStatus::InProgress,
       command: command_str,
@@ -441,8 +430,8 @@ pub(crate) async fn handle_exec_command_begin(
       exit_code: None,
       duration_ms: None,
       render_hints: expandable_command_render_hints(),
-    }),
-  ));
+    },
+  )));
 
   connector_events
 }
@@ -450,7 +439,18 @@ pub(crate) async fn handle_exec_command_begin(
 pub(crate) async fn handle_exec_command_output_delta(
   event: ExecCommandOutputDeltaEvent,
   output_buffers: &SharedOutputBuffers,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
+  let mut events: ConnectorOutputs = Vec::new();
+
+  // Always emit raw bytes for live PTY streaming (no throttle)
+  if !event.chunk.is_empty() {
+    events.push(transport_output(ConnectorTransportEffect::ToolPtyOutput {
+      tool_id: event.call_id.clone(),
+      bytes: event.chunk.clone(),
+    }));
+  }
+
+  // Text-based row updates are throttled for UI performance
   let chunk_str = String::from_utf8_lossy(&event.chunk).to_string();
   let next_row = {
     let mut buffers = output_buffers.lock().await;
@@ -458,7 +458,7 @@ pub(crate) async fn handle_exec_command_output_delta(
       buffer.append(&chunk_str);
       let now = Instant::now();
       if now.duration_since(buffer.last_broadcast).as_millis() < OUTPUT_STREAM_THROTTLE_MS {
-        return vec![];
+        return events;
       }
       buffer.last_broadcast = now;
       CommandExecutionRow {
@@ -481,25 +481,22 @@ pub(crate) async fn handle_exec_command_output_delta(
         render_hints: expandable_command_render_hints(),
       }
     } else {
-      return vec![];
+      return events;
     }
   };
 
-  if next_row.live_output_preview.is_none() {
-    vec![]
-  } else {
+  if next_row.live_output_preview.is_some() {
     let entry = command_execution_row_entry(next_row);
-    vec![ConnectorEvent::ConversationRowUpdated {
-      row_id: event.call_id,
-      entry,
-    }]
+    events.push(row_updated_output(event.call_id, entry));
   }
+
+  events
 }
 
 pub(crate) async fn handle_exec_command_end(
   event: ExecCommandEndEvent,
   output_buffers: &SharedOutputBuffers,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let streamed_output = {
     let mut buffers = output_buffers.lock().await;
     buffers
@@ -533,16 +530,20 @@ pub(crate) async fn handle_exec_command_end(
     duration_ms,
     render_hints: expandable_command_render_hints(),
   });
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+
+  vec![
+    transport_output(ConnectorTransportEffect::ToolPtyExited {
+      tool_id: event.call_id.clone(),
+      exit_code: Some(event.exit_code),
+    }),
+    row_updated_output(event.call_id, entry),
+  ]
 }
 
 pub(crate) async fn handle_patch_apply_begin(
   event: PatchApplyBeginEvent,
   patch_contexts: &SharedPatchContexts,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let files: Vec<String> = event
     .changes
     .keys()
@@ -599,33 +600,31 @@ pub(crate) async fn handle_patch_apply_begin(
     contexts.insert(event.call_id.clone(), invocation.clone());
   }
 
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: event.call_id.clone(),
-      provider: Provider::Codex,
-      family: ToolFamily::FileChange,
-      kind: ToolKind::Edit,
-      status: ToolStatus::Running,
-      title: first_file.clone(),
-      subtitle: Some(files.join(", ")),
-      summary: None,
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation,
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id.clone(),
+    provider: Provider::Codex,
+    family: ToolFamily::FileChange,
+    kind: ToolKind::Edit,
+    status: ToolStatus::Running,
+    title: first_file.clone(),
+    subtitle: Some(files.join(", ")),
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation,
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
 pub(crate) async fn handle_patch_apply_end(
   event: PatchApplyEndEvent,
   patch_contexts: &SharedPatchContexts,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   // Retrieve the begin context (removes it from the map)
   let begin_context = {
     let mut contexts = patch_contexts.lock().await;
@@ -692,49 +691,44 @@ pub(crate) async fn handle_patch_apply_end(
     render_hints: Default::default(),
     tool_display: None,
   });
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+  vec![row_updated_output(event.call_id, entry)]
 }
 
-pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> ConnectorOutputs {
   let server = event.invocation.server.clone();
   let tool = event.invocation.tool.clone();
   let call_id = event.call_id.clone();
 
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: call_id,
-      provider: Provider::Codex,
-      family: ToolFamily::Mcp,
-      kind: ToolKind::McpToolCall,
-      status: ToolStatus::Running,
-      title: tool.clone(),
-      subtitle: Some(server.clone()),
-      summary: None,
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "server": server,
-          "tool_name": tool,
-          "input": event
-              .invocation
-              .arguments
-              .as_ref()
-              .and_then(|args| serde_json::to_value(args).ok()),
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Mcp,
+    kind: ToolKind::McpToolCall,
+    status: ToolStatus::Running,
+    title: tool.clone(),
+    subtitle: Some(server.clone()),
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "server": server,
+        "tool_name": tool,
+        "input": event
+            .invocation
+            .arguments
+            .as_ref()
+            .and_then(|args| serde_json::to_value(args).ok()),
+    }),
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
-pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> ConnectorOutputs {
   let (output_value, is_error) = match &event.result {
     Ok(result) => (serde_json::to_value(result).ok(), false),
     Err(message) => (Some(json!(message)), true),
@@ -772,40 +766,35 @@ pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> Vec<Connec
     render_hints: Default::default(),
     tool_display: None,
   });
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+  vec![row_updated_output(event.call_id, entry)]
 }
 
-pub(crate) fn handle_web_search_begin(event: WebSearchBeginEvent) -> Vec<ConnectorEvent> {
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: event.call_id,
-      provider: Provider::Codex,
-      family: ToolFamily::Web,
-      kind: ToolKind::WebSearch,
-      status: ToolStatus::Running,
-      title: "Searching the web".to_string(),
-      subtitle: None,
-      summary: None,
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: None,
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "query": "",
-          "results": [],
-      }),
-      result: None,
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+pub(crate) fn handle_web_search_begin(event: WebSearchBeginEvent) -> ConnectorOutputs {
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Web,
+    kind: ToolKind::WebSearch,
+    status: ToolStatus::Running,
+    title: "Searching the web".to_string(),
+    subtitle: None,
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "query": "",
+        "results": [],
+    }),
+    result: None,
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
-pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> ConnectorOutputs {
   let output = serde_json::to_string_pretty(&event.action)
     .or_else(|_| serde_json::to_string(&event.action))
     .unwrap_or_default();
@@ -834,45 +823,38 @@ pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> Vec<ConnectorEv
     render_hints: Default::default(),
     tool_display: None,
   });
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+  vec![row_updated_output(event.call_id, entry)]
 }
 
-pub(crate) fn handle_view_image_tool_call(event: ViewImageToolCallEvent) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_view_image_tool_call(event: ViewImageToolCallEvent) -> ConnectorOutputs {
   let path = event.path.to_string_lossy().to_string();
-  vec![ConnectorEvent::ConversationRowCreated(tool_row_entry(
-    ToolRow {
-      id: event.call_id,
-      provider: Provider::Codex,
-      family: ToolFamily::Image,
-      kind: ToolKind::ViewImage,
-      status: ToolStatus::Completed,
-      title: path.clone(),
-      subtitle: None,
-      summary: Some("Image loaded".to_string()),
-      preview: None,
-      started_at: Some(iso_now()),
-      ended_at: Some(iso_now()),
-      duration_ms: None,
-      grouping_key: None,
-      invocation: json!({
-          "image_paths": [&path],
-      }),
-      result: Some(json!({
-          "image_paths": [event.path.to_string_lossy().to_string()],
-          "caption": "Image loaded",
-      })),
-      render_hints: Default::default(),
-      tool_display: None,
-    },
-  ))]
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Image,
+    kind: ToolKind::ViewImage,
+    status: ToolStatus::Completed,
+    title: path.clone(),
+    subtitle: None,
+    summary: Some("Image loaded".to_string()),
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: Some(iso_now()),
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "image_paths": [&path],
+    }),
+    result: Some(json!({
+        "image_paths": [event.path.to_string_lossy().to_string()],
+        "caption": "Image loaded",
+    })),
+    render_hints: Default::default(),
+    tool_display: None,
+  }))]
 }
 
-pub(crate) fn handle_dynamic_tool_call_request(
-  event: DynamicToolCallRequest,
-) -> Vec<ConnectorEvent> {
+pub(crate) fn handle_dynamic_tool_call_request(event: DynamicToolCallRequest) -> ConnectorOutputs {
   let call_id = event.call_id.clone();
   let tool = event.tool.clone();
   let arguments = event.arguments.clone();
@@ -882,7 +864,7 @@ pub(crate) fn handle_dynamic_tool_call_request(
     tool.as_str(),
   ));
   vec![
-    ConnectorEvent::ConversationRowCreated(tool_row_entry(ToolRow {
+    row_created_output(tool_row_entry(ToolRow {
       id: call_id.clone(),
       provider: Provider::Codex,
       family,
@@ -904,17 +886,17 @@ pub(crate) fn handle_dynamic_tool_call_request(
       render_hints: Default::default(),
       tool_display: None,
     })),
-    ConnectorEvent::DynamicToolCallRequested {
+    runtime_output(ConnectorRuntimeDirective::DynamicToolCallRequested {
       call_id,
       tool_name: event.tool,
       arguments: event.arguments,
-    },
+    }),
   ]
 }
 
 pub(crate) fn handle_dynamic_tool_call_response(
   event: DynamicToolCallResponseEvent,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let tool_name = event.tool.clone();
   let arguments = event.arguments.clone();
   let output = dynamic_tool_output_to_text(&event.content_items, event.error);
@@ -960,16 +942,13 @@ pub(crate) fn handle_dynamic_tool_call_response(
     render_hints: Default::default(),
     tool_display: None,
   });
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+  vec![row_updated_output(event.call_id, entry)]
 }
 
 pub(crate) async fn handle_terminal_interaction(
   event: TerminalInteractionEvent,
   output_buffers: &SharedOutputBuffers,
-) -> Vec<ConnectorEvent> {
+) -> ConnectorOutputs {
   let snippet = format!("\n[stdin] {}\n", event.stdin);
   let next_row = {
     let mut buffers = output_buffers.lock().await;
@@ -998,10 +977,7 @@ pub(crate) async fn handle_terminal_interaction(
   };
 
   let entry = command_execution_row_entry(next_row);
-  vec![ConnectorEvent::ConversationRowUpdated {
-    row_id: event.call_id,
-    entry,
-  }]
+  vec![row_updated_output(event.call_id, entry)]
 }
 
 #[cfg(test)]
@@ -1019,7 +995,7 @@ mod tests {
     DynamicToolCallResponseEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
     ExecCommandOutputDeltaEvent, ExecCommandSource, ExecCommandStatus, ExecOutputStream,
   };
-  use orbitdock_connector_core::ConnectorEvent;
+  use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
   use orbitdock_protocol::conversation_contracts::ConversationRow;
   use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
   use std::collections::HashMap;
@@ -1037,6 +1013,26 @@ mod tests {
       branch: None,
       sha: None,
     }))
+  }
+
+  fn created_entry(
+    output: ConnectorOutput,
+  ) -> Option<orbitdock_protocol::conversation_contracts::ConversationRowEntry> {
+    match output {
+      ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry)) => Some(entry),
+      _ => None,
+    }
+  }
+
+  fn updated_entry(
+    output: ConnectorOutput,
+  ) -> Option<orbitdock_protocol::conversation_contracts::ConversationRowEntry> {
+    match output {
+      ConnectorOutput::State(ConnectorStateEvent::ConversationRowUpdated { entry, .. }) => {
+        Some(entry)
+      }
+      _ => None,
+    }
   }
 
   #[tokio::test]
@@ -1061,10 +1057,7 @@ mod tests {
     )
     .await;
 
-    let created = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
-      _ => None,
-    });
+    let created = events.into_iter().find_map(created_entry);
 
     let entry = created.expect("command execution row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1146,10 +1139,7 @@ mod tests {
     )
     .await;
 
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1239,10 +1229,7 @@ mod tests {
     )
     .await;
 
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1301,10 +1288,7 @@ mod tests {
     )
     .await;
 
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1366,10 +1350,7 @@ mod tests {
     )
     .await;
 
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1420,10 +1401,7 @@ mod tests {
     )
     .await;
 
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1512,10 +1490,7 @@ mod tests {
     )
     .await;
 
-    let created = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
-      _ => None,
-    });
+    let created = events.into_iter().find_map(created_entry);
 
     let entry = created.expect("command execution row");
     let ConversationRow::CommandExecution(row) = entry.row else {
@@ -1535,10 +1510,7 @@ mod tests {
         "content": "hello"
       }),
     });
-    let created = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
-      _ => None,
-    });
+    let created = events.into_iter().find_map(created_entry);
     let entry = created.expect("tool row created");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1560,10 +1532,7 @@ mod tests {
         "content": "# Plan\n"
       }),
     });
-    let created = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowCreated(entry) => Some(entry),
-      _ => None,
-    });
+    let created = events.into_iter().find_map(created_entry);
     let entry = created.expect("tool row created");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1593,10 +1562,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(11),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1628,10 +1594,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(7),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1661,10 +1624,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(6),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1694,10 +1654,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(5),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1729,10 +1686,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(5),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1769,10 +1723,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(8),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
@@ -1812,10 +1763,7 @@ mod tests {
       error: None,
       duration: Duration::from_millis(6),
     });
-    let updated = events.into_iter().find_map(|event| match event {
-      ConnectorEvent::ConversationRowUpdated { entry, .. } => Some(entry),
-      _ => None,
-    });
+    let updated = events.into_iter().find_map(updated_entry);
     let entry = updated.expect("tool row updated");
     let ConversationRow::Tool(tool) = entry.row else {
       panic!("expected tool row");
