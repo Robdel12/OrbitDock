@@ -173,6 +173,15 @@ impl ToolPtyService {
     }
   }
 
+  /// Mark a tool as exited and immediately destroy its runtime PTY session.
+  ///
+  /// Completed tools render from persisted transcript output, so the PTY
+  /// service only needs to keep state alive while the command is running.
+  pub fn finish(&self, tool_id: &str, exit_code: Option<i32>) {
+    self.mark_exited(tool_id, exit_code);
+    self.destroy(tool_id);
+  }
+
   /// Check if a tool PTY session exists.
   #[allow(dead_code)] // Will be used for session cleanup logic
   pub fn exists(&self, tool_id: &str) -> bool {
@@ -301,5 +310,21 @@ mod tests {
 
     let event = rx.recv().await.unwrap();
     assert_eq!(event, ToolPtyEvent::Exited { exit_code: Some(7) });
+  }
+
+  #[tokio::test]
+  async fn finish_broadcasts_exit_and_destroys_session() {
+    let service = ToolPtyService::new();
+    let mut rx = service.create_for_tool("tool-6".to_string(), "session-6".to_string());
+
+    service.finish("tool-6", Some(0));
+
+    let event = rx.recv().await.unwrap();
+    assert_eq!(event, ToolPtyEvent::Exited { exit_code: Some(0) });
+    assert!(!service.exists("tool-6"));
+    assert!(matches!(
+      rx.recv().await,
+      Err(tokio::sync::broadcast::error::RecvError::Closed)
+    ));
   }
 }

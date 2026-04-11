@@ -12,6 +12,17 @@ final class ToolPtySessionManager {
   private var attachedTools: Set<String> = []
   private var exitedTools: [String: Int32?] = [:]
 
+  private func makeSession(toolId: String, cols: UInt16 = 80, rows: UInt16 = 24) -> TerminalSessionController {
+    let session = TerminalSessionController(
+      terminalId: "tool-pty-\(toolId)",
+      cols: cols,
+      rows: rows
+    )
+    // Tool PTY sessions are read-only - no input sent back to server
+    session.sendToServer = nil
+    return session
+  }
+
   /// Get or create a terminal session for a tool.
   ///
   /// The session is created lazily and reused across attach/detach cycles
@@ -21,13 +32,7 @@ final class ToolPtySessionManager {
       return existing
     }
 
-    let session = TerminalSessionController(
-      terminalId: "tool-pty-\(toolId)",
-      cols: cols,
-      rows: rows
-    )
-    // Tool PTY sessions are read-only - no input sent back to server
-    session.sendToServer = nil
+    let session = makeSession(toolId: toolId, cols: cols, rows: rows)
     sessions[toolId] = session
     return session
   }
@@ -58,8 +63,11 @@ final class ToolPtySessionManager {
   func handleAttached(toolId: String, bufferedOutput: Data?) {
     attachedTools.insert(toolId)
 
-    // Create session if needed and feed buffered output
-    let session = session(for: toolId)
+    // Each attach includes the authoritative replay buffer from the server.
+    // Rebuild the terminal session so reattaching a running tool never
+    // appends the same historical output into an old emulator state.
+    let session = makeSession(toolId: toolId)
+    sessions[toolId] = session
     if let buffer = bufferedOutput, !buffer.isEmpty {
       session.feedOutput(buffer)
     }

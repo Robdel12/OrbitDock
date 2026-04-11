@@ -3113,7 +3113,7 @@ mod tests {
     parse_data_uri_base64, transform_image, ClaudeConnector, ImageSource, PendingApproval,
     UserContentBlock,
   };
-  use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
+  use orbitdock_connector_core::ConnectorStateEvent;
 
   #[test]
   fn parse_data_uri_base64_extracts_media_type_and_payload() {
@@ -3187,8 +3187,8 @@ mod tests {
     let events =
       ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
     assert_eq!(events.len(), 1);
-    match &events[0] {
-      ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested {
+    match events[0].as_state_event() {
+      Some(ConnectorStateEvent::ApprovalRequested {
         request_id,
         tool_name,
         command,
@@ -3274,15 +3274,15 @@ mod tests {
       ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
     assert_eq!(events.len(), 2);
 
-    match &events[0] {
-      ConnectorOutput::State(ConnectorStateEvent::PlanUpdated(plan)) => {
+    match events[0].as_state_event() {
+      Some(ConnectorStateEvent::PlanUpdated(plan)) => {
         assert_eq!(plan, "# Phase 5\n- Simplify toolbar ordering UX");
       }
       other => panic!("expected PlanUpdated event, got {:?}", other),
     }
 
-    match &events[1] {
-      ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested {
+    match events[1].as_state_event() {
+      Some(ConnectorStateEvent::ApprovalRequested {
         request_id,
         tool_name,
         ..
@@ -3354,8 +3354,8 @@ mod tests {
 
     let has_diff = events.iter().any(|event| {
       matches!(
-          event,
-          ConnectorOutput::State(ConnectorStateEvent::DiffUpdated(diff))
+          event.as_state_event(),
+          Some(ConnectorStateEvent::DiffUpdated(diff))
               if diff.contains("--- src/main.rs")
                   && diff.contains("+++ src/main.rs")
                   && diff.contains("-old value")
@@ -3409,7 +3409,7 @@ mod tests {
     let second_events = ClaudeConnector::handle_assistant_message(&raw_write, "sess-1", &mut state);
 
     let aggregated = second_events.iter().find_map(|event| {
-      if let ConnectorOutput::State(ConnectorStateEvent::DiffUpdated(diff)) = event {
+      if let Some(ConnectorStateEvent::DiffUpdated(diff)) = event.as_state_event() {
         Some(diff.as_str())
       } else {
         None
@@ -3446,9 +3446,10 @@ mod tests {
     assert!(
       matches!(
         events.first(),
-        Some(ConnectorOutput::State(
-          ConnectorStateEvent::ConversationRowCreated(_)
-        ))
+        Some(output) if matches!(
+          output.as_state_event(),
+          Some(ConnectorStateEvent::ConversationRowCreated(_))
+        )
       ),
       "expected a replacement streaming row to be created"
     );

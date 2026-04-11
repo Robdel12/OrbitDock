@@ -1018,20 +1018,18 @@ mod tests {
   fn created_entry(
     output: ConnectorOutput,
   ) -> Option<orbitdock_protocol::conversation_contracts::ConversationRowEntry> {
-    match output {
-      ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry)) => Some(entry),
-      _ => None,
+    match output.into_state_event() {
+      Ok(ConnectorStateEvent::ConversationRowCreated(entry)) => Some(entry),
+      Ok(_) | Err(_) => None,
     }
   }
 
   fn updated_entry(
     output: ConnectorOutput,
   ) -> Option<orbitdock_protocol::conversation_contracts::ConversationRowEntry> {
-    match output {
-      ConnectorOutput::State(ConnectorStateEvent::ConversationRowUpdated { entry, .. }) => {
-        Some(entry)
-      }
-      _ => None,
+    match output.into_state_event() {
+      Ok(ConnectorStateEvent::ConversationRowUpdated { entry, .. }) => Some(entry),
+      Ok(_) | Err(_) => None,
     }
   }
 

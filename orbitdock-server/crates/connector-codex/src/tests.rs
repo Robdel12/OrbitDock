@@ -38,9 +38,9 @@ use std::sync::Arc;
 fn created_row(
   output: &ConnectorOutput,
 ) -> &orbitdock_protocol::conversation_contracts::ConversationRow {
-  match output {
-    ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry)) => &entry.row,
-    other => panic!("expected row creation event, got {other:?}"),
+  match output.as_state_event() {
+    Some(ConnectorStateEvent::ConversationRowCreated(entry)) => &entry.row,
+    _ => panic!("expected row creation event, got {output:?}"),
   }
 }
 
@@ -50,11 +50,9 @@ fn updated_row(
   &str,
   &orbitdock_protocol::conversation_contracts::ConversationRow,
 ) {
-  match output {
-    ConnectorOutput::State(ConnectorStateEvent::ConversationRowUpdated { row_id, entry }) => {
-      (row_id, &entry.row)
-    }
-    other => panic!("expected row update event, got {other:?}"),
+  match output.as_state_event() {
+    Some(ConnectorStateEvent::ConversationRowUpdated { row_id, entry }) => (row_id, &entry.row),
+    _ => panic!("expected row update event, got {output:?}"),
   }
 }
 
@@ -963,11 +961,11 @@ fn handle_plan_update_emits_plan_state_and_timeline_row() {
   let mut saw_plan_update = false;
   let mut saw_tool_row = false;
   for output in &events {
-    match output {
-      ConnectorOutput::State(ConnectorStateEvent::PlanUpdated(plan)) => {
+    match output.as_state_event() {
+      Some(ConnectorStateEvent::PlanUpdated(plan)) => {
         saw_plan_update = plan.contains("Split connector outputs");
       }
-      ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry)) => {
+      Some(ConnectorStateEvent::ConversationRowCreated(entry)) => {
         if let ConversationRow::Tool(tool) = &entry.row {
           saw_tool_row = tool.kind == ToolKind::UpdatePlan;
         }
@@ -1008,13 +1006,13 @@ fn request_user_input_emits_question_row_and_submission_request() {
   let mut saw_question_row = false;
   let mut saw_submission_request = false;
   for output in &events {
-    match output {
-      ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry)) => {
+    match output.as_state_event() {
+      Some(ConnectorStateEvent::ConversationRowCreated(entry)) => {
         if let ConversationRow::Tool(tool) = &entry.row {
           saw_question_row = tool.kind == ToolKind::AskUserQuestion;
         }
       }
-      ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested { request_id, .. }) => {
+      Some(ConnectorStateEvent::ApprovalRequested { request_id, .. }) => {
         saw_submission_request = request_id == "request-user-input-1";
       }
       _ => {}

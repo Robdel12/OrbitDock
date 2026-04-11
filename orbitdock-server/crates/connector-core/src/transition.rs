@@ -2953,7 +2953,7 @@ mod tests {
 
   #[test]
   fn connector_output_state_lane_converts_to_input() {
-    let output = ConnectorOutput::State(ConnectorStateEvent::TurnStarted);
+    let output: ConnectorOutput = ConnectorStateEvent::TurnStarted.into();
     let input = Input::try_from(output).expect("state output should convert to input");
     assert!(matches!(input, Input::TurnStarted));
   }

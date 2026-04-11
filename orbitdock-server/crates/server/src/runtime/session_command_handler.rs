@@ -223,7 +223,7 @@ fn upgrade_connector_row_event(
 
 #[derive(Debug, Clone)]
 pub(crate) enum ConnectorDispatch {
-  State(ConnectorStateEvent),
+  State(Box<ConnectorStateEvent>),
   RuntimeDirective(ConnectorRuntimeDirective),
   TransportEffect(ConnectorTransportEffect),
 }
@@ -250,7 +250,7 @@ pub(crate) async fn handle_connector_transport_effect(
       tool_pty.feed_output(&tool_id, &bytes);
     }
     ConnectorTransportEffect::ToolPtyExited { tool_id, exit_code } => {
-      tool_pty.mark_exited(&tool_id, exit_code);
+      tool_pty.finish(&tool_id, exit_code);
     }
   }
 }

@@ -352,7 +352,7 @@ pub fn start_event_loop(
                   async {
                       let turn_ending = matches!(
                           &output,
-                          ConnectorOutput::State(event) if is_turn_ending(event)
+                          ConnectorOutput::State(event) if is_turn_ending(event.as_ref())
                       );
                       let event = match classify_connector_output(output) {
                           ConnectorDispatch::TransportEffect(effect) => {
@@ -388,7 +388,7 @@ pub fn start_event_loop(
                               );
                               return ConnectorLoopControl::Continue;
                           }
-                          ConnectorDispatch::State(event) => event,
+                          ConnectorDispatch::State(event) => *event,
                       };
 
                       if turn_ending {

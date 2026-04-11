@@ -317,6 +317,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
   if state.clear_client_primary_claim(conn_id) {
     state.broadcast_to_list(server_info_message(&state));
   }
+  crate::transport::websocket::handlers::tool_pty::abort_tool_pty_forwarders_for_connection(
+    conn_id,
+  );
   subscriptions.abort_all();
   send_task.abort();
 }

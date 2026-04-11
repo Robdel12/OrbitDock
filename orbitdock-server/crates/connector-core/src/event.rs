@@ -199,7 +199,7 @@ pub enum ConnectorTransportEffect {
 /// Strongly typed connector output lanes.
 #[derive(Debug, Clone)]
 pub enum ConnectorOutput {
-  State(ConnectorStateEvent),
+  State(Box<ConnectorStateEvent>),
   Runtime(ConnectorRuntimeDirective),
   Transport(ConnectorTransportEffect),
 }
@@ -405,28 +405,38 @@ impl ConnectorStateEvent {
 }
 
 impl ConnectorOutput {
+  /// Borrow the reducer-safe event if this output is in the state lane.
+  pub fn as_state_event(&self) -> Option<&ConnectorStateEvent> {
+    match self {
+      ConnectorOutput::State(event) => Some(event.as_ref()),
+      ConnectorOutput::Runtime(_) | ConnectorOutput::Transport(_) => None,
+    }
+  }
+
   /// Whether this output lane is reducer-safe.
   pub fn is_state_event(&self) -> bool {
-    matches!(self, ConnectorOutput::State(_))
+    self.as_state_event().is_some()
   }
 
   /// Return the reducer-safe event if this output is in the state lane.
   pub fn into_state_event(self) -> Result<ConnectorStateEvent, Self> {
     match self {
-      ConnectorOutput::State(event) => Ok(event),
+      ConnectorOutput::State(event) => Ok(*event),
       other => Err(other),
     }
   }
 
   /// Whether this output should trigger a dashboard refresh.
   pub fn requires_dashboard_refresh(&self) -> bool {
-    matches!(self, ConnectorOutput::State(event) if event.requires_dashboard_refresh())
+    self
+      .as_state_event()
+      .is_some_and(ConnectorStateEvent::requires_dashboard_refresh)
   }
 }
 
 impl From<ConnectorStateEvent> for ConnectorOutput {
   fn from(event: ConnectorStateEvent) -> Self {
-    ConnectorOutput::State(event)
+    ConnectorOutput::State(Box::new(event))
   }
 }
 
@@ -504,16 +514,14 @@ impl ConnectorEvent {
 impl From<ConnectorEvent> for ConnectorOutput {
   fn from(event: ConnectorEvent) -> Self {
     match event {
-      ConnectorEvent::TurnStarted => ConnectorOutput::State(ConnectorStateEvent::TurnStarted),
-      ConnectorEvent::TurnCompleted => ConnectorOutput::State(ConnectorStateEvent::TurnCompleted),
-      ConnectorEvent::TurnAborted { reason } => {
-        ConnectorOutput::State(ConnectorStateEvent::TurnAborted { reason })
-      }
+      ConnectorEvent::TurnStarted => ConnectorStateEvent::TurnStarted.into(),
+      ConnectorEvent::TurnCompleted => ConnectorStateEvent::TurnCompleted.into(),
+      ConnectorEvent::TurnAborted { reason } => ConnectorStateEvent::TurnAborted { reason }.into(),
       ConnectorEvent::ConversationRowCreated(entry) => {
-        ConnectorOutput::State(ConnectorStateEvent::ConversationRowCreated(entry))
+        ConnectorStateEvent::ConversationRowCreated(entry).into()
       }
       ConnectorEvent::ConversationRowUpdated { row_id, entry } => {
-        ConnectorOutput::State(ConnectorStateEvent::ConversationRowUpdated { row_id, entry })
+        ConnectorStateEvent::ConversationRowUpdated { row_id, entry }.into()
       }
       ConnectorEvent::ApprovalRequested {
         request_id,
@@ -535,7 +543,7 @@ impl From<ConnectorEvent> for ConnectorOutput {
         mcp_server_name,
         network_host,
         network_protocol,
-      } => ConnectorOutput::State(ConnectorStateEvent::ApprovalRequested {
+      } => ConnectorStateEvent::ApprovalRequested {
         request_id,
         approval_type,
         tool_name,
@@ -555,107 +563,103 @@ impl From<ConnectorEvent> for ConnectorOutput {
         mcp_server_name,
         network_host,
         network_protocol,
-      }),
+      }
+      .into(),
       ConnectorEvent::ApprovalCancelled { request_id } => {
-        ConnectorOutput::State(ConnectorStateEvent::ApprovalCancelled { request_id })
+        ConnectorStateEvent::ApprovalCancelled { request_id }.into()
       }
       ConnectorEvent::PermissionModeChanged { mode } => {
-        ConnectorOutput::State(ConnectorStateEvent::PermissionModeChanged { mode })
+        ConnectorStateEvent::PermissionModeChanged { mode }.into()
       }
       ConnectorEvent::TokensUpdated {
         usage,
         snapshot_kind,
-      } => ConnectorOutput::State(ConnectorStateEvent::TokensUpdated {
+      } => ConnectorStateEvent::TokensUpdated {
         usage,
         snapshot_kind,
-      }),
-      ConnectorEvent::DiffUpdated(diff) => {
-        ConnectorOutput::State(ConnectorStateEvent::DiffUpdated(diff))
       }
-      ConnectorEvent::PlanUpdated(plan) => {
-        ConnectorOutput::State(ConnectorStateEvent::PlanUpdated(plan))
-      }
+      .into(),
+      ConnectorEvent::DiffUpdated(diff) => ConnectorStateEvent::DiffUpdated(diff).into(),
+      ConnectorEvent::PlanUpdated(plan) => ConnectorStateEvent::PlanUpdated(plan).into(),
       ConnectorEvent::ThreadNameUpdated(name) => {
-        ConnectorOutput::State(ConnectorStateEvent::ThreadNameUpdated(name))
+        ConnectorStateEvent::ThreadNameUpdated(name).into()
       }
       ConnectorEvent::SessionEnded { reason } => {
-        ConnectorOutput::State(ConnectorStateEvent::SessionEnded { reason })
+        ConnectorStateEvent::SessionEnded { reason }.into()
       }
       ConnectorEvent::SkillsList { skills, errors } => {
-        ConnectorOutput::State(ConnectorStateEvent::SkillsList { skills, errors })
+        ConnectorStateEvent::SkillsList { skills, errors }.into()
       }
-      ConnectorEvent::SkillsUpdateAvailable => {
-        ConnectorOutput::State(ConnectorStateEvent::SkillsUpdateAvailable)
-      }
+      ConnectorEvent::SkillsUpdateAvailable => ConnectorStateEvent::SkillsUpdateAvailable.into(),
       ConnectorEvent::McpToolsList {
         tools,
         resources,
         resource_templates,
         auth_statuses,
-      } => ConnectorOutput::State(ConnectorStateEvent::McpToolsList {
+      } => ConnectorStateEvent::McpToolsList {
         tools,
         resources,
         resource_templates,
         auth_statuses,
-      }),
+      }
+      .into(),
       ConnectorEvent::McpStartupUpdate { server, status } => {
-        ConnectorOutput::State(ConnectorStateEvent::McpStartupUpdate { server, status })
+        ConnectorStateEvent::McpStartupUpdate { server, status }.into()
       }
       ConnectorEvent::McpStartupComplete {
         ready,
         failed,
         cancelled,
-      } => ConnectorOutput::State(ConnectorStateEvent::McpStartupComplete {
+      } => ConnectorStateEvent::McpStartupComplete {
         ready,
         failed,
         cancelled,
-      }),
+      }
+      .into(),
       ConnectorEvent::ClaudeInitialized {
         slash_commands,
         skills,
         tools,
         models,
-      } => ConnectorOutput::State(ConnectorStateEvent::ClaudeInitialized {
+      } => ConnectorStateEvent::ClaudeInitialized {
         slash_commands,
         skills,
         tools,
         models,
-      }),
-      ConnectorEvent::ModelUpdated(model) => {
-        ConnectorOutput::State(ConnectorStateEvent::ModelUpdated(model))
       }
-      ConnectorEvent::ContextCompacted => {
-        ConnectorOutput::State(ConnectorStateEvent::ContextCompacted)
-      }
+      .into(),
+      ConnectorEvent::ModelUpdated(model) => ConnectorStateEvent::ModelUpdated(model).into(),
+      ConnectorEvent::ContextCompacted => ConnectorStateEvent::ContextCompacted.into(),
       ConnectorEvent::UndoStarted { message } => {
-        ConnectorOutput::State(ConnectorStateEvent::UndoStarted { message })
+        ConnectorStateEvent::UndoStarted { message }.into()
       }
       ConnectorEvent::UndoCompleted { success, message } => {
-        ConnectorOutput::State(ConnectorStateEvent::UndoCompleted { success, message })
+        ConnectorStateEvent::UndoCompleted { success, message }.into()
       }
       ConnectorEvent::ThreadRolledBack { num_turns } => {
-        ConnectorOutput::State(ConnectorStateEvent::ThreadRolledBack { num_turns })
+        ConnectorStateEvent::ThreadRolledBack { num_turns }.into()
       }
       ConnectorEvent::EnvironmentChanged {
         cwd,
         git_branch,
         git_sha,
-      } => ConnectorOutput::State(ConnectorStateEvent::EnvironmentChanged {
+      } => ConnectorStateEvent::EnvironmentChanged {
         cwd,
         git_branch,
         git_sha,
-      }),
+      }
+      .into(),
       ConnectorEvent::RateLimitEvent { info } => {
-        ConnectorOutput::State(ConnectorStateEvent::RateLimitEvent { info })
+        ConnectorStateEvent::RateLimitEvent { info }.into()
       }
       ConnectorEvent::PromptSuggestion { suggestion } => {
-        ConnectorOutput::State(ConnectorStateEvent::PromptSuggestion { suggestion })
+        ConnectorStateEvent::PromptSuggestion { suggestion }.into()
       }
       ConnectorEvent::FilesPersisted { files } => {
-        ConnectorOutput::State(ConnectorStateEvent::FilesPersisted { files })
+        ConnectorStateEvent::FilesPersisted { files }.into()
       }
       ConnectorEvent::SubagentsUpdated { subagents } => {
-        ConnectorOutput::State(ConnectorStateEvent::SubagentsUpdated { subagents })
+        ConnectorStateEvent::SubagentsUpdated { subagents }.into()
       }
       ConnectorEvent::HookSessionId(session_id) => {
         ConnectorOutput::Runtime(ConnectorRuntimeDirective::HookSessionId(session_id))
@@ -678,7 +682,7 @@ impl From<ConnectorEvent> for ConnectorOutput {
       ConnectorEvent::ToolPtyExited { tool_id, exit_code } => {
         ConnectorOutput::Transport(ConnectorTransportEffect::ToolPtyExited { tool_id, exit_code })
       }
-      ConnectorEvent::Error(msg) => ConnectorOutput::State(ConnectorStateEvent::Error(msg)),
+      ConnectorEvent::Error(msg) => ConnectorStateEvent::Error(msg).into(),
     }
   }
 }

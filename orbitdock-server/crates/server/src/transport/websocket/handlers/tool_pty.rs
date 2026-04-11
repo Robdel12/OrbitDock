@@ -33,6 +33,17 @@ fn abort_tool_pty_forwarder(conn_id: u64, tool_id: &str) {
   }
 }
 
+pub(crate) fn abort_tool_pty_forwarders_for_connection(conn_id: u64) {
+  let keys: Vec<ToolPtyForwarderKey> = tool_pty_forwarders()
+    .iter()
+    .filter_map(|entry| (entry.key().0 == conn_id).then(|| entry.key().clone()))
+    .collect();
+
+  for (_, tool_id) in keys {
+    abort_tool_pty_forwarder(conn_id, &tool_id);
+  }
+}
+
 pub(crate) async fn handle(
   msg: ClientMessage,
   client_tx: &mpsc::Sender<OutboundMessage>,
