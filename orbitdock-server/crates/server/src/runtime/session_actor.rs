@@ -245,7 +245,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn actor_subscribe_returns_state_and_receiver() {
+  async fn actor_subscribe_without_revision_returns_replay() {
     let (persist_tx, _persist_rx) = mpsc::channel(64);
     let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
 
@@ -259,10 +259,12 @@ mod tests {
 
     let result = rx.await.unwrap();
     match result {
-      crate::runtime::session_commands::SubscribeResult::Replay { .. } => {
-        panic!("expected resync-required, got replay")
+      crate::runtime::session_commands::SubscribeResult::Replay { events, .. } => {
+        assert!(events.is_empty());
       }
-      crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {}
+      crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {
+        panic!("expected replay, got resync-required")
+      }
     }
   }
 
