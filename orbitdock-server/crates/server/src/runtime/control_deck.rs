@@ -743,12 +743,17 @@ mod tests {
       "expected a standard accepted user row id, got {}",
       result.row.id()
     );
-    let snapshot = result.snapshot.expect("submit response should include snapshot");
+    let snapshot = result
+      .snapshot
+      .expect("submit response should include snapshot");
     assert_eq!(snapshot.session_id, session_id);
 
     let action = action_rx.recv().await.expect("connector action");
     assert!(
-      matches!(action, crate::connectors::codex_session::CodexAction::SendMessage { .. }),
+      matches!(
+        action,
+        crate::connectors::codex_session::CodexAction::SendMessage { .. }
+      ),
       "expected control deck submit to dispatch a send message action"
     );
   }
