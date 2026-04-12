@@ -1,40 +1,119 @@
 # OrbitDock Data Flow Contract
 
-This is the current server-authoritative contract for OrbitDock.
+This is the transport source of truth for OrbitDock.
+
+If a client-side implementation fights this document, treat the code as the thing that needs to move.
 
 The short version:
 
-- HTTP owns initial and heavy reads.
-- WebSocket owns realtime updates and replay.
+- HTTP owns bootstrap, pagination, and mutation responses.
+- WebSocket owns realtime follow-up, replay, heartbeats, and explicit refetch hints.
 - The Rust server owns durable business truth.
-- The client renders server state. It does not reconstruct business state from connector internals.
-- WebSocket begins with a lightweight `hello` handshake that advertises server metadata and surface capabilities.
+- The native app renders server state through explicit scene and surface owners.
+- `SessionStore` is transport infrastructure, not product state.
 
-Today’s important nuance:
+## Core Contract
 
-- HTTP is the only bootstrap path.
-- WebSocket carries deltas, replay, heartbeats, and explicit resync/refetch hints only.
-- If replay cannot satisfy a revision gap, the client refetches the matching HTTP surface.
-- Transport failures should surface directly. OrbitDock should not try to infer protocol compatibility from unrelated decode or bootstrap errors.
+OrbitDock uses a surface-based transport model.
+
+Each rendered surface should have:
+
+- one owner
+- one HTTP authority
+- one realtime follow-up path
+
+Examples:
+
+- dashboard
+- missions
+- session detail
+- conversation
+- control deck
+- review canvas
+- skills
+- MCP servers
+
+The client should not rebuild all session UI from one giant mutable session blob.
+
+## Transport Roles
+
+### HTTP
+
+HTTP is authoritative for:
+
+- initial snapshot loads
+- pagination
+- heavy payloads
+- mutation responses
+- targeted refetch after invalidation or replay failure
+
+HTTP is the only normal bootstrap path.
+
+### WebSocket
+
+WebSocket is authoritative for:
+
+- connection metadata
+- replay from a known revision
+- lightweight realtime deltas
+- explicit refetch or resync hints
+
+WebSocket should not become a second bootstrap channel for large surface snapshots.
+
+## Client Ownership Model
+
+The native app should follow this shape:
+
+1. scene owners resolve stable dependencies
+2. feature owners bootstrap and render one surface
+3. `SessionStore` provides transport APIs and async streams
+
+That means:
+
+- scene owners resolve the endpoint-scoped `SessionStore` before mounting child features
+- feature owners decide which HTTP snapshot to load and which realtime feed to observe
+- child views render state passed to them explicitly
+
+The client should not:
+
+- mount against placeholder production stores
+- let multiple child features independently bootstrap the same surface
+- treat websocket events as the primary business-state model
+
+## SessionStore Contract
+
+`SessionStore` is a narrow transport shell.
+
+It may:
+
+- manage websocket connection lifecycle
+- expose typed HTTP clients
+- expose targeted async streams
+- handle replay and reconnect recovery
+
+It should not:
+
+- become a shared session view model
+- own feature presentation state
+- synthesize every screen from one mixed state object
 
 ## Architecture Diagram
 
 ```mermaid
 flowchart TD
-    UI[SwiftUI / CLI surfaces]
-    VM[View Models]
-    SS[SessionStore — transport shell]
-    WS[WebSocket realtime + replay]
-    HTTP[HTTP snapshots + pagination + mutations]
+    UI[SwiftUI scenes and feature views]
+    OWNERS[Scene owners and surface owners]
+    SS[SessionStore transport shell]
+    WS[WebSocket replay and deltas]
+    HTTP[HTTP snapshots and mutations]
     API[Rust transport layer]
-    DOMAIN[Session actor + transition system]
+    DOMAIN[Session actors and transitions]
     DB[(SQLite durable truth)]
-    RT[Connector runtime / harnesses]
+    RT[Connector runtime]
 
-    UI --> VM
-    VM --> SS
-
-    VM --> HTTP
+    UI --> OWNERS
+    OWNERS --> SS
+    OWNERS --> HTTP
     SS --> WS
 
     HTTP --> API
@@ -45,182 +124,151 @@ flowchart TD
     RT --> DOMAIN
 ```
 
-The rule of thumb:
-
-- HTTP loads authoritative surface state.
-- WebSocket only delivers incremental realtime change or replay from a known revision.
-- The domain layer decides business state.
-- SQLite stores that business state durably.
-- Connector runtime is operational plumbing, not product truth.
-
-## Session Authority Diagram
-
-```mermaid
-stateDiagram-v2
-    [*] --> PassiveOpen: create passive
-    [*] --> DirectOpen: create direct
-
-    PassiveOpen --> DirectOpen: takeover
-    DirectOpen --> DirectResumable: connector detached / resume required
-    DirectResumable --> DirectOpen: explicit resume + harness attached
-
-    PassiveOpen --> Ended: end
-    DirectOpen --> Ended: end
-    DirectResumable --> Ended: end
-```
-
-## Principles
-
-1. HTTP is the bootstrap path.
-   Dashboard, session bootstrap, and pagination all start from HTTP.
-2. WebSocket is the follow-up path.
-   After the client has a snapshot revision, it subscribes for realtime updates and replay from that revision.
-3. Session authority lives on the server.
-   `control_mode`, `lifecycle_state`, and `accepts_user_input` are server-owned fields.
-4. Mutation responses are authoritative.
-   Successful `POST`/`PATCH`/`PUT` responses are applied immediately by the client. WS reconciles afterward.
-5. WebSocket events are signals, not state.
-   A WS event tells the client **something changed**. The client should re-fetch the relevant HTTP snapshot to get the authoritative state. Never bridge WS event payloads directly into view model state as the primary data path — that creates a second source of truth that drifts from the server.
-   - Conversation row deltas are the one exception: they carry server-assigned sequence numbers and are applied incrementally by design.
-   - For everything else (approvals, config changes, session status), the WS event is a trigger to refresh, not a replacement for the HTTP snapshot.
-
-## Boundary Rules
-
-- The client may derive presentation, never business truth.
-- The Rust domain layer owns `control_mode`, `lifecycle_state`, and `accepts_user_input`.
-- Runtime connector maps may support those fields, but they do not define them.
-- Large payloads move over HTTP. WebSocket should carry deltas, replay, heartbeats, and refetch hints.
-- Replay gaps are handled by refetching the exact affected HTTP surface, not by rebuilding unrelated state.
-- Each surface has one bootstrap path and one realtime path.
-
-## Surface Model
-
-OrbitDock now treats UI data as named surfaces instead of one catch-all session blob.
+## Surface Bootstrap Rules
 
 ### Dashboard
 
 - HTTP: `GET /api/dashboard`
-- WS subscribe: `subscribe_dashboard { since_revision }`
-- Purpose:
-  - root session list
-  - dashboard conversations
-  - dashboard counts
+- WS follow-up: dashboard replay or invalidation
+- Owner: dashboard scene or dashboard view model
 
 ### Missions
 
 - HTTP: canonical missions snapshot endpoint
-- WS subscribe: `subscribe_missions { since_revision }`
-- Purpose:
-  - mission summaries
-  - mission realtime deltas
+- WS follow-up: missions replay or invalidation
+- Owner: mission control scene or mission control view model
 
-### Session Detail
+### Session Detail Shell
 
-- HTTP state source: session bootstrap payload
-- WS subscribe: `subscribe_session_surface { session_id, surface: detail, since_revision }`
-
-### Session Composer
-
-- HTTP state source: session bootstrap payload
-- WS subscribe: `subscribe_session_surface { session_id, surface: composer, since_revision }`
+- HTTP: selected-session bootstrap snapshot
+- WS follow-up: detail-specific invalidation or replay
+- Owner: session detail scene
 
 ### Conversation
 
 - HTTP bootstrap: `GET /api/sessions/{id}/conversation?limit=...`
 - HTTP pagination: `GET /api/sessions/{id}/messages?before_sequence=...&limit=...`
-- WS subscribe: `subscribe_session_surface { session_id, surface: conversation, since_revision }`
+- WS follow-up: conversation row replay, row deltas, or explicit conversation resync
+- Owner: conversation view model
+
+### Other Session Surfaces
+
+This includes control deck, review canvas, skills, and MCP servers.
+
+- HTTP: surface-specific authoritative snapshot
+- WS follow-up: surface-specific invalidation or replay hint
+- Owner: the matching feature owner for that surface
+
+These surfaces should not refresh because of a broad unrelated per-session event.
 
 ## Boot Sequences
 
 ### Dashboard Boot
 
 1. WebSocket connects and receives `hello`.
-2. Client fetches `GET /api/dashboard`.
-3. Client applies the snapshot and stores its revision.
-4. Client subscribes to dashboard updates with `since_revision = snapshot.revision`.
+2. The dashboard owner fetches `GET /api/dashboard`.
+3. The owner applies the snapshot and stores its revision.
+4. The owner subscribes to dashboard follow-up from that revision.
 
-There should not be a second eager dashboard bootstrap path in parallel.
+There should not be parallel eager dashboard bootstraps from sibling views.
 
-### Session Boot
+### Session Detail Boot
 
-1. Client fetches `GET /api/sessions/{id}/conversation?limit=...`.
-2. Client applies the returned `session` to detail and composer state.
-3. Client applies the returned rows to conversation state and stores `session.revision`.
-4. Client subscribes to the WS surfaces it renders with `since_revision = session.revision`.
+1. The session detail scene resolves the real endpoint-scoped `SessionStore`.
+2. The scene decides which surfaces are visible.
+3. Each visible surface owner performs exactly one HTTP bootstrap.
+4. Each surface owner subscribes to its own follow-up stream from the returned revision.
 
-Conversation screens usually need:
+If one intentional selected-session bootstrap hydrates multiple closely related surfaces, that is fine.
 
-1. session bootstrap HTTP
-2. conversation WS replay/deltas
-3. detail WS replay/deltas
+What is not fine:
 
-Composer screens usually need:
+- conversation bootstrapping itself one way
+- session detail bootstrapping it another way
+- a shared session observer bootstrapping it a third way
 
-1. session bootstrap HTTP
-2. composer WS replay/deltas
-3. conversation HTTP/WS only if the composer screen also renders history
+## Mutation Rules
 
-## Replay Rules
+Successful mutation responses are authoritative.
 
-- Every replayable WS subscription accepts `since_revision`.
+For a user action:
+
+1. send the HTTP request
+2. apply the successful response immediately
+3. let websocket follow-up reconcile afterward
+
+Do not wait for a later websocket event when the HTTP response already contains the accepted state.
+
+## Replay And Resync Rules
+
+- Every replayable realtime feed should accept a revision or equivalent cursor.
 - If the server can replay from that revision, it sends only the missing events.
-- If the replay window is too old or unavailable, the server tells the client to refetch that surface over HTTP.
-- The client must treat HTTP refetch as the fallback, not try to synthesize missing state locally.
+- If replay cannot satisfy the gap, the server tells the client to refetch the matching HTTP surface.
+- The client refetches the exact affected surface, not unrelated state.
+
+This is especially important for reconnects. Replay gaps should trigger targeted recovery, not full-screen rebuilds.
+
+## Conversation Exception
+
+Conversation is the one normal surface that may apply realtime payloads directly.
+
+That works because conversation rows are:
+
+- server-assigned
+- sequence-based
+- replayable
+- append/update oriented
+
+So conversation may:
+
+- bootstrap from HTTP
+- append or update rows from websocket
+- refetch from HTTP only for pagination or explicit conversation resync
+
+For most other surfaces, websocket should be treated as a signal to refresh authoritative HTTP state.
 
 ## Durable Session Authority
 
-The server is responsible for these fields:
+The server owns durable session truth such as:
 
 - `control_mode`
-  - `direct`
-  - `passive`
 - `lifecycle_state`
-  - `open`
-  - `resumable`
-  - `ended`
 - `accepts_user_input`
 
-The intended model is:
+The client may derive presentation from those fields, but it must not infer them from:
 
-- `direct + open` means OrbitDock owns the live control path.
-- `passive + open` means the underlying provider session is live, but OrbitDock does not own direct control.
-- `direct + resumable` means this is still a direct session, but it needs a resume path rather than immediate input.
-- `ended` means historical only.
+- connector runtime maps
+- missing channels
+- transcript content
+- partial websocket payloads
 
-The client should never infer these from connector maps, missing channels, or transcript patterns.
+If the client needs a durable fact, add it to the server contract.
 
-## Conversation Row Rules
+## Anti-Patterns
 
-- Conversation rows remain single-writer, server-assigned, and sequence-based.
-- HTTP bootstrap and pagination return server-owned ordering metadata:
-  - `total_row_count`
-  - `has_more_before`
-  - `oldest_sequence`
-  - `newest_sequence`
-- WS conversation updates carry row changes and replay events, not full raw tool payloads.
-- Expanded tool content is still fetched on demand via HTTP.
+Do not introduce:
 
-## Send Semantics
+- dual bootstrap paths for the same surface
+- websocket-only large surface loads
+- broad per-session refresh loops for unrelated surfaces
+- client-side business-state inference
+- a god-object session store
+- send flows that wait for websocket before showing the accepted response
+- replay recovery that rebuilds unrelated UI
 
-`POST /api/sessions/{id}/messages` must obey this contract:
+## Practical Summary
 
-1. connector enqueue succeeds
-2. server persists and broadcasts the accepted row
-3. HTTP response returns the authoritative accepted row
-4. client applies the response immediately
+When you touch the native client:
 
-If connector enqueue fails:
+- start from the owning scene
+- give each rendered surface one owner
+- use HTTP for authority
+- use websocket for follow-up
+- keep `SessionStore` narrow
+- refresh only the surface that actually changed
 
-- the server returns an error such as `connector_unavailable`
-- no accepted conversation row is created
-- the client keeps the draft locally and shows the failure
+When you touch the server:
 
-## What We Intentionally Avoid
-
-- No dual bootstrap for the same surface.
-- No client-owned business-state inference.
-- No “accept first, fail later” send path that leaves ghost rows behind.
-- No using WebSocket as the only source for large initial payloads.
-- No broad god-object session store that synthesizes every UI surface from one mixed state blob.
-- No durable state transitions driven implicitly by runtime channel presence alone.
-- No heavy all-rows websocket resync when a targeted HTTP refetch hint would do.
+- keep durable state in the transition system
+- persist and broadcast together
+- use websocket for deltas and refetch hints, not heavy bootstrap payloads

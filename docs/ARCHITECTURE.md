@@ -1,148 +1,277 @@
 # Architecture
 
-OrbitDock has two architectural halves — a Rust server that owns all business state, and native clients (SwiftUI) that render it. This doc covers both.
+This is the source of truth for OrbitDock's system design.
 
----
+If the code and this doc disagree, treat this doc as the target architecture for new work and refactors. Don't cargo-cult the current implementation if it fights the model described here.
 
-## Part 1: Client Architecture
+OrbitDock has two architectural halves:
 
-The OrbitDock client is organized around one core pattern and a set of guardrails to prevent common pitfalls.
+- the Rust server owns durable business state
+- the native SwiftUI app renders that state through explicit scene and surface boundaries
 
-### The Core Pattern
+## Part 1: Native Client Architecture
 
-Every UI surface follows the same data-flow architecture:
+The Swift app should feel like a native macOS and iOS app, not a web app port with a pile of global state.
 
-1. **HTTP snapshot on view appear** — the view model fetches its data from a REST endpoint and owns it.
-2. **WebSocket subscription while on screen** — server events signal that something changed; the client re-fetches the HTTP snapshot.
-3. **View model is the single source of truth** — for that surface only. No shared mutable session objects.
+That means:
 
-When the user navigates away, the subscription tears down. No background state accumulation.
+- scenes own composition, routing, and stable dependencies
+- feature view models own one surface worth of state
+- `SessionStore` owns transport only
+- the server owns business truth
 
-#### Example Flow
+## The Shape Of The App
 
-```swift
-@Observable
-final class SurfaceViewModel {
-  var snapshot: SurfaceSnapshot?
+Think in two layers:
 
-  func refresh() async {
-    // Coalesce: skip if already refreshing, queue one more
-    let payload = try await store.clients.surface.fetch(sessionId)
-    // Revision guard: never regress
-    guard payload.revision >= (snapshot?.revision ?? 0) else { return }
-    snapshot = SurfaceMapper.map(payload)
-  }
-}
+1. scene owners
+2. feature surfaces
 
-// In the view:
-.task(id: sessionId) {
-  viewModel.bind(...)
-  await viewModel.refresh()
-}
-.task(id: sessionId + ":ws") {
-  let stream = store.sessionChanges(for: sessionId)
-  for await _ in stream {
-    await viewModel.refresh()
-  }
-}
-```
+### Scene Owners
 
-### Surface Model
+Scene owners are the top-level SwiftUI entry points that decide:
 
-Each screen in the app maps to one view model and one HTTP endpoint:
+- what screen or split layout is visible
+- which endpoint-scoped dependencies are active
+- which session surfaces should be subscribed while the scene is on screen
+- which state is scene-scoped instead of feature-scoped
 
-| Surface | HTTP Endpoint | WS Triggers |
-|---------|---|---|
-| Dashboard | `GET /api/dashboard` | `dashboardInvalidated` |
-| Library | `GET /api/library` | `dashboardInvalidated` |
-| Mission Control | `GET /api/missions` | `missionsInvalidated` |
-| Session Detail | `GET /api/sessions/{id}/detail` | `sessionDelta`, `sessionEnded` |
-| Control Deck | `GET /api/sessions/{id}/control-deck` | `sessionDelta`, `approvalRequested`, `tokensUpdated` |
-| Conversation | `GET /api/sessions/{id}/conversation` | `conversationRowsChanged` (data-carrying exception) |
-| Skills/MCP | `GET /api/sessions/{id}/skills`, `/mcp/tools` | `skillsList`, `mcpToolsList` |
-| Review Canvas | `GET /api/sessions/{id}/diffs` | `turnDiffSnapshot`, `reviewComment*` |
+Examples:
 
-### Ownership Rules
+- app root window
+- dashboard scene
+- session detail scene
+- mission scene
+- settings scene
 
-**The server owns all business state.** The Swift client should render server state, not reconstruct business logic by scanning history or guessing queue state. If the client needs new durable truth, change the server contract.
+Scene owners do not parse protocol payloads, synthesize business state, or own multiple feature snapshots in one giant mutable object.
 
-**Each view model owns its screen state** via HTTP snapshots. There is no shared mutable session object. Each surface fetches and owns its own data.
+### Feature Surfaces
 
-- `SessionStore` is a transport shell. It manages the WS connection and exposes change streams. It does not hold session state.
-- View models own screen-specific state and orchestration.
-- Views stay declarative — render state, forward gestures.
+A surface is a renderable feature with one owner and one contract.
 
-### WebSocket Semantics
+Examples:
 
-**WS events are signals, not state.**
+- dashboard
+- library
+- mission control
+- session detail
+- conversation
+- control deck
+- review canvas
+- skills
+- MCP servers
 
-When a WebSocket event arrives (approval requested, config changed, session status), the client should re-fetch the owning HTTP snapshot and apply it as the single source of truth. Do not bridge WS event payloads directly into view model properties — that creates a parallel state tree that drifts from the server and causes bugs where the UI shows stale or missing state until the user navigates away and back.
+Each surface should have:
 
-**The only exception:** conversation row deltas, which carry server-assigned sequence numbers and are applied incrementally by design.
+- one view model
+- one authoritative snapshot model
+- one HTTP bootstrap path
+- one realtime follow-up path
 
-### Global WebSocket
+The surface owner may be a feature view model, or a scene-level coordinator when a single HTTP payload intentionally hydrates multiple closely related surfaces.
 
-One lightweight global WS connection handles infrastructure events only:
+## Client Rules
 
-- `connectionStatusChanged` — triggers reconnect/recovery
-- `error` — server error handling and resync
-- `serverInfo` — server metadata
-- `modelsList` — global model catalog
-- `revision` — revision tracking for replay
+### 1. Scene ownership comes first
 
-These are not per-surface. They affect the transport layer, not UI state.
+Resolve real dependencies before mounting the subtree that uses them.
 
-### What Does NOT Exist
+In practice:
 
-- No `SessionObservable` — no shared mutable object holding all session state.
-- No `SessionStateProjection` — no layer that applies server snapshots to a shared object.
-- No `SessionControlStateReducer` — no state machine processing WS events into transitions.
-- No `CapabilitiesService` — view models call HTTP clients directly.
-- No `withObservationTracking` on shared objects — view models own their state.
+- resolve the endpoint-scoped `SessionStore` in the scene owner
+- pass stable typed dependencies downward
+- avoid remounting child surfaces against placeholder stores
 
-### `SessionStore` Role
+Do not hide dependency resolution inside multiple child view models. That creates unstable identity and lifecycle bugs.
 
-`SessionStore` is a thin transport shell:
+### 2. Feature state is surface-local
 
-- Manages the WS connection lifecycle
-- Exposes `sessionChanges(for:)` — an `AsyncStream<Void>` per session that yields when any WS event arrives
-- Exposes `conversationRowChanges(for:)` — an `AsyncStream<ConversationRowDelta>` per session for row deltas
-- Exposes typed HTTP clients via `store.clients`
-- Handles connection recovery and session re-subscription
+Each feature view model owns only the state needed to render its surface.
 
-`SessionStore` does NOT:
+Good:
 
-- Hold session state
-- Mutate shared observables
-- Own feature logic
-- Decide what UI should show
+- `ConversationViewModel` owns conversation rows and presentation state
+- `ControlDeckViewModel` owns control-deck snapshot and controls
+- `ReviewCanvasViewModel` owns review snapshot and review-specific UI state
 
-### REST And WebSocket Split
+Bad:
 
-Default to REST for client-initiated reads and mutations.
+- one shared session observable holding everything
+- one god object that every screen reads from
+- one transport store that also becomes product state
 
-Use WebSocket for:
+### 3. `SessionStore` is a transport shell
 
-- subscriptions
-- streaming turn interaction
-- server-pushed real-time events
+`SessionStore` exists to do transport work:
 
-If a REST mutation needs to notify other clients, let the server broadcast the result afterward. Do not send the mutation itself over WebSocket just because a broadcast follows.
+- manage WS connection lifecycle
+- expose typed HTTP clients
+- expose targeted async streams for realtime follow-up
+- handle replay and reconnect recovery
 
-### Client Mutation Flow
+`SessionStore` does not:
 
-1. View model receives user intent (tap, submit, config change).
-2. View model calls the typed HTTP client (`store.clients.controlDeck.updateConfig(...)`)
-3. The HTTP response is the authoritative state — view model applies it as the new snapshot.
-4. WS events reconcile any remaining drift via the next refresh cycle.
+- own UI state
+- decide presentation
+- synthesize feature state for every screen
+- become a shared mutable session model
 
----
+### 4. The server owns business truth
 
-## Part 2: Server State Architecture
+The Swift app renders server state. It does not infer durable state by scanning connector output, transcript history, or missing channels.
 
-The Rust server owns all durable session state. Every mutation follows one path: **validate → persist → broadcast**. The database is always the source of truth.
+If the client needs a new durable fact, add it to the server contract.
 
-### The Transition System
+### 5. Mutation responses are authoritative
+
+For user-initiated mutations:
+
+1. send an HTTP request
+2. apply the successful response immediately
+3. let WS reconcile afterward
+
+Do not wait for a later websocket event before updating the visible surface when the HTTP response already contains authoritative state.
+
+## SwiftUI Ownership Rules
+
+These rules align with the native Swift skills OrbitDock should follow.
+
+### Use modern Observation
+
+- use `@Observable` for reference-type UI models
+- own created observable models with `@State`
+- pass observable models explicitly to children
+- use `@Bindable` when a child needs bindings into an injected observable model
+
+Do not introduce new:
+
+- `ObservableObject`
+- `@Published`
+- `@StateObject`
+- `@ObservedObject`
+- `@EnvironmentObject`
+
+### Keep identity stable
+
+- use stable `.id(...)` values only when they represent real identity
+- prefer `@ViewBuilder` and enums over `AnyView`
+- keep scene ownership and dependency resolution stable so child tasks do not flap
+
+Do not use `AnyView` in core feature composition. It destroys structural identity and makes SwiftUI lifecycle bugs much harder to reason about.
+
+### Use `.task` for effectful work
+
+- use `.task` for lifecycle-bound async work
+- use `.task(id:)` when the work should restart from a stable dependency change
+- use `.onChange` only for lightweight synchronous synchronization
+
+Do not use `.onAppear` as the default place for async bootstrap logic.
+
+### Keep service injection separate from feature ownership
+
+Shared app services are fine in `@Environment(Type.self)`:
+
+- runtime registry
+- router
+- pricing service
+- usage registry
+
+But feature view models should still receive their real dependencies explicitly from the owning scene or parent feature.
+
+### Prefer native scene patterns
+
+For desktop flows:
+
+- use explicit selection-driven layouts
+- prefer `NavigationSplitView` or deliberate split layouts over touch-first push stacks
+- keep commands, toolbars, inspectors, and keyboard behavior first-class
+
+## Surface Ownership Map
+
+This is the intended ownership model.
+
+| Surface | Owner | HTTP authority | Realtime follow-up |
+| --- | --- | --- | --- |
+| Dashboard | dashboard scene/view model | `GET /api/dashboard` | dashboard replay or invalidation |
+| Library | library scene/view model | `GET /api/library` | dashboard or library invalidation |
+| Missions | mission control scene/view model | canonical missions snapshot | missions replay or invalidation |
+| Session detail shell | session detail scene/view model | selected-session detail snapshot | detail-specific invalidation |
+| Conversation | conversation view model | conversation bootstrap + pagination | conversation row deltas + explicit conversation resync |
+| Control deck | control-deck view model | control-deck snapshot | control-deck-specific invalidation |
+| Review canvas | review view model | review/diff snapshot | review-specific invalidation |
+| Skills | skills view model | skills snapshot | skills-specific invalidation |
+| MCP servers | MCP view model | MCP snapshot | MCP-specific invalidation |
+
+Two important notes:
+
+- The selected session bootstrap may intentionally hydrate multiple related surfaces once. That is fine when one owner does it on purpose.
+- What is not fine is each child surface independently inventing another bootstrap path for the same session state.
+
+## Transport Follow-Up Model
+
+By default:
+
+- HTTP loads authoritative state
+- WebSocket tells the client what changed
+- the owning surface decides whether to apply a delta directly or refresh from HTTP
+
+### The only normal data-carrying exception
+
+Conversation rows are allowed to arrive incrementally over WebSocket because the server owns their IDs, ordering, and replay semantics.
+
+That means conversation may:
+
+- bootstrap from HTTP
+- append or update rows from WS deltas
+- refetch from HTTP only on explicit conversation resync or pagination
+
+### Everything else should be refresh-driven
+
+For approvals, config, session status, review data, skills, and MCP capability changes:
+
+- treat WS as a signal
+- refresh the owning HTTP snapshot
+- replace the local surface state with the new authoritative snapshot
+
+Do not build a parallel client-side state machine out of websocket payloads.
+
+## What The Native App Should Not Do
+
+Do not add:
+
+- shared mutable session objects
+- placeholder production stores like `SessionStore.preview()` as real runtime ownership
+- broad per-session refresh loops for unrelated surfaces
+- giant scene roots that own routing, composition, dependency lookup, and feature logic all at once
+- `AnyView` in core composition paths
+- async work primarily driven by `.onAppear`
+- feature services whose main job is mutating a shared observable blob
+
+## Recommended File Shape
+
+For non-trivial SwiftUI features:
+
+- scene shell file: composition and lifecycle wiring only
+- feature view model file: one surface, one snapshot model
+- section/chrome files: visual decomposition
+- planner/mapper files: pure shaping logic
+- service files: transport or platform integration
+
+If a file starts collecting unrelated views, models, stores, networking code, and helpers, split it.
+
+## Part 2: Server Architecture
+
+The Rust server owns all durable session state. Every mutation follows one path:
+
+1. validate
+2. transition
+3. persist
+4. broadcast
+
+The database is always the source of truth.
+
+## The Transition System
 
 All session state mutations flow through a pure transition function:
 
@@ -150,166 +279,98 @@ All session state mutations flow through a pure transition function:
 fn transition(state: TransitionState, input: Input, now: DateTime) -> (TransitionState, Vec<Effect>)
 ```
 
-This function is pure and synchronous — no IO, no side effects. It takes the current state and an input event, and returns the new state plus a list of effects to execute. The effects are:
+This function is pure and synchronous.
 
-- `Effect::Persist(PersistOp)` — write to the database
-- `Effect::Emit(ServerMessage)` — broadcast to WebSocket subscribers
+It decides:
 
-The session actor executes these effects after the transition completes. Persist and broadcast always happen together — if the transition says to persist, it also says to broadcast, so clients never see stale state and the database never misses a mutation.
+- the next state
+- what to persist
+- what to broadcast
 
-**Location:** `connector-core/src/transition.rs`
+Effects are executed by the session actor after the transition completes.
 
-### How Events Flow
+## Session Actor Model
 
-```
-Connector event (hook, transcript line, API response)
-    ↓
-SessionCommand::ProcessEvent { event: Input }
-    ↓
-Session actor receives command
-    ↓
-extract_state() — pull current TransitionState from SessionHandle
-    ↓
-transition(state, input, now) — pure function, returns (new_state, effects)
-    ↓
-apply_state() — write new TransitionState back to SessionHandle
-    ↓
-Execute effects:
-  - Persist → send to persistence actor via mpsc
-  - Emit → broadcast to WebSocket subscribers via tokio::broadcast
-```
+Each session gets its own actor task.
 
-Every connector (Claude hooks, Codex hooks, direct sessions) feeds events into `ProcessEvent`. The transition function decides what changes, what persists, and what broadcasts. No connector code should persist or broadcast directly.
+That gives us:
 
-### Session Actor Model
+- no lock-based mutation races
+- sequential command handling
+- lock-free snapshot reads through `ArcSwap<SessionSnapshot>`
 
-Each session gets its own actor task. External callers interact through `SessionActorHandle`, which sends commands over an mpsc channel. This means:
+Connectors and handlers must not mutate session state directly. They feed inputs into the actor, and the actor runs the transition.
 
-- **No locks** — the actor processes commands sequentially
-- **Lock-free reads** — `ArcSwap<SessionSnapshot>` lets any thread read the latest snapshot without blocking the actor
-- **No shared mutable state** — the actor owns `SessionHandle`, nobody else touches it
+## Server Rule
 
-The actor loop:
+Every durable session mutation must go through the transition system.
 
-```
-loop {
-  select! {
-    cmd = command_rx.recv() => handle_session_command(cmd, &mut handle, &persist_tx),
-    event = connector_rx.recv() => dispatch_transition_input(event, &mut handle, &persist_tx),
-  }
-}
-```
+Do not bypass it for:
 
-### Input Variants
+- simple field updates
+- convenience broadcasts
+- approval flow shortcuts
+- connector-specific mutations
 
-The `Input` enum covers every kind of state change:
+If a mutation needs to exist, it needs:
 
-| Category | Examples |
-|----------|---------|
-| Lifecycle | `Started`, `Ended`, `Paused`, `Resumed` |
-| Work progress | `WorkingOnTool`, `ToolCompleted`, `ThinkingStarted` |
-| Approvals | `ApprovalRequested`, `AttentionUpdated` |
-| Config | `ModelUpdated`, `EffortUpdated`, `PermissionModeChanged` |
-| Environment | `EnvironmentChanged`, `TranscriptPathUpdated` |
-| Content | `SummaryUpdated`, `FirstPromptCaptured`, `PlanUpdated` |
-| Subagents | `SubagentStarted`, `SubagentStopped` |
+- an input variant
+- transition logic
+- persist effects
+- broadcast effects
 
-When adding a new state mutation, add a new `Input` variant and handle it in the transition function. Do not bypass the transition system.
+## Server Anti-Patterns
 
-### The One Rule
+Do not reintroduce:
 
-**Every state mutation must go through `ProcessEvent`.** No exceptions for "simple" fields or "just a broadcast."
+- fire-and-forget in-memory mutations
+- split persist and broadcast paths
+- connector-owned direct state mutation
+- caller-side duplicate persistence after a handler already owns the update
 
-The transition function is the only place that decides:
-- What the new state looks like
-- What gets persisted
-- What gets broadcast to clients
+## Part 3: Cross-Layer Guardrails
 
-This guarantees:
-- The database is always consistent with in-memory state
-- Every client sees every change
-- Server restart recovers the exact state that was last persisted
-- Business logic is testable in isolation (the transition function is pure)
+### Typed boundaries
 
-### Approved Exceptions
+Keep the Swift side strongly typed to match server contracts.
 
-A small number of `ApplyDelta { persist_op: None }` calls remain. These are intentional and documented:
+- avoid schema-free payload bags where a real type exists
+- keep protocol boundaries explicit
+- keep forward-compatible decoding resilient
 
-| Location | Reason |
-|----------|--------|
-| `handler.rs` (2 sites) | Ephemeral UI broadcasts (tool_result/tool_error working status) — the real persist happens through the transition that follows |
-| `session_resume.rs` | Timing-sensitive init — permission_mode must broadcast before the connector loop starts |
-| `session_direct_start.rs` | Same timing-sensitive init pattern as resume |
-| `git_refresh.rs` | Filesystem-derived state (git status), not business truth |
-| Test-only sites | Test helpers that need lightweight state setup |
+### SQLite ownership
 
-If you're adding a new `ApplyDelta { persist_op: None }`, stop and route through `ProcessEvent` instead.
+Only the Rust server reads and writes SQLite directly.
 
-### Approval Flow
+The app and CLI should go through server APIs.
 
-Approvals follow the same transition path:
+### Endpoint scoping
 
-**Request:** Connector detects a tool needing approval → `ProcessEvent(Input::ApprovalRequested { ... })` → transition atomically sets pending_approval, work_status, persists the approval row AND the session update, and broadcasts to all subscribers.
+All client state must be scoped by endpoint plus session identity.
 
-**Resolve:** HTTP handler calls `SessionCommand::ResolvePendingApproval` → the handler resolves in-memory, persists the updated work_status, broadcasts the delta, and returns the result. Callers do not need to separately persist — the handler owns the full persist + broadcast cycle.
+Always guard async callbacks against stale binding context before applying results.
 
-### Anti-Patterns
+### Runtime versus product truth
 
-These patterns were eliminated during the refactor. Do not reintroduce them:
+Connector runtime is operational plumbing.
 
-**Fire-and-forget commands** — Commands like `SetModel`, `SetLastTool`, `SetPendingApproval` that mutated in-memory state without persisting or broadcasting. State was lost on restart and clients saw stale data.
+It may help the server produce product truth, but it is not product truth by itself. The client should not treat runtime artifacts as durable UI authority.
 
-**Split persist + broadcast** — Sending `ApplyDelta { persist_op: None }` for the broadcast, then a separate `PersistCommand` for the persist. If either failed, the database and in-memory state would diverge.
+## Practical Summary
 
-**Caller-side persist after resolve** — Callers of `ResolvePendingApproval` separately sending `PersistCommand::SessionUpdate` for work_status. The handler now owns this, so callers should not persist work_status themselves.
+If you're touching the Swift app:
 
-**Direct state mutation from connectors** — Connector code reaching into `SessionHandle` to mutate fields directly instead of routing through the transition system.
+- start from the owning scene
+- keep dependencies stable before mounting children
+- give each feature one owner and one contract
+- use HTTP for authority and WS for follow-up
+- keep `SessionStore` narrow
+- write SwiftUI the native way, not the web-app way
 
----
+If you're touching the server:
 
-## Part 3: Engineering Guardrails
+- put durable state changes through the transition system
+- persist and broadcast together
+- keep the database authoritative
 
-### Server-Authoritative State
-
-The Rust server owns durable session and approval truth. The Swift client should render server state, not reconstruct business logic by scanning history or guessing queue state. If the client needs new durable truth, change the server contract.
-
-### Typed Protocol Boundaries
-
-Keep the Swift side strongly typed to match Rust serde models.
-
-- do not introduce `AnyCodable` for payloads that have a real schema
-- keep unknown server message variants resilient so the connection does not crash on forward-compatible changes
-- prefer explicit typed payloads over generic bags of fields
-
-For detailed protocol contracts, see [data-flow.md](data-flow.md).
-
-### SQLite Ownership
-
-Only the Rust server reads from and writes to SQLite directly.
-
-The app and CLI should go through server APIs. If a workflow needs direct DB access to function, that is usually a design smell.
-
-### Conversation Row Persistence
-
-Conversation row writes must follow the server's single-writer path.
-
-Do not introduce side paths that write rows directly and race sequence assignment. This is one of the easiest ways to create subtle ordering bugs.
-
-For the persistence model and database operations, see [OPERATIONS.md](OPERATIONS.md).
-
-### State Scoping
-
-Keep state endpoint-scoped. Cache values by scoped session identity (endpoint + session ID) to prevent cross-server bleeding. Always guard async callbacks with a current scoped-id check.
-
-Per-session observation uses per-session `@Observable` classes. Access via `serverState.session(scopedId)`. Views observe only the session they display.
-
-### Shared Mutable State Anti-Pattern
-
-Do not create:
-
-- shared mutable session objects (no god objects)
-- `withObservationTracking` on shared state stores
-- feature services that wrap HTTP clients just to mutate a shared observable
-- global event processing for surfaces that aren't on screen
-
-View models call HTTP clients directly.
+For transport details, read [data-flow.md](data-flow.md).
