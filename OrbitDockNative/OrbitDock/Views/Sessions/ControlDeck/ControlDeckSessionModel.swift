@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 @Observable
-final class ControlDeckViewModel {
+final class ControlDeckSessionModel {
   private struct BindingContext {
     let sessionId: String
     let store: SessionStore
@@ -352,8 +352,6 @@ final class ControlDeckViewModel {
   }
 
   private func applyConfigUpdate(
-    action: String,
-    value: String,
     configure: (inout ServerControlDeckConfigUpdateRequest) -> Void
   ) async {
     guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
@@ -365,45 +363,45 @@ final class ControlDeckViewModel {
   }
 
   func updateModel(_ model: String) async {
-    await applyConfigUpdate(action: "updateModel", value: model) { request in
+    await applyConfigUpdate { request in
       request.model = model
     }
   }
 
   func updateEffort(_ effort: String) async {
-    await applyConfigUpdate(action: "updateEffort", value: effort) { request in
+    await applyConfigUpdate { request in
       request.effort = effort
     }
   }
 
   func updatePermissionMode(_ mode: String) async {
-    await applyConfigUpdate(action: "updatePermissionMode", value: mode) { request in
+    await applyConfigUpdate { request in
       request.permissionMode = mode
     }
   }
 
   func updateApprovalPolicy(_ policy: String) async {
-    await applyConfigUpdate(action: "updateApprovalPolicy", value: policy) { request in
+    await applyConfigUpdate { request in
       request.approvalPolicy = policy
       request.approvalPolicyDetails = ServerCodexApprovalPolicy.fromLegacySummary(policy)
     }
   }
 
   func updateApprovalsReviewer(_ reviewer: ServerCodexApprovalsReviewer) async {
-    await applyConfigUpdate(action: "updateApprovalsReviewer", value: reviewer.rawValue) { request in
+    await applyConfigUpdate { request in
       request.approvalsReviewer = reviewer
     }
   }
 
   func updateSandboxPolicy(_ policy: ServerCodexSandboxPolicy) async {
-    await applyConfigUpdate(action: "updateSandboxPolicy", value: policy.legacySummary) { request in
+    await applyConfigUpdate { request in
       request.sandboxMode = policy.legacySummary
       request.sandboxPolicyDetails = policy
     }
   }
 
   func updateCollaborationMode(_ mode: String) async {
-    await applyConfigUpdate(action: "updateCollaborationMode", value: mode) { request in
+    await applyConfigUpdate { request in
       request.collaborationMode = mode
     }
   }
@@ -412,7 +410,7 @@ final class ControlDeckViewModel {
     guard let option = snapshot?.capabilities.autoReviewOptions.first(where: { $0.value == value }) else {
       return
     }
-    await applyConfigUpdate(action: "updateAutoReview", value: value) { request in
+    await applyConfigUpdate { request in
       request.approvalPolicy = option.approvalPolicy
       request.approvalPolicyDetails = option.approvalPolicyDetails
       request.sandboxMode = option.sandboxMode
@@ -623,7 +621,7 @@ final class ControlDeckViewModel {
 
 }
 
-private extension ControlDeckMode {
+extension ControlDeckMode {
   var debugLabel: String {
     switch self {
       case .compose: "compose"

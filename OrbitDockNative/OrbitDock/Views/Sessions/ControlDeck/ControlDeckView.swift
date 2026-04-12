@@ -7,9 +7,7 @@ enum ControlDeckChromeStyle {
 }
 
 struct ControlDeckView: View {
-  // State from parent
-  @Binding var draft: ControlDeckDraft
-  @Binding var focusState: ControlDeckFocusState
+  let composer: ControlDeckComposerModel
   let isSubmitting: Bool
   let isResuming: Bool
   let isInputEnabled: Bool
@@ -74,6 +72,8 @@ struct ControlDeckView: View {
   }
 
   var body: some View {
+    @Bindable var composer = composer
+
     VStack(alignment: .leading, spacing: 0) {
       if isApprovalMode, let approval = pendingApproval {
         // Approval takeover replaces the entire control deck surface
@@ -136,7 +136,7 @@ struct ControlDeckView: View {
   private var hasBorderHighlight: Bool {
     if isApprovalMode { return true }
     if isWorkingHighlight { return true }
-    return focusState.isFocused
+    return composer.focusState.isFocused
   }
 
   private var borderColor: Color {
@@ -150,7 +150,7 @@ struct ControlDeckView: View {
       }
     }
     if isWorkingHighlight { return Color.feedbackWarning.opacity(OpacityTier.vivid) }
-    return focusState.isFocused ? Color.accent.opacity(0.5) : Color.panelBorder
+    return composer.focusState.isFocused ? Color.accent.opacity(0.5) : Color.panelBorder
   }
 
   private var backgroundStyle: Color {
@@ -183,9 +183,9 @@ struct ControlDeckView: View {
   private var composeContent: some View {
     Group {
       // Attachment chips
-      if draft.attachments.hasItems {
+      if composer.draft.attachments.hasItems {
         ControlDeckAttachmentTray(
-          attachments: draft.attachments.items,
+          attachments: composer.draft.attachments.items,
           onRemove: onRemoveAttachment
         )
         .padding(.horizontal, horizontalContentPadding)
@@ -196,7 +196,7 @@ struct ControlDeckView: View {
       // Text editor
       editorSection
         .padding(.horizontal, horizontalContentPadding)
-        .padding(.top, draft.attachments.hasItems ? 0 : Spacing.sm)
+        .padding(.top, composer.draft.attachments.hasItems ? 0 : Spacing.sm)
 
       // Error
       if let errorMessage, !errorMessage.isEmpty {
@@ -214,8 +214,10 @@ struct ControlDeckView: View {
   // MARK: - Editor
 
   private var editorSection: some View {
-    ZStack(alignment: .topLeading) {
-      if draft.text.isEmpty {
+    @Bindable var composer = composer
+
+    return ZStack(alignment: .topLeading) {
+      if composer.draft.text.isEmpty {
         Text(presentation?.placeholder ?? "Message the session\u{2026}")
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textTertiary)
@@ -225,11 +227,11 @@ struct ControlDeckView: View {
       }
 
       ControlDeckTextArea(
-        text: $draft.text,
-        focusRequestSignal: $focusState.focusRequestSignal,
-        blurRequestSignal: $focusState.blurRequestSignal,
-        moveCursorToEndSignal: $focusState.moveCursorToEndSignal,
-        measuredHeight: $focusState.measuredHeight,
+        text: $composer.draft.text,
+        focusRequestSignal: $composer.focusState.focusRequestSignal,
+        blurRequestSignal: $composer.focusState.blurRequestSignal,
+        moveCursorToEndSignal: $composer.focusState.moveCursorToEndSignal,
+        measuredHeight: $composer.focusState.measuredHeight,
         isEnabled: isInputEnabled,
         minLines: 1,
         maxLines: 8,
@@ -239,9 +241,9 @@ struct ControlDeckView: View {
         onFocusEvent: onFocusEvent
       )
     }
-    .frame(height: max(focusState.measuredHeight, 20))
+    .frame(height: max(composer.focusState.measuredHeight, 20))
     .onDrop(of: [.image, .fileURL], isTargeted: nil, perform: onDropImages)
-    .onChange(of: draft.text) { _, newValue in
+    .onChange(of: composer.draft.text) { _, newValue in
       onTextChange(newValue)
     }
   }

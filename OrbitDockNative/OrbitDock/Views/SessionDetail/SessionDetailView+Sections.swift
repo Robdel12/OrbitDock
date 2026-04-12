@@ -2,12 +2,12 @@ import SwiftUI
 
 extension SessionDetailView {
   var workerRosterPresentation: SessionWorkerRosterPresentation? {
-    viewModel.workerRosterPresentation
+    viewModel.worker.rosterPresentation
   }
 
   var workerDetailPresentation: SessionWorkerDetailPresentation? {
     guard showWorkerPanel else { return nil }
-    return viewModel.workerDetailPresentation
+    return viewModel.worker.detailPresentation
   }
 
   @ViewBuilder
@@ -19,7 +19,7 @@ extension SessionDetailView {
       SessionWorkerCompanionPanel(
         rosterPresentation: workerRosterPresentation,
         detailPresentation: workerDetailPresentation,
-        selectedWorkerID: viewModel.selectedWorkerId,
+        selectedWorkerID: viewModel.worker.selectedWorkerId,
         onSelectWorker: { workerId in
           selectWorkerInPanel(workerId)
         },
@@ -117,7 +117,7 @@ extension SessionDetailView {
       focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
         focusWorkerInDeck(workerId)
       } : nil,
-      scrollCommand: $viewModel.conversationScrollCommand,
+      scrollCommand: $viewModel.conversation.scrollCommand,
       onJumpToLatest: viewModel.jumpConversationToLatest,
       onFollowStateChanged: viewModel.handleConversationFollowStateChanged
     )
@@ -132,9 +132,9 @@ extension SessionDetailView {
       projectPath: presentation.projectPath,
       isSessionActive: presentation.isSessionActive,
       compact: presentation.compact,
-      reviewFileId: $viewModel.reviewFileId,
-      selectedCommentIds: $viewModel.selectedCommentIds,
-      navigateToComment: $viewModel.navigateToComment,
+      reviewFileId: $viewModel.review.reviewFileId,
+      selectedCommentIds: $viewModel.review.selectedCommentIds,
+      navigateToComment: $viewModel.review.navigateToComment,
       onDismiss: {
         withAnimation(Motion.gentle) {
           viewModel.dismissReview()
@@ -159,25 +159,27 @@ extension SessionDetailView {
   }
 
   var showWorktreeCleanupBanner: Bool {
-    viewModel.showWorktreeCleanupBanner
-  }
-
-  var worktreeForSession: ServerWorktreeSummary? {
-    viewModel.worktreeForSession
+    sessionDetailWorktreeCleanupState != nil
   }
 
   var worktreeCleanupBanner: some View {
     SessionDetailWorktreeCleanupBanner(
       bannerState: sessionDetailWorktreeCleanupState,
-      errorMessage: viewModel.worktreeCleanupError,
-      deleteBranchOnCleanup: $viewModel.deleteBranchOnCleanup,
-      isCleaningUp: viewModel.isCleaningUpWorktree,
+      errorMessage: viewModel.cleanup.errorMessage,
+      deleteBranchOnCleanup: $viewModel.cleanup.deleteBranchOnCleanup,
+      isCleaningUp: viewModel.cleanup.isCleaningUp,
       onKeep: {
         withAnimation(Motion.gentle) {
-          viewModel.worktreeCleanupDismissed = true
+          viewModel.cleanup.dismiss()
         }
       },
-      onCleanUp: viewModel.cleanUpWorktree
+      onCleanUp: {
+        viewModel.cleanup.cleanUp(
+          worktreeState: viewModel.worktreeState,
+          worktreesByRepo: scopedServerState.worktreesByRepo,
+          sessionStore: scopedServerState
+        )
+      }
     )
   }
 
@@ -191,5 +193,12 @@ extension SessionDetailView {
 
   var footerMode: SessionDetailFooterMode {
     viewModel.footerMode
+  }
+
+  var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
+    viewModel.cleanup.bannerState(
+      worktreeState: viewModel.worktreeState,
+      worktreesByRepo: scopedServerState.worktreesByRepo
+    )
   }
 }
