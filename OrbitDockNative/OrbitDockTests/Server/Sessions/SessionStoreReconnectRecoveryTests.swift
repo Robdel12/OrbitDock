@@ -47,9 +47,9 @@ struct SessionStoreReconnectRecoveryTests {
       Set(connection.subscribeCalls.map(\.surface))
         == Set([.detail, .composer, .conversation])
     )
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == nil)
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == nil)
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == 13)
     #expect(store.recoveredSessionGenerations["session-1"] == 4)
   }
 
@@ -65,7 +65,7 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .composer)
-    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
   }
 
   @Test func addingSurfaceAfterRecoveryResubscribesWithoutReconnect() async throws {
@@ -79,7 +79,7 @@ struct SessionStoreReconnectRecoveryTests {
     await store.ensureSessionRecovery("session-1", generation: 6)
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .detail)
-    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
 
     connection.clearSubscribeCalls()
     store.subscribeToSession("session-1", surfaces: [.composer])
@@ -87,8 +87,36 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .composer)
-    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
     #expect(store.recoveredSessionGenerations["session-1"] == 6)
+  }
+
+  @Test func recoveryReplaysConversationRowsThatLandBetweenBootstrapAndSubscribe() async throws {
+    let connection = SessionStoreConnectionSpy()
+    let replayGapRowEntry = try Self.makeReplayGapRowEntry()
+    connection.onSubscribe = { call, connection in
+      guard call.surface == .conversation, call.sinceRevision == 13 else { return }
+      connection.emit(.conversationRowsChanged(
+        sessionId: "session-1",
+        upserted: [replayGapRowEntry],
+        removedRowIds: [],
+        totalRowCount: 2
+      ))
+    }
+    let store = try makeStore(
+      loader: { request in try await ResumeAndConversationMutationFixture().loader(request) },
+      connection: connection
+    )
+    store.startProcessingEvents()
+    prepareRecoveryStore(store, generation: 12)
+
+    await store.ensureSessionRecovery("session-1", generation: 12)
+
+    let (stream, _) = store.conversationRowChanges(for: "session-1")
+    let replayedDelta = await ConversationRowDeltaRecorder.firstEvent(from: stream)
+
+    #expect(replayedDelta.upserted.map(\.id) == ["bootstrap-row-1", "replay-gap-row-1"])
+    #expect(replayedDelta.removedIds.isEmpty)
   }
 
   @Test func forceRecoveryResubscribesEvenWhenSessionWasAlreadyRecovered() async throws {
@@ -350,6 +378,7 @@ struct SessionStoreReconnectRecoveryTests {
     """
     {
       "revision": 13,
+      "replay_cursor": 13,
       "session_id": "session-1",
       "session": \(sessionJSON(revision: 13)),
       "rows": \(rowsJSON),
@@ -435,6 +464,26 @@ struct SessionStoreReconnectRecoveryTests {
     }
     """
   }
+
+  fileprivate nonisolated static var replayGapRowJSON: String {
+    """
+    {
+      "session_id": "session-1",
+      "sequence": 11,
+      "turn_id": "turn-1",
+      "row": {
+        "row_type": "assistant",
+        "id": "replay-gap-row-1",
+        "content": "hello from replay gap",
+        "is_streaming": false
+      }
+    }
+    """
+  }
+
+  fileprivate static func makeReplayGapRowEntry() throws -> ServerConversationRowEntry {
+    try JSONDecoder().decode(ServerConversationRowEntry.self, from: Data(replayGapRowJSON.utf8))
+  }
 }
 
 @MainActor
@@ -451,9 +500,12 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
   private(set) var appliedSessionLists: [[ServerSessionListItem]] = []
   private(set) var appliedDashboardConversations: [[ServerDashboardConversationItem]] = []
   private(set) var failedConnectionMessages: [String] = []
+  var onSubscribe: ((SubscribeCall, SessionStoreConnectionSpy) -> Void)?
+  private var listeners: [(ServerEvent) -> Void] = []
 
   func addListener(_ listener: @escaping (ServerEvent) -> Void) -> ServerConnectionListenerToken {
-    unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
+    listeners.append(listener)
+    return unsafeBitCast(UUID(), to: ServerConnectionListenerToken.self)
   }
 
   func removeListener(_ token: ServerConnectionListenerToken) {}
@@ -468,6 +520,7 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
         sinceRevision: sinceRevision
       )
     )
+    onSubscribe?(subscribeCalls.last!, self)
   }
 
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {}
@@ -478,6 +531,12 @@ final class SessionStoreConnectionSpy: SessionStoreConnection {
 
   func failConnection(message: String) {
     failedConnectionMessages.append(message)
+  }
+
+  func emit(_ event: ServerEvent) {
+    for listener in listeners {
+      listener(event)
+    }
   }
 
   func applySessionsList(_ sessions: [ServerSessionListItem]) {

@@ -302,6 +302,7 @@ pub async fn get_conversation_snapshot(
         .collect();
       Ok(Json(ConversationSnapshotPage {
         revision: bootstrap.session.revision.unwrap_or_default(),
+        replay_cursor: bootstrap.session.revision.unwrap_or_default(),
         session_id,
         session: bootstrap.session,
         rows,

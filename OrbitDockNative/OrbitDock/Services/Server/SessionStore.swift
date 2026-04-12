@@ -39,6 +39,10 @@ struct SessionHTTPBootstrap {
   var sharedSurfaceRevision: UInt64? {
     conversation.session.revision
   }
+
+  var replayCursor: UInt64 {
+    conversation.replayCursor
+  }
 }
 
 typealias SessionSurfaceSet = Set<ServerSessionSurface>
@@ -719,6 +723,7 @@ final class SessionStore {
     surfaces: [ServerSessionSurface]
   ) {
     let sharedRevision = bootstrap?.sharedSurfaceRevision
+    let replayCursor = bootstrap?.replayCursor
     var subscribeData: [String: Any] = [
       "surfaces": surfaces.map(\.rawValue).sorted(),
       "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
@@ -727,13 +732,11 @@ final class SessionStore {
     ]
     for surface in surfaces {
       subscribeData["\(surface.rawValue)Revision"] = sharedRevision as Any
-      subscribeData["\(surface.rawValue)ReplayCursor"] = "live-only"
+      subscribeData["\(surface.rawValue)ReplayCursor"] = replayCursor as Any
     }
     netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: subscribeData)
     for surface in surfaces {
-      // After an authoritative HTTP bootstrap, surfaces attach to live WS updates
-      // without attempting a generic event-log replay from the HTTP revision.
-      connection.subscribeSessionSurface(sessionId, surface: surface, sinceRevision: nil)
+      connection.subscribeSessionSurface(sessionId, surface: surface, sinceRevision: replayCursor)
     }
     var updatedRecoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
     for surface in surfaces {

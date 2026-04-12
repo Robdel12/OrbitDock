@@ -2025,6 +2025,7 @@ pub struct SessionComposerSnapshot {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSnapshotPage {
   pub revision: u64,
+  pub replay_cursor: u64,
   pub session_id: String,
   pub session: SessionState,
   pub rows: Vec<crate::conversation_contracts::RowEntrySummary>,
