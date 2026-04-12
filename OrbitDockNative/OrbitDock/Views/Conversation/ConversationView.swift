@@ -18,10 +18,43 @@ struct ConversationView: View {
 
   let onJumpToLatest: () -> Void
   let onFollowStateChanged: (ConversationFollowState) -> Void
-  @State private var viewModel = ConversationViewModel()
+  @State private var viewModel: ConversationViewModel
   @State private var localFollowState = ConversationFollowState.initial
   private var bindingIdentity: String {
     "\(sessionStore.endpointId.uuidString):\(sessionId ?? ""):\(ObjectIdentifier(sessionStore))"
+  }
+
+  init(
+    sessionId: String?,
+    sessionStore: SessionStore,
+    endpointId: UUID? = nil,
+    isSessionActive: Bool = false,
+    displayStatus: SessionDisplayStatus = .ended,
+    currentTool: String? = nil,
+    showsOrbitStatusIndicator: Bool = true,
+    chatViewMode: ChatViewMode = .focused,
+    scrollCommand: Binding<ConversationScrollCommand?>,
+    onJumpToLatest: @escaping () -> Void,
+    onFollowStateChanged: @escaping (ConversationFollowState) -> Void
+  ) {
+    self.sessionId = sessionId
+    self.sessionStore = sessionStore
+    self.endpointId = endpointId
+    self.isSessionActive = isSessionActive
+    self.displayStatus = displayStatus
+    self.currentTool = currentTool
+    self.showsOrbitStatusIndicator = showsOrbitStatusIndicator
+    self.chatViewMode = chatViewMode
+    _scrollCommand = scrollCommand
+    self.onJumpToLatest = onJumpToLatest
+    self.onFollowStateChanged = onFollowStateChanged
+    _viewModel = State(
+      initialValue: ConversationViewModel(
+        sessionId: sessionId,
+        sessionStore: sessionStore,
+        viewMode: chatViewMode
+      )
+    )
   }
 
   var body: some View {
@@ -84,7 +117,7 @@ struct ConversationView: View {
       let (stream, _) = sessionStore.conversationRefreshRequests(for: sessionId)
       for await _ in stream {
         guard !Task.isCancelled else { break }
-        await viewModel.refresh()
+        await viewModel.refresh(forceHTTPResync: true)
       }
     }
     .task(id: bindingIdentity + ":rows") {

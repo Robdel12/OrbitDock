@@ -19,7 +19,7 @@ extension SessionStore {
   func submitControlDeckTurn(
     sessionId: String,
     request: ServerControlDeckSubmitTurnRequest
-  ) async throws {
+  ) async throws -> ServerControlDeckSubmitTurnResponse {
     netLog(
       .info,
       cat: .store,
@@ -38,6 +38,7 @@ extension SessionStore {
     ))
     triggerLocalNamingIfNeeded(sessionId: sessionId, prompt: request.text)
     notifySessionChanged(sessionId)
+    return response
   }
 
   func sendMessage(

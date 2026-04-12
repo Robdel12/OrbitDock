@@ -43,10 +43,12 @@ struct ConversationClient: Sendable {
 
   func fetchConversationBootstrap(
     _ sessionId: String,
-    limit: Int = 200
+    limit: Int = 200,
+    source: String? = nil
   ) async throws -> ServerConversationBootstrap {
     let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation"
-    let message = "GET \(path)?limit=\(limit) session=\(sessionId)"
+    let sourceLabel = source?.isEmpty == false ? source! : "unspecified"
+    let message = "GET \(path)?limit=\(limit) session=\(sessionId) source=\(sourceLabel)"
     NSLog("[OrbitDock][ConversationClient] %@", message)
     return try await http.get(
       path,

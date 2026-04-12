@@ -12,9 +12,16 @@ struct SkillsTab: View {
   let sessionStore: SessionStore
   @Binding var selectedSkills: Set<String>
 
-  @State private var viewModel = SkillsTabViewModel()
+  @State private var viewModel: SkillsTabViewModel
   private var bindingIdentity: String {
     "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
+
+  init(sessionId: String, sessionStore: SessionStore, selectedSkills: Binding<Set<String>>) {
+    self.sessionId = sessionId
+    self.sessionStore = sessionStore
+    _selectedSkills = selectedSkills
+    _viewModel = State(initialValue: SkillsTabViewModel(sessionId: sessionId, sessionStore: sessionStore))
   }
 
   var body: some View {
@@ -35,7 +42,7 @@ struct SkillsTab: View {
       await viewModel.refresh()
     }
     .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      let (stream, _) = sessionStore.capabilitiesRefreshRequests(for: sessionId)
       for await _ in stream {
         await viewModel.refresh()
       }

@@ -195,6 +195,21 @@ struct TimelineScrollView: View {
       }
       .onChange(of: latestAppendEvent) { _, event in
         guard let event else { return }
+        if let requiredVisibleSuffixCount = event.requiredVisibleSuffixCount,
+           requiredVisibleSuffixCount > renderedEntryLimit
+        {
+          var transaction = Transaction()
+          transaction.animation = nil
+          withTransaction(transaction) {
+            renderedEntryLimit = min(viewModel.displayedEntryCount, requiredVisibleSuffixCount)
+          }
+          if localFollowState.mode.isFollowing {
+            setPinnedScrollPosition()
+          }
+        }
+
+        guard event.count > 0 else { return }
+        guard !localFollowState.mode.isFollowing else { return }
         applyIntent(.latestEntriesAppended(event.count))
       }
       .onChange(of: scrollCommand) { _, command in
@@ -208,6 +223,7 @@ struct TimelineScrollView: View {
 
   private func applyIntent(_ intent: ConversationFollowIntent) {
     let plan = ConversationFollowPlanner.apply(current: localFollowState, intent: intent)
+    guard plan.state != localFollowState || plan.scrollAction != nil else { return }
     localFollowState = plan.state
     syncRenderedEntryLimit(totalCount: viewModel.displayedEntryCount, mode: plan.state.mode)
     onFollowStateChanged(plan.state)

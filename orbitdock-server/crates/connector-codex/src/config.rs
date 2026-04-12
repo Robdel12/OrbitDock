@@ -18,7 +18,7 @@ use codex_protocol::openai_models::{
   TruncationPolicyConfig, WebSearchToolType,
 };
 use codex_protocol::protocol::{Op, SessionSource};
-use tracing::{info, warn};
+use tracing::warn;
 
 use super::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
 use orbitdock_connector_core::ConnectorError;
@@ -49,18 +49,6 @@ Plan mode guidance:
 
 When a plan is ready to persist, call `plan_write` and save Markdown under `plans/`.
 "#;
-
-struct ProviderRouteDebugInfo {
-  provider_id: String,
-  provider_name: Option<String>,
-  base_url: Option<String>,
-  wire_api: String,
-  query_param_keys: Vec<String>,
-  http_header_names: Vec<String>,
-  env_http_header_names: Vec<String>,
-  has_orbitdock_openrouter_referer: bool,
-  has_orbitdock_openrouter_title: bool,
-}
 
 pub struct ResumeConnectorWithToolsConfig<'a> {
   pub cwd: &'a str,
@@ -176,8 +164,6 @@ impl CodexConnector {
     control_plane: CodexControlPlane,
     dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
   ) -> Result<Self, ConnectorError> {
-    info!("Creating codex-core connector for {}", cwd);
-
     let codex_home = find_codex_home()
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
 
@@ -205,8 +191,6 @@ impl CodexConnector {
       Arc::new(EnvironmentManager::new(None)),
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-    log_provider_route("start", cwd, &config);
-
     let configured_model = config.model.clone();
     let new_thread = thread_manager
       .start_thread_with_tools(config, dynamic_tools, false)
@@ -320,11 +304,6 @@ impl CodexConnector {
       dynamic_tools,
     } = params;
 
-    info!(
-      "Resuming codex-core connector for {} with thread {}",
-      cwd, thread_id
-    );
-
     let codex_home = find_codex_home()
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
 
@@ -336,8 +315,6 @@ impl CodexConnector {
       .ok_or_else(|| {
         ConnectorError::ProviderError(format!("No rollout file found for thread {}", thread_id))
       })?;
-
-    info!("Found rollout at {:?}", rollout_path);
 
     let auth_manager = Arc::new(AuthManager::new(
       codex_home.clone(),
@@ -363,8 +340,6 @@ impl CodexConnector {
       Arc::new(EnvironmentManager::new(None)),
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-    log_provider_route("resume", cwd, &config);
-
     let configured_model = config.model.clone();
     if !dynamic_tools.is_empty() {
       match codex_protocol::ThreadId::try_from(thread_id) {
@@ -533,7 +508,7 @@ impl CodexConnector {
     apply_orbitdock_provider_defaults(&mut config);
     apply_orbitdock_external_model_defaults(&mut config);
     let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);
-    log_apply_patch_tool_resolution(cwd, &config, forced_apply_patch_feature);
+    let _ = (cwd, forced_apply_patch_feature);
 
     Ok(config)
   }
@@ -643,7 +618,6 @@ pub async fn discover_models_for_context(
         ConnectorError::ProviderError(format!("Failed to load config for model discovery: {}", e))
       })?;
   apply_orbitdock_provider_defaults(&mut base_config);
-  log_provider_route("discover_models", cwd.unwrap_or(""), &base_config);
   let thread_manager = Arc::new(ThreadManager::new(
     &base_config,
     auth_manager,
@@ -909,88 +883,6 @@ pub(crate) fn ensure_apply_patch_feature_for_custom_models(config: &mut Config) 
       );
       false
     }
-  }
-}
-
-fn log_apply_patch_tool_resolution(cwd: &str, config: &Config, forced_by_orbitdock: bool) {
-  info!(
-    event = "codex.connector.apply_patch_tool_resolved",
-    cwd,
-    model = ?config.model,
-    model_provider_id = %config.model_provider_id,
-    include_apply_patch_tool = config.include_apply_patch_tool,
-    feature_apply_patch_freeform = config.features.enabled(Feature::ApplyPatchFreeform),
-    feature_js_repl = config.features.enabled(Feature::JsRepl),
-    feature_unified_exec = config.features.enabled(Feature::UnifiedExec),
-    forced_by_orbitdock,
-  );
-}
-
-fn log_provider_route(phase: &str, cwd: &str, config: &Config) {
-  let info = provider_route_debug_info(config);
-  info!(
-    event = "codex.connector.route_resolved",
-    phase,
-    cwd,
-    model = ?config.model,
-    model_provider_id = %info.provider_id,
-    provider_name = ?info.provider_name,
-    provider_base_url = ?info.base_url,
-    wire_api = %info.wire_api,
-    query_param_keys = ?info.query_param_keys,
-    http_header_names = ?info.http_header_names,
-    env_http_header_names = ?info.env_http_header_names,
-    has_orbitdock_openrouter_referer = info.has_orbitdock_openrouter_referer,
-    has_orbitdock_openrouter_title = info.has_orbitdock_openrouter_title,
-  );
-}
-
-fn provider_route_debug_info(config: &Config) -> ProviderRouteDebugInfo {
-  let provider_id = config.model_provider_id.clone();
-  let provider = config.model_providers.get(&provider_id);
-
-  let mut query_param_keys = provider
-    .and_then(|value| value.query_params.as_ref())
-    .map(|value| value.keys().cloned().collect::<Vec<_>>())
-    .unwrap_or_default();
-  query_param_keys.sort();
-
-  let mut http_header_names = provider
-    .and_then(|value| value.http_headers.as_ref())
-    .map(|value| value.keys().cloned().collect::<Vec<_>>())
-    .unwrap_or_default();
-  http_header_names.sort();
-
-  let mut env_http_header_names = provider
-    .and_then(|value| value.env_http_headers.as_ref())
-    .map(|value| value.keys().cloned().collect::<Vec<_>>())
-    .unwrap_or_default();
-  env_http_header_names.sort();
-
-  let has_orbitdock_openrouter_referer = provider
-    .and_then(|value| value.http_headers.as_ref())
-    .and_then(|value| value.get("HTTP-Referer"))
-    .map(|value| value == ORBITDOCK_OPENROUTER_SITE_URL)
-    .unwrap_or(false);
-
-  let has_orbitdock_openrouter_title = provider
-    .and_then(|value| value.http_headers.as_ref())
-    .and_then(|value| value.get("X-OpenRouter-Title"))
-    .map(|value| value == ORBITDOCK_OPENROUTER_TITLE)
-    .unwrap_or(false);
-
-  ProviderRouteDebugInfo {
-    provider_id,
-    provider_name: provider.map(|value| value.name.clone()),
-    base_url: provider.and_then(|value| value.base_url.clone()),
-    wire_api: provider
-      .map(|value| format!("{:?}", value.wire_api))
-      .unwrap_or_else(|| "unknown".to_string()),
-    query_param_keys,
-    http_header_names,
-    env_http_header_names,
-    has_orbitdock_openrouter_referer,
-    has_orbitdock_openrouter_title,
   }
 }
 

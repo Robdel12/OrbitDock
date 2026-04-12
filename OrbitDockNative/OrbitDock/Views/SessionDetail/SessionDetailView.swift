@@ -15,18 +15,30 @@ struct SessionDetailView: View {
   let endpointId: UUID
   let sessionStore: SessionStore
 
-  var scopedServerState: SessionStore {
-    viewModel.sessionStore
+  @State var viewModel: SessionDetailViewModel
+  @State private var isDirectControlDeckFocused = false
+
+  init(sessionId: String, endpointId: UUID, sessionStore: SessionStore) {
+    self.sessionId = sessionId
+    self.endpointId = endpointId
+    self.sessionStore = sessionStore
+    _viewModel = State(
+      initialValue: SessionDetailViewModel(
+        sessionId: sessionId,
+        endpointId: endpointId,
+        sessionStore: sessionStore
+      )
+    )
   }
 
-  @State var viewModel = SessionDetailViewModel()
-  @State private var isDirectControlDeckFocused = false
+  var scopedServerState: SessionStore {
+    sessionStore
+  }
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
   private var bindingIdentity: String {
-    let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: sessionStore)
-    return "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(resolvedStore))"
+    "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
   }
 
   var isCompactLayout: Bool {
@@ -95,8 +107,7 @@ struct SessionDetailView: View {
       viewModel.bind(
         sessionId: sessionId,
         endpointId: endpointId,
-        runtimeRegistry: runtimeRegistry,
-        fallbackStore: sessionStore,
+        sessionStore: sessionStore,
         modelPricingService: modelPricingService
       )
       await viewModel.refresh()
@@ -113,8 +124,7 @@ struct SessionDetailView: View {
       }
     }
     .task(id: bindingIdentity + ":ws") {
-      let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: sessionStore)
-      let (stream, _) = resolvedStore.sessionChanges(for: sessionId)
+      let (stream, _) = sessionStore.sessionDetailRefreshRequests(for: sessionId)
       for await _ in stream {
         await viewModel.refresh()
       }

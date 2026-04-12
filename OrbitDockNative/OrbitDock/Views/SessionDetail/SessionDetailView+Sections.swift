@@ -101,9 +101,9 @@ extension SessionDetailView {
     let presentation = viewModel.conversationPresentation
 
     return SessionDetailConversationSection(
-      sessionId: presentation.sessionId,
+      sessionId: sessionId,
       sessionStore: scopedServerState,
-      endpointId: presentation.endpointId,
+      endpointId: endpointId,
       isSessionActive: presentation.isSessionActive,
       displayStatus: presentation.displayStatus,
       currentTool: presentation.currentTool,
@@ -127,7 +127,7 @@ extension SessionDetailView {
     let presentation = viewModel.reviewPresentation
 
     return SessionDetailReviewSection(
-      sessionId: presentation.sessionId,
+      sessionId: sessionId,
       sessionStore: scopedServerState,
       projectPath: presentation.projectPath,
       isSessionActive: presentation.isSessionActive,

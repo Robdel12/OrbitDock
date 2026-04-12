@@ -113,11 +113,11 @@ struct ControlDeckScreen: View {
       syncSelectedSkillsFromText(draft.text)
     }
     .task(id: bindingIdentity + ":ws") {
-      // WS events are triggers — re-fetch the authoritative snapshot via HTTP.
-      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      // Re-fetch only when the control deck contract says this surface changed.
+      let (stream, _) = sessionStore.controlDeckRefreshRequests(for: sessionId)
       for await _ in stream {
         guard !Task.isCancelled else { break }
-        netLog(.debug, cat: .store, "ControlDeckScreen WS change signal", sid: sessionId)
+        netLog(.debug, cat: .store, "ControlDeckScreen refresh signal", sid: sessionId)
         await viewModel.refresh()
       }
     }
@@ -485,7 +485,6 @@ struct ControlDeckScreen: View {
         completionState.dismiss()
         viewModel.lastError = nil
         focusState.requestFocus()
-        await viewModel.refresh()
       } catch {
         viewModel.lastError = String(describing: error)
         // Refresh to pick up server-side state changes (e.g. session moved

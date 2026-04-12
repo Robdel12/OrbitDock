@@ -8,7 +8,7 @@ final class SessionDetailViewModel {
   var copiedResume = false
   var currentSessionId = ""
   var currentEndpointId = UUID()
-  var currentSessionStore = SessionStore.preview()
+  var currentSessionStore: SessionStore
   var selectedWorkerId: String?
   var conversationScrollCommand: ConversationScrollCommand?
   var conversationFollowState = ConversationFollowState.initial
@@ -55,21 +55,40 @@ final class SessionDetailViewModel {
   var currentTool: String?
   var lastActivityAt: Date?
 
+  init(
+    sessionId: String,
+    endpointId: UUID,
+    sessionStore: SessionStore
+  ) {
+    currentSessionId = sessionId
+    currentEndpointId = endpointId
+    currentSessionStore = sessionStore
+  }
+
+  convenience init() {
+    self.init(
+      sessionId: "",
+      endpointId: UUID(),
+      sessionStore: SessionStore.preview()
+    )
+  }
+
   func bind(
     sessionId: String,
     endpointId: UUID,
-    runtimeRegistry: ServerRuntimeRegistry,
-    fallbackStore: SessionStore,
+    sessionStore: SessionStore,
     modelPricingService: ModelPricingService
   ) {
-    let resolvedStore = runtimeRegistry.sessionStore(for: endpointId, fallback: fallbackStore)
     self.modelPricingService = modelPricingService
 
-    let didSessionChange = currentSessionId != sessionId || currentEndpointId != endpointId
+    let didSessionChange =
+      currentSessionId != sessionId
+      || currentEndpointId != endpointId
+      || currentSessionStore !== sessionStore
 
     currentSessionId = sessionId
     currentEndpointId = endpointId
-    currentSessionStore = resolvedStore
+    currentSessionStore = sessionStore
 
     if didSessionChange {
       conversationFollowState = .initial

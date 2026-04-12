@@ -3,6 +3,7 @@ import Foundation
 struct ConversationLatestAppendEvent: Equatable {
   let count: Int
   let nonce: Int
+  let requiredVisibleSuffixCount: Int?
 }
 
 enum ConversationTimelineDeltaPlanner {

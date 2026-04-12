@@ -118,7 +118,12 @@ final class ControlDeckViewModel {
       availableSkills: availableSkills
     )
 
-    try await store.submitControlDeckTurn(sessionId: sessionId, request: request)
+    let response = try await store.submitControlDeckTurn(sessionId: sessionId, request: request)
+    if let snapshot = response.snapshot {
+      applySnapshotPayload(snapshot, source: "submit")
+    } else {
+      await refresh()
+    }
   }
 
   func steerTurn(

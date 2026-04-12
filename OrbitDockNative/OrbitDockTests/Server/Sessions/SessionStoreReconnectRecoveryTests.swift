@@ -47,9 +47,9 @@ struct SessionStoreReconnectRecoveryTests {
       Set(connection.subscribeCalls.map(\.surface))
         == Set([.detail, .composer, .conversation])
     )
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == 13)
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == 13)
-    #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .detail })?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .composer })?.sinceRevision == nil)
+    #expect(connection.subscribeCalls.first(where: { $0.surface == .conversation })?.sinceRevision == nil)
     #expect(store.recoveredSessionGenerations["session-1"] == 4)
   }
 
@@ -65,7 +65,7 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .composer)
-    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
   }
 
   @Test func addingSurfaceAfterRecoveryResubscribesWithoutReconnect() async throws {
@@ -79,7 +79,7 @@ struct SessionStoreReconnectRecoveryTests {
     await store.ensureSessionRecovery("session-1", generation: 6)
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .detail)
-    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
 
     connection.clearSubscribeCalls()
     store.subscribeToSession("session-1", surfaces: [.composer])
@@ -87,7 +87,7 @@ struct SessionStoreReconnectRecoveryTests {
 
     #expect(connection.subscribeCalls.count == 1)
     #expect(connection.subscribeCalls.first?.surface == .composer)
-    #expect(connection.subscribeCalls.first?.sinceRevision == 13)
+    #expect(connection.subscribeCalls.first?.sinceRevision == nil)
     #expect(store.recoveredSessionGenerations["session-1"] == 6)
   }
 
@@ -145,6 +145,25 @@ struct SessionStoreReconnectRecoveryTests {
     // sendMessage now emits the response row via notifyConversationRowDelta
     // instead of re-fetching the full conversation bootstrap.
     #expect(await fixture.conversationRequestCount == 0)
+  }
+
+  @Test func lateConversationRowSubscribersReplayCurrentConversationState() async throws {
+    let fixture = ResumeAndConversationMutationFixture()
+    let store = try makeStore(
+      loader: { request in try await fixture.loader(request) },
+      connection: SessionStoreConnectionSpy()
+    )
+    prepareRecoveryStore(store, generation: 10)
+
+    _ = await store.hydrateSessionFromHTTPBootstrap(sessionId: "session-1", generation: 10)
+    try await store.sendMessage(sessionId: "session-1", content: "hello from test")
+
+    let (stream, _) = store.conversationRowChanges(for: "session-1")
+    let replayedDelta = await ConversationRowDeltaRecorder.firstEvent(from: stream)
+
+    let replayedRowIDs = replayedDelta.upserted.map(\.id)
+    #expect(replayedRowIDs == ["send-row-1", "bootstrap-row-1"])
+    #expect(replayedDelta.removedIds.isEmpty)
   }
 
   @Test func conversationResyncErrorOnlySignalsConversationRefresh() async throws {
@@ -614,5 +633,16 @@ actor VoidStreamRecorder {
     for waiter in readyWaiters {
       waiter.continuation.resume()
     }
+  }
+}
+
+enum ConversationRowDeltaRecorder {
+  static func firstEvent(
+    from stream: AsyncStream<SessionStore.ConversationRowDelta>
+  ) async -> SessionStore.ConversationRowDelta {
+    for await delta in stream {
+      return delta
+    }
+    return SessionStore.ConversationRowDelta(upserted: [], removedIds: [])
   }
 }

@@ -6,7 +6,7 @@ final class SkillsTabViewModel {
   private let scopeOrder: [ServerSkillScope] = [.repo, .user, .system, .admin]
 
   var currentSessionId: String?
-  var currentSessionStore: SessionStore?
+  var currentSessionStore: SessionStore
 
   // Snapshot state — owned by this VM, populated via HTTP
   private var _skills: [ServerSkillMetadata] = []
@@ -28,6 +28,18 @@ final class SkillsTabViewModel {
     }
   }
 
+  init(
+    sessionId: String?,
+    sessionStore: SessionStore
+  ) {
+    currentSessionId = sessionId
+    currentSessionStore = sessionStore
+  }
+
+  convenience init() {
+    self.init(sessionId: nil, sessionStore: SessionStore.preview())
+  }
+
   func bind(sessionId: String, sessionStore: SessionStore) {
     currentSessionId = sessionId
     currentSessionStore = sessionStore
@@ -37,7 +49,8 @@ final class SkillsTabViewModel {
   @ObservationIgnored private var refreshQueued = false
 
   func refresh() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let sessionId = currentSessionId else { return }
+    let store = currentSessionStore
     if isRefreshing { refreshQueued = true; return }
     isRefreshing = true
     defer {
@@ -53,7 +66,8 @@ final class SkillsTabViewModel {
   }
 
   func refreshSkills() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let sessionId = currentSessionId else { return }
+    let store = currentSessionStore
     _ = try? await store.clients.skills.listSkills(sessionId: sessionId, forceReload: true)
     await refresh()
   }

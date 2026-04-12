@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+  conversation_contracts::ConversationRowEntry,
   ApprovalRequest, CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode,
   CodexSandboxPolicy, Provider, SessionControlMode, SessionLifecycleState, TokenUsage,
   TokenUsageSnapshotKind,
@@ -255,4 +256,12 @@ pub struct ControlDeckSubmitTurnRequest {
   pub skills: Vec<ControlDeckSkillRef>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub overrides: Option<ControlDeckTurnOverrides>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlDeckSubmitResponse {
+  pub accepted: bool,
+  pub row: ConversationRowEntry,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub snapshot: Option<ControlDeckSnapshot>,
 }

@@ -1,11 +1,6 @@
 import Foundation
 
 struct ControlDeckClient: Sendable {
-  struct SubmitTurnResponse: Decodable {
-    let accepted: Bool
-    let row: ServerConversationRowEntry
-  }
-
   private let http: ServerHTTPClient
   private let requestBuilder: HTTPRequestBuilder
 
@@ -80,7 +75,7 @@ struct ControlDeckClient: Sendable {
   func submitTurn(
     _ sessionId: String,
     request: ServerControlDeckSubmitTurnRequest
-  ) async throws -> SubmitTurnResponse {
+  ) async throws -> ServerControlDeckSubmitTurnResponse {
     try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/control-deck/submit",
       body: request

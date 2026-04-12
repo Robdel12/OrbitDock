@@ -6,7 +6,7 @@ import SwiftUI
 final class ConversationViewModel {
   var hasShownContent = false
   var currentSessionId: String?
-  var currentSessionStore = SessionStore.preview()
+  var currentSessionStore: SessionStore
   var currentViewMode: ChatViewMode = .focused
   var hasTimeline = false
   var timelineViewModel = ConversationTimelineViewModel()
@@ -28,6 +28,24 @@ final class ConversationViewModel {
   @ObservationIgnored private var bufferedRowDeltas: [SessionStore.ConversationRowDelta] = []
 
   private let pageSize = 50
+
+  init(
+    sessionId: String?,
+    sessionStore: SessionStore,
+    viewMode: ChatViewMode
+  ) {
+    currentSessionId = sessionId
+    currentSessionStore = sessionStore
+    currentViewMode = viewMode
+  }
+
+  convenience init() {
+    self.init(
+      sessionId: nil,
+      sessionStore: SessionStore.preview(),
+      viewMode: .focused
+    )
+  }
 
   func bind(sessionId: String?, sessionStore: SessionStore, viewMode: ChatViewMode) {
     let didChange = currentSessionId != sessionId || currentSessionStore !== sessionStore
@@ -51,10 +69,10 @@ final class ConversationViewModel {
     }
   }
 
-  /// Refresh the authoritative conversation bootstrap from HTTP.
-  /// The row-delta stream stays alive independently so transient transport
-  /// failures do not strand the screen.
-  func refresh() async {
+  /// Conversation bootstrap is owned by the root session subscription.
+  /// This view model only performs an HTTP refresh when the store explicitly
+  /// requests a conversation resync.
+  func refresh(forceHTTPResync: Bool = false) async {
     guard let sessionId = currentSessionId, !sessionId.isEmpty else { return }
     if isRefreshing {
       refreshQueued = true
@@ -73,25 +91,30 @@ final class ConversationViewModel {
 
     let store = currentSessionStore
 
-    do {
-      let bootstrap = try await store.clients.conversation.fetchConversationBootstrap(
-        sessionId,
-        limit: pageSize
-      )
+    guard store.isSessionSubscribed(sessionId) else {
+      drainBufferedRowDeltas()
+      return
+    }
+
+    if !forceHTTPResync {
+      drainBufferedRowDeltas()
+      return
+    }
+
+    if let bootstrap = await store.hydrateSessionFromHTTPBootstrap(
+      sessionId: sessionId,
+      source: "conversation-resync"
+    )?.conversation {
       guard currentSessionId == sessionId, currentSessionStore === store else { return }
       applyBootstrap(bootstrap, store: store)
-      drainBufferedRowDeltas()
-    } catch {
-      netLog(.error, cat: .store, "Conversation bootstrap failed", sid: sessionId, data: [
-        "error": String(describing: error),
-      ])
+    } else {
       guard currentSessionId == sessionId else { return }
       if rowEntries.isEmpty {
         conversationLoaded = true
         rebuildPresentation(changedEntries: [])
       }
-      drainBufferedRowDeltas()
     }
+    drainBufferedRowDeltas()
   }
 
   func handleConversationRowDelta(_ delta: SessionStore.ConversationRowDelta) {
@@ -137,7 +160,11 @@ final class ConversationViewModel {
         rowEntries = mergedPage.rows
         structureRevision += 1
         contentRevision += 1
-        rebuildPresentation(changedEntries: page.rows)
+        rebuildPresentation(
+          changedEntries: page.rows,
+          appendedEntryCount: 0,
+          visibilityEventRowID: nil
+        )
       } catch {
         netLog(.error, cat: .store, "Load older messages failed", sid: currentSessionId, data: [
           "error": String(describing: error),
@@ -163,7 +190,11 @@ final class ConversationViewModel {
     conversationLoaded = true
     structureRevision += 1
     contentRevision += 1
-    rebuildPresentation(changedEntries: bootstrap.rows)
+    rebuildPresentation(
+      changedEntries: bootstrap.rows,
+      appendedEntryCount: 0,
+      visibilityEventRowID: nil
+    )
 
     if let sourceId = bootstrap.session.forkedFromSessionId {
       forkOrigin = ConversationForkOriginPresentation(
@@ -205,7 +236,26 @@ final class ConversationViewModel {
       structureRevision += 1
     }
     contentRevision += 1
-    rebuildPresentation(changedEntries: changed)
+    let appendedEntryCount = structureChanged
+      ? changed.reduce(into: 0) { count, entry in
+          if entry.sequence > lastNewestSequence {
+            count += 1
+          }
+        }
+      : 0
+    let visibilityEventRowID = structureChanged
+      ? changed.max { lhs, rhs in
+          if lhs.sequence == rhs.sequence {
+            return lhs.id < rhs.id
+          }
+          return lhs.sequence < rhs.sequence
+        }?.id
+      : nil
+    rebuildPresentation(
+      changedEntries: changed,
+      appendedEntryCount: appendedEntryCount,
+      visibilityEventRowID: visibilityEventRowID
+    )
   }
 
   private func drainBufferedRowDeltas() {
@@ -217,7 +267,11 @@ final class ConversationViewModel {
     }
   }
 
-  private func rebuildPresentation(changedEntries: [ServerConversationRowEntry]) {
+  private func rebuildPresentation(
+    changedEntries: [ServerConversationRowEntry],
+    appendedEntryCount: Int = 0,
+    visibilityEventRowID: String? = nil
+  ) {
     let previousNewest = lastNewestSequence
     let timeline = ConversationTimelinePresentation(
       entries: rowEntries,
@@ -240,12 +294,17 @@ final class ConversationViewModel {
     if incomingHasTimeline {
       timelineViewModel.apply(presentation: timeline, viewMode: currentViewMode)
 
-      // Detect appended entries for auto-scroll
-      let appendedCount = changedEntries.filter { $0.sequence > previousNewest }.count
-      if appendedCount > 0, previousNewest > 0 {
+      let requiredVisibleSuffixCount = visibilityEventRowID.flatMap { rowID in
+        timelineViewModel.renderWindowRequiredToReveal(rowId: rowID)
+      }
+
+      // Live structural changes should be visible immediately, even when the
+      // inserted row does not qualify as a monotonic append by sequence.
+      if (appendedEntryCount > 0 && previousNewest > 0) || requiredVisibleSuffixCount != nil {
         latestAppendEvent = ConversationLatestAppendEvent(
-          count: appendedCount,
-          nonce: (latestAppendEvent?.nonce ?? 0) + 1
+          count: appendedEntryCount,
+          nonce: (latestAppendEvent?.nonce ?? 0) + 1,
+          requiredVisibleSuffixCount: requiredVisibleSuffixCount
         )
       }
       lastNewestSequence = rowEntries.last?.sequence ?? 0
