@@ -132,9 +132,15 @@ make lint         # Lint Swift + Rust
 
 ### Swift App
 
-**State management** — Keep state endpoint-scoped. Cache values by scoped session identity (endpoint + session ID) to prevent cross-server bleeding. Always guard async callbacks with a current scoped-id check.
+**Scene ownership** — Resolve the real endpoint-scoped `SessionStore` in the owning scene before mounting child features. Do not build runtime ownership around placeholder stores or late child-level dependency lookup.
 
-**Per-session observation** — Scope views to single sessions. Access via `serverState.session(scopedId)`. Never share session observables across screens.
+**Surface ownership** — Give each rendered surface one owner, one HTTP bootstrap path, and one realtime follow-up path. `SessionStore` is transport only, not a shared product-state blob.
+
+**State scoping** — Keep state endpoint-scoped and session-scoped where appropriate. Cache by scoped identity and always guard async callbacks with a current scoped-id check before applying results.
+
+**SwiftUI structure** — Prefer small dedicated subviews over giant computed `some View` helpers, keep the view tree structurally stable, and move non-trivial actions or async work out of `body`.
+
+**Observation** — Own root `@Observable` models with `@State`, pass them explicitly to children, and prefer `.task` / `.task(id:)` for lifecycle-bound async work.
 
 **Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` — use `Color.textTertiary` instead.
 

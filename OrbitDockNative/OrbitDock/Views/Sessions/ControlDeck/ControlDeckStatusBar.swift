@@ -183,10 +183,79 @@ struct ControlDeckStatusBar: View {
 
   @ViewBuilder
   private func moduleView(_ module: ControlDeckStatusModuleItem) -> some View {
-    if let specialized = specializedControlView(module) {
-      specialized
-    } else {
-      genericModuleView(module)
+    switch module.id {
+      case .autonomy:
+        ClaudePermissionPill(
+          currentMode: ClaudePermissionMode(fromServer: module.selectedValue),
+          size: .statusBar,
+          onUpdate: { mode in
+            onModuleAction?(module.id, permissionModeValue(mode, for: module))
+          }
+        )
+      case .approvalMode:
+        CodexApprovalPill(
+          currentMode: CodexApprovalMode.from(rawValue: module.selectedValue),
+          currentReviewer: CodexApprovalsReviewer.from(rawValue: module.reviewerValue),
+          currentSandboxPolicy: module.sandboxPolicyDetails,
+          supportedModes: CodexApprovalMode.supportedCases(from: pickerOptions(for: module)),
+          size: .statusBar,
+          onUpdate: { mode in
+            onModuleAction?(module.id, approvalModeValue(mode, for: module))
+          },
+          onReviewerUpdate: { reviewer in
+            onApprovalReviewerAction?(ServerCodexApprovalsReviewer(rawValue: reviewer.rawValue) ?? .user)
+          },
+          onSandboxUpdate: { policy in
+            onSandboxPolicyAction?(policy)
+          }
+        )
+      case .collaborationMode:
+        CodexModePill(
+          currentMode: CodexCollaborationMode.from(rawValue: module.selectedValue),
+          supportedModes: codexCollaborationModes(for: module),
+          size: .statusBar,
+          onUpdate: { mode in
+            onModuleAction?(module.id, collaborationModeValue(mode, for: module))
+          }
+        )
+      case .autoReview:
+        if let level = AutonomyLevel.fromAutoReviewValue(module.selectedValue) {
+          CodexAutoReviewPill(
+            currentLevel: level,
+            supportedLevels: AutonomyLevel.supportedAutoReviewCases(from: pickerOptions(for: module)),
+            size: .statusBar,
+            onUpdate: { level in
+              onModuleAction?(module.id, autoReviewValue(for: level))
+            }
+          )
+        } else {
+          genericModuleView(module)
+        }
+      case .effort:
+        EffortPill(
+          currentLevel: EffortLevel.fromControlDeckValue(module.selectedValue),
+          supportedLevels: EffortLevel.supportedControlDeckCases(from: pickerOptions(for: module)),
+          size: .statusBar,
+          onUpdate: { level in
+            onModuleAction?(module.id, effortValue(level, for: module))
+          }
+        )
+      case .model:
+        let options = pickerOptions(for: module)
+        if !options.isEmpty {
+          ModelPill(
+            currentModel: module.selectedValue,
+            availableModels: options.map(\.value),
+            size: .statusBar,
+            onUpdate: { model in
+              onModuleAction?(module.id, model)
+            }
+          )
+        } else {
+          genericModuleView(module)
+        }
+      default:
+        genericModuleView(module)
     }
   }
 
@@ -308,91 +377,6 @@ struct ControlDeckStatusBar: View {
 
   private var metadataModules: [ControlDeckStatusModuleItem] {
     modules.filter { !isControlModule($0) }
-  }
-
-  private func specializedControlView(_ module: ControlDeckStatusModuleItem) -> AnyView? {
-    switch module.id {
-      case .autonomy:
-        return AnyView(
-          ClaudePermissionPill(
-            currentMode: ClaudePermissionMode(fromServer: module.selectedValue),
-            size: .statusBar,
-            onUpdate: { mode in
-              onModuleAction?(module.id, permissionModeValue(mode, for: module))
-            }
-          )
-        )
-      case .approvalMode:
-        return AnyView(
-          CodexApprovalPill(
-            currentMode: CodexApprovalMode.from(rawValue: module.selectedValue),
-            currentReviewer: CodexApprovalsReviewer.from(rawValue: module.reviewerValue),
-            currentSandboxPolicy: module.sandboxPolicyDetails,
-            supportedModes: CodexApprovalMode.supportedCases(from: pickerOptions(for: module)),
-            size: .statusBar,
-            onUpdate: { mode in
-              onModuleAction?(module.id, approvalModeValue(mode, for: module))
-            },
-            onReviewerUpdate: { reviewer in
-              onApprovalReviewerAction?(ServerCodexApprovalsReviewer(rawValue: reviewer.rawValue) ?? .user)
-            },
-            onSandboxUpdate: { policy in
-              onSandboxPolicyAction?(policy)
-            }
-          )
-        )
-      case .collaborationMode:
-        return AnyView(
-          CodexModePill(
-            currentMode: CodexCollaborationMode.from(rawValue: module.selectedValue),
-            supportedModes: codexCollaborationModes(for: module),
-            size: .statusBar,
-            onUpdate: { mode in
-              onModuleAction?(module.id, collaborationModeValue(mode, for: module))
-            }
-          )
-        )
-      case .autoReview:
-        guard let level = AutonomyLevel.fromAutoReviewValue(module.selectedValue) else {
-          return nil
-        }
-        return AnyView(
-          CodexAutoReviewPill(
-            currentLevel: level,
-            supportedLevels: AutonomyLevel.supportedAutoReviewCases(from: pickerOptions(for: module)),
-            size: .statusBar,
-            onUpdate: { level in
-              onModuleAction?(module.id, autoReviewValue(for: level))
-            }
-          )
-        )
-      case .effort:
-        return AnyView(
-          EffortPill(
-            currentLevel: EffortLevel.fromControlDeckValue(module.selectedValue),
-            supportedLevels: EffortLevel.supportedControlDeckCases(from: pickerOptions(for: module)),
-            size: .statusBar,
-            onUpdate: { level in
-              onModuleAction?(module.id, effortValue(level, for: module))
-            }
-          )
-        )
-      case .model:
-        let options = pickerOptions(for: module)
-        guard !options.isEmpty else { return nil }
-        return AnyView(
-          ModelPill(
-            currentModel: module.selectedValue,
-            availableModels: options.map(\.value),
-            size: .statusBar,
-            onUpdate: { model in
-              onModuleAction?(module.id, model)
-            }
-          )
-        )
-      default:
-        return nil
-    }
   }
 
   private func pickerOptions(for module: ControlDeckStatusModuleItem) -> [ControlDeckStatusModuleItem.Option] {

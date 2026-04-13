@@ -14,8 +14,12 @@ extension SessionStore {
       case let .sessionDelta(sessionId, changes):
         applyLocalNamingStateDelta(sessionId: sessionId, changes: changes)
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .sessionEnded(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .conversationRowsChanged(sessionId, upserted, removedRowIds, _):
         notifyConversationRowDelta(sessionId, ConversationRowDelta(
           upserted: upserted,
@@ -23,56 +27,87 @@ extension SessionStore {
         ))
       case let .approvalRequested(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .approvalDecisionResult(sessionId, requestId, _, _, _):
         inFlightApprovalDispatches.remove(requestId)
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case .approvalsList, .approvalDeleted:
         break
       case let .tokensUpdated(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .modelsList(models):
         codexModels = models
       case .claudeModelsList:
         break
       case let .contextCompacted(sessionId):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
         notifyConversationRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .undoCompleted(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
         notifyConversationRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case .undoStarted:
         break
       case let .threadRolledBack(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
         notifyConversationRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .sessionForked(sourceSessionId, newSessionId, _):
         notifySessionChanged(sourceSessionId)
+        notifySessionDetailRefreshRequested(sourceSessionId)
         requestSelection(SessionRef(endpointId: endpointId, sessionId: newSessionId))
       case let .turnDiffSnapshot(sessionId, _, _, _, _, _, _, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .reviewCommentCreated(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .reviewCommentUpdated(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .reviewCommentDeleted(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .reviewCommentsList(sessionId, _, _):
         notifySessionChanged(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .subagentToolsList(sessionId, _, _):
         notifySessionChanged(sessionId)
       case .shellStarted, .shellOutput:
         break
       case let .rateLimitEvent(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .promptSuggestion(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .filesPersisted(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
+        notifyReviewRefreshRequested(sessionId)
       case let .serverInfo(isPrimary, claims):
         serverIsPrimary = isPrimary
         serverPrimaryClaims = claims
       case let .permissionRules(sessionId, _):
         notifySessionChanged(sessionId)
+        notifySessionDetailRefreshRequested(sessionId)
+        notifyControlDeckRefreshRequested(sessionId)
       case let .error(code, message, sessionId):
         handleError(code, message, sessionId)
       case let .connectionStatusChanged(status):
@@ -146,10 +181,15 @@ extension SessionStore {
       switch code {
         case "lagged", "replay_oversized":
           notifySessionChanged(sessionId)
+          notifySessionDetailRefreshRequested(sessionId)
           notifyConversationRefreshRequested(sessionId)
+          notifyControlDeckRefreshRequested(sessionId)
+          notifyReviewRefreshRequested(sessionId)
           return
         case "session_detail_resync_required", "session_composer_resync_required":
           notifySessionChanged(sessionId)
+          notifySessionDetailRefreshRequested(sessionId)
+          notifyControlDeckRefreshRequested(sessionId)
           return
         case "conversation_resync_required":
           notifyConversationRefreshRequested(sessionId)
@@ -171,6 +211,11 @@ extension SessionStore {
     guard status == .connected else { return }
     connectionGeneration &+= 1
     let generation = connectionGeneration
+    NSLog(
+      "[OrbitDock][Bootstrap] connection-connected generation=%llu subscribedSessions=%ld",
+      generation,
+      subscribedSessions.count
+    )
 
     netLog(.info, cat: .store, "Connected — re-subscribing session surfaces", data: [
       "generation": generation,
@@ -191,6 +236,12 @@ extension SessionStore {
       }
     }
     connectionRecoveryTask = GenerationTask(generation: generation, task: task)
+    for sessionId in sessionsToResubscribe {
+      notifySessionDetailRefreshRequested(sessionId)
+      notifyControlDeckRefreshRequested(sessionId)
+      notifyReviewRefreshRequested(sessionId)
+      notifyCapabilitiesRefreshRequested(sessionId)
+    }
   }
 
   func rememberLocalNamingState(_ session: ServerSessionState) {

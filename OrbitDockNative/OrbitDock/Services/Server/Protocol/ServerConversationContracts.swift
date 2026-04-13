@@ -1203,12 +1203,14 @@ struct ServerReviewComment: Codable, Identifiable {
 struct ServerConversationBootstrap: Decodable {
   let session: ServerSessionState
   let rows: [ServerConversationRowEntry]
+  let replayCursor: UInt64
   let totalRowCount: UInt64
   let hasMoreBefore: Bool
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
 
   enum CodingKeys: String, CodingKey {
+    case replayCursor = "replay_cursor"
     case session
     case rows
     case totalRowCount = "total_row_count"
@@ -1222,6 +1224,10 @@ struct ServerConversationBootstrap: Decodable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     session = try container.decode(ServerSessionState.self, forKey: .session)
     rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? session.rows
+    replayCursor =
+      try container.decodeIfPresent(UInt64.self, forKey: .replayCursor)
+      ?? session.revision
+      ?? 0
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
     totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)

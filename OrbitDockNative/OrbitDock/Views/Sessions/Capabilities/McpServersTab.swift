@@ -124,9 +124,15 @@ struct McpServersTab: View {
   let sessionId: String
   let sessionStore: SessionStore
 
-  @State private var viewModel = McpServersTabViewModel()
+  @State private var viewModel: McpServersTabViewModel
   private var bindingIdentity: String {
     "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
+
+  init(sessionId: String, sessionStore: SessionStore) {
+    self.sessionId = sessionId
+    self.sessionStore = sessionStore
+    _viewModel = State(initialValue: McpServersTabViewModel(sessionId: sessionId, sessionStore: sessionStore))
   }
 
   var body: some View {
@@ -183,7 +189,7 @@ struct McpServersTab: View {
       await viewModel.refresh()
     }
     .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      let (stream, _) = sessionStore.capabilitiesRefreshRequests(for: sessionId)
       for await _ in stream {
         await viewModel.refresh()
       }

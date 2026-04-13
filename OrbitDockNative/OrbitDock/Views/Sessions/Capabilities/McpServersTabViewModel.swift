@@ -4,7 +4,7 @@ import Observation
 @Observable
 final class McpServersTabViewModel {
   var currentSessionId: String?
-  var currentSessionStore: SessionStore?
+  var currentSessionStore: SessionStore
   var expandedServers: Set<String> = []
 
   // Snapshot state — owned by this VM, populated via HTTP
@@ -21,7 +21,7 @@ final class McpServersTabViewModel {
   var provider: Provider? { _provider }
 
   var capabilityNotice: McpCapabilityNotice? {
-    guard let provider, let currentSessionStore else { return nil }
+    guard let provider else { return nil }
     return McpServersTabPlanner.capabilityNotice(
       provider: provider,
       codexAccountStatus: currentSessionStore.codexAccountStatus
@@ -55,6 +55,18 @@ final class McpServersTabViewModel {
     }
   }
 
+  init(
+    sessionId: String?,
+    sessionStore: SessionStore
+  ) {
+    currentSessionId = sessionId
+    currentSessionStore = sessionStore
+  }
+
+  convenience init() {
+    self.init(sessionId: nil, sessionStore: SessionStore.preview())
+  }
+
   func bind(sessionId: String, sessionStore: SessionStore, provider: Provider? = nil) {
     currentSessionId = sessionId
     currentSessionStore = sessionStore
@@ -65,7 +77,8 @@ final class McpServersTabViewModel {
   @ObservationIgnored private var refreshQueued = false
 
   func refresh() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let sessionId = currentSessionId else { return }
+    let store = currentSessionStore
     if isRefreshing { refreshQueued = true; return }
     isRefreshing = true
     defer {
@@ -84,7 +97,8 @@ final class McpServersTabViewModel {
   }
 
   func refreshMcpServers() async {
-    guard let sessionId = currentSessionId, let store = currentSessionStore else { return }
+    guard let sessionId = currentSessionId else { return }
+    let store = currentSessionStore
     try? await store.clients.mcp.refreshServers(sessionId: sessionId)
     await refresh()
   }

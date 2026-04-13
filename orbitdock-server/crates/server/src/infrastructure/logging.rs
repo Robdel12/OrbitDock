@@ -19,6 +19,9 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("codex_otel.log_only", "warn"),
   ("codex_client::custom_ca", "warn"),
   ("codex_api::endpoint::responses_websocket", "warn"),
+  ("codex_core::config", "warn"),
+  ("codex_core::models_manager", "warn"),
+  ("connector_codex::config", "warn"),
   ("codex_core::features", "error"),
   ("feedback_tags", "warn"),
   ("rmcp::transport::worker", "off"),
@@ -374,6 +377,9 @@ mod tests {
     assert!(resolved.contains("codex_otel.log_only=warn"));
     assert!(resolved.contains("codex_client::custom_ca=warn"));
     assert!(resolved.contains("codex_api::endpoint::responses_websocket=warn"));
+    assert!(resolved.contains("codex_core::config=warn"));
+    assert!(resolved.contains("codex_core::models_manager=warn"));
+    assert!(resolved.contains("connector_codex::config=warn"));
     assert!(resolved.contains("codex_core::features=error"));
     assert!(resolved.contains("feedback_tags=warn"));
     assert!(resolved.contains("rmcp::transport::worker=off"));
@@ -384,8 +390,8 @@ mod tests {
     let resolved = resolve_filter_directives(Some("debug".to_string()));
 
     assert_eq!(
-            resolved,
-            "debug,codex_otel.trace_safe=warn,codex_otel.log_only=warn,codex_client::custom_ca=warn,codex_api::endpoint::responses_websocket=warn,codex_core::features=error,feedback_tags=warn,rmcp::transport::worker=off"
+      resolved,
+            "debug,codex_otel.trace_safe=warn,codex_otel.log_only=warn,codex_client::custom_ca=warn,codex_api::endpoint::responses_websocket=warn,codex_core::config=warn,codex_core::models_manager=warn,connector_codex::config=warn,codex_core::features=error,feedback_tags=warn,rmcp::transport::worker=off"
         );
   }
 

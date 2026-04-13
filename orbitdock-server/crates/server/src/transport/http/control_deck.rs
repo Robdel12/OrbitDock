@@ -8,7 +8,7 @@ use axum::{
 };
 use orbitdock_protocol::{
   ControlDeckConfigUpdate, ControlDeckImageAttachmentRef, ControlDeckPreferences,
-  ControlDeckSnapshot, ControlDeckSubmitTurnRequest,
+  ControlDeckSnapshot, ControlDeckSubmitResponse, ControlDeckSubmitTurnRequest,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -27,12 +27,6 @@ use crate::runtime::control_deck::{
   ControlDeckPreferencesUpdateError, ControlDeckSnapshotLoadError, ControlDeckSubmitError,
 };
 use crate::runtime::session_registry::SessionRegistry;
-
-#[derive(Debug, Serialize)]
-pub struct ControlDeckSubmitResponse {
-  pub accepted: bool,
-  pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
-}
 
 #[derive(Debug, Serialize)]
 pub struct ControlDeckImageAttachmentResponse {
@@ -137,6 +131,7 @@ pub async fn submit_control_deck_turn(
         Json(ControlDeckSubmitResponse {
           accepted: true,
           row: result.row,
+          snapshot: result.snapshot,
         }),
       )
     })

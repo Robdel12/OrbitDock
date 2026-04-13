@@ -58,9 +58,37 @@ struct ReviewCanvas: View {
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = ReviewDiffParseCache()
-  @State var viewModel = ReviewCanvasViewModel()
+  @State var viewModel: ReviewCanvasViewModel
   private var bindingIdentity: String {
     "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  }
+
+  init(
+    sessionId: String,
+    sessionStore: SessionStore,
+    projectPath: String,
+    isSessionActive: Bool,
+    compact: Bool = false,
+    navigateToFileId: Binding<String?>? = nil,
+    onDismiss: (() -> Void)? = nil,
+    selectedCommentIds: Binding<Set<String>>,
+    navigateToComment: Binding<ServerReviewComment?>? = nil
+  ) {
+    self.sessionId = sessionId
+    self.sessionStore = sessionStore
+    self.projectPath = projectPath
+    self.isSessionActive = isSessionActive
+    self.compact = compact
+    self.navigateToFileId = navigateToFileId
+    self.onDismiss = onDismiss
+    _selectedCommentIds = selectedCommentIds
+    self.navigateToComment = navigateToComment
+    _viewModel = State(
+      initialValue: ReviewCanvasViewModel(
+        sessionId: sessionId,
+        sessionStore: sessionStore
+      )
+    )
   }
 
   private var rawDiff: String? {
@@ -142,7 +170,7 @@ struct ReviewCanvas: View {
       await viewModel.refresh()
     }
     .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.sessionChanges(for: sessionId)
+      let (stream, _) = sessionStore.reviewRefreshRequests(for: sessionId)
       for await _ in stream {
         await viewModel.refresh()
       }
@@ -172,8 +200,6 @@ struct ReviewCanvas: View {
     .onAppear {
       isCanvasFocused = true
       handlePendingNavigation()
-      viewModel.loadReviewCommentsIfNeeded()
-      viewModel.loadDiffsIfNeeded()
     }
   }
 

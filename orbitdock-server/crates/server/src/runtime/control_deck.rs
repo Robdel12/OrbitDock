@@ -66,6 +66,7 @@ pub(crate) enum ControlDeckAttachmentUploadError {
 #[derive(Debug, Clone)]
 pub(crate) struct ControlDeckSubmitResult {
   pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+  pub snapshot: Option<ControlDeckSnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +79,13 @@ struct ControlDeckDispatchRequest {
   images: Vec<ImageInput>,
   mentions: Vec<MentionInput>,
   message_id: String,
+}
+
+fn next_control_deck_submit_message_id() -> String {
+  // Control deck compose is still a normal user-turn mutation. Keep its accepted
+  // HTTP row identity aligned with `POST /messages` so the client can render the
+  // returned row immediately without special cases.
+  format!("user-http-{}", orbitdock_protocol::new_id())
 }
 
 pub(crate) fn load_control_deck_preferences() -> ControlDeckPreferences {
@@ -119,6 +127,28 @@ pub(crate) async fn load_control_deck_snapshot(
     Err(SessionLoadError::Db(err)) => Err(ControlDeckSnapshotLoadError::Db(err)),
     Err(SessionLoadError::Runtime(err)) => Err(ControlDeckSnapshotLoadError::Runtime(err)),
   }
+}
+
+async fn load_live_control_deck_submit_snapshot(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<ControlDeckSnapshot, ControlDeckSnapshotLoadError> {
+  if let Some(actor) = state.get_session(session_id) {
+    let session = actor
+      .retained_state()
+      .await
+      .map_err(ControlDeckSnapshotLoadError::Runtime)?;
+    let effort_options = resolve_control_deck_effort_options(session_id, &session).await;
+    let connector_attached = state.has_active_connector_action_tx(session_id);
+    return Ok(build_control_deck_snapshot(
+      &session,
+      load_control_deck_preferences(),
+      effort_options,
+      connector_attached,
+    ));
+  }
+
+  load_control_deck_snapshot(state, session_id).await
 }
 
 async fn resolve_control_deck_effort_options(
@@ -329,7 +359,7 @@ pub(crate) async fn submit_control_deck_turn(
     skills: plan.skills,
     images: plan.images,
     mentions: plan.mentions,
-    message_id: format!("control-deck-http-{}", orbitdock_protocol::new_id()),
+    message_id: next_control_deck_submit_message_id(),
   };
 
   let result = dispatch_control_deck_turn(state, dispatch_request.clone()).await;
@@ -351,7 +381,24 @@ pub(crate) async fn submit_control_deck_turn(
     Err(other) => return Err(map_dispatch_error(other)),
   };
 
-  Ok(ControlDeckSubmitResult { row: user_row })
+  let snapshot = match load_live_control_deck_submit_snapshot(state, session_id).await {
+    Ok(snapshot) => Some(snapshot),
+    Err(error) => {
+      warn!(
+        component = "control_deck",
+        event = "submit.snapshot_unavailable",
+        session_id = %session_id,
+        error = ?error,
+        "Control deck submit succeeded but snapshot reload was unavailable"
+      );
+      None
+    }
+  };
+
+  Ok(ControlDeckSubmitResult {
+    row: user_row,
+    snapshot,
+  })
 }
 
 /// Attempt to transparently resume a session whose connector has died.
@@ -512,13 +559,16 @@ fn map_dispatch_error(error: DispatchMessageError) -> ControlDeckSubmitError {
 
 #[cfg(test)]
 mod tests {
-  use super::{auto_resume_session_with, ControlDeckSubmitError};
+  use super::{auto_resume_session_with, submit_control_deck_turn, ControlDeckSubmitError};
   use crate::domain::sessions::session::SessionHandle;
   use crate::runtime::restored_sessions::PreparedResumeSession;
   use crate::runtime::session_registry::SessionRegistry;
   use crate::runtime::session_resume::ResumeSessionLaunch;
-  use crate::support::test_support::ensure_server_test_data_dir;
-  use orbitdock_protocol::Provider;
+  use crate::support::test_support::{ensure_server_test_data_dir, new_test_session_registry};
+  use orbitdock_protocol::{
+    CodexIntegrationMode, ControlDeckSubmitTurnRequest, Provider, SessionLifecycleState,
+    SessionStatus, StateChanges, WorkStatus,
+  };
   use std::sync::atomic::{AtomicUsize, Ordering};
   use std::sync::Arc;
   use tokio::sync::{mpsc, oneshot};
@@ -652,5 +702,59 @@ mod tests {
     assert!(second_result.expect("second task join").is_ok());
     assert_eq!(load_count_assert.load(Ordering::SeqCst), 1);
     assert_eq!(launch_count.load(Ordering::SeqCst), 1);
+  }
+
+  #[tokio::test]
+  async fn submit_control_deck_turn_returns_standard_user_http_row_id() {
+    let state = new_test_session_registry(true);
+    let session_id = "control-deck-submit-user-row";
+    let mut handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-test".to_string(),
+    );
+    handle.apply_changes(&StateChanges {
+      status: Some(SessionStatus::Active),
+      work_status: Some(WorkStatus::Waiting),
+      lifecycle_state: Some(SessionLifecycleState::Open),
+      codex_integration_mode: Some(Some(CodexIntegrationMode::Direct)),
+      ..Default::default()
+    });
+    state.add_session(handle);
+
+    let (action_tx, mut action_rx) = mpsc::channel(1);
+    state.set_codex_action_tx(session_id, action_tx);
+
+    let result = submit_control_deck_turn(
+      &state,
+      session_id,
+      ControlDeckSubmitTurnRequest {
+        text: "Ship the fix".to_string(),
+        attachments: vec![],
+        skills: vec![],
+        overrides: None,
+      },
+    )
+    .await
+    .expect("control deck submit should succeed");
+
+    assert!(
+      result.row.id().starts_with("user-http-"),
+      "expected a standard accepted user row id, got {}",
+      result.row.id()
+    );
+    let snapshot = result
+      .snapshot
+      .expect("submit response should include snapshot");
+    assert_eq!(snapshot.session_id, session_id);
+
+    let action = action_rx.recv().await.expect("connector action");
+    assert!(
+      matches!(
+        action,
+        crate::connectors::codex_session::CodexAction::SendMessage { .. }
+      ),
+      "expected control deck submit to dispatch a send message action"
+    );
   }
 }

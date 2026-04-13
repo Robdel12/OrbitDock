@@ -5,7 +5,7 @@ import SwiftUI
 @Observable
 final class ReviewCanvasViewModel {
   var currentSessionId = ""
-  var currentSessionStore = SessionStore.preview()
+  var currentSessionStore: SessionStore
   var turnDiffs: [ServerTurnDiff] = []
   var currentDiff: String?
   var cumulativeDiff: String?
@@ -14,6 +14,21 @@ final class ReviewCanvasViewModel {
   @ObservationIgnored private var isHydratingDiffs = false
   @ObservationIgnored private var isRefreshing = false
   @ObservationIgnored private var refreshQueued = false
+
+  init(
+    sessionId: String,
+    sessionStore: SessionStore
+  ) {
+    currentSessionId = sessionId
+    currentSessionStore = sessionStore
+  }
+
+  convenience init() {
+    self.init(
+      sessionId: "",
+      sessionStore: SessionStore.preview()
+    )
+  }
 
   func bind(sessionId: String, sessionStore: SessionStore) {
     if currentSessionId != sessionId || ObjectIdentifier(currentSessionStore) != ObjectIdentifier(sessionStore) {

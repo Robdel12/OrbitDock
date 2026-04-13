@@ -13,7 +13,7 @@ use axum::{
 use futures::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use orbitdock_protocol::SessionSurface;
 use orbitdock_protocol::{ClientMessage, ServerMessage};
@@ -100,18 +100,9 @@ impl ConnectionSubscriptions {
 /// WebSocket upgrade handler
 pub async fn ws_handler(
   ws: WebSocketUpgrade,
-  headers: HeaderMap,
+  _headers: HeaderMap,
   State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
-  info!(
-      component = "websocket",
-      event = "ws.upgrade.request",
-      client_version = ?headers
-          .get(orbitdock_protocol::HTTP_HEADER_CLIENT_VERSION)
-          .and_then(|value| value.to_str().ok()),
-      has_authorization = headers.contains_key("authorization"),
-      "Received WebSocket upgrade request"
-  );
   ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -119,12 +110,6 @@ pub async fn ws_handler(
 async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
   let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
   state.ws_connect();
-  info!(
-    component = "websocket",
-    event = "ws.connection.opened",
-    connection_id = conn_id,
-    "WebSocket connection opened"
-  );
 
   let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -257,12 +242,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
         continue;
       }
       Ok(Message::Close(_)) => {
-        info!(
-          component = "websocket",
-          event = "ws.connection.close_frame",
-          connection_id = conn_id,
-          "Client sent close frame"
-        );
         break;
       }
       Ok(_) => continue,
@@ -308,12 +287,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
   }
 
   state.ws_disconnect();
-  info!(
-    component = "websocket",
-    event = "ws.connection.closed",
-    connection_id = conn_id,
-    "WebSocket connection closed"
-  );
   if state.clear_client_primary_claim(conn_id) {
     state.broadcast_to_list(server_info_message(&state));
   }

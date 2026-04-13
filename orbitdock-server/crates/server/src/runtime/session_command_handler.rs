@@ -273,14 +273,18 @@ pub async fn handle_session_command(
       since_revision,
       reply,
     } => {
-      if let Some(since_rev) = since_revision {
-        if let Some(events) = handle.replay_since(since_rev) {
-          let rx = handle.subscribe();
-          persist_and_broadcast_mark_read(handle, persist_tx).await;
-          let _ = reply.send(SubscribeResult::Replay { events, rx });
-          return;
-        }
+      let replay_events = match since_revision {
+        None => Some(vec![]),
+        Some(since_rev) => handle.replay_since(since_rev),
+      };
+
+      if let Some(events) = replay_events {
+        let rx = handle.subscribe();
+        persist_and_broadcast_mark_read(handle, persist_tx).await;
+        let _ = reply.send(SubscribeResult::Replay { events, rx });
+        return;
       }
+
       let rx = handle.subscribe();
       persist_and_broadcast_mark_read(handle, persist_tx).await;
       let _ = reply.send(SubscribeResult::ResyncRequired { rx });
@@ -1083,6 +1087,35 @@ mod tests {
       Some("2026-03-20T12:34:56Z")
     );
     assert!(persist_rx.try_recv().is_err());
+  }
+
+  #[tokio::test]
+  async fn subscribe_without_cursor_attaches_live_stream_without_resync() {
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+
+    handle_session_command(
+      SessionCommand::Subscribe {
+        since_revision: None,
+        reply: reply_tx,
+      },
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+
+    let result = reply_rx.await.expect("subscribe result");
+    match result {
+      SubscribeResult::Replay { events, .. } => assert!(events.is_empty()),
+      SubscribeResult::ResyncRequired { .. } => {
+        panic!("fresh subscribe without cursor should not require resync")
+      }
+    }
   }
 
   #[tokio::test]

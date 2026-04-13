@@ -342,3 +342,9 @@ struct ServerControlDeckSubmitTurnRequest: Codable, Sendable {
   let skills: [ServerControlDeckSkillRef]
   let overrides: ServerControlDeckTurnOverrides?
 }
+
+struct ServerControlDeckSubmitTurnResponse: Codable, Sendable {
+  let accepted: Bool
+  let row: ServerConversationRowEntry
+  let snapshot: ServerControlDeckSnapshotPayload?
+}

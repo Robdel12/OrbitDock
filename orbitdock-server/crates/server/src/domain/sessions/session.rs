@@ -881,7 +881,9 @@ impl SessionHandle {
   /// Replay events since a given revision.
   /// Returns `None` if the gap is too large (caller should send a retained snapshot fallback).
   pub fn replay_since(&self, since_revision: u64) -> Option<Vec<String>> {
-    let oldest = self.event_log.front().map(|(rev, _)| *rev)?;
+    let Some(oldest) = self.event_log.front().map(|(rev, _)| *rev) else {
+      return (since_revision == self.revision).then(Vec::new);
+    };
     if oldest > since_revision + 1 {
       return None; // Gap too large, need a retained snapshot fallback.
     }
@@ -1063,6 +1065,17 @@ mod tests {
     assert!(!payload.contains("\"aggregated_output\""));
     assert!(!payload.contains("\"terminal_snapshot\""));
     assert!(payload.contains("\"live_output_preview\""));
+  }
+
+  #[test]
+  fn replay_since_current_revision_without_event_log_returns_empty_replay() {
+    let session = session_handle(Provider::Codex);
+
+    let replay = session
+      .replay_since(0)
+      .expect("empty replay at current revision");
+
+    assert!(replay.is_empty());
   }
 
   #[test]

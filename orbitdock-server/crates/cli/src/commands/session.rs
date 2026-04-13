@@ -729,6 +729,7 @@ fn conversation_snapshot_from_session(session: &SessionState) -> Option<Conversa
 
   Some(ConversationSnapshotPage {
     revision: session.revision.unwrap_or_default(),
+    replay_cursor: session.revision.unwrap_or_default(),
     session_id: session.id.clone(),
     session: session.clone(),
     rows: session.rows.iter().map(|row| row.to_summary()).collect(),

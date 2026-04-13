@@ -92,6 +92,7 @@ struct ServerSessionContractsTests {
     let data = Data(
       """
       {
+        "replay_cursor": 42,
         "session": {
           "id": "session-worker",
           "provider": "codex",
@@ -159,6 +160,7 @@ struct ServerSessionContractsTests {
     let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
 
     #expect(bootstrap.session.projectName == "OrbitDock")
+    #expect(bootstrap.replayCursor == 42)
     #expect(bootstrap.rows.count == 1)
     #expect(bootstrap.rows.first?.id == "worker-row-1")
 

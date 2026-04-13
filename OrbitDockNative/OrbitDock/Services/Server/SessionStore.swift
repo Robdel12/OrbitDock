@@ -39,6 +39,10 @@ struct SessionHTTPBootstrap {
   var sharedSurfaceRevision: UInt64? {
     conversation.session.revision
   }
+
+  var replayCursor: UInt64 {
+    conversation.replayCursor
+  }
 }
 
 typealias SessionSurfaceSet = Set<ServerSessionSurface>
@@ -125,6 +129,11 @@ final class SessionStore {
 
   @ObservationIgnored private var _rowDeltaContinuations: [String: [UUID: AsyncStream<ConversationRowDelta>.Continuation]] = [:]
   @ObservationIgnored private var _conversationRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+  @ObservationIgnored private var _sessionDetailRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+  @ObservationIgnored private var _controlDeckRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+  @ObservationIgnored private var _reviewRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+  @ObservationIgnored private var _capabilitiesRefreshContinuations: [String: [UUID: AsyncStream<Void>.Continuation]] = [:]
+  @ObservationIgnored private var _conversationRowCache: [String: [String: ServerConversationRowEntry]] = [:]
 
   /// Returns an AsyncStream that yields conversation row deltas as they arrive via WS.
   /// The conversation surface consumes this directly — rows are the one exception
@@ -136,6 +145,9 @@ final class SessionStore {
         _rowDeltaContinuations[sessionId] = [:]
       }
       _rowDeltaContinuations[sessionId]?[id] = continuation
+      if let replayDelta = cachedConversationReplayDelta(for: sessionId) {
+        continuation.yield(replayDelta)
+      }
       continuation.onTermination = { [weak self] _ in
         Task { @MainActor [weak self] in
           self?._rowDeltaContinuations[sessionId]?[id] = nil
@@ -146,6 +158,7 @@ final class SessionStore {
   }
 
   func notifyConversationRowDelta(_ sessionId: String, _ delta: ConversationRowDelta) {
+    cacheConversationRowDelta(sessionId, delta)
     _rowDeltaContinuations[sessionId]?.values.forEach { $0.yield(delta) }
   }
 
@@ -171,6 +184,86 @@ final class SessionStore {
 
   func notifyConversationRefreshRequested(_ sessionId: String) {
     _conversationRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
+  }
+
+  func sessionDetailRefreshRequests(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _sessionDetailRefreshContinuations[sessionId] == nil {
+        _sessionDetailRefreshContinuations[sessionId] = [:]
+      }
+      _sessionDetailRefreshContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._sessionDetailRefreshContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifySessionDetailRefreshRequested(_ sessionId: String) {
+    _sessionDetailRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
+  }
+
+  func controlDeckRefreshRequests(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _controlDeckRefreshContinuations[sessionId] == nil {
+        _controlDeckRefreshContinuations[sessionId] = [:]
+      }
+      _controlDeckRefreshContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._controlDeckRefreshContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifyControlDeckRefreshRequested(_ sessionId: String) {
+    _controlDeckRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
+  }
+
+  func reviewRefreshRequests(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _reviewRefreshContinuations[sessionId] == nil {
+        _reviewRefreshContinuations[sessionId] = [:]
+      }
+      _reviewRefreshContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._reviewRefreshContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifyReviewRefreshRequested(_ sessionId: String) {
+    _reviewRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
+  }
+
+  func capabilitiesRefreshRequests(for sessionId: String) -> (stream: AsyncStream<Void>, id: UUID) {
+    let id = UUID()
+    let stream = AsyncStream<Void> { continuation in
+      if _capabilitiesRefreshContinuations[sessionId] == nil {
+        _capabilitiesRefreshContinuations[sessionId] = [:]
+      }
+      _capabilitiesRefreshContinuations[sessionId]?[id] = continuation
+      continuation.onTermination = { [weak self] _ in
+        Task { @MainActor [weak self] in
+          self?._capabilitiesRefreshContinuations[sessionId]?[id] = nil
+        }
+      }
+    }
+    return (stream, id)
+  }
+
+  func notifyCapabilitiesRefreshRequested(_ sessionId: String) {
+    _capabilitiesRefreshContinuations[sessionId]?.values.forEach { $0.yield() }
   }
 
   // MARK: - Private tracking
@@ -310,6 +403,13 @@ final class SessionStore {
       recoveredSessionGenerations.removeValue(forKey: sessionId)
       removeRecoveredSurfaces(sessionId: sessionId, surfaces: requestedSurfaces)
     }
+    NSLog(
+      "[OrbitDock][Bootstrap] subscribe session=%@ generation=%llu forceRecovery=%@ surfaces=%@",
+      sessionId,
+      connectionGeneration,
+      forceRecovery ? "true" : "false",
+      requestedSurfaces.map(\.rawValue).sorted().joined(separator: ",")
+    )
     netLog(.info, cat: .store, "Subscribe: HTTP bootstrap + WS", sid: sessionId, data: [
       "surfaces": requestedSurfaces.map(\.rawValue).sorted(),
       "forceRecovery": forceRecovery,
@@ -340,20 +440,37 @@ final class SessionStore {
   @discardableResult
   func hydrateSessionFromHTTPBootstrap(
     sessionId: String,
-    generation: UInt64? = nil
+    generation: UInt64? = nil,
+    source: String = "unspecified"
   ) async -> SessionHTTPBootstrap? {
     let targetGeneration = generation ?? connectionGeneration
     let key = SessionGenerationKey(sessionId: sessionId, generation: targetGeneration)
 
     if let existing = inFlightBootstraps[key] {
+      NSLog(
+        "[OrbitDock][Bootstrap] reuse session=%@ generation=%llu source=%@",
+        sessionId,
+        targetGeneration,
+        source
+      )
       return await existing.task.value
     }
 
     let task = Task<SessionHTTPBootstrap?, Never> { [weak self] in
       guard let self else { return nil }
-      return await self.loadSessionBootstrap(sessionId: sessionId, generation: targetGeneration)
+      return await self.loadSessionBootstrap(
+        sessionId: sessionId,
+        generation: targetGeneration,
+        source: source
+      )
     }
 
+    NSLog(
+      "[OrbitDock][Bootstrap] start session=%@ generation=%llu source=%@",
+      sessionId,
+      targetGeneration,
+      source
+    )
     inFlightBootstraps[key] = GenerationTask(generation: targetGeneration, task: task)
     let result = await task.value
     inFlightBootstraps.removeValue(forKey: key)
@@ -394,6 +511,11 @@ final class SessionStore {
       _sessionChangeContinuations.removeValue(forKey: sessionId)
       _rowDeltaContinuations.removeValue(forKey: sessionId)
       _conversationRefreshContinuations.removeValue(forKey: sessionId)
+      _sessionDetailRefreshContinuations.removeValue(forKey: sessionId)
+      _controlDeckRefreshContinuations.removeValue(forKey: sessionId)
+      _reviewRefreshContinuations.removeValue(forKey: sessionId)
+      _capabilitiesRefreshContinuations.removeValue(forKey: sessionId)
+      _conversationRowCache.removeValue(forKey: sessionId)
     } else {
       removeRecoveredSurfaces(sessionId: sessionId, surfaces: targetSurfaces)
     }
@@ -436,14 +558,20 @@ final class SessionStore {
     inFlightSessionRecoveries.removeValue(forKey: key)
   }
 
-  private func loadSessionBootstrap(sessionId: String, generation: UInt64) async -> SessionHTTPBootstrap? {
+  private func loadSessionBootstrap(
+    sessionId: String,
+    generation: UInt64,
+    source: String
+  ) async -> SessionHTTPBootstrap? {
     netLog(.info, cat: .conv, "Fetching HTTP session bootstrap", sid: sessionId, data: [
       "generation": generation,
+      "source": source,
     ])
     do {
       let conversationBootstrap = try await clients.conversation.fetchConversationBootstrap(
         sessionId,
-        limit: 50
+        limit: 50,
+        source: source
       )
       let bootstrap = SessionHTTPBootstrap(
         conversation: conversationBootstrap
@@ -518,7 +646,11 @@ final class SessionStore {
   private func performSessionRecovery(sessionId: String, generation: UInt64) async {
     guard subscribedSessions.contains(sessionId) else { return }
 
-    let bootstrap = await hydrateSessionFromHTTPBootstrap(sessionId: sessionId, generation: generation)
+    let bootstrap = await hydrateSessionFromHTTPBootstrap(
+      sessionId: sessionId,
+      generation: generation,
+      source: "session-recovery"
+    )
     guard subscribedSessions.contains(sessionId), connectionGeneration == generation else {
       netLog(.debug, cat: .store, "Recovery became stale before subscribe", sid: sessionId, data: [
         "generation": generation,
@@ -591,24 +723,20 @@ final class SessionStore {
     surfaces: [ServerSessionSurface]
   ) {
     let sharedRevision = bootstrap?.sharedSurfaceRevision
+    let replayCursor = bootstrap?.replayCursor
     var subscribeData: [String: Any] = [
       "surfaces": surfaces.map(\.rawValue).sorted(),
       "bootstrapRowCount": bootstrap?.conversation.rows.count as Any,
       "generation": generation,
       "connectionStatus": String(describing: connection.connectionStatus),
     ]
-    if surfaces.contains(.detail) {
-      subscribeData["detailRevision"] = sharedRevision as Any
-    }
-    if surfaces.contains(.composer) {
-      subscribeData["composerRevision"] = sharedRevision as Any
-    }
-    if surfaces.contains(.conversation) {
-      subscribeData["conversationRevision"] = sharedRevision as Any
+    for surface in surfaces {
+      subscribeData["\(surface.rawValue)Revision"] = sharedRevision as Any
+      subscribeData["\(surface.rawValue)ReplayCursor"] = replayCursor as Any
     }
     netLog(.info, cat: .store, "WS subscribeSessionSurface", sid: sessionId, data: subscribeData)
     for surface in surfaces {
-      connection.subscribeSessionSurface(sessionId, surface: surface, sinceRevision: sharedRevision)
+      connection.subscribeSessionSurface(sessionId, surface: surface, sinceRevision: replayCursor)
     }
     var updatedRecoveredSurfaces = recoveredSessionSurfaceGenerations[sessionId] ?? [:]
     for surface in surfaces {
@@ -630,5 +758,33 @@ final class SessionStore {
       inFlightSessionRecoveries[key]?.task.cancel()
       inFlightSessionRecoveries.removeValue(forKey: key)
     }
+  }
+
+  private func cacheConversationRowDelta(_ sessionId: String, _ delta: ConversationRowDelta) {
+    var rowsByID = _conversationRowCache[sessionId] ?? [:]
+    for removedId in delta.removedIds {
+      rowsByID.removeValue(forKey: removedId)
+    }
+    for entry in delta.upserted {
+      rowsByID[entry.id] = entry
+    }
+    if rowsByID.isEmpty {
+      _conversationRowCache.removeValue(forKey: sessionId)
+    } else {
+      _conversationRowCache[sessionId] = rowsByID
+    }
+  }
+
+  private func cachedConversationReplayDelta(for sessionId: String) -> ConversationRowDelta? {
+    guard let rowsByID = _conversationRowCache[sessionId], !rowsByID.isEmpty else { return nil }
+    return ConversationRowDelta(
+      upserted: rowsByID.values.sorted { lhs, rhs in
+        if lhs.sequence == rhs.sequence {
+          return lhs.id < rhs.id
+        }
+        return lhs.sequence < rhs.sequence
+      },
+      removedIds: []
+    )
   }
 }
