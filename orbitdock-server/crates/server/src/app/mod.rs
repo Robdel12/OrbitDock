@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 use axum::{
   extract::DefaultBodyLimit,
@@ -76,24 +75,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   let root_span = tracing::info_span!("orbitdock_server", service = "orbitdock", run_id = %run_id);
   let _root_span_guard = root_span.enter();
 
-  let binary_path =
-    std::env::var("ORBITDOCK_SERVER_BINARY_PATH").unwrap_or_else(|_| current_binary_path());
-  let (binary_size, binary_mtime_unix) = binary_metadata(&binary_path);
-
-  info!(
-      component = "server",
-      event = "server.starting",
-      run_id = %run_id,
-      version = VERSION,
-      startup_is_primary = options.startup_is_primary,
-      pid = std::process::id(),
-      data_dir = %options.data_dir.display(),
-      binary_path = %binary_path,
-      binary_size_bytes = binary_size,
-      binary_mtime_unix = binary_mtime_unix,
-      "Starting OrbitDock Server..."
-  );
-
   let db_path = crate::infrastructure::paths::db_path();
   {
     let mut conn = rusqlite::Connection::open(&db_path)
@@ -152,61 +133,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     options.workspace_provider_override,
     persisted_workspace_provider_value.clone(),
   )?;
-  info!(
-    component = "server",
-    event = "server.role.resolved",
-    is_primary = is_primary,
-    source = if persisted_is_primary.is_some() {
-      "config"
-    } else {
-      "startup_default"
-    },
-    "Resolved server control-plane role"
-  );
-  info!(
-    component = "server",
-    event = "server.workspace_provider.resolved",
-    provider = workspace_provider_kind.as_str(),
-    source = if options.workspace_provider_override.is_some() {
-      "startup_override"
-    } else if persisted_workspace_provider_value.is_some() {
-      "config"
-    } else {
-      "default"
-    },
-    "Resolved workspace provider"
-  );
-
-  {
-    let claude_found = std::env::var("CLAUDE_BIN")
-      .ok()
-      .filter(|p| std::path::Path::new(p).exists())
-      .is_some()
-      || std::env::var("HOME")
-        .ok()
-        .map(|h| format!("{}/.claude/local/claude", h))
-        .filter(|p| std::path::Path::new(p).exists())
-        .is_some()
-      || std::process::Command::new("which")
-        .arg("claude")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    if claude_found {
-      info!(
-        component = "server",
-        event = "server.claude.available",
-        "Claude CLI binary available"
-      );
-    } else {
-      warn!(
-        component = "server",
-        event = "server.claude.missing",
-        "Claude CLI binary not found — Claude direct sessions will not be available"
-      );
-    }
-  }
 
   let (sync_shutdown_tx, sync_writer_handle) =
     if let Some(sync_options) = options.managed_sync.clone() {
@@ -261,23 +187,11 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   ));
   state.set_server_instance_id(server_instance_id.clone());
 
-  if let Err(error) = cleanup_stale_permission_state().await {
-    warn!(component = "startup", error = %error, "Failed to run stale permission cleanup");
-  }
-
-  if let Err(error) = cleanup_dangling_in_progress_messages().await {
-    warn!(component = "startup", error = %error, "Failed to run dangling in-progress message cleanup");
-  }
+  let _ = cleanup_stale_permission_state().await;
+  let _ = cleanup_dangling_in_progress_messages().await;
 
   match load_sessions_for_startup().await {
     Ok(restored) if !restored.is_empty() => {
-      info!(
-        component = "restore",
-        event = "restore.start",
-        session_count = restored.len(),
-        "Registering sessions (connectors created lazily on subscribe)"
-      );
-
       let mut backfill_tasks: Vec<(String, String)> = Vec::new();
       for rs in restored {
         let crate::infrastructure::persistence::RestoredSession {
@@ -511,27 +425,9 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
         // No registration needed on restore — DB is source of truth.
 
         state.add_session(handle);
-
-        info!(
-            component = "restore",
-            event = "restore.session.registered",
-            session_id = %id,
-            provider = %match provider {
-                Provider::Codex => "codex",
-                Provider::Claude => "claude",
-            },
-            messages = msg_count,
-            "Registered session"
-        );
       }
 
       if !backfill_tasks.is_empty() {
-        info!(
-          component = "restore",
-          event = "restore.backfill.starting",
-          count = backfill_tasks.len(),
-          "Backfilling messages from transcript files"
-        );
         let backfill_persist_tx = persist_tx.clone();
         let backfill_state = state.clone();
         tokio::spawn(async move {
@@ -543,8 +439,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             .await
             {
               Ok(mut rows) if !rows.is_empty() => {
-                let count = rows.len();
-
                 // Normalize sequences before persisting (matching
                 // what replace_rows() does internally) to keep
                 // DB and in-memory state consistent.
@@ -570,45 +464,14 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
                     .send(crate::runtime::session_commands::SessionCommand::ReplaceRows { rows })
                     .await;
                 }
-
-                info!(
-                    component = "restore",
-                    event = "restore.backfill.session_done",
-                    session_id = %session_id,
-                    messages = count,
-                    "Backfilled rows from transcript"
-                );
               }
-              Ok(_) => {}
-              Err(error) => {
-                tracing::debug!(
-                    component = "restore",
-                    event = "restore.backfill.failed",
-                    session_id = %session_id,
-                    error = %error,
-                    "Failed to backfill from transcript"
-                );
-              }
+              Ok(_) | Err(_) => {}
             }
           }
         });
       }
     }
-    Ok(_) => {
-      info!(
-        component = "restore",
-        event = "restore.empty",
-        "No sessions to restore"
-      );
-    }
-    Err(error) => {
-      warn!(
-          component = "restore",
-          event = "restore.failed",
-          error = %error,
-          "Failed to load sessions for restoration"
-      );
-    }
+    Ok(_) | Err(_) => {}
   }
 
   {
@@ -646,13 +509,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   // Delayed update check — runs ~30s after startup, then activity-based
   crate::runtime::background::update_checker::spawn_startup_check(state.clone());
 
-  // Mission Control orchestrator — user-started via POST /api/missions/:id/start-orchestrator
-  info!(
-    component = "mission_control",
-    event = "mission_control.ready",
-    "Mission Control ready (start orchestrator via API)"
-  );
-
   let shutdown_state = state.clone();
   let shutdown_persist = persist_tx.clone();
   let mut app = Router::new()
@@ -682,20 +538,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   let app = app.with_state(state);
 
   let app = if options.serve_web && crate::transport::web_assets::has_web_assets() {
-    info!(
-      component = "server",
-      event = "server.web_ui.enabled",
-      "Serving embedded web UI"
-    );
     app.fallback(crate::transport::web_assets::web_asset_handler)
   } else {
-    if options.serve_web {
-      warn!(
-        component = "server",
-        event = "server.web_ui.no_assets",
-        "Web UI requested but no assets bundled in this build"
-      );
-    }
     app
   };
 
@@ -832,13 +676,6 @@ fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
     return Ok(None);
   }
 
-  info!(
-    component = "server",
-    event = "cors.enabled",
-    allowed_origins = origins.len(),
-    "Enabled CORS for configured origins"
-  );
-
   Ok(Some(
     CorsLayer::new()
       .allow_origin(origins)
@@ -856,15 +693,7 @@ fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
 
 fn write_pid_file() {
   let pid_path = crate::infrastructure::paths::pid_file_path();
-  if let Err(error) = std::fs::write(&pid_path, std::process::id().to_string()) {
-    warn!(
-        component = "server",
-        event = "server.pid_file.write_error",
-        path = %pid_path.display(),
-        error = %error,
-        "Failed to write PID file"
-    );
-  }
+  let _ = std::fs::write(&pid_path, std::process::id().to_string());
 }
 
 fn cleanup_stale_pid_file() {
@@ -879,13 +708,6 @@ fn cleanup_stale_pid_file() {
   };
 
   if pid == 0 || !process_alive(pid) {
-    warn!(
-        component = "server",
-        event = "server.pid_file.stale_removed",
-        path = %pid_path.display(),
-        stale_pid = pid,
-        "Removed stale PID file before startup"
-    );
     remove_pid_file();
   }
 }
@@ -926,42 +748,13 @@ async fn shutdown_signal(
   {
     let _ = tokio::signal::ctrl_c().await;
   }
-  info!(
-    component = "server",
-    event = "server.shutdown",
-    "Shutdown signal received — active direct sessions preserved for lazy resume"
-  );
 
   if let Some(shutdown_tx) = sync_shutdown_tx {
     let _ = shutdown_tx.send(true);
   }
 
   if let Some(handle) = sync_writer_handle {
-    match tokio::time::timeout(std::time::Duration::from_secs(35), handle).await {
-      Ok(Ok(())) => {
-        info!(
-          component = "sync",
-          event = "sync.writer.shutdown_joined",
-          "Sync writer finished draining before shutdown"
-        );
-      }
-      Ok(Err(join_error)) => {
-        warn!(
-            component = "sync",
-            event = "sync.writer.shutdown_join_failed",
-            error = %join_error,
-            "Sync writer task failed while shutting down"
-        );
-      }
-      Err(_) => {
-        warn!(
-          component = "sync",
-          event = "sync.writer.shutdown_join_timeout",
-          timeout_secs = 35_u64,
-          "Timed out waiting for sync writer to finish draining"
-        );
-      }
-    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(35), handle).await;
   }
 
   remove_pid_file();
@@ -973,27 +766,6 @@ async fn health_handler() -> impl IntoResponse {
       "version": VERSION,
   })
   .to_string()
-}
-
-fn current_binary_path() -> String {
-  std::env::current_exe()
-    .ok()
-    .and_then(|path| path.into_os_string().into_string().ok())
-    .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn binary_metadata(path: &str) -> (u64, i64) {
-  let Ok(metadata) = std::fs::metadata(path) else {
-    return (0, 0);
-  };
-  let size = metadata.len();
-  let modified = metadata
-    .modified()
-    .ok()
-    .and_then(|mtime| mtime.duration_since(UNIX_EPOCH).ok())
-    .map(|duration| duration.as_secs() as i64)
-    .unwrap_or(0);
-  (size, modified)
 }
 
 fn load_trimmed_config_value(key: &str) -> Option<String> {

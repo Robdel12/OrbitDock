@@ -12,7 +12,7 @@ use orbitdock_protocol::{McpAuthStatus, McpResource, McpResourceTemplate, McpToo
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
@@ -123,12 +123,6 @@ pub fn start_event_loop(
                   "output_rx",
                   async {
                       let Some(output) = output else {
-                          info!(
-                              component = "claude_connector",
-                              event = "claude.output_rx.closed",
-                              session_id = %session_id,
-                              "Connector output channel closed, CLI process likely exited"
-                          );
                           return ConnectorLoopControl::Break;
                       };
 
@@ -143,13 +137,6 @@ pub fn start_event_loop(
                           }
                           ConnectorDispatch::RuntimeDirective(ConnectorRuntimeDirective::HookSessionId(hook_sid)) => {
                               if hook_sid != session_id {
-                                  info!(
-                                      component = "claude_connector",
-                                      event = "claude.hook_session_id.registered",
-                                      session_id = %session_id,
-                                      hook_session_id = %hook_sid,
-                                      "Registering hook session ID as managed thread"
-                                  );
                                   register_managed_claude_session(
                                       &state,
                                       &persist,
@@ -179,13 +166,6 @@ pub fn start_event_loop(
                       if !claude_sdk_session_persisted {
                           if let Some(sdk_sid) = session.connector.claude_session_id().await {
                               claude_sdk_session_persisted = true;
-                              info!(
-                                  component = "claude_connector",
-                                  event = "claude.session_id.persisted",
-                                  session_id = %session_id,
-                                  claude_sdk_session_id = %sdk_sid,
-                                  "Persisting Claude SDK session ID"
-                              );
                               register_managed_claude_session(
                                   &state,
                                   &persist,
@@ -492,13 +472,6 @@ pub fn start_event_loop(
     state.remove_claude_action_tx(&session_id);
     rebind_session_as_passive_actor(&state, session_handle);
     cleanup_guard.disarm();
-
-    info!(
-        component = "claude_connector",
-        event = "claude.event_loop.ended",
-        session_id = %session_id,
-        "Claude session event loop ended; cleanup was applied and a passive actor was rebound"
-    );
   });
 
   (actor_handle, action_tx)

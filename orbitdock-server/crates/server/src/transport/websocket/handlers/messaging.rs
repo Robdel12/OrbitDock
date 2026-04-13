@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::warn;
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
@@ -31,19 +31,6 @@ pub(crate) async fn handle(
       images,
       mentions,
     } => {
-      info!(
-          component = "session",
-          event = "session.message.send_requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          content_chars = content.chars().count(),
-          model = ?model,
-          effort = ?effort,
-          skills_count = skills.len(),
-          images_count = images.len(),
-          mentions_count = mentions.len(),
-          "Sending message to session"
-      );
       let ts_millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -83,16 +70,6 @@ pub(crate) async fn handle(
       images,
       mentions,
     } => {
-      info!(
-          component = "session",
-          event = "session.steer.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          content_chars = content.chars().count(),
-          images_count = images.len(),
-          mentions_count = mentions.len(),
-          "Steering active turn"
-      );
       let ts_millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -123,25 +100,7 @@ pub(crate) async fn handle(
       let normalized_answers =
         build_question_answers(&answer, question_id.as_deref(), answers.clone());
 
-      info!(
-          component = "approval",
-          event = "approval.answer.submitted",
-          connection_id = conn_id,
-          session_id = %session_id,
-          request_id = %request_id,
-          answer_chars = answer.trim().chars().count(),
-          answer_questions = normalized_answers.len(),
-          "Answer submitted for question approval"
-      );
       if normalized_answers.is_empty() {
-        warn!(
-            component = "approval",
-            event = "approval.answer.missing_payload",
-            connection_id = conn_id,
-            session_id = %session_id,
-            request_id = %request_id,
-            "Question answer request had no usable answer payload"
-        );
         send_invalid_answer_payload(client_tx, &session_id).await;
         return;
       }
@@ -178,16 +137,6 @@ pub(crate) async fn handle(
         },
       )
       .await;
-
-      if let Some(next_pending_request_id) = result.active_request_id {
-        info!(
-            component = "approval",
-            event = "approval.queue.promoted",
-            session_id = %session_id,
-            next_request_id = %next_pending_request_id,
-            "Promoted next queued approval"
-        );
-      }
     }
 
     ClientMessage::RespondToPermissionRequest {
@@ -211,21 +160,6 @@ pub(crate) async fn handle(
           return;
         }
       };
-
-      let granted_count = normalized_permissions
-        .as_object()
-        .map(|map| map.len())
-        .unwrap_or_default();
-
-      info!(
-          component = "approval",
-          event = "approval.permissions.submitted",
-          connection_id = conn_id,
-          session_id = %session_id,
-          request_id = %request_id,
-          granted_fields = granted_count,
-          "Permission response submitted"
-      );
 
       let result = match dispatch_request_permissions_response(
         state,
@@ -266,43 +200,12 @@ pub(crate) async fn handle(
         },
       )
       .await;
-
-      if let Some(next_pending_request_id) = result.active_request_id {
-        info!(
-            component = "approval",
-            event = "approval.queue.promoted",
-            session_id = %session_id,
-            next_request_id = %next_pending_request_id,
-            "Promoted next queued approval"
-        );
-      }
     }
 
     ClientMessage::InterruptSession { session_id } => {
-      info!(
-          component = "session",
-          event = "session.interrupt.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          "Interrupt session requested"
-      );
-
       match dispatch_interrupt(state, &session_id).await {
-        Ok(()) => {
-          info!(
-              component = "session",
-              event = "session.interrupt.dispatched",
-              session_id = %session_id,
-              "Interrupt dispatched to connector"
-          );
-        }
+        Ok(()) => {}
         Err(_) => {
-          warn!(
-              component = "session",
-              event = "session.interrupt.failed",
-              session_id = %session_id,
-              "Interrupt failed"
-          );
           send_json(
             client_tx,
             ServerMessage::Error {
@@ -320,26 +223,10 @@ pub(crate) async fn handle(
     }
 
     ClientMessage::CompactContext { session_id } => {
-      info!(
-          component = "session",
-          event = "session.compact.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          "Compact context requested"
-      );
-
       let _ = dispatch_compact(state, &session_id).await;
     }
 
     ClientMessage::UndoLastTurn { session_id } => {
-      info!(
-          component = "session",
-          event = "session.undo.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          "Undo last turn requested"
-      );
-
       let _ = dispatch_undo(state, &session_id).await;
     }
 
@@ -360,15 +247,6 @@ pub(crate) async fn handle(
         return;
       }
 
-      info!(
-          component = "session",
-          event = "session.rollback.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          num_turns = num_turns,
-          "Rollback turns requested"
-      );
-
       match dispatch_rollback(state, &session_id, num_turns).await {
         Ok(()) => {}
         Err("rollback_failed") => {
@@ -382,15 +260,7 @@ pub(crate) async fn handle(
           )
           .await;
         }
-        Err(_) => {
-          warn!(
-              component = "session",
-              event = "session.rollback.failed",
-              session_id = %session_id,
-              num_turns = num_turns,
-              "Rollback failed"
-          );
-        }
+        Err(_) => {}
       }
     }
 
@@ -398,15 +268,6 @@ pub(crate) async fn handle(
       session_id,
       task_id,
     } => {
-      info!(
-          component = "session",
-          event = "session.stop_task.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          task_id = %task_id,
-          "Stop task requested"
-      );
-
       if dispatch_stop_task(state, &session_id, task_id)
         .await
         .is_err()
@@ -419,15 +280,6 @@ pub(crate) async fn handle(
       session_id,
       user_message_id,
     } => {
-      info!(
-          component = "session",
-          event = "session.rewind.requested",
-          connection_id = conn_id,
-          session_id = %session_id,
-          user_message_id = %user_message_id,
-          "Rewind files requested"
-      );
-
       if dispatch_rewind_files(state, &session_id, user_message_id)
         .await
         .is_err()

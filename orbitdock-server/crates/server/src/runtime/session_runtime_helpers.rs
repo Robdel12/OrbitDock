@@ -654,7 +654,6 @@ pub(crate) async fn sync_transcript_messages(
     Err(_) => return,
   };
 
-  let transcript_row_count = all_rows.len();
   let transcript_rows_for_guard = guard_candidate.as_ref().map(|_| all_rows.clone());
   let plan = plan_transcript_sync(TranscriptSyncInputs {
     provider: snap.provider,
@@ -675,18 +674,6 @@ pub(crate) async fn sync_transcript_messages(
     )),
     _ => None,
   };
-
-  tracing::info!(
-      component = "transcript_sync",
-      event = "transcript_sync.planned",
-      session_id = %session_id,
-      transcript_rows = transcript_row_count,
-      newest_known_id = ?newest_known_id,
-      decision = ?plan.message_sync_decision,
-      new_rows = plan.new_rows.len(),
-      updated_rows = plan.updated_rows.len(),
-      "Transcript sync planned"
-  );
 
   if let Some(usage_update) = plan.usage_update {
     actor
@@ -814,26 +801,8 @@ pub(crate) fn spawn_connector_cleanup_monitor(
     }
 
     if !updated_via_actor {
-      let restored =
-        restore_passive_session_actor_from_persistence(&state, &cleanup_session_id).await;
-      if !restored {
-        tracing::warn!(
-          component = "connector_cleanup",
-          event = "connector_cleanup.passive_actor_restore_unavailable",
-          session_id = %cleanup_session_id,
-          provider = ?provider,
-          "Failed to replace dead direct runtime with a passive session actor"
-        );
-      }
+      restore_passive_session_actor_from_persistence(&state, &cleanup_session_id).await;
     }
-
-    tracing::info!(
-      component = "connector_cleanup",
-      event = "connector_cleanup.session_marked_resumable",
-      session_id = %cleanup_session_id,
-      provider = ?provider,
-      "Cleanup monitor marked session as resumable after connector exit"
-    );
   });
 
   ConnectorCleanupGuard {

@@ -20,8 +20,10 @@ use codex_protocol::openai_models::{
 use codex_protocol::protocol::{Op, SessionSource};
 use tracing::warn;
 
+use super::policy_bridge::parse_sandbox_policy_with_details;
 use super::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
 use orbitdock_connector_core::ConnectorError;
+use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
 
 const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
 const DEFAULT_CODEX_HIDE_REASONING: bool = false;
@@ -50,12 +52,41 @@ Plan mode guidance:
 When a plan is ready to persist, call `plan_write` and save Markdown under `plans/`.
 "#;
 
+pub fn requested_sandbox_policy_details(
+  sandbox_mode: Option<&str>,
+  sandbox_policy_details: Option<&CodexSandboxPolicy>,
+) -> Option<CodexSandboxPolicy> {
+  sandbox_policy_details
+    .cloned()
+    .or_else(|| sandbox_mode.and_then(CodexSandboxPolicy::from_storage_text))
+}
+
+pub fn config_loader_sandbox_mode(
+  sandbox_mode: Option<&str>,
+  sandbox_policy_details: Option<&CodexSandboxPolicy>,
+) -> Option<String> {
+  if let Some(details) = requested_sandbox_policy_details(sandbox_mode, sandbox_policy_details) {
+    return match details.mode {
+      CodexSandboxMode::DangerFullAccess => Some("danger-full-access".to_string()),
+      CodexSandboxMode::ReadOnly => Some("read-only".to_string()),
+      CodexSandboxMode::WorkspaceWrite => Some("workspace-write".to_string()),
+      CodexSandboxMode::ExternalSandbox => None,
+    };
+  }
+
+  sandbox_mode
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(ToOwned::to_owned)
+}
+
 pub struct ResumeConnectorWithToolsConfig<'a> {
   pub cwd: &'a str,
   pub thread_id: &'a str,
   pub model: Option<&'a str>,
   pub approval_policy: Option<&'a str>,
   pub sandbox_mode: Option<&'a str>,
+  pub sandbox_policy_details: Option<&'a CodexSandboxPolicy>,
   pub config_overrides: &'a CodexConfigOverrides,
   pub control_plane: CodexControlPlane,
   pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
@@ -73,6 +104,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      None,
       &CodexConfigOverrides::default(),
       CodexControlPlane::default(),
     )
@@ -91,6 +123,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      None,
       config_overrides,
       CodexControlPlane::default(),
     )
@@ -109,6 +142,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      None,
       &CodexConfigOverrides::default(),
       control_plane,
     )
@@ -120,6 +154,7 @@ impl CodexConnector {
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
     control_plane: CodexControlPlane,
   ) -> Result<Self, ConnectorError> {
@@ -128,6 +163,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       config_overrides,
       control_plane,
       Vec::new(),
@@ -140,6 +176,7 @@ impl CodexConnector {
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
     control_plane: CodexControlPlane,
     dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
   ) -> Result<Self, ConnectorError> {
@@ -148,6 +185,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       &CodexConfigOverrides::default(),
       control_plane,
       dynamic_tools,
@@ -155,11 +193,13 @@ impl CodexConnector {
     .await
   }
 
+  #[allow(clippy::too_many_arguments)]
   pub async fn new_with_config_overrides_control_plane_and_tools(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
     control_plane: CodexControlPlane,
     dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
@@ -178,6 +218,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       config_overrides,
       &control_plane,
     )
@@ -199,7 +240,13 @@ impl CodexConnector {
 
     let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
     connector
-      .apply_post_start_control_plane(control_plane, configured_model, None)
+      .apply_post_start_overrides(
+        control_plane,
+        configured_model,
+        None,
+        sandbox_mode,
+        sandbox_policy_details,
+      )
       .await?;
     Ok(connector)
   }
@@ -218,6 +265,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details: None,
       config_overrides: &default_overrides,
       control_plane: CodexControlPlane::default(),
       dynamic_tools: Vec::new(),
@@ -239,6 +287,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details: None,
       config_overrides,
       control_plane: CodexControlPlane::default(),
       dynamic_tools: Vec::new(),
@@ -261,6 +310,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details: None,
       config_overrides: &default_overrides,
       control_plane,
       dynamic_tools: Vec::new(),
@@ -283,6 +333,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details: None,
       config_overrides,
       control_plane,
       dynamic_tools: Vec::new(),
@@ -299,6 +350,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       config_overrides,
       control_plane,
       dynamic_tools,
@@ -327,6 +379,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       config_overrides,
       &control_plane,
     )
@@ -369,7 +422,13 @@ impl CodexConnector {
 
     let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
     connector
-      .apply_post_start_control_plane(control_plane, configured_model, None)
+      .apply_post_start_overrides(
+        control_plane,
+        configured_model,
+        None,
+        sandbox_mode,
+        sandbox_policy_details,
+      )
       .await?;
     Ok(connector)
   }
@@ -379,6 +438,7 @@ impl CodexConnector {
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
     control_plane: &CodexControlPlane,
   ) -> Result<Config, ConnectorError> {
@@ -387,6 +447,7 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      sandbox_policy_details,
       config_overrides,
       control_plane,
       true,
@@ -394,11 +455,13 @@ impl CodexConnector {
     .await
   }
 
+  #[allow(clippy::too_many_arguments)]
   pub async fn build_config_with_runtime_defaults(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
     control_plane: &CodexControlPlane,
     apply_runtime_defaults: bool,
@@ -420,11 +483,8 @@ impl CodexConnector {
       ));
     }
 
-    if let Some(sandbox) = sandbox_mode {
-      cli_overrides.push((
-        "sandbox_mode".to_string(),
-        toml::Value::String(sandbox.to_string()),
-      ));
+    if let Some(sandbox) = config_loader_sandbox_mode(sandbox_mode, sandbox_policy_details) {
+      cli_overrides.push(("sandbox_mode".to_string(), toml::Value::String(sandbox)));
     }
 
     if let Some(effort) = control_plane.effort.as_deref() {
@@ -524,16 +584,24 @@ impl CodexConnector {
     }
   }
 
-  pub(crate) async fn apply_post_start_control_plane(
+  pub(crate) async fn apply_post_start_overrides(
     &self,
     control_plane: CodexControlPlane,
     configured_model: Option<String>,
     configured_effort: Option<ReasoningEffort>,
+    sandbox_mode: Option<&str>,
+    sandbox_policy_details: Option<&CodexSandboxPolicy>,
   ) -> Result<(), ConnectorError> {
     let requested_effort = control_plane
       .effort
       .as_deref()
       .and_then(parse_reasoning_effort_value);
+    let sandbox_policy = parse_sandbox_policy_with_details(sandbox_mode, sandbox_policy_details)
+      .map_err(|error| {
+        ConnectorError::ProviderError(format!(
+          "Failed to apply Codex sandbox policy after startup: {error}"
+        ))
+      })?;
     let collaboration_mode = collaboration_mode_for_update(
       self.thread_manager.as_ref(),
       control_plane.collaboration_mode.as_deref(),
@@ -552,6 +620,7 @@ impl CodexConnector {
       && personality.is_none()
       && control_plane.multi_agent.is_none()
       && requested_effort.is_none()
+      && sandbox_policy.is_none()
     {
       return Ok(());
     }
@@ -561,7 +630,7 @@ impl CodexConnector {
       .submit(Op::OverrideTurnContext {
         cwd: None,
         approval_policy: None,
-        sandbox_policy: None,
+        sandbox_policy,
         windows_sandbox_level: None,
         model: None,
         effort: requested_effort.map(Some),
@@ -1164,4 +1233,58 @@ pub(crate) fn parse_service_tier_override(value: Option<&str>) -> Option<Option<
       "flex" => Some(Some(ServiceTier::Flex)),
       _ => None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{config_loader_sandbox_mode, requested_sandbox_policy_details};
+  use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
+
+  #[test]
+  fn config_loader_sandbox_mode_preserves_supported_base_values() {
+    assert_eq!(
+      config_loader_sandbox_mode(Some("workspace-write"), None),
+      Some("workspace-write".to_string())
+    );
+    assert_eq!(
+      config_loader_sandbox_mode(Some("danger-full-access"), None),
+      Some("danger-full-access".to_string())
+    );
+  }
+
+  #[test]
+  fn config_loader_sandbox_mode_strips_network_suffixes() {
+    assert_eq!(
+      config_loader_sandbox_mode(Some("workspace-write-network"), None),
+      Some("workspace-write".to_string())
+    );
+    assert_eq!(
+      config_loader_sandbox_mode(Some("read-only-network"), None),
+      Some("read-only".to_string())
+    );
+  }
+
+  #[test]
+  fn config_loader_sandbox_mode_omits_external_sandbox() {
+    assert_eq!(
+      config_loader_sandbox_mode(Some("external-sandbox"), None),
+      None
+    );
+    assert_eq!(
+      config_loader_sandbox_mode(Some("external-sandbox-network"), None),
+      None
+    );
+  }
+
+  #[test]
+  fn requested_sandbox_policy_details_prefer_explicit_details() {
+    let details = CodexSandboxPolicy {
+      mode: CodexSandboxMode::ExternalSandbox,
+      network_access: true,
+    };
+    assert_eq!(
+      requested_sandbox_policy_details(Some("workspace-write"), Some(&details)),
+      Some(details)
+    );
+  }
 }

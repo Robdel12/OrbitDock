@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::oneshot;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::PermissionGrantScope;
@@ -74,52 +74,17 @@ pub(crate) async fn dispatch_send_message(
   let codex_tx = state.get_codex_action_tx(&session_id);
   let claude_tx = state.get_claude_action_tx(&session_id);
   let Some(actor) = state.get_session(&session_id) else {
-    warn!(
-        component = "session",
-        event = "session.message.dispatch_failed",
-        session_id = %session_id,
-        reason = "session_not_found",
-        "Failed to dispatch message because the session actor was missing"
-    );
     return Err(DispatchMessageError::SessionNotFound);
   };
 
   let snapshot = actor.snapshot();
   let provider = snapshot.provider;
-  let status = snapshot.status;
-  let work_status = snapshot.work_status;
-  info!(
-      component = "session",
-      event = "session.message.dispatch_requested",
-      session_id = %session_id,
-      provider = ?provider,
-      status = ?status,
-      work_status = ?work_status,
-      has_codex_action_tx = codex_tx.is_some(),
-      has_claude_action_tx = claude_tx.is_some(),
-      content_length = content.len(),
-      images = images.len(),
-      mentions = mentions.len(),
-      skills = skills.len(),
-      "Dispatching session message"
-  );
 
   if codex_tx.is_none() && claude_tx.is_none() {
-    warn!(
-        component = "session",
-        event = "session.message.dispatch_failed",
-        session_id = %session_id,
-        provider = ?provider,
-        status = ?status,
-        work_status = ?work_status,
-        reason = "no_active_connector",
-        "Failed to dispatch message because no active connector action channel was available"
-    );
     return Err(DispatchMessageError::ConnectorUnavailable);
   }
 
   let requested_effort = normalize_non_empty(effort.clone());
-  let requested_model = model.clone();
   let plan = plan_send_message(
     provider,
     snapshot.codex_config_mode,
@@ -142,21 +107,6 @@ pub(crate) async fn dispatch_send_message(
   let first_prompt = plan.first_prompt.clone();
   let session_effort_update = plan.session_effort_update.clone();
 
-  if provider == Provider::Codex
-    && requested_model.as_deref() != action_model.as_deref()
-    && requested_model.is_some()
-  {
-    info!(
-      component = "session",
-      event = "session.message.codex_model_override_ignored",
-      session_id = %session_id,
-      requested_model = ?requested_model,
-      effective_model = ?snapshot.model,
-      codex_config_mode = ?snapshot.codex_config_mode,
-      "Ignored per-turn Codex model override for a non-custom session"
-    );
-  }
-
   if let Some(tx) = codex_tx {
     if tx
       .send(CodexAction::SendMessage {
@@ -178,15 +128,6 @@ pub(crate) async fn dispatch_send_message(
       )
       .await;
       state.remove_codex_action_tx(&session_id);
-      warn!(
-          component = "session",
-          event = "session.message.action_channel_closed",
-          session_id = %session_id,
-          provider = "codex",
-          status = ?status,
-          work_status = ?work_status,
-          "Codex action channel closed while sending message"
-      );
       return Err(DispatchMessageError::ConnectorUnavailable);
     }
   } else if let Some(tx) = claude_tx {
@@ -208,15 +149,6 @@ pub(crate) async fn dispatch_send_message(
       )
       .await;
       state.remove_claude_action_tx(&session_id);
-      warn!(
-          component = "session",
-          event = "session.message.action_channel_closed",
-          session_id = %session_id,
-          provider = "claude",
-          status = ?status,
-          work_status = ?work_status,
-          "Claude action channel closed while sending message"
-      );
       return Err(DispatchMessageError::ConnectorUnavailable);
     }
   }

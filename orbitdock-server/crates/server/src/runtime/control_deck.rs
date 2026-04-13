@@ -7,7 +7,7 @@ use orbitdock_protocol::{
   ControlDeckConfigUpdate, ControlDeckPickerOption, ControlDeckPreferences, ControlDeckSnapshot,
   ControlDeckSubmitTurnRequest, ImageInput, MentionInput, SkillInput,
 };
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 use crate::domain::control_deck::{
   build_control_deck_snapshot, control_deck_effort_options, default_control_deck_preferences,
@@ -108,19 +108,6 @@ pub(crate) async fn load_control_deck_snapshot(
         effort_options,
         connector_attached,
       );
-      debug!(
-        component = "control_deck",
-        event = "snapshot.loaded",
-        session_id = %session_id,
-        revision = snapshot.revision,
-        provider = ?snapshot.state.provider,
-        model = ?snapshot.state.config.model,
-        effort = ?snapshot.state.config.effort,
-        effort_options = snapshot.capabilities.effort_options.len(),
-        pending_approval = snapshot.pending_approval.is_some(),
-        connector_attached = connector_attached,
-        "Loaded control deck snapshot"
-      );
       Ok(snapshot)
     }
     Err(SessionLoadError::NotFound) => Err(ControlDeckSnapshotLoadError::NotFound),
@@ -152,21 +139,11 @@ async fn load_live_control_deck_submit_snapshot(
 }
 
 async fn resolve_control_deck_effort_options(
-  session_id: &str,
+  _session_id: &str,
   session: &orbitdock_protocol::SessionState,
 ) -> Vec<ControlDeckPickerOption> {
   if session.provider != orbitdock_protocol::Provider::Codex {
-    let options = control_deck_effort_options(session.provider, None);
-    let values = effort_option_values(&options);
-    debug!(
-      component = "control_deck",
-      event = "effort_options.resolved.non_codex",
-      session_id = %session_id,
-      provider = ?session.provider,
-      effort_options = ?values,
-      "Resolved control deck effort options for non-Codex session"
-    );
-    return options;
+    return control_deck_effort_options(session.provider, None);
   }
 
   let cwd = session
@@ -190,26 +167,7 @@ async fn resolve_control_deck_effort_options(
     })
     .map(|option| option.supported_reasoning_efforts.as_slice());
 
-  let options = control_deck_effort_options(session.provider, codex_model_efforts);
-  let values = effort_option_values(&options);
-  info!(
-    component = "control_deck",
-    event = "effort_options.resolved.codex",
-    session_id = %session_id,
-    model_provider = ?model_provider,
-    active_model = ?active_model,
-    discovered_models = discovered.as_ref().map(|models| models.len()).unwrap_or(0),
-    effort_options = ?values,
-    "Resolved control deck effort options for Codex session"
-  );
-  options
-}
-
-fn effort_option_values(options: &[ControlDeckPickerOption]) -> Vec<&str> {
-  options
-    .iter()
-    .map(|option| option.value.as_str())
-    .collect::<Vec<_>>()
+  control_deck_effort_options(session.provider, codex_model_efforts)
 }
 
 fn map_session_mutation_error(error: SessionMutationError) -> ControlDeckConfigUpdateError {
@@ -255,14 +213,6 @@ pub(crate) async fn update_control_deck_config(
   session_id: &str,
   update: ControlDeckConfigUpdate,
 ) -> Result<ControlDeckSnapshot, ControlDeckConfigUpdateError> {
-  info!(
-    component = "control_deck",
-    event = "config_update.runtime.request",
-    session_id = %session_id,
-    update = ?update,
-    "Applying control deck config update"
-  );
-
   if let Err(error) = update_runtime_session_config(
     state,
     session_id,
@@ -291,13 +241,6 @@ pub(crate) async fn update_control_deck_config(
     return Err(map_session_mutation_error(error));
   }
 
-  info!(
-    component = "control_deck",
-    event = "config_update.runtime.applied",
-    session_id = %session_id,
-    "Applied control deck config update; awaiting persistence flush"
-  );
-
   // The config update is persisted asynchronously through the batched writer.
   // Send a Flush barrier and await its ack so the DB has the updated values
   // before we reload the snapshot.
@@ -308,36 +251,9 @@ pub(crate) async fn update_control_deck_config(
     .await;
   let _ = ack_rx.await;
 
-  match load_control_deck_snapshot(state, session_id).await {
-    Ok(snapshot) => {
-      info!(
-        component = "control_deck",
-        event = "config_update.runtime.response",
-        session_id = %session_id,
-        revision = snapshot.revision,
-        model = ?snapshot.state.config.model,
-        effort = ?snapshot.state.config.effort,
-        approval_policy = ?snapshot.state.config.approval_policy,
-        sandbox_mode = ?snapshot.state.config.sandbox_mode,
-        permission_mode = ?snapshot.state.config.permission_mode,
-        collaboration_mode = ?snapshot.state.config.collaboration_mode,
-        approvals_reviewer = ?snapshot.state.config.approvals_reviewer,
-        effort_options = snapshot.capabilities.effort_options.len(),
-        "Returning updated control deck snapshot"
-      );
-      Ok(snapshot)
-    }
-    Err(error) => {
-      warn!(
-        component = "control_deck",
-        event = "config_update.runtime.snapshot_failed",
-        session_id = %session_id,
-        error = ?error,
-        "Control deck config update applied but snapshot reload failed"
-      );
-      Err(map_snapshot_load_error(error))
-    }
-  }
+  load_control_deck_snapshot(state, session_id)
+    .await
+    .map_err(map_snapshot_load_error)
 }
 
 pub(crate) async fn submit_control_deck_turn(
@@ -367,12 +283,6 @@ pub(crate) async fn submit_control_deck_turn(
   let user_row = match result {
     Ok(row) => row,
     Err(DispatchMessageError::ConnectorUnavailable) => {
-      info!(
-        component = "control_deck",
-        event = "submit.auto_resume",
-        session_id = %session_id,
-        "No connector available — attempting auto-resume before retry"
-      );
       auto_resume_session(state, session_id).await?;
       dispatch_control_deck_turn(state, dispatch_request)
         .await
@@ -381,19 +291,9 @@ pub(crate) async fn submit_control_deck_turn(
     Err(other) => return Err(map_dispatch_error(other)),
   };
 
-  let snapshot = match load_live_control_deck_submit_snapshot(state, session_id).await {
-    Ok(snapshot) => Some(snapshot),
-    Err(error) => {
-      warn!(
-        component = "control_deck",
-        event = "submit.snapshot_unavailable",
-        session_id = %session_id,
-        error = ?error,
-        "Control deck submit succeeded but snapshot reload was unavailable"
-      );
-      None
-    }
-  };
+  let snapshot = load_live_control_deck_submit_snapshot(state, session_id)
+    .await
+    .ok();
 
   Ok(ControlDeckSubmitResult {
     row: user_row,
@@ -445,12 +345,6 @@ where
   // Another in-flight submit may have already reattached the connector while this call
   // waited on the lock. If so, treat auto-resume as complete.
   if state.has_active_connector_action_tx(session_id) {
-    info!(
-      component = "control_deck",
-      event = "submit.auto_resume.already_restored",
-      session_id = %session_id,
-      "Auto-resume skipped because a connector is already active"
-    );
     return Ok(());
   }
 
@@ -494,13 +388,6 @@ where
   if let Some(startup_ready) = launch.startup_ready {
     let _ = tokio::time::timeout(Duration::from_secs(16), startup_ready).await;
   }
-
-  info!(
-    component = "control_deck",
-    event = "submit.auto_resume.success",
-    session_id = %session_id,
-    "Auto-resume succeeded — retrying dispatch"
-  );
 
   Ok(())
 }
@@ -589,6 +476,7 @@ mod tests {
       codex_thread_id: None,
       approval_policy: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       collaboration_mode: None,
       multi_agent: None,
       personality: None,

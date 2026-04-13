@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use codex_core::config::find_codex_home;
 use orbitdock_protocol::conversation_contracts::{ConversationRowEntry, RowEntrySummary};
 use orbitdock_protocol::{DirectoryEntry, RecentProject, SubagentTool};
-use tracing::warn;
 
+use super::errors::bad_request;
 use crate::infrastructure::persistence::{
   load_messages_from_transcript_path, load_subagent_transcript_path,
 };
@@ -53,27 +53,20 @@ pub struct BrowseDirectoryQuery {
 
 pub async fn browse_directory(
   Query(query): Query<BrowseDirectoryQuery>,
-) -> Json<DirectoryListingResponse> {
+) -> ApiResult<DirectoryListingResponse> {
   let target = resolve_browse_target(query.path.as_deref());
 
-  let entries = match read_directory_entries(&target) {
-    Ok(entries) => entries,
-    Err(err) => {
-      warn!(
-          component = "api",
-          event = "api.browse_directory.read_error",
-          path = %target.display(),
-          error = %err,
-          "Cannot read directory"
-      );
-      vec![]
-    }
-  };
+  let entries = read_directory_entries(&target).map_err(|err| {
+    bad_request(
+      "directory_read_error",
+      format!("Cannot read directory {}: {}", target.display(), err),
+    )
+  })?;
 
-  Json(DirectoryListingResponse {
+  Ok(Json(DirectoryListingResponse {
     path: target.to_string_lossy().to_string(),
     entries,
-  })
+  }))
 }
 
 pub async fn list_recent_projects(
@@ -209,63 +202,23 @@ async fn load_subagent_rows(subagent_id: &str) -> Vec<ConversationRowEntry> {
     return vec![];
   };
 
-  match load_messages_from_transcript_path(&path, subagent_id).await {
-    Ok(rows) => rows,
-    Err(err) => {
-      warn!(
-          component = "api",
-          event = "api.subagent_messages.load_error",
-          subagent_id = %subagent_id,
-          transcript_path = %path,
-          error = %err,
-          "Failed to load subagent transcript rows"
-      );
-      vec![]
-    }
-  }
+  load_messages_from_transcript_path(&path, subagent_id)
+    .await
+    .unwrap_or_default()
 }
 
 async fn resolve_subagent_transcript_path(subagent_id: &str) -> Option<String> {
-  match load_subagent_transcript_path(subagent_id).await {
-    Ok(Some(path)) => return Some(path),
-    Ok(None) => {}
-    Err(err) => {
-      warn!(
-          component = "api",
-          event = "api.subagent_transcript.lookup_failed",
-          subagent_id = %subagent_id,
-          error = %err,
-          "Failed to load persisted subagent transcript path"
-      );
-    }
+  // Check persisted path first
+  if let Ok(Some(path)) = load_subagent_transcript_path(subagent_id).await {
+    return Some(path);
   }
 
-  let codex_home = match find_codex_home() {
-    Ok(path) => path,
-    Err(err) => {
-      warn!(
-          component = "api",
-          event = "api.subagent_transcript.codex_home_failed",
-          subagent_id = %subagent_id,
-          error = %err,
-          "Failed to resolve codex home while looking up subagent rollout"
-      );
-      return None;
-    }
-  };
+  // Fall back to searching codex home
+  let codex_home = find_codex_home().ok()?;
 
-  match codex_core::find_thread_path_by_id_str(&codex_home, subagent_id).await {
-    Ok(Some(path)) => Some(path.to_string_lossy().to_string()),
-    Ok(None) => None,
-    Err(err) => {
-      warn!(
-          component = "api",
-          event = "api.subagent_transcript.rollout_not_found",
-          subagent_id = %subagent_id,
-          error = %err,
-          "No rollout found for subagent thread"
-      );
-      None
-    }
-  }
+  codex_core::find_thread_path_by_id_str(&codex_home, subagent_id)
+    .await
+    .ok()
+    .flatten()
+    .map(|path| path.to_string_lossy().to_string())
 }

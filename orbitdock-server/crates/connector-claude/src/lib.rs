@@ -20,7 +20,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot, Mutex};
-use tracing::{error, info, warn};
+use tracing::{error, warn};
 
 use orbitdock_connector_core::{
   panic_payload_message, ApprovalType, ConnectorError, ConnectorOutput, ConnectorRuntimeDirective,
@@ -734,17 +734,6 @@ impl ClaudeConnector {
       args.extend(["--effort", e]);
     }
 
-    let args_display = args.join(" ");
-    info!(
-        component = "claude_connector",
-        event = "claude.spawn",
-        cwd = %cwd,
-        claude_bin = %claude_bin,
-        resume_id = ?resume_id,
-        args = %args_display,
-        "Spawning Claude CLI directly"
-    );
-
     let mut child = tokio::process::Command::new(&claude_bin)
       .args(&args)
       .current_dir(cwd)
@@ -766,7 +755,7 @@ impl ClaudeConnector {
             event = "claude.spawn.failed",
             error = %e,
             claude_bin = %claude_bin,
-            args = %args_display,
+            args = %args.join(" "),
             "Failed to spawn Claude CLI"
         );
         ConnectorError::ProviderError(format!("Failed to spawn claude CLI: {}", e))
@@ -799,13 +788,6 @@ impl ClaudeConnector {
         let mut lines = reader.lines();
         let mut stderr_lines = VecDeque::with_capacity(CLAUDE_STDERR_TAIL_LINES);
         while let Ok(Some(line)) = lines.next_line().await {
-          warn!(
-              component = "claude_connector",
-              event = "claude.stderr",
-              session_id = %stderr_session_id,
-              line = %line,
-              "Claude CLI stderr"
-          );
           if stderr_lines.len() == CLAUDE_STDERR_TAIL_LINES {
             stderr_lines.pop_front();
           }
@@ -833,14 +815,6 @@ impl ClaudeConnector {
                       .collect::<Vec<_>>()
                       .join("\n"),
                   "Claude CLI exited with non-zero status"
-              );
-            } else {
-              info!(
-                  component = "claude_connector",
-                  event = "claude.exit",
-                  session_id = %stderr_session_id,
-                  exit_code = ?code,
-                  "Claude CLI exited"
               );
             }
           }
@@ -1023,14 +997,6 @@ impl ClaudeConnector {
                   "destination": destination,
                   "rules": [{ "toolName": name }]
               }]);
-              info!(
-                  component = "claude_connector",
-                  event = "claude.approval.fallback_permission_update",
-                  request_id = %request_id,
-                  tool_name = %name,
-                  destination,
-                  "No permission_suggestions from CLI; constructed fallback updatedPermissions"
-              );
               allow["updatedPermissions"] = fallback;
             } else {
               warn!(
@@ -1639,17 +1605,6 @@ impl ClaudeConnector {
           let slash_commands = parse_string_array("slash_commands");
           let skills = parse_string_array("skills");
           let tools = parse_string_array("tools");
-
-          info!(
-              component = "claude_connector",
-              event = "claude.init",
-              claude_session_id = %sid,
-              model = ?model,
-              slash_commands_count = slash_commands.len(),
-              skills_count = skills.len(),
-              tools_count = tools.len(),
-              "Claude session initialized via CLI"
-          );
 
           if let Some(m) = model {
             events.push(state_output(ConnectorStateEvent::ModelUpdated(
