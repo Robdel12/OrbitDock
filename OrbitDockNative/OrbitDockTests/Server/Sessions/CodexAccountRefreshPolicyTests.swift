@@ -8,7 +8,7 @@ struct CodexAccountRefreshPolicyTests {
       "XCTestConfigurationFilePath": "/tmp/test.xctestconfiguration",
     ]
 
-    #expect(SessionStore.shouldAutoRefreshCodexAccount(environment: environment) == false)
+    #expect(ServerEndpointRuntime.shouldAutoRefreshCodexAccount(environment: environment) == false)
   }
 
   @Test func autoRefreshIsDisabledForDedicatedOrbitDockTestDatabaseRuns() {
@@ -16,10 +16,10 @@ struct CodexAccountRefreshPolicyTests {
       "ORBITDOCK_TEST_DB": "/tmp/orbitdock-test.sqlite",
     ]
 
-    #expect(SessionStore.shouldAutoRefreshCodexAccount(environment: environment) == false)
+    #expect(ServerEndpointRuntime.shouldAutoRefreshCodexAccount(environment: environment) == false)
   }
 
   @Test func autoRefreshRemainsEnabledForNormalAppRuns() {
-    #expect(SessionStore.shouldAutoRefreshCodexAccount(environment: [:]) == true)
+    #expect(ServerEndpointRuntime.shouldAutoRefreshCodexAccount(environment: [:]) == true)
   }
 }

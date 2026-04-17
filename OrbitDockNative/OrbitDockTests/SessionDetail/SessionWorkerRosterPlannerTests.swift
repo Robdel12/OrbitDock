@@ -469,6 +469,130 @@ struct SessionWorkerRosterPlannerTests {
     #expect(SessionWorkerRosterPlanner.presentation(subagents: []) == nil)
   }
 
+  @Test func presentationLimitsInactiveWorkersToRecentArchivedSlice() {
+    let workers = [
+      makeWorker(
+        id: "worker-running",
+        label: "Scout",
+        status: .running,
+        taskSummary: "Map the repository",
+        resultSummary: nil,
+        lastActivityAt: "2026-03-10T12:00:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-1",
+        label: "Finisher 1",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:59:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-2",
+        label: "Finisher 2",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:58:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-3",
+        label: "Finisher 3",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:57:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-4",
+        label: "Finisher 4",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:56:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-5",
+        label: "Finisher 5",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:55:00Z"
+      ),
+    ]
+
+    let presentation = SessionWorkerRosterPlanner.presentation(subagents: workers)
+
+    #expect(presentation?.workers.map(\.id) == [
+      "worker-running",
+      "worker-complete-1",
+      "worker-complete-2",
+      "worker-complete-3",
+      "worker-complete-4",
+    ])
+    #expect(presentation?.summary == "1 active · 5 complete · 1 archived")
+  }
+
+  @Test func preferredSelectionDropsArchivedWorkerAndFallsBackToVisibleWorker() {
+    let workers = [
+      makeWorker(
+        id: "worker-running",
+        label: "Scout",
+        status: .running,
+        taskSummary: "Map the repository",
+        resultSummary: nil,
+        lastActivityAt: "2026-03-10T12:00:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-1",
+        label: "Finisher 1",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:59:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-2",
+        label: "Finisher 2",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:58:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-3",
+        label: "Finisher 3",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:57:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-4",
+        label: "Finisher 4",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:56:00Z"
+      ),
+      makeWorker(
+        id: "worker-complete-5",
+        label: "Finisher 5",
+        status: .completed,
+        taskSummary: nil,
+        resultSummary: "Wrapped up",
+        lastActivityAt: "2026-03-10T11:55:00Z"
+      ),
+    ]
+
+    let selected = SessionWorkerRosterPlanner.preferredSelectedWorkerID(
+      currentSelectionID: "worker-complete-5",
+      subagents: workers
+    )
+
+    #expect(selected == "worker-running")
+  }
+
   private func makeWorker(
     id: String,
     label: String?,
@@ -611,7 +735,8 @@ struct SessionWorkerRosterPlannerTests {
         displayTier: "standard",
         inputDisplay: inputDisplay,
         outputDisplay: outputDisplay,
-        diffDisplay: nil
+        diffDisplay: nil,
+        planExplanation: nil
       )
     )
   }

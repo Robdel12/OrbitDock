@@ -9,7 +9,7 @@ struct MissionIssueRow: View {
   let issue: MissionIssueItem
   let missionId: String
   let endpointId: UUID
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   var style: MissionIssueRowStyle = .full
   var isCompact: Bool = false
   var accentColor: Color = .accent
@@ -427,24 +427,19 @@ struct MissionIssueRow: View {
   }
 
   private func retryIssue() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     do {
-      let _: MissionOkResponse = try await http.request(
-        path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
-        method: "POST"
-      )
+      _ = try await missionsClient.retryIssue(missionId: missionId, issueId: issue.issueId)
+      await onRefresh?()
     } catch {
       actionError = error.localizedDescription
     }
   }
 
   private func retryIssueCompact() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     do {
-      let _: MissionOkResponse = try await http.request(
-        path: "/api/missions/\(missionId)/issues/\(issue.issueId)/retry",
-        method: "POST"
-      )
+      _ = try await missionsClient.retryIssue(missionId: missionId, issueId: issue.issueId)
       await onRefresh?()
     } catch {
       actionError = error.localizedDescription

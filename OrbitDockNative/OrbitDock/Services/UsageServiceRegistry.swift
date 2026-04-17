@@ -3,6 +3,8 @@ import Foundation
 @Observable
 @MainActor
 final class UsageServiceRegistry {
+  private static let warmCacheLifetime: TimeInterval = 30
+
   private let runtimeRegistry: ServerRuntimeRegistry
 
   private(set) var summary: ServerUsageSummarySnapshotPayload?
@@ -15,6 +17,9 @@ final class UsageServiceRegistry {
   private(set) var summaryError: (any LocalizedError)?
   private(set) var claudeError: (any LocalizedError)?
   private(set) var codexError: (any LocalizedError)?
+  @ObservationIgnored private var refreshTask: Task<Void, Never>?
+  @ObservationIgnored private var lastRefreshCompletedAt: Date?
+  @ObservationIgnored private var lastRefreshSignature: String?
 
   init(runtimeRegistry: ServerRuntimeRegistry) {
     self.runtimeRegistry = runtimeRegistry
@@ -53,10 +58,46 @@ final class UsageServiceRegistry {
     nil
   }
 
+  func refreshIfNeeded(todayStart: Date? = nil) async {
+    await refresh(force: false, todayStart: todayStart)
+  }
+
   func refreshAll(todayStart: Date? = nil) async {
+    await refresh(force: true, todayStart: todayStart)
+  }
+
+  private func refresh(force: Bool, todayStart: Date?) async {
     let resolvedTodayStart = todayStart ?? Calendar.current.startOfDay(for: Date())
     let todayStartUnix = UInt64(max(resolvedTodayStart.timeIntervalSince1970, 0))
+    let refreshSignature = currentRefreshSignature(todayStartUnix: todayStartUnix)
 
+    if let refreshTask {
+      await refreshTask.value
+      return
+    }
+
+    guard force || shouldRefresh(signature: refreshSignature, todayStartUnix: todayStartUnix) else {
+      return
+    }
+
+    let task = Task { @MainActor [weak self] in
+      guard let self else { return }
+      await self.performRefresh(
+        todayStartUnix: todayStartUnix,
+        signature: refreshSignature
+      )
+    }
+    refreshTask = task
+    await task.value
+    if self.refreshTask != nil {
+      self.refreshTask = nil
+    }
+  }
+
+  private func performRefresh(
+    todayStartUnix: UInt64,
+    signature: String
+  ) async {
     let enabledRuntimes = runtimeRegistry.runtimes.filter { $0.endpoint.isEnabled && $0.isStarted }
     let runtimes = if enabledRuntimes.isEmpty {
       [runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime]
@@ -120,6 +161,33 @@ final class UsageServiceRegistry {
       codexError = UsageFetchError(message: error.localizedDescription)
     }
     codexLoading = false
+
+    lastRefreshCompletedAt = Date()
+    lastRefreshSignature = signature
+  }
+
+  private func currentRefreshSignature(todayStartUnix: UInt64) -> String {
+    let enabledStartedIds = runtimeRegistry.runtimes
+      .filter { $0.endpoint.isEnabled && $0.isStarted }
+      .map(\.endpoint.id.uuidString)
+      .sorted()
+
+    let fallbackIds = enabledStartedIds.isEmpty
+      ? [runtimeRegistry.primaryRuntime?.endpoint.id.uuidString, runtimeRegistry.activeRuntime?.endpoint.id.uuidString]
+      : []
+
+    let endpointIds = Set(enabledStartedIds + fallbackIds.compactMap { $0 }).sorted()
+    return "\(todayStartUnix)|\(endpointIds.joined(separator: ","))"
+  }
+
+  private func shouldRefresh(signature: String, todayStartUnix: UInt64) -> Bool {
+    guard !summaryLoading, !claudeLoading, !codexLoading else { return true }
+    guard summary != nil else { return true }
+    guard summaryError == nil, claudeError == nil, codexError == nil else { return true }
+    guard summaryTodayStartUnix == todayStartUnix else { return true }
+    guard lastRefreshSignature == signature else { return true }
+    guard let lastRefreshCompletedAt else { return true }
+    return Date().timeIntervalSince(lastRefreshCompletedAt) > Self.warmCacheLifetime
   }
 
   private func mergeUsageSummaries(_ snapshots: [ServerUsageSummarySnapshotPayload]) -> ServerUsageSummarySnapshotPayload? {

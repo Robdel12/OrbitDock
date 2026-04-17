@@ -4,7 +4,6 @@ mod approvals;
 mod capabilities;
 mod codex_auth;
 mod connector_actions;
-mod control_deck;
 mod errors;
 mod files;
 pub(crate) mod mission_control;
@@ -16,6 +15,7 @@ mod server_meta;
 mod session_actions;
 mod session_lifecycle;
 mod sessions;
+mod sessions_summary;
 mod shell;
 mod sync;
 #[cfg(test)]
@@ -23,23 +23,13 @@ mod test_support;
 mod update;
 mod worktrees;
 
+use crate::runtime::session_registry::SessionRegistry;
 use axum::{
-  body::Bytes,
   extract::{Path, Query, State},
-  http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
-  response::IntoResponse,
+  http::StatusCode,
   Json,
 };
-use orbitdock_protocol::{ApprovalHistoryItem, ImageInput, MentionInput, SkillInput};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
-
-use crate::infrastructure::persistence::{delete_approval, list_approvals, PersistCommand};
-use crate::runtime::session_queries::{
-  load_conversation_bootstrap, load_conversation_page, load_full_session_state,
-  load_library_snapshot, SessionLoadError,
-};
-use crate::runtime::session_registry::SessionRegistry;
 
 pub use approvals::{
   answer_question, approve_tool, delete_approval_endpoint, list_approvals_endpoint,
@@ -53,11 +43,6 @@ pub use capabilities::{
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
 pub(crate) use connector_actions::{
   dispatch_error_response, messaging_dispatch_error_response, session_not_found_error,
-};
-pub use control_deck::{
-  get_control_deck_preferences, get_control_deck_snapshot, submit_control_deck_turn,
-  update_control_deck_config, update_control_deck_preferences,
-  upload_control_deck_image_attachment,
 };
 pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
 pub use files::{
@@ -101,10 +86,11 @@ pub use session_lifecycle::{
   write_codex_config_value,
 };
 pub use sessions::{
-  get_conversation_history, get_conversation_snapshot, get_dashboard_snapshot,
-  get_library_snapshot, get_row_content, get_session_composer, get_session_detail,
-  get_session_diffs, get_session_stats, mark_session_read, search_conversation_rows,
+  get_active_sessions_snapshot, get_archived_sessions_snapshot, get_conversation_history,
+  get_conversation_snapshot, get_row_content, get_session_detail, get_session_review,
+  get_session_stats, mark_session_read, search_conversation_rows,
 };
+pub use sessions_summary::get_sessions_summary;
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;
 pub use update::{

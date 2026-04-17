@@ -10,7 +10,6 @@ use arc_swap::ArcSwap;
 use tokio::sync::{mpsc, oneshot};
 use tracing::warn;
 
-#[cfg(test)]
 use crate::domain::sessions::conversation::ConversationPage;
 use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
 use crate::infrastructure::persistence::PersistCommand;
@@ -131,7 +130,6 @@ impl SessionActorHandle {
     reply_rx.await.map_err(|error| error.to_string())
   }
 
-  #[cfg(test)]
   pub async fn conversation_page(
     &self,
     before_sequence: Option<u64>,
@@ -196,7 +194,7 @@ mod tests {
   use orbitdock_protocol::conversation_contracts::{
     ConversationRow, ConversationRowEntry, ConversationRowSummary, MessageRowContent,
   };
-  use orbitdock_protocol::{Provider, WorkStatus};
+  use orbitdock_protocol::{Provider, ServerMessage, SessionSurface, WorkStatus};
 
   fn test_handle() -> SessionHandle {
     SessionHandle::new(
@@ -438,6 +436,38 @@ mod tests {
   }
 
   #[tokio::test]
+  async fn add_row_and_broadcast_reply_returns_db_assigned_sequence() {
+    let (persist_tx, _writer_handle) = spawn_mock_writer();
+    let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+    actor
+      .send(SessionCommand::AddRowAndBroadcast {
+        entry: user_row("row-existing"),
+      })
+      .await;
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    actor
+      .send(SessionCommand::AddRowAndBroadcastAndReply {
+        entry: user_row("row-authoritative"),
+        reply: reply_tx,
+      })
+      .await;
+
+    let returned = reply_rx.await.expect("authoritative row");
+    assert_eq!(returned.id(), "row-authoritative");
+    assert_eq!(returned.sequence, 1);
+
+    let page = actor.conversation_page(None, 10).await.unwrap();
+    let stored = page
+      .rows
+      .into_iter()
+      .find(|row| row.id() == "row-authoritative")
+      .expect("stored row");
+    assert_eq!(stored.sequence, 1);
+  }
+
+  #[tokio::test]
   async fn burst_of_mixed_row_types_has_monotonic_sequences() {
     let (persist_tx, writer_handle) = spawn_mock_writer();
     let actor = SessionActorHandle::spawn(test_handle(), persist_tx);
@@ -505,6 +535,45 @@ mod tests {
 
     // In-memory and DB-assigned must be identical
     assert_eq!(in_memory, persisted);
+  }
+
+  #[tokio::test]
+  async fn actor_emits_detail_invalidation_for_state_only_transition() {
+    let (persist_tx, _writer_handle) = spawn_mock_writer();
+    let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    actor_handle
+      .send(SessionCommand::Subscribe {
+        since_revision: None,
+        reply: reply_tx,
+      })
+      .await;
+
+    let mut rx = match reply_rx.await.unwrap() {
+      crate::runtime::session_commands::SubscribeResult::Replay { rx, .. } => rx,
+      crate::runtime::session_commands::SubscribeResult::ResyncRequired { rx } => rx,
+    };
+
+    actor_handle
+      .send(SessionCommand::ProcessEvent {
+        event: crate::domain::sessions::transition::Input::TurnStarted,
+      })
+      .await;
+
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+
+    let mut emitted_detail_invalidation = false;
+    while let Ok(message) = rx.try_recv() {
+      if let ServerMessage::SessionSurfaceInvalidated { surface, .. } = message {
+        if surface == SessionSurface::Detail {
+          emitted_detail_invalidation = true;
+        }
+      }
+    }
+
+    assert!(emitted_detail_invalidation);
   }
 
   #[tokio::test]
@@ -583,18 +652,32 @@ mod tests {
     tokio::task::yield_now().await;
 
     let mut emitted_contents = Vec::new();
+    let mut invalidated_surfaces = Vec::new();
     while let Ok(message) = rx.try_recv() {
-      if let orbitdock_protocol::ServerMessage::ConversationRowsChanged { upserted, .. } = message {
-        for entry in upserted {
-          if entry.id() == row_id {
-            if let ConversationRowSummary::Assistant(message) = entry.row {
-              emitted_contents.push((message.content, message.is_streaming));
+      match message {
+        ServerMessage::ConversationRowsChanged { upserted, .. } => {
+          for entry in upserted {
+            if entry.id() == row_id {
+              if let ConversationRowSummary::Assistant(message) = entry.row {
+                emitted_contents.push((message.content, message.is_streaming));
+              }
             }
           }
         }
+        ServerMessage::SessionSurfaceInvalidated { surface, .. } => {
+          invalidated_surfaces.push(surface);
+        }
+        _ => {}
       }
     }
 
     assert_eq!(emitted_contents, vec![("abcd".to_string(), false)]);
+    assert_eq!(
+      invalidated_surfaces
+        .iter()
+        .filter(|surface| **surface == SessionSurface::Conversation)
+        .count(),
+      1
+    );
   }
 }

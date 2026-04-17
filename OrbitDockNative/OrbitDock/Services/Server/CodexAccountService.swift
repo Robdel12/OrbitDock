@@ -2,14 +2,14 @@ import Foundation
 
 @MainActor
 final class CodexAccountService {
-  private unowned let store: SessionStore
+  private unowned let endpointStore: ServerEndpointRuntime
 
-  init(store: SessionStore) {
-    self.store = store
+  init(endpointStore: ServerEndpointRuntime) {
+    self.endpointStore = endpointStore
   }
 
   func refresh() {
-    guard SessionStore.shouldAutoRefreshCodexAccount() else { return }
+    guard ServerEndpointRuntime.shouldAutoRefreshCodexAccount() else { return }
     Task { [weak self] in
       guard let self else { return }
       await self.performRefresh()
@@ -39,8 +39,8 @@ final class CodexAccountService {
 
   private func performRefresh() async {
     do {
-      let status = try await store.clients.usage.readCodexAccount()
-      store.applyCodexAccountStatus(status)
+      let status = try await endpointStore.clients.usage.readCodexAccount()
+      endpointStore.applyCodexAccountStatus(status)
     } catch {
       netLog(.warning, cat: .store, "Refresh Codex account failed", data: [
         "error": error.localizedDescription,
@@ -50,19 +50,19 @@ final class CodexAccountService {
 
   private func performStartLogin() async {
     do {
-      let response = try await store.clients.usage.startCodexLogin()
+      let response = try await endpointStore.clients.usage.startCodexLogin()
       if let url = URL(string: response.authUrl) {
         _ = Platform.services.openURL(url)
       }
     } catch {
-      store.applyCodexAuthError(error.localizedDescription)
+      endpointStore.applyCodexAuthError(error.localizedDescription)
     }
   }
 
   private func performCancelLogin() async {
-    guard let loginId = store.codexAccountStatus?.activeLoginId else { return }
+    guard let loginId = endpointStore.codexAccountStatus?.activeLoginId else { return }
     do {
-      try await store.clients.usage.cancelCodexLogin(loginId: loginId)
+      try await endpointStore.clients.usage.cancelCodexLogin(loginId: loginId)
     } catch {
       netLog(.warning, cat: .store, "Cancel Codex login failed", data: [
         "error": error.localizedDescription,
@@ -72,10 +72,10 @@ final class CodexAccountService {
 
   private func performLogout() async {
     do {
-      let status = try await store.clients.usage.logoutCodexAccount()
-      store.applyCodexAccountStatus(status)
+      let status = try await endpointStore.clients.usage.logoutCodexAccount()
+      endpointStore.applyCodexAccountStatus(status)
     } catch {
-      store.applyCodexAuthError(error.localizedDescription)
+      endpointStore.applyCodexAuthError(error.localizedDescription)
     }
   }
 }

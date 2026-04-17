@@ -26,7 +26,7 @@ enum ServerRuntimeRegistryPlanner {
     readiness: ServerRuntimeReadiness
   ) -> ConnectionStatus {
     switch connectionStatus {
-      case .connected where !readiness.controlPlaneReady:
+      case .connected where !readiness.serverRoleReady:
         .connecting
       default:
         connectionStatus
@@ -42,17 +42,17 @@ enum ServerRuntimeRegistryPlanner {
     previousStatus != nextStatus || previousReadiness != nextReadiness
   }
 
-  static func controlPlanePorts(
+  static func serverRolePorts(
     runtimes: [ServerRuntime],
     readinessByEndpointId: [UUID: ServerRuntimeReadiness],
-    requireControlPlaneReady: Bool
-  ) -> [ServerControlPlanePort] {
+    requireServerRoleReady: Bool
+  ) -> [ServerRolePort] {
     runtimes
       .filter(\.endpoint.isEnabled)
       .filter { runtime in
-        !requireControlPlaneReady || readinessByEndpointId[runtime.endpoint.id]?.controlPlaneReady == true
+        !requireServerRoleReady || readinessByEndpointId[runtime.endpoint.id]?.serverRoleReady == true
       }
       .sorted { $0.endpoint.id.uuidString < $1.endpoint.id.uuidString }
-      .map(\.controlPlanePort)
+      .map(\.serverRolePort)
   }
 }

@@ -53,7 +53,8 @@ struct TranscriptMessageSemanticsTests {
         subtitleAbsorbsMeta: false, glyphSymbol: "person.2", glyphColor: "indigo",
         language: nil, diffPreview: nil, outputPreview: nil, liveOutputPreview: nil,
         todoItems: [], toolType: "task", summaryFont: "system", displayTier: "standard",
-        inputDisplay: "Audit the renderer split", outputDisplay: nil, diffDisplay: nil
+        inputDisplay: "Audit the renderer split", outputDisplay: nil, diffDisplay: nil,
+        planExplanation: nil
       )
     )
 

@@ -93,62 +93,34 @@ struct ServerSessionContractsTests {
       """
       {
         "replay_cursor": 42,
-        "session": {
-          "id": "session-worker",
-          "provider": "codex",
-          "project_path": "/tmp/orbitdock",
-          "project_name": "OrbitDock",
-          "status": "active",
-          "work_status": "working",
-          "control_mode": "direct",
-          "lifecycle_state": "open",
-          "accepts_user_input": true,
-          "steerable": false,
-          "token_usage": {
-            "input_tokens": 12,
-            "output_tokens": 34,
-            "cached_tokens": 0,
-            "context_window": 200000
-          },
-          "token_usage_snapshot_kind": "lifetime_totals",
-          "allow_bypass_permissions": false,
-          "is_worktree": false,
-          "unread_count": 0,
-          "turn_count": 1,
-          "turn_diffs": [],
-          "subagents": [],
-          "rows": [
-            {
-              "session_id": "session-worker",
-              "sequence": 7,
-              "turn_id": "turn-1",
-              "row": {
-                "row_type": "worker",
-                "id": "worker-row-1",
-                "title": "Repo Scout",
-                "subtitle": "Mapping the repository",
-                "summary": "Scanning files",
-                "worker": {
-                  "id": "worker-1",
-                  "label": "Scout",
-                  "status": "running"
-                },
-                "operation": "spawned",
-                "render_hints": {
-                  "can_expand": true,
-                  "default_expanded": false,
-                  "emphasized": true,
-                  "monospace_summary": false,
-                  "accent_tone": "cyan"
-                }
+        "forked_from_session_id": "session-root",
+        "rows": [
+          {
+            "session_id": "session-worker",
+            "sequence": 7,
+            "turn_id": "turn-1",
+            "row": {
+              "row_type": "worker",
+              "id": "worker-row-1",
+              "title": "Repo Scout",
+              "subtitle": "Mapping the repository",
+              "summary": "Scanning files",
+              "worker": {
+                "id": "worker-1",
+                "label": "Scout",
+                "status": "running"
+              },
+              "operation": "spawned",
+              "render_hints": {
+                "can_expand": true,
+                "default_expanded": false,
+                "emphasized": true,
+                "monospace_summary": false,
+                "accent_tone": "cyan"
               }
             }
-          ],
-          "total_row_count": 1,
-          "has_more_before": false,
-          "oldest_sequence": 7,
-          "newest_sequence": 7
-        },
+          }
+        ],
         "total_row_count": 1,
         "has_more_before": false,
         "oldest_sequence": 7,
@@ -159,7 +131,7 @@ struct ServerSessionContractsTests {
 
     let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
 
-    #expect(bootstrap.session.projectName == "OrbitDock")
+    #expect(bootstrap.forkedFromSessionId == "session-root")
     #expect(bootstrap.replayCursor == 42)
     #expect(bootstrap.rows.count == 1)
     #expect(bootstrap.rows.first?.id == "worker-row-1")
@@ -177,70 +149,41 @@ struct ServerSessionContractsTests {
     let data = Data(
       """
       {
-        "session": {
-          "id": "session-compat",
-          "provider": "claude",
-          "project_path": "/tmp/orbitdock",
-          "project_name": "OrbitDock",
-          "status": "active",
-          "work_status": "permission",
-          "control_mode": "direct",
-          "lifecycle_state": "open",
-          "accepts_user_input": true,
-          "steerable": false,
-          "token_usage": {
-            "input_tokens": 1,
-            "output_tokens": 2,
-            "cached_tokens": 0,
-            "context_window": 200000
-          },
-          "token_usage_snapshot_kind": "lifetime_totals",
-          "allow_bypass_permissions": false,
-          "is_worktree": false,
-          "unread_count": 0,
-          "turn_count": 2,
-          "turn_diffs": [],
-          "subagents": [],
-          "rows": [
-            {
-              "session_id": "session-compat",
-              "sequence": 1,
-              "row": {
-                "row_type": "question",
-                "id": "question-row-1",
-                "title": "Need guidance",
-                "render_hints": {
-                  "can_expand": false,
-                  "default_expanded": false,
-                  "emphasized": false,
-                  "monospace_summary": false
-                }
-              }
-            },
-            {
-              "session_id": "session-compat",
-              "sequence": 2,
-              "row": {
-                "row_type": "activity_group",
-                "id": "group-row-1",
-                "group_kind": "tool_block",
-                "title": "Grouped tools",
-                "child_count": 0,
-                "status": "completed",
-                "render_hints": {
-                  "can_expand": true,
-                  "default_expanded": false,
-                  "emphasized": false,
-                  "monospace_summary": false
-                }
+        "rows": [
+          {
+            "session_id": "session-compat",
+            "sequence": 1,
+            "row": {
+              "row_type": "question",
+              "id": "question-row-1",
+              "title": "Need guidance",
+              "render_hints": {
+                "can_expand": false,
+                "default_expanded": false,
+                "emphasized": false,
+                "monospace_summary": false
               }
             }
-          ],
-          "total_row_count": 2,
-          "has_more_before": false,
-          "oldest_sequence": 1,
-          "newest_sequence": 2
-        },
+          },
+          {
+            "session_id": "session-compat",
+            "sequence": 2,
+            "row": {
+              "row_type": "activity_group",
+              "id": "group-row-1",
+              "group_kind": "tool_block",
+              "title": "Grouped tools",
+              "child_count": 0,
+              "status": "completed",
+              "render_hints": {
+                "can_expand": true,
+                "default_expanded": false,
+                "emphasized": false,
+                "monospace_summary": false
+              }
+            }
+          }
+        ],
         "total_row_count": 2,
         "has_more_before": false,
         "oldest_sequence": 1,
@@ -269,48 +212,19 @@ struct ServerSessionContractsTests {
     let data = Data(
       """
       {
-        "session": {
-          "id": "session-shell-compat",
-          "provider": "claude",
-          "project_path": "/tmp/orbitdock",
-          "project_name": "OrbitDock",
-          "status": "active",
-          "work_status": "working",
-          "control_mode": "direct",
-          "lifecycle_state": "open",
-          "accepts_user_input": true,
-          "steerable": false,
-          "token_usage": {
-            "input_tokens": 3,
-            "output_tokens": 5,
-            "cached_tokens": 0,
-            "context_window": 200000
-          },
-          "token_usage_snapshot_kind": "lifetime_totals",
-          "allow_bypass_permissions": false,
-          "is_worktree": false,
-          "unread_count": 0,
-          "turn_count": 1,
-          "turn_diffs": [],
-          "subagents": [],
-          "rows": [
-            {
-              "session_id": "session-shell-compat",
-              "sequence": 4,
-              "row": {
-                "row_type": "shell_command",
-                "id": "shell-row-1",
-                "kind": "bash",
-                "title": "git status",
-                "command": "git status"
-              }
+        "rows": [
+          {
+            "session_id": "session-shell-compat",
+            "sequence": 4,
+            "row": {
+              "row_type": "shell_command",
+              "id": "shell-row-1",
+              "kind": "bash",
+              "title": "git status",
+              "command": "git status"
             }
-          ],
-          "total_row_count": 1,
-          "has_more_before": false,
-          "oldest_sequence": 4,
-          "newest_sequence": 4
-        },
+          }
+        ],
         "total_row_count": 1,
         "has_more_before": false,
         "oldest_sequence": 4,
@@ -334,46 +248,17 @@ struct ServerSessionContractsTests {
     let data = Data(
       """
       {
-        "session": {
-          "id": "session-approval-policy",
-          "provider": "codex",
-          "project_path": "/tmp/orbitdock",
-          "project_name": "OrbitDock",
-          "status": "active",
-          "work_status": "waiting",
-          "control_mode": "direct",
-          "lifecycle_state": "open",
-          "accepts_user_input": true,
-          "steerable": false,
-          "codex_config_mode": "custom",
-          "approval_policy": "on-request",
-          "approval_policy_details": "on-request",
-          "token_usage": {
-            "input_tokens": 8,
-            "output_tokens": 13,
-            "cached_tokens": 0,
-            "context_window": 200000
-          },
-          "token_usage_snapshot_kind": "lifetime_totals",
-          "allow_bypass_permissions": false,
-          "is_worktree": false,
-          "unread_count": 0,
-          "turn_count": 0,
-          "turn_diffs": [],
-          "subagents": [],
-          "rows": [],
-          "total_row_count": 0,
-          "has_more_before": false
-        },
-        "total_row_count": 0,
-        "has_more_before": false
+        "rows": [],
+        "total_message_count": 9,
+        "has_more_before": false,
+        "forked_from_session_id": "root-session"
       }
       """.utf8
     )
 
     let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
 
-    #expect(bootstrap.session.approvalPolicyDetails == .mode(.onRequest))
-    #expect(bootstrap.session.codexConfigMode == .custom)
+    #expect(bootstrap.totalRowCount == 9)
+    #expect(bootstrap.forkedFromSessionId == "root-session")
   }
 }

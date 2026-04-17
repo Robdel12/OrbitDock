@@ -91,18 +91,7 @@ struct FlatSessionRow: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu {
-      Button {
-        _ = Platform.services.revealInFileBrowser(session.projectPath)
-      } label: {
-        Label("Reveal in Finder", systemImage: "folder")
-      }
-
-      Button {
-        let command = "claude --resume \(session.id)"
-        Platform.services.copyToClipboard(command)
-      } label: {
-        Label("Copy Resume Command", systemImage: "doc.on.doc")
-      }
+      DashboardSessionContextActions.rootSessionBaseActions(for: session)
 
       if session.isActive {
         Divider()

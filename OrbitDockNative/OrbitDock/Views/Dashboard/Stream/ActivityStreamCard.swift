@@ -630,18 +630,7 @@ enum SessionCardHelpers {
 
   @ViewBuilder
   static func baseContextMenu(for session: RootSessionNode) -> some View {
-    Button {
-      _ = Platform.services.revealInFileBrowser(session.projectPath)
-    } label: {
-      Label("Reveal in Finder", systemImage: "folder")
-    }
-
-    Button {
-      let command = "claude --resume \(session.sessionId)"
-      Platform.services.copyToClipboard(command)
-    } label: {
-      Label("Copy Resume Command", systemImage: "doc.on.doc")
-    }
+    DashboardSessionContextActions.rootSessionBaseActions(for: session)
   }
 
 }

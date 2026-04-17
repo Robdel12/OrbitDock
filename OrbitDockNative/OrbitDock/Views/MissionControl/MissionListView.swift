@@ -25,21 +25,21 @@ struct MissionListView: View {
       }
     }
     .task {
-      viewModel.bind(runtimeRegistry: runtimeRegistry)
-      viewModel.setRealtimeUpdatesEnabled(true)
-      await viewModel.fetchAllMissions()
+      await viewModel.activate(runtimeRegistry: runtimeRegistry)
     }
     .onDisappear {
-      viewModel.setRealtimeUpdatesEnabled(false)
+      viewModel.deactivate()
+    }
+    .refreshable {
+      await viewModel.fetchAllMissions()
     }
     .sheet(isPresented: $viewModel.showNewMission) {
       NewMissionSheet { newMission, endpointId in
-        let agg = AggregatedMissionSummary(
-          mission: newMission,
+        viewModel.handleMissionCreated(
+          newMission,
           endpointId: endpointId,
           endpointName: runtimeRegistry.runtimesByEndpointId[endpointId]?.endpoint.name
         )
-        viewModel.missions.insert(agg, at: 0)
         router.navigateToMission(missionId: newMission.id, endpointId: endpointId)
       }
     }
@@ -103,21 +103,12 @@ struct MissionListView: View {
               missionsClient: missionsClient,
               onRefresh: { await viewModel.fetchAllMissions() },
               onApplyList: { response in
-                // Update just this endpoint's missions in the list
-                let endpointId = agg.endpointId
-                let endpointName = agg.endpointName
-                let updated = response.missions.map { mission in
-                  AggregatedMissionSummary(mission: mission, endpointId: endpointId, endpointName: endpointName)
-                }
                 withAnimation(Motion.standard) {
-                  viewModel.missions.removeAll { $0.endpointId == endpointId }
-                  viewModel.missions.append(contentsOf: updated)
-                  viewModel.missions.sort { lhs, rhs in
-                    let lhsActive = lhs.mission.enabled && !lhs.mission.paused
-                    let rhsActive = rhs.mission.enabled && !rhs.mission.paused
-                    if lhsActive != rhsActive { return lhsActive }
-                    return lhs.mission.name.localizedCaseInsensitiveCompare(rhs.mission.name) == .orderedAscending
-                  }
+                  viewModel.applyMissionList(
+                    response,
+                    endpointId: agg.endpointId,
+                    endpointName: agg.endpointName
+                  )
                 }
               }
             )

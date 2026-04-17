@@ -60,11 +60,7 @@ async fn register_managed_claude_session(
     .await;
 
   if remove_shadow_runtime_session && state.remove_session(claude_sdk_session_id).is_some() {
-    let _ = state
-      .list_tx()
-      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-        session_id: claude_sdk_session_id.to_string(),
-      });
+    state.publish_active_session_removed(claude_sdk_session_id);
   }
 }
 

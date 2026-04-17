@@ -12,10 +12,11 @@ enum ServerToClientMessage: Codable {
 
   // MARK: Session lifecycle and conversation
 
-  case dashboardInvalidated(revision: UInt64)
-  case dashboardConversationUpdated(revision: UInt64, item: ServerDashboardConversationItem)
-  case dashboardItemRemoved(sessionId: String)
+  case sessionsSummaryInvalidated(revision: UInt64)
+  case activeSessionsInvalidated(revision: UInt64)
+  case archivedSessionsInvalidated(revision: UInt64)
   case missionsInvalidated(revision: UInt64)
+  case sessionSurfaceInvalidated(sessionId: String, surface: ServerSessionSurface, revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case conversationRowsChanged(
     sessionId: String,
@@ -136,9 +137,8 @@ enum ServerToClientMessage: Codable {
 
   // MARK: Mission Control
 
-  case missionsList(missions: [MissionSummary])
-  case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
   case missionHeartbeat(missionId: String, tickStartedAt: String, nextTickAt: String)
+  case missionInvalidated(missionId: String, revision: UInt64)
 
   // MARK: Unknown (resilience)
 

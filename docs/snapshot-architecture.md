@@ -82,31 +82,26 @@ The projection module lives in `domain/sessions/` (not `runtime/`) so that `Sess
 
 ### WS Event Emission
 
-There are exactly two server paths that emit dashboard WS events. Both use the same pure projection function:
+The server now uses a simpler contract for active sessions:
 
-**Path 1: `SessionHandle::broadcast()`** — the normal path. When a state change is dashboard-relevant (via `should_emit_dashboard_invalidation()`), broadcast:
+- HTTP (`GET /api/sessions/active`) is authoritative for the active-sessions surface.
+- WebSocket emits `ActiveSessionsInvalidated { revision }` as a refetch hint.
+- The client responds by refetching the HTTP snapshot instead of locally patching list state.
 
-1. Calls `to_snapshot()` to capture the current state
-2. Calls `dashboard_item_from_snapshot()` to project the wire type
-3. Emits `DashboardConversationUpdated { revision, item }` via the list broadcast channel
+There are still two common server paths that trigger this invalidation:
 
-**Path 2: `SessionRegistry::notify_dashboard_session_updated(session_id)`** — for code paths that mutate state without going through broadcast (session creation, resume completion, materialization). It:
+**Path 1: `SessionHandle::broadcast()`** — the normal path after a session mutation.
 
-1. Reads the session's `ArcSwap<SessionSnapshot>` from the registry
-2. Calls `dashboard_item_from_snapshot()` to project the wire type
-3. Emits `DashboardConversationUpdated { revision, item }`
-4. Falls back to `DashboardInvalidated` if the session isn't in the registry
+**Path 2: `SessionRegistry::notify_active_session_updated(session_id)`** — for code paths that mutate state without going through `broadcast()` first (session creation, resume completion, materialization).
 
-Both paths produce the same wire type through the same pure function. The client receives the complete, pre-computed item inline. No HTTP round-trip needed.
-
-`DashboardInvalidated` is emitted only on WS subscribe (reconnection bootstrap) — never during normal operation.
+Both paths end by incrementing the active-sessions revision and broadcasting `ActiveSessionsInvalidated`. The wire contract stays tiny and the client never has to infer list state from partial deltas.
 
 ### HTTP Handlers
 
 HTTP dashboard/status endpoints read from in-memory state:
 
 ```rust
-pub async fn get_dashboard_snapshot(
+pub async fn get_active_sessions_snapshot(
     State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<DashboardSnapshot> {
     Ok(Json(dashboard_snapshot_from_registry(&state)))
@@ -133,7 +128,7 @@ For live active sessions, the DB is write-only. Persist commands flow through th
 SwiftUI's `@Observable` requires mutable stored properties to trigger view updates. The architecture satisfies this with a single pattern: **snapshot replacement**.
 
 ```
-WS event (DashboardConversationUpdated) ──→ DataService.snapshot = newValue
+WS event (ActiveSessionsInvalidated) ──→ HTTP refetch
 HTTP response (full snapshot) ──→ DataService.snapshot = newValue
 ```
 
@@ -178,18 +173,17 @@ The mutation is always a full property replacement. Never a partial field update
 
 3. **Views** read from ViewModel. `@Observable` tracking propagates through the computed property chain automatically — SwiftUI sees the stored property change on `DataService`, traces through the computed chain, and invalidates only the views that read the affected data.
 
-4. **No assembly from parts.** The client never combines data from multiple sources to construct what a session looks like. The server sends complete, pre-computed items. The client renders them.
+4. **No assembly from parts.** The client never combines data from multiple sources to construct what a session looks like. The server returns complete HTTP snapshots. The client renders them.
 
 5. **No parallel state trees.** There is one path from server to screen. WS events don't write to different properties than HTTP responses. Both write to the same `snapshot` property.
 
-### Incremental vs Full Snapshot
+### Refetch vs Full Snapshot
 
-The client supports two update modes:
+The client supports one authoritative update mode for active sessions:
 
-- **Incremental** (`DashboardConversationUpdated`): upsert a single item into the existing snapshot. Used for real-time updates during normal operation.
-- **Full** (HTTP `GET /api/dashboard`): replace the entire snapshot. Used for initial load, reconnection, and resync.
+- **Full** (HTTP `GET /api/sessions/active`): replace the entire snapshot. Used for initial load, reconnection, and every realtime follow-up.
 
-Both modes end the same way: `self.snapshot = newSnapshot`. The incremental path builds the new snapshot from the old one + the updated item, then replaces. There is no in-place mutation.
+WebSocket does not carry item-level active-session deltas anymore. It only tells the client when to refetch.
 
 ---
 
@@ -200,24 +194,24 @@ Every new real-time surface follows the same pattern:
 ### Server Side
 
 1. Add a pure projection function: `fn surface_item_from_snapshot(&SessionSnapshot) -> SurfaceWireType`
-2. Emit the projected item via the list broadcast channel in `broadcast()` when relevant fields change
-3. Add an HTTP handler that iterates snapshots and calls the projection function
+2. Add an HTTP handler that iterates snapshots and calls the projection function
+3. Emit a lightweight invalidation via the list broadcast channel when relevant fields change
 
 ### Client Side
 
 1. Add a stored property on the relevant DataService: `private(set) var surfaceSnapshot: SurfaceType?`
-2. Handle the WS event by replacing the property
+2. Handle the WS event by triggering a refetch of the authoritative HTTP snapshot
 3. Add computed accessors in the ViewModel
 4. Views read from ViewModel
 
 ### Current Surface Map
 
-| Surface | Server projection | WS event (incremental) | WS event (resync) | Client property |
-|---|---|---|---|---|
-| Dashboard | `dashboard_item_from_snapshot()` | `DashboardConversationUpdated` | `DashboardInvalidated` | `DashboardDataService.snapshot` |
-| Session detail | per-session WS subscription | `SessionDelta` | subscribe | `SessionDetailStore.state` |
-| Library | DB query (cold/historical data) | — | `DashboardInvalidated` | `DashboardDataService.librarySessions` |
-| Menu bar | reads dashboard snapshot | — | — | derives from `DashboardDataService.snapshot` |
+| Surface | Server projection | WS event | Client property |
+|---|---|---|---|
+| Active sessions | `dashboard_snapshot_from_registry()` | `ActiveSessionsInvalidated` | `DashboardDataService.snapshot` |
+| Session detail | per-session WS subscription | `SessionDelta` / `SessionSurfaceInvalidated` | `SessionDetailStore.state` |
+| Archive | DB query (cold/historical data) | `ArchivedSessionsInvalidated` | `LibraryDataService.sessions` |
+| Menu bar | reads active-sessions snapshot | — | derives from `DashboardDataService.snapshot` |
 
 ---
 
@@ -229,9 +223,9 @@ These are not suggestions. Violating any of them reintroduces the class of bugs 
 
 1. **Never read from the DB to serve live data.** If a field is needed on the dashboard or any real-time surface, it must live on `SessionSnapshot`. The DB is for startup hydration and historical queries only.
 
-2. **Never build a wire type by hand.** Every `DashboardConversationItem` (or future surface wire type) must come from the pure projection function. No constructing items inline in handlers, hooks, or registry methods.
+2. **Never build live list state by hand.** Active-sessions snapshots come from the server projection and archive snapshots come from the archive query. No inline list assembly in handlers, hooks, or registry methods.
 
-3. **Never emit `DashboardInvalidated` during normal operation.** It exists only for WS reconnection bootstrap (subscribe handler). All state changes emit `DashboardConversationUpdated` with the projected item, either via `broadcast()` or `notify_dashboard_session_updated()`.
+3. **Keep WebSocket hints lightweight.** For active sessions and archive surfaces, emit invalidations and let HTTP remain authoritative. Do not reintroduce item-level list patch events unless there is a compelling, measured reason.
 
 4. **New fields go on `SessionSnapshot`, not just `SessionHandle`.** If you add a field to `SessionHandle` that affects any surface, also add it to `SessionSnapshot` and `to_snapshot()`. Otherwise the projection function can't see it, and you'll end up reaching around the architecture.
 

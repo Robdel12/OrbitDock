@@ -17,7 +17,9 @@ That means:
 
 - scenes own composition, routing, and stable dependencies
 - feature view models own one surface worth of state
-- `SessionStore` owns transport only
+- `ServerSessionContext` scopes one session to one endpoint runtime
+- `ServerSessionAPI` owns HTTP bootstrap and mutations
+- `ServerSessionTransport` owns realtime follow-up and replay
 - the server owns business truth
 
 ## The Shape Of The App
@@ -79,7 +81,7 @@ Resolve real dependencies before mounting the subtree that uses them.
 
 In practice:
 
-- resolve the endpoint-scoped `SessionStore` in the scene owner
+- resolve the `ServerEndpointRuntime` in the scene owner
 - pass stable typed dependencies downward
 - avoid remounting child surfaces against placeholder stores
 
@@ -92,7 +94,7 @@ Each feature view model owns only the state needed to render its surface.
 Good:
 
 - `ConversationViewModel` owns conversation rows and presentation state
-- `ControlDeckViewModel` owns control-deck snapshot and controls
+- `ControlDeckViewModel` owns local control state composed from session detail, conversation mutations, and workflow requests
 - `ReviewCanvasViewModel` owns review snapshot and review-specific UI state
 
 Bad:
@@ -101,16 +103,15 @@ Bad:
 - one god object that every screen reads from
 - one transport store that also becomes product state
 
-### 3. `SessionStore` is a transport shell
+### 3. Session runtime stays split and boring
 
-`SessionStore` exists to do transport work:
+The session runtime exists to do transport work:
 
-- manage WS connection lifecycle
-- expose typed HTTP clients
-- expose targeted async streams for realtime follow-up
-- handle replay and reconnect recovery
+- `ServerSessionContext` scopes endpoint + session identity
+- `ServerSessionAPI` handles HTTP bootstrap and mutations
+- `ServerSessionTransport` handles async streams, replay, and reconnect recovery
 
-`SessionStore` does not:
+That runtime does not:
 
 - own UI state
 - decide presentation
@@ -193,12 +194,14 @@ This is the intended ownership model.
 
 | Surface | Owner | HTTP authority | Realtime follow-up |
 | --- | --- | --- | --- |
-| Dashboard | dashboard scene/view model | `GET /api/dashboard` | dashboard replay or invalidation |
-| Library | library scene/view model | `GET /api/library` | dashboard or library invalidation |
-| Missions | mission control scene/view model | canonical missions snapshot | missions replay or invalidation |
+| Global sessions summary | app runtime shell owner | `GET /api/sessions/summary` | sessions-summary invalidation |
+| Dashboard | dashboard scene/view model | `GET /api/sessions/active` | dashboard invalidation |
+| Library | library scene/view model | `GET /api/sessions/archive` | library invalidation or explicit refresh while open |
+| Missions list | mission list scene/view model | `GET /api/missions` | missions invalidation |
+| Mission detail | mission control scene/view model | `GET /api/missions/{id}` | mission-specific invalidation or heartbeat |
 | Session detail shell | session detail scene/view model | selected-session detail snapshot | detail-specific invalidation |
 | Conversation | conversation view model | conversation bootstrap + pagination | conversation row deltas + explicit conversation resync |
-| Control deck | control-deck view model | control-deck snapshot | control-deck-specific invalidation |
+| Control deck UI | control-deck view model | session detail + conversation/workflow endpoints | detail-specific invalidation |
 | Review canvas | review view model | review/diff snapshot | review-specific invalidation |
 | Skills | skills view model | skills snapshot | skills-specific invalidation |
 | MCP servers | MCP view model | MCP snapshot | MCP-specific invalidation |
@@ -236,12 +239,23 @@ For approvals, config, session status, review data, skills, and MCP capability c
 
 Do not build a parallel client-side state machine out of websocket payloads.
 
+### Global surfaces must stay cheap
+
+Dashboard, library, missions, and notification-driving attention state are not allowed to become one giant in-memory product blob.
+
+That means:
+
+- do not eagerly load library or archive pages just to keep dashboard fresh
+- do not derive global notification state from heavyweight session arrays if a smaller sessions-summary surface can own it
+- do not let runtime registries become cross-surface product stores
+- do not hold duplicate large snapshots when a compact projection is enough
+
 ## What The Native App Should Not Do
 
 Do not add:
 
 - shared mutable session objects
-- placeholder production stores like `SessionStore.preview()` as real runtime ownership
+- placeholder production session contexts like `ServerSessionContext.preview()` as real runtime ownership
 - broad per-session refresh loops for unrelated surfaces
 - giant scene roots that own routing, composition, dependency lookup, and feature logic all at once
 - `AnyView` in core composition paths
@@ -364,7 +378,8 @@ If you're touching the Swift app:
 - keep dependencies stable before mounting children
 - give each feature one owner and one contract
 - use HTTP for authority and WS for follow-up
-- keep `SessionStore` narrow
+- keep `ServerSessionContext` narrow
+- keep `ServerSessionAPI` and `ServerSessionTransport` narrow
 - write SwiftUI the native way, not the web-app way
 
 If you're touching the server:

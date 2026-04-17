@@ -15,6 +15,10 @@ struct MissionShowView: View {
     horizontalSizeClass == .compact
   }
 
+  private var bindingIdentity: String {
+    "\(endpointId.uuidString)::\(missionId)"
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       #if os(macOS)
@@ -39,15 +43,18 @@ struct MissionShowView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(Color.backgroundPrimary)
-    .task {
-      viewModel.bind(missionId: missionId, endpointId: endpointId, runtimeRegistry: runtimeRegistry)
+    .refreshable {
       await viewModel.refreshDetail()
     }
-    .onChange(of: viewModel.liveState?.deltaRevision) { _, _ in
-      viewModel.applyLiveDelta()
+    .task(id: bindingIdentity) {
+      await viewModel.activate(
+        missionId: missionId,
+        endpointId: endpointId,
+        runtimeRegistry: runtimeRegistry
+      )
     }
-    .onChange(of: viewModel.liveState?.heartbeatRevision) { _, _ in
-      viewModel.applyLiveHeartbeat()
+    .onDisappear {
+      viewModel.deactivate()
     }
     #if os(iOS)
     .navigationTitle(viewModel.summary?.name ?? "Mission")
@@ -76,10 +83,7 @@ struct MissionShowView: View {
         onCancel: { viewModel.showWorktreeCleanup = false },
         onConfirm: { ids in
           Task {
-            await viewModel.cleanupWorktrees(ids: ids)
-            if viewModel.missionWorktrees.isEmpty {
-              viewModel.showWorktreeCleanup = false
-            }
+            await viewModel.confirmWorktreeCleanup(ids: ids)
           }
         }
       )
@@ -138,7 +142,8 @@ struct MissionShowView: View {
                 missionId: missionId,
                 missionFileExists: viewModel.missionFileExists,
                 workflowMigrationAvailable: viewModel.workflowMigrationAvailable,
-                http: viewModel.http,
+                missionsClient: viewModel.missionsClient,
+                sessionsClient: viewModel.sessionsClient,
                 isCompact: isCompact,
                 endpointId: endpointId,
                 nextTickAt: viewModel.nextTickAt,
@@ -146,8 +151,7 @@ struct MissionShowView: View {
                 onRefresh: { await viewModel.refreshDetail() },
                 onApplyDetail: { viewModel.applyDetail($0) },
                 onShowCleanup: {
-                  viewModel.showWorktreeCleanup = true
-                  Task { await viewModel.loadMissionWorktrees() }
+                  Task { await viewModel.presentWorktreeCleanup() }
                 },
                 onSelectTab: { tab in
                   withAnimation(Motion.standard) { router.selectMissionTab(tab, for: missionRef) }
@@ -170,7 +174,7 @@ struct MissionShowView: View {
                 missionId: missionId,
                 initialTrackerKind: mission.trackerKind,
                 missionFileName: mission.resolvedFileName,
-                http: viewModel.http,
+                missionsClient: viewModel.missionsClient,
                 isCompact: isCompact,
                 onUpdated: { await viewModel.refreshDetail() }
               )
@@ -179,7 +183,7 @@ struct MissionShowView: View {
                 issues: viewModel.issues,
                 missionId: missionId,
                 endpointId: endpointId,
-                http: viewModel.http,
+                missionsClient: viewModel.missionsClient,
                 isCompact: isCompact,
                 onTransitionIssue: { issueId, target, reason in
                   await viewModel.transitionIssue(issueId: issueId, targetState: target, reason: reason)

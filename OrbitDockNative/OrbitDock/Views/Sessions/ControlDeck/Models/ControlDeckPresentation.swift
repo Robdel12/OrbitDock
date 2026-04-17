@@ -12,8 +12,25 @@ enum ControlDeckMode: Equatable, Sendable {
   case disabled
 }
 
+enum ControlDeckActivityStatus: Equatable, Sendable {
+  case working
+  case permission
+  case question
+  case ready
+  case ended
+
+  var isWorking: Bool {
+    self == .working
+  }
+
+  var isApprovalLike: Bool {
+    self == .permission || self == .question
+  }
+}
+
 struct ControlDeckPresentation: Equatable, Sendable {
   let mode: ControlDeckMode
+  let activityStatus: ControlDeckActivityStatus
   let controlModeLabel: String
   let lifecycleLabel: String
   let lifecycleTint: String

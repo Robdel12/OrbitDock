@@ -76,7 +76,7 @@ enum SessionDetailSnapshotBuilder {
         turnCount: session.turnCount
       ),
       workerState: SessionDetailWorkerState(
-        subagents: session.subagents,
+        subagents: SessionWorkerRosterPlanner.visibleSubagents(subagents: session.subagents),
         subagentTools: [:],
         subagentMessages: [:],
         timelineRevision: 0

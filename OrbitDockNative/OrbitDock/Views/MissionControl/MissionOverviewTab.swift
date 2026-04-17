@@ -8,7 +8,8 @@ struct MissionOverviewTab: View {
   let missionId: String
   let missionFileExists: Bool
   let workflowMigrationAvailable: Bool
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
+  let sessionsClient: SessionsClient?
   let isCompact: Bool
   let endpointId: UUID
   let nextTickAt: Date?
@@ -107,7 +108,7 @@ struct MissionOverviewTab: View {
         missionFileExists: missionFileExists,
         workflowMigrationAvailable: workflowMigrationAvailable,
         settings: settings,
-        http: http,
+        missionsClient: missionsClient,
         onApplyDetail: onApplyDetail,
         onRefresh: onRefresh,
         onSelectTab: onSelectTab
@@ -377,7 +378,7 @@ struct MissionOverviewTab: View {
             issue: issue,
             missionId: missionId,
             endpointId: endpointId,
-            http: http,
+            missionsClient: missionsClient,
             style: .full,
             isCompact: isCompact,
             accentColor: issueRowAccent(for: issue),
@@ -434,13 +435,10 @@ struct MissionOverviewTab: View {
   // MARK: - Networking
 
   private func startOrchestrator() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isStartingOrchestrator = true
     do {
-      let _: MissionOkResponse = try await http.post(
-        "/api/missions/\(missionId)/start-orchestrator",
-        body: EmptyBody()
-      )
+      try await missionsClient.startOrchestrator(missionId)
     } catch {
       actionError = error.localizedDescription
     }
@@ -449,24 +447,18 @@ struct MissionOverviewTab: View {
   }
 
   private func triggerPoll() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     do {
-      let _: MissionOkResponse = try await http.post(
-        "/api/missions/\(missionId)/trigger",
-        body: EmptyBody()
-      )
+      try await missionsClient.triggerPoll(missionId)
     } catch {
       actionError = error.localizedDescription
     }
   }
 
   private func endAgentSession(_ sessionId: String) async {
-    guard let http else { return }
+    guard let sessionsClient else { return }
     do {
-      let _: ServerAcceptedResponse = try await http.post(
-        "/api/sessions/\(sessionId)/end",
-        body: EmptyBody()
-      )
+      _ = try await sessionsClient.endSession(sessionId)
       await onRefresh()
     } catch {
       actionError = error.localizedDescription

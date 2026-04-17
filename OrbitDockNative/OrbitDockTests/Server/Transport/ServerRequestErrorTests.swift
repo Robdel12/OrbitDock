@@ -5,9 +5,9 @@ import Testing
 struct ServerRequestErrorTests {
   @Test func marksConnectorUnavailableConflicts() {
     let error = ServerRequestError.httpStatus(
-      409,
-      code: "session_not_found",
-      message: "Session od-123 not found or has no active connector"
+      503,
+      code: "connector_unavailable",
+      message: "Session od-123 is direct but has no active connector attached"
     )
 
     #expect(error.isConnectorUnavailableConflict)

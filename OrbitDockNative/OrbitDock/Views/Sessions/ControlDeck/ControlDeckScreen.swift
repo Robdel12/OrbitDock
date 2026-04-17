@@ -5,11 +5,13 @@ struct ControlDeckScreen: View {
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
   let sessionId: String
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
   var chromeStyle: ControlDeckChromeStyle = .standalone
+  var detailPayload: ServerSessionDetailSnapshotPayload?
   var terminalTitle: String?
   var sessionDisplayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
+  var onDetailPayloadChange: ((ServerSessionDetailSnapshotPayload) -> Void)?
   var onFocusStateChange: ((Bool) -> Void)?
   var onToggleTerminal: (() -> Void)?
 
@@ -18,12 +20,16 @@ struct ControlDeckScreen: View {
   @AppStorage("localDictationEnabled") var localDictationEnabled = true
 
   var bindingIdentity: String {
-    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+    "\(session.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(session))"
+  }
+
+  var isWaitingForParentDetailPayload: Bool {
+    detailPayload == nil && sessionModel.snapshot == nil
   }
 
   var body: some View {
     Group {
-      if sessionModel.isLoading, sessionModel.snapshot == nil {
+      if (sessionModel.isLoading || isWaitingForParentDetailPayload), sessionModel.snapshot == nil {
         loadingView
       } else if let error = sessionModel.lastError, sessionModel.snapshot == nil {
         errorView(error)
@@ -36,22 +42,24 @@ struct ControlDeckScreen: View {
     .padding(.bottom, Spacing.xs)
     .task(id: bindingIdentity) {
       composer.restoreDraft(for: sessionId)
-      sessionModel.bind(sessionId: sessionId, sessionStore: sessionStore)
-      await sessionModel.refresh()
+      sessionModel.bind(
+        sessionId: sessionId,
+        session: session,
+        detailSnapshotSink: onDetailPayloadChange
+      )
+      await sessionModel.bootstrap(detailPayload: detailPayload)
+    }
+    .onChange(of: detailPayload?.revision) { _, _ in
+      guard let detailPayload else { return }
+      Task {
+        await sessionModel.applyExternalDetailSnapshot(detailPayload)
+      }
     }
     .onChange(of: composer.draft) { _, _ in
       composer.persistDraft(for: sessionId)
     }
     .onChange(of: sessionModel.skills) { _, _ in
       composer.syncSelectedSkillsFromText(composer.draft.text, availableSkills: sessionModel.skills)
-    }
-    .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.controlDeckRefreshRequests(for: sessionId)
-      for await _ in stream {
-        guard !Task.isCancelled else { break }
-        netLog(.debug, cat: .store, "ControlDeckScreen refresh signal", sid: sessionId)
-        await sessionModel.refresh()
-      }
     }
     .onChange(of: sessionModel.pendingApproval) { old, new in
       if old == nil, new != nil {

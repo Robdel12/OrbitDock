@@ -31,12 +31,27 @@ static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 pub(crate) struct ConnectionSubscriptions {
+  control_plane_forwarder: Option<JoinHandle<()>>,
   dashboard_forwarder: Option<JoinHandle<()>>,
+  library_forwarder: Option<JoinHandle<()>>,
   missions_forwarder: Option<JoinHandle<()>>,
+  mission_forwarders: HashMap<String, JoinHandle<()>>,
   session_surface_forwarders: HashMap<String, JoinHandle<()>>,
 }
 
 impl ConnectionSubscriptions {
+  pub(crate) fn replace_control_plane_forwarder(&mut self, handle: JoinHandle<()>) {
+    if let Some(existing) = self.control_plane_forwarder.replace(handle) {
+      existing.abort();
+    }
+  }
+
+  pub(crate) fn remove_control_plane_forwarder(&mut self) {
+    if let Some(existing) = self.control_plane_forwarder.take() {
+      existing.abort();
+    }
+  }
+
   pub(crate) fn replace_dashboard_forwarder(&mut self, handle: JoinHandle<()>) {
     if let Some(existing) = self.dashboard_forwarder.replace(handle) {
       existing.abort();
@@ -49,10 +64,42 @@ impl ConnectionSubscriptions {
     }
   }
 
+  pub(crate) fn replace_library_forwarder(&mut self, handle: JoinHandle<()>) {
+    if let Some(existing) = self.library_forwarder.replace(handle) {
+      existing.abort();
+    }
+  }
+
+  pub(crate) fn remove_library_forwarder(&mut self) {
+    if let Some(existing) = self.library_forwarder.take() {
+      existing.abort();
+    }
+  }
+
   pub(crate) fn replace_missions_forwarder(&mut self, handle: JoinHandle<()>) {
     if let Some(existing) = self.missions_forwarder.replace(handle) {
       existing.abort();
     }
+  }
+
+  pub(crate) fn remove_missions_forwarder(&mut self) {
+    if let Some(existing) = self.missions_forwarder.take() {
+      existing.abort();
+    }
+  }
+
+  pub(crate) fn replace_mission_forwarder(&mut self, mission_id: String, handle: JoinHandle<()>) {
+    if let Some(existing) = self.mission_forwarders.insert(mission_id, handle) {
+      existing.abort();
+    }
+  }
+
+  pub(crate) fn remove_mission_forwarder(&mut self, mission_id: &str) -> bool {
+    if let Some(existing) = self.mission_forwarders.remove(mission_id) {
+      existing.abort();
+      return true;
+    }
+    false
   }
 
   fn surface_key(session_id: &str, surface: SessionSurface) -> String {
@@ -85,11 +132,20 @@ impl ConnectionSubscriptions {
   }
 
   pub(crate) fn abort_all(&mut self) {
+    if let Some(existing) = self.control_plane_forwarder.take() {
+      existing.abort();
+    }
     if let Some(existing) = self.dashboard_forwarder.take() {
+      existing.abort();
+    }
+    if let Some(existing) = self.library_forwarder.take() {
       existing.abort();
     }
     if let Some(existing) = self.missions_forwarder.take() {
       existing.abort();
+    }
+    for (_, handle) in self.mission_forwarders.drain() {
+      handle.abort();
     }
     for (_, handle) in self.session_surface_forwarders.drain() {
       handle.abort();
@@ -324,45 +380,49 @@ fn server_message_session_id(msg: &ServerMessage) -> Option<String> {
   })
 }
 
+fn server_message_mission_id(msg: &ServerMessage) -> Option<String> {
+  match msg {
+    ServerMessage::MissionHeartbeat { mission_id, .. }
+    | ServerMessage::MissionInvalidated { mission_id, .. } => Some(mission_id.clone()),
+    _ => None,
+  }
+}
+
 fn oversize_resync_hint(msg: &ServerMessage) -> Option<ServerMessage> {
   let message_type = server_message_type_for_log(msg);
 
   if let Some(session_id) = server_message_session_id(msg) {
-    let (code, endpoint) = if message_type == "conversation_rows_changed" {
-      (
-        "conversation_resync_required",
-        format!("/api/sessions/{session_id}/conversation"),
-      )
+    let surface = if message_type == "conversation_rows_changed" {
+      SessionSurface::Conversation
     } else {
-      (
-        "session_detail_resync_required",
-        format!("/api/sessions/{session_id}/detail"),
-      )
+      SessionSurface::Detail
     };
 
-    return Some(ServerMessage::Error {
-      code: code.to_string(),
-      message: format!(
-        "Realtime payload ({message_type}) exceeded WebSocket transport budget; refetch GET {endpoint}"
-      ),
-      session_id: Some(session_id),
+    return Some(ServerMessage::SessionSurfaceInvalidated {
+      session_id,
+      surface,
+      revision: 0,
     });
   }
 
-  if message_type.starts_with("mission_") || message_type == "missions_list" {
-    return Some(ServerMessage::Error {
-      code: "missions_resync_required".to_string(),
-      message:
-        "Realtime missions payload exceeded WebSocket transport budget; refetch GET /api/missions"
-          .to_string(),
-      session_id: None,
+  if let Some(mission_id) = server_message_mission_id(msg) {
+    return Some(ServerMessage::MissionInvalidated {
+      mission_id,
+      revision: 0,
     });
   }
 
-  Some(ServerMessage::Error {
-    code: "dashboard_resync_required".to_string(),
-    message: "Realtime payload exceeded WebSocket transport budget; refetch GET /api/dashboard"
-      .to_string(),
-    session_id: None,
-  })
+  if message_type.starts_with("mission_") {
+    return Some(ServerMessage::MissionsInvalidated { revision: 0 });
+  }
+
+  if message_type.starts_with("sessions_summary_") {
+    return Some(ServerMessage::SessionsSummaryInvalidated { revision: 0 });
+  }
+
+  if message_type.starts_with("archived_sessions_") {
+    return Some(ServerMessage::ArchivedSessionsInvalidated { revision: 0 });
+  }
+
+  Some(ServerMessage::ActiveSessionsInvalidated { revision: 0 })
 }

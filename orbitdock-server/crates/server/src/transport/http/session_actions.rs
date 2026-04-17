@@ -1,20 +1,43 @@
-use super::*;
+use std::sync::Arc;
+
+use axum::{
+  body::Bytes,
+  extract::{Path, Query, State},
+  http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
+  response::IntoResponse,
+  Json,
+};
+use serde::{Deserialize, Serialize};
+
+use super::{dispatch_error_response, messaging_dispatch_error_response, ApiErrorResponse};
+use crate::runtime::session_queries::SessionLoadError;
+use crate::{
+  infrastructure::persistence::PersistCommand,
+  runtime::{session_queries::load_full_session_state, session_registry::SessionRegistry},
+};
+use orbitdock_protocol::{ImageInput, MentionInput, SessionDetailSnapshot, SkillInput};
 
 #[derive(Debug, Serialize)]
 pub struct AcceptedResponse {
   pub accepted: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SendMessageResponse {
   pub accepted: bool,
   pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct SteerTurnResponse {
   pub accepted: bool,
   pub row: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
 }
 
 #[derive(Debug, Serialize)]
@@ -76,6 +99,44 @@ fn next_http_message_id(prefix: &str) -> String {
   format!("{prefix}-{}", orbitdock_protocol::new_id())
 }
 
+async fn flush_persistence(state: &Arc<SessionRegistry>) {
+  let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+  if state
+    .persist()
+    .send(PersistCommand::Flush { ack: ack_tx })
+    .await
+    .is_ok()
+  {
+    let _ = ack_rx.await;
+  }
+}
+
+async fn load_session_detail_snapshot(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Option<SessionDetailSnapshot> {
+  match load_full_session_state(state, session_id, false, false).await {
+    Ok(session) => Some(SessionDetailSnapshot {
+      revision: session.revision.unwrap_or_default(),
+      session,
+    }),
+    Err(SessionLoadError::NotFound | SessionLoadError::Db(_) | SessionLoadError::Runtime(_)) => {
+      None
+    }
+  }
+}
+
+async fn accepted_response(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Json<AcceptedResponse> {
+  flush_persistence(state).await;
+  Json(AcceptedResponse {
+    accepted: true,
+    session_detail_snapshot: load_session_detail_snapshot(state, session_id).await,
+  })
+}
+
 pub async fn post_session_message(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -113,11 +174,15 @@ pub async fn post_session_message(
   .await
   .map_err(|error| messaging_dispatch_error_response(error, &session_id))?;
 
+  flush_persistence(&state).await;
+  let session_detail_snapshot = load_session_detail_snapshot(&state, &session_id).await;
+
   Ok((
     StatusCode::ACCEPTED,
     Json(SendMessageResponse {
       accepted: true,
       row: user_row,
+      session_detail_snapshot,
     }),
   ))
 }
@@ -238,11 +303,15 @@ pub async fn post_steer_turn(
   .await
   .map_err(|error| messaging_dispatch_error_response(error, &session_id))?;
 
+  flush_persistence(&state).await;
+  let session_detail_snapshot = load_session_detail_snapshot(&state, &session_id).await;
+
   Ok((
     StatusCode::ACCEPTED,
     Json(SteerTurnResponse {
       accepted: true,
       row: steer_row,
+      session_detail_snapshot,
     }),
   ))
 }
@@ -254,7 +323,7 @@ pub async fn interrupt_session(
   crate::runtime::message_dispatch::dispatch_interrupt(&state, &session_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }
 
 pub async fn compact_context(
@@ -264,7 +333,7 @@ pub async fn compact_context(
   crate::runtime::message_dispatch::dispatch_compact(&state, &session_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }
 
 pub async fn undo_last_turn(
@@ -274,7 +343,7 @@ pub async fn undo_last_turn(
   crate::runtime::message_dispatch::dispatch_undo(&state, &session_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }
 
 pub async fn rollback_turns(
@@ -294,7 +363,7 @@ pub async fn rollback_turns(
   crate::runtime::message_dispatch::dispatch_rollback(&state, &session_id, body.num_turns)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }
 
 pub async fn stop_task(
@@ -305,7 +374,7 @@ pub async fn stop_task(
   crate::runtime::message_dispatch::dispatch_stop_task(&state, &session_id, body.task_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }
 
 pub async fn rewind_files(
@@ -320,5 +389,5 @@ pub async fn rewind_files(
   )
   .await
   .map_err(|code| dispatch_error_response(code, &session_id))?;
-  Ok(Json(AcceptedResponse { accepted: true }))
+  Ok(accepted_response(&state, &session_id).await)
 }

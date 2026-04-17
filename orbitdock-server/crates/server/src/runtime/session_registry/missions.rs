@@ -66,8 +66,14 @@ impl SessionRegistry {
     self.mission_revision.load(Ordering::Relaxed)
   }
 
-  pub fn publish_missions_snapshot(&self) {
+  pub fn publish_mission_invalidation(&self, mission_id: &str) {
     let revision = self.mission_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    let _ = self
+      .list_tx
+      .send(orbitdock_protocol::ServerMessage::MissionInvalidated {
+        mission_id: mission_id.to_string(),
+        revision,
+      });
     let _ = self
       .list_tx
       .send(orbitdock_protocol::ServerMessage::MissionsInvalidated { revision });

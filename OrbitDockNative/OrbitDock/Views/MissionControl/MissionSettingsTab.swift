@@ -6,14 +6,13 @@ struct MissionSettingsTab: View {
   let missionId: String
   let initialTrackerKind: String
   let missionFileName: String
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let isCompact: Bool
   let onUpdated: () async -> Void
 
   @State private var isSaving = false
   @State private var saveError: String?
   @State private var showSaveConfirmation = false
-  @State private var confirmationTask: Task<Void, Never>?
 
   // Trigger
   @State private var triggerKind = "polling"
@@ -73,7 +72,7 @@ struct MissionSettingsTab: View {
         keyError: $keyError,
         trackerKind: editTrackerKind,
         missionId: missionId,
-        http: http,
+        missionsClient: missionsClient,
         onUpdated: onUpdated
       )
 
@@ -128,12 +127,15 @@ struct MissionSettingsTab: View {
     .onAppear {
       editTrackerKind = settings?.tracker ?? initialTrackerKind
       populateFromSettings()
-      Task { await fetchTrackerKeyStatus() }
     }
     .onChange(of: settings) { _, _ in populateFromSettings() }
-    .onChange(of: editTrackerKind) { _, _ in
-      Task { await fetchTrackerKeyStatus() }
+    .task(id: trackerStatusIdentity) {
+      await fetchTrackerKeyStatus()
     }
+  }
+
+  private var trackerStatusIdentity: String {
+    "\(missionId)::\(editTrackerKind)"
   }
 
   // MARK: - Composed Sections
@@ -449,11 +451,9 @@ struct MissionSettingsTab: View {
   // MARK: - Networking
 
   private func fetchTrackerKeyStatus() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     do {
-      let response: MissionTrackerKeyResponse = try await http.get(
-        "/api/missions/\(missionId)/tracker-key"
-      )
+      let response = try await missionsClient.getMissionTrackerKey(missionId)
       trackerKeyConfigured = response.configured
       trackerKeySource = response.source
     } catch {
@@ -462,7 +462,7 @@ struct MissionSettingsTab: View {
   }
 
   private func saveSettings() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
 
     isSaving = true
     saveError = nil
@@ -514,19 +514,8 @@ struct MissionSettingsTab: View {
     )
 
     do {
-      let response: SettingsUpdateResponse = try await http.request(
-        path: "/api/missions/\(missionId)/settings",
-        method: "PUT",
-        body: body
-      )
+      let response = try await missionsClient.updateSettings(missionId, body: body)
       withAnimation(Motion.standard) { showSaveConfirmation = true }
-      confirmationTask?.cancel()
-      confirmationTask = Task {
-        try? await Task.sleep(for: .seconds(3))
-        if !Task.isCancelled {
-          withAnimation(Motion.standard) { showSaveConfirmation = false }
-        }
-      }
       if let saved = response.settings {
         populateFromResponse(saved)
       }
@@ -659,14 +648,5 @@ private enum OptionalUInt32: Encodable {
       case let .some(value): try container.encode(value)
       case .none: try container.encodeNil()
     }
-  }
-}
-
-private struct SettingsUpdateResponse: Decodable {
-  let summary: MissionSummary
-  let settings: MissionSettings?
-
-  enum CodingKeys: String, CodingKey {
-    case summary, settings
   }
 }

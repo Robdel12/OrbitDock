@@ -16,14 +16,31 @@ use crate::types::{
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
   // Subscriptions
-  SubscribeDashboard {
+  SubscribeSessionsSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     since_revision: Option<u64>,
   },
-  UnsubscribeDashboard,
+  UnsubscribeSessionsSummary,
+  SubscribeActiveSessions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since_revision: Option<u64>,
+  },
+  UnsubscribeActiveSessions,
+  SubscribeArchivedSessions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    since_revision: Option<u64>,
+  },
+  UnsubscribeArchivedSessions,
   SubscribeMissions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     since_revision: Option<u64>,
+  },
+  UnsubscribeMissions,
+  SubscribeMission {
+    mission_id: String,
+  },
+  UnsubscribeMission {
+    mission_id: String,
   },
   SubscribeSessionSurface {
     session_id: String,
@@ -1597,13 +1614,129 @@ mod tests {
   }
 
   #[test]
-  fn unsubscribe_dashboard_round_trips() {
-    let message = ClientMessage::UnsubscribeDashboard;
+  fn unsubscribe_active_sessions_round_trips() {
+    let message = ClientMessage::UnsubscribeActiveSessions;
 
-    let json = serde_json::to_string(&message).expect("serialize unsubscribe_dashboard");
-    match serde_json::from_str::<ClientMessage>(&json).expect("deserialize unsubscribe_dashboard") {
-      ClientMessage::UnsubscribeDashboard => {}
-      other => panic!("unexpected variant for unsubscribe_dashboard: {:?}", other),
+    let json = serde_json::to_string(&message).expect("serialize unsubscribe_active_sessions");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize unsubscribe_active_sessions")
+    {
+      ClientMessage::UnsubscribeActiveSessions => {}
+      other => panic!(
+        "unexpected variant for unsubscribe_active_sessions: {:?}",
+        other
+      ),
+    }
+  }
+
+  #[test]
+  fn subscribe_archived_sessions_round_trips() {
+    let message = ClientMessage::SubscribeArchivedSessions {
+      since_revision: Some(17),
+    };
+
+    let json = serde_json::to_string(&message).expect("serialize subscribe_archived_sessions");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize subscribe_archived_sessions")
+    {
+      ClientMessage::SubscribeArchivedSessions { since_revision } => {
+        assert_eq!(since_revision, Some(17));
+      }
+      other => panic!(
+        "unexpected variant for subscribe_archived_sessions: {:?}",
+        other
+      ),
+    }
+  }
+
+  #[test]
+  fn unsubscribe_archived_sessions_round_trips() {
+    let message = ClientMessage::UnsubscribeArchivedSessions;
+
+    let json = serde_json::to_string(&message).expect("serialize unsubscribe_archived_sessions");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize unsubscribe_archived_sessions")
+    {
+      ClientMessage::UnsubscribeArchivedSessions => {}
+      other => panic!(
+        "unexpected variant for unsubscribe_archived_sessions: {:?}",
+        other
+      ),
+    }
+  }
+
+  #[test]
+  fn subscribe_sessions_summary_round_trips() {
+    let message = ClientMessage::SubscribeSessionsSummary {
+      since_revision: Some(9),
+    };
+
+    let json = serde_json::to_string(&message).expect("serialize subscribe_sessions_summary");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize subscribe_sessions_summary")
+    {
+      ClientMessage::SubscribeSessionsSummary { since_revision } => {
+        assert_eq!(since_revision, Some(9));
+      }
+      other => panic!(
+        "unexpected variant for subscribe_sessions_summary: {:?}",
+        other
+      ),
+    }
+  }
+
+  #[test]
+  fn subscribe_mission_round_trips() {
+    let json = r#"{"type":"subscribe_mission","mission_id":"mission-1"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse subscribe_mission");
+    match &parsed {
+      ClientMessage::SubscribeMission { mission_id } => {
+        assert_eq!(mission_id, "mission-1");
+      }
+      other => panic!("unexpected variant for subscribe_mission: {:?}", other),
+    }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
+
+  #[test]
+  fn unsubscribe_missions_round_trips() {
+    let message = ClientMessage::UnsubscribeMissions;
+
+    let json = serde_json::to_string(&message).expect("serialize unsubscribe_missions");
+    match serde_json::from_str::<ClientMessage>(&json).expect("deserialize unsubscribe_missions") {
+      ClientMessage::UnsubscribeMissions => {}
+      other => panic!("unexpected variant for unsubscribe_missions: {:?}", other),
+    }
+  }
+
+  #[test]
+  fn unsubscribe_mission_round_trips() {
+    let json = r#"{"type":"unsubscribe_mission","mission_id":"mission-1"}"#;
+    let parsed: ClientMessage = serde_json::from_str(json).expect("parse unsubscribe_mission");
+    match &parsed {
+      ClientMessage::UnsubscribeMission { mission_id } => {
+        assert_eq!(mission_id, "mission-1");
+      }
+      other => panic!("unexpected variant for unsubscribe_mission: {:?}", other),
+    }
+    let serialized = serde_json::to_string(&parsed).expect("serialize");
+    let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+  }
+
+  #[test]
+  fn unsubscribe_sessions_summary_round_trips() {
+    let message = ClientMessage::UnsubscribeSessionsSummary;
+
+    let json = serde_json::to_string(&message).expect("serialize unsubscribe_sessions_summary");
+    match serde_json::from_str::<ClientMessage>(&json)
+      .expect("deserialize unsubscribe_sessions_summary")
+    {
+      ClientMessage::UnsubscribeSessionsSummary => {}
+      other => panic!(
+        "unexpected variant for unsubscribe_sessions_summary: {:?}",
+        other
+      ),
     }
   }
 }

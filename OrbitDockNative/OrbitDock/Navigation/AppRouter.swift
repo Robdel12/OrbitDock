@@ -160,54 +160,26 @@ final class AppRouter {
     selectSession(ref, source: source)
   }
 
-  func navigateToMission(missionId: String, endpointId: UUID, source: NavigationSource = .unspecified) {
+  func navigateToMission(
+    missionId: String,
+    endpointId: UUID,
+    source _: NavigationSource = .unspecified
+  ) {
     let ref = MissionRef(endpointId: endpointId, missionId: missionId)
-    logNavigation(
-      action: "navigateToMission",
-      source: source,
-      outcome: "applied",
-      details: "missionId=\(missionId) from=\(routeSummary)"
-    )
     if selectedMissionTabs[ref] == nil {
       selectedMissionTabs[ref] = .overview
     }
     workspaceSelection = .mission(ref)
   }
 
-  func selectSession(_ ref: SessionRef, source: NavigationSource = .unspecified) {
-    guard workspaceSelection != .session(ref) else {
-      logNavigation(
-        action: "selectSession",
-        source: source,
-        outcome: "noop",
-        details: "scopedID=\(ref.scopedID) route=\(routeSummary)"
-      )
-      return
-    }
-
-    logNavigation(
-      action: "selectSession",
-      source: source,
-      outcome: "applied",
-      details: "scopedID=\(ref.scopedID) from=\(routeSummary)"
-    )
+  func selectSession(_ ref: SessionRef, source _: NavigationSource = .unspecified) {
+    guard workspaceSelection != .session(ref) else { return }
     workspaceSelection = .session(ref)
   }
 
   /// Navigate back to the previous selection, falling back to overview.
-  func goBack(source: NavigationSource = .unspecified) {
-    let destination = previousSelection ?? .overview
-    logNavigation(
-      action: "goBack",
-      source: source,
-      outcome: "applied",
-      details: "to=\(selectionSummary(destination)) from=\(routeSummary)"
-    )
-    var t = Transaction(animation: nil)
-    t.disablesAnimations = true
-    withTransaction(t) {
-      workspaceSelection = destination
-    }
+  func goBack(source _: NavigationSource = .unspecified) {
+    updateSelectionWithoutAnimation(previousSelection ?? .overview)
   }
 
   /// Human-readable label for the back button.
@@ -234,77 +206,28 @@ final class AppRouter {
     #endif
   }
 
-  func goToDashboard(source: NavigationSource = .unspecified) {
-    guard workspaceSelection != .overview else {
-      logNavigation(
-        action: "goToDashboard",
-        source: source,
-        outcome: "noop",
-        details: "route=\(routeSummary)"
-      )
-      return
-    }
-
-    logNavigation(
-      action: "goToDashboard",
-      source: source,
-      outcome: "applied",
-      details: "from=\(routeSummary)"
-    )
-    var t = Transaction(animation: nil)
-    t.disablesAnimations = true
-    withTransaction(t) {
-      workspaceSelection = .overview
-    }
+  func goToDashboard(source _: NavigationSource = .unspecified) {
+    guard workspaceSelection != .overview else { return }
+    updateSelectionWithoutAnimation(.overview)
   }
 
   func goToLibrary() {
     selectDashboardTab(.library)
   }
 
-  func goToSettings(source: NavigationSource = .unspecified) {
-    guard workspaceSelection != .settings else {
-      logNavigation(
-        action: "goToSettings",
-        source: source,
-        outcome: "noop",
-        details: "route=\(routeSummary)"
-      )
-      return
-    }
-
-    logNavigation(
-      action: "goToSettings",
-      source: source,
-      outcome: "applied",
-      details: "from=\(routeSummary)"
-    )
+  func goToSettings(source _: NavigationSource = .unspecified) {
+    guard workspaceSelection != .settings else { return }
     workspaceSelection = .settings
   }
 
-  func selectDashboardTab(_ tab: DashboardTab, source: NavigationSource = .unspecified) {
+  func selectDashboardTab(_ tab: DashboardTab, source _: NavigationSource = .unspecified) {
     let targetSelection: WorkspaceSelection = switch tab {
       case .missionControl: .overview
       case .missions: .missions
       case .library: .library
     }
 
-    guard workspaceSelection != targetSelection else {
-      logNavigation(
-        action: "selectDashboardTab",
-        source: source,
-        outcome: "noop",
-        details: "tab=\(tab.rawValue) route=\(routeSummary)"
-      )
-      return
-    }
-
-    logNavigation(
-      action: "selectDashboardTab",
-      source: source,
-      outcome: "applied",
-      details: "tab=\(tab.rawValue) from=\(routeSummary)"
-    )
+    guard workspaceSelection != targetSelection else { return }
     workspaceSelection = targetSelection
   }
 
@@ -316,13 +239,7 @@ final class AppRouter {
     showQuickSwitcher = false
   }
 
-  func navigateToTerminal(terminalId: String, source: NavigationSource = .unspecified) {
-    logNavigation(
-      action: "navigateToTerminal",
-      source: source,
-      outcome: "applied",
-      details: "terminalId=\(terminalId) from=\(routeSummary)"
-    )
+  func navigateToTerminal(terminalId: String, source _: NavigationSource = .unspecified) {
     workspaceSelection = .terminal(terminalId: terminalId)
   }
 
@@ -364,29 +281,12 @@ final class AppRouter {
     selectedSessionRef?.endpointId ?? selectedMissionRef?.endpointId
   }
 
-  private var routeSummary: String {
-    selectionSummary(workspaceSelection)
-  }
-
-  private func selectionSummary(_ selection: WorkspaceSelection) -> String {
-    switch selection {
-      case .overview: "overview"
-      case let .session(ref): "session(\(ref.scopedID))"
-      case let .mission(ref): "mission(\(ref.missionId))"
-      case .missions: "missions"
-      case .library: "library"
-      case let .terminal(terminalId): "terminal(\(terminalId))"
-      case .settings: "settings"
+  private func updateSelectionWithoutAnimation(_ selection: WorkspaceSelection) {
+    var transaction = Transaction(animation: nil)
+    transaction.disablesAnimations = true
+    withTransaction(transaction) {
+      workspaceSelection = selection
     }
-  }
-
-  private func logNavigation(
-    action: String,
-    source: NavigationSource,
-    outcome: String,
-    details: String
-  ) {
-    print("[OrbitDock][Router] \(action) source=\(source.rawValue) outcome=\(outcome) \(details)")
   }
 }
 

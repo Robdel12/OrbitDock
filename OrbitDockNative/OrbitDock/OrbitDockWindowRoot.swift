@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct OrbitDockWindowRoot: View {
-  @Environment(OrbitDockAppRuntime.self) private var environmentAppRuntime
   let appRuntime: OrbitDockAppRuntime
   @State private var router = AppRouter()
+  @State private var dashboardDataService: DashboardDataService
+  @State private var libraryDataService: LibraryDataService
   @State private var dashboardViewModel: DashboardViewModel
   @State private var terminalRegistry = TerminalSessionRegistry()
-  @State private var notificationSessionMonitor = NotificationSessionMonitor()
   @State private var externalNavWindowID = UUID()
   @State private var sidebarVisibility: NavigationSplitViewVisibility = .automatic
   @State private var preferredColumn: NavigationSplitViewColumn = .detail
@@ -17,7 +17,11 @@ struct OrbitDockWindowRoot: View {
 
   init(appRuntime: OrbitDockAppRuntime) {
     self.appRuntime = appRuntime
-    _dashboardViewModel = State(initialValue: DashboardViewModel(dataService: appRuntime.dashboardDataService))
+    let dashboardDataService = DashboardDataService()
+    let libraryDataService = LibraryDataService()
+    _dashboardDataService = State(initialValue: dashboardDataService)
+    _libraryDataService = State(initialValue: libraryDataService)
+    _dashboardViewModel = State(initialValue: DashboardViewModel(dataService: dashboardDataService))
   }
 
   var body: some View {
@@ -44,7 +48,9 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime)
     .environment(router)
     .environment(terminalRegistry)
-    .environment(appRuntime.dashboardDataService)
+    .environment(appRuntime.sessionsSummaryDataService)
+    .environment(dashboardDataService)
+    .environment(libraryDataService)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
@@ -67,85 +73,15 @@ struct OrbitDockWindowRoot: View {
       .toolbar(removing: .title)
       .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     #endif
-    .task {
-      await appRuntime.startIfNeeded()
-
-      if appRuntime.isDemoModeEnabled {
-        let conversations = appRuntime.demoExperience.dashboardConversations
-        dashboardViewModel.applySnapshot(DashboardSnapshot(
-          revision: 0,
-          conversations: conversations,
-          counts: DashboardTriageCounts(conversations: conversations),
-          directCount: conversations.filter(\.isDirect).count,
-          hasMultipleEndpoints: false,
-          projectGroups: []
-        ))
-        appRuntime.dashboardDataService.applyDemoSessions(appRuntime.demoExperience.rootSessions)
-        notificationSessionMonitor.applySessions(appRuntime.demoExperience.rootSessions)
-      }
-    }
-    .onAppear {
-      // Register for external navigation (notification taps, etc.)
-      appRuntime.externalNavigationCenter.registerWindow(externalNavWindowID) { command in
-        switch command {
-          case let .selectSession(sessionId, _):
-            router.navigateToSession(scopedID: sessionId, source: .external)
-        }
-      }
-      appRuntime.externalNavigationCenter.updateFocusedWindow(externalNavWindowID)
-    }
-    .onDisappear {
-      appRuntime.externalNavigationCenter.unregisterWindow(externalNavWindowID)
-    }
-    .onChange(of: appRuntime.dashboardDataService.librarySessions) { oldSessions, newSessions in
-      notificationSessionMonitor.applySessions(newSessions)
-      if oldSessions.isEmpty, !newSessions.isEmpty {
-        // First load — seed baseline to avoid a burst of toasts
-        appRuntime.notificationCoordinator.seedBaseline(newSessions)
-      } else {
-        appRuntime.notificationCoordinator.processSessionUpdate(newSessions)
-      }
-    }
-    .onChange(of: appRuntime.focusTracker.isAppActive) { _, isActive in
-      appRuntime.notificationCoordinator.appIsActive = isActive
-    }
-    .onChange(of: router.workspaceSelection) { oldSelection, newSelection in
-      guard oldSelection != newSelection else { return }
-
-      // On compact (iPhone), push to the detail column when selection changes.
-      // On regular width this binding is ignored by NavigationSplitView.
-      preferredColumn = .detail
-
-      // Update notification coordinator's viewed session
-      if case let .session(ref) = newSelection {
-        appRuntime.notificationCoordinator.viewedSessionScopedID = ref.scopedID
-      } else {
-        appRuntime.notificationCoordinator.viewedSessionScopedID = nil
-      }
-
-      // Unsubscribe from previous session if leaving one
-      if case let .session(oldRef) = oldSelection {
-        if case .session = newSelection {
-          // Navigating session → session: unsubscribe old before subscribing new
-          detailSessionStore(for: oldRef.endpointId)
-            .unsubscribeFromSession(oldRef.sessionId)
-        } else {
-          // Navigating session → non-session: defer unsubscribe
-          Task { @MainActor in
-            detailSessionStore(for: oldRef.endpointId)
-              .unsubscribeFromSession(oldRef.sessionId)
-          }
-        }
-      }
-
-      // Subscribe to new session if entering one
-      if case let .session(ref) = newSelection {
-        detailSessionStore(for: ref.endpointId)
-          .subscribeToSession(
-            ref.sessionId,
-            surfaces: [.detail, .composer, .conversation]
-          )
-      }
+    .background {
+      OrbitDockWindowCoordinator(
+        appRuntime: appRuntime,
+        router: router,
+        dashboardDataService: dashboardDataService,
+        libraryDataService: libraryDataService,
+        externalNavWindowID: externalNavWindowID,
+        preferredColumn: $preferredColumn
+      )
     }
     .sheet(isPresented: Binding(
       get: { router.showNewSessionSheet },
@@ -154,7 +90,7 @@ struct OrbitDockWindowRoot: View {
       NewSessionSheet(
         provider: router.newSessionProvider,
         continuation: router.newSessionContinuation,
-        sessionStore: creationStore()
+        endpointStore: creationStore()
       )
       .environment(appRuntime.runtimeRegistry)
       .environment(router)
@@ -177,7 +113,7 @@ struct OrbitDockWindowRoot: View {
         SessionDetailView(
           sessionId: ref.sessionId,
           endpointId: ref.endpointId,
-          sessionStore: detailSessionStore(for: ref.endpointId)
+          session: detailSession(for: ref)
         )
         .id(ref.scopedID)
       case let .mission(ref):
@@ -237,21 +173,21 @@ struct OrbitDockWindowRoot: View {
     .transition(.opacity)
   }
 
-  private func creationStore() -> SessionStore {
+  private func creationStore() -> ServerEndpointRuntime {
     if appRuntime.isDemoModeEnabled {
-      return appRuntime.demoExperience.sessionStore
+      return appRuntime.demoExperience.endpointStore
     }
-    let fallback = appRuntime.runtimeRegistry.activeSessionStore
     let preferredEndpointId = router.selectedEndpointId ?? router.selectedSessionRef?.endpointId
-    let primaryStore = appRuntime.runtimeRegistry.primarySessionStore(fallback: fallback)
-    return appRuntime.runtimeRegistry.sessionStore(for: preferredEndpointId, fallback: primaryStore)
+    return appRuntime.runtimeRegistry.preferredCreationEndpointStore(
+      preferredEndpointId: preferredEndpointId
+    )
   }
 
-  private func detailSessionStore(for endpointId: UUID) -> SessionStore {
-    if appRuntime.isDemoModeEnabled, endpointId == appRuntime.demoExperience.endpoint.id {
-      return appRuntime.demoExperience.sessionStore
+  private func detailSession(for ref: SessionRef) -> ServerSessionContext {
+    if appRuntime.isDemoModeEnabled, ref.endpointId == appRuntime.demoExperience.endpoint.id {
+      return appRuntime.demoExperience.endpointStore.session(ref.sessionId)
     }
-    let fallback = appRuntime.runtimeRegistry.activeSessionStore
-    return appRuntime.runtimeRegistry.sessionStore(for: endpointId, fallback: fallback)
+    let endpointStore = appRuntime.runtimeRegistry.endpointStore(for: ref.endpointId)
+    return endpointStore.session(ref.sessionId)
   }
 }

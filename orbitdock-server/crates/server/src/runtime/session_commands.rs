@@ -6,7 +6,6 @@ use orbitdock_protocol::{
 };
 use tokio::sync::{broadcast, oneshot};
 
-#[cfg(test)]
 use crate::domain::sessions::conversation::ConversationPage;
 
 /// A persistence operation that the actor executes on behalf of the caller.
@@ -113,6 +112,11 @@ pub enum SessionCommand {
   AddRowAndBroadcast {
     entry: ConversationRowEntry,
   },
+  /// Add a row, persist it, broadcast it, and return the DB-authoritative row.
+  AddRowAndBroadcastAndReply {
+    entry: ConversationRowEntry,
+    reply: oneshot::Sender<ConversationRowEntry>,
+  },
   /// Update a steer row's delivery status after the provider resolves it.
   UpdateSteerOutcome {
     message_id: String,
@@ -142,7 +146,6 @@ pub enum SessionCommand {
   GetLastTool {
     reply: oneshot::Sender<Option<String>>,
   },
-  #[cfg(test)]
   GetConversationPage {
     before_sequence: Option<u64>,
     limit: usize,

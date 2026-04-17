@@ -3,6 +3,10 @@ import SwiftUI
 
 @MainActor
 final class RootSessionActions {
+  enum ActionError: Error {
+    case endpointUnavailable(UUID)
+  }
+
   private let runtimeRegistry: ServerRuntimeRegistry
 
   init(runtimeRegistry: ServerRuntimeRegistry) {
@@ -10,18 +14,17 @@ final class RootSessionActions {
   }
 
   func endSession(_ session: RootSessionNode) async throws {
-    try await sessionStore(for: session).endSession(session.sessionId)
+    guard let endpointStore = runtimeRegistry.endpointStoreIfAvailable(for: session.endpointId) else {
+      throw ActionError.endpointUnavailable(session.endpointId)
+    }
+    _ = try await endpointStore.session(session.sessionId).api.endSession()
   }
 
   func renameSession(_ session: RootSessionNode, name: String?) async throws {
-    try await sessionStore(for: session).renameSession(session.sessionId, name: name)
-  }
-
-  private func sessionStore(for session: RootSessionNode) -> SessionStore {
-    runtimeRegistry.sessionStore(
-      for: session.endpointId,
-      fallback: runtimeRegistry.activeSessionStore
-    )
+    guard let endpointStore = runtimeRegistry.endpointStoreIfAvailable(for: session.endpointId) else {
+      throw ActionError.endpointUnavailable(session.endpointId)
+    }
+    _ = try await endpointStore.session(session.sessionId).api.renameSession(name: name)
   }
 }
 

@@ -6,7 +6,7 @@ struct MissionSetupFlow: View {
   let missionFileExists: Bool
   let workflowMigrationAvailable: Bool
   let settings: MissionSettings?
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let onApplyDetail: (MissionDetailResponse) -> Void
   let onRefresh: () async -> Void
   let onSelectTab: (MissionTab) -> Void
@@ -25,7 +25,7 @@ struct MissionSetupFlow: View {
             missionId: missionId,
             repoRoot: mission.repoRoot,
             missionFileName: mission.resolvedFileName,
-            http: http,
+            missionsClient: missionsClient,
             onApplyDetail: onApplyDetail,
             onRefresh: onRefresh
           )
@@ -39,7 +39,11 @@ struct MissionSetupFlow: View {
       }
 
       if mission.orchestratorStatus == "no_api_key" {
-        MissionApiKeyBanner(missionId: missionId, trackerKind: mission.trackerKind, http: http) {
+        MissionApiKeyBanner(
+          missionId: missionId,
+          trackerKind: mission.trackerKind,
+          missionsClient: missionsClient
+        ) {
           await onRefresh()
         }
       }
@@ -239,13 +243,10 @@ struct MissionSetupFlow: View {
   // MARK: - Networking
 
   private func scaffoldFresh() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isScaffoldingFresh = true
     do {
-      let response: MissionDetailResponse = try await http.post(
-        "/api/missions/\(missionId)/scaffold",
-        body: EmptyBody()
-      )
+      let response = try await missionsClient.scaffoldMission(missionId)
       onApplyDetail(response)
     } catch {
       actionError = error.localizedDescription
@@ -255,13 +256,10 @@ struct MissionSetupFlow: View {
   }
 
   private func migrateWorkflow() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isMigrating = true
     do {
-      let response: MissionDetailResponse = try await http.post(
-        "/api/missions/\(missionId)/migrate-workflow",
-        body: EmptyBody()
-      )
+      let response = try await missionsClient.migrateWorkflow(missionId)
       onApplyDetail(response)
     } catch {
       actionError = error.localizedDescription

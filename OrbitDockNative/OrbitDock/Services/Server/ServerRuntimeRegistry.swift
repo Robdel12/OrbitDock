@@ -7,19 +7,12 @@ import Foundation
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
-  private enum BootstrapRefreshDecision: Equatable {
-    case success
-    case retry
-    case stop
-  }
-
   private let endpointSettings: ServerEndpointSettingsClient
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private let clientIdentityProvider: () -> ServerClientIdentity
   private let shouldBootstrapFromSettings: Bool
-  private let bootstrapRetryDelay: @Sendable (Int) -> Duration
-  private let controlPlaneCoordinator = ServerControlPlaneCoordinator()
+  private let serverRoleCoordinator = ServerRoleCoordinator()
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
   private(set) var readinessByEndpointId: [UUID: ServerRuntimeReadiness] = [:]
@@ -31,7 +24,7 @@ final class ServerRuntimeRegistry {
   @ObservationIgnored private let readinessContinuation: AsyncStream<Void>.Continuation
 
   @ObservationIgnored
-  private lazy var fallbackSessionStore: SessionStore = {
+  private lazy var fallbackEndpointStore: ServerEndpointRuntime = {
     let baseURL = URL(string: "http://127.0.0.1:3000")!
     let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: nil)
     let clients = ServerClients(
@@ -39,20 +32,14 @@ final class ServerRuntimeRegistry {
       requestBuilder: requestBuilder,
       responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
-    return SessionStore(
+    return ServerEndpointRuntime(
       clients: clients,
       connection: ServerConnection(authToken: nil),
       endpointId: UUID()
     )
   }()
 
-  @ObservationIgnored private var statusObserverTasks: [UUID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var readinessObserverTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var connectionListenerTokensByEndpointId: [UUID: ServerConnectionListenerToken] = [:]
-  @ObservationIgnored private var bootstrapRetryTasksByEndpointId: [UUID: Task<Void, Never>] = [:]
-  @ObservationIgnored private var bootstrapRetryAttemptsByEndpointId: [UUID: Int] = [:]
-  @ObservationIgnored private var dashboardBootstrapInFlightEndpointIds: Set<UUID> = []
-  @ObservationIgnored private var missionsBootstrapInFlightEndpointIds: Set<UUID> = []
   @ObservationIgnored private var suspendedForBackground = false
 
   private static func resolvedDeviceName() -> String {
@@ -99,19 +86,13 @@ final class ServerRuntimeRegistry {
     runtimeFactory = { ServerRuntime(endpoint: $0) }
     clientIdentityProvider = { Self.currentIdentity() }
     shouldBootstrapFromSettings = !AppRuntimeMode.isRunningTestsProcess
-    bootstrapRetryDelay = { attempt in
-      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
-    }
   }
 
   init(
     endpointsProvider: @escaping () -> [ServerEndpoint],
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     endpointSettings: ServerEndpointSettingsClient? = nil,
-    shouldBootstrapFromSettings: Bool = true,
-    bootstrapRetryDelay: @escaping @Sendable (Int) -> Duration = { attempt in
-      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
-    }
+    shouldBootstrapFromSettings: Bool = true
   ) {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
@@ -121,7 +102,6 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = { Self.currentIdentity() }
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
-    self.bootstrapRetryDelay = bootstrapRetryDelay
   }
 
   init(
@@ -129,10 +109,7 @@ final class ServerRuntimeRegistry {
     runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
     clientIdentityProvider: @escaping () -> ServerClientIdentity,
     endpointSettings: ServerEndpointSettingsClient? = nil,
-    shouldBootstrapFromSettings: Bool = true,
-    bootstrapRetryDelay: @escaping @Sendable (Int) -> Duration = { attempt in
-      ServerRuntimeRegistry.defaultBootstrapRetryDelay(attempt)
-    }
+    shouldBootstrapFromSettings: Bool = true
   ) {
     var readinessContinuation: AsyncStream<Void>.Continuation!
     readinessUpdates = AsyncStream { readinessContinuation = $0 }
@@ -142,7 +119,6 @@ final class ServerRuntimeRegistry {
     self.runtimeFactory = runtimeFactory
     self.clientIdentityProvider = clientIdentityProvider
     self.shouldBootstrapFromSettings = shouldBootstrapFromSettings
-    self.bootstrapRetryDelay = bootstrapRetryDelay
   }
 
   deinit {
@@ -181,18 +157,18 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  var activeSessionStore: SessionStore {
+  var activeEndpointStore: ServerEndpointRuntime {
     ensureInitialized()
     if let runtime = resolvedActiveRuntime() {
-      return runtime.sessionStore
+      return runtime.endpointStore
     }
-    return fallbackSessionStore
+    return fallbackEndpointStore
   }
 
   var serverPrimaryByEndpointId: [UUID: Bool] {
     var result: [UUID: Bool] = [:]
     for (id, runtime) in runtimesByEndpointId {
-      if let isPrimary = runtime.sessionStore.serverIsPrimary {
+      if let isPrimary = runtime.endpointStore.serverIsPrimary {
         result[id] = isPrimary
       }
     }
@@ -202,7 +178,7 @@ final class ServerRuntimeRegistry {
   var serverPrimaryClaimsByEndpointId: [UUID: [ServerClientPrimaryClaim]] {
     var result: [UUID: [ServerClientPrimaryClaim]] = [:]
     for (id, runtime) in runtimesByEndpointId {
-      let claims = runtime.sessionStore.serverPrimaryClaims
+      let claims = runtime.endpointStore.serverPrimaryClaims
       if !claims.isEmpty {
         result[id] = claims
       }
@@ -218,8 +194,8 @@ final class ServerRuntimeRegistry {
     runtimesByEndpointId.values.contains(where: \.endpoint.isEnabled)
   }
 
-  var hasAnyControlPlaneReadyRuntime: Bool {
-    readinessByEndpointId.values.contains(where: \.controlPlaneReady)
+  var hasAnyServerRoleReadyRuntime: Bool {
+    readinessByEndpointId.values.contains(where: \.serverRoleReady)
   }
 
   var activeConnectionStatus: ConnectionStatus {
@@ -257,9 +233,7 @@ final class ServerRuntimeRegistry {
     connectionStatusByEndpointId[endpointId] = .connected
     readinessByEndpointId[endpointId] = ServerRuntimeReadiness(
       transportReady: true,
-      controlPlaneReady: true,
-      dashboardReady: true,
-      missionsReady: true
+      serverRoleReady: true
     )
   }
 
@@ -268,11 +242,11 @@ final class ServerRuntimeRegistry {
     readinessByEndpointId[endpointId] = nil
   }
 
-  func waitForAnyControlPlaneReadyRuntime() async {
-    guard hasEnabledRuntimes, !hasAnyControlPlaneReadyRuntime else { return }
+  func waitForAnyServerRoleReadyRuntime() async {
+    guard hasEnabledRuntimes, !hasAnyServerRoleReadyRuntime else { return }
     let updates = readinessUpdates
     for await _ in updates {
-      if hasAnyControlPlaneReadyRuntime || !hasEnabledRuntimes {
+      if hasAnyServerRoleReadyRuntime || !hasEnabledRuntimes {
         return
       }
     }
@@ -287,13 +261,8 @@ final class ServerRuntimeRegistry {
       unbindRuntimeState(runtime)
       runtime.stop()
       runtimesByEndpointId[id] = nil
-      statusObserverTasks[id]?.cancel()
-      statusObserverTasks[id] = nil
-      readinessObserverTasks[id]?.cancel()
-      readinessObserverTasks[id] = nil
       connectionStatusByEndpointId[id] = nil
       readinessByEndpointId[id] = nil
-      cancelBootstrapRetry(for: id)
       readinessContinuation.yield(())
     }
 
@@ -302,10 +271,6 @@ final class ServerRuntimeRegistry {
         if existing.endpoint != endpoint {
           unbindRuntimeState(existing)
           existing.stop()
-          statusObserverTasks[endpoint.id]?.cancel()
-          statusObserverTasks[endpoint.id] = nil
-          readinessObserverTasks[endpoint.id]?.cancel()
-          readinessObserverTasks[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -330,9 +295,6 @@ final class ServerRuntimeRegistry {
     for endpoint in configuredEndpoints where endpoint.isEnabled {
       guard let runtime = runtimesByEndpointId[endpoint.id] else { continue }
       runtime.start()
-      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
-        scheduleSurfaceBootstrap(for: runtime, resetAttempts: true)
-      }
     }
 
     schedulePrimaryClaimReconciliation()
@@ -352,9 +314,9 @@ final class ServerRuntimeRegistry {
   func setServerRole(endpointId: UUID, isPrimary: Bool) {
     ensureInitialized()
     guard let targetRuntime = runtimesByEndpointId[endpointId], targetRuntime.endpoint.isEnabled else { return }
-    let ports = enabledControlPlanePorts()
+    let ports = enabledServerRolePorts()
     Task {
-      await controlPlaneCoordinator.applyServerRoleChange(
+      await serverRoleCoordinator.applyServerRoleChange(
         endpointId: targetRuntime.endpoint.id,
         isPrimary: isPrimary,
         ports: ports
@@ -372,42 +334,7 @@ final class ServerRuntimeRegistry {
 
   func reconnectAllIfNeeded() {
     for runtime in runtimesByEndpointId.values {
-      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
-        scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-      }
       runtime.reconnectIfNeeded()
-    }
-  }
-
-  @discardableResult
-  func refreshEnabledSessionLists() -> [UUID] {
-    runtimes
-      .filter(\.endpoint.isEnabled)
-      .map { runtime in
-        if runtime.isStarted {
-          if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
-            scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-          }
-          runtime.reconnectIfNeeded()
-        }
-        return runtime.endpoint.id
-      }
-  }
-
-  func refreshAll() async {
-    for runtime in runtimes where runtime.endpoint.isEnabled && runtime.isStarted {
-      if !runtime.readiness.dashboardReady || !runtime.readiness.missionsReady {
-        scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-      }
-      runtime.reconnectIfNeeded()
-    }
-  }
-
-  func refreshDashboardConversations() async {
-    ensureInitialized()
-
-    for runtime in runtimes where runtime.endpoint.isEnabled {
-      _ = await refreshDashboardConversations(for: runtime)
     }
   }
 
@@ -438,31 +365,42 @@ final class ServerRuntimeRegistry {
     }
   #endif
 
-  func waitForControlPlaneIdleForTests() async {
-    await controlPlaneCoordinator.waitUntilIdleForTests()
+  func waitForServerRoleCoordinatorIdleForTests() async {
+    await serverRoleCoordinator.waitUntilIdleForTests()
   }
 
-  func sessionStore(for session: RootSessionNode, fallback: SessionStore) -> SessionStore {
-    guard let runtime = runtimesByEndpointId[session.endpointId] else {
-      return fallback
+  func endpointStore(for session: RootSessionNode) -> ServerEndpointRuntime {
+    endpointStore(for: session.endpointId)
+  }
+
+  func endpointStoreIfAvailable(for endpointId: UUID) -> ServerEndpointRuntime? {
+    ensureInitialized()
+    return runtimesByEndpointId[endpointId]?.endpointStore
+  }
+
+  func endpointStore(for endpointId: UUID?) -> ServerEndpointRuntime {
+    ensureInitialized()
+    guard let endpointId else {
+      return activeEndpointStore
     }
-    return runtime.sessionStore
-  }
-
-  func sessionStore(for endpointId: UUID?, fallback: SessionStore) -> SessionStore {
-    guard let endpointId,
-          let runtime = runtimesByEndpointId[endpointId]
-    else {
-      return fallback
+    guard let runtime = runtimesByEndpointId[endpointId] else {
+      return fallbackEndpointStore
     }
-    return runtime.sessionStore
+    return runtime.endpointStore
   }
 
-  func primarySessionStore(fallback: SessionStore) -> SessionStore {
+  func primaryEndpointStore() -> ServerEndpointRuntime {
     if let primaryRuntime {
-      return primaryRuntime.sessionStore
+      return primaryRuntime.endpointStore
     }
-    return fallback
+    return activeEndpointStore
+  }
+
+  func preferredCreationEndpointStore(preferredEndpointId: UUID?) -> ServerEndpointRuntime {
+    if let preferredEndpointId {
+      return endpointStore(for: preferredEndpointId)
+    }
+    return primaryEndpointStore()
   }
 
   var dashboardRefreshIdentity: String {
@@ -507,7 +445,7 @@ final class ServerRuntimeRegistry {
     let configuredEndpoints = endpoints ?? endpointsProvider()
     let enabledEndpoints = configuredEndpoints.filter(\.isEnabled)
     let declaredPrimaryCandidates = enabledEndpoints.filter { endpoint in
-      runtimesByEndpointId[endpoint.id]?.sessionStore.serverIsPrimary == true
+      runtimesByEndpointId[endpoint.id]?.endpointStore.serverIsPrimary == true
     }
 
     hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
@@ -516,21 +454,19 @@ final class ServerRuntimeRegistry {
 
   private func schedulePrimaryClaimReconciliation() {
     let identity = clientIdentityProvider()
-    let ports = controlPlaneReadyPorts()
-    let plan = ServerControlPlanePlan(
+    let ports = serverRoleReadyPorts()
+    let plan = ServerRolePlan(
       enabledEndpointIds: ports.map(\.endpointId),
       primaryEndpointId: primaryEndpointId
     )
     Task {
-      await controlPlaneCoordinator.submitPrimaryClaimPlan(
+      await serverRoleCoordinator.submitPrimaryClaimPlan(
         plan,
         ports: ports,
         clientIdentity: identity
       )
     }
   }
-
-  @ObservationIgnored private var runtimeObservationTasks: [UUID: Task<Void, Never>] = [:]
 
   private func bindRuntimeState(_ runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
@@ -543,23 +479,19 @@ final class ServerRuntimeRegistry {
       {
         self.endpointSettings.recordServerIdentity(runtime.endpoint.id, serverInstanceId)
       }
-      runtime.sessionStore.serverIsPrimary = meta.isPrimary
-      runtime.sessionStore.serverPrimaryClaims = meta.clientPrimaryClaims
+      runtime.endpointStore.serverIsPrimary = meta.isPrimary
+      runtime.endpointStore.serverPrimaryClaims = meta.clientPrimaryClaims
       self.configureFromSettings(startEnabled: true)
     }
 
     // Cancel any existing observation for this endpoint
-    runtimeObservationTasks[endpointId]?.cancel()
     if let token = connectionListenerTokensByEndpointId.removeValue(forKey: endpointId) {
       runtime.connection.removeListener(token)
     }
 
     // Observe connection status + session list changes from the ServerConnection
-    connectionListenerTokensByEndpointId[endpointId] = runtime.connection.addListener { [
-      weak self,
-      weak runtime
-    ] event in
-      guard let self, let runtime else { return }
+    connectionListenerTokensByEndpointId[endpointId] = runtime.connection.addListener { [weak self] event in
+      guard let self else { return }
       switch event {
         case .hello:
           break
@@ -567,57 +499,8 @@ final class ServerRuntimeRegistry {
         case let .connectionStatusChanged(status):
           self.connectionStatusByEndpointId[endpointId] = status
           self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-            connectionStatus: status,
-            hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
-            hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
+            connectionStatus: status
           )
-          if status == .connected {
-            if runtime.connection.hasReceivedInitialMissionsSnapshot {
-              runtime.connection.subscribeMissions()
-            }
-          }
-          if !runtime.connection.hasReceivedInitialDashboardSnapshot
-            || !runtime.connection.hasReceivedInitialMissionsSnapshot
-          {
-            self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: status == .connected)
-          } else {
-            self.cancelBootstrapRetry(for: endpointId)
-            self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-          }
-
-        case .dashboardSnapshot:
-          self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-          self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-            connectionStatus: runtime.connection.connectionStatus,
-            hasReceivedInitialDashboardSnapshot: true,
-            hasReceivedInitialMissionsSnapshot: runtime.connection.hasReceivedInitialMissionsSnapshot
-          )
-
-        case .missionsSnapshot:
-          self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-          self.readinessByEndpointId[endpointId] = ServerRuntimeReadiness.derive(
-            connectionStatus: runtime.connection.connectionStatus,
-            hasReceivedInitialDashboardSnapshot: runtime.connection.hasReceivedInitialDashboardSnapshot,
-            hasReceivedInitialMissionsSnapshot: true
-          )
-
-        case .missionsInvalidated:
-          Task { [weak self, weak runtime] in
-            guard let self, let runtime else { return }
-            _ = await self.refreshMissions(for: runtime)
-          }
-
-        case let .error(code, _, sessionId):
-          guard sessionId == nil else { break }
-          switch code {
-            case "missions_resync_required":
-              Task { [weak self, weak runtime] in
-                guard let self, let runtime else { return }
-                _ = await self.refreshMissions(for: runtime)
-              }
-            default:
-              break
-          }
 
         default:
           break
@@ -631,10 +514,6 @@ final class ServerRuntimeRegistry {
     if let token = connectionListenerTokensByEndpointId.removeValue(forKey: endpointId) {
       runtime.connection.removeListener(token)
     }
-    runtimeObservationTasks[endpointId]?.cancel()
-    runtimeObservationTasks[endpointId] = nil
-    cancelBootstrapRetry(for: endpointId)
-    bootstrapRetryAttemptsByEndpointId[endpointId] = nil
   }
 
   private static func makeDashboardRefreshIdentity(
@@ -658,177 +537,19 @@ final class ServerRuntimeRegistry {
     }
   }
 
-  private func refreshDashboardConversations(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
-    let endpointId = runtime.endpoint.id
-    guard dashboardBootstrapInFlightEndpointIds.insert(endpointId).inserted else { return .stop }
-    defer { dashboardBootstrapInFlightEndpointIds.remove(endpointId) }
-
-    guard runtime.endpoint.isEnabled else { return .stop }
-    guard runtime.connection.requiresManualReconnect == false else { return .stop }
-
-    do {
-      let dashboardSnapshot = try await runtime.clients.dashboard.fetchDashboardSnapshot()
-      let snapshot = ServerDashboardSnapshotPayload(
-        revision: dashboardSnapshot.revision,
-        conversations: dashboardSnapshot.conversations,
-        counts: dashboardSnapshot.counts,
-        projectGroups: dashboardSnapshot.projectGroups
-      )
-      runtime.connection.applyDashboardSnapshot(snapshot)
-      return .success
-    } catch {
-      if let requestError = error as? ServerRequestError,
-         requestError.isIncompatibleClientUpgradeRequired,
-         case let .httpStatus(_, _, message) = requestError,
-         let message,
-         !message.isEmpty
-      {
-        runtime.connection.failConnection(message: message)
-        return .stop
-      }
-      netLog(
-        .error,
-        cat: .api,
-        "Dashboard snapshot bootstrap failed",
-        data: [
-          "endpointId": runtime.endpoint.id.uuidString,
-          "endpointName": runtime.endpoint.name,
-          "error": String(describing: error),
-        ]
-      )
-      return shouldRetryBootstrap(after: error) ? .retry : .stop
-    }
-  }
-
-  private func refreshMissions(for runtime: ServerRuntime) async -> BootstrapRefreshDecision {
-    let endpointId = runtime.endpoint.id
-    guard missionsBootstrapInFlightEndpointIds.insert(endpointId).inserted else { return .stop }
-    defer { missionsBootstrapInFlightEndpointIds.remove(endpointId) }
-
-    guard runtime.endpoint.isEnabled else { return .stop }
-    guard runtime.connection.requiresManualReconnect == false else { return .stop }
-
-    do {
-      let snapshot = try await runtime.clients.missions.fetchMissionSnapshot()
-      runtime.connection.applyMissionsSnapshot(snapshot)
-      if runtime.connection.connectionStatus == .connected {
-        runtime.connection.subscribeMissions(sinceRevision: snapshot.revision)
-      }
-      return .success
-    } catch {
-      if let requestError = error as? ServerRequestError,
-         requestError.isIncompatibleClientUpgradeRequired,
-         case let .httpStatus(_, _, message) = requestError,
-         let message,
-         !message.isEmpty
-      {
-        runtime.connection.failConnection(message: message)
-        return .stop
-      }
-      netLog(
-        .error,
-        cat: .api,
-        "Missions snapshot bootstrap failed",
-        data: [
-          "endpointId": runtime.endpoint.id.uuidString,
-          "endpointName": runtime.endpoint.name,
-          "error": String(describing: error),
-        ]
-      )
-      return shouldRetryBootstrap(after: error) ? .retry : .stop
-    }
-  }
-
-  private func scheduleSurfaceBootstrap(for runtime: ServerRuntime, resetAttempts: Bool) {
-    let endpointId = runtime.endpoint.id
-    guard runtime.connection.requiresManualReconnect == false else {
-      cancelBootstrapRetry(for: endpointId)
-      bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-      return
-    }
-    if resetAttempts {
-      cancelBootstrapRetry(for: endpointId)
-      bootstrapRetryAttemptsByEndpointId[endpointId] = 0
-    } else if bootstrapRetryTasksByEndpointId[endpointId] != nil {
-      return
-    }
-
-    bootstrapRetryTasksByEndpointId[endpointId] = Task { @MainActor [weak self, weak runtime] in
-      guard let self, let runtime else { return }
-      let endpointId = runtime.endpoint.id
-      let attempt = self.bootstrapRetryAttemptsByEndpointId[endpointId] ?? 0
-      if attempt > 0 {
-        try? await Task.sleep(for: self.bootstrapRetryDelay(attempt))
-      }
-
-      guard !Task.isCancelled else { return }
-      guard runtime.endpoint.isEnabled, runtime.isStarted else {
-        self.bootstrapRetryTasksByEndpointId[endpointId] = nil
-        return
-      }
-      guard runtime.connection.requiresManualReconnect == false else {
-        self.bootstrapRetryTasksByEndpointId[endpointId] = nil
-        self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-        return
-      }
-
-      let dashboardDecision = await self.refreshDashboardConversations(for: runtime)
-      let missionsDecision = await self.refreshMissions(for: runtime)
-      self.bootstrapRetryTasksByEndpointId[endpointId] = nil
-
-      let shouldRetry = dashboardDecision == .retry || missionsDecision == .retry
-
-      guard shouldRetry else {
-        self.bootstrapRetryAttemptsByEndpointId[endpointId] = nil
-        return
-      }
-
-      self.bootstrapRetryAttemptsByEndpointId[endpointId] = attempt + 1
-      self.scheduleSurfaceBootstrap(for: runtime, resetAttempts: false)
-    }
-  }
-
-  private func cancelBootstrapRetry(for endpointId: UUID) {
-    bootstrapRetryTasksByEndpointId[endpointId]?.cancel()
-    bootstrapRetryTasksByEndpointId[endpointId] = nil
-  }
-
-  private nonisolated static func defaultBootstrapRetryDelay(_ attempt: Int) -> Duration {
-    let seconds = min(max(attempt, 1), 5)
-    return .seconds(seconds)
-  }
-
-  private func shouldRetryBootstrap(after error: Error) -> Bool {
-    switch error {
-      case let transportError as HTTPTransportError:
-        !transportError.isDNSResolutionFailure
-      case let serverError as ServerRequestError:
-        switch serverError {
-          case let .transport(transportError):
-            !transportError.isDNSResolutionFailure
-          case let .httpStatus(status, _, _):
-            status >= 500
-          default:
-            false
-        }
-      default:
-        false
-    }
-  }
-
-  private func enabledControlPlanePorts() -> [ServerControlPlanePort] {
-    ServerRuntimeRegistryPlanner.controlPlanePorts(
+  private func enabledServerRolePorts() -> [ServerRolePort] {
+    ServerRuntimeRegistryPlanner.serverRolePorts(
       runtimes: Array(runtimesByEndpointId.values),
       readinessByEndpointId: readinessByEndpointId,
-      requireControlPlaneReady: false
+      requireServerRoleReady: false
     )
   }
 
-  private func controlPlaneReadyPorts() -> [ServerControlPlanePort] {
-    ServerRuntimeRegistryPlanner.controlPlanePorts(
+  private func serverRoleReadyPorts() -> [ServerRolePort] {
+    ServerRuntimeRegistryPlanner.serverRolePorts(
       runtimes: Array(runtimesByEndpointId.values),
       readinessByEndpointId: readinessByEndpointId,
-      requireControlPlaneReady: true
+      requireServerRoleReady: true
     )
   }
 }

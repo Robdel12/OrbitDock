@@ -136,7 +136,7 @@ struct DashboardStatusBar: View {
         .frame(height: 1)
     }
     .task(id: Calendar.current.startOfDay(for: Date())) {
-      await usageRegistry.refreshAll()
+      await usageRegistry.refreshIfNeeded(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }
 

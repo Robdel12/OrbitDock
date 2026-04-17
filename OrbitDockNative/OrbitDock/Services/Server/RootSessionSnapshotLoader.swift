@@ -16,7 +16,7 @@ enum RootSessionSnapshotLoader {
 
       while true {
         do {
-          let page = try await runtime.clients.dashboard.fetchLibrarySnapshot(
+          let page = try await runtime.clients.archivedSessions.fetchSnapshot(
             limit: pageSize,
             offset: offset
           )

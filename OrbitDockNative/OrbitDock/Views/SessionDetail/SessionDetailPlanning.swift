@@ -104,41 +104,23 @@ enum SessionDetailStatusStripPlanner {
   }
 }
 
-struct SessionDetailOnAppearPlan: Equatable {
-  let shouldSubscribe: Bool
-  let shouldLoadApprovalHistory: Bool
-}
-
-struct SessionDetailOnDisappearPlan: Equatable {
-  let shouldUnsubscribe: Bool
-}
-
-enum SessionDetailLifecyclePlanner {
-  static func onAppearPlan(
-    shouldSubscribeToServerSession: Bool,
-    isDirect: Bool
-  ) -> SessionDetailOnAppearPlan {
-    SessionDetailOnAppearPlan(
-      shouldSubscribe: shouldSubscribeToServerSession,
-      shouldLoadApprovalHistory: shouldSubscribeToServerSession && isDirect
-    )
-  }
-
-  static func onDisappearPlan(
-    shouldSubscribeToServerSession: Bool
-  ) -> SessionDetailOnDisappearPlan {
-    SessionDetailOnDisappearPlan(
-      shouldUnsubscribe: shouldSubscribeToServerSession
-    )
-  }
-
-  static func shouldRevealDiffBanner(
+enum SessionDetailDiffBannerPlanner {
+  static func shouldRevealForFirstDiff(
     isDirect: Bool,
     oldDiff: String?,
     newDiff: String?,
     layoutConfig: LayoutConfiguration
   ) -> Bool {
     isDirect && oldDiff == nil && newDiff != nil && layoutConfig == .conversationOnly
+  }
+
+  static func shouldRevealForNewReviewTurn(
+    isDirect: Bool,
+    oldCount: UInt64,
+    newCount: UInt64,
+    layoutConfig: LayoutConfiguration
+  ) -> Bool {
+    isDirect && newCount > oldCount && layoutConfig == .conversationOnly
   }
 }
 

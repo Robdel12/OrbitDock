@@ -1201,37 +1201,34 @@ struct ServerReviewComment: Codable, Identifiable {
 }
 
 struct ServerConversationBootstrap: Decodable {
-  let session: ServerSessionState
   let rows: [ServerConversationRowEntry]
   let replayCursor: UInt64
   let totalRowCount: UInt64
   let hasMoreBefore: Bool
+  let forkedFromSessionId: String?
   let oldestSequence: UInt64?
   let newestSequence: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case replayCursor = "replay_cursor"
-    case session
     case rows
     case totalRowCount = "total_row_count"
     case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
+    case forkedFromSessionId = "forked_from_session_id"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
   }
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    session = try container.decode(ServerSessionState.self, forKey: .session)
-    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? session.rows
-    replayCursor =
-      try container.decodeIfPresent(UInt64.self, forKey: .replayCursor)
-      ?? session.revision
-      ?? 0
+    rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
+    replayCursor = try container.decodeIfPresent(UInt64.self, forKey: .replayCursor) ?? 0
     let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
     let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
     totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
     hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
+    forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
     oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
     newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
   }
@@ -1328,6 +1325,7 @@ struct ServerToolDisplay: Codable {
   let inputDisplay: String?
   let outputDisplay: String?
   let diffDisplay: [ServerDiffLine]?
+  let planExplanation: String?
 
   enum CodingKeys: String, CodingKey {
     case summary
@@ -1347,6 +1345,7 @@ struct ServerToolDisplay: Codable {
     case inputDisplay = "input_display"
     case outputDisplay = "output_display"
     case diffDisplay = "diff_display"
+    case planExplanation = "plan_explanation"
   }
 
   /// Minimal placeholder for legacy conversion paths where server-computed display is unavailable.
@@ -1356,7 +1355,7 @@ struct ServerToolDisplay: Codable {
       glyphSymbol: "gearshape", glyphColor: "secondaryLabel", language: nil,
       diffPreview: nil, outputPreview: nil, liveOutputPreview: nil, todoItems: [],
       toolType: toolType, summaryFont: "system", displayTier: "standard",
-      inputDisplay: nil, outputDisplay: nil, diffDisplay: nil
+      inputDisplay: nil, outputDisplay: nil, diffDisplay: nil, planExplanation: nil
     )
   }
 
@@ -1365,7 +1364,8 @@ struct ServerToolDisplay: Codable {
     glyphSymbol: String, glyphColor: String, language: String?,
     diffPreview: ServerToolDiffPreview?, outputPreview: String?, liveOutputPreview: String?,
     todoItems: [ServerToolTodoItem], toolType: String, summaryFont: String, displayTier: String,
-    inputDisplay: String?, outputDisplay: String?, diffDisplay: [ServerDiffLine]?
+    inputDisplay: String?, outputDisplay: String?, diffDisplay: [ServerDiffLine]?,
+    planExplanation: String?
   ) {
     self.summary = summary
     self.subtitle = subtitle
@@ -1384,6 +1384,7 @@ struct ServerToolDisplay: Codable {
     self.inputDisplay = inputDisplay
     self.outputDisplay = outputDisplay
     self.diffDisplay = diffDisplay
+    self.planExplanation = planExplanation
   }
 
   init(from decoder: Decoder) throws {
@@ -1417,6 +1418,7 @@ struct ServerToolDisplay: Codable {
       maxCharacters: ConversationPayloadBudget.maxToolDisplayCharacters
     )
     diffDisplay = try container.decodeIfPresent([ServerDiffLine].self, forKey: .diffDisplay)
+    planExplanation = try container.decodeIfPresent(String.self, forKey: .planExplanation)
   }
 
   func encode(to encoder: Encoder) throws {

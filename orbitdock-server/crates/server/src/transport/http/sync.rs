@@ -14,9 +14,7 @@ use crate::infrastructure::{
     SyncBatchRequest,
   },
 };
-use crate::runtime::{
-  mission_orchestrator::broadcast_mission_delta_by_id, session_registry::SessionRegistry,
-};
+use crate::runtime::session_registry::SessionRegistry;
 
 use super::errors::{api_error, conflict, internal, ApiResult};
 
@@ -109,10 +107,10 @@ pub async fn post_sync_batch(
   };
 
   if !request.commands.is_empty() {
-    registry.publish_dashboard_snapshot();
+    registry.publish_active_sessions_invalidation();
   }
   for mission_id in &apply_result.touched_mission_ids {
-    broadcast_mission_delta_by_id(&registry, mission_id).await;
+    registry.publish_mission_invalidation(mission_id);
   }
 
   Ok(Json(SyncBatchAckResponse {

@@ -1,7 +1,7 @@
 import Foundation
 
 enum ControlDeckAutocompletePlanner {
-  static let maxSuggestionCount = 12
+  static let maxSuggestionCount = 10
 
   static func completionMode(for text: String) -> ControlDeckCompletionMode {
     if let mentionQuery = ControlDeckTextEditing.trailingTokenQuery(

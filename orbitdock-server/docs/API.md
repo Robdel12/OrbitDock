@@ -1,302 +1,196 @@
 # OrbitDock Server API
 
-Last updated: 2026-03-22
+Last updated: 2026-04-17
 
-This doc is the route-level contract for OrbitDock's server. It covers every current HTTP endpoint plus the WebSocket entrypoint.
+This file is the route-level contract for OrbitDock's Rust server.
 
-It was audited against:
+It is intentionally boring:
 
-- `orbitdock-server/crates/server/src/app/mod.rs`
+- HTTP owns bootstrap reads, pagination, settings/config reads, uploads, and mutation responses.
+- WebSocket owns realtime deltas, replay, heartbeats, and explicit refetch hints.
+- Clients should apply authoritative HTTP mutation responses immediately, then let WebSocket reconcile.
+
+This doc was rewritten against the real router in:
+
 - `orbitdock-server/crates/server/src/transport/http/router.rs`
-- `OrbitDock/OrbitDock/Services/Server/APIClient.swift`
+- `orbitdock-server/crates/server/src/transport/http/*`
+- `OrbitDockNative/OrbitDock/Services/Server/API/*`
 
-For architecture, ownership, and implementation details, see `docs/server-architecture.md`.
+## Transport rules
 
-## Transport Rules
-
-- Use HTTP REST for reads, mutations, and fire-and-forget actions.
-- Use WebSocket (`/ws`) for subscriptions, real-time session interaction, and server-pushed events.
-- New clients should default to REST. Use WebSocket when the operation needs the persistent connection.
-- REST mutations often still produce WebSocket broadcasts so other clients stay in sync.
-
-Legacy WebSocket request/response helpers that now map to REST-only routes return:
-
-```json
-{
-  "type": "error",
-  "code": "http_only_endpoint",
-  "message": "Use REST endpoint GET /api/... for this request"
-}
-```
+- Use REST for all initial reads and all heavy payloads.
+- Use `GET /ws` only after bootstrapping the surface over HTTP.
+- Treat WebSocket invalidations as refetch hints, not as a second bootstrap path.
+- Successful mutations often include an authoritative snapshot. Apply that snapshot immediately.
 
 ## Auth
 
-`orbitdock init` auto-provisions a local auth token — the hash is stored in the database and the plaintext is encrypted in `hook-forward.json`. Once provisioned, all routes except `GET /health` require:
+Everything except `GET /health` requires the normal OrbitDock bearer token:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-Retrieve the local token with `orbitdock auth local-token`.
+Workspace sync uses the same header name but a different token class. `POST /api/sync` expects a workspace sync token, not the normal app token.
 
-## Common Response Shapes
+## Common response shapes
 
-Fire-and-forget endpoints usually return:
-
-```json
-{"accepted": true}
-```
-
-HTTP API errors use:
+### `ApiErrorResponse`
 
 ```json
 {
   "code": "string_code",
-  "error": "human message"
+  "error": "human readable message"
 }
 ```
 
-## HTTP Endpoints
+### `AcceptedResponse`
 
-### Core
+Used by many fire-and-forget session mutations.
 
-#### `GET /health`
+```json
+{
+  "accepted": true,
+  "session_detail_snapshot": {
+    "revision": 123,
+    "session": { "...": "..." }
+  }
+}
+```
 
-Response:
+`session_detail_snapshot` is optional. When present, it is authoritative and should be applied immediately.
+
+### `SendMessageResponse`
+
+Used by `POST /api/sessions/{session_id}/conversation/messages`.
+
+```json
+{
+  "accepted": true,
+  "row": { "...ConversationRowEntry..." },
+  "session_detail_snapshot": { "...optional SessionDetailSnapshot..." }
+}
+```
+
+### `SteerTurnResponse`
+
+Used by `POST /api/sessions/{session_id}/conversation/steer`.
+
+```json
+{
+  "accepted": true,
+  "row": { "...ConversationRowEntry..." },
+  "session_detail_snapshot": { "...optional SessionDetailSnapshot..." }
+}
+```
+
+### `SessionDetailSnapshot`
+
+Used by `GET /api/sessions/{session_id}/detail` and several session mutations.
+
+Top-level fields:
+
+- `revision`
+- `session`
+
+`session` is the authoritative session shell for detail/control-deck style UI. It does not include the full conversation timeline.
+
+### `MissionDetailResponse`
+
+Used by `GET /api/missions/{mission_id}` and most mission mutations.
+
+Top-level fields:
+
+- `summary`
+- `issues`
+- `cleanup_prompt`
+- `settings`
+- `mission_file_exists`
+- `mission_file_path`
+- `workflow_migration_available`
+
+## HTTP endpoints
+
+## Core
+
+### `GET /health`
+
+Returns:
 
 ```json
 {"status":"ok"}
 ```
 
-#### `GET /metrics`
+### `GET /metrics`
 
 Returns Prometheus-style metrics text.
 
-#### `POST /api/hook`
+### `POST /api/hook`
 
-Internal hook ingestion endpoint used by `orbitdock hook-forward <type>`.
+Internal Claude hook-forward ingestion endpoint.
 
-Request:
+- Not intended for normal UI clients.
+- Accepts forwarded hook JSON with an injected `type`.
+- Returns `200 OK` with an acknowledgement payload.
 
-- JSON hook payload
-- Includes the injected `type` field (`claude_session_start`, `claude_status_event`, `claude_tool_event`, and so on)
+## Sessions
 
-Response:
+### Global session surfaces
 
-- `200 OK` with a JSON acknowledgement payload
+There is no `GET /api/sessions` list route.
 
-Notes:
+Clients should use the explicit surface routes below:
 
-- This is for Claude hook forwarding, not normal client traffic.
+### `GET /api/sessions/summary`
 
-### Sessions: Read
+Compact global session shell for quick switcher, menu bar, and attention UI.
 
-#### `GET /api/sessions`
+Returns:
 
-Returns session summaries.
+- `revision`
+- `counts`
+- `active_sessions`
+- `recent_sessions`
 
-Response:
+### `GET /api/sessions/active`
 
-```json
-{
-  "sessions": [
-    {
-      "id": "od-...",
-      "provider": "codex",
-      "project_path": "/Users/.../repo",
-      "status": "active",
-      "work_status": "waiting",
-      "active_worker_count": 1,
-      "pending_tool_family": "shell",
-      "forked_from_session_id": "od-parent"
-    }
-  ]
-}
-```
+Authoritative dashboard surface.
 
-Notes:
+Returns:
 
-- Session summaries and list items now include `active_worker_count`, `pending_tool_family`, and `forked_from_session_id`.
+- `revision`
+- `conversations`
+- `counts`
+- `project_groups`
 
-#### `GET /api/dashboard/conversations`
+### `GET /api/sessions/archive?limit=<n>&offset=<n>`
 
-Returns aggregated conversation records for the dashboard view. This is a higher-level view than `GET /api/sessions`, grouping sessions by conversation history.
+Authoritative library/archive surface.
 
-Response: array of `DashboardConversationItem` objects.
+Returns:
 
-Notes:
+- `revision`
+- `sessions`
+- `next_offset`
+- `total_count`
 
-- `preview_text`, `activity_summary`, and `alert_context` are server-derived plain-text summaries for dashboard cards.
-- Clients should treat them as the shared semantic source of truth and only apply layout-specific presentation on top.
+### Session detail and conversation
 
-#### `GET /api/sessions/{session_id}`
+### `GET /api/sessions/{session_id}/detail`
 
-Returns full session state.
+Returns the authoritative `SessionDetailSnapshot`.
 
-Query params:
+### `PATCH /api/sessions/{session_id}/detail/config`
 
-- `include_messages` optional, default `false`
+Updates stored session config and returns the authoritative `SessionDetailSnapshot`.
 
-Notes:
+This is the only session config mutation route. There is no separate `PATCH /api/sessions/{session_id}/detail` mutation alias.
 
-- Despite the legacy query name, this endpoint returns typed conversation rows in `session.rows` when `include_messages=true`.
-- When `include_messages=false`, the session payload is returned without hydrated row history.
+### `POST /api/sessions/{session_id}/detail/read`
 
-Response:
+Marks the session as read.
 
-```json
-{
-  "session": {
-    "id": "od-...",
-    "provider": "codex",
-    "status": "active",
-    "work_status": "waiting",
-    "revision": 123,
-    "rows": [],
-    "total_row_count": 0,
-    "has_more_before": false
-  }
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `500 db_error`
-- `503 runtime_error`
-
-#### `GET /api/sessions/{session_id}/conversation?limit=<n>&before_sequence=<seq>`
-
-Returns the bootstrap payload for a conversation view. Includes the shared `SessionState` plus the first page of typed `ConversationRow` entries.
-
-Query params:
-
-- `limit` optional, clamped to `1...200`, default `50`
-- `before_sequence` optional, paginates backwards by sequence number
-
-Response:
-
-```json
-{
-  "session": {
-    "id": "od-...",
-    "rows": [
-      {
-        "session_id": "od-...",
-        "sequence": 1,
-        "turn_id": "turn-1",
-        "row": {
-          "row_type": "user",
-          "id": "msg-1",
-          "content": "Review the approval flow",
-          "turn_id": "turn-1",
-          "timestamp": "2026-03-13T12:00:00Z",
-          "is_streaming": false,
-          "images": []
-        }
-      },
-      {
-        "session_id": "od-...",
-        "sequence": 2,
-        "turn_id": "turn-1",
-        "row": {
-          "row_type": "assistant",
-          "id": "msg-2",
-          "content": "Looking at the approval flow now",
-          "turn_id": "turn-1",
-          "timestamp": "2026-03-13T12:00:01Z",
-          "is_streaming": true
-        }
-      }
-    ],
-    "total_row_count": 120,
-    "has_more_before": true,
-    "oldest_sequence": 71,
-    "newest_sequence": 120
-  },
-  "total_row_count": 120,
-  "has_more_before": true,
-  "oldest_sequence": 71,
-  "newest_sequence": 120
-}
-```
-
-See `docs/conversation-contracts.md` for the full row type reference.
-
-Notes:
-
-- The top-level response is flattened: `session`, `total_row_count`, `has_more_before`, `oldest_sequence`, and `newest_sequence`.
-- Native clients use this as the single session bootstrap read, then subscribe detail/composer/conversation surfaces from `session.revision`.
-- Every `ConversationRowEntry` now carries row-level `turn_id`.
-- Message rows (`user`, `assistant`, `thinking`, `system`) may carry `is_streaming` and `images`.
-- The server now upgrades many wrapper-style provider messages into semantic rows before they reach clients. For example, bootstrap prompts and environment blocks become `context` rows, lifecycle notices become `notice` rows, shell wrappers become `shell_command` rows, and background task wrappers become `task` rows.
-- Passive Codex provider events are also materialized into typed timeline rows instead of being left as raw text. That includes `worker`, `plan`, `hook`, `handoff`, `approval`, and `question` rows when the provider emits structured events.
-
-Error responses:
-
-- `404 not_found`
-- `500 db_error`
-- `503 runtime_error`
-
-#### `GET /api/sessions/{session_id}/messages?before_sequence=<seq>&limit=<n>`
-
-Returns a paged slice of older conversation rows for infinite scroll.
-
-Query params:
-
-- `before_sequence` optional
-- `limit` optional, clamped to `1...200`, default `50`
-
-Response:
-
-```json
-{
-  "rows": [
-    {
-      "session_id": "od-...",
-      "sequence": 21,
-      "turn_id": "turn-3",
-      "row": {
-        "row_type": "tool",
-        "id": "tool-use-abc",
-        "provider": "claude",
-        "family": "search",
-        "kind": "grep",
-        "status": "completed",
-        "title": "Grep",
-        "invocation": { "...": "..." },
-        "result": { "...": "..." },
-        "render_hints": { "can_expand": true }
-      }
-    }
-  ],
-  "total_row_count": 120,
-  "has_more_before": true,
-  "oldest_sequence": 21,
-  "newest_sequence": 70
-}
-```
-
-Common row families returned by both conversation paging endpoints:
-
-- Message rows: `user`, `assistant`, `thinking`, `system`
-- Semantic info rows: `context`, `notice`, `task`
-- Command and execution rows: `shell_command`, `tool`
-- Workflow rows: `worker`, `plan`, `hook`, `handoff`, `approval`, `question`, `activity_group`
-
-For exact payload fields, use `docs/conversation-contracts.md` as the source of truth.
-
-Error responses:
-
-- `404 not_found`
-- `500 db_error`
-- `503 runtime_error`
-
-#### `POST /api/sessions/{session_id}/mark-read`
-
-Marks the session as read and persists the latest read position.
-
-Response:
+Returns:
 
 ```json
 {
@@ -305,740 +199,191 @@ Response:
 }
 ```
 
-Error responses:
+### `GET /api/sessions/{session_id}/conversation?limit=<n>&before_sequence=<seq>`
 
-- `404 session_not_found`
+Conversation bootstrap surface.
 
-#### `GET /api/sessions/{session_id}/search?q=<text>&family=<family>&status=<status>&kind=<kind>`
+Returns:
+
+- `session`
+- `total_row_count`
+- `has_more_before`
+- `oldest_sequence`
+- `newest_sequence`
+
+`session` includes the first page of typed `ConversationRowEntry` values in `rows`.
+
+### `GET /api/sessions/{session_id}/conversation/messages?before_sequence=<seq>&limit=<n>`
+
+Returns an older paged slice of conversation rows.
+
+### `GET /api/sessions/{session_id}/conversation/search?...`
 
 Searches conversation rows within a session.
 
-Query params:
+Supported query params:
 
-- `q` optional substring match against row content/title
-- `family` optional tool-family filter such as `shell`, `search`, `file_change`
-- `status` optional tool-status filter such as `running`, `completed`, `failed`
-- `kind` optional tool-kind filter such as `bash`, `grep`, `edit`
+- `q`
+- `family`
+- `status`
+- `kind`
 
-Response:
+### `GET /api/sessions/{session_id}/conversation/stats`
 
-```json
-{
-  "rows": [
-    {
-      "session_id": "od-...",
-      "sequence": 42,
-      "turn_id": "turn-7",
-      "row": {
-        "row_type": "tool",
-        "id": "tool-1",
-        "provider": "codex",
-        "family": "shell",
-        "kind": "bash",
-        "status": "completed",
-        "title": "Deploy preview build",
-        "duration_ms": 1200,
-        "invocation": { "...": "..." },
-        "result": { "...": "..." },
-        "render_hints": {}
-      }
-    }
-  ],
-  "total_row_count": 1,
-  "has_more_before": false,
-  "oldest_sequence": 42,
-  "newest_sequence": 42
-}
-```
+Returns aggregate conversation/session metrics used by detail/review surfaces.
 
-Error responses:
+### `GET /api/sessions/{session_id}/conversation/rows/{row_id}/content`
 
-- `404 not_found`
-- `500 db_error`
-- `503 runtime_error`
+Returns expanded content for a single row, such as tool input/output or diff content.
 
-#### `GET /api/sessions/{session_id}/stats`
+### `GET /api/sessions/{session_id}/review`
 
-Returns aggregate session metrics for dashboard and detail views.
+Returns the review surface bootstrap for a session.
 
-Response:
+Top-level fields include:
 
-```json
-{
-  "session_id": "od-...",
-  "total_rows": 120,
-  "tool_count": 45,
-  "tool_count_by_family": {
-    "shell": 12,
-    "file_change": 8
-  },
-  "failed_tool_count": 3,
-  "average_tool_duration_ms": 1200,
-  "turn_count": 8,
-  "total_tokens": {
-    "input_tokens": 50000,
-    "output_tokens": 12000,
-    "cached_tokens": 30000,
-    "context_window": 200000
-  },
-  "worker_count": 2,
-  "duration_ms": 300000
-}
-```
+- `session_id`
+- `revision`
+- `current_diff`
+- `cumulative_diff`
+- `turn_diffs`
+- `comments`
 
-Error responses:
+### Session lifecycle
 
-- `404 not_found`
-- `500 db_error`
-- `503 runtime_error`
+### `POST /api/sessions`
 
-#### `GET /api/sessions/{session_id}/rows/{row_id}/content`
+Creates a direct session.
 
-Returns expanded content for a single conversation row (tool input/output, diffs, etc.).
+Returns:
 
-Response:
+- `session_id`
+- `session` as a `SessionSummary`
 
-```json
-{
-  "row_id": "tool-use-abc",
-  "input_display": "grep -r 'TODO' src/",
-  "output_display": "src/main.rs:42: // TODO: fix this",
-  "diff_display": [
-    { "type": "add", "line": "+ new code", "line_number": 42 }
-  ],
-  "language": "rust",
-  "start_line": 40
-}
-```
-
-All response fields except `row_id` are optional.
-
-Error responses:
-
-- `404 not_found`
-- `500 db_error`
-
-### Sessions: Lifecycle
-
-#### `POST /api/sessions`
-
-Creates a direct session and returns the new summary immediately.
-
-Request:
-
-```json
-{
-  "provider": "codex",
-  "cwd": "/Users/.../repo",
-  "model": "gpt-5",
-  "approval_policy": "on-request",
-  "sandbox_mode": "workspace-write",
-  "permission_mode": "default",
-  "allowed_tools": [],
-  "disallowed_tools": [],
-  "effort": "medium",
-  "collaboration_mode": "default",
-  "multi_agent": true,
-  "personality": "balanced",
-  "service_tier": "priority",
-  "developer_instructions": "Stay concise",
-  "system_prompt": null,
-  "append_system_prompt": null
-}
-```
-
-All fields except `provider` and `cwd` are optional.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "session": {
-    "id": "od-..."
-  }
-}
-```
-
-Notes:
-
-- The server persists first, then tries to launch the connector.
-- `session_created` is broadcast to list subscribers over WebSocket.
-
-#### `POST /api/sessions/{session_id}/resume`
+### `POST /api/sessions/{session_id}/lifecycle/resume`
 
 Resumes a persisted session.
 
-Response:
+Returns:
 
-```json
-{
-  "session_id": "od-...",
-  "session": {
-    "id": "od-..."
-  }
-}
-```
+- `session_id`
+- `session` as a `SessionSummary`
+- optional `session_detail_snapshot`
 
-Error responses:
-
-- `404 session_not_found`
-- `409 already_active`
-- `422 missing_claude_resume_id`
-- `500 db_error`
-
-#### `POST /api/sessions/{session_id}/takeover`
+### `POST /api/sessions/{session_id}/lifecycle/takeover`
 
 Takes over a passive session.
 
-Request:
+Returns:
 
-```json
-{
-  "model": "gpt-5",
-  "approval_policy": "on-request",
-  "sandbox_mode": "workspace-write",
-  "permission_mode": "default",
-  "allowed_tools": [],
-  "disallowed_tools": []
-}
-```
+- `session_id`
+- `accepted`
+- optional `session_detail_snapshot`
 
-Response:
+### `POST /api/sessions/{session_id}/lifecycle/end`
 
-```json
-{
-  "session_id": "od-...",
-  "accepted": true
-}
-```
+Ends a session.
 
-Error responses:
+Returns `AcceptedResponse`.
 
-- `404 not_found`
-- `409 not_passive`
-- `500 take_handle_failed`
-- `500 connector_failed`
-
-#### `POST /api/sessions/{session_id}/end`
-
-Ends the session.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-#### `PATCH /api/sessions/{session_id}/name`
-
-Sets or clears a custom session name.
-
-Request:
-
-```json
-{
-  "name": "Investigate approval drift"
-}
-```
-
-Request to clear:
-
-```json
-{
-  "name": null
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Error responses:
-
-- `404 not_found`
-
-#### `PATCH /api/sessions/{session_id}/config`
-
-Updates stored session config.
-
-Request:
-
-```json
-{
-  "approval_policy": "on-request",
-  "sandbox_mode": "workspace-write",
-  "permission_mode": "default",
-  "collaboration_mode": "default",
-  "multi_agent": true,
-  "personality": "balanced",
-  "service_tier": "priority",
-  "developer_instructions": "Stay concise",
-  "model": "gpt-5",
-  "effort": "high"
-}
-```
-
-All fields are optional.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Error responses:
-
-- `404 not_found`
-
-#### `POST /api/sessions/{session_id}/fork`
+### `POST /api/sessions/{session_id}/lifecycle/fork`
 
 Forks a session.
 
-Request:
+Returns:
 
-```json
-{
-  "nth_user_message": 3,
-  "model": "gpt-5",
-  "approval_policy": "on-request",
-  "sandbox_mode": "workspace-write",
-  "cwd": "/Users/.../repo",
-  "permission_mode": "default",
-  "allowed_tools": [],
-  "disallowed_tools": []
-}
-```
+- `source_session_id`
+- `new_session_id`
+- `session` as a `SessionSummary`
 
-All fields are optional.
-
-Response:
-
-```json
-{
-  "source_session_id": "od-source",
-  "new_session_id": "od-fork",
-  "session": {
-    "id": "od-fork"
-  }
-}
-```
-
-Error responses:
-
-- `404 session_not_found`
-- `422 not_found` when the source Codex connector is not active
-- `500 fork_failed`
-- `500 channel_closed`
-
-#### `POST /api/sessions/{session_id}/fork-to-worktree`
+### `POST /api/sessions/{session_id}/lifecycle/fork/worktree`
 
 Creates a worktree, then forks into it.
 
-Request:
+Returns the fork payload plus:
 
-```json
-{
-  "branch_name": "feature/api-doc-pass",
-  "base_branch": "main",
-  "nth_user_message": 3
-}
-```
+- `worktree`
 
-Response:
-
-```json
-{
-  "source_session_id": "od-source",
-  "new_session_id": "od-fork",
-  "session": {
-    "id": "od-fork"
-  },
-  "worktree": {
-    "id": "wt-..."
-  }
-}
-```
-
-Error responses:
-
-- `404 session_not_found`
-- `400 worktree_create_invalid_input`
-- `500 worktree_create_failed`
-- Plus the same fork errors as `POST /fork`
-
-#### `POST /api/sessions/{session_id}/fork-to-existing-worktree`
+### `POST /api/sessions/{session_id}/lifecycle/fork/existing-worktree`
 
 Forks into an existing tracked worktree.
 
-Request:
+Returns the same fork payload as `POST /lifecycle/fork`.
+
+### Session messaging and actions
+
+### `POST /api/sessions/{session_id}/conversation/messages`
+
+Queues a user turn.
+
+Returns `202 Accepted` with `SendMessageResponse`.
+
+### `POST /api/sessions/{session_id}/conversation/steer`
+
+Queues a steer message for the active turn.
+
+Returns `202 Accepted` with `SteerTurnResponse`.
+
+### `POST /api/sessions/{session_id}/conversation/interrupt`
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/conversation/compact`
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/conversation/undo`
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/conversation/rollback`
+
+Returns `AcceptedResponse`.
+
+Request body:
 
 ```json
-{
-  "worktree_id": "wt-...",
-  "nth_user_message": 3
-}
+{"num_turns": 2}
 ```
 
-Response:
+### `POST /api/sessions/{session_id}/conversation/stop`
+
+Stops a running task.
+
+Request body:
 
 ```json
-{
-  "source_session_id": "od-source",
-  "new_session_id": "od-fork",
-  "session": {
-    "id": "od-fork"
-  }
-}
+{"task_id":"task-..."}
 ```
 
-Error responses:
+Returns `AcceptedResponse`.
 
-- `400 worktree_repo_mismatch`
-- `404 worktree_not_found`
-- `410 worktree_missing`
-- Plus the same fork errors as `POST /fork`
+### `POST /api/sessions/{session_id}/conversation/rewind`
 
-### Sessions: Messaging And Actions
+Rewinds files to a user message boundary.
 
-#### `POST /api/sessions/{session_id}/messages`
-
-Queues a new user turn.
-
-Request:
+Request body:
 
 ```json
-{
-  "content": "Review the approval flow",
-  "model": "gpt-5",
-  "effort": "medium",
-  "skills": [],
-  "images": [],
-  "mentions": []
-}
+{"user_message_id":"msg-..."}
 ```
 
-At least one of `content`, `images`, `mentions`, or `skills` is required.
+Returns `AcceptedResponse`.
 
-Response:
+### Session attachments and shell
 
-```json
-{
-  "accepted": true,
-  "row": {
-    "session_id": "od-...",
-    "sequence": 42,
-    "turn_id": "turn-8",
-    "row": {
-      "row_type": "user",
-      "id": "msg-...",
-      "content": "Review the approval flow",
-      "turn_id": "turn-8",
-      "timestamp": "2026-03-16T12:00:00Z",
-      "is_streaming": false,
-      "images": []
-    }
-  }
-}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-- The `row` field contains the dispatched user message as a `ConversationRowEntry`.
-
-Error responses:
-
-- `400 invalid_request`
-- Session/dispatch errors from the active connector
-
-#### `POST /api/sessions/{session_id}/steer`
-
-Steers the active turn without creating a normal user turn.
-
-Request:
-
-```json
-{
-  "content": "Focus on REST-only routes",
-  "images": [],
-  "mentions": []
-}
-```
-
-At least one of `content`, `images`, or `mentions` is required.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Error responses:
-
-- `400 invalid_request`
-- Session/dispatch errors from the active connector
-
-#### `POST /api/sessions/{session_id}/interrupt`
-
-Interrupts the active turn.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-#### `POST /api/sessions/{session_id}/compact`
-
-Requests context compaction.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-#### `POST /api/sessions/{session_id}/undo`
-
-Undoes the last turn.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-#### `POST /api/sessions/{session_id}/rollback`
-
-Rolls back the last `n` turns.
-
-Request:
-
-```json
-{
-  "num_turns": 2
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Error responses:
-
-- `400 invalid_argument` when `num_turns < 1`
-
-#### `POST /api/sessions/{session_id}/stop-task`
-
-Stops a running task by task id.
-
-Request:
-
-```json
-{
-  "task_id": "task-..."
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-#### `POST /api/sessions/{session_id}/rewind-files`
-
-Rewinds files to the state associated with a user message.
-
-Request:
-
-```json
-{
-  "user_message_id": "msg-..."
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-### Approvals
-
-#### `GET /api/approvals?session_id=<id>&limit=<n>`
-
-Query params:
-
-- `session_id` optional
-- `limit` optional
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "approvals": []
-}
-```
-
-Error responses:
-
-- `500 approval_list_failed`
-
-#### `DELETE /api/approvals/{approval_id}`
-
-Response:
-
-```json
-{
-  "approval_id": 42,
-  "deleted": true
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `500 approval_delete_failed`
-
-#### `POST /api/sessions/{session_id}/approve`
-
-Approves or denies a tool request.
-
-Request:
-
-```json
-{
-  "request_id": "req-...",
-  "decision": "approved",
-  "message": "Looks good",
-  "interrupt": false,
-  "updated_input": {
-    "path": "src/main.rs"
-  }
-}
-```
-
-Only `request_id` and `decision` are required.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "request_id": "req-...",
-  "outcome": "approved",
-  "active_request_id": null,
-  "approval_version": 9
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `400 invalid_answer_payload`
-- `422 rollback_failed`
-- `500` for other dispatch failures
-
-#### `POST /api/sessions/{session_id}/answer`
-
-Answers a question approval.
-
-Request:
-
-```json
-{
-  "request_id": "req-...",
-  "answer": "Use the REST route",
-  "question_id": "question-1",
-  "answers": {
-    "selection": ["rest"]
-  }
-}
-```
-
-`answer`, `question_id`, and `answers` are optional individually, but the overall payload must still be meaningful to the active connector.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "request_id": "req-...",
-  "outcome": "answered",
-  "active_request_id": null,
-  "approval_version": 10
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `400 invalid_answer_payload`
-- `422 rollback_failed`
-- `500` for other dispatch failures
-
-#### `POST /api/sessions/{session_id}/permissions/respond`
-
-Responds to a permission grant request from the agent.
-
-Request:
-
-```json
-{
-  "request_id": "req-...",
-  "permissions": {
-    "Bash(git status:*)": "allow"
-  },
-  "scope": "project"
-}
-```
-
-`permissions` and `scope` are optional.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "request_id": "req-...",
-  "outcome": "approved",
-  "active_request_id": null,
-  "approval_version": 11
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `400 invalid_answer_payload`
-- `422 rollback_failed`
-- `500` for other dispatch failures
-
-### Attachments And Shell
-
-#### `POST /api/sessions/{session_id}/attachments/images?display_name=<name>&pixel_width=<w>&pixel_height=<h>`
+### `POST /api/sessions/{session_id}/conversation/attachments/images`
 
 Uploads an image attachment.
 
-Request:
+- Request body is raw image bytes.
+- `Content-Type` is required.
+- Query params:
+  - `display_name`
+  - `pixel_width`
+  - `pixel_height`
 
-- Raw image bytes in the request body
-- `Content-Type` header is required and should be the image MIME type
-
-Query params:
-
-- `display_name` optional
-- `pixel_width` optional
-- `pixel_height` optional
-
-Response:
+Returns:
 
 ```json
 {
@@ -1050,43 +395,15 @@ Response:
 }
 ```
 
-Error responses:
+### `GET /api/sessions/{session_id}/conversation/attachments/images/{attachment_id}`
 
-- `404 not_found`
-- `400 invalid_request` if bytes or content type are missing
-- `500 attachment_store_failed`
+Returns raw attachment bytes with the stored image content type.
 
-#### `GET /api/sessions/{session_id}/attachments/images/{attachment_id}`
+### `POST /api/sessions/{session_id}/conversation/shell/exec`
 
-Returns the raw image bytes.
+Starts a shell command in the session context.
 
-Response:
-
-- Binary body
-- `Content-Type: <stored mime type>`
-
-Error responses:
-
-- `404 attachment_read_failed`
-- `500 attachment_read_failed`
-
-#### `POST /api/sessions/{session_id}/shell/exec`
-
-Starts a shell command in the context of the session.
-
-Request:
-
-```json
-{
-  "command": "git status",
-  "cwd": "/Users/.../repo",
-  "timeout_secs": 120
-}
-```
-
-`cwd` and `timeout_secs` are optional. If `cwd` is omitted, the server uses the session's current cwd, then falls back to the project path.
-
-Response:
+Returns:
 
 ```json
 {
@@ -1095,1844 +412,743 @@ Response:
 }
 ```
 
-Notes:
+Shell output streams over WebSocket.
 
-- Streaming shell output is delivered through WebSocket events and message updates.
-
-Error responses:
-
-- `404 session_not_found`
-- `409 shell_duplicate_request_id`
-
-#### `POST /api/sessions/{session_id}/shell/cancel`
+### `POST /api/sessions/{session_id}/conversation/shell/cancel`
 
 Cancels an active shell request.
 
-Request:
+Returns `AcceptedResponse` with `session_detail_snapshot` omitted.
+
+### Session naming
+
+### `PATCH /api/sessions/{session_id}/detail/name`
+
+Sets or clears a custom session name.
+
+Returns `AcceptedResponse`.
+
+### `PATCH /api/sessions/{session_id}/detail/summary`
+
+Sets or clears a custom session summary.
+
+Returns `AcceptedResponse`.
+
+## Session approvals, permissions, and review comments
+
+### `GET /api/approvals?session_id=<id>&limit=<n>`
+
+Returns:
+
+- `session_id`
+- `approvals`
+
+### `DELETE /api/approvals/{approval_id}`
+
+Deletes one approval row.
+
+Returns:
 
 ```json
 {
-  "request_id": "shell-..."
+  "approval_id": 42,
+  "deleted": true
 }
 ```
 
-Response:
+### `POST /api/sessions/{session_id}/approvals/requests/{request_id}/decision`
 
-```json
-{"accepted": true}
-```
+Applies a tool approval decision.
 
-Error responses:
+### `POST /api/sessions/{session_id}/questions/requests/{request_id}/answer`
 
-- `404 session_not_found`
-- `404 shell_request_not_found`
+Answers a question request.
 
-### Skills, MCP, Flags, And Permissions
+### `POST /api/sessions/{session_id}/permissions/requests/{request_id}/response`
 
-#### `GET /api/sessions/{session_id}/subagents/{subagent_id}/tools`
+Responds to a permission grant request.
 
-Response:
+All three routes return the same shape:
 
-```json
-{
-  "session_id": "od-...",
-  "subagent_id": "subagent-...",
-  "tools": []
-}
-```
+- `session_id`
+- `request_id`
+- `outcome`
+- `active_request_id`
+- `approval_version`
+- optional `session_detail_snapshot`
 
-Notes:
+### `GET /api/sessions/{session_id}/review/comments?turn_id=<turn-id>`
 
-- If the subagent transcript is missing or unreadable, this returns an empty list.
+Returns:
 
-#### `GET /api/sessions/{session_id}/subagents/{subagent_id}/messages`
+- `session_id`
+- `review_revision`
+- `comments`
 
-Returns conversation rows for a subagent.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "subagent_id": "subagent-...",
-  "rows": []
-}
-```
-
-Notes:
-
-- Returns an empty list if the subagent transcript is unavailable.
-
-#### `GET /api/sessions/{session_id}/instructions`
-
-Returns the instructions currently associated with the session.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "provider": "codex",
-  "instructions": {
-    "developer_instructions": "Stay concise"
-  }
-}
-```
-
-Response for Claude may also include `claude_md` when either `~/.claude/CLAUDE.md` or
-`<project>/CLAUDE.md` exists:
-
-```json
-{
-  "session_id": "od-...",
-  "provider": "claude",
-  "instructions": {
-    "claude_md": "# Project Instructions\n...",
-    "developer_instructions": "Stay concise"
-  }
-}
-```
-
-Notes:
-
-- `system_prompt` is part of the response shape but is currently `null`/omitted.
-- For Claude, `claude_md` is the concatenated contents of global and project `CLAUDE.md` files when present.
-
-Error responses:
-
-- `404 not_found`
-
-#### `GET /api/sessions/{session_id}/skills?cwd=<path>&force_reload=true|false`
-
-Returns skills grouped by cwd.
-
-Query params:
-
-- `cwd` optional and repeatable
-- `force_reload` optional, default `false`
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "skills": [],
-  "errors": []
-}
-```
-
-Error responses:
-
-- `409 session_not_found`
-- Connector-specific MCP/skills startup errors surfaced through the dispatched action
-
-#### `GET /api/sessions/{session_id}/plugins`
-
-Returns plugin marketplaces available to the session.
-
-Query params:
-
-- `cwd` optional and repeatable; used to discover repo-local marketplaces
-- `force_remote_sync` optional, default `false`; refreshes curated remote plugin state first
-
-Response:
-
-```json
-{
-  "marketplaces": [
-    {
-      "name": "Curated",
-      "path": "/repo/.codex/plugins/marketplace.toml",
-      "interface": {
-        "displayName": "Curated Plugins"
-      },
-      "plugins": [
-        {
-          "id": "marketplace/deploy-checks",
-          "name": "deploy-checks",
-          "source": {
-            "type": "local",
-            "path": "/repo/.codex/plugins/deploy-checks"
-          },
-          "installed": true,
-          "enabled": true,
-          "installPolicy": "AVAILABLE",
-          "authPolicy": "ON_INSTALL",
-          "interface": null
-        }
-      ]
-    }
-  ],
-  "remoteSyncError": null
-}
-```
-
-Error responses:
-
-- `409 session_not_found`
-- `400 codex_action_error`
-
-#### `POST /api/sessions/{session_id}/plugins/install`
-
-Installs a plugin for the session.
-
-Request:
-
-```json
-{
-  "marketplacePath": "/repo/.codex/plugins/marketplace.toml",
-  "pluginName": "deploy-checks",
-  "forceRemoteSync": true
-}
-```
-
-Response:
-
-```json
-{
-  "authPolicy": "ON_INSTALL",
-  "appsNeedingAuth": []
-}
-```
-
-Notes:
-
-- OrbitDock clears plugin and skills caches after install so installed skills appear on the next refresh.
-
-#### `POST /api/sessions/{session_id}/plugins/uninstall`
-
-Uninstalls a plugin for the session.
-
-Request:
-
-```json
-{
-  "pluginId": "marketplace/deploy-checks",
-  "forceRemoteSync": true
-}
-```
-
-Response:
-
-```json
-{}
-```
-
-#### `GET /api/sessions/{session_id}/mcp/tools`
-
-Returns the current MCP tool catalog.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "tools": {},
-  "resources": {},
-  "resource_templates": {},
-  "auth_statuses": {}
-}
-```
-
-Error responses:
-
-- `409 session_not_found`
-
-Notes:
-
-- Codex sessions dispatch `ListMcpTools` first.
-- If that is unavailable, the server falls back to the Claude MCP route.
-
-#### `POST /api/sessions/{session_id}/mcp/refresh`
-
-Refreshes MCP servers.
-
-Request:
-
-```json
-{
-  "server_name": "github"
-}
-```
-
-Request body is optional. Without it, the server refreshes the overall MCP state.
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `POST /api/sessions/{session_id}/mcp/toggle`
-
-Enables or disables a Claude MCP server.
-
-Request:
-
-```json
-{
-  "server_name": "github",
-  "enabled": true
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `POST /api/sessions/{session_id}/mcp/authenticate`
-
-Starts auth for a Claude MCP server.
-
-Request:
-
-```json
-{
-  "server_name": "github"
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `POST /api/sessions/{session_id}/mcp/clear-auth`
-
-Clears saved auth for a Claude MCP server.
-
-Request:
-
-```json
-{
-  "server_name": "github"
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `POST /api/sessions/{session_id}/mcp/servers`
-
-Applies Claude MCP server config.
-
-Request:
-
-```json
-{
-  "servers": {
-    "github": {
-      "enabled": true
-    }
-  }
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `POST /api/sessions/{session_id}/flags`
-
-Applies Claude flag settings.
-
-Request:
-
-```json
-{
-  "settings": {
-    "enablePlanner": true
-  }
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Returns `202 Accepted`.
-
-#### `GET /api/sessions/{session_id}/permissions`
-
-Returns the effective permission rules for the active session.
-
-Response for Claude:
-
-```json
-{
-  "session_id": "od-...",
-  "rules": {
-    "provider": "claude",
-    "rules": []
-  }
-}
-```
-
-Response for Codex:
-
-```json
-{
-  "session_id": "od-...",
-  "rules": {
-    "provider": "codex",
-    "approval_policy": "on-request",
-    "sandbox_mode": "workspace-write"
-  }
-}
-```
-
-Error responses:
-
-- `404 not_found`
-
-Notes:
-
-- Claude first tries `get_settings` from the running CLI, then falls back to on-disk settings.
-
-#### `POST /api/sessions/{session_id}/permissions/rules`
-
-Adds a Claude permission rule.
-
-Request:
-
-```json
-{
-  "pattern": "Bash(git status:*)",
-  "behavior": "allow",
-  "scope": "project"
-}
-```
-
-`scope` defaults to `project`. Use `global` to write to `~/.claude/settings.local.json`.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Error responses:
-
-- `404 not_found`
-- `500 serialize_error`
-- `500 write_error`
-
-#### `DELETE /api/sessions/{session_id}/permissions/rules`
-
-Removes a Claude permission rule.
-
-Request body matches the add route.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Error responses:
-
-- `404 not_found`
-- `500 serialize_error`
-- `500 write_error`
-
-### Review Comments
-
-#### `GET /api/sessions/{session_id}/review-comments?turn_id=<turn-id>`
-
-Query params:
-
-- `turn_id` optional
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "review_revision": 5,
-  "comments": []
-}
-```
-
-Notes:
-
-- If loading fails, this returns an empty list.
-
-#### `POST /api/sessions/{session_id}/review-comments`
+### `POST /api/sessions/{session_id}/review/comments`
 
 Creates a review comment.
 
-Request:
+Returns:
 
-```json
-{
-  "turn_id": "turn-...",
-  "file_path": "src/main.rs",
-  "line_start": 42,
-  "line_end": 45,
-  "body": "This needs error handling",
-  "tag": "risk"
-}
-```
+- `session_id`
+- `review_revision`
+- `comment_id`
+- `comment`
+- `deleted`
+- `ok`
 
-`turn_id`, `line_end`, and `tag` are optional.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "review_revision": 6,
-  "comment_id": "rc-...",
-  "deleted": false,
-  "ok": true
-}
-```
-
-Notes:
-
-- Server broadcasts `review_comment_created` to session subscribers over WebSocket.
-
-#### `PATCH /api/review-comments/{comment_id}`
+### `PATCH /api/review/comments/{comment_id}`
 
 Updates a review comment.
 
-Request:
+Returns the same review comment mutation payload as create.
 
-```json
-{
-  "body": "Updated text",
-  "tag": "nit",
-  "status": "resolved"
-}
-```
-
-All fields are optional.
-
-Response:
-
-```json
-{
-  "session_id": "od-...",
-  "review_revision": 7,
-  "comment_id": "rc-...",
-  "deleted": false,
-  "ok": true
-}
-```
-
-Error responses:
-
-- `404 not_found`
-- `500 review_comment_update_failed`
-
-#### `DELETE /api/review-comments/{comment_id}`
+### `DELETE /api/review/comments/{comment_id}`
 
 Deletes a review comment.
 
-Response:
+Returns the same review comment mutation payload with:
 
-```json
-{
-  "session_id": "od-...",
-  "review_revision": 8,
-  "comment_id": "rc-...",
-  "deleted": true,
-  "ok": true
-}
-```
+- `comment: null`
+- `deleted: true`
 
-Error responses:
+## Session capabilities
 
-- `404 not_found`
-- `500 review_comment_delete_failed`
+These routes are still grouped under `capabilities`, but the intended client model is simple:
 
-### Server Info, Auth, And Metadata
+- use HTTP to read or mutate session support/config state
+- use WebSocket only for follow-up deltas or refetch hints
 
-#### `GET /api/server/openai-key`
+### `GET /api/sessions/{session_id}/subagents/{subagent_id}/tools`
 
-Response:
+Returns:
 
-```json
-{"configured": true}
-```
+- `session_id`
+- `subagent_id`
+- `tools`
 
-#### `POST /api/server/openai-key`
+If the subagent transcript cannot be read, `tools` is empty.
 
-Stores the OpenAI API key.
+### `GET /api/sessions/{session_id}/subagents/{subagent_id}/messages`
 
-Request:
+Returns:
 
-```json
-{
-  "key": "sk-..."
-}
-```
+- `session_id`
+- `subagent_id`
+- `rows`
 
-Response:
+If the subagent transcript cannot be read, `rows` is empty.
 
-```json
-{"configured": true}
-```
+### `GET /api/sessions/{session_id}/instructions`
 
-#### `PUT /api/server/role`
+Returns:
 
-Sets whether this server is primary.
+- `session_id`
+- `provider`
+- `instructions`
 
-Request:
+For Claude, `instructions` can include merged `claude_md`.
 
-```json
-{
-  "is_primary": true
-}
-```
-
-Response:
-
-```json
-{"is_primary": true}
-```
-
-Notes:
-
-- Broadcasts a `server_info` update to connected WebSocket clients.
-
-#### `POST /api/client/primary-claim`
-
-Registers or clears a client's primary claim.
-
-Request:
-
-```json
-{
-  "client_id": "client-...",
-  "device_name": "Robert's MacBook Pro",
-  "is_primary": true
-}
-```
-
-Response:
-
-```json
-{"accepted": true}
-```
-
-Notes:
-
-- Broadcasts a `server_info` update to connected WebSocket clients.
-
-#### `GET /api/usage/codex`
-
-Response:
-
-```json
-{
-  "usage": null,
-  "error_info": {
-    "code": "not_control_plane_endpoint",
-    "message": "This endpoint is not primary for control-plane usage reads."
-  }
-}
-```
-
-#### `GET /api/usage/claude`
-
-Same response shape as Codex usage.
-
-#### `GET /api/models/codex`
-
-Response:
-
-```json
-{
-  "models": [
-    {
-      "id": "gpt-5",
-      "model": "gpt-5",
-      "display_name": "GPT-5",
-      "description": "General-purpose coding model",
-      "is_default": true,
-      "supported_reasoning_efforts": ["low", "medium", "high"],
-      "supports_reasoning_summaries": true
-    }
-  ]
-}
-```
-
-#### `GET /api/models/claude`
-
-Response:
-
-```json
-{
-  "models": [
-    {
-      "value": "claude-sonnet-4-5",
-      "display_name": "Claude Sonnet 4.5",
-      "description": "Balanced speed and quality"
-    }
-  ]
-}
-```
-
-#### `GET /api/codex/account?refresh_token=true|false`
-
-Returns current Codex auth/account state.
+### `GET /api/sessions/{session_id}/skills`
 
 Query params:
 
-- `refresh_token` optional, default `false`
+- repeatable `cwd`
+- `force_reload`
 
-Response:
+Returns:
 
-```json
-{
-  "status": {
-    "auth_mode": "chatgpt",
-    "requires_openai_auth": true,
-    "account": {
-      "type": "chatgpt",
-      "email": "user@example.com",
-      "plan_type": "plus"
-    },
-    "login_in_progress": false
-  }
-}
-```
+- `session_id`
+- `skills`
+- `claude_skill_names`
+- `errors`
 
-Error responses:
-
-- `503 codex_auth_error`
-
-#### `POST /api/codex/login/start`
-
-Starts the ChatGPT browser login flow.
-
-Response:
-
-```json
-{
-  "login_id": "...",
-  "auth_url": "https://..."
-}
-```
-
-Error responses:
-
-- `500 codex_auth_login_start_failed`
-
-Notes:
-
-- If account state is available, the server broadcasts it over WebSocket right after starting login.
-
-#### `POST /api/codex/login/cancel`
-
-Cancels an in-progress login.
-
-Request:
-
-```json
-{
-  "login_id": "..."
-}
-```
-
-Response:
-
-```json
-{
-  "login_id": "...",
-  "status": "canceled"
-}
-```
-
-Status values:
-
-- `canceled`
-- `not_found`
-- `invalid_id`
-
-Notes:
-
-- The server broadcasts refreshed account status when available.
-
-#### `POST /api/codex/logout`
-
-Logs out the current Codex account.
-
-Response:
-
-```json
-{
-  "status": { }
-}
-```
-
-Error responses:
-
-- `500 codex_auth_logout_failed`
-
-Notes:
-
-- Broadcasts `codex_account_updated` to connected WebSocket clients.
-
-### Codex Configuration
-
-#### `POST /api/codex/config/inspect`
-
-Inspects the effective Codex configuration for a given working directory. Resolves settings from user config, project config, and OrbitDock overrides.
-
-Request:
-
-```json
-{
-  "cwd": "/Users/.../repo",
-  "codex_config_source": "user",
-  "model": "o3",
-  "approval_policy": "on-request",
-  "sandbox_mode": "workspace-write"
-}
-```
-
-Only `cwd` is required. Other fields provide overrides for what-if inspection.
-
-Response:
-
-```json
-{
-  "effective_settings": { },
-  "origins": { },
-  "layers": [ ],
-  "warnings": [ ]
-}
-```
-
-#### `GET /api/codex/config/catalog?cwd=<path>`
-
-Returns available config profiles and providers for a given working directory.
-
-Response:
-
-```json
-{
-  "cwd": "/Users/.../repo",
-  "effective_settings": { },
-  "profiles": [ ],
-  "providers": [ ],
-  "warnings": [ ]
-}
-```
-
-#### `GET /api/codex/config/documents?cwd=<path>`
-
-Returns the raw Codex config documents (user-level and project-level) for inspection.
-
-Response:
-
-```json
-{
-  "cwd": "/Users/.../repo",
-  "user": { },
-  "projects": [ ],
-  "warnings": [ ]
-}
-```
-
-#### `POST /api/codex/config/value`
-
-Writes a single config value to a Codex config file.
-
-Request:
-
-```json
-{
-  "cwd": "/Users/.../repo",
-  "key_path": "model",
-  "value": "o3",
-  "merge_strategy": "replace",
-  "file_path": null,
-  "expected_version": null
-}
-```
-
-`merge_strategy` is optional, one of `"replace"` or `"upsert"`. `expected_version` enables optimistic concurrency.
-
-Response:
-
-```json
-{
-  "status": "written",
-  "version": "v2",
-  "file_path": "/Users/.../.codex/config.json"
-}
-```
-
-#### `POST /api/codex/config/batch-write`
-
-Writes multiple config values atomically.
-
-Request:
-
-```json
-{
-  "cwd": "/Users/.../repo",
-  "edits": [
-    { "key_path": "model", "value": "o3", "merge_strategy": "replace" },
-    { "key_path": "approval_policy", "value": "on-request" }
-  ],
-  "file_path": null,
-  "expected_version": null
-}
-```
-
-Response: same shape as `POST /api/codex/config/value`.
-
-### Codex Preferences
-
-#### `GET /api/server/codex-preferences`
-
-Returns the default Codex config source preference.
-
-Response:
-
-```json
-{
-  "default_config_source": "user"
-}
-```
-
-`default_config_source` is one of `"user"` or `"orbitdock"`.
-
-#### `PUT /api/server/codex-preferences`
-
-Updates the default Codex config source preference.
-
-Request:
-
-```json
-{
-  "default_config_source": "orbitdock"
-}
-```
-
-Response: same shape as `GET /api/server/codex-preferences`.
-
-### Filesystem And Git
-
-#### `POST /api/git/init`
-
-Runs `git init` in the target directory.
-
-Request:
-
-```json
-{
-  "path": "/Users/.../new-project"
-}
-```
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Error responses:
-
-- `400 path_not_found`
-- `400 git_init_failed`
-
-#### `GET /api/fs/browse?path=<absolute-or-tilde-path>`
-
-Lists directory entries.
+### `GET /api/sessions/{session_id}/plugins`
 
 Query params:
 
-- `path` optional, defaults to the user's home directory
+- repeatable `cwd`
+- `force_remote_sync`
 
-Response:
+Returns plugin marketplace state for the session.
+
+### `POST /api/sessions/{session_id}/plugins/install`
+
+Installs a plugin.
+
+Returns the install result from Codex App Server, including auth requirements when applicable.
+
+### `POST /api/sessions/{session_id}/plugins/uninstall`
+
+Uninstalls a plugin.
+
+Returns the uninstall result from Codex App Server.
+
+### `GET /api/sessions/{session_id}/mcp`
+
+Returns:
+
+- `session_id`
+- `tools`
+- `resources`
+- `resource_templates`
+- `auth_statuses`
+
+### `POST /api/sessions/{session_id}/mcp/refresh`
+
+Refreshes MCP server state.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `POST /api/sessions/{session_id}/mcp/toggle`
+
+Toggles a Claude MCP server.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `POST /api/sessions/{session_id}/mcp/authenticate`
+
+Starts MCP auth flow for a server.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `POST /api/sessions/{session_id}/mcp/clear-auth`
+
+Clears MCP auth state for a server.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `POST /api/sessions/{session_id}/mcp/servers`
+
+Sets the Claude MCP server config payload.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `POST /api/sessions/{session_id}/flags`
+
+Applies Claude flag/settings payload.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### `GET /api/sessions/{session_id}/permissions/rules`
+
+Returns the session permission rules view.
+
+For Claude, this is derived from CLI/disk settings.
+For Codex, this reflects approval and sandbox policy state.
+
+### `POST /api/sessions/{session_id}/permissions/rules`
+
+Adds a permission rule.
+
+### `DELETE /api/sessions/{session_id}/permissions/rules`
+
+Removes a permission rule.
+
+Both routes return:
 
 ```json
 {
-  "path": "/Users/.../repo",
-  "entries": [
-    {
-      "name": "src",
-      "is_dir": true,
-      "is_git": false
-    }
-  ]
+  "ok": true,
+  "session_detail_snapshot": { "...optional SessionDetailSnapshot..." }
 }
 ```
 
-Notes:
+## Server and app-shell configuration
 
-- Hidden entries are omitted.
-- Results are sorted with directories first, then case-insensitive name.
-- `~` is expanded to the current home directory.
-- Read failures return an empty `entries` list instead of an error.
+### `GET /api/server/meta`
 
-#### `GET /api/fs/recent-projects`
+Returns the server meta payload used by the app shell.
 
-Returns recently active project roots.
+### `GET /api/server/openai-key`
 
-Response:
+Returns:
+
+```json
+{"configured": true}
+```
+
+### `POST /api/server/openai-key`
+
+Stores the OpenAI key and returns the same `configured` shape.
+
+### `GET /api/server/workspace-provider`
+
+Returns the active workspace provider:
+
+```json
+{"workspace_provider":"local"}
+```
+
+### `PUT /api/server/workspace-provider`
+
+Updates the active workspace provider and returns the same shape.
+
+### `GET /api/server/workspace-provider/config/{key}`
+
+Returns:
+
+- `key`
+- `value`
+- `configured`
+- `secret`
+- `source`
+
+### `PUT /api/server/workspace-provider/config/{key}`
+
+Writes one workspace-provider config value and returns the same config-value shape.
+
+### `POST /api/server/workspace-provider/test`
+
+Runs a provider preflight test.
+
+Returns:
+
+- `ok`
+- `provider`
+- `message`
+
+### `PUT /api/server/role`
+
+Sets server primary/secondary role.
+
+Returns:
+
+```json
+{"is_primary":true}
+```
+
+### `POST /api/client/primary-claim`
+
+Stores a client primary-claim preference.
+
+Returns `AcceptedResponse` with no detail snapshot.
+
+### Update endpoints
+
+### `GET /api/server/update-status`
+
+Returns current update status payload.
+
+### `POST /api/server/check-update`
+
+Triggers an update check.
+
+### `POST /api/server/start-upgrade`
+
+Starts the upgrade flow.
+
+### `GET /api/server/update-channel`
+
+Returns the current update channel.
+
+### `PUT /api/server/update-channel`
+
+Sets the update channel and returns the same shape.
+
+### Usage and model endpoints
+
+### `GET /api/usage/summary`
+
+Returns the combined usage summary snapshot.
+
+### `GET /api/usage/codex`
+
+Returns Codex-specific usage snapshot.
+
+### `GET /api/usage/claude`
+
+Returns Claude-specific usage snapshot.
+
+### `GET /api/models/codex`
+
+Returns available Codex models for the current server/runtime context.
+
+### `GET /api/models/claude`
+
+Returns available Claude models for the current server/runtime context.
+
+## Codex account and config
+
+### `GET /api/codex/account`
+
+Returns Codex account/auth status.
+
+### `POST /api/codex/config/inspect`
+
+Returns the inspected effective Codex config for a working directory.
+
+### `GET /api/codex/config/catalog?cwd=<path>`
+
+Returns Codex config profiles, providers, effective values, and warnings for a cwd.
+
+### `GET /api/codex/config/documents?cwd=<path>`
+
+Returns raw user/project Codex config documents and warnings.
+
+### `POST /api/codex/config/value`
+
+Writes one Codex config value.
+
+### `POST /api/codex/config/batch-write`
+
+Writes multiple Codex config values atomically.
+
+Both write routes return a write result that includes:
+
+- `status`
+- `version`
+- `file_path`
+
+### `POST /api/codex/login/start`
+
+Starts Codex login.
+
+### `POST /api/codex/login/cancel`
+
+Cancels Codex login.
+
+### `POST /api/codex/logout`
+
+Logs out of Codex.
+
+### `GET /api/server/codex-preferences`
+
+Returns server-level Codex preferences.
+
+### `PUT /api/server/codex-preferences`
+
+Updates server-level Codex preferences and returns the same shape.
+
+## Filesystem, sync, and worktrees
+
+### `POST /api/git/init`
+
+Runs `git init` in the provided path.
+
+Returns:
+
+```json
+{"ok":true}
+```
+
+### `GET /api/fs/browse?path=<path>`
+
+Returns:
+
+- `path`
+- `entries`
+
+### `GET /api/fs/recent-projects`
+
+Returns:
+
+- `projects`
+
+### `POST /api/sync`
+
+Workspace sync ingestion endpoint.
+
+- Requires a workspace sync bearer token.
+- Applies a `SyncBatchRequest`.
+- Returns:
 
 ```json
 {
-  "projects": [
-    {
-      "path": "/Users/.../repo",
-      "session_count": 3,
-      "last_active": "1735689600Z"
-    }
-  ]
+  "acked_through": 42
 }
 ```
 
-### Worktrees
+- Can return:
+  - `401 missing_bearer_token`
+  - `401 invalid_workspace_token`
+  - `401 workspace_not_found`
+  - `409 sync_sequence_conflict`
 
-#### `GET /api/worktrees?repo_root=<path>`
+### `GET /api/worktrees?repo_root=<path>`
 
-Returns tracked or discovered worktrees for a repo root.
+Returns:
+
+- `repo_root`
+- `worktree_revision`
+- `worktrees`
+
+### `POST /api/worktrees`
+
+Creates a tracked worktree and returns:
+
+- `repo_root`
+- `worktree_revision`
+- `worktree`
+
+### `POST /api/worktrees/discover`
+
+Discovers worktrees for a repo root and returns the same surface shape as `GET /api/worktrees`.
+
+### `DELETE /api/worktrees/{worktree_id}`
+
+Removes or archives a worktree.
 
 Query params:
 
-- `repo_root` optional
+- `force`
+- `delete_branch`
+- `delete_remote_branch`
+- `archive_only`
 
-Response:
+Returns:
+
+- `repo_root`
+- `worktree_revision`
+- `worktree_id`
+- `deleted`
+- `ok`
+
+## Mission Control
+
+### Missions list and detail
+
+### `GET /api/missions`
+
+Returns:
+
+- `missions`
+
+### `POST /api/missions`
+
+Creates a mission.
+
+Returns one `MissionSummary`.
+
+### `GET /api/missions/{mission_id}`
+
+Returns `MissionDetailResponse`.
+
+This is the authoritative mission detail bootstrap.
+
+### `PUT /api/missions/{mission_id}`
+
+Updates mission metadata and returns `MissionDetailResponse`.
+
+### `DELETE /api/missions/{mission_id}`
+
+Deletes the mission and returns:
+
+- `missions`
+
+### `GET /api/missions/{mission_id}/issues`
+
+Returns the mission issue list as an array of `MissionIssueItem`.
+
+### Issue mutations
+
+### `POST /api/missions/{mission_id}/issues/{issue_id}/retry`
+
+Retries/requeues an issue and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/issues/{issue_id}/transition`
+
+Applies an admin transition and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/issues/{issue_id}/complete`
+
+Marks an issue completed and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/issues/{issue_id}/pr`
+
+Stores a PR URL and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/issues/{issue_id}/blocked`
+
+Marks an issue blocked and returns `MissionDetailResponse`.
+
+### Mission setup and settings
+
+### `POST /api/missions/{mission_id}/scaffold`
+
+Creates a default `MISSION.md` and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/migrate-workflow`
+
+Migrates `WORKFLOW.md` to `MISSION.md` and returns `MissionDetailResponse`.
+
+### `GET /api/missions/{mission_id}/default-template`
+
+Returns:
+
+```json
+{"template":"..."}
+```
+
+### `PUT /api/missions/{mission_id}/settings`
+
+Writes merged mission settings and returns `MissionDetailResponse`.
+
+### Mission orchestrator endpoints
+
+### `POST /api/missions/{mission_id}/start-orchestrator`
+
+Starts the mission orchestrator.
+
+Returns:
+
+```json
+{"ok":true}
+```
+
+### `POST /api/missions/{mission_id}/dispatch`
+
+Manually dispatches a tracker issue and returns `MissionDetailResponse`.
+
+### `POST /api/missions/{mission_id}/trigger`
+
+Triggers an immediate poll tick.
+
+Returns:
+
+```json
+{"ok":true}
+```
+
+### Mission worktrees
+
+### `GET /api/missions/{mission_id}/worktrees`
+
+Returns:
+
+```json
+{"worktrees":[...]}
+```
+
+### Mission-scoped tracker keys
+
+### `GET /api/missions/{mission_id}/tracker-key`
+
+Returns:
 
 ```json
 {
-  "repo_root": "/path/to/repo",
-  "worktree_revision": 12,
-  "worktrees": []
+  "configured": true,
+  "source": "mission"
 }
 ```
 
-Notes:
+### `PUT /api/missions/{mission_id}/tracker-key`
 
-- Without `repo_root`, this currently returns an empty list.
-- If the database has no tracked rows for the repo, the server falls back to `git worktree list` discovery.
+Stores a mission-scoped tracker key and returns the same shape.
 
-#### `POST /api/worktrees`
+### `DELETE /api/missions/{mission_id}/tracker-key`
 
-Creates a tracked worktree.
+Deletes the mission-scoped tracker key and returns the same shape.
 
-Request:
+### `POST /api/missions/{mission_id}/adopt-global-key`
 
-```json
-{
-  "repo_path": "/path/to/repo",
-  "branch_name": "feature-x",
-  "base_branch": "main"
-}
-```
+Copies the resolved global tracker key into mission scope and returns the same shape.
 
-Response:
+### Global tracker/server mission config
 
-```json
-{
-  "repo_root": "/path/to/repo",
-  "worktree_revision": 13,
-  "worktree": {
-    "id": "wt-...",
-    "repo_root": "/path/to/repo",
-    "worktree_path": "/path/to/repo/.orbitdock-worktrees/feature-x",
-    "branch": "feature-x",
-    "status": "active"
-  }
-}
-```
+### `GET /api/server/linear-key`
+### `POST /api/server/linear-key`
+### `DELETE /api/server/linear-key`
 
-Error responses:
-
-- `400 create_failed`
-
-Notes:
-
-- Broadcasts `worktree_created` to list subscribers over WebSocket.
-- If `repo_path/.worktreeinclude` exists, OrbitDock tries to copy matching local ignored files into the new worktree.
-
-#### `POST /api/worktrees/discover`
-
-Discovers worktrees for a repo path without requiring tracked DB rows.
-
-Request:
+All three use:
 
 ```json
-{
-  "repo_path": "/path/to/repo"
-}
+{"configured":true}
 ```
 
-Response:
+### `GET /api/server/github-key`
+### `POST /api/server/github-key`
+### `DELETE /api/server/github-key`
+
+All three use:
 
 ```json
-{
-  "repo_root": "/path/to/repo",
-  "worktree_revision": 12,
-  "worktrees": []
-}
+{"configured":true}
 ```
 
-#### `DELETE /api/worktrees/{worktree_id}?force=true|false&delete_branch=true|false&delete_remote_branch=true|false&archive_only=true|false`
+### `GET /api/server/tracker-keys`
 
-Removes or archives a tracked worktree.
+Returns:
 
-Query params:
+- `linear`
+- `github`
 
-- `force` optional, default `false`
-- `delete_branch` optional, default `false`
-- `delete_remote_branch` optional, default `false`
-- `archive_only` optional, default `false`
+Each provider entry contains:
 
-Response:
+- `configured`
+- `source`
 
-```json
-{
-  "repo_root": "/path/to/repo",
-  "worktree_revision": 14,
-  "worktree_id": "wt-...",
-  "deleted": true,
-  "ok": true
-}
-```
+### `GET /api/server/mission-defaults`
 
-Error responses:
+Returns:
 
-- `404 not_found`
-- `400 remove_failed`
+- `provider_strategy`
+- `primary_provider`
+- `secondary_provider`
 
-Notes:
+### `PUT /api/server/mission-defaults`
 
-- `force=true` keeps going even if `git worktree remove` fails.
-- `archive_only=true` skips on-disk deletion and only updates tracked state.
-- Broadcasts `worktree_removed` to list subscribers over WebSocket.
+Updates mission defaults and returns the same shape.
 
-### Mission Control
-
-#### `GET /api/missions`
-
-Returns all missions.
-
-Response:
-
-```json
-{
-  "missions": [
-    {
-      "id": "mission-...",
-      "name": "API improvements",
-      "repo_root": "/Users/.../repo",
-      "enabled": true,
-      "paused": false,
-      "tracker_kind": "linear",
-      "provider": "claude",
-      "provider_strategy": "single",
-      "primary_provider": "claude",
-      "secondary_provider": null,
-      "active_count": 2,
-      "queued_count": 5,
-      "completed_count": 12,
-      "failed_count": 1,
-      "parse_error": null,
-      "orchestrator_status": "polling"
-    }
-  ]
-}
-```
-
-#### `POST /api/missions`
-
-Creates a new mission.
-
-Request:
-
-```json
-{
-  "name": "API improvements",
-  "repo_root": "/Users/.../repo",
-  "tracker_kind": "linear",
-  "provider": "claude"
-}
-```
-
-Only `name` and `repo_root` are required. `tracker_kind` defaults to `"linear"`, `provider` defaults to `"claude"`.
-
-Response: a single `MissionSummary` (same shape as the list items above).
-
-#### `GET /api/missions/{mission_id}`
-
-Returns full mission detail including issues, settings, and file status.
-
-Response:
-
-```json
-{
-  "summary": {
-    "id": "mission-...",
-    "name": "API improvements",
-    "repo_root": "/Users/.../repo",
-    "enabled": true,
-    "paused": false,
-    "tracker_kind": "linear",
-    "provider": "claude",
-    "provider_strategy": "single",
-    "primary_provider": "claude",
-    "secondary_provider": null,
-    "active_count": 2,
-    "queued_count": 5,
-    "completed_count": 12,
-    "failed_count": 1,
-    "parse_error": null,
-    "orchestrator_status": "polling"
-  },
-  "issues": [
-    {
-      "issue_id": "issue-...",
-      "identifier": "ENG-42",
-      "title": "Fix auth flow",
-      "tracker_state": "In Progress",
-      "orchestration_state": "running",
-      "session_id": "od-...",
-      "provider": "claude",
-      "attempt": 1,
-      "error": null,
-      "url": "https://linear.app/team/issue/ENG-42",
-      "last_activity": "2026-03-16T12:00:00Z",
-      "started_at": "2026-03-16T11:55:00Z",
-      "completed_at": null,
-      "allowed_transitions": ["queued", "completed", "blocked", "failed"],
-      "work_status": "working",
-      "last_message": "Implementing auth changes...",
-      "pr_url": "https://github.com/owner/repo/pull/97"
-    }
-  ],
-  "settings": {
-    "provider": {
-      "strategy": "single",
-      "primary": "claude",
-      "secondary": null,
-      "max_concurrent": 3,
-      "max_concurrent_primary": null
-    },
-    "agent": {
-      "claude": {
-        "model": "claude-sonnet-4-5",
-        "effort": "high",
-        "permission_mode": "default",
-        "allowed_tools": [],
-        "disallowed_tools": []
-      },
-      "codex": {
-        "model": "gpt-5",
-        "effort": "medium",
-        "approval_policy": "on-request",
-        "sandbox_mode": "workspace-write",
-        "collaboration_mode": null,
-        "multi_agent": null,
-        "personality": null,
-        "service_tier": null,
-        "developer_instructions": null
-      }
-    },
-    "trigger": {
-      "kind": "polling",
-      "interval": 30,
-      "filters": {
-        "labels": [],
-        "states": [],
-        "project": "ENG",
-        "team": null
-      }
-    },
-    "orchestration": {
-      "max_retries": 3,
-      "stall_timeout": 600,
-      "base_branch": "main",
-      "worktree_root_dir": null,
-      "state_on_dispatch": "In Progress",
-      "state_on_complete": "In Review"
-    },
-    "prompt_template": "You are working on {{ issue.identifier }}...",
-    "tracker": "linear"
-  },
-  "mission_file_exists": true,
-  "mission_file_path": "/Users/.../repo/MISSION.md",
-  "workflow_migration_available": false
-}
-```
-
-Notes:
-
-- `settings` is `null` when the mission file cannot be parsed.
-- `orchestration_state` is one of: `queued`, `claimed`, `running`, `retry_queued`, `completed`, `failed`, `blocked`.
-- `work_status` and `last_message` are populated from the live session snapshot when the linked agent is active.
-- `pr_url` is set when the agent links a pull request via `mission_link_pr`.
-- `allowed_transitions` lists the valid target states for admin transition from the current state.
-
-#### `PUT /api/missions/{mission_id}`
-
-Updates mission metadata.
-
-Request:
-
-```json
-{
-  "name": "Updated name",
-  "enabled": true,
-  "paused": false,
-  "mission_file_path": "/Users/.../repo/MISSION.md"
-}
-```
-
-All fields are optional. Set `mission_file_path` to `null` to clear a custom path.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-#### `DELETE /api/missions/{mission_id}`
-
-Deletes a mission and returns the updated list.
-
-Response:
-
-```json
-{
-  "missions": []
-}
-```
-
-#### `GET /api/missions/{mission_id}/issues`
-
-Returns the issue list for a mission.
-
-Response: array of `MissionIssueItem` (same shape as `issues` in the detail response).
-
-#### `POST /api/missions/{mission_id}/issues/{issue_id}/retry`
-
-Retries a failed issue. The issue must be in `failed` state.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Notes:
-
-- Increments the attempt counter.
-- Schedules the next retry with exponential backoff (max 300s).
-
-#### `POST /api/missions/{mission_id}/issues/{issue_id}/transition`
-
-Transitions an issue to a new orchestration state. Used for admin state overrides (mark complete, mark failed, reset, etc.).
-
-Request:
-
-```json
-{
-  "target_state": "completed",
-  "reason": "Manually closed — already fixed upstream"
-}
-```
-
-`reason` is optional. `target_state` must be one of the allowed transitions from the issue's current state. See `OrchestrationState.allowed_transitions()`.
-
-Response: `MissionDetailResponse` (same shape as `GET /api/missions/{mission_id}`).
-
-#### `POST /api/missions/{mission_id}/issues/{issue_id}/complete`
-
-Reports that the agent working on this issue has completed successfully. Called by the mission orchestrator or agent tools.
-
-Request:
-
-```json
-{
-  "tracker_state": "In Review"
-}
-```
-
-`tracker_state` is optional — when provided, updates the issue's tracker state label in the database.
-
-Response:
-
-```json
-{"completed": true}
-```
-
-#### `POST /api/missions/{mission_id}/issues/{issue_id}/pr`
-
-Stores a PR URL on a mission issue. Called by the MCP mission tools when an agent links a PR via `mission_link_pr`.
-
-Request:
-
-```json
-{
-  "pr_url": "https://github.com/owner/repo/pull/97"
-}
-```
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Notes:
-
-- Broadcasts a mission delta so connected clients see the PR link immediately.
-- The PR URL is surfaced in the issue row UI alongside the issue identifier.
-
-#### `POST /api/missions/{mission_id}/issues/{issue_id}/blocked`
-
-Reports that the agent working on this issue is blocked. Called by mission tools (`mission_report_blocked`).
-
-Request body:
-
-```json
-{"reason": "Missing LINEAR_API_KEY — cannot interact with tracker"}
-```
-
-Response:
-
-```json
-{"blocked": true}
-```
-
-Notes:
-
-- Updates `orchestration_state` to `"blocked"` with the reason in `last_error`.
-- The mission orchestrator will not retry blocked issues automatically.
-
-#### `POST /api/missions/{mission_id}/scaffold`
-
-Writes a default `MISSION.md` template to the mission's `repo_root`.
-
-Response: `MissionDetailResponse` (same shape as `GET /api/missions/{mission_id}`).
-
-Error responses:
-
-- `409 conflict` if `MISSION.md` already exists
-
-#### `POST /api/missions/{mission_id}/migrate-workflow`
-
-Migrates an existing `WORKFLOW.md` (Symphony format) to `MISSION.md`.
-
-Response: `MissionDetailResponse` (same shape as `GET /api/missions/{mission_id}`).
-
-Error responses:
-
-- `404 not_found` if `WORKFLOW.md` does not exist
-- `409 conflict` if `MISSION.md` already exists
-
-#### `GET /api/missions/{mission_id}/default-template`
-
-Returns the default prompt template for a mission.
-
-Response:
-
-```json
-{
-  "template": "You are working on {{ issue.identifier }}..."
-}
-```
-
-#### `PUT /api/missions/{mission_id}/settings`
-
-Updates mission settings. Performs a partial merge with existing `MISSION.md` config.
-
-Request:
-
-```json
-{
-  "provider_strategy": "single",
-  "primary_provider": "claude",
-  "secondary_provider": null,
-  "max_concurrent": 3,
-  "max_concurrent_primary": null,
-
-  "agent_claude_model": "claude-sonnet-4-5",
-  "agent_claude_effort": "high",
-  "agent_claude_permission_mode": "default",
-  "agent_claude_allowed_tools": [],
-  "agent_claude_disallowed_tools": [],
-
-  "agent_codex_model": "gpt-5",
-  "agent_codex_effort": "medium",
-  "agent_codex_approval_policy": "on-request",
-  "agent_codex_sandbox_mode": "workspace-write",
-  "agent_codex_collaboration_mode": null,
-  "agent_codex_multi_agent": null,
-  "agent_codex_personality": null,
-  "agent_codex_service_tier": null,
-  "agent_codex_developer_instructions": null,
-
-  "trigger_kind": "polling",
-  "poll_interval": 30,
-  "label_filter": [],
-  "state_filter": [],
-  "project_key": "ENG",
-  "team_key": null,
-
-  "max_retries": 3,
-  "stall_timeout": 600,
-  "base_branch": "main",
-  "worktree_root_dir": null,
-
-  "prompt_template": "You are working on {{ issue.identifier }}...",
-  "tracker": "linear"
-}
-```
-
-All fields are optional. Only provided fields are merged.
-
-Response: `MissionDetailResponse` (same shape as `GET /api/missions/{mission_id}`).
-
-#### `POST /api/missions/{mission_id}/start-orchestrator`
-
-Starts the polling orchestrator for a mission.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-Error responses:
-
-- `400 bad_request` if tracker API key is not configured
-- `409 conflict` if orchestrator is already running
-
-#### `POST /api/missions/{mission_id}/dispatch`
-
-Manually dispatch a specific tracker issue to a mission. Fetches the issue from Linear by identifier, upserts it into the mission's issue list, and spawns a dispatch (worktree + session).
-
-Request:
-
-```json
-{
-  "issue_identifier": "VIZ-240",
-  "provider": "claude"
-}
-```
-
-`provider` is optional — defaults to the mission's primary provider.
-
-Response: `MissionDetailResponse` (same shape as `GET /api/missions/{id}`).
-
-Error responses:
-
-- `400 bad_request` if tracker API key is not configured or MISSION.md cannot be parsed
-- `404 not_found` if mission or issue not found
-
-#### `POST /api/missions/{mission_id}/trigger`
-
-Triggers an immediate poll cycle for the mission's orchestrator. Useful when you know new issues are available and don't want to wait for the next scheduled tick.
-
-Response:
-
-```json
-{"ok": true}
-```
-
-#### `GET /api/missions/{mission_id}/worktrees`
-
-Returns all worktrees associated with a mission's issues (via the `mission_issues -> sessions -> worktrees` join). Used by the "Clean Up Worktrees" UI.
-
-Response:
-
-```json
-{
-  "worktrees": [
-    {
-      "id": "wt-...",
-      "branch": "mission/eng-42",
-      "worktree_path": "/Users/.../repo/.orbitdock-worktrees/mission/eng-42",
-      "disk_present": true,
-      "orchestration_state": "completed",
-      "issue_identifier": "ENG-42",
-      "issue_title": "Fix auth flow"
-    }
-  ]
-}
-```
-
-Notes:
-
-- Only returns worktrees with status != `"removed"`.
-- `disk_present` is checked live against the filesystem.
-- A single issue may map to multiple worktrees if it was retried.
-
-#### Mission Tools
-
-Dispatched sessions automatically receive 8 `mission_*` tools for tracker interaction (`mission_get_issue`, `mission_post_update`, `mission_update_comment`, `mission_get_comments`, `mission_set_status`, `mission_link_pr`, `mission_create_followup`, `mission_report_blocked`).
-
-Tool injection is provider-dependent:
-
-- **Claude sessions**: A `.mcp.json` file is auto-generated in the worktree root, configuring an `orbitdock-mission` MCP server via the `orbitdock mcp-mission-tools` subcommand. Claude discovers this at startup.
-- **Codex sessions**: Tools are registered as `DynamicToolSpec` entries and passed to the thread at creation time.
-
-The `blocked` endpoint above (`POST .../blocked`) is called by the `mission_report_blocked` tool executor.
-
-### Mission Control: Server Configuration
-
-#### `GET /api/server/linear-key`
-
-Response:
-
-```json
-{"configured": true}
-```
-
-#### `POST /api/server/linear-key`
-
-Stores the Linear API key.
-
-Request:
-
-```json
-{
-  "key": "lin_api_..."
-}
-```
-
-Response:
-
-```json
-{"configured": true}
-```
-
-#### `DELETE /api/server/linear-key`
-
-Removes the stored Linear API key.
-
-Response:
-
-```json
-{"configured": false}
-```
-
-#### `GET /api/server/github-key`
-
-Response:
-
-```json
-{"configured": true}
-```
-
-#### `POST /api/server/github-key`
-
-Stores the GitHub personal access token.
-
-Request:
-
-```json
-{
-  "key": "ghp_..."
-}
-```
-
-Response:
-
-```json
-{"configured": true}
-```
-
-#### `DELETE /api/server/github-key`
-
-Removes the stored GitHub API key.
-
-Response:
-
-```json
-{"configured": false}
-```
-
-#### `GET /api/server/tracker-keys`
-
-Returns the configuration status of all tracker API keys.
-
-Response:
-
-```json
-{
-  "linear": {
-    "configured": true,
-    "source": "settings"
-  },
-  "github": {
-    "configured": true,
-    "source": "env"
-  }
-}
-```
-
-Notes:
-
-- `source` indicates where the key was found: `"env"` (environment variable) or `"settings"` (persisted in server settings).
-
-#### `GET /api/server/mission-defaults`
-
-Returns the default provider strategy for new missions.
-
-Response:
-
-```json
-{
-  "provider_strategy": "single",
-  "primary_provider": "claude",
-  "secondary_provider": null
-}
-```
-
-#### `PUT /api/server/mission-defaults`
-
-Updates the default provider strategy.
-
-Request:
-
-```json
-{
-  "provider_strategy": "round_robin",
-  "primary_provider": "claude",
-  "secondary_provider": "codex"
-}
-```
-
-All fields are optional.
-
-Response: same shape as `GET /api/server/mission-defaults`.
-
-## WebSocket Endpoint
+## WebSocket
 
 ### `GET /ws`
 
-WebSocket is used for:
+The client should:
 
-- dashboard, missions, and session-surface subscriptions
-- real-time turn interaction
-- server-pushed updates
-- approval prompts and results
-- shell streaming updates
-- worktree, review comment, and auth status broadcasts
+1. fetch the relevant HTTP surface first
+2. remember that surface revision
+3. subscribe over WebSocket with `since_revision`
+4. refetch the exact HTTP surface only when the socket reports a gap or invalidation
 
-#### Handshake
+### Handshake
 
-The server sends a `hello` immediately after connect:
+The server sends `hello` immediately after connect.
 
-```json
-{
-  "type": "hello",
-  "hello": {
-    "server_version": "0.4.0",
-    "compatibility": {
-      "compatible": true,
-      "server_compatibility": "server_authoritative_session_v1"
-    },
-    "capabilities": [
-      "dashboard_projection_v1",
-      "missions_projection_v1",
-      "session_detail_surface_v1",
-      "session_composer_surface_v1",
-      "conversation_surface_v1"
-    ]
-  }
-}
-```
+The handshake advertises:
 
-The handshake is informational. OrbitDock should surface real transport or decode failures directly instead of trying to negotiate protocol-version compatibility at runtime.
+- `server_version`
+- compatibility info
+- capabilities
 
-WebSocket handshake request headers should include:
+### Subscription messages
 
-- `Authorization: Bearer <token>` when auth is enabled
-- `X-OrbitDock-Client-Version: <client-version>` on current clients
+Common client messages:
 
-Common client messages include:
-
-- `subscribe_dashboard`
+- `subscribe_sessions_summary`
+- `subscribe_active_sessions`
+- `subscribe_archived_sessions`
 - `subscribe_missions`
 - `subscribe_session_surface`
 - `unsubscribe_session_surface`
-- `create_session`
-- `resume_session`
-- `send_message`
-- `approve_tool`
-- `answer_question`
-- `interrupt_session`
 
-`subscribe_dashboard`, `subscribe_missions`, and `subscribe_session_surface` all support:
+All subscription messages support `since_revision`.
 
-- `since_revision` optional
+### Important server-pushed message families
 
-Example:
+- `sessions_summary_invalidated`
+- `active_sessions_invalidated`
+- `archived_sessions_invalidated`
+- `missions_invalidated`
+- `mission_invalidated`
+- `conversation_rows_changed`
+- `session_delta`
+- `approval_requested`
+- `approval_decision_result`
+- `shell_started`
+- `shell_output`
+- `review_comment_created`
+- `review_comment_updated`
+- `review_comment_deleted`
+- `worktree_created`
+- `worktree_removed`
+- `worktree_status_changed`
 
-```json
-{
-  "type": "subscribe_session_surface",
-  "session_id": "od-...",
-  "surface": "conversation",
-  "since_revision": 120
-}
-```
+### Realtime contract
 
-WebSocket does not bootstrap heavy surface state. Use HTTP first, then subscribe with `since_revision`.
-
-Server-pushed event types:
-
-- `hello` — compatibility handshake + capabilities
-- `dashboard_invalidated` / `missions_invalidated` — list refresh hints
-- `conversation_rows_changed` — incremental row upserts/removals
-- `session_delta` — session metadata changes (status, tokens, name, etc.)
-- `approval_requested` — tool needs user approval
-- `approval_decision_result` — approval outcome
-- `tokens_updated` — token usage snapshot
-- `session_ended` / `session_forked`
-- `shell_started` / `shell_output` — shell execution streaming
-- `context_compacted` / `undo_started` / `undo_completed` / `thread_rolled_back`
-- `rate_limit_event` / `prompt_suggestion` / `files_persisted`
-- `skills_list` / `mcp_tools_list` / `mcp_startup_update` / `mcp_startup_complete`
-- `review_comment_created` / `review_comment_updated` / `review_comment_deleted`
-- `worktree_created` / `worktree_removed` / `worktree_status_changed`
-
-See `docs/conversation-contracts.md` for the typed row schema used in `conversation_rows_changed`.
-
-Notes:
-
-- `conversation_rows_changed` uses the same typed row families as the REST conversation endpoints.
-- Wrapper-style provider text is normalized on the server before broadcast. Clients should treat row typing as authoritative and should not need to parse raw XML-like wrappers such as `<environment_context>`, `<turn_aborted>`, or `<user_shell_command>`.
+- Do not treat WebSocket as a bootstrap transport.
+- Do not assume invalidations contain enough state to rebuild a surface.
+- Use HTTP for authoritative snapshots.
+- Use WebSocket for deltas, replay, and explicit refetch signals only.

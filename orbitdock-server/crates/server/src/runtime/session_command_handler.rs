@@ -17,7 +17,8 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use orbitdock_protocol::{
-  CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus,
+  CodexIntegrationMode, Provider, ServerMessage, SessionStatus, SessionSurface, StateChanges,
+  WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -183,6 +184,60 @@ async fn persist_upserted_row_and_broadcast(
   });
 }
 
+async fn append_row_and_broadcast(
+  handle: &mut SessionHandle,
+  persist_tx: &mpsc::Sender<PersistCommand>,
+  entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
+) -> orbitdock_protocol::conversation_contracts::ConversationRowEntry {
+  let session_id = handle.id().to_string();
+  let previous_last_message = handle.to_snapshot().last_message.clone();
+
+  let entry = handle.add_row(entry);
+  let row_id = entry.id().to_string();
+  let viewer_present = handle.has_active_viewers();
+  let unread_count_delta = handle.unread_count_after_row_append(&entry);
+
+  let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
+  let _ = persist_tx
+    .send(PersistCommand::RowAppend {
+      session_id: session_id.clone(),
+      entry: entry.clone(),
+      viewer_present,
+      assigned_sequence: None,
+      sequence_tx: Some(seq_tx),
+    })
+    .await;
+
+  if let Ok(db_seq) = seq_rx.await {
+    handle.set_row_sequence(&row_id, db_seq);
+  }
+
+  let final_entry = handle.row_by_id(&row_id).cloned().unwrap_or(entry);
+  let observability_changes = row_append_delta(
+    previous_last_message.as_deref(),
+    &final_entry,
+    unread_count_delta,
+  );
+  let summary = final_entry.to_transport_summary();
+  let upserted = vec![summary];
+  if handle.should_emit_streaming_row_update(&upserted) {
+    handle.broadcast(ServerMessage::ConversationRowsChanged {
+      session_id: session_id.clone(),
+      upserted,
+      removed_row_ids: vec![],
+      total_row_count: handle.message_count() as u64,
+    });
+  }
+  if let Some(changes) = observability_changes {
+    handle.broadcast(ServerMessage::SessionDelta {
+      session_id: handle.id().to_string(),
+      changes: Box::new(changes),
+    });
+  }
+
+  final_entry
+}
+
 fn should_suppress_connector_user_echo(
   handle: &SessionHandle,
   event: &ConnectorStateEvent,
@@ -292,7 +347,6 @@ pub async fn handle_session_command(
     SessionCommand::GetLastTool { reply } => {
       let _ = reply.send(handle.last_tool().map(String::from));
     }
-    #[cfg(test)]
     SessionCommand::GetConversationPage {
       before_sequence,
       limit,
@@ -382,69 +436,19 @@ pub async fn handle_session_command(
     // -- Row operations --
     SessionCommand::ReplaceRows { rows } => {
       handle.replace_rows(rows);
-      handle.broadcast(ServerMessage::Error {
-        code: "conversation_resync_required".to_string(),
-        message: format!(
-          "Conversation changed for session {}; refetch GET /api/sessions/{}/conversation",
-          handle.id(),
-          handle.id()
-        ),
-        session_id: Some(handle.id().to_string()),
+      let revision = handle.to_snapshot().revision.saturating_add(1);
+      handle.broadcast(ServerMessage::SessionSurfaceInvalidated {
+        session_id: handle.id().to_string(),
+        surface: SessionSurface::Conversation,
+        revision,
       });
     }
     SessionCommand::AddRowAndBroadcast { entry } => {
-      let session_id = handle.id().to_string();
-      let previous_last_message = handle.to_snapshot().last_message.clone();
-
-      let entry = handle.add_row(entry);
-      let row_id = entry.id().to_string();
-      let viewer_present = handle.has_active_viewers();
-      let unread_count_delta = handle.unread_count_after_row_append(&entry);
-
-      // Persist-first: send to DB with response channel, await DB-assigned sequence.
-      let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-      let _ = persist_tx
-        .send(PersistCommand::RowAppend {
-          session_id: session_id.clone(),
-          entry: entry.clone(),
-          viewer_present,
-          assigned_sequence: None,
-          sequence_tx: Some(seq_tx),
-        })
-        .await;
-
-      // Update in-memory row with DB-authoritative sequence before broadcasting.
-      if let Ok(db_seq) = seq_rx.await {
-        handle.set_row_sequence(&row_id, db_seq);
-      }
-
-      let observability_changes =
-        row_append_delta(previous_last_message.as_deref(), &entry, unread_count_delta);
-      if let Some(ref changes) = observability_changes {
-        if let Some(Some(ref snippet)) = changes.last_message {
-          handle.set_last_message(Some(snippet.clone()));
-        }
-      }
-      // Re-derive summary from the now-updated in-memory row.
-      let summary = handle
-        .row_by_id(&row_id)
-        .map(|row| row.to_transport_summary())
-        .unwrap_or_else(|| entry.to_transport_summary());
-      let upserted = vec![summary];
-      if handle.should_emit_streaming_row_update(&upserted) {
-        handle.broadcast(ServerMessage::ConversationRowsChanged {
-          session_id: session_id.clone(),
-          upserted,
-          removed_row_ids: vec![],
-          total_row_count: handle.message_count() as u64,
-        });
-      }
-      if let Some(changes) = observability_changes {
-        handle.broadcast(ServerMessage::SessionDelta {
-          session_id: handle.id().to_string(),
-          changes: Box::new(changes),
-        });
-      }
+      let _ = append_row_and_broadcast(handle, persist_tx, entry).await;
+    }
+    SessionCommand::AddRowAndBroadcastAndReply { entry, reply } => {
+      let final_entry = append_row_and_broadcast(handle, persist_tx, entry).await;
+      let _ = reply.send(final_entry);
     }
     SessionCommand::UpdateSteerOutcome {
       message_id,
@@ -472,6 +476,7 @@ pub async fn handle_session_command(
       }
 
       persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
+      handle.broadcast_surface_invalidations(&[SessionSurface::Detail]);
     }
     SessionCommand::RecordQuestionAnswer { answer_text } => {
       // Find the newest AskUserQuestion tool row that has no result yet.
@@ -666,6 +671,8 @@ pub(crate) async fn dispatch_transition_input(
   let mut appended_row_ids = HashSet::new();
   let mut deferred_emits: Vec<ServerMessage> = Vec::new();
   let mut did_broadcast = false;
+  let mut saw_conversation_emit = false;
+  let mut suppressed_conversation_update = false;
 
   for effect in effects {
     match effect {
@@ -724,6 +731,7 @@ pub(crate) async fn dispatch_transition_input(
       ref mut upserted, ..
     } = msg
     {
+      saw_conversation_emit = true;
       // Re-derive summaries from now-updated in-memory rows.
       for summary in upserted.iter_mut() {
         if let Some(row) = handle.row_by_id(summary.id()) {
@@ -748,6 +756,13 @@ pub(crate) async fn dispatch_transition_input(
     if should_emit {
       handle.broadcast(msg);
       did_broadcast = true;
+    } else if let ServerMessage::ConversationRowsChanged { upserted, .. } = &msg {
+      if upserted
+        .iter()
+        .any(|entry| appended_row_ids.contains(entry.id()))
+      {
+        suppressed_conversation_update = true;
+      }
     }
   }
 
@@ -793,12 +808,16 @@ pub(crate) async fn dispatch_transition_input(
     did_broadcast = true;
   }
 
-  // If no broadcast() fired (e.g. transition only produced Persist effects),
-  // refresh the snapshot and emit a dashboard update so the client sees
-  // state changes like cleared pending_question.
-  if !did_broadcast {
-    handle.refresh_snapshot();
-    handle.emit_dashboard_update();
+  let mut fallback_surfaces: Vec<SessionSurface> = Vec::new();
+  if suppressed_conversation_update {
+    fallback_surfaces.push(SessionSurface::Conversation);
+  }
+  if !did_broadcast && !saw_conversation_emit {
+    fallback_surfaces.push(SessionSurface::Detail);
+  }
+
+  if !fallback_surfaces.is_empty() {
+    handle.broadcast_surface_invalidations(&fallback_surfaces);
   }
 }
 
@@ -878,7 +897,7 @@ mod tests {
   use orbitdock_protocol::conversation_contracts::{
     rows::MessageDeliveryStatus, ConversationRowEntry, MessageRowContent,
   };
-  use orbitdock_protocol::SessionLifecycleState;
+  use orbitdock_protocol::{SessionLifecycleState, SessionSurface, SteerOutcome};
   use tokio::sync::mpsc;
 
   fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {
@@ -915,6 +934,30 @@ mod tests {
         images: vec![],
         memory_citation: None,
         delivery_status: None,
+      }),
+    }
+  }
+
+  fn steer_entry(
+    session_id: &str,
+    row_id: &str,
+    content: &str,
+    delivery_status: MessageDeliveryStatus,
+  ) -> ConversationRowEntry {
+    ConversationRowEntry {
+      session_id: session_id.to_string(),
+      sequence: 0,
+      turn_id: None,
+      turn_status: Default::default(),
+      row: ConversationRow::Steer(MessageRowContent {
+        id: row_id.to_string(),
+        content: content.to_string(),
+        turn_id: None,
+        timestamp: Some("2026-03-20T12:00:00Z".to_string()),
+        is_streaming: false,
+        images: vec![],
+        memory_citation: None,
+        delivery_status: Some(delivery_status),
       }),
     }
   }
@@ -1160,6 +1203,75 @@ mod tests {
       panic!("expected assistant row");
     };
     assert_eq!(message.content, "final");
+  }
+
+  #[tokio::test]
+  async fn update_steer_outcome_invalidates_detail_surface() {
+    let (persist_tx, mut persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    handle.add_row(steer_entry(
+      "session-1",
+      "steer-1",
+      "nudge it",
+      MessageDeliveryStatus::Pending,
+    ));
+    handle.refresh_snapshot();
+
+    let mut rx = handle.subscribe();
+    let persist_task = tokio::spawn(async move {
+      let Some(PersistCommand::RowUpsert { sequence_tx, .. }) = persist_rx.recv().await else {
+        panic!("expected row upsert persist command");
+      };
+      let Some(sequence_tx) = sequence_tx else {
+        panic!("expected row upsert sequence response channel");
+      };
+      let _ = sequence_tx.send(0);
+    });
+
+    handle_session_command(
+      SessionCommand::UpdateSteerOutcome {
+        message_id: "steer-1".to_string(),
+        outcome: SteerOutcome::FellBackToNewTurn,
+      },
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+    persist_task.await.expect("persist task should complete");
+
+    let Some(updated) = handle.row_by_id("steer-1") else {
+      panic!("expected updated steer row");
+    };
+    let ConversationRow::Steer(message) = &updated.row else {
+      panic!("expected steer row");
+    };
+    assert_eq!(
+      message.delivery_status,
+      Some(MessageDeliveryStatus::FellBackToNewTurn)
+    );
+
+    let mut saw_row_update = false;
+    let mut saw_detail_invalidation = false;
+    while let Ok(message) = rx.try_recv() {
+      match message {
+        ServerMessage::ConversationRowsChanged { upserted, .. } => {
+          saw_row_update = upserted.iter().any(|entry| entry.id() == "steer-1");
+        }
+        ServerMessage::SessionSurfaceInvalidated { surface, .. } => {
+          if surface == SessionSurface::Detail {
+            saw_detail_invalidation = true;
+          }
+        }
+        _ => {}
+      }
+    }
+
+    assert!(saw_row_update);
+    assert!(saw_detail_invalidation);
   }
 
   #[tokio::test]

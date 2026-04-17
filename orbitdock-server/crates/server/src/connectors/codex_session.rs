@@ -22,7 +22,6 @@ use crate::domain::mission_control::executor::execute_mission_tool;
 use crate::domain::mission_control::tools::MissionToolContext;
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand};
-use crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id;
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_command_handler::{
   abort_interrupt_watchdog, classify_connector_output, dispatch_connector_event,
@@ -734,7 +733,7 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
         pr_url,
       })
       .await;
-    broadcast_mission_delta_by_id(state, &mission_context.context.mission_id).await;
+    state.publish_mission_invalidation(&mission_context.context.mission_id);
   }
 
   if blocked {
@@ -753,7 +752,7 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
         completed_at: Some(Some(now)),
       })
       .await;
-    broadcast_mission_delta_by_id(state, &mission_context.context.mission_id).await;
+    state.publish_mission_invalidation(&mission_context.context.mission_id);
   }
 
   if completed_state.is_some() {
@@ -774,7 +773,7 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
       .await;
 
     crate::runtime::session_mutations::end_session(state, session_id).await;
-    broadcast_mission_delta_by_id(state, &mission_context.context.mission_id).await;
+    state.publish_mission_invalidation(&mission_context.context.mission_id);
   }
 }
 

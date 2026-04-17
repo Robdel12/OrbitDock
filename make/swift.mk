@@ -1,6 +1,17 @@
 .PHONY: \
 	build build-ios build-all run-ios-device clean test-all test-unit test-unit-ios test-ui \
+	verify-macos-unit-test-config \
 	fmt lint swift-fmt swift-lint xcode-cache-dirs
+
+verify-macos-unit-test-config:
+	@ruby -e '\
+pbxproj = File.read("$(XCODE_PROJECT)/project.pbxproj"); \
+blocks = pbxproj.scan(/buildSettings = \{(.*?)\n\t\t\t\};/m).flatten; \
+macos_unit_blocks = blocks.select { |block| block.include?(%q{PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDockTests";}) }; \
+abort("Could not find OrbitDockTests build settings in #{ARGV[0]}") if macos_unit_blocks.empty?; \
+invalid = macos_unit_blocks.any? { |block| block.include?("TEST_HOST =") }; \
+abort("Refusing to run macOS unit tests: OrbitDockTests is app-hosted (TEST_HOST present). Remove host-app settings first.") if invalid; \
+'
 
 build:
 	$(call run_xcode_logged,$(XCODEBUILD_MACOS) build,xcodebuild-build.log)
@@ -47,6 +58,7 @@ run-ios-device:
 	xcrun devicectl device process launch --device "$$device_id" "$(XCODE_IOS_DEVICE_BUNDLE_ID)"
 
 test-unit:
+	@$(MAKE) verify-macos-unit-test-config
 	$(call run_xcode_pretty,$(XCODEBUILD_UNIT_TEST) -parallel-testing-enabled NO test)
 
 test-unit-ios:

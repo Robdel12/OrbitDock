@@ -105,20 +105,6 @@ pub(crate) async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
   let _ = tx.send(OutboundMessage::Raw(json)).await;
 }
 
-/// Spawn a task that drains a broadcast receiver and forwards messages to an outbound channel.
-/// When the outbound channel closes (client disconnects), the task exits and the
-/// broadcast::Receiver is dropped — automatic cleanup, no manual unsubscribe needed.
-///
-/// If `session_id` is provided and the subscriber lags behind the broadcast buffer,
-/// a `lagged` error is sent to the client so it can re-bootstrap the conversation.
-pub(crate) fn spawn_broadcast_forwarder(
-  rx: tokio::sync::broadcast::Receiver<ServerMessage>,
-  outbound_tx: mpsc::Sender<OutboundMessage>,
-  session_id: Option<String>,
-) -> JoinHandle<()> {
-  spawn_filtered_broadcast_forwarder(rx, outbound_tx, session_id, |_| true)
-}
-
 pub(crate) fn spawn_filtered_broadcast_forwarder<F>(
   mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
   outbound_tx: mpsc::Sender<OutboundMessage>,

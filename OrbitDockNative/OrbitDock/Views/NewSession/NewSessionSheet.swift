@@ -11,43 +11,29 @@ import SwiftUI
 // MARK: - New Session Sheet
 
 struct NewSessionSheet: View {
-  @Environment(\.dismiss) private var dismiss
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(AppRouter.self) private var router
+  @Environment(\.dismiss) var dismiss
+  @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
+  @Environment(AppRouter.self) var router
 
   let continuation: SessionContinuation?
-  private let sessionStore: SessionStore
+  private let endpointStore: ServerEndpointRuntime
   private let availableEndpointsOverride: [ServerEndpoint]?
   private let endpointSettings: ServerEndpointSettingsClient
-  @State private var model: NewSessionModel
-  @State private var codexInspectorResponse: SessionsClient.CodexInspectorResponse?
-  @State private var codexInspectorError: String?
-  @State private var codexInspectorLoading = false
-  @State private var showCodexInspector = false
-  @State private var showCodexConfigManager = false
-  @State private var codexConfigCatalog: SessionsClient.CodexConfigCatalogResponse?
-  @State private var codexConfigCatalogError: String?
-  @State private var codexConfigCatalogLoading = false
-  @State private var codexConfigCatalogRequestID = 0
-  @State private var codexCatalogRequiresProjectPath = false
-  @State private var codexScopedModels: [ServerCodexModelOption]?
-  @State private var codexScopedModelsLoading = false
-  @State private var codexScopedModelsError: String?
-  @State private var codexScopedModelsRequestID = 0
-  @State private var showOptions = false
-  @State private var presetStore = SessionPresetStore()
-  @State private var activePresetName: String?
+  @State var model: NewSessionModel
+  @State var codexConfigState = CodexConfigState()
+  @State var presentation = PresentationState()
+  @State var presetStore = SessionPresetStore()
 
   @MainActor
   init(
     provider: SessionProvider = .claude,
     continuation: SessionContinuation? = nil,
-    sessionStore: SessionStore,
+    endpointStore: ServerEndpointRuntime,
     availableEndpointsOverride: [ServerEndpoint]? = nil,
     endpointSettings: ServerEndpointSettingsClient? = nil
   ) {
     self.continuation = continuation
-    self.sessionStore = sessionStore
+    self.endpointStore = endpointStore
     self.availableEndpointsOverride = availableEndpointsOverride
     let resolvedEndpointSettings = endpointSettings ?? .live()
     self.endpointSettings = resolvedEndpointSettings
@@ -75,10 +61,9 @@ struct NewSessionSheet: View {
       && endpointAppState.codexAccountStatus?.account == nil
   }
 
-  private var codexCapabilityNotice: McpCapabilityNotice? {
+  private var codexCapabilityNotice: CodexCapabilityNotice? {
     guard model.provider == .codex, !requiresCodexLogin else { return nil }
-    guard let notice = McpServersTabPlanner.capabilityNotice(
-      provider: .codex,
+    guard let notice = CodexCapabilityNoticePlanner.notice(
       codexAccountStatus: endpointAppState.codexAccountStatus
     ) else {
       return nil
@@ -88,36 +73,32 @@ struct NewSessionSheet: View {
     return notice
   }
 
-  private var claudeModels: [ServerClaudeModelOption] {
+  var claudeModels: [ServerClaudeModelOption] {
     ServerClaudeModelOption.defaults
   }
 
-  private var codexModels: [ServerCodexModelOption] {
+  var codexModels: [ServerCodexModelOption] {
     if scopedCodexModelProvider != nil {
-      return codexScopedModels ?? []
+      return codexConfigState.scopedModels ?? []
     }
     return endpointAppState.codexModels
-  }
-
-  private var resolvedClaudeModel: String? {
-    model.resolvedClaudeModel
   }
 
   private var codexModelOptionsSignature: String {
     codexModels.map(\.model).joined(separator: "|")
   }
 
-  private var selectableEndpoints: [ServerEndpoint] {
+  var selectableEndpoints: [ServerEndpoint] {
     let endpoints = availableEndpointsOverride ?? endpointSettings.endpoints()
     let enabled = endpoints.filter(\.isEnabled)
     return enabled.isEmpty ? endpoints : enabled
   }
 
-  private var endpointAppState: SessionStore {
-    runtimeRegistry.sessionStore(for: model.selectedEndpointId, fallback: sessionStore)
+  var endpointAppState: ServerEndpointRuntime {
+    runtimeRegistry.endpointStore(for: model.selectedEndpointId)
   }
 
-  private var continuationDefaults: NewSessionContinuationDefaults? {
+  var continuationDefaults: NewSessionContinuationDefaults? {
     guard let continuation else { return nil }
     return NewSessionContinuationDefaults(
       projectPath: continuation.projectPath,
@@ -125,7 +106,7 @@ struct NewSessionSheet: View {
     )
   }
 
-  private var lifecycleState: NewSessionLifecycleState {
+  var lifecycleState: NewSessionLifecycleState {
     model.lifecycleState
   }
 
@@ -149,7 +130,7 @@ struct NewSessionSheet: View {
     )
   }
 
-  private var continuationPrompt: String? {
+  var continuationPrompt: String? {
     guard let continuation, selectedEndpointSupportsContinuation else { return nil }
     return continuation.bootstrapPrompt()
   }
@@ -159,7 +140,7 @@ struct NewSessionSheet: View {
   }
 
   private var optionsSummary: String {
-    if let presetName = activePresetName {
+    if let presetName = presentation.activePresetName {
       return presetName
     }
     switch model.provider {
@@ -184,20 +165,20 @@ struct NewSessionSheet: View {
       formContent: { formContent },
       footer: { footer }
     )
-    .sheet(isPresented: $showCodexInspector) {
+    .sheet(isPresented: $presentation.showCodexInspector) {
       CodexConfigInspectorSheet(
-        response: codexInspectorResponse,
-        errorMessage: codexInspectorError,
-        isLoading: codexInspectorLoading,
+        response: codexConfigState.inspectorResponse,
+        errorMessage: codexConfigState.inspectorError,
+        isLoading: codexConfigState.inspectorLoading,
         onRefresh: {
           inspectCodexConfig()
         },
         onManageConfig: {
-          showCodexConfigManager = true
+          presentation.showCodexConfigManager = true
         }
       )
     }
-    .sheet(isPresented: $showCodexConfigManager) {
+    .sheet(isPresented: $presentation.showCodexConfigManager) {
       if let normalizedProjectPathForConfigEditor {
         CodexConfigManagerSheet(
           cwd: normalizedProjectPathForConfigEditor,
@@ -215,48 +196,26 @@ struct NewSessionSheet: View {
       }
     }
     .onAppear {
-      applyLifecyclePlan(
-        NewSessionLifecyclePlanner.onAppear(
-          current: lifecycleState,
-          selectableEndpoints: selectableEndpoints,
-          primaryEndpointId: runtimeRegistry.primaryEndpointId,
-          continuationEndpointId: continuation?.endpointId,
-          continuationDefaults: continuationDefaults
-        )
-      )
+      applyOnAppearLifecycle()
       if continuation != nil {
-        showOptions = true
+        presentation.showOptions = true
       }
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.selectedPath) { _, newPath in
-      applyLifecyclePlan(
-        NewSessionLifecyclePlanner.pathChanged(
-          current: lifecycleState,
-          newPath: newPath
-        )
-      )
+      applyPathChangeLifecycle(newPath)
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.selectedEndpointId) { _, newEndpointId in
-      applyLifecyclePlan(
-        NewSessionLifecyclePlanner.endpointChanged(
-          current: lifecycleState,
-          requestedEndpointId: newEndpointId,
-          selectableEndpoints: selectableEndpoints,
-          primaryEndpointId: runtimeRegistry.primaryEndpointId,
-          continuationEndpointId: continuation?.endpointId,
-          continuationDefaults: continuationDefaults
-        )
-      )
+      applyEndpointChangeLifecycle(newEndpointId)
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.provider) { _, _ in
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
-      activePresetName = nil
+      presentation.activePresetName = nil
       refreshCodexConfigCatalogIfNeeded()
       refreshScopedCodexModelsIfNeeded()
     }
@@ -286,10 +245,12 @@ struct NewSessionSheet: View {
 
   private var formSections: some View {
     NewSessionQuickForm(
-      showOptions: showOptions,
+      showOptions: presentation.showOptions,
       onToggleOptions: {
-        showOptions.toggle()
-        if showOptions { activePresetName = nil }
+        presentation.showOptions.toggle()
+        if presentation.showOptions {
+          presentation.activePresetName = nil
+        }
       },
       shouldShowEndpointSection: shouldShowEndpointSection,
       continuation: continuation,
@@ -299,7 +260,7 @@ struct NewSessionSheet: View {
       hasCodexError: model.provider == .codex && model.codexErrorMessage != nil,
       provider: model.provider,
       optionsSummary: optionsSummary,
-      hasActivePreset: activePresetName != nil,
+      hasActivePreset: presentation.activePresetName != nil,
       providerToggle: { providerPicker },
       endpointSection: { endpointSection },
       continuationSection: { continuationSection($0) },
@@ -326,7 +287,7 @@ struct NewSessionSheet: View {
         model.applyPreset(preset)
         syncModelSelections()
         withAnimation(Motion.standard) {
-          activePresetName = preset.name
+          presentation.activePresetName = preset.name
         }
       },
       onSave: { name in
@@ -355,81 +316,6 @@ struct NewSessionSheet: View {
       configurationContent: { embeddedConfigurationCard },
       toolRestrictionsContent: { toolRestrictionsCard }
     )
-  }
-
-  private func inspectCodexConfig() {
-    guard !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-      codexInspectorError =
-        "Choose a project folder first so OrbitDock can resolve the Codex config that applies there, including user and project-level layers."
-      codexInspectorResponse = nil
-      showCodexInspector = true
-      return
-    }
-
-    codexInspectorLoading = true
-    codexInspectorError = nil
-    showCodexInspector = true
-
-    let shouldApplyOverrides = model.codexConfigMode == .custom
-    let request = SessionsClient.CodexInspectRequest(
-      cwd: model.selectedPath,
-      codexConfigSource: .user,
-      codexConfigMode: model.codexConfigMode,
-      codexConfigProfile: normalizedCodexProfile,
-      model: shouldApplyOverrides ? model.codexModel : nil,
-      modelProvider: shouldApplyOverrides ? normalizedCodexModelProvider : nil,
-      approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
-      approvalPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicyDetails : nil,
-      sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
-      sandboxPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.sandboxPolicyDetails : nil,
-      collaborationMode: shouldApplyOverrides ? model.codexCollaborationMode.rawValue : nil,
-      multiAgent: shouldApplyOverrides ? model.codexMultiAgentEnabled : nil,
-      personality: shouldApplyOverrides ? model.codexPersonality.requestValue : nil,
-      serviceTier: shouldApplyOverrides ? model.codexServiceTier.requestValue : nil,
-      developerInstructions: shouldApplyOverrides ? normalizedCodexInstructions : nil,
-      effort: nil
-    )
-
-    Task {
-      do {
-        codexInspectorResponse = try await endpointAppState.clients.sessions.inspectCodexConfig(request)
-      } catch {
-        codexInspectorResponse = nil
-        codexInspectorError = error.localizedDescription
-      }
-      codexInspectorLoading = false
-    }
-  }
-
-  private func openCodexConfigManager() {
-    guard normalizedProjectPathForConfigEditor != nil else {
-      codexInspectorError =
-        "Choose a project folder first so OrbitDock can resolve the Codex config layers that apply here before editing saved profiles and providers."
-      codexInspectorResponse = nil
-      showCodexInspector = true
-      return
-    }
-    showCodexConfigManager = true
-  }
-
-  private var normalizedCodexInstructions: String? {
-    let trimmed = model.codexInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-  }
-
-  private var normalizedCodexProfile: String? {
-    let trimmed = model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-  }
-
-  private var normalizedCodexModelProvider: String? {
-    let trimmed = model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
-  }
-
-  private var normalizedProjectPathForConfigEditor: String? {
-    let trimmed = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
   }
 
   @ViewBuilder
@@ -538,13 +424,13 @@ struct NewSessionSheet: View {
       codexServiceTier: $model.codexServiceTier,
       codexInstructions: $model.codexInstructions,
       hasSelectedPath: !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      codexCatalogRequiresProjectPath: codexCatalogRequiresProjectPath,
-      codexCatalog: codexConfigCatalog,
-      codexCatalogLoading: codexConfigCatalogLoading,
-      codexCatalogError: codexConfigCatalogError,
+      codexCatalogRequiresProjectPath: codexConfigState.catalogRequiresProjectPath,
+      codexCatalog: codexConfigState.catalog,
+      codexCatalogLoading: codexConfigState.catalogLoading,
+      codexCatalogError: codexConfigState.catalogError,
       codexScopedModelProvider: scopedCodexModelProvider,
-      codexScopedModelsLoading: codexScopedModelsLoading,
-      codexScopedModelError: codexScopedModelsError,
+      codexScopedModelsLoading: codexConfigState.scopedModelsLoading,
+      codexScopedModelError: codexConfigState.scopedModelsError,
       onInspectCodexConfig: inspectCodexConfig,
       onManageCodexConfig: openCodexConfigManager
     )
@@ -587,303 +473,38 @@ struct NewSessionSheet: View {
   }
 
   // MARK: - Actions
-
-  private func refreshEndpointData() {
-    guard model.provider == .codex else { return }
-    endpointAppState.refreshCodexModels()
-    endpointAppState.codexAccountService.refresh()
-  }
-
-  private func resetProviderState() {
-    model.resetProviderState()
-  }
-
-  private func syncModelSelections() {
-    syncClaudeModelSelection()
-    syncCodexModelSelection()
-  }
-
-  private func syncClaudeModelSelection() {
-    model.syncClaudeModelSelection(models: claudeModels)
-  }
-
-  private func syncCodexModelSelection() {
-    model.syncCodexModelSelection(models: codexModels)
-  }
-
-  private func refreshCodexConfigCatalogIfNeeded(force _: Bool = false) {
-    guard model.provider == .codex else {
-      codexConfigCatalog = nil
-      codexConfigCatalogError = nil
-      codexConfigCatalogLoading = false
-      codexCatalogRequiresProjectPath = false
-      return
-    }
-
-    let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    codexConfigCatalogLoading = true
-    codexConfigCatalogError = nil
-    codexCatalogRequiresProjectPath = false
-    codexConfigCatalogRequestID += 1
-    let requestID = codexConfigCatalogRequestID
-
-    Task {
-      do {
-        let response = try await endpointAppState.clients.sessions.fetchCodexConfigCatalog(
-          cwd: cwd.isEmpty ? "" : cwd
-        )
-        await MainActor.run {
-          guard requestID == codexConfigCatalogRequestID,
-                model.provider == .codex,
-                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
-          else { return }
-          codexConfigCatalog = response
-          codexConfigCatalogLoading = false
-          codexCatalogRequiresProjectPath = false
-          if model.codexConfigMode == .profile,
-             model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          {
-            model.codexConfigProfile = response.profiles.first?.name ?? ""
-          }
-          if model.codexConfigMode == .custom,
-             model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-          {
-            model.codexModelProvider = response.providers.first?.id ?? ""
-          }
-        }
-      } catch {
-        await MainActor.run {
-          guard requestID == codexConfigCatalogRequestID,
-                model.provider == .codex,
-                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
-          else { return }
-          codexConfigCatalog = nil
-          codexCatalogRequiresProjectPath = isLegacyCodexCatalogProjectRequirement(error: error, cwd: cwd)
-          codexConfigCatalogError = codexCatalogRequiresProjectPath ? nil : error.localizedDescription
-          codexConfigCatalogLoading = false
-        }
-      }
-    }
-  }
-
-  private func isLegacyCodexCatalogProjectRequirement(error: Error, cwd: String) -> Bool {
-    guard cwd.isEmpty else { return false }
-    guard let requestError = error as? ServerRequestError else { return false }
-    return requestError.statusCode == 400
-  }
-
-  private var scopedCodexModelProvider: String? {
-    guard model.provider == .codex, model.codexConfigMode == .custom else { return nil }
-    let provider = model.codexModelProvider.trimmingCharacters(in: .whitespacesAndNewlines)
-    return provider.isEmpty ? nil : provider
-  }
-
-  private func refreshScopedCodexModelsIfNeeded(force _: Bool = false) {
-    guard model.provider == .codex else {
-      codexScopedModels = nil
-      codexScopedModelsLoading = false
-      codexScopedModelsError = nil
-      return
-    }
-
-    guard model.codexConfigMode == .custom else {
-      codexScopedModels = nil
-      codexScopedModelsLoading = false
-      codexScopedModelsError = nil
-      return
-    }
-
-    let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !cwd.isEmpty else {
-      codexScopedModels = nil
-      codexScopedModelsLoading = false
-      codexScopedModelsError = nil
-      return
-    }
-
-    let modelProvider = scopedCodexModelProvider
-    guard modelProvider != nil else {
-      codexScopedModels = nil
-      codexScopedModelsLoading = false
-      codexScopedModelsError = nil
-      return
-    }
-
-    codexScopedModelsRequestID += 1
-    let requestID = codexScopedModelsRequestID
-    codexScopedModelsLoading = true
-    codexScopedModelsError = nil
-    codexScopedModels = nil
-
-    Task {
-      do {
-        let models = try await endpointAppState.clients.usage.listCodexModels(
-          cwd: cwd,
-          modelProvider: modelProvider
-        )
-        await MainActor.run {
-          guard requestID == codexScopedModelsRequestID,
-                model.provider == .codex,
-                model.codexConfigMode == .custom,
-                model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd,
-                scopedCodexModelProvider == modelProvider
-          else { return }
-          codexScopedModels = models
-          codexScopedModelsLoading = false
-          codexScopedModelsError = nil
-        }
-      } catch {
-        await MainActor.run {
-          guard requestID == codexScopedModelsRequestID else { return }
-          codexScopedModels = nil
-          codexScopedModelsLoading = false
-          codexScopedModelsError = error.localizedDescription
-        }
-      }
-    }
-  }
-
-  private func initGitAndEnableWorktree() {
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[model.selectedEndpointId] else { return }
-    model.isCreating = true
-    Task { @MainActor in
-      defer { model.isCreating = false }
-      do {
-        let state = try await NewSessionLaunchCoordinator.initializeGit(
-          at: model.selectedPath,
-          using: launchPorts(store: endpointAppState, runtime: runtime)
-        )
-        model.selectedPathIsGit = state.selectedPathIsGit
-        model.useWorktree = state.useWorktree
-      } catch {
-        model.worktreeError = "Failed to initialize git: \(error.localizedDescription)"
-      }
-    }
-  }
-
-  private func createSession() {
-    guard let plan = NewSessionRequestPlanner.planLaunch(
-      selectedPath: model.selectedPath,
-      useWorktree: model.useWorktree,
-      worktreeBranch: model.worktreeBranch,
-      worktreeBaseBranch: model.worktreeBaseBranch,
-      providerConfiguration: model.providerConfiguration,
-      bootstrapPrompt: continuationPrompt
-    ) else {
-      return
-    }
-
-    switch plan.target {
-      case let .worktree(repoPath, branch, baseBranch):
-        createSessionWithWorktree(plan: plan, repoPath: repoPath, branch: branch, baseBranch: baseBranch)
-      case .direct:
-        createSessionDirect(plan: plan)
-    }
-  }
-
-  private func createSessionWithWorktree(
-    plan: NewSessionLaunchPlan,
-    repoPath: String,
-    branch: String,
-    baseBranch: String?
-  ) {
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[model.selectedEndpointId] else { return }
-    model.isCreating = true
-    model.worktreeError = nil
-    let store = endpointAppState
-    Task { @MainActor in
-      do {
-        let worktreePath = try await NewSessionLaunchCoordinator.createWorktree(
-          repoPath: repoPath,
-          branchName: branch,
-          baseBranch: baseBranch,
-          using: launchPorts(store: store, runtime: runtime)
-        )
-        try await launchSession(plan: plan, cwd: worktreePath, store: store, runtime: runtime)
-        dismiss()
-      } catch {
-        model.isCreating = false
-        model.worktreeError = error.localizedDescription
-      }
-    }
-  }
-
-  private func createSessionDirect(plan: NewSessionLaunchPlan) {
-    guard case let .direct(cwd) = plan.target else { return }
-    model.isCreating = true
-    let store = endpointAppState
-    Task { @MainActor in
-      do {
-        try await launchSession(plan: plan, cwd: cwd, store: store, runtime: nil)
-        dismiss()
-      } catch {
-        model.isCreating = false
-        model.codexErrorMessage = error.localizedDescription
-      }
-    }
-  }
-
-  private func launchSession(
-    plan: NewSessionLaunchPlan,
-    cwd: String,
-    store: SessionStore,
-    runtime: ServerRuntime?
-  ) async throws {
-    let request = plan.requestTemplate.makeRequest(cwd: cwd)
-    let createdSessionId = try await NewSessionLaunchCoordinator.launchSession(
-      request: request,
-      continuationPrompt: plan.bootstrapPrompt,
-      using: launchPorts(store: store, runtime: runtime)
-    )
-    model.isCreating = false
-    if let createdSessionId {
-      router.selectSession(SessionRef(endpointId: store.endpointId, sessionId: createdSessionId))
-    }
-  }
-
-  private func launchPorts(store: SessionStore, runtime: ServerRuntime?) -> NewSessionLaunchPorts {
-    NewSessionLaunchPorts(
-      gitInit: { path in
-        guard let runtime else { throw NewSessionLaunchCoordinatorError.runtimeUnavailable }
-        _ = try await runtime.clients.worktrees.gitInit(path: path)
-      },
-      createWorktree: { repoPath, branchName, baseBranch in
-        guard let runtime else { throw NewSessionLaunchCoordinatorError.runtimeUnavailable }
-        let worktree = try await runtime.clients.worktrees.createWorktree(
-          repoPath: repoPath,
-          branchName: branchName,
-          baseBranch: baseBranch
-        )
-        return worktree.worktreePath
-      },
-      createSession: { request in
-        let response = try await store.createSession(request)
-        return response.sessionId
-      },
-      sendBootstrapPrompt: { sessionId, prompt in
-        try await store.sendMessage(sessionId: sessionId, content: prompt)
-      }
-    )
-  }
-
-  private func applyLifecyclePlan(_ plan: NewSessionLifecyclePlan) {
-    model.applyLifecyclePlan(plan)
-
-    if plan.shouldRefreshEndpointData {
-      refreshEndpointData()
-    }
-    if plan.shouldSyncModelSelections {
-      syncModelSelections()
-    }
-  }
 }
 
 #Preview {
   let preview = PreviewRuntime(scenario: .newSession)
   preview.inject(
     NewSessionSheet(
-      sessionStore: preview.sessionStore,
+      endpointStore: preview.endpointStore,
       availableEndpointsOverride: preview.endpoints
     )
   )
+}
+
+extension NewSessionSheet {
+  struct PresentationState {
+    var showCodexInspector = false
+    var showCodexConfigManager = false
+    var showOptions = false
+    var activePresetName: String?
+  }
+
+  struct CodexConfigState {
+    var inspectorResponse: SessionsClient.CodexInspectorResponse?
+    var inspectorError: String?
+    var inspectorLoading = false
+    var catalog: SessionsClient.CodexConfigCatalogResponse?
+    var catalogError: String?
+    var catalogLoading = false
+    var catalogRequestID = 0
+    var catalogRequiresProjectPath = false
+    var scopedModels: [ServerCodexModelOption]?
+    var scopedModelsLoading = false
+    var scopedModelsError: String?
+    var scopedModelsRequestID = 0
+  }
 }

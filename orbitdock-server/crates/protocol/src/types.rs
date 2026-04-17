@@ -1,6 +1,6 @@
 //! Core types shared across the protocol
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::domain_events::AgentType;
@@ -1557,19 +1557,20 @@ pub struct StateChanges {
   pub unread_count: Option<u64>,
 }
 
-/// Explicit OrbitDock-managed overrides layered on top of Codex config.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Explicit session-scoped Codex overrides layered on top of resolved Codex config.
+///
+/// The canonical values are the structured provider-native policy objects. We
+/// still accept legacy summary strings during deserialization so older
+/// persisted sessions resume cleanly, but we do not persist those lossy
+/// summaries back out as source-of-truth override fields.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct CodexSessionOverrides {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub model: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub model_provider: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub approval_policy: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub approval_policy_details: Option<CodexApprovalPolicy>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub sandbox_mode: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1586,6 +1587,84 @@ pub struct CodexSessionOverrides {
   pub developer_instructions: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub effort: Option<String>,
+}
+
+impl CodexSessionOverrides {
+  pub fn approval_policy_summary(&self) -> Option<String> {
+    self
+      .approval_policy_details
+      .as_ref()
+      .map(CodexApprovalPolicy::legacy_summary)
+  }
+
+  pub fn sandbox_mode_summary(&self) -> Option<String> {
+    self
+      .sandbox_policy_details
+      .as_ref()
+      .map(CodexSandboxPolicy::legacy_summary)
+  }
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexSessionOverridesCompat {
+  #[serde(default)]
+  model: Option<String>,
+  #[serde(default)]
+  model_provider: Option<String>,
+  #[serde(default)]
+  approval_policy: Option<String>,
+  #[serde(default)]
+  approval_policy_details: Option<CodexApprovalPolicy>,
+  #[serde(default)]
+  sandbox_mode: Option<String>,
+  #[serde(default)]
+  sandbox_policy_details: Option<CodexSandboxPolicy>,
+  #[serde(default)]
+  approvals_reviewer: Option<CodexApprovalsReviewer>,
+  #[serde(default)]
+  collaboration_mode: Option<String>,
+  #[serde(default)]
+  multi_agent: Option<bool>,
+  #[serde(default)]
+  personality: Option<String>,
+  #[serde(default)]
+  service_tier: Option<String>,
+  #[serde(default)]
+  developer_instructions: Option<String>,
+  #[serde(default)]
+  effort: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for CodexSessionOverrides {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+  where
+    D: Deserializer<'de>,
+  {
+    let compat = CodexSessionOverridesCompat::deserialize(deserializer)?;
+    Ok(Self {
+      model: compat.model,
+      model_provider: compat.model_provider,
+      approval_policy_details: compat.approval_policy_details.or_else(|| {
+        compat
+          .approval_policy
+          .as_deref()
+          .and_then(CodexApprovalPolicy::from_storage_text)
+      }),
+      sandbox_policy_details: compat.sandbox_policy_details.or_else(|| {
+        compat
+          .sandbox_mode
+          .as_deref()
+          .and_then(CodexSandboxPolicy::from_storage_text)
+      }),
+      approvals_reviewer: compat.approvals_reviewer,
+      collaboration_mode: compat.collaboration_mode,
+      multi_agent: compat.multi_agent,
+      personality: compat.personality,
+      service_tier: compat.service_tier,
+      developer_instructions: compat.developer_instructions,
+      effort: compat.effort,
+    })
+  }
 }
 
 /// Codex model option exposed to clients.
@@ -1874,6 +1953,8 @@ pub enum SessionSurface {
   Detail,
   Composer,
   Conversation,
+  Review,
+  Capabilities,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1972,6 +2053,23 @@ pub struct DashboardSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionsSummaryCounts {
+  pub total: u64,
+  pub active: u32,
+  pub working: u32,
+  pub attention: u32,
+  pub ready: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionsSummarySnapshot {
+  pub revision: u64,
+  pub counts: SessionsSummaryCounts,
+  pub active_sessions: Vec<SessionListItem>,
+  pub recent_sessions: Vec<SessionListItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibrarySnapshot {
   pub revision: u64,
   pub sessions: Vec<SessionListItem>,
@@ -2027,14 +2125,27 @@ pub struct ConversationSnapshotPage {
   pub revision: u64,
   pub replay_cursor: u64,
   pub session_id: String,
-  pub session: SessionState,
   pub rows: Vec<crate::conversation_contracts::RowEntrySummary>,
   pub total_row_count: u64,
   pub has_more_before: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub forked_from_session_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub oldest_sequence: Option<u64>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub newest_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionReviewSnapshot {
+  pub session_id: String,
+  pub revision: u64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub current_diff: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cumulative_diff: Option<String>,
+  pub turn_diffs: Vec<TurnDiff>,
+  pub comments: Vec<ReviewComment>,
 }
 
 /// Codex rate-limit window.
@@ -2384,7 +2495,7 @@ pub struct MissionIssueItem {
 }
 
 // ---------------------------------------------------------------------------
-// Permission Rules (returned by GET /api/sessions/{id}/permissions)
+// Permission Rules (returned by GET /api/sessions/{id}/permissions/rules)
 // ---------------------------------------------------------------------------
 
 /// A single permission rule from a provider's configuration.
@@ -2484,9 +2595,9 @@ pub fn estimate_session_cost(provider: Provider, model: Option<&str>, usage: &To
 #[cfg(test)]
 mod tests {
   use super::{
-    CodexApprovalPolicy, CodexGranularApprovalPolicy, OrchestrationState, Provider,
-    SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus, SessionStatus,
-    SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    CodexApprovalPolicy, CodexGranularApprovalPolicy, CodexSessionOverrides, OrchestrationState,
+    Provider, SessionControlMode, SessionLifecycleState, SessionListItem, SessionListStatus,
+    SessionStatus, SessionSummary, SessionSurface, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
     WorkspaceProviderKind,
   };
 
@@ -2659,6 +2770,41 @@ mod tests {
         },
       }
     );
+  }
+
+  #[test]
+  fn codex_session_overrides_deserialize_legacy_policy_strings_into_details() {
+    let restored: CodexSessionOverrides = serde_json::from_str(
+      r#"{
+        "approval_policy":"never",
+        "sandbox_mode":"external-sandbox-network"
+      }"#,
+    )
+    .expect("restore codex overrides");
+
+    assert_eq!(restored.approval_policy_summary().as_deref(), Some("never"));
+    assert_eq!(
+      restored.sandbox_mode_summary().as_deref(),
+      Some("external-sandbox-network")
+    );
+  }
+
+  #[test]
+  fn codex_session_overrides_serialize_structured_policy_only() {
+    let overrides = CodexSessionOverrides {
+      approval_policy_details: CodexApprovalPolicy::from_storage_text("never"),
+      sandbox_policy_details: super::CodexSandboxPolicy::from_storage_text(
+        "external-sandbox-network",
+      ),
+      ..Default::default()
+    };
+
+    let serialized = serde_json::to_value(&overrides).expect("serialize codex overrides");
+
+    assert!(serialized.get("approval_policy").is_none());
+    assert!(serialized.get("sandbox_mode").is_none());
+    assert!(serialized.get("approval_policy_details").is_some());
+    assert!(serialized.get("sandbox_policy_details").is_some());
   }
 
   #[test]

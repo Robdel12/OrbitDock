@@ -12,27 +12,24 @@ extension SessionDetailView {
 
   @ViewBuilder
   var workerCompanionPanel: some View {
-    if let workerRosterPresentation, showWorkerPanel {
-      Divider()
-        .foregroundStyle(Color.panelBorder)
+    let isVisible = showWorkerPanel && workerRosterPresentation != nil
 
-      SessionWorkerCompanionPanel(
-        rosterPresentation: workerRosterPresentation,
-        detailPresentation: workerDetailPresentation,
-        selectedWorkerID: viewModel.worker.selectedWorkerId,
-        onSelectWorker: { workerId in
-          selectWorkerInPanel(workerId)
-        },
-        onRevealConversationEvent: { messageId in
-          withAnimation(Motion.gentle) {
-            viewModel.revealWorkerConversationEvent(messageId)
+    SessionDetailCompanionPane(isVisible: isVisible, width: 320) {
+      if let workerRosterPresentation {
+        SessionWorkerCompanionPanel(
+          rosterPresentation: workerRosterPresentation,
+          detailPresentation: workerDetailPresentation,
+          selectedWorkerID: viewModel.worker.selectedWorkerId,
+          onSelectWorker: { workerId in
+            selectWorkerInPanel(workerId)
+          },
+          onRevealConversationEvent: { messageId in
+            withAnimation(Motion.gentle) {
+              viewModel.revealWorkerConversationEvent(messageId)
+            }
           }
-        }
-      )
-      .frame(width: 320)
-      .background(Color.panelBackground)
-    } else {
-      EmptyView()
+        )
+      }
     }
   }
 
@@ -102,7 +99,7 @@ extension SessionDetailView {
 
     return SessionDetailConversationSection(
       sessionId: sessionId,
-      sessionStore: scopedServerState,
+      session: scopedSession,
       endpointId: endpointId,
       isSessionActive: presentation.isSessionActive,
       displayStatus: presentation.displayStatus,
@@ -128,7 +125,7 @@ extension SessionDetailView {
 
     return SessionDetailReviewSection(
       sessionId: sessionId,
-      sessionStore: scopedServerState,
+      session: scopedSession,
       projectPath: presentation.projectPath,
       isSessionActive: presentation.isSessionActive,
       compact: presentation.compact,
@@ -176,8 +173,8 @@ extension SessionDetailView {
       onCleanUp: {
         viewModel.cleanup.cleanUp(
           worktreeState: viewModel.worktreeState,
-          worktreesByRepo: scopedServerState.worktreesByRepo,
-          sessionStore: scopedServerState
+          worktreesByRepo: scopedSession.worktreesByRepo,
+          session: scopedSession
         )
       }
     )
@@ -198,7 +195,7 @@ extension SessionDetailView {
   var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {
     viewModel.cleanup.bannerState(
       worktreeState: viewModel.worktreeState,
-      worktreesByRepo: scopedServerState.worktreesByRepo
+      worktreesByRepo: scopedSession.worktreesByRepo
     )
   }
 }

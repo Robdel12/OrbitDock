@@ -1,5 +1,5 @@
 use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
-use orbitdock_protocol::{ServerMessage, StateChanges};
+use orbitdock_protocol::{ServerMessage, SessionSurface, StateChanges};
 
 /// Inject approval_version into approval-related transport messages so clients
 /// can ignore stale events.
@@ -73,4 +73,86 @@ pub(crate) fn transition_delta(
     unread_count,
     ..Default::default()
   })
+}
+
+pub(crate) fn invalidated_surfaces(msg: &ServerMessage) -> &'static [SessionSurface] {
+  match msg {
+    ServerMessage::SessionDelta { .. } => &[SessionSurface::Detail],
+    ServerMessage::SessionEnded { .. } => &[SessionSurface::Detail],
+    // Conversation streaming already has its own incremental delta channel over
+    // the socket. Broadcasting a matching surface invalidation for every row
+    // change forces clients back through full HTTP bootstrap and defeats the
+    // transport split entirely.
+    ServerMessage::ConversationRowsChanged { .. } => &[],
+    ServerMessage::ApprovalRequested { .. } => &[SessionSurface::Detail],
+    ServerMessage::ApprovalDecisionResult { .. } => &[SessionSurface::Detail],
+    ServerMessage::TokensUpdated { .. } => &[SessionSurface::Detail],
+    ServerMessage::ContextCompacted { .. } => &[
+      SessionSurface::Conversation,
+      SessionSurface::Detail,
+      SessionSurface::Review,
+    ],
+    ServerMessage::UndoCompleted { .. } => &[
+      SessionSurface::Conversation,
+      SessionSurface::Detail,
+      SessionSurface::Review,
+    ],
+    ServerMessage::ThreadRolledBack { .. } => &[
+      SessionSurface::Conversation,
+      SessionSurface::Detail,
+      SessionSurface::Review,
+    ],
+    ServerMessage::SessionForked { .. } => &[SessionSurface::Detail],
+    ServerMessage::TurnDiffSnapshot { .. } => &[SessionSurface::Detail, SessionSurface::Review],
+    ServerMessage::ReviewCommentCreated { .. }
+    | ServerMessage::ReviewCommentUpdated { .. }
+    | ServerMessage::ReviewCommentDeleted { .. }
+    | ServerMessage::ReviewCommentsList { .. } => &[SessionSurface::Review],
+    ServerMessage::SubagentToolsList { .. } => &[SessionSurface::Detail],
+    ServerMessage::RateLimitEvent { .. }
+    | ServerMessage::PromptSuggestion { .. }
+    | ServerMessage::PermissionRules { .. } => &[SessionSurface::Detail],
+    ServerMessage::FilesPersisted { .. } => &[SessionSurface::Detail, SessionSurface::Review],
+    ServerMessage::SkillsList { .. }
+    | ServerMessage::SkillsUpdateAvailable { .. }
+    | ServerMessage::McpToolsList { .. }
+    | ServerMessage::McpStartupUpdate { .. }
+    | ServerMessage::McpStartupComplete { .. }
+    | ServerMessage::ClaudeCapabilities { .. } => &[SessionSurface::Capabilities],
+    _ => &[],
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::invalidated_surfaces;
+  use orbitdock_protocol::{ServerMessage, SessionSurface};
+
+  #[test]
+  fn conversation_rows_changed_do_not_emit_surface_invalidation() {
+    let invalidations = invalidated_surfaces(&ServerMessage::ConversationRowsChanged {
+      session_id: "session-1".to_string(),
+      upserted: vec![],
+      removed_row_ids: vec![],
+      total_row_count: 1,
+    });
+
+    assert!(invalidations.is_empty());
+  }
+
+  #[test]
+  fn context_compacted_still_invalidates_conversation_detail_and_review() {
+    let invalidations = invalidated_surfaces(&ServerMessage::ContextCompacted {
+      session_id: "session-1".to_string(),
+    });
+
+    assert_eq!(
+      invalidations,
+      &[
+        SessionSurface::Conversation,
+        SessionSurface::Detail,
+        SessionSurface::Review,
+      ]
+    );
+  }
 }

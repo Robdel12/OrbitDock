@@ -21,6 +21,7 @@ pub(crate) struct StartDirectCodexRequest<'a> {
   pub model: Option<&'a str>,
   pub approval_policy: Option<&'a str>,
   pub sandbox_mode: Option<&'a str>,
+  pub sandbox_policy_details: Option<&'a orbitdock_protocol::CodexSandboxPolicy>,
   pub collaboration_mode: Option<&'a str>,
   pub multi_agent: Option<bool>,
   pub personality: Option<&'a str>,
@@ -42,6 +43,7 @@ pub(crate) async fn start_direct_codex_session(
     model,
     approval_policy,
     sandbox_mode,
+    sandbox_policy_details,
     collaboration_mode,
     multi_agent,
     personality,
@@ -56,6 +58,7 @@ pub(crate) async fn start_direct_codex_session(
   let model = model.map(ToOwned::to_owned);
   let approval_policy = approval_policy.map(ToOwned::to_owned);
   let sandbox_mode = sandbox_mode.map(ToOwned::to_owned);
+  let sandbox_policy_details = sandbox_policy_details.cloned();
   let collaboration_mode = collaboration_mode.map(ToOwned::to_owned);
   let personality = personality.map(ToOwned::to_owned);
   let service_tier = service_tier.map(ToOwned::to_owned);
@@ -79,6 +82,7 @@ pub(crate) async fn start_direct_codex_session(
         model: model.as_deref(),
         approval_policy: approval_policy.as_deref(),
         sandbox_mode: sandbox_mode.as_deref(),
+        sandbox_policy_details,
         config_overrides: CodexConfigOverrides {
           model_provider,
           config_profile,
@@ -119,7 +123,9 @@ pub(crate) async fn start_direct_codex_session(
   .await;
 
   handle.set_list_tx(state.list_tx());
+  handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
+  handle.set_library_revision_counter(state.library_revision_counter());
   let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
     codex_session,
     handle,
@@ -176,7 +182,9 @@ pub(crate) async fn start_direct_claude_session(
   .map_err(|error| error.to_string())?;
 
   handle.set_list_tx(state.list_tx());
+  handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
+  handle.set_library_revision_counter(state.library_revision_counter());
   let persist_tx = state.persist().clone();
   let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
     claude_session,

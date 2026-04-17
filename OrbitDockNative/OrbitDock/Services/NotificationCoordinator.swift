@@ -121,9 +121,7 @@ final class NotificationCoordinator {
     notificationCenter.requestAuthorization { granted, error in
       Task { @MainActor in
         self.isAuthorized = granted
-        if let error {
-          print("Notification authorization error: \(error)")
-        }
+        _ = error
       }
     }
   }
@@ -185,9 +183,7 @@ final class NotificationCoordinator {
     )
 
     notificationCenter.addRequest(request) { error in
-      if let error {
-        print("Failed to schedule notification: \(error)")
-      }
+      _ = error
     }
   }
 
@@ -282,9 +278,7 @@ final class NotificationCoordinator {
     )
 
     notificationCenter.addRequest(request) { error in
-      if let error {
-        print("Failed to schedule notification: \(error)")
-      }
+      _ = error
     }
   }
 
@@ -306,9 +300,7 @@ final class NotificationCoordinator {
     )
 
     notificationCenter.addRequest(request) { error in
-      if let error {
-        print("Failed to schedule notification: \(error)")
-      }
+      _ = error
     }
   }
 

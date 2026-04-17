@@ -233,7 +233,8 @@ struct ApprovalCardModelTests {
               displayTier: "standard",
               inputDisplay: "{\"plan\":\"# Plan\\n1. Clarify requirements\\n2. Implement change\"}",
               outputDisplay: nil,
-              diffDisplay: nil
+              diffDisplay: nil,
+              planExplanation: nil
             )
           )
         )
@@ -254,7 +255,7 @@ struct ApprovalCardModelTests {
 
   @Test func builderUsesExitPlanContentFromHistoryToolInput() {
     let sessionId = "session-plan-content-from-history"
-    var session = Session(
+    let session = Session(
       id: sessionId,
       projectPath: "/tmp/project",
       status: .active,

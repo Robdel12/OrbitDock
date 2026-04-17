@@ -93,7 +93,7 @@ Start with ARCHITECTURE.md if you're writing client or server code.
 │   │   │   ├── Toast/           # Notification toasts
 │   │   │   └── Components/      # Shared presentation components
 │   │   ├── Services/            # Endpoint runtimes, transport, session orchestration
-│   │   │   └── Server/          # Typed clients, EventStream, SessionStore, runtime registry
+│   │   │   └── Server/          # Endpoint runtime, session context, HTTP API, realtime transport
 │   │   └── Models/              # Data models + protocol types
 │   └── OrbitDockCore/           # Swift Package (shared models)
 ├── orbitdock-server/migrations/ # Database migrations (SQL)
@@ -132,9 +132,9 @@ make lint         # Lint Swift + Rust
 
 ### Swift App
 
-**Scene ownership** — Resolve the real endpoint-scoped `SessionStore` in the owning scene before mounting child features. Do not build runtime ownership around placeholder stores or late child-level dependency lookup.
+**Scene ownership** — Resolve the real `ServerEndpointRuntime` in the owning scene before mounting child features. Do not build runtime ownership around placeholder stores or late child-level dependency lookup.
 
-**Surface ownership** — Give each rendered surface one owner, one HTTP bootstrap path, and one realtime follow-up path. `SessionStore` is transport only, not a shared product-state blob.
+**Surface ownership** — Give each rendered surface one owner, one HTTP bootstrap path, and one realtime follow-up path. `ServerSessionContext` is a scoped dependency bag, while `ServerSessionAPI` and `ServerSessionTransport` stay transport-only.
 
 **State scoping** — Keep state endpoint-scoped and session-scoped where appropriate. Cache by scoped identity and always guard async callbacks with a current scoped-id check before applying results.
 

@@ -8,6 +8,8 @@ enum ServerSessionSurface: String, Codable, CaseIterable, Sendable {
   case detail
   case composer
   case conversation
+  case review
+  case capabilities
 }
 
 struct ServerHelloMetadata: Codable, Sendable {

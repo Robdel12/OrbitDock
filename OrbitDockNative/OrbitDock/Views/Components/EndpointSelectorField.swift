@@ -22,7 +22,7 @@ struct EndpointSelectorField: View {
     endpoints.count > 1
   }
 
-  private var isControlPlaneEndpoint: Bool {
+  private var isDefaultEndpoint: Bool {
     selectedEndpoint?.isDefault == true
   }
 
@@ -164,15 +164,15 @@ struct EndpointSelectorField: View {
 
   @ViewBuilder
   private var roleBadgeContent: some View {
-    if isControlPlaneEndpoint {
-      roleBadge(title: "Control Plane", tint: Color.accent)
+    if isDefaultEndpoint {
+      roleBadge(title: "Default", tint: Color.accent)
     }
 
     if isServerPrimaryEndpoint {
       roleBadge(title: "Server Primary", tint: Color.statusWorking)
     }
 
-    if !hasMultipleEndpoints, !isControlPlaneEndpoint, !isServerPrimaryEndpoint {
+    if !hasMultipleEndpoints, !isDefaultEndpoint, !isServerPrimaryEndpoint {
       Text("Single endpoint")
         .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(Color.textQuaternary)
@@ -195,10 +195,10 @@ struct EndpointSelectorField: View {
   private func endpointLabel(_ endpoint: ServerEndpoint) -> String {
     let isServerPrimary = serverPrimaryByEndpointId[endpoint.id] == true
     if endpoint.isDefault, isServerPrimary {
-      return "\(endpoint.name) (CP, Primary)"
+      return "\(endpoint.name) (Default, Primary)"
     }
     if endpoint.isDefault {
-      return "\(endpoint.name) (CP)"
+      return "\(endpoint.name) (Default)"
     }
     if isServerPrimary {
       return "\(endpoint.name) (Primary)"

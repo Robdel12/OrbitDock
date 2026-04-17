@@ -54,11 +54,7 @@ pub async fn cleanup_claude_shadow_session(
   });
 
   if should_remove_runtime_shadow && state.remove_session(hook_session_id).is_some() {
-    let _ = state
-      .list_tx()
-      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-        session_id: hook_session_id.to_string(),
-      });
+    state.publish_active_session_removed(hook_session_id);
   }
 }
 

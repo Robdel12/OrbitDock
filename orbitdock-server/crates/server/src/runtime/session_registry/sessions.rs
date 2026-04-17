@@ -122,17 +122,23 @@ impl SessionRegistry {
 
   pub fn add_session(&self, mut handle: SessionHandle) -> SessionActorHandle {
     handle.set_list_tx(self.list_tx.clone());
+    handle.set_control_plane_revision_counter(self.control_plane_revision.clone());
     handle.set_dashboard_revision_counter(self.dashboard_revision.clone());
+    handle.set_library_revision_counter(self.library_revision.clone());
     let id = handle.id().to_string();
     let actor = SessionActorHandle::spawn(handle, self.persist_tx.clone());
     self.sessions.insert(id, actor.clone());
+    self.control_plane_revision.fetch_add(1, Ordering::Relaxed);
     self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
+    self.library_revision.fetch_add(1, Ordering::Relaxed);
     actor
   }
 
   pub fn add_session_actor(&self, actor: SessionActorHandle) {
     self.sessions.insert(actor.id.clone(), actor);
+    self.control_plane_revision.fetch_add(1, Ordering::Relaxed);
     self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
+    self.library_revision.fetch_add(1, Ordering::Relaxed);
   }
 
   pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
@@ -140,7 +146,9 @@ impl SessionRegistry {
     self.purge_runtime_ownership_for_session(id);
     let removed = self.sessions.remove(id).map(|(_, v)| v);
     if removed.is_some() {
+      self.control_plane_revision.fetch_add(1, Ordering::Relaxed);
       self.dashboard_revision.fetch_add(1, Ordering::Relaxed);
+      self.library_revision.fetch_add(1, Ordering::Relaxed);
     }
     removed
   }

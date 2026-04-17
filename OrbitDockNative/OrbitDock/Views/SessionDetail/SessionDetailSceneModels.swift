@@ -81,7 +81,11 @@ final class SessionDetailWorkerModel {
   var rosterPresentation: SessionWorkerRosterPresentation?
   var detailPresentation: SessionWorkerDetailPresentation?
 
+  @ObservationIgnored private var detailLoadTask: Task<Void, Never>?
+  @ObservationIgnored private var detailLoadRequestID = 0
+
   func reset() {
+    cancelDetailLoad()
     selectedWorkerId = nil
     state = .empty
     rosterPresentation = nil
@@ -89,8 +93,9 @@ final class SessionDetailWorkerModel {
   }
 
   func apply(snapshotState: SessionDetailWorkerState, layoutConfig: LayoutConfiguration) {
-    let preservedTools = state.subagentTools
-    let preservedMessages = state.subagentMessages
+    let visibleWorkerIDs = Set(snapshotState.subagents.map(\.id))
+    let preservedTools = state.subagentTools.filter { visibleWorkerIDs.contains($0.key) }
+    let preservedMessages = state.subagentMessages.filter { visibleWorkerIDs.contains($0.key) }
 
     state = SessionDetailWorkerState(
       subagents: snapshotState.subagents,
@@ -109,21 +114,32 @@ final class SessionDetailWorkerModel {
 
   func loadDetails(
     sessionId: String,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     layoutConfig: LayoutConfiguration,
     for workerId: String? = nil
   ) {
     guard let workerId = workerId ?? selectedWorkerId else { return }
 
-    Task {
-      let tools = try? await sessionStore.clients.sessions.getSubagentTools(
-        sessionId: sessionId,
-        subagentId: workerId
-      )
-      let messages = try? await sessionStore.clients.sessions.getSubagentMessages(
-        sessionId: sessionId,
-        subagentId: workerId
-      )
+    cancelDetailLoad()
+    detailLoadRequestID += 1
+    let requestID = detailLoadRequestID
+
+    detailLoadTask = Task {
+      defer {
+        if requestID == detailLoadRequestID {
+          detailLoadTask = nil
+        }
+      }
+
+      async let toolsRequest = try? session.api.fetchSubagentTools(subagentId: workerId)
+      async let messagesRequest = try? session.api.fetchSubagentMessages(subagentId: workerId)
+
+      let tools = await toolsRequest
+      let messages = await messagesRequest
+
+      guard !Task.isCancelled else { return }
+      guard requestID == detailLoadRequestID else { return }
+      guard selectedWorkerId == workerId else { return }
 
       state.subagentTools[workerId] = tools ?? []
       state.subagentMessages[workerId] = messages ?? []
@@ -134,7 +150,7 @@ final class SessionDetailWorkerModel {
   func select(
     workerId: String,
     sessionId: String,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     layoutConfig: LayoutConfiguration
   ) {
     guard !workerId.isEmpty else { return }
@@ -142,7 +158,7 @@ final class SessionDetailWorkerModel {
     syncDetailPresentation(layoutConfig: layoutConfig)
     loadDetails(
       sessionId: sessionId,
-      sessionStore: sessionStore,
+      session: session,
       layoutConfig: layoutConfig,
       for: workerId
     )
@@ -151,15 +167,21 @@ final class SessionDetailWorkerModel {
   func focus(
     workerId: String,
     sessionId: String,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     layoutConfig: LayoutConfiguration
   ) {
     select(
       workerId: workerId,
       sessionId: sessionId,
-      sessionStore: sessionStore,
+      session: session,
       layoutConfig: layoutConfig
     )
+  }
+
+  func cancelDetailLoad() {
+    detailLoadTask?.cancel()
+    detailLoadTask = nil
+    detailLoadRequestID += 1
   }
 
   private func syncSelectedWorker(layoutConfig: LayoutConfiguration) {
@@ -250,7 +272,7 @@ final class SessionDetailWorktreeCleanupModel {
   func cleanUp(
     worktreeState: SessionDetailWorktreeState,
     worktreesByRepo: [String: [ServerWorktreeSummary]],
-    sessionStore: SessionStore
+    session: ServerSessionContext
   ) {
     guard let request = SessionDetailWorktreeCleanupPlanner.cleanupRequest(
       worktree: worktree(worktreeState: worktreeState, worktreesByRepo: worktreesByRepo),
@@ -264,7 +286,7 @@ final class SessionDetailWorktreeCleanupModel {
 
     Task {
       do {
-        try await sessionStore.clients.worktrees.removeWorktree(
+        try await session.api.removeWorktree(
           worktreeId: request.worktreeId,
           force: request.force,
           deleteBranch: request.deleteBranch

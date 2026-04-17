@@ -77,6 +77,10 @@ pub struct ToolDisplay {
   /// Structured diff for edit/write tools — expanded view renders this line-by-line.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub diff_display: Option<Vec<DiffLine>>,
+
+  /// Plan explanation/summary for plan tools (EnterPlanMode, UpdatePlan, ExitPlanMode).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub plan_explanation: Option<String>,
 }
 
 /// Diff preview for edit/write tool cards.
@@ -251,6 +255,9 @@ pub fn compute_tool_display(input: ToolDisplayInput<'_>) -> ToolDisplay {
   // Extract todo items from invocation input
   let todo_items = extract_todo_items(kind, invocation_input);
 
+  // Extract plan explanation for plan tools
+  let plan_explanation = extract_plan_explanation(kind, invocation_input);
+
   ToolDisplay {
     summary: display_summary,
     subtitle: computed_subtitle,
@@ -269,6 +276,7 @@ pub fn compute_tool_display(input: ToolDisplayInput<'_>) -> ToolDisplay {
     input_display,
     output_display,
     diff_display,
+    plan_explanation,
   }
 }
 
@@ -1435,13 +1443,63 @@ fn parse_hunk_header(header: &str) -> Option<(u32, u32)> {
 // ---------------------------------------------------------------------------
 
 fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<ToolTodoItem> {
-  if kind != ToolKind::TodoWrite {
-    return vec![];
-  }
   let input = match input {
     Some(v) => v,
     None => return vec![],
   };
+
+  // Plan tools: EnterPlanMode, UpdatePlan, ExitPlanMode
+  // Claude shape: {"plan": [{step: string, status: string}], "explanation"?: string}
+  // Codex shape: {"plan": [{step: string, status: "pending" | "inProgress" | "completed"}]}
+  if matches!(
+    kind,
+    ToolKind::EnterPlanMode | ToolKind::UpdatePlan | ToolKind::ExitPlanMode
+  ) {
+    let plan_array = input.get("plan").and_then(|v| v.as_array());
+    if let Some(steps) = plan_array {
+      return steps
+        .iter()
+        .map(|item| {
+          // Normalize status: Codex uses "inProgress", Claude uses "in_progress"
+          let raw_status = item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pending");
+          let status = match raw_status {
+            "inProgress" => "in_progress",
+            other => other,
+          }
+          .to_string();
+
+          // "step" field in plan tools maps to "content" for display
+          let content = item
+            .get("step")
+            .or_else(|| item.get("title"))
+            .or_else(|| item.get("content"))
+            .and_then(|v| v.as_str())
+            .map(|s| truncate(s, 200));
+
+          let active_form = item
+            .get("activeForm")
+            .and_then(|v| v.as_str())
+            .map(|s| truncate(s, 200));
+
+          ToolTodoItem {
+            status,
+            content,
+            active_form,
+          }
+        })
+        .collect();
+    }
+    return vec![];
+  }
+
+  // TodoWrite tools
+  if kind != ToolKind::TodoWrite {
+    return vec![];
+  }
+
   // TodoWrite input shape: {"tasks": [...]} (Claude) or {"todos": [...]} (Codex)
   let items = match input
     .get("tasks")
@@ -1474,6 +1532,37 @@ fn extract_todo_items(kind: ToolKind, input: Option<&serde_json::Value>) -> Vec<
       }
     })
     .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Plan explanation extraction
+// ---------------------------------------------------------------------------
+
+fn extract_plan_explanation(kind: ToolKind, input: Option<&serde_json::Value>) -> Option<String> {
+  if !matches!(
+    kind,
+    ToolKind::EnterPlanMode | ToolKind::UpdatePlan | ToolKind::ExitPlanMode
+  ) {
+    return None;
+  }
+
+  let input = input?;
+
+  // Try "explanation" field first (both Claude and Codex use this)
+  if let Some(explanation) = input.get("explanation").and_then(|v| v.as_str()) {
+    if !explanation.is_empty() {
+      return Some(truncate(explanation, 500));
+    }
+  }
+
+  // Fall back to "summary" field
+  if let Some(summary) = input.get("summary").and_then(|v| v.as_str()) {
+    if !summary.is_empty() {
+      return Some(truncate(summary, 500));
+    }
+  }
+
+  None
 }
 
 /// Classify a tool name into (ToolFamily, ToolKind).

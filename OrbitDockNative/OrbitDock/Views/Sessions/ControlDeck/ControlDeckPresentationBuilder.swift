@@ -7,17 +7,19 @@ enum ControlDeckPresentationBuilder {
     availableModels: [String] = []
   ) -> ControlDeckPresentation {
     let state = snapshot.state
+    let activityStatus = resolveActivityStatus(snapshot: snapshot)
     let mode = resolveMode(state: state, hasPendingApproval: snapshot.pendingApproval != nil)
 
     return ControlDeckPresentation(
       mode: mode,
+      activityStatus: activityStatus,
       controlModeLabel: controlModeLabel(state.controlMode),
       lifecycleLabel: lifecycleLabel(state.lifecycle),
       lifecycleTint: lifecycleTint(state.lifecycle),
       acceptsUserInput: state.acceptsUserInput,
       canResume: canResume(state: state),
       supportsImages: snapshot.capabilities.supportsImages,
-      headerSubtitle: headerSubtitle(state: state, isLoading: isLoading),
+      headerSubtitle: headerSubtitle(state: state, activityStatus: activityStatus, isLoading: isLoading),
       statusModules: buildStatusModules(
         state: state,
         capabilities: snapshot.capabilities,
@@ -36,9 +38,38 @@ enum ControlDeckPresentationBuilder {
     if state.lifecycle == .ended { return .disabled }
     // Only show approval mode if connector is attached — otherwise user needs to resume first
     if hasPendingApproval, state.connectorAttached { return .approval }
-    if state.steerable, !state.acceptsUserInput { return .steer }
+    if state.steerable { return .steer }
     if state.acceptsUserInput { return .compose }
     return .disabled
+  }
+
+  private static func resolveActivityStatus(snapshot: ControlDeckSnapshot) -> ControlDeckActivityStatus {
+    let state = snapshot.state
+    if state.lifecycle == .ended {
+      return .ended
+    }
+
+    if let pendingApproval = snapshot.pendingApproval, state.connectorAttached {
+      switch pendingApproval.kind {
+        case .question:
+          return .question
+        case .tool, .patch, .permission:
+          return .permission
+      }
+    }
+
+    switch state.workStatus {
+      case .working:
+        return .working
+      case .permission:
+        return .permission
+      case .question:
+        return .question
+      case .waiting, .reply:
+        return .ready
+      case .ended:
+        return .ended
+    }
   }
 
   private static func placeholder(for mode: ControlDeckMode) -> String {
@@ -55,9 +86,10 @@ enum ControlDeckPresentationBuilder {
     if state.lifecycle == .resumable || state.lifecycle == .ended {
       return true
     }
-    // Harden transient state after resume: lifecycle can report open before
-    // acceptsUserInput flips, and we should keep the resume affordance visible.
-    return state.lifecycle == .open && !state.acceptsUserInput
+    // Keep resume visible for detached-open sessions that have not yet restored
+    // connector ownership, but do not show resume for normal attached working
+    // sessions that are already actively processing.
+    return state.lifecycle == .open && !state.acceptsUserInput && !state.connectorAttached
   }
 
   private static func sendTint(for mode: ControlDeckMode) -> String {
@@ -123,12 +155,30 @@ enum ControlDeckPresentationBuilder {
     }
   }
 
-  private static func headerSubtitle(state: ControlDeckSessionState, isLoading: Bool) -> String {
+  private static func headerSubtitle(
+    state: ControlDeckSessionState,
+    activityStatus: ControlDeckActivityStatus,
+    isLoading: Bool
+  ) -> String {
     if isLoading { return "Syncing\u{2026}" }
     switch state.lifecycle {
-      case .open: return "Ready"
-      case .resumable: return "Session paused"
-      case .ended: return "Session ended"
+      case .resumable:
+        return "Session paused"
+      case .ended:
+        return "Session ended"
+      case .open:
+        switch activityStatus {
+          case .working:
+            return "Working"
+          case .permission:
+            return "Awaiting approval"
+          case .question:
+            return "Awaiting answer"
+          case .ready:
+            return "Ready"
+          case .ended:
+            return "Session ended"
+        }
     }
   }
 

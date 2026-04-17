@@ -1,20 +1,9 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use orbitdock_protocol::conversation_contracts::{
-  ConversationRow, ConversationRowEntry, RowEntrySummary, TurnStatus,
-};
-use orbitdock_protocol::{
-  ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, SessionControlMode,
-  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
-  TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
-};
-use tracing::info;
-
 use super::approval_state::{
-  normalize_request_id, pending_tool_family_from_state, resolve_approval_policy_details,
-  resolve_sandbox_policy_details, ApprovalQueueState, PendingApprovalEntry,
-  PendingApprovalMutation,
+  pending_tool_family_from_state, resolve_approval_policy_details, resolve_sandbox_policy_details,
+  ApprovalQueueState, PendingApprovalEntry, PendingApprovalMutation,
 };
 use super::conversation_state::{is_non_user_row, is_non_user_row_summary, ConversationState};
 use super::facets::{
@@ -27,8 +16,28 @@ use super::session::{
 };
 use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
+use orbitdock_protocol::conversation_contracts::{
+  ConversationRow, ConversationRowEntry, RowEntrySummary, TurnStatus,
+};
+use orbitdock_protocol::{
+  ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, SessionControlMode,
+  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
+  TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+};
 
 const RETAINED_FINALIZED_ROW_LIMIT: usize = 200;
+
+fn is_local_http_row_id(row_id: &str) -> bool {
+  row_id.starts_with("user-http-") || row_id.starts_with("steer-http-")
+}
+
+fn latest_transcript_synced_row_id(rows: &[ConversationRowEntry]) -> Option<String> {
+  rows
+    .iter()
+    .rev()
+    .find(|row| !is_local_http_row_id(row.id()))
+    .map(|row| row.id().to_string())
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionCoreState {
@@ -202,13 +211,12 @@ impl SessionCoreState {
       newest_synced_row_id: None,
     };
     state.total_row_count = state.rows.len() as u64;
-    state.newest_synced_row_id = state.rows.last().map(|r| r.id().to_string());
+    state.newest_synced_row_id = latest_transcript_synced_row_id(&state.rows);
     state.trim_retained_rows();
     state.bootstrap_pending_approval_from_persisted_fields();
     state
   }
 
-  #[cfg(test)]
   pub fn conversation_state(&self) -> ConversationState {
     ConversationState::new(self.rows.clone(), self.total_row_count)
   }
@@ -621,6 +629,13 @@ impl SessionCoreState {
         self.config.codex_config_overrides.as_ref(),
       );
     }
+    if had_explicit_details {
+      self.config.approval_policy = self
+        .config
+        .approval_policy_details
+        .as_ref()
+        .map(orbitdock_protocol::CodexApprovalPolicy::storage_text);
+    }
     if had_explicit_sandbox_details {
       self.config.sandbox_mode = self
         .config
@@ -701,7 +716,9 @@ impl SessionCoreState {
     if is_non_user_row(&entry) && !has_active_viewers {
       self.unread_count += 1;
     }
-    self.newest_synced_row_id = Some(entry.id().to_string());
+    if !is_local_http_row_id(entry.id()) {
+      self.newest_synced_row_id = Some(entry.id().to_string());
+    }
     self.rows.push(entry.clone());
     self.total_row_count = self.total_row_count.saturating_add(1);
     self.trim_retained_rows();
@@ -729,7 +746,7 @@ impl SessionCoreState {
         entry.sequence = self.rows[pos].sequence;
       }
       self.rows[pos] = entry.clone();
-      if pos == self.rows.len() - 1 {
+      if pos == self.rows.len() - 1 && !is_local_http_row_id(&entry_id) {
         self.newest_synced_row_id = Some(entry_id);
       }
       let now = crate::support::session_time::chrono_now();
@@ -747,7 +764,9 @@ impl SessionCoreState {
       {
         entry.sequence = self.next_row_sequence();
       }
-      self.newest_synced_row_id = Some(entry.id().to_string());
+      if !is_local_http_row_id(entry.id()) {
+        self.newest_synced_row_id = Some(entry.id().to_string());
+      }
       self.rows.push(entry.clone());
       if self.rows.len() as u64 > self.total_row_count {
         self.total_row_count = self.rows.len() as u64;
@@ -809,7 +828,7 @@ impl SessionCoreState {
 
   pub fn replace_rows(&mut self, rows: Vec<ConversationRowEntry>) {
     let rows = ConversationState::normalize_row_sequences(rows);
-    self.newest_synced_row_id = rows.last().map(|r| r.id().to_string());
+    self.newest_synced_row_id = latest_transcript_synced_row_id(&rows);
     self.total_row_count = rows.len() as u64;
     self.rows = rows;
     self.trim_retained_rows();
@@ -853,80 +872,25 @@ impl SessionCoreState {
     approval_type: ApprovalType,
     proposed_amendment: Option<Vec<String>>,
   ) -> PendingApprovalMutation {
-    let normalized_request_id = normalize_request_id(&approval.id).to_string();
     let (state, mutation) = self.approval_queue_state().queue_pending_approval(
       approval,
       approval_type,
       proposed_amendment,
     );
     self.apply_approval_queue_state(state);
-
-    match mutation {
-      PendingApprovalMutation::Unchanged => {}
-      PendingApprovalMutation::Updated => info!(
-        component = "approval",
-        event = "approval.updated",
-        session_id = %self.identity.id,
-        request_id = %normalized_request_id,
-        approval_version = self.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.pending_approvals.len(),
-        "Approval request updated in place"
-      ),
-      PendingApprovalMutation::Enqueued => info!(
-        component = "approval",
-        event = "approval.enqueued",
-        session_id = %self.identity.id,
-        request_id = %normalized_request_id,
-        approval_version = self.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.pending_approvals.len(),
-        "Approval request enqueued"
-      ),
-    }
-
     mutation
   }
 
   pub(crate) fn promote_queue_front(&mut self) {
-    let active_before = self.pending_approval_id.clone();
-    let work_status_before = self.work_status;
-    let front_before = self.pending_approvals.front().cloned();
     let state = self.approval_queue_state().promote_queue_front();
     self.apply_approval_queue_state(state);
-
-    if let Some(entry) = front_before {
-      if active_before.as_deref() != Some(entry.request.id.as_str())
-        || work_status_before != self.work_status
-      {
-        info!(
-          component = "approval",
-          event = "approval.promoted",
-          session_id = %self.identity.id,
-          request_id = %entry.request.id,
-          approval_version = self.approval_version,
-          approval_type = ?entry.approval_type,
-          queue_depth = self.pending_approvals.len(),
-          "Promoted next approval to active"
-        );
-      }
-    }
   }
 
   pub(crate) fn clear_pending_approvals(&mut self) {
     let had_approvals = !self.pending_approvals.is_empty() || self.pending_approval.is_some();
-    let cleared_count = self.pending_approvals.len();
     if had_approvals {
       let state = self.approval_queue_state().clear_pending_approvals();
       self.apply_approval_queue_state(state);
-      info!(
-        component = "approval",
-        event = "approval.cleared",
-        session_id = %self.identity.id,
-        approval_version = self.approval_version,
-        cleared_count,
-        "Cleared all pending approvals"
-      );
     }
   }
 
@@ -953,19 +917,6 @@ impl SessionCoreState {
       .approval_queue_state()
       .resolve_pending_approval(request_id, fallback_work_status);
     self.apply_approval_queue_state(state);
-
-    if let Some(approval_type) = resolution.approval_type {
-      info!(
-        component = "approval",
-        event = "approval.decided",
-        session_id = %self.identity.id,
-        request_id = %request_id,
-        approval_version = self.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.pending_approvals.len(),
-        "Approval decided and removed from queue"
-      );
-    }
 
     (
       resolution.approval_type,
@@ -1014,6 +965,9 @@ impl SessionCoreState {
     }
     if let Some(ref approval_policy_details) = changes.approval_policy_details {
       self.config.approval_policy_details = approval_policy_details.clone();
+      self.config.approval_policy = approval_policy_details
+        .as_ref()
+        .map(orbitdock_protocol::CodexApprovalPolicy::storage_text);
     }
     if let Some(ref sandbox_mode) = changes.sandbox_mode {
       self.config.sandbox_mode = sandbox_mode.clone();
@@ -1218,7 +1172,7 @@ impl SessionCoreState {
     self.work_status = phase.to_work_status();
     self.rows = state.rows;
     self.total_row_count = state.total_row_count;
-    self.newest_synced_row_id = self.rows.last().map(|row| row.id().to_string());
+    self.newest_synced_row_id = latest_transcript_synced_row_id(&self.rows);
     self.token_usage = state.token_usage;
     self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
     self.current_diff = state.current_diff.map(Arc::from);
@@ -1277,5 +1231,69 @@ impl SessionCoreState {
     }
 
     self.trim_retained_rows();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use orbitdock_protocol::conversation_contracts::MessageRowContent;
+  use orbitdock_protocol::Provider;
+
+  fn user_row(id: &str, sequence: u64) -> ConversationRowEntry {
+    ConversationRowEntry {
+      session_id: "session-1".to_string(),
+      sequence,
+      turn_id: None,
+      turn_status: TurnStatus::Active,
+      row: ConversationRow::User(MessageRowContent {
+        id: id.to_string(),
+        content: "hello".to_string(),
+        turn_id: None,
+        timestamp: None,
+        is_streaming: false,
+        images: vec![],
+        memory_citation: None,
+        delivery_status: None,
+      }),
+    }
+  }
+
+  #[test]
+  fn add_row_does_not_advance_sync_anchor_for_local_http_rows() {
+    let mut state = SessionCoreState::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    state.add_row(user_row("row-transcript-1", 1), false);
+
+    state.add_row(user_row("user-http-1", 2), false);
+
+    assert_eq!(
+      state.newest_synced_row_id.as_deref(),
+      Some("row-transcript-1")
+    );
+  }
+
+  #[test]
+  fn apply_state_keeps_latest_transcript_anchor_when_http_row_is_newest() {
+    let mut state = SessionCoreState::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    state.add_row(user_row("row-transcript-1", 1), false);
+
+    let mut transition = state.extract_state(0);
+    transition.rows.push(user_row("user-http-1", 2));
+    transition.total_row_count = transition.rows.len() as u64;
+
+    state.apply_state(transition);
+
+    assert_eq!(
+      state.newest_synced_row_id.as_deref(),
+      Some("row-transcript-1")
+    );
   }
 }

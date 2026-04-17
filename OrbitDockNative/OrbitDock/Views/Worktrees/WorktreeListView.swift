@@ -11,7 +11,7 @@ import SwiftUI
 
 struct WorktreeListView: View {
   @State private var viewModel = WorktreeListViewModel()
-  private let serverState: SessionStore
+  private let endpointStore: ServerEndpointRuntime
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let repoRoot: String
@@ -20,18 +20,18 @@ struct WorktreeListView: View {
   let onCreateClaudeSession: (String) -> Void
   let onCreateCodexSession: (String) -> Void
   private var bindingIdentity: String {
-    "\(repoRoot):\(serverState.endpointId.uuidString):\(ObjectIdentifier(serverState))"
+    "\(repoRoot):\(endpointStore.endpointId.uuidString):\(ObjectIdentifier(endpointStore))"
   }
 
   init(
-    serverState: SessionStore,
+    endpointStore: ServerEndpointRuntime,
     repoRoot: String,
     projectName: String,
     onDismiss: @escaping () -> Void,
     onCreateClaudeSession: @escaping (String) -> Void,
     onCreateCodexSession: @escaping (String) -> Void
   ) {
-    self.serverState = serverState
+    self.endpointStore = endpointStore
     self.repoRoot = repoRoot
     self.projectName = projectName
     self.onDismiss = onDismiss
@@ -52,7 +52,7 @@ struct WorktreeListView: View {
       }
     }
     .task(id: bindingIdentity) {
-      viewModel.bind(serverState: serverState, repoRoot: repoRoot)
+      viewModel.bind(endpointStore: endpointStore, repoRoot: repoRoot)
       viewModel.refreshWorktrees()
     }
     .sheet(isPresented: $viewModel.showCreateSheet) {
@@ -83,8 +83,8 @@ struct WorktreeListView: View {
       .presentationDragIndicator(.visible)
       #endif
     }
-    .onChange(of: serverState.lastServerError?.message) { _, _ in
-      viewModel.handleRemoveError(serverState.lastServerError)
+    .onChange(of: endpointStore.lastServerError?.message) { _, _ in
+      viewModel.handleRemoveError(endpointStore.lastServerError)
     }
     .background(removeFeedbackAlertHost)
   }

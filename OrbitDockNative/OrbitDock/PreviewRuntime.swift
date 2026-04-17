@@ -12,7 +12,7 @@ struct PreviewRuntime {
 
   let endpoints: [ServerEndpoint]
   let runtimeRegistry: ServerRuntimeRegistry
-  let sessionStore: SessionStore
+  let endpointStore: ServerEndpointRuntime
   let usageServiceRegistry: UsageServiceRegistry
   let attentionService: AttentionService
   let router: AppRouter
@@ -20,6 +20,7 @@ struct PreviewRuntime {
   let notificationCoordinator: NotificationCoordinator
   let externalNavigationCenter: AppExternalNavigationCenter
   let appRuntime: OrbitDockAppRuntime
+  let libraryDataService: LibraryDataService
 
   init(scenario: Scenario = .dashboard) {
     let endpoint = Self.previewEndpoint()
@@ -33,36 +34,27 @@ struct PreviewRuntime {
       responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
     let connection = ServerConnection(authToken: endpoint.authToken)
-    let sessionStore = SessionStore(
+    let endpointStore = ServerEndpointRuntime(
       clients: clients,
       connection: connection,
       endpointId: endpoint.id,
       endpointName: endpoint.name
     )
-    // Preview sessions are seeded through the dashboard snapshot below
-    sessionStore.codexModels = Self.previewCodexModels()
-    sessionStore.codexAccountStatus = ServerCodexAccountStatus(
+    endpointStore.codexModels = Self.previewCodexModels()
+    endpointStore.codexAccountStatus = ServerCodexAccountStatus(
       authMode: .chatgpt,
       requiresOpenaiAuth: false,
       account: .chatgpt(email: "preview@orbitdock.dev", planType: "Plus"),
       loginInProgress: false,
       activeLoginId: nil
     )
-    connection.seedDashboardSnapshotForTesting(
-      ServerDashboardSnapshotPayload(
-        revision: 1,
-        conversations: [],
-        counts: ServerDashboardCounts(attention: 0, running: 0, ready: 0, direct: 0),
-        projectGroups: nil
-      )
-    )
-    self.sessionStore = sessionStore
+    self.endpointStore = endpointStore
 
     let runtime = ServerRuntime(
       endpoint: endpoint,
       clients: clients,
       connection: connection,
-      sessionStore: sessionStore
+      endpointStore: endpointStore
     )
 
     let runtimeByEndpointID = [endpoint.id: runtime]
@@ -96,18 +88,25 @@ struct PreviewRuntime {
     )
     self.externalNavigationCenter = AppExternalNavigationCenter()
     self.appRuntime = OrbitDockAppRuntime()
+    self.libraryDataService = LibraryDataService()
   }
 
   func inject(_ content: some View) -> some View {
     content
       .environment(appRuntime)
-      .environment(sessionStore)
+      .environment(appRuntime.sessionsSummaryDataService)
+      .environment(libraryDataService)
+      .environment(endpointStore)
       .environment(runtimeRegistry)
       .environment(usageServiceRegistry)
       .environment(notificationCoordinator)
       .environment(attentionService)
       .environment(router)
       .environment(\.rootSessionActions, rootSessionActions)
+  }
+
+  var previewSession: ServerSessionContext {
+    endpointStore.session("preview-session")
   }
 
   private static func previewEndpoint() -> ServerEndpoint {

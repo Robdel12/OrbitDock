@@ -2,27 +2,11 @@ import SwiftUI
 
 extension SessionDetailView {
   func handleReviewTurnCountChange(oldCount: UInt64, newCount: UInt64) {
-    guard viewModel.handleReviewTurnCountChange(oldCount: oldCount, newCount: newCount) else { return }
-    presentDiffBanner()
+    _ = viewModel.handleReviewTurnCountChange(oldCount: oldCount, newCount: newCount)
   }
 
   func handleDiffChange(oldDiff: String?, newDiff: String?) {
-    guard viewModel.handleDiffChange(oldDiff: oldDiff, newDiff: newDiff) else { return }
-    presentDiffBanner()
-  }
-
-  private func presentDiffBanner() {
-    withAnimation(Motion.standard) {
-      viewModel.review.showDiffBanner = true
-    }
-    Task {
-      try? await Task.sleep(for: .seconds(8))
-      await MainActor.run {
-        withAnimation(Motion.standard) {
-          viewModel.review.showDiffBanner = false
-        }
-      }
-    }
+    _ = viewModel.handleDiffChange(oldDiff: oldDiff, newDiff: newDiff)
   }
 
   func selectWorkerInPanel(_ workerId: String) {
@@ -30,7 +14,7 @@ extension SessionDetailView {
     viewModel.worker.select(
       workerId: workerId,
       sessionId: sessionId,
-      sessionStore: scopedServerState,
+      session: scopedSession,
       layoutConfig: viewModel.layoutConfig
     )
   }
@@ -41,7 +25,7 @@ extension SessionDetailView {
     viewModel.worker.focus(
       workerId: workerId,
       sessionId: sessionId,
-      sessionStore: scopedServerState,
+      session: scopedSession,
       layoutConfig: viewModel.layoutConfig
     )
   }

@@ -4,10 +4,12 @@ mod connection_state;
 mod connector_registry;
 mod dashboard;
 mod hooks;
+mod library;
 mod missions;
 mod ownership;
 mod recent_projects;
 mod sessions;
+mod sessions_summary;
 
 use dashmap::DashMap;
 use orbitdock_protocol::{ClientPrimaryClaim, WorkspaceProviderKind};
@@ -15,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc};
 use uuid::Uuid;
 
 use arc_swap::ArcSwap;
@@ -146,7 +148,9 @@ pub struct SessionRegistry {
   /// Primary claim and WebSocket connection state.
   connections: ConnectionState,
 
+  control_plane_revision: Arc<AtomicU64>,
   dashboard_revision: Arc<AtomicU64>,
+  library_revision: Arc<AtomicU64>,
   /// Cached dashboard snapshot with the revision it was computed at.
   /// Avoids re-iterating all sessions when the dashboard hasn't changed.
   dashboard_cache: ArcSwap<(u64, DashboardSnapshot)>,
@@ -162,9 +166,6 @@ pub struct SessionRegistry {
   update_status: std::sync::RwLock<Option<CachedUpdateStatus>>,
   /// Guard to prevent concurrent update checks.
   update_check_in_flight: std::sync::atomic::AtomicBool,
-
-  /// Per-session gate to prevent duplicate direct-runtime auto-resume launches.
-  auto_resume_locks: DashMap<String, Arc<AsyncMutex<()>>>,
 }
 
 impl SessionRegistry {
@@ -231,7 +232,9 @@ impl SessionRegistry {
       terminal_service: Arc::new(TerminalService::new()),
       tool_pty_service: Arc::new(ToolPtyService::new()),
       connections: ConnectionState::new(is_primary),
+      control_plane_revision: Arc::new(AtomicU64::new(0)),
       dashboard_revision: Arc::new(AtomicU64::new(0)),
+      library_revision: Arc::new(AtomicU64::new(0)),
       dashboard_cache: ArcSwap::from_pointee((
         0,
         DashboardSnapshot {
@@ -253,7 +256,6 @@ impl SessionRegistry {
       mission_trigger_rx: std::sync::Mutex::new(Some(mission_trigger_rx)),
       update_status: std::sync::RwLock::new(None),
       update_check_in_flight: std::sync::atomic::AtomicBool::new(false),
-      auto_resume_locks: DashMap::new(),
     }
   }
 
@@ -347,14 +349,6 @@ impl SessionRegistry {
     self
       .update_check_in_flight
       .store(false, std::sync::atomic::Ordering::SeqCst);
-  }
-
-  pub fn auto_resume_lock(&self, session_id: &str) -> Arc<AsyncMutex<()>> {
-    self
-      .auto_resume_locks
-      .entry(session_id.to_string())
-      .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-      .clone()
   }
 
   pub fn ws_connect(&self) -> u64 {
@@ -464,11 +458,6 @@ impl SessionRegistry {
       })
   }
 
-  pub fn has_active_connector_action_tx(&self, session_id: &str) -> bool {
-    self.get_codex_action_tx(session_id).is_some()
-      || self.get_claude_action_tx(session_id).is_some()
-  }
-
   pub fn remove_claude_action_tx(&self, session_id: &str) {
     self.connectors.remove_claude_action_tx(session_id);
   }
@@ -484,7 +473,7 @@ impl SessionRegistry {
 
 // Note: No Default impl - requires persist_tx
 
-/// Flush all pending DB writes, then publish a granular dashboard update for a single session.
+/// Flush all pending DB writes, then publish an active-sessions invalidation.
 /// This guarantees the client reads committed state when it processes the WS event.
 pub async fn flush_and_publish_conversation(
   persist_tx: &mpsc::Sender<PersistCommand>,
@@ -494,7 +483,7 @@ pub async fn flush_and_publish_conversation(
   let (tx, rx) = tokio::sync::oneshot::channel();
   let _ = persist_tx.send(PersistCommand::Flush { ack: tx }).await;
   let _ = rx.await;
-  state.publish_dashboard_conversation_updated(session_id);
+  state.publish_active_sessions_invalidation_for_session(session_id);
 }
 
 #[cfg(test)]

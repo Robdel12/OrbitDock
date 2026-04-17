@@ -7,7 +7,7 @@ This document provides a deep-dive trace of the "Send Message" lifecycle, from t
 The journey begins in the **`ConversationViewModel`**.
 
 * **Action**: The user enters text and submits.
-* **Mechanism**: The ViewModel calls the `SessionStore` to execute an HTTP `POST` request.
+* **Mechanism**: The ViewModel calls the session-scoped `ServerSessionAPI` to execute an HTTP `POST` request.
 * **Immediate UI Update**: The client does not wait for the full round-trip to the LLM. It expects an authoritative `user_row` back from the initial HTTP response to immediately render the message in the timeline with a "pending" or "sent" state.
 
 ## [_Internal Reference: OrbitDockNative/OrbitDock/Views/Conversation/ConversationViewModel.swift_]

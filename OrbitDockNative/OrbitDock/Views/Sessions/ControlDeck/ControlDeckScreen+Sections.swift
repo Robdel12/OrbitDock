@@ -97,14 +97,12 @@ extension ControlDeckScreen {
       },
       onDenyPermission: { Task { await sessionModel.respondToPermission(grant: false) } },
       terminalTitle: terminalTitle,
-      sessionDisplayStatus: sessionDisplayStatus,
       currentTool: currentTool,
       onToggleTerminal: onToggleTerminal,
       onModuleAction: handleModuleAction,
       onApprovalReviewerAction: handleApprovalReviewerAction,
       onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
-      isSessionWorking: sessionModel.steerable,
       onDictation: dictationAction,
       onInterrupt: { Task { await sessionModel.interruptSession() } }
     )

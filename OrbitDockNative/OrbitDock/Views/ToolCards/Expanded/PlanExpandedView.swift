@@ -2,8 +2,8 @@
 //  PlanExpandedView.swift
 //  OrbitDock
 //
-//  Plan mode expanded view with mode badges.
-//  Differentiates enter, exit, and update modes visually.
+//  Server-driven plan tool expanded view.
+//  Shows plan explanation, progress, and step timeline from strongly-typed data.
 //
 
 import SwiftUI
@@ -11,6 +11,7 @@ import SwiftUI
 struct PlanExpandedView: View {
   let content: ServerRowContent
   let toolRow: ServerConversationToolRow
+  let display: ServerToolDisplay?
 
   private var isExit: Bool {
     toolRow.kind == .exitPlanMode
@@ -30,11 +31,23 @@ struct PlanExpandedView: View {
   }
 
   private var modeIcon: String {
-    isExit ? "checkmark.circle" : "map"
+    isExit ? "checkmark.circle.fill" : "map"
   }
 
   private var modeColor: Color {
     isExit ? .feedbackPositive : .toolPlan
+  }
+
+  private var steps: [ServerToolTodoItem] {
+    display?.todoItems ?? []
+  }
+
+  private var completedCount: Int {
+    steps.filter { $0.status == "completed" }.count
+  }
+
+  private var inProgressCount: Int {
+    steps.filter { $0.status == "in_progress" }.count
   }
 
   var body: some View {
@@ -47,36 +60,14 @@ struct PlanExpandedView: View {
         Text(modeLabel)
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(modeColor)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xxs)
-          .background(modeColor.opacity(OpacityTier.subtle), in: Capsule())
       }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xxs)
+      .background(modeColor.opacity(OpacityTier.subtle), in: Capsule())
 
-      // Phase banner for enter/exit modes
-      if !isExit, !isUpdate {
-        HStack(spacing: Spacing.xs) {
-          Rectangle()
-            .fill(modeColor)
-            .frame(width: 3, height: 16)
-          Text("PLANNING PHASE")
-            .font(.system(size: TypeScale.mini, weight: .bold))
-            .foregroundStyle(modeColor)
-            .tracking(0.8)
-        }
-      } else if isExit {
-        HStack(spacing: Spacing.xs) {
-          Rectangle()
-            .fill(Color.feedbackPositive)
-            .frame(width: 3, height: 16)
-          Text("PLAN COMPLETE")
-            .font(.system(size: TypeScale.mini, weight: .bold))
-            .foregroundStyle(Color.feedbackPositive)
-            .tracking(0.8)
-        }
-      }
-
-      if let input = content.inputDisplay, !input.isEmpty {
-        Text(input)
+      // Plan explanation
+      if let explanation = display?.planExplanation, !explanation.isEmpty {
+        Text(explanation)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textSecondary)
           .padding(Spacing.sm)
@@ -84,32 +75,85 @@ struct PlanExpandedView: View {
           .background(modeColor.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
       }
 
-      if isUpdate, let output = content.outputDisplay, !output.isEmpty {
-        planStepList(output)
-      } else if let output = content.outputDisplay, !output.isEmpty {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Result")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
-          Text(output)
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
-            .padding(Spacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+      // Plan steps from server-driven todoItems
+      if !steps.isEmpty {
+        planStepList()
+      } else {
+        // Fallback to input/output display if no steps
+        fallbackDisplay()
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func planStepList() -> some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      // Progress bar
+      ProgressSummaryBar(completed: completedCount, total: steps.count, barColor: modeColor)
+
+      // Timeline steps
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+          planStepRow(step, isLast: index == steps.count - 1)
         }
       }
     }
   }
 
-  /// Attempt to parse output as JSON array of plan steps [{title, status}]
-  /// Falls back to plain text display.
+  private func planStepRow(_ item: ServerToolTodoItem, isLast: Bool) -> some View {
+    let isCompleted = item.status == "completed"
+    let isInProgress = item.status == "in_progress"
+
+    return HStack(alignment: .top, spacing: Spacing.md) {
+      // Timeline column: icon + connecting line
+      VStack(spacing: 0) {
+        Image(systemName: stepIcon(item.status))
+          .font(.system(size: IconScale.md))
+          .foregroundStyle(stepColor(item.status))
+
+        if !isLast {
+          Rectangle()
+            .fill(stepColor(item.status).opacity(0.3))
+            .frame(width: 1)
+            .frame(maxHeight: .infinity)
+        }
+      }
+      .frame(width: 16)
+
+      // Step content
+      VStack(alignment: .leading, spacing: Spacing.xxs) {
+        Text(item.content ?? item.status)
+          .font(.system(size: TypeScale.body))
+          .foregroundStyle(isCompleted ? Color.textTertiary : Color.textSecondary)
+          .strikethrough(isCompleted, color: Color.textQuaternary)
+
+        // Show activeForm for in-progress items
+        if isInProgress, let activeForm = item.activeForm, !activeForm.isEmpty {
+          Text(activeForm)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+        }
+      }
+      .padding(.bottom, Spacing.md)
+    }
+  }
+
   @ViewBuilder
-  private func planStepList(_ output: String) -> some View {
-    let steps = parsePlanSteps(output)
-    if steps.isEmpty {
+  private func fallbackDisplay() -> some View {
+    // Show input display if available
+    if let input = content.inputDisplay, !input.isEmpty {
+      Text(input)
+        .font(.system(size: TypeScale.body))
+        .foregroundStyle(Color.textSecondary)
+        .padding(Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(modeColor.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.sm))
+    }
+
+    // Show output display if available
+    if let output = content.outputDisplay, !output.isEmpty {
       VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("Plan")
+        Text("Result")
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.textTertiary)
         Text(output)
@@ -119,59 +163,6 @@ struct PlanExpandedView: View {
           .frame(maxWidth: .infinity, alignment: .leading)
           .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
       }
-    } else {
-      let completed = steps.filter { $0.status == "completed" }.count
-
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        // Progress bar at top
-        ProgressSummaryBar(completed: completed, total: steps.count)
-
-        // Timeline steps
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-            HStack(alignment: .top, spacing: Spacing.md) {
-              // Timeline column: icon + connecting line
-              VStack(spacing: 0) {
-                Image(systemName: stepIcon(step.status))
-                  .font(.system(size: IconScale.md))
-                  .foregroundStyle(stepColor(step.status))
-
-                if index < steps.count - 1 {
-                  Rectangle()
-                    .fill(stepColor(step.status).opacity(0.3))
-                    .frame(width: 1)
-                    .frame(maxHeight: .infinity)
-                }
-              }
-              .frame(width: 16)
-
-              // Step content
-              Text(step.title)
-                .font(.system(size: TypeScale.body))
-                .foregroundStyle(
-                  step.status == "completed" ? Color.textTertiary : Color.textSecondary
-                )
-                .padding(.bottom, Spacing.md)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private struct PlanStep {
-    let title: String
-    let status: String
-  }
-
-  private func parsePlanSteps(_ json: String) -> [PlanStep] {
-    guard let data = json.data(using: .utf8),
-          let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-    else { return [] }
-    return array.compactMap { dict in
-      guard let title = dict["title"] as? String else { return nil }
-      let status = dict["status"] as? String ?? "pending"
-      return PlanStep(title: title, status: status)
     }
   }
 

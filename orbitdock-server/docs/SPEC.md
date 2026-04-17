@@ -94,7 +94,7 @@ Connect to `/ws` for real-time events. WebSocket is used for:
 **Client messages** (JSON, sent by the client):
 
 ```json
-{"type": "subscribe_dashboard", "since_revision": 42}
+{"type": "subscribe_active_sessions", "since_revision": 42}
 {"type": "subscribe_missions", "since_revision": 8}
 {"type": "subscribe_session_surface", "session_id": "od-...", "surface": "detail", "since_revision": 120}
 {"type": "unsubscribe_session_surface", "session_id": "od-...", "surface": "detail"}
@@ -103,7 +103,7 @@ Connect to `/ws` for real-time events. WebSocket is used for:
 **Server events** (JSON, pushed by the server):
 
 - `hello` — compatibility handshake with `server_version`, a server-authored `compatibility` verdict, and `capabilities`
-- `dashboard_invalidated` / `missions_invalidated` — list refresh hints
+- `active_sessions_invalidated` / `missions_invalidated` — list refresh hints
 - `conversation_rows_changed` — incremental row upserts/removals
 - `session_delta` — session metadata changes (status, tokens, name)
 - `approval_requested` — tool needs user approval
@@ -330,9 +330,9 @@ Clients should honor render hints when displaying rows.
 
 ### 5.1 Session List
 
-1. `GET /api/dashboard` to load the initial dashboard snapshot.
-2. Send `{"type": "subscribe_dashboard", "since_revision": <snapshot.revision>}` over WebSocket.
-3. React to `dashboard_invalidated` by refetching `GET /api/dashboard`.
+1. `GET /api/sessions/active` to load the initial active-sessions snapshot.
+2. Send `{"type": "subscribe_active_sessions", "since_revision": <snapshot.revision>}` over WebSocket.
+3. React to `active_sessions_invalidated` by refetching `GET /api/sessions/active`.
 
 Each session summary includes:
 
@@ -351,11 +351,11 @@ Each session summary includes:
 
 ### 5.2 Session Conversation View
 
-1. `GET /api/sessions/{id}/conversation?limit=50` for the initial bootstrap (shared session state + newest rows).
-2. Apply the returned `session` to any rendered detail/composer state and use `session.revision` as the replay token.
+1. `GET /api/sessions/{id}/conversation?limit=50` for the initial conversation bootstrap.
+2. Use the returned `session.revision` as the replay token for the `conversation` surface.
 3. Send `{"type": "subscribe_session_surface", "session_id": "od-...", "surface": "conversation", "since_revision": <session.revision>}`.
 4. Handle `conversation_rows_changed` events — upsert rows by ID, remove rows in `removed_row_ids`, order by `sequence`.
-5. For infinite scroll backward: `GET /api/sessions/{id}/messages?before_sequence=71&limit=50`.
+5. For infinite scroll backward: `GET /api/sessions/{id}/conversation/messages?before_sequence=71&limit=50`.
 6. Handle `session_delta` events for status, token, and name changes.
 
 **Streaming**: When `is_streaming` is `true` on an assistant row, expect content updates via `conversation_rows_changed` with the same row ID but updated content.
@@ -363,7 +363,7 @@ Each session summary includes:
 ### 5.3 Sending a Message
 
 ```
-POST /api/sessions/{session_id}/messages
+POST /api/sessions/{session_id}/conversation/messages
 {
   "content": "Fix the login bug",
   "images": [],
@@ -383,9 +383,8 @@ When `approval_requested` arrives via WebSocket (or an `approval` row appears in
 3. Send the decision:
 
 ```
-POST /api/sessions/{session_id}/approve
+POST /api/sessions/{session_id}/approvals/requests/{request_id}/decision
 {
-  "request_id": "req-...",
   "decision": "approved"
 }
 ```
@@ -403,9 +402,8 @@ When a `question` row appears:
 3. Send the answer:
 
 ```
-POST /api/sessions/{session_id}/answer
+POST /api/sessions/{session_id}/questions/requests/{request_id}/answer
 {
-  "request_id": "req-...",
   "answer": "Use PostgreSQL",
   "question_id": "prompt-1",
   "answers": { "prompt-1": ["PostgreSQL"] }
@@ -428,17 +426,17 @@ Optional fields: `model`, `effort`, `approval_policy`, `sandbox_mode`, `permissi
 
 | Action | Endpoint | Notes |
 |---|---|---|
-| End session | `POST /api/sessions/{id}/end` | |
-| Resume persisted session | `POST /api/sessions/{id}/resume` | |
-| Take over passive session | `POST /api/sessions/{id}/takeover` | |
-| Fork session | `POST /api/sessions/{id}/fork` | Creates a new session from conversation history |
-| Fork into worktree | `POST /api/sessions/{id}/fork-to-worktree` | Creates worktree + fork |
-| Interrupt active turn | `POST /api/sessions/{id}/interrupt` | |
-| Undo last turn | `POST /api/sessions/{id}/undo` | |
-| Rollback N turns | `POST /api/sessions/{id}/rollback` | Body: `{"num_turns": 2}` |
-| Compact context | `POST /api/sessions/{id}/compact` | |
-| Rename | `PATCH /api/sessions/{id}/name` | Body: `{"name": "..."}` |
-| Update config | `PATCH /api/sessions/{id}/config` | Partial update of session settings |
+| End session | `POST /api/sessions/{id}/lifecycle/end` | |
+| Resume persisted session | `POST /api/sessions/{id}/lifecycle/resume` | |
+| Take over passive session | `POST /api/sessions/{id}/lifecycle/takeover` | |
+| Fork session | `POST /api/sessions/{id}/lifecycle/fork` | Creates a new session from conversation history |
+| Fork into worktree | `POST /api/sessions/{id}/lifecycle/fork/worktree` | Creates worktree + fork |
+| Interrupt active turn | `POST /api/sessions/{id}/conversation/interrupt` | |
+| Undo last turn | `POST /api/sessions/{id}/conversation/undo` | |
+| Rollback N turns | `POST /api/sessions/{id}/conversation/rollback` | Body: `{"num_turns": 2}` |
+| Compact context | `POST /api/sessions/{id}/conversation/compact` | |
+| Rename | `PATCH /api/sessions/{id}/detail/name` | Body: `{"name": "..."}` |
+| Update config | `PATCH /api/sessions/{id}/detail/config` | Partial update of session settings |
 
 ### 5.8 Worktree Management
 
@@ -542,30 +540,30 @@ GET/PUT /api/server/mission-defaults      — default provider strategy
 Clients can execute shell commands in a session's context:
 
 ```
-POST /api/sessions/{id}/shell/exec
+POST /api/sessions/{id}/conversation/shell/exec
 { "command": "git status", "cwd": "/path", "timeout_secs": 120 }
 ```
 
-Output streams via WebSocket `shell_started` and `shell_output` events. Cancel with `POST /api/sessions/{id}/shell/cancel`.
+Output streams via WebSocket `shell_started` and `shell_output` events. Cancel with `POST /api/sessions/{id}/conversation/shell/cancel`.
 
 ### 5.11 Image Attachments
 
-Upload: `POST /api/sessions/{id}/attachments/images` with raw image bytes and `Content-Type` header. Returns an `ImageInput` reference to include in messages.
+Upload: `POST /api/sessions/{id}/conversation/attachments/images` with raw image bytes and `Content-Type` header. Returns an `ImageInput` reference to include in messages.
 
-Download: `GET /api/sessions/{id}/attachments/images/{attachment_id}` returns raw bytes.
+Download: `GET /api/sessions/{id}/conversation/attachments/images/{attachment_id}` returns raw bytes.
 
 ### 5.12 Review Comments
 
 Inline code review comments tied to specific files and lines:
 
 ```
-POST /api/sessions/{id}/review-comments
+POST /api/sessions/{id}/review/comments
 { "file_path": "src/main.rs", "line_start": 42, "body": "This needs error handling" }
 ```
 
-Update: `PATCH /api/review-comments/{comment_id}`
-Delete: `DELETE /api/review-comments/{comment_id}`
-List: `GET /api/sessions/{id}/review-comments?turn_id=turn-3`
+Update: `PATCH /api/review/comments/{comment_id}`
+Delete: `DELETE /api/review/comments/{comment_id}`
+List: `GET /api/sessions/{id}/review/comments?turn_id=turn-3`
 
 ## 6. Client State Management
 
@@ -663,7 +661,7 @@ Plugins replace the old remote-skill browse/download flow for Codex-backed sessi
 
 MCP provides external tool integrations (GitHub, Linear, etc.).
 
-- `GET /api/sessions/{id}/mcp/tools` — current tool catalog
+- `GET /api/sessions/{id}/mcp` — current tool catalog
 - `POST /api/sessions/{id}/mcp/refresh` — refresh servers
 - `POST /api/sessions/{id}/mcp/toggle` — enable/disable a server
 - `POST /api/sessions/{id}/mcp/authenticate` — start auth for a server
@@ -672,10 +670,10 @@ MCP provides external tool integrations (GitHub, Linear, etc.).
 
 ### 8.3 Permissions
 
-- `GET /api/sessions/{id}/permissions` — effective permission rules
+- `GET /api/sessions/{id}/permissions/rules` — effective permission rules
 - `POST /api/sessions/{id}/permissions/rules` — add a permission rule
 - `DELETE /api/sessions/{id}/permissions/rules` — remove a permission rule
-- `POST /api/sessions/{id}/permissions/respond` — respond to a permission grant request
+- `POST /api/sessions/{id}/permissions/requests/{request_id}/response` — respond to a permission grant request
 
 ### 8.4 Session Instructions
 

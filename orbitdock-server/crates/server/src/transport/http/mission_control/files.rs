@@ -17,8 +17,8 @@ use crate::runtime::session_registry::SessionRegistry;
 
 use super::super::errors::{bad_request, conflict, internal, not_found, ApiResult};
 use super::{
-  build_detail_response, db_read, MissionDetailResponse, MissionSettingsResponse,
-  UpdateMissionSettingsRequest,
+  build_detail_response, db_read, flush_persistence, MissionDetailResponse,
+  MissionSettingsResponse, UpdateMissionSettingsRequest,
 };
 
 #[derive(Serialize)]
@@ -107,9 +107,14 @@ pub async fn scaffold_mission_file(
       mission_file_path: None,
     })
     .await;
+  flush_persistence(&registry).await?;
 
   let mid2 = mission_id.clone();
-  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
+  let persisted_mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
+    .await?
+    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+  let mid3 = mission_id.clone();
+  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid3)).await?;
   let orchestrator_running = registry.is_orchestrator_running();
   let settings = MissionSettingsResponse {
     config,
@@ -117,7 +122,7 @@ pub async fn scaffold_mission_file(
   };
   let response = build_detail_response(
     &registry,
-    &mission,
+    &persisted_mission,
     issue_rows,
     orchestrator_running,
     Some(settings),
@@ -181,6 +186,7 @@ pub async fn migrate_workflow_to_mission(
       mission_file_path: None,
     })
     .await;
+  flush_persistence(&registry).await?;
 
   info!(
     component = "mission_control",
@@ -190,7 +196,11 @@ pub async fn migrate_workflow_to_mission(
   );
 
   let mid2 = mission_id.clone();
-  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
+  let persisted_mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
+    .await?
+    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+  let mid3 = mission_id.clone();
+  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid3)).await?;
   let orchestrator_running = registry.is_orchestrator_running();
   let settings = MissionSettingsResponse {
     config,
@@ -198,7 +208,7 @@ pub async fn migrate_workflow_to_mission(
   };
   let response = build_detail_response(
     &registry,
-    &mission,
+    &persisted_mission,
     issue_rows,
     orchestrator_running,
     Some(settings),
@@ -310,11 +320,7 @@ pub async fn update_mission_settings(
       mission_file_path: None,
     })
     .await;
-
-  let mut updated_mission = mission.clone();
-  if let Some(ref tracker_kind) = tracker_kind_update {
-    updated_mission.tracker_kind = tracker_kind.clone();
-  }
+  flush_persistence(&registry).await?;
 
   info!(
     component = "mission_control",
@@ -324,7 +330,11 @@ pub async fn update_mission_settings(
   );
 
   let mid2 = mission_id.clone();
-  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid2)).await?;
+  let persisted_mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
+    .await?
+    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
+  let mid3 = mission_id.clone();
+  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid3)).await?;
   let orchestrator_running = registry.is_orchestrator_running();
   let settings = MissionSettingsResponse {
     config,
@@ -332,7 +342,7 @@ pub async fn update_mission_settings(
   };
   let response = build_detail_response(
     &registry,
-    &updated_mission,
+    &persisted_mission,
     issue_rows,
     orchestrator_running,
     Some(settings),

@@ -16,7 +16,7 @@ struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @Environment(DashboardDataService.self) private var dashboardDataService
+  @Environment(SessionsSummaryDataService.self) private var sessionsSummaryDataService
   @Environment(AppRouter.self) private var router
   @Environment(OrbitDockAppRuntime.self) private var appRuntime
 
@@ -73,12 +73,12 @@ struct QuickSwitcher: View {
         } else if appRuntime.isDemoModeEnabled {
           viewModel.applySessions(appRuntime.demoExperience.rootSessions)
         } else {
-          viewModel.applySessions(dashboardDataService.librarySessions)
+          viewModel.applySessions(sessionsSummaryDataService.compactSessions())
         }
       }
-      .onChange(of: dashboardDataService.librarySessions) { _, sessions in
+      .onChange(of: sessionsSummaryDataService.summaryRevision) { _, _ in
         guard previewSessions == nil, !appRuntime.isDemoModeEnabled else { return }
-        viewModel.applySessions(sessions)
+        viewModel.applySessions(sessionsSummaryDataService.compactSessions())
       }
       .onAppear {
         quickSwitcherState.resetSelection()
@@ -452,7 +452,7 @@ struct QuickSwitcher: View {
       return
     }
 
-    let endpointId = currentControlPlaneEndpointID()
+    let endpointId = currentPreferredEndpointID()
     let requestId = UUID()
     quickSwitcherState.beginRecentProjectsLoad(requestId: requestId)
 
@@ -462,21 +462,21 @@ struct QuickSwitcher: View {
         quickSwitcherState.finishRecentProjectsLoad(
           requestId: requestId,
           endpointId: endpointId,
-          activeEndpointId: currentControlPlaneEndpointID(),
+          activeEndpointId: currentPreferredEndpointID(),
           projects: projects
         )
       } catch {
         quickSwitcherState.finishRecentProjectsLoad(
           requestId: requestId,
           endpointId: endpointId,
-          activeEndpointId: currentControlPlaneEndpointID(),
+          activeEndpointId: currentPreferredEndpointID(),
           projects: []
         )
       }
     }
   }
 
-  private func currentControlPlaneEndpointID() -> UUID? {
+  private func currentPreferredEndpointID() -> UUID? {
     runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
   }
 

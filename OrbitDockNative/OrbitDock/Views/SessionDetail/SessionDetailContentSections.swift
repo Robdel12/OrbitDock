@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SessionDetailConversationSection: View {
   let sessionId: String
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
   let endpointId: UUID
   let isSessionActive: Bool
   let displayStatus: SessionDisplayStatus
@@ -15,10 +15,14 @@ struct SessionDetailConversationSection: View {
   let onJumpToLatest: () -> Void
   let onFollowStateChanged: (ConversationFollowState) -> Void
 
+  private var routeIdentity: String {
+    "\(endpointId.uuidString):\(sessionId)"
+  }
+
   var body: some View {
     ConversationView(
       sessionId: sessionId,
-      sessionStore: sessionStore,
+      session: session,
       endpointId: endpointId,
       isSessionActive: isSessionActive,
       displayStatus: displayStatus,
@@ -29,6 +33,10 @@ struct SessionDetailConversationSection: View {
       onJumpToLatest: onJumpToLatest,
       onFollowStateChanged: onFollowStateChanged
     )
+    // Keep the conversation surface firmly route-scoped. This view owns
+    // subscription and bootstrap lifecycle, so a new session route should get
+    // a fresh SwiftUI subtree rather than relying on soft state reuse.
+    .id(routeIdentity)
     .environment(\.openFileInReview, openFileInReview)
     .environment(\.focusWorkerInDeck, focusWorkerInDeck)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,7 +56,7 @@ struct SessionDetailConversationSection: View {
 
 struct SessionDetailReviewSection: View {
   let sessionId: String
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
   let projectPath: String
   let isSessionActive: Bool
   let compact: Bool
@@ -60,7 +68,7 @@ struct SessionDetailReviewSection: View {
   var body: some View {
     ReviewCanvas(
       sessionId: sessionId,
-      sessionStore: sessionStore,
+      session: session,
       projectPath: projectPath,
       isSessionActive: isSessionActive,
       compact: compact,

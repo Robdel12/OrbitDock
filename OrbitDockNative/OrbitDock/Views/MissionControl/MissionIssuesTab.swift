@@ -4,7 +4,7 @@ struct MissionIssuesTab: View {
   let issues: [MissionIssueItem]
   let missionId: String
   let endpointId: UUID
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let isCompact: Bool
   let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
@@ -132,7 +132,7 @@ struct MissionIssuesTab: View {
             issue: issue,
             missionId: missionId,
             endpointId: endpointId,
-            http: http,
+            missionsClient: missionsClient,
             isCompact: isCompact,
             onTransitionIssue: onTransitionIssue
           )

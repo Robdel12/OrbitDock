@@ -31,7 +31,7 @@ import SwiftUI
 
 struct ReviewCanvas: View {
   let sessionId: String
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
   let projectPath: String
   let isSessionActive: Bool
   var compact: Bool = false
@@ -58,14 +58,15 @@ struct ReviewCanvas: View {
 
   /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = ReviewDiffParseCache()
+  @State private var activeBindingIdentity: String?
   @State var viewModel: ReviewCanvasViewModel
   private var bindingIdentity: String {
-    "\(sessionStore.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+    "\(session.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(session))"
   }
 
   init(
     sessionId: String,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     projectPath: String,
     isSessionActive: Bool,
     compact: Bool = false,
@@ -75,7 +76,7 @@ struct ReviewCanvas: View {
     navigateToComment: Binding<ServerReviewComment?>? = nil
   ) {
     self.sessionId = sessionId
-    self.sessionStore = sessionStore
+    self.session = session
     self.projectPath = projectPath
     self.isSessionActive = isSessionActive
     self.compact = compact
@@ -86,7 +87,7 @@ struct ReviewCanvas: View {
     _viewModel = State(
       initialValue: ReviewCanvasViewModel(
         sessionId: sessionId,
-        sessionStore: sessionStore
+        session: session
       )
     )
   }
@@ -166,14 +167,15 @@ struct ReviewCanvas: View {
     }
     .background(Color.backgroundPrimary)
     .task(id: bindingIdentity) {
-      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore)
-      await viewModel.refresh()
-    }
-    .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.reviewRefreshRequests(for: sessionId)
-      for await _ in stream {
-        await viewModel.refresh()
+      if activeBindingIdentity != bindingIdentity {
+        resetTransientStateForBindingChange()
+        activeBindingIdentity = bindingIdentity
       }
+      await viewModel.runLifecycle(
+        bindingIdentity: bindingIdentity,
+        sessionId: sessionId,
+        session: session
+      )
     }
     .onChange(of: rawDiff) { _, _ in
       guard let model = diffModel else { return }
@@ -266,6 +268,20 @@ struct ReviewCanvas: View {
       state: reviewRoundTracker,
       turnDiffs: viewModel.turnDiffs
     )
+  }
+
+  private func resetTransientStateForBindingChange() {
+    cursorIndex = 0
+    collapsedFiles.removeAll()
+    collapsedHunks.removeAll()
+    expandedContextBars.removeAll()
+    selectedTurnDiffId = nil
+    isFollowing = true
+    previousFileCount = 0
+    commentInteraction = ReviewCommentInteractionState()
+    reviewRoundTracker = ReviewRoundTrackerState()
+    showResolvedComments = false
+    diffParseCache = ReviewDiffParseCache()
   }
 
 }

@@ -22,7 +22,7 @@ struct SessionDetailPlanningTests {
 
     #expect(plan.state.mode == .following)
     #expect(plan.state.unreadCount == 0)
-    #expect(plan.scrollAction == .latest)
+    #expect(scrollActionLabel(plan.scrollAction) == "latest")
   }
 
   @Test func togglingFollowFromDetachedReturnsToFollowingAndRequestsLatestScroll() {
@@ -33,7 +33,7 @@ struct SessionDetailPlanningTests {
 
     #expect(plan.state.mode == .following)
     #expect(plan.state.unreadCount == 0)
-    #expect(plan.scrollAction == .latest)
+    #expect(scrollActionLabel(plan.scrollAction) == "latest")
   }
 
   @Test func togglingFollowFromFollowingDetachesWithoutScrolling() {
@@ -99,22 +99,12 @@ struct SessionDetailPlanningTests {
 
     #expect(plan.state.mode == .programmaticNavigation)
     #expect(plan.state.unreadCount == 0)
-    #expect(plan.scrollAction == .message("message-1"))
-  }
-
-  @Test func onAppearPlanSubscribesAndLoadsApprovalsForDirectSessions() {
-    let plan = SessionDetailLifecyclePlanner.onAppearPlan(
-      shouldSubscribeToServerSession: true,
-      isDirect: true
-    )
-
-    #expect(plan.shouldSubscribe)
-    #expect(plan.shouldLoadApprovalHistory)
+    #expect(scrollActionLabel(plan.scrollAction) == "message:message-1")
   }
 
   @Test func diffBannerRevealRequiresFirstDirectDiffInConversationLayout() {
     #expect(
-      SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
+      SessionDetailDiffBannerPlanner.shouldRevealForFirstDiff(
         isDirect: true,
         oldDiff: nil,
         newDiff: "diff --git a/file b/file",
@@ -122,7 +112,7 @@ struct SessionDetailPlanningTests {
       )
     )
     #expect(
-      !SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
+      !SessionDetailDiffBannerPlanner.shouldRevealForFirstDiff(
         isDirect: false,
         oldDiff: nil,
         newDiff: "diff --git a/file b/file",
@@ -130,11 +120,46 @@ struct SessionDetailPlanningTests {
       )
     )
     #expect(
-      !SessionDetailLifecyclePlanner.shouldRevealDiffBanner(
+      !SessionDetailDiffBannerPlanner.shouldRevealForFirstDiff(
         isDirect: true,
         oldDiff: "already had one",
         newDiff: "diff --git a/file b/file",
         layoutConfig: .conversationOnly
+      )
+    )
+  }
+
+  @Test func diffBannerRevealForTurnIncreaseRequiresDirectConversationLayout() {
+    #expect(
+      SessionDetailDiffBannerPlanner.shouldRevealForNewReviewTurn(
+        isDirect: true,
+        oldCount: 2,
+        newCount: 3,
+        layoutConfig: .conversationOnly
+      )
+    )
+    #expect(
+      !SessionDetailDiffBannerPlanner.shouldRevealForNewReviewTurn(
+        isDirect: false,
+        oldCount: 2,
+        newCount: 3,
+        layoutConfig: .conversationOnly
+      )
+    )
+    #expect(
+      !SessionDetailDiffBannerPlanner.shouldRevealForNewReviewTurn(
+        isDirect: true,
+        oldCount: 3,
+        newCount: 3,
+        layoutConfig: .conversationOnly
+      )
+    )
+    #expect(
+      !SessionDetailDiffBannerPlanner.shouldRevealForNewReviewTurn(
+        isDirect: true,
+        oldCount: 2,
+        newCount: 3,
+        layoutConfig: .split
       )
     )
   }
@@ -479,6 +504,17 @@ struct SessionDetailPlanningTests {
   private func isPassiveFooterMode(_ mode: SessionDetailFooterMode) -> Bool {
     if case .passive = mode { return true }
     return false
+  }
+
+  private func scrollActionLabel(_ action: ConversationScrollAction?) -> String? {
+    switch action {
+      case .latest:
+        "latest"
+      case let .message(messageID):
+        "message:\(messageID)"
+      case nil:
+        nil
+    }
   }
 
   private func makeReviewComment(id: String, status: ServerReviewCommentStatus)

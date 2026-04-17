@@ -7,17 +7,18 @@ final class ServerClients: Sendable {
   let baseURL: URL
   let requestBuilder: HTTPRequestBuilder
   let http: ServerHTTPClient
-  let controlPlane: ControlPlaneClient
+  let sessionsSummary: SessionsSummaryClient
+  let serverRole: ServerRoleClient
   let updates: ServerUpdateClient
-  let controlDeck: ControlDeckClient
   let config: ConfigClient
   let filesystem: FilesystemClient
   let skills: SkillsClient
-  let mcp: McpClient
   let usage: UsageClient
-  let dashboard: DashboardClient
+  let activeSessions: ActiveSessionsClient
+  let archivedSessions: ArchivedSessionsClient
   let sessions: SessionsClient
   let conversation: ConversationClient
+  let review: ReviewClient
   let approvals: ApprovalsClient
   let worktrees: WorktreesClient
   let missions: MissionsClient
@@ -48,21 +49,22 @@ final class ServerClients: Sendable {
     self.baseURL = baseURL
     self.requestBuilder = requestBuilder
     self.http = ServerHTTPClient(requestBuilder: requestBuilder, responseLoader: responseLoader)
-    self.controlPlane = ControlPlaneClient(http: http)
+    self.sessionsSummary = SessionsSummaryClient(http: http)
+    self.serverRole = ServerRoleClient(http: http)
     self.updates = ServerUpdateClient(
       http: http,
       baseURL: baseURL,
       authToken: requestBuilder.authToken
     )
-    self.controlDeck = ControlDeckClient(http: http, requestBuilder: requestBuilder)
     self.config = ConfigClient(http: http)
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
-    self.mcp = McpClient(http: http, requestBuilder: requestBuilder)
     self.usage = UsageClient(http: http)
-    self.dashboard = DashboardClient(http: http)
+    self.activeSessions = ActiveSessionsClient(http: http)
+    self.archivedSessions = ArchivedSessionsClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)
     self.conversation = ConversationClient(http: http, requestBuilder: requestBuilder)
+    self.review = ReviewClient(http: http, requestBuilder: requestBuilder)
     self.approvals = ApprovalsClient(http: http, requestBuilder: requestBuilder)
     self.worktrees = WorktreesClient(http: http, requestBuilder: requestBuilder)
     self.missions = MissionsClient(http: http, requestBuilder: requestBuilder)

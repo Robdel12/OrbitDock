@@ -32,28 +32,35 @@ struct OrbitDockApp: App {
 
   var body: some Scene {
     #if os(macOS)
-      WindowGroup(id: "main") {
-        OrbitDockWindowRoot(appRuntime: appRuntime)
-          .environment(appRuntime)
-          .environment(\.modelPricingService, modelPricingService)
-          .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
-          .task {
-            await appRuntime.startIfNeeded()
-          }
+      WindowGroup(id: AppRuntimeMode.isRunningTestsProcess ? "test-host" : "main") {
+        if AppRuntimeMode.isRunningTestsProcess {
+          Color.clear
+            .frame(minWidth: 1, maxWidth: .infinity, minHeight: 1, maxHeight: .infinity)
+        } else {
+          OrbitDockWindowRoot(appRuntime: appRuntime)
+            .environment(appRuntime)
+            .environment(\.modelPricingService, modelPricingService)
+            .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
+        }
       }
       .windowStyle(.hiddenTitleBar)
       .defaultSize(width: 1_400, height: 800)
       .commands { OrbitDockWindowCommands() }
 
       MenuBarExtra {
-        MenuBarView()
-          .environment(\.modelPricingService, modelPricingService)
-          .environment(appRuntime.runtimeRegistry)
-          .environment(appRuntime.usageServiceRegistry)
-          .environment(appRuntime.dashboardDataService)
-          .environment(appRuntime)
-          .environment(\.colorScheme, .dark)
-          .preferredColorScheme(.dark)
+        if AppRuntimeMode.isRunningTestsProcess {
+          Color.clear
+            .frame(width: 1, height: 1)
+        } else {
+          MenuBarView()
+            .environment(\.modelPricingService, modelPricingService)
+            .environment(appRuntime.runtimeRegistry)
+            .environment(appRuntime.usageServiceRegistry)
+            .environment(appRuntime.sessionsSummaryDataService)
+            .environment(appRuntime)
+            .environment(\.colorScheme, .dark)
+            .preferredColorScheme(.dark)
+        }
       } label: {
         Image(systemName: "terminal.fill")
           .symbolRenderingMode(.monochrome)
@@ -61,14 +68,17 @@ struct OrbitDockApp: App {
       .menuBarExtraStyle(.window)
     #else
       WindowGroup {
-        OrbitDockWindowRoot(appRuntime: appRuntime)
-          .environment(appRuntime)
-          .environment(\.modelPricingService, modelPricingService)
-          .task {
-            await appRuntime.startIfNeeded()
-          }
+        if AppRuntimeMode.isRunningTestsProcess {
+          Color.clear
+            .frame(minWidth: 1, maxWidth: .infinity, minHeight: 1, maxHeight: .infinity)
+        } else {
+          OrbitDockWindowRoot(appRuntime: appRuntime)
+            .environment(appRuntime)
+            .environment(\.modelPricingService, modelPricingService)
+        }
       }
       .onChange(of: scenePhase) { _, newPhase in
+        guard !AppRuntimeMode.isRunningTestsProcess else { return }
         appRuntime.focusTracker.update(scenePhase: newPhase)
         switch newPhase {
           case .active:

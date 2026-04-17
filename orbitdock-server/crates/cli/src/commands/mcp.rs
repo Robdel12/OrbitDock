@@ -56,7 +56,7 @@ fn auth_status_str(status: &McpAuthStatus) -> &'static str {
   }
 }
 
-fn build_mcp_tools_json_response(resp: McpToolsResponse) -> McpToolsJsonResponse {
+fn summarize_mcp_tools(resp: &McpToolsResponse) -> McpToolsSummary {
   let server_count = resp
     .tools
     .keys()
@@ -70,16 +70,22 @@ fn build_mcp_tools_json_response(resp: McpToolsResponse) -> McpToolsJsonResponse
   let tool_count = resp.tools.len();
   let auth_server_count = resp.auth_statuses.len();
 
+  McpToolsSummary {
+    session_id: resp.session_id.clone(),
+    server_count,
+    tool_count,
+    resource_count,
+    resource_template_count,
+    auth_server_count,
+  }
+}
+
+fn build_mcp_tools_json_response(resp: McpToolsResponse) -> McpToolsJsonResponse {
+  let summary = summarize_mcp_tools(&resp);
+
   McpToolsJsonResponse {
     kind: "mcp_tools",
-    summary: McpToolsSummary {
-      session_id: resp.session_id.clone(),
-      server_count,
-      tool_count,
-      resource_count,
-      resource_template_count,
-      auth_server_count,
-    },
+    summary,
     tools: resp,
   }
 }
@@ -92,26 +98,20 @@ pub async fn run(action: &McpAction, rest: &RestClient, output: &Output) -> i32 
 }
 
 async fn tools(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
-  let path = format!("/api/sessions/{session_id}/mcp/tools");
+  let path = format!("/api/sessions/{session_id}/mcp");
   match rest.get::<McpToolsResponse>(&path).await.into_result() {
     Ok(resp) => {
       if output.json {
         output.print_json_pretty(&build_mcp_tools_json_response(resp));
       } else {
-        let server_count = resp
-          .tools
-          .keys()
-          .chain(resp.resources.keys())
-          .chain(resp.resource_templates.keys())
-          .chain(resp.auth_statuses.keys())
-          .collect::<std::collections::BTreeSet<_>>()
-          .len();
-        let resource_count: usize = resp.resources.values().map(Vec::len).sum();
-        let template_count: usize = resp.resource_templates.values().map(Vec::len).sum();
+        let summary = summarize_mcp_tools(&resp);
         println!(
-                    "MCP Tools for {session_id}: {server_count} server(s), {} tool(s), {resource_count} resource(s), {template_count} template(s)",
-                    resp.tools.len()
-                );
+          "MCP Tools for {session_id}: {} server(s), {} tool(s), {} resource(s), {} template(s)",
+          summary.server_count,
+          summary.tool_count,
+          summary.resource_count,
+          summary.resource_template_count
+        );
         for (key, tool) in &resp.tools {
           let desc = tool.description.as_deref().unwrap_or("no description");
           println!("  {key}: {} — {desc}", tool.name);

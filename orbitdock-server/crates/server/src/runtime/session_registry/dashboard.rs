@@ -23,44 +23,42 @@ impl SessionRegistry {
     entry
   }
 
-  pub fn publish_dashboard_conversation_updated(&self, session_id: &str) {
-    let Some(entry) = self.sessions.get(session_id) else {
+  pub fn publish_active_sessions_invalidation_for_session(&self, session_id: &str) {
+    if !self.sessions.contains_key(session_id) {
       return;
-    };
-    let snap = entry.value().snapshot();
-    let item = crate::domain::sessions::dashboard_projection::dashboard_item_from_snapshot(&snap);
+    }
     let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-    let _ = self.list_tx.send(
-      orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
-        revision,
-        item: Box::new(item),
-      },
-    );
-  }
-
-  pub fn publish_dashboard_snapshot(&self) {
-    let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    self.publish_library_invalidation();
     let _ = self
       .list_tx
-      .send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
+      .send(orbitdock_protocol::ServerMessage::ActiveSessionsInvalidated { revision });
   }
 
-  pub fn notify_dashboard_session_updated(&self, session_id: &str) {
+  pub fn publish_active_sessions_invalidation(&self) {
+    self.publish_sessions_summary_invalidation();
     let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-    if let Some(entry) = self.sessions.get(session_id) {
-      let snap = entry.value().snapshot();
-      let item = crate::domain::sessions::dashboard_projection::dashboard_item_from_snapshot(&snap);
-      let _ = self.list_tx.send(
-        orbitdock_protocol::ServerMessage::DashboardConversationUpdated {
-          revision,
-          item: Box::new(item),
-        },
-      );
-    } else {
-      let _ = self
-        .list_tx
-        .send(orbitdock_protocol::ServerMessage::DashboardInvalidated { revision });
-    }
+    self.publish_library_invalidation();
+    let _ = self
+      .list_tx
+      .send(orbitdock_protocol::ServerMessage::ActiveSessionsInvalidated { revision });
+  }
+
+  pub fn notify_active_session_updated(&self, _session_id: &str) {
+    self.publish_sessions_summary_invalidation();
+    let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    self.publish_library_invalidation();
+    let _ = self
+      .list_tx
+      .send(orbitdock_protocol::ServerMessage::ActiveSessionsInvalidated { revision });
+  }
+
+  pub fn publish_active_session_removed(&self, _session_id: &str) {
+    self.publish_sessions_summary_invalidation();
+    let revision = self.dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    self.publish_library_invalidation();
+    let _ = self
+      .list_tx
+      .send(orbitdock_protocol::ServerMessage::ActiveSessionsInvalidated { revision });
   }
 
   pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {

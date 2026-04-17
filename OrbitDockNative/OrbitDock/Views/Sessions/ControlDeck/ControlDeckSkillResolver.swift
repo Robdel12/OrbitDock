@@ -5,7 +5,7 @@ enum ControlDeckSkillResolver {
     content: String,
     selectedSkillPaths: Set<String>,
     availableSkills: [ControlDeckSkill]
-  ) -> [ServerControlDeckSkillRef] {
+  ) -> [ServerSkillInput] {
     guard !availableSkills.isEmpty else { return [] }
 
     let inlineNames = Set(
@@ -18,7 +18,7 @@ enum ControlDeckSkillResolver {
     return availableSkills
       .filter { selectedSkillPaths.contains($0.path) || inlineNames.contains($0.name.lowercased()) }
       .map { skill in
-        ServerControlDeckSkillRef(name: skill.name, path: skill.path)
+        ServerSkillInput(name: skill.name, path: skill.path)
       }
   }
 

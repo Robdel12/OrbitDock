@@ -8,9 +8,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use super::super::errors::ApiErrorResponse;
-use super::common::map_takeover_error;
+use super::common::{flush_persistence, load_session_detail_snapshot, map_takeover_error};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_takeover::{takeover_passive_session, TakeoverSessionInputs};
+use orbitdock_protocol::SessionDetailSnapshot;
 
 #[derive(Debug, Deserialize)]
 pub struct TakeoverSessionRequest {
@@ -42,6 +43,8 @@ pub struct TakeoverSessionRequest {
 pub struct TakeoverSessionResponse {
   pub session_id: String,
   pub accepted: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
 }
 
 pub async fn takeover_session(
@@ -69,8 +72,11 @@ pub async fn takeover_session(
   .await
   .map_err(map_takeover_error)?;
 
+  flush_persistence(&state).await;
+
   Ok(Json(TakeoverSessionResponse {
-    session_id,
+    session_id: session_id.clone(),
     accepted: true,
+    session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
   }))
 }

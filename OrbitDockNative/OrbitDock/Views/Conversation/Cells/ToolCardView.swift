@@ -154,28 +154,23 @@ struct ToolCardView: View {
     .themeShadow(isCompactLayout ? Shadow.lg : Shadow.md)
     //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.xs)
+    .overlay { toolPtySubscriptionBridge }
     .contentShape(Rectangle())
     .onTapGesture { onToggle?() }
-    .task(id: shouldSubscribeToolPty) {
-      // Subscribe to live PTY output when bash card is expanded and running
-      guard shouldSubscribeToolPty,
-            let manager = toolPtyManager,
-            let connection = runtime?.connection else { return }
+  }
 
-      manager.attach(toolId: toolRow.id, sessionId: sessionId, connection: connection)
-
-      // Keep task alive until cancelled (when expanded becomes false or tool stops running)
-      // On cancellation, unsubscribe from the PTY stream
-      await withTaskCancellationHandler {
-        // Wait indefinitely until the task is cancelled
-        while !Task.isCancelled {
-          try? await Task.sleep(for: .seconds(60))
-        }
-      } onCancel: {
-        Task { @MainActor in
-          manager.detach(toolId: toolRow.id, connection: connection)
-        }
-      }
+  @ViewBuilder
+  private var toolPtySubscriptionBridge: some View {
+    if shouldSubscribeToolPty,
+       let manager = toolPtyManager,
+       let connection = runtime?.connection
+    {
+      ToolPtySubscriptionBridge(
+        toolId: toolRow.id,
+        sessionId: sessionId,
+        manager: manager,
+        connection: connection
+      )
     }
   }
 
@@ -1137,7 +1132,7 @@ struct ToolCardView: View {
         case "web":
           webExpandedDispatch(content)
         case "plan":
-          PlanExpandedView(content: content, toolRow: toolRow)
+          PlanExpandedView(content: content, toolRow: toolRow, display: display)
         case "todo":
           TodoExpandedView(content: content, display: display)
         case "question":
@@ -1334,6 +1329,26 @@ struct ToolCardView: View {
       case "gray", "grey", "secondaryLabel": .textTertiary
       default: .textTertiary
     }
+  }
+}
+
+private struct ToolPtySubscriptionBridge: View {
+  let toolId: String
+  let sessionId: String
+  let manager: ToolPtySessionManager
+  let connection: ServerConnection
+
+  var body: some View {
+    Color.clear
+      .frame(width: 0, height: 0)
+      .allowsHitTesting(false)
+      .accessibilityHidden(true)
+      .onAppear {
+        manager.attach(toolId: toolId, sessionId: sessionId, connection: connection)
+      }
+      .onDisappear {
+        manager.detach(toolId: toolId, connection: connection)
+      }
   }
 }
 

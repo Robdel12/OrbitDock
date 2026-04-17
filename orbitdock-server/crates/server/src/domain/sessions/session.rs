@@ -13,30 +13,28 @@ use orbitdock_protocol::{
   ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode,
   CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides, Provider,
   SessionControlMode, SessionLifecycleState, SessionState, SessionStatus, SessionSummary,
-  StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+  SessionSurface, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
+  WorkStatus,
 };
 
 #[cfg(test)]
-use super::approval_state::{normalize_request_id, PendingApprovalMutation};
+use super::approval_state::PendingApprovalMutation;
 use super::conversation_state::{
   is_actively_streaming_message_row_summary, is_message_row_summary,
-  streaming_message_row_summary_content_len,
+  streaming_message_row_summary_content_len, ConversationState,
 };
 pub use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
 use super::state::SessionCoreState;
-use tokio::sync::broadcast;
-use tracing::info;
-
-use orbitdock_protocol::ServerMessage;
-
 #[cfg(test)]
-use super::conversation_state::ConversationState;
-#[cfg(test)]
-use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
+use crate::domain::sessions::conversation::ConversationBootstrap;
+use crate::domain::sessions::conversation::ConversationPage;
 use crate::domain::sessions::transition::TransitionState;
+use crate::runtime::session_broadcasts::invalidated_surfaces;
 use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
+use orbitdock_protocol::ServerMessage;
+use tokio::sync::broadcast;
 
 fn is_session_ended(msg: &ServerMessage) -> bool {
   matches!(msg, ServerMessage::SessionEnded { .. })
@@ -171,8 +169,12 @@ pub struct SessionHandle {
   broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
   /// Optional sender for list-level broadcasts (dashboard sidebar updates)
   list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
+  /// Shared control-plane revision counter owned by the session registry.
+  control_plane_revision: Option<Arc<AtomicU64>>,
   /// Shared dashboard revision counter owned by the session registry.
   dashboard_revision: Option<Arc<AtomicU64>>,
+  /// Shared library revision counter owned by the session registry.
+  library_revision: Option<Arc<AtomicU64>>,
   /// Monotonic revision counter, incremented on every broadcast
   revision: u64,
   /// Ring buffer of (revision, pre-serialized JSON with revision injected)
@@ -224,7 +226,6 @@ struct StreamingRowEmitState {
 }
 
 impl SessionHandle {
-  #[cfg(test)]
   fn conversation_state(&self) -> ConversationState {
     self.state.conversation_state()
   }
@@ -237,7 +238,6 @@ impl SessionHandle {
     self.state.latest_row_sequence()
   }
 
-  #[cfg(test)]
   pub fn conversation_page(&self, before_sequence: Option<u64>, limit: usize) -> ConversationPage {
     self.conversation_state().page(before_sequence, limit)
   }
@@ -258,7 +258,9 @@ impl SessionHandle {
       state,
       broadcast_tx,
       list_tx: None,
+      control_plane_revision: None,
       dashboard_revision: None,
+      library_revision: None,
       revision: 0,
       event_log: VecDeque::new(),
       streaming_row_emit_at: HashMap::new(),
@@ -275,7 +277,9 @@ impl SessionHandle {
       state,
       broadcast_tx,
       list_tx: None,
+      control_plane_revision: None,
       dashboard_revision: None,
+      library_revision: None,
       revision: 0,
       event_log: VecDeque::new(),
       streaming_row_emit_at: HashMap::new(),
@@ -288,8 +292,16 @@ impl SessionHandle {
     self.list_tx = Some(tx);
   }
 
+  pub fn set_control_plane_revision_counter(&mut self, revision: Arc<AtomicU64>) {
+    self.control_plane_revision = Some(revision);
+  }
+
   pub fn set_dashboard_revision_counter(&mut self, revision: Arc<AtomicU64>) {
     self.dashboard_revision = Some(revision);
+  }
+
+  pub fn set_library_revision_counter(&mut self, revision: Arc<AtomicU64>) {
+    self.library_revision = Some(revision);
   }
 
   /// Get session ID
@@ -710,61 +722,14 @@ impl SessionHandle {
     approval_type: ApprovalType,
     proposed_amendment: Option<Vec<String>>,
   ) -> PendingApprovalMutation {
-    let normalized_request_id = normalize_request_id(&approval.id).to_string();
-    let mutation = self
+    self
       .state
-      .queue_pending_approval(approval, approval_type, proposed_amendment);
-
-    match mutation {
-      PendingApprovalMutation::Unchanged => {}
-      PendingApprovalMutation::Updated => info!(
-        component = "approval",
-        event = "approval.updated",
-        session_id = %self.state.identity.id,
-        request_id = %normalized_request_id,
-        approval_version = self.state.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.state.pending_approvals.len(),
-        "Approval request updated in place"
-      ),
-      PendingApprovalMutation::Enqueued => info!(
-        component = "approval",
-        event = "approval.enqueued",
-        session_id = %self.state.identity.id,
-        request_id = %normalized_request_id,
-        approval_version = self.state.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.state.pending_approvals.len(),
-        "Approval request enqueued"
-      ),
-    }
-
-    mutation
+      .queue_pending_approval(approval, approval_type, proposed_amendment)
   }
 
   #[cfg(test)]
   fn promote_queue_front(&mut self) {
-    let active_before = self.state.pending_approval_id.clone();
-    let work_status_before = self.state.work_status;
-    let front_before = self.state.pending_approvals.front().cloned();
     self.state.promote_queue_front();
-
-    if let Some(entry) = front_before {
-      if active_before.as_deref() != Some(entry.request.id.as_str())
-        || work_status_before != self.state.work_status
-      {
-        info!(
-          component = "approval",
-          event = "approval.promoted",
-          session_id = %self.state.identity.id,
-          request_id = %entry.request.id,
-          approval_version = self.state.approval_version,
-          approval_type = ?entry.approval_type,
-          queue_depth = self.state.pending_approvals.len(),
-          "Promoted next approval to active"
-        );
-      }
-    }
   }
 
   /// Resolve a pending approval request and promote the next queued request.
@@ -781,19 +746,6 @@ impl SessionHandle {
     let (approval_type, proposed_amendment, active_approval, work_status) = self
       .state
       .resolve_pending_approval(request_id, fallback_work_status);
-
-    if let Some(approval_type) = approval_type {
-      info!(
-        component = "approval",
-        event = "approval.decided",
-        session_id = %self.state.identity.id,
-        request_id = %request_id,
-        approval_version = self.state.approval_version,
-        approval_type = ?approval_type,
-        queue_depth = self.state.pending_approvals.len(),
-        "Approval decided and removed from queue"
-      );
-    }
 
     (
       approval_type,
@@ -821,21 +773,32 @@ impl SessionHandle {
     self.snapshot_handle.store(Arc::new(self.to_snapshot()));
   }
 
-  /// Emit a `DashboardConversationUpdated` from the current snapshot.
+  /// Emit active-session and archive invalidations from the current snapshot.
   /// Use after `refresh_snapshot()` in code paths that change session state
   /// without going through `broadcast()` (e.g. transition effects that only
   /// produce Persist ops with no Emit).
   pub fn emit_dashboard_update(&self) {
-    if let (Some(ref list_tx), Some(ref dashboard_revision)) =
-      (&self.list_tx, &self.dashboard_revision)
-    {
-      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let snap = self.snapshot_handle.load();
-      let item = super::dashboard_projection::dashboard_item_from_snapshot(&snap);
-      let _ = list_tx.send(ServerMessage::DashboardConversationUpdated {
-        revision,
-        item: Box::new(item),
+    if let (
+      Some(ref list_tx),
+      Some(ref control_plane_revision),
+      Some(ref dashboard_revision),
+      Some(ref library_revision),
+    ) = (
+      &self.list_tx,
+      &self.control_plane_revision,
+      &self.dashboard_revision,
+      &self.library_revision,
+    ) {
+      let control_plane_revision = control_plane_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
+        revision: control_plane_revision,
       });
+      let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
+        revision: library_revision,
+      });
+      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::ActiveSessionsInvalidated { revision });
     }
   }
 
@@ -850,14 +813,18 @@ impl SessionHandle {
     let rev = self.revision;
     let msg = sanitize_server_message_for_transport(msg);
 
-    if let Ok(json) = serialize_with_revision(&msg, rev) {
-      self.event_log.push_back((rev, json));
-      if self.event_log.len() > EVENT_LOG_CAPACITY {
-        self.event_log.pop_front();
-      }
-    }
-
+    self.push_event_log_message(&msg, rev);
     let _ = self.broadcast_tx.send(msg.clone());
+    let session_id = self.state.identity.id.clone();
+    for surface in invalidated_surfaces(&msg) {
+      let invalidation = ServerMessage::SessionSurfaceInvalidated {
+        session_id: session_id.clone(),
+        surface: *surface,
+        revision: rev,
+      };
+      self.push_event_log_message(&invalidation, rev);
+      let _ = self.broadcast_tx.send(invalidation);
+    }
     self.refresh_snapshot();
 
     if is_session_ended(&msg) {
@@ -867,14 +834,60 @@ impl SessionHandle {
     }
   }
 
+  pub fn broadcast_surface_invalidations(&mut self, surfaces: &[SessionSurface]) {
+    if surfaces.is_empty() {
+      return;
+    }
+
+    self.revision += 1;
+    let rev = self.revision;
+    let session_id = self.state.identity.id.clone();
+
+    for surface in surfaces {
+      let invalidation = ServerMessage::SessionSurfaceInvalidated {
+        session_id: session_id.clone(),
+        surface: *surface,
+        revision: rev,
+      };
+      self.push_event_log_message(&invalidation, rev);
+      let _ = self.broadcast_tx.send(invalidation);
+    }
+
+    self.refresh_snapshot();
+    self.emit_dashboard_update();
+  }
+
+  fn push_event_log_message(&mut self, msg: &ServerMessage, revision: u64) {
+    if let Ok(json) = serialize_with_revision(msg, revision) {
+      self.event_log.push_back((revision, json));
+      if self.event_log.len() > EVENT_LOG_CAPACITY {
+        self.event_log.pop_front();
+      }
+    }
+  }
+
   fn emit_dashboard_removed(&self) {
-    if let (Some(ref list_tx), Some(ref dashboard_revision)) =
-      (&self.list_tx, &self.dashboard_revision)
-    {
-      dashboard_revision.fetch_add(1, Ordering::Relaxed);
-      let _ = list_tx.send(ServerMessage::DashboardItemRemoved {
-        session_id: self.state.identity.id.clone(),
+    if let (
+      Some(ref list_tx),
+      Some(ref control_plane_revision),
+      Some(ref dashboard_revision),
+      Some(ref library_revision),
+    ) = (
+      &self.list_tx,
+      &self.control_plane_revision,
+      &self.dashboard_revision,
+      &self.library_revision,
+    ) {
+      let control_plane_revision = control_plane_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
+        revision: control_plane_revision,
       });
+      let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
+        revision: library_revision,
+      });
+      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let _ = list_tx.send(ServerMessage::ActiveSessionsInvalidated { revision });
     }
   }
 
@@ -997,12 +1010,16 @@ mod tests {
   }
 
   #[test]
-  fn broadcast_always_emits_dashboard_conversation_updated() {
+  fn broadcast_always_emits_active_sessions_invalidation() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
+    let control_plane_revision = Arc::new(AtomicU64::new(0));
     let dashboard_revision = Arc::new(AtomicU64::new(0));
+    let library_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
+    session.set_control_plane_revision_counter(control_plane_revision);
     session.set_dashboard_revision_counter(dashboard_revision);
+    session.set_library_revision_counter(library_revision);
 
     // Any message type should emit a dashboard update — no filters.
     session.broadcast(ServerMessage::SessionDelta {
@@ -1015,20 +1032,40 @@ mod tests {
 
     let msg = list_rx
       .try_recv()
+      .expect("control-plane invalidation should be emitted");
+    assert!(matches!(
+      msg,
+      ServerMessage::SessionsSummaryInvalidated { revision: 1 }
+    ));
+
+    let msg = list_rx
+      .try_recv()
+      .expect("library invalidation should be emitted");
+    assert!(matches!(
+      msg,
+      ServerMessage::ArchivedSessionsInvalidated { revision: 1 }
+    ));
+
+    let msg = list_rx
+      .try_recv()
       .expect("dashboard update should be emitted");
     assert!(matches!(
       msg,
-      ServerMessage::DashboardConversationUpdated { revision: 1, .. }
+      ServerMessage::ActiveSessionsInvalidated { revision: 1 }
     ));
   }
 
   #[test]
   fn broadcast_emits_dashboard_update_for_non_delta_messages() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
+    let control_plane_revision = Arc::new(AtomicU64::new(0));
     let dashboard_revision = Arc::new(AtomicU64::new(0));
+    let library_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
+    session.set_control_plane_revision_counter(control_plane_revision);
     session.set_dashboard_revision_counter(dashboard_revision);
+    session.set_library_revision_counter(library_revision);
 
     // ConversationRowsChanged was previously filtered out — now it emits a dashboard update.
     session.broadcast(ServerMessage::ConversationRowsChanged {
@@ -1040,10 +1077,26 @@ mod tests {
 
     let msg = list_rx
       .try_recv()
+      .expect("control-plane invalidation should be emitted for any message type");
+    assert!(matches!(
+      msg,
+      ServerMessage::SessionsSummaryInvalidated { revision: 1 }
+    ));
+
+    let msg = list_rx
+      .try_recv()
+      .expect("library invalidation should be emitted for any message type");
+    assert!(matches!(
+      msg,
+      ServerMessage::ArchivedSessionsInvalidated { revision: 1 }
+    ));
+
+    let msg = list_rx
+      .try_recv()
       .expect("dashboard update should be emitted for any message type");
     assert!(matches!(
       msg,
-      ServerMessage::DashboardConversationUpdated { revision: 1, .. }
+      ServerMessage::ActiveSessionsInvalidated { revision: 1 }
     ));
   }
 
@@ -1094,6 +1147,18 @@ mod tests {
   }
 
   #[test]
+  fn set_config_syncs_legacy_approval_policy_from_explicit_details() {
+    let mut session = session_handle(Provider::Codex);
+
+    session.set_config(SessionConfigPatch {
+      approval_policy_details: orbitdock_protocol::CodexApprovalPolicy::from_storage_text("never"),
+      ..Default::default()
+    });
+
+    assert_eq!(session.config().approval_policy.as_deref(), Some("never"));
+  }
+
+  #[test]
   fn apply_changes_syncs_legacy_sandbox_mode_from_explicit_details() {
     let mut session = session_handle(Provider::Codex);
 
@@ -1113,6 +1178,27 @@ mod tests {
     });
 
     assert!(session.config().sandbox_mode.is_none());
+  }
+
+  #[test]
+  fn apply_changes_syncs_legacy_approval_policy_from_explicit_details() {
+    let mut session = session_handle(Provider::Codex);
+
+    session.apply_changes(&StateChanges {
+      approval_policy_details: Some(orbitdock_protocol::CodexApprovalPolicy::from_storage_text(
+        "never",
+      )),
+      ..Default::default()
+    });
+
+    assert_eq!(session.config().approval_policy.as_deref(), Some("never"));
+
+    session.apply_changes(&StateChanges {
+      approval_policy_details: Some(None),
+      ..Default::default()
+    });
+
+    assert!(session.config().approval_policy.is_none());
   }
 
   #[test]

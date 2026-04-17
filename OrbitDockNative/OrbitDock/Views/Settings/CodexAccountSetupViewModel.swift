@@ -9,14 +9,14 @@ final class CodexAccountSetupViewModel {
     case chatgpt(email: String?, planType: String?)
   }
 
-  var serverState: SessionStore
+  var endpointStore: ServerEndpointRuntime
 
-  init(serverState: SessionStore) {
-    self.serverState = serverState
+  init(endpointStore: ServerEndpointRuntime) {
+    self.endpointStore = endpointStore
   }
 
   var accountState: AccountState {
-    switch serverState.codexAccountStatus?.account {
+    switch endpointStore.codexAccountStatus?.account {
       case .apiKey?:
         .apiKey
       case let .chatgpt(email, planType)?:
@@ -27,15 +27,15 @@ final class CodexAccountSetupViewModel {
   }
 
   var authError: String? {
-    serverState.codexAuthError
+    endpointStore.codexAuthError
   }
 
   var isSigningIn: Bool {
-    serverState.codexAccountStatus?.loginInProgress == true
+    endpointStore.codexAccountStatus?.loginInProgress == true
   }
 
   var hasConnectedAccount: Bool {
-    serverState.codexAccountStatus?.account != nil
+    endpointStore.codexAccountStatus?.account != nil
   }
 
   var accountHeaderIconName: String {
@@ -46,24 +46,24 @@ final class CodexAccountSetupViewModel {
     hasConnectedAccount ? Color.feedbackPositive : Color.statusPermission
   }
 
-  func update(serverState: SessionStore) {
-    self.serverState = serverState
+  func update(endpointStore: ServerEndpointRuntime) {
+    self.endpointStore = endpointStore
   }
 
   func refresh() {
-    serverState.codexAccountService.refresh()
+    endpointStore.codexAccountService.refresh()
   }
 
   func startLogin() {
-    serverState.codexAccountService.startLogin()
+    endpointStore.codexAccountService.startLogin()
   }
 
   func cancelLogin() {
-    serverState.codexAccountService.cancelLogin()
+    endpointStore.codexAccountService.cancelLogin()
   }
 
   func logout() {
-    serverState.codexAccountService.logout()
+    endpointStore.codexAccountService.logout()
   }
 
   func openUsagePage() {

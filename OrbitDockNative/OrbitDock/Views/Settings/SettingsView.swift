@@ -72,12 +72,6 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
-  private enum LayoutMode {
-    case compact
-    case split
-  }
-
-  private static let compactLayoutThreshold: CGFloat = 840
   @Environment(OrbitDockAppRuntime.self) private var appRuntime
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AppRouter.self) private var router
@@ -116,33 +110,35 @@ struct SettingsView: View {
     }
   }
 
-  private static func layoutMode(for width: CGFloat) -> LayoutMode {
-    width < compactLayoutThreshold ? .compact : .split
+  private var paneSelection: Binding<SettingsPane?> {
+    Binding(
+      get: { selectedPane },
+      set: { newValue in
+        guard let newValue else { return }
+        selectedPane = newValue
+      }
+    )
   }
 
   var body: some View {
-    GeometryReader { proxy in
-      let layoutMode = Self.layoutMode(for: proxy.size.width)
-      Group {
-        if layoutMode == .compact {
-          compactLayout
-        } else {
-          splitLayout
-        }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(
-        ZStack {
-          Color.backgroundPrimary
-          Rectangle()
-            .fill(Color.backgroundSecondary.opacity(0.32))
-            .frame(height: 148)
-            .frame(maxHeight: .infinity, alignment: .top)
-        }
-      )
-      .animation(Motion.standard, value: selectedPane)
+    Group {
+      #if os(macOS)
+        splitLayout
+      #else
+        compactLayout
+      #endif
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .background(
+      ZStack {
+        Color.backgroundPrimary
+        Rectangle()
+          .fill(Color.backgroundSecondary.opacity(0.32))
+          .frame(height: 148)
+          .frame(maxHeight: .infinity, alignment: .top)
+      }
+    )
+    .animation(Motion.standard, value: selectedPane)
     .onChange(of: appRuntime.requestedSettingsPane) { _, newPane in
       if selectedPane != newPane {
         selectedPane = newPane
@@ -151,26 +147,19 @@ struct SettingsView: View {
   }
 
   private var splitLayout: some View {
-    HStack(spacing: 0) {
+    NavigationSplitView {
       sidebar
-      Divider()
-        .foregroundStyle(Color.panelBorder)
+    } detail: {
       detailPane
     }
+    .navigationSplitViewStyle(.balanced)
   }
 
   private var sidebar: some View {
     VStack(alignment: .leading, spacing: Spacing.lg) {
-      VStack(alignment: .leading, spacing: Spacing.xs) {
-        Text("OrbitDock")
-          .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
-          .foregroundStyle(Color.accent)
-        Text("Preferences")
-          .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.textPrimary)
-      }
+      sidebarHeader
 
-      VStack(spacing: Spacing.sm) {
+      List(selection: paneSelection) {
         ForEach(SettingsPane.allCases) { pane in
           SettingsSidebarButton(
             title: pane.title,
@@ -180,40 +169,61 @@ struct SettingsView: View {
           ) {
             selectedPane = pane
           }
+          .tag(Optional(pane))
+          .listRowInsets(EdgeInsets(top: Spacing.xxs, leading: 0, bottom: Spacing.xxs, trailing: 0))
+          .listRowSeparator(.hidden)
+          .listRowBackground(Color.clear)
         }
       }
+      .listStyle(.sidebar)
+      .scrollContentBackground(.hidden)
+      .background(Color.clear)
 
       Spacer()
 
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        HStack(spacing: Spacing.sm) {
-          Circle()
-            .fill(endpointHealthColor)
-            .frame(width: 7, height: 7)
-          Text("Endpoint Health")
-            .font(.system(size: TypeScale.meta, weight: .semibold))
-            .foregroundStyle(Color.textSecondary)
-        }
-
-        Text(endpointHealthSummary.shortText)
-          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color.textTertiary)
-      }
-      .padding(Spacing.md)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(
-        Color.backgroundTertiary.opacity(OpacityTier.vivid),
-        in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .strokeBorder(Color.panelBorder, lineWidth: 1)
-      )
+      endpointHealthCard
     }
     .padding(Spacing.section)
-    .frame(width: 260)
     .frame(maxHeight: .infinity, alignment: .topLeading)
     .background(Color.backgroundSecondary.opacity(0.8))
+  }
+
+  private var sidebarHeader: some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      Text("OrbitDock")
+        .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.accent)
+      Text("Preferences")
+        .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
+        .foregroundStyle(Color.textPrimary)
+    }
+  }
+
+  private var endpointHealthCard: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm) {
+        Circle()
+          .fill(endpointHealthColor)
+          .frame(width: 7, height: 7)
+        Text("Endpoint Health")
+          .font(.system(size: TypeScale.meta, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+      }
+
+      Text(endpointHealthSummary.shortText)
+        .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+    }
+    .padding(Spacing.md)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      Color.backgroundTertiary.opacity(OpacityTier.vivid),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(Color.panelBorder, lineWidth: 1)
+    )
   }
 
   private var compactLayout: some View {
@@ -272,7 +282,7 @@ struct SettingsView: View {
           case .workspace:
             GeneralSettingsView()
           case .integrations:
-            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
+            SetupSettingsView(endpointStore: runtimeRegistry.activeEndpointStore)
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:
@@ -316,7 +326,7 @@ struct SettingsView: View {
           case .workspace:
             GeneralSettingsView()
           case .integrations:
-            SetupSettingsView(serverState: runtimeRegistry.activeSessionStore)
+            SetupSettingsView(endpointStore: runtimeRegistry.activeEndpointStore)
           case .missionControl:
             MissionControlDefaultsView()
           case .servers:

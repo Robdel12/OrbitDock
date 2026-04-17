@@ -531,6 +531,28 @@ struct ServerDashboardSnapshotPayload: Codable, Sendable {
   }
 }
 
+struct ServerSessionsSummaryCounts: Codable, Sendable {
+  let total: UInt64
+  let active: UInt32
+  let working: UInt32
+  let attention: UInt32
+  let ready: UInt32
+}
+
+struct ServerSessionsSummarySnapshotPayload: Codable, Sendable {
+  let revision: UInt64
+  let counts: ServerSessionsSummaryCounts
+  let activeSessions: [ServerSessionListItem]
+  let recentSessions: [ServerSessionListItem]
+
+  enum CodingKeys: String, CodingKey {
+    case revision
+    case counts
+    case activeSessions = "active_sessions"
+    case recentSessions = "recent_sessions"
+  }
+}
+
 struct ServerLibrarySnapshotPayload: Codable, Sendable {
   let revision: UInt64
   let sessions: [ServerSessionListItem]
@@ -784,6 +806,24 @@ struct ServerSessionDiffsPayload: Codable {
     case currentDiff = "current_diff"
     case cumulativeDiff = "cumulative_diff"
     case turnDiffs = "turn_diffs"
+  }
+}
+
+struct ServerSessionReviewSnapshotPayload: Codable, Sendable {
+  let sessionId: String
+  let revision: UInt64
+  let currentDiff: String?
+  let cumulativeDiff: String?
+  let turnDiffs: [ServerTurnDiff]
+  let comments: [ServerReviewComment]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case revision
+    case currentDiff = "current_diff"
+    case cumulativeDiff = "cumulative_diff"
+    case turnDiffs = "turn_diffs"
+    case comments
   }
 }
 

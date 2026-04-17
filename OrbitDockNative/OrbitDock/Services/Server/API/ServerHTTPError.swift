@@ -27,7 +27,7 @@ enum ServerRequestError: LocalizedError {
   }
 
   var isConnectorUnavailableConflict: Bool {
-    statusCode == 409 && apiErrorCode == "session_not_found"
+    apiErrorCode == "connector_unavailable"
   }
 
   var isMissingResourceNotFound: Bool {

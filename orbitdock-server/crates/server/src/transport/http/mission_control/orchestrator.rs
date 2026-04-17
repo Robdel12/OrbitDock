@@ -1,4 +1,20 @@
-use super::*;
+use std::sync::Arc;
+
+use axum::{
+  extract::{Path, State},
+  Json,
+};
+use serde::Deserialize;
+use tracing::info;
+
+use crate::{
+  infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand},
+  runtime::session_registry::SessionRegistry,
+  transport::http::errors::{bad_request, conflict, internal, not_found},
+  transport::http::ApiResult,
+};
+
+use super::{build_detail_response, db_read, flush_persistence, MissionDetailResponse};
 
 use crate::domain::mission_control::config::parse_mission_file;
 
@@ -107,6 +123,7 @@ pub async fn dispatch_mission_issue(
     })
     .await
     .map_err(|e| internal("persist_error", format!("Failed to upsert issue: {e}")))?;
+  flush_persistence(&registry).await?;
 
   // 6. Spawn dispatch (reuse the tracker built in step 2)
 
@@ -144,7 +161,7 @@ pub async fn dispatch_mission_issue(
       );
     }
 
-    crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&reg, &mid_dispatch).await;
+    reg.publish_mission_invalidation(&mid_dispatch);
   });
 
   info!(

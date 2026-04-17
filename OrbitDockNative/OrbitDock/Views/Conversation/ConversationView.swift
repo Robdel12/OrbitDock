@@ -7,7 +7,7 @@ import SwiftUI
 
 struct ConversationView: View {
   let sessionId: String?
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
   var endpointId: UUID?
   var isSessionActive: Bool = false
   var displayStatus: SessionDisplayStatus = .ended
@@ -19,14 +19,13 @@ struct ConversationView: View {
   let onJumpToLatest: () -> Void
   let onFollowStateChanged: (ConversationFollowState) -> Void
   @State private var viewModel: ConversationViewModel
-  @State private var localFollowState = ConversationFollowState.initial
   private var bindingIdentity: String {
-    "\(sessionStore.endpointId.uuidString):\(sessionId ?? ""):\(ObjectIdentifier(sessionStore))"
+    "\(session.endpointId.uuidString):\(sessionId ?? ""):\(ObjectIdentifier(session))"
   }
 
   init(
     sessionId: String?,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     endpointId: UUID? = nil,
     isSessionActive: Bool = false,
     displayStatus: SessionDisplayStatus = .ended,
@@ -38,7 +37,7 @@ struct ConversationView: View {
     onFollowStateChanged: @escaping (ConversationFollowState) -> Void
   ) {
     self.sessionId = sessionId
-    self.sessionStore = sessionStore
+    self.session = session
     self.endpointId = endpointId
     self.isSessionActive = isSessionActive
     self.displayStatus = displayStatus
@@ -51,7 +50,7 @@ struct ConversationView: View {
     _viewModel = State(
       initialValue: ConversationViewModel(
         sessionId: sessionId,
-        sessionStore: sessionStore,
+        session: session,
         viewMode: chatViewMode
       )
     )
@@ -62,72 +61,10 @@ struct ConversationView: View {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      switch viewModel.loadState {
-        case .loading:
-          ConversationLoadingView()
-            .transition(.opacity)
-        case .empty:
-          ConversationEmptyStateView()
-            .transition(.opacity)
-        case .ready:
-          VStack(spacing: 0) {
-            if let forkOrigin = viewModel.forkOrigin {
-              ConversationForkOriginBanner(
-                sourceSessionId: forkOrigin.sourceSessionId,
-                sourceEndpointId: forkOrigin.sourceEndpointId ?? endpointId,
-                sourceName: forkOrigin.sourceName
-              )
-              .padding(.horizontal, Spacing.lg)
-              .padding(.top, Spacing.sm)
-              .padding(.bottom, Spacing.xs)
-            }
-
-            ZStack(alignment: .bottomTrailing) {
-              conversationTimeline
-
-              if !localFollowState.mode.isFollowing {
-                ConversationFollowPill(
-                  unreadCount: localFollowState.unreadCount,
-                  onTap: onJumpToLatest
-                )
-                .padding(.trailing, Spacing.lg)
-                .padding(.bottom, Spacing.sm)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(Motion.standard, value: localFollowState.mode)
-              }
-            }
-
-            if showsOrbitStatusIndicator, (isSessionActive || displayStatus == .ended) {
-              OrbitStatusIndicator(
-                displayStatus: displayStatus,
-                currentTool: currentTool
-              )
-            }
-          }
-          .transition(.opacity)
-      }
+      content
     }
     .task(id: bindingIdentity) {
-      localFollowState = .initial
-      viewModel.bind(sessionId: sessionId, sessionStore: sessionStore, viewMode: chatViewMode)
-      await viewModel.refresh()
-    }
-    .task(id: bindingIdentity + ":resync") {
-      guard let sessionId, !sessionId.isEmpty else { return }
-      let (stream, _) = sessionStore.conversationRefreshRequests(for: sessionId)
-      for await _ in stream {
-        guard !Task.isCancelled else { break }
-        await viewModel.refresh(forceHTTPResync: true)
-      }
-    }
-    .task(id: bindingIdentity + ":rows") {
-      guard let sessionId, !sessionId.isEmpty else { return }
-      let (stream, _) = sessionStore.conversationRowChanges(for: sessionId)
-      for await delta in stream {
-        guard !Task.isCancelled else { break }
-        guard viewModel.currentSessionId == sessionId else { break }
-        viewModel.handleConversationRowDelta(delta)
-      }
+      await runLifecycle()
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in
@@ -141,25 +78,116 @@ struct ConversationView: View {
   // MARK: - Timeline
 
   @ViewBuilder
+  private var content: some View {
+    switch viewModel.loadState {
+      case .loading:
+        ConversationLoadingView()
+          .transition(.opacity)
+      case .empty:
+        ConversationEmptyStateView()
+          .transition(.opacity)
+      case .ready:
+        loadedConversation
+          .transition(.opacity)
+    }
+  }
+
+  private var loadedConversation: some View {
+    VStack(spacing: 0) {
+      if let forkOrigin = viewModel.forkOrigin {
+        ConversationForkOriginBanner(
+          sourceSessionId: forkOrigin.sourceSessionId,
+          sourceEndpointId: forkOrigin.sourceEndpointId ?? endpointId,
+          sourceName: forkOrigin.sourceName
+        )
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.sm)
+        .padding(.bottom, Spacing.xs)
+      }
+
+      ZStack(alignment: .bottomTrailing) {
+        conversationTimeline
+
+        if !viewModel.followState.mode.isFollowing {
+          ConversationFollowPill(
+            unreadCount: viewModel.followState.unreadCount,
+            onTap: onJumpToLatest
+          )
+          .padding(.trailing, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+          .animation(Motion.standard, value: viewModel.followState.mode)
+        }
+      }
+
+      if showsOrbitStatusIndicator, (isSessionActive || displayStatus == .ended) {
+        OrbitStatusIndicator(
+          displayStatus: displayStatus,
+          currentTool: currentTool
+        )
+      }
+    }
+  }
+
+  @ViewBuilder
   private var conversationTimeline: some View {
     if viewModel.hasTimeline, let sessionId {
       TimelineScrollView(
         viewModel: viewModel.timelineViewModel,
         sessionId: sessionId,
         endpointId: endpointId,
-        clients: sessionStore.clients,
+        clients: session.clients,
         scrollCommand: $scrollCommand,
         onLoadMore: {
           viewModel.loadOlderMessages()
         },
         latestAppendEvent: viewModel.latestAppendEvent,
         onFollowStateChanged: { state in
-          localFollowState = state
+          viewModel.applyFollowState(state)
           onFollowStateChanged(state)
         }
       )
     } else {
       ConversationEmptyStateView()
+    }
+  }
+
+  private func runLifecycle() async {
+    viewModel.bind(sessionId: sessionId, session: session, viewMode: chatViewMode)
+
+    guard let sessionId, !sessionId.isEmpty else {
+      await viewModel.refresh()
+      return
+    }
+
+    // Keep bind, initial refresh, and event consumption in one ordered lifecycle
+    // task so replayed row deltas cannot race a later state reset.
+    let (stream, id) = session.transport.events()
+    defer {
+      session.transport.removeEventListener(id: id)
+      session.transport.unsubscribe(surfaces: [.conversation])
+    }
+
+    session.transport.subscribe(surfaces: [.conversation])
+    await viewModel.refresh()
+    await consumeConversationEvents(stream, sessionId: sessionId)
+  }
+
+  private func consumeConversationEvents(
+    _ stream: AsyncStream<ServerSessionTransport.Event>,
+    sessionId: String
+  ) async {
+    for await event in stream {
+      guard !Task.isCancelled else { break }
+      guard viewModel.currentSessionId == sessionId else { break }
+      switch event {
+        case let .conversationRowsChanged(delta):
+          viewModel.handleConversationRowDelta(delta)
+        case .invalidated where event.invalidates(.conversation):
+          viewModel.requestForcedResync(revision: session.transport.latestRevision)
+        case .invalidated:
+          continue
+      }
     }
   }
 }
@@ -176,7 +204,7 @@ enum ConversationLoadState: Equatable {
 
   ConversationView(
     sessionId: nil,
-    sessionStore: SessionStore.preview(),
+    session: ServerSessionContext.preview(),
     isSessionActive: true,
     displayStatus: .working,
     currentTool: "Edit",
@@ -184,9 +212,7 @@ enum ConversationLoadState: Equatable {
     onJumpToLatest: {
       // In real usage, the parent emits a .jumpToLatest scroll command
     },
-    onFollowStateChanged: { state in
-      print("Follow state: \(state.mode.rawValue) unread: \(state.unreadCount)")
-    }
+    onFollowStateChanged: { _ in }
   )
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)

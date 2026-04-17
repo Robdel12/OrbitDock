@@ -243,6 +243,7 @@ impl WorkspaceProvider for LocalWorkspaceProvider {
       model: resolved.model.clone(),
       approval_policy: resolved.approval_policy,
       sandbox_mode: resolved.sandbox_mode,
+      sandbox_policy_details: None,
       permission_mode: resolved.permission_mode,
       allowed_tools: resolved.allowed_tools,
       disallowed_tools: resolved.disallowed_tools,

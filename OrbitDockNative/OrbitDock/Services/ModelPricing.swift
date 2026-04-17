@@ -178,7 +178,6 @@ final class ModelPricingService: @unchecked Sendable {
       }
       lock.unlock()
     } catch {
-      print("[ModelPricing] Failed to load cache: \(error)")
       loadDefaultPrices()
     }
   }

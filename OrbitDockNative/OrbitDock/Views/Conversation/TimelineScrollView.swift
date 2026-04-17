@@ -6,8 +6,9 @@
 //  Heights are automatic — no manual measurement or caching needed.
 //
 //  Follow (pin-to-bottom) logic:
-//  - Follow state is owned locally as @State so the scroll position binding
-//    only reads same-view state — no cross-frame race with parent props.
+//  - Timeline scroll/follow state is owned locally via ConversationTimelineScrollState
+//    so the scroll position binding only reads same-view state — no cross-frame
+//    race with parent props.
 //  - When pinned, the bound position stays on the bottom sentinel so container
 //    height and content height changes preserve bottom alignment declaratively.
 //  - User-driven scrolling is detected by bridging the underlying platform
@@ -36,17 +37,10 @@ struct TimelineScrollView: View {
 
   @Environment(\.horizontalSizeClass) private var sizeClass
 
-  @State private var localFollowState = ConversationFollowState.initial
-  @State private var isNearTop = false
-  @State private var isNearBottom = true
-  @State private var commandedScrollPositionID: String? = bottomSentinelID
-  @State private var observedScrollPositionID: String? = bottomSentinelID
-  @State private var hasInitializedScrollPosition = false
-  @State private var isUserScrolling = false
-  @State private var hasDetachedFromBottomDuringCurrentGesture = false
-  @State private var renderedEntryLimit = Self.defaultRecentRenderWindow
-  @State private var pendingHistoryReveal = false
-  @State private var pendingNearTopLoad = false
+  @State private var scrollState = ConversationTimelineScrollState(
+    bottomSentinelID: Self.bottomSentinelID,
+    recentRenderWindow: Self.defaultRecentRenderWindow
+  )
 
   private var recentRenderWindow: Int {
     sizeClass == .compact ? 40 : 60
@@ -58,7 +52,7 @@ struct TimelineScrollView: View {
 
   var body: some View {
     let displayedCount = viewModel.displayedEntryCount
-    let rendered = viewModel.renderedEntries(limit: renderedEntryLimit)
+    let rendered = viewModel.renderedEntries(limit: scrollState.renderedEntryLimit)
     let hiddenRenderedCount = max(displayedCount - rendered.count, 0)
 
     ScrollViewReader { proxy in
@@ -77,7 +71,7 @@ struct TimelineScrollView: View {
             .frame(height: 1)
             .id("pagination-\(rendered.first?.sequence ?? 0)")
             .onAppear {
-              guard isNearTop else { return }
+              guard scrollState.isNearTop else { return }
               requestLoadMoreIfNeeded(
                 totalCount: displayedCount,
                 hiddenRenderedCount: hiddenRenderedCount,
@@ -105,9 +99,9 @@ struct TimelineScrollView: View {
         .scrollTargetLayout()
         .background {
           TimelineUserScrollDetector(
-            isUserScrolling: $isUserScrolling,
-            isNearTop: $isNearTop,
-            isNearBottom: $isNearBottom,
+            isUserScrolling: detectorBinding(\.isUserScrolling),
+            isNearTop: detectorBinding(\.isNearTop),
+            isNearBottom: detectorBinding(\.isNearBottom),
             topThreshold: Self.topThreshold,
             bottomThreshold: Self.bottomThreshold
           )
@@ -119,14 +113,14 @@ struct TimelineScrollView: View {
       .scrollPosition(id: scrollPositionBinding, anchor: .bottom)
       .background(Color.backgroundPrimary)
       .task {
-        guard !hasInitializedScrollPosition else { return }
-        hasInitializedScrollPosition = true
-        renderedEntryLimit = recentRenderWindow
-        if localFollowState.mode.isFollowing {
-          syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
+        guard !scrollState.hasInitializedScrollPosition else { return }
+        scrollState.hasInitializedScrollPosition = true
+        scrollState.renderedEntryLimit = recentRenderWindow
+        if scrollState.followState.mode.isFollowing {
+          scrollState.syncRenderedEntryLimit(totalCount: displayedCount, recentWindow: recentRenderWindow)
           setPinnedScrollPosition()
         }
-        if pendingNearTopLoad || isNearTop {
+        if scrollState.pendingNearTopLoad || scrollState.isNearTop {
           requestLoadMoreIfNeeded(
             totalCount: displayedCount,
             hiddenRenderedCount: hiddenRenderedCount,
@@ -138,31 +132,40 @@ struct TimelineScrollView: View {
       .onChange(of: displayedCount) { oldCount, newCount in
         let countDelta = newCount - oldCount
         guard countDelta != 0 else {
-          renderedEntryLimit = min(renderedEntryLimit, newCount)
+          scrollState.renderedEntryLimit = min(scrollState.renderedEntryLimit, newCount)
           return
         }
 
-        if pendingHistoryReveal, countDelta > 0, !localFollowState.mode.isFollowing {
-          pendingHistoryReveal = false
-          renderedEntryLimit = min(newCount, renderedEntryLimit + countDelta)
+        if scrollState.pendingHistoryReveal, countDelta > 0, !scrollState.followState.mode.isFollowing {
+          scrollState.pendingHistoryReveal = false
+          scrollState.renderedEntryLimit = min(newCount, scrollState.renderedEntryLimit + countDelta)
           return
         }
 
-        if localFollowState.mode.isFollowing {
-          syncRenderedEntryLimit(totalCount: newCount, mode: localFollowState.mode)
+        if scrollState.followState.mode.isFollowing {
+          if countDelta > 0 {
+            scrollState.renderedEntryLimit = ConversationRenderWindowPlanner.followingAppendLimit(
+              currentLimit: scrollState.renderedEntryLimit,
+              totalCount: newCount,
+              recentWindow: recentRenderWindow
+            )
+            setPinnedScrollPosition()
+          } else {
+            scrollState.syncRenderedEntryLimit(totalCount: newCount, recentWindow: recentRenderWindow)
+          }
           return
         }
 
         if countDelta > 0 {
-          renderedEntryLimit = min(newCount, renderedEntryLimit + countDelta)
+          scrollState.renderedEntryLimit = min(newCount, scrollState.renderedEntryLimit + countDelta)
         } else {
-          renderedEntryLimit = min(renderedEntryLimit, newCount)
+          scrollState.renderedEntryLimit = min(scrollState.renderedEntryLimit, newCount)
         }
       }
       .onChange(of: sizeClass) { _, _ in
-        syncRenderedEntryLimit(totalCount: displayedCount, mode: localFollowState.mode)
+        scrollState.syncRenderedEntryLimit(totalCount: displayedCount, recentWindow: recentRenderWindow)
       }
-      .onChange(of: isNearTop) { _, isVisible in
+      .onChange(of: scrollState.isNearTop) { _, isVisible in
         guard isVisible else { return }
         requestLoadMoreIfNeeded(
           totalCount: displayedCount,
@@ -171,45 +174,45 @@ struct TimelineScrollView: View {
           with: proxy
         )
       }
-      .onChange(of: isNearBottom) { _, isVisible in
-        if isVisible, !localFollowState.mode.isFollowing {
+      .onChange(of: scrollState.isNearBottom) { _, isVisible in
+        if isVisible, !scrollState.followState.mode.isFollowing {
           applyIntent(.viewportEvent(.reachedBottom))
           return
         }
 
-        guard !isVisible, localFollowState.mode.isFollowing, isUserScrolling else { return }
-        guard !hasDetachedFromBottomDuringCurrentGesture else { return }
-        hasDetachedFromBottomDuringCurrentGesture = true
+        guard !isVisible, scrollState.followState.mode.isFollowing, scrollState.isUserScrolling else { return }
+        guard !scrollState.hasDetachedFromBottomDuringCurrentGesture else { return }
+        scrollState.hasDetachedFromBottomDuringCurrentGesture = true
         applyIntent(.viewportEvent(.leftBottomByUser))
       }
-      .onChange(of: isUserScrolling) { _, scrolling in
+      .onChange(of: scrollState.isUserScrolling) { _, scrolling in
         if scrolling {
-          hasDetachedFromBottomDuringCurrentGesture = false
+          scrollState.hasDetachedFromBottomDuringCurrentGesture = false
           return
         }
 
-        guard !hasDetachedFromBottomDuringCurrentGesture else { return }
-        guard localFollowState.mode.isFollowing, !isNearBottom else { return }
-        hasDetachedFromBottomDuringCurrentGesture = true
+        guard !scrollState.hasDetachedFromBottomDuringCurrentGesture else { return }
+        guard scrollState.followState.mode.isFollowing, !scrollState.isNearBottom else { return }
+        scrollState.hasDetachedFromBottomDuringCurrentGesture = true
         applyIntent(.viewportEvent(.leftBottomByUser))
       }
       .onChange(of: latestAppendEvent) { _, event in
         guard let event else { return }
         if let requiredVisibleSuffixCount = event.requiredVisibleSuffixCount,
-           requiredVisibleSuffixCount > renderedEntryLimit
+           requiredVisibleSuffixCount > scrollState.renderedEntryLimit
         {
           var transaction = Transaction()
           transaction.animation = nil
           withTransaction(transaction) {
-            renderedEntryLimit = min(viewModel.displayedEntryCount, requiredVisibleSuffixCount)
+            scrollState.renderedEntryLimit = min(viewModel.displayedEntryCount, requiredVisibleSuffixCount)
           }
-          if localFollowState.mode.isFollowing {
+          if scrollState.followState.mode.isFollowing {
             setPinnedScrollPosition()
           }
         }
 
         guard event.count > 0 else { return }
-        guard !localFollowState.mode.isFollowing else { return }
+        guard !scrollState.followState.mode.isFollowing else { return }
         applyIntent(.latestEntriesAppended(event.count))
       }
       .onChange(of: scrollCommand) { _, command in
@@ -222,10 +225,13 @@ struct TimelineScrollView: View {
   // MARK: - Follow Intent Processing
 
   private func applyIntent(_ intent: ConversationFollowIntent) {
-    let plan = ConversationFollowPlanner.apply(current: localFollowState, intent: intent)
-    guard plan.state != localFollowState || plan.scrollAction != nil else { return }
-    localFollowState = plan.state
-    syncRenderedEntryLimit(totalCount: viewModel.displayedEntryCount, mode: plan.state.mode)
+    let plan = ConversationFollowPlanner.apply(current: scrollState.followState, intent: intent)
+    guard plan.state != scrollState.followState || plan.scrollAction != nil else { return }
+    scrollState.apply(
+      plan.state,
+      totalCount: viewModel.displayedEntryCount,
+      recentWindow: recentRenderWindow
+    )
     onFollowStateChanged(plan.state)
 
     guard let action = plan.scrollAction else { return }
@@ -244,20 +250,20 @@ struct TimelineScrollView: View {
     var transaction = Transaction()
     transaction.animation = nil
     withTransaction(transaction) {
-      commandedScrollPositionID = Self.bottomSentinelID
+      scrollState.setPinnedScrollPosition()
     }
   }
 
   private func scrollToMessage(_ messageID: String, with proxy: ScrollViewProxy) {
     let anchorID = viewModel.displayAnchorID(for: messageID) ?? messageID
-    let requiredLimit = viewModel.renderWindowRequiredToReveal(rowId: messageID) ?? renderedEntryLimit
-    let shouldExpandWindow = requiredLimit > renderedEntryLimit
+    let requiredLimit = viewModel.renderWindowRequiredToReveal(rowId: messageID) ?? scrollState.renderedEntryLimit
+    let shouldExpandWindow = requiredLimit > scrollState.renderedEntryLimit
 
     if shouldExpandWindow {
       var expansionTransaction = Transaction()
       expansionTransaction.animation = nil
       withTransaction(expansionTransaction) {
-        renderedEntryLimit = min(viewModel.displayedEntryCount, requiredLimit)
+        scrollState.renderedEntryLimit = min(viewModel.displayedEntryCount, requiredLimit)
       }
     }
 
@@ -287,7 +293,11 @@ struct TimelineScrollView: View {
   private func run(command: ConversationScrollCommand, with proxy: ScrollViewProxy) {
     switch command {
       case .latest:
-        syncRenderedEntryLimit(totalCount: viewModel.displayedEntryCount, mode: .following)
+        scrollState.followState = .initial
+        scrollState.syncRenderedEntryLimit(
+          totalCount: viewModel.displayedEntryCount,
+          recentWindow: recentRenderWindow
+        )
         setPinnedScrollPosition()
       case let .message(id, _):
         scrollToMessage(id, with: proxy)
@@ -315,29 +325,12 @@ struct TimelineScrollView: View {
         // user's scroll offset. Without this, the .bottom anchor tries to
         // reposition the viewport every layout pass (e.g. when new content
         // arrives), causing visible jank.
-        if localFollowState.mode.isFollowing, !isUserScrolling {
-          return commandedScrollPositionID ?? Self.bottomSentinelID
-        }
-        return nil
+        scrollState.scrollPositionID
       },
       set: { newValue in
-        observedScrollPositionID = newValue
+        scrollState.observedScrollPositionID = newValue
       }
     )
-  }
-
-  private func syncRenderedEntryLimit(totalCount: Int, mode: ConversationFollowMode) {
-    guard totalCount > 0 else {
-      renderedEntryLimit = recentRenderWindow
-      return
-    }
-
-    if mode.isFollowing {
-      renderedEntryLimit = min(totalCount, recentRenderWindow)
-      pendingHistoryReveal = false
-    } else {
-      renderedEntryLimit = min(max(renderedEntryLimit, recentRenderWindow), totalCount)
-    }
   }
 
   private func revealOlderRenderedEntries(
@@ -345,14 +338,14 @@ struct TimelineScrollView: View {
     anchorID: String?,
     with proxy: ScrollViewProxy
   ) {
-    guard totalCount > renderedEntryLimit else { return }
-    let nextLimit = min(totalCount, renderedEntryLimit + historyRenderExpansionStep)
-    guard nextLimit != renderedEntryLimit else { return }
+    guard totalCount > scrollState.renderedEntryLimit else { return }
+    let nextLimit = min(totalCount, scrollState.renderedEntryLimit + historyRenderExpansionStep)
+    guard nextLimit != scrollState.renderedEntryLimit else { return }
 
     var transaction = Transaction()
     transaction.animation = nil
     withTransaction(transaction) {
-      renderedEntryLimit = nextLimit
+      scrollState.renderedEntryLimit = nextLimit
     }
 
     if let anchorID {
@@ -377,7 +370,7 @@ struct TimelineScrollView: View {
       return
     }
 
-    pendingHistoryReveal = true
+    scrollState.pendingHistoryReveal = true
     onLoadMore?()
   }
 
@@ -387,18 +380,25 @@ struct TimelineScrollView: View {
     firstRenderedAnchorID: String?,
     with proxy: ScrollViewProxy
   ) {
-    guard !localFollowState.mode.isFollowing else { return }
-    guard hasInitializedScrollPosition else {
-      pendingNearTopLoad = true
+    guard !scrollState.followState.mode.isFollowing else { return }
+    guard scrollState.hasInitializedScrollPosition else {
+      scrollState.pendingNearTopLoad = true
       return
     }
 
-    pendingNearTopLoad = false
+    scrollState.pendingNearTopLoad = false
     loadMoreIfNeeded(
       totalCount: totalCount,
       hiddenRenderedCount: hiddenRenderedCount,
       firstRenderedAnchorID: firstRenderedAnchorID,
       with: proxy
+    )
+  }
+
+  private func detectorBinding<Value>(_ keyPath: WritableKeyPath<ConversationTimelineScrollState, Value>) -> Binding<Value> {
+    Binding(
+      get: { scrollState[keyPath: keyPath] },
+      set: { scrollState[keyPath: keyPath] = $0 }
     )
   }
 

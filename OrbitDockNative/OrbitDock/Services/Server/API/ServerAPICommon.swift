@@ -2,6 +2,12 @@ import Foundation
 
 struct ServerAcceptedResponse: Decodable {
   let accepted: Bool
+  let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+  enum CodingKeys: String, CodingKey {
+    case accepted
+    case sessionDetailSnapshot = "session_detail_snapshot"
+  }
 }
 
 struct ServerUploadedImageAttachmentResponse: Decodable {

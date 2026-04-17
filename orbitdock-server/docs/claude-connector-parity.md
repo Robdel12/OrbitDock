@@ -179,7 +179,7 @@ Actions dispatched from WS handlers and REST endpoints to the Claude session eve
 | `SteerTurn` | WS `steerTurn` | Enqueues user message (no interrupt) |
 | `RewindFiles` | WS `rewindFiles` + event loop | Calls rewind_files control request; emits Undo events. WS dispatch wired. |
 | `StopTask` | WS `stopTask` + event loop | Calls stop_task control request. WS dispatch wired. |
-| `ListMcpTools` | REST `GET /api/sessions/{id}/mcp/tools` | Special handling in event loop; parses mcp_status response |
+| `ListMcpTools` | REST `GET /api/sessions/{id}/mcp` | Special handling in event loop; parses mcp_status response |
 | `RefreshMcpServer` | REST `POST /api/sessions/{id}/mcp/refresh` | Calls mcp_reconnect control request |
 | `McpToggle` | REST `POST /api/sessions/{id}/mcp/toggle` | Calls mcp_toggle control request |
 | `McpAuthenticate` | REST `POST /api/sessions/{id}/mcp/authenticate` | Calls mcp_authenticate control request |
@@ -424,7 +424,7 @@ Manual verification of each implemented feature in a live direct Claude session 
 
 - [x] **MCP startup status** — Init `mcp_servers[]` parsed → per-server status (connected/failed/needs-auth/connecting)
 - [x] **MCP startup complete** — Startup complete event fires after all servers resolved
-- [x] **List MCP tools** — `GET /api/sessions/{id}/mcp/tools` returns tool list from `mcp_status` *(endpoint returns correct shape; tools populate after mcp_status)*
+- [x] **List MCP tools** — `GET /api/sessions/{id}/mcp` returns tool list from `mcp_status` *(endpoint returns correct shape; tools populate after mcp_status)*
 - [x] **Refresh MCP server** — `POST /api/sessions/{id}/mcp/refresh` reconnects a server *(202 accepted)*
 - [x] **Toggle MCP server** — `POST /api/sessions/{id}/mcp/toggle` enables/disables a server *(202 accepted, tested disable+re-enable)*
 - [x] **MCP authenticate** — `POST /api/sessions/{id}/mcp/authenticate` triggers OAuth flow *(202 accepted)*

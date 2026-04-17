@@ -43,6 +43,44 @@ struct MissionIssueItem: Codable, Identifiable, Equatable {
     case prUrl = "pr_url"
   }
 
+  init(
+    issueId: String,
+    identifier: String,
+    title: String,
+    trackerState: String,
+    orchestrationState: OrchestrationState,
+    sessionId: String?,
+    provider: String,
+    attempt: UInt32,
+    error: String?,
+    url: String?,
+    lastActivity: String?,
+    startedAt: String?,
+    completedAt: String?,
+    allowedTransitions: [OrchestrationState],
+    workStatus: String?,
+    lastMessage: String?,
+    prUrl: String?
+  ) {
+    self.issueId = issueId
+    self.identifier = identifier
+    self.title = title
+    self.trackerState = trackerState
+    self.orchestrationState = orchestrationState
+    self.sessionId = sessionId
+    self.provider = provider
+    self.attempt = attempt
+    self.error = error
+    self.url = url
+    self.lastActivity = lastActivity
+    self.startedAt = startedAt
+    self.completedAt = completedAt
+    self.allowedTransitions = allowedTransitions
+    self.workStatus = workStatus
+    self.lastMessage = lastMessage
+    self.prUrl = prUrl
+  }
+
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     issueId = try container.decode(String.self, forKey: .issueId)

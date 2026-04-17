@@ -1,14 +1,38 @@
 import Foundation
 
 struct ConversationClient: Sendable {
+  struct CommandAcceptedResponse: Decodable {
+    let accepted: Bool
+    let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+    enum CodingKeys: String, CodingKey {
+      case accepted
+      case sessionDetailSnapshot = "session_detail_snapshot"
+    }
+  }
+
   struct SendMessageResponse: Decodable {
     let accepted: Bool
     let row: ServerConversationRowEntry
+    let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+    enum CodingKeys: String, CodingKey {
+      case accepted
+      case row
+      case sessionDetailSnapshot = "session_detail_snapshot"
+    }
   }
 
   struct SteerTurnResponse: Decodable {
     let accepted: Bool
     let row: ServerConversationRowEntry
+    let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+    enum CodingKeys: String, CodingKey {
+      case accepted
+      case row
+      case sessionDetailSnapshot = "session_detail_snapshot"
+    }
   }
 
   struct SendMessageRequest: Encodable {
@@ -36,8 +60,7 @@ struct ConversationClient: Sendable {
 
   func fetchSessionDetail(_ sessionId: String) async throws -> ServerSessionDetailSnapshotPayload {
     try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/detail",
-      query: [URLQueryItem(name: "include_diffs", value: "true")]
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/detail"
     )
   }
 
@@ -47,21 +70,9 @@ struct ConversationClient: Sendable {
     source: String? = nil
   ) async throws -> ServerConversationBootstrap {
     let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation"
-    let sourceLabel = source?.isEmpty == false ? source! : "unspecified"
-    let message = "GET \(path)?limit=\(limit) session=\(sessionId) source=\(sourceLabel)"
-    NSLog("[OrbitDock][ConversationClient] %@", message)
     return try await http.get(
       path,
-      query: [
-        URLQueryItem(name: "limit", value: "\(limit)"),
-        URLQueryItem(name: "include_diffs", value: "false"),
-      ]
-    )
-  }
-
-  func fetchSessionDiffs(_ sessionId: String) async throws -> ServerSessionDiffsPayload {
-    try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/diffs"
+      query: [URLQueryItem(name: "limit", value: "\(limit)")]
     )
   }
 
@@ -70,10 +81,7 @@ struct ConversationClient: Sendable {
     beforeSequence: UInt64,
     limit: Int = 100
   ) async throws -> ServerConversationHistoryPage {
-    let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages"
-    let message =
-      "GET \(path)?limit=\(limit)&before_sequence=\(beforeSequence) session=\(sessionId)"
-    NSLog("[OrbitDock][ConversationClient] %@", message)
+    let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/messages"
     return try await http.get(
       path,
       query: [
@@ -102,14 +110,14 @@ struct ConversationClient: Sendable {
     }
 
     return try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/search",
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/search",
       query: queryItems
     )
   }
 
   func fetchSessionStats(_ sessionId: String) async throws -> ServerSessionStats {
     try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/stats"
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/stats"
     )
   }
 
@@ -120,85 +128,58 @@ struct ConversationClient: Sendable {
   }
 
   func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> SendMessageResponse {
-    let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/messages"
-    NSLog(
-      "[OrbitDock][ConversationClient] POST %@ session=%@ contentLength=%ld images=%ld mentions=%ld skills=%ld",
-      path,
-      sessionId,
-      request.content.count,
-      request.images.count,
-      request.mentions.count,
-      request.skills.count
-    )
-    do {
-      let response: SendMessageResponse = try await http.post(path, body: request)
-      NSLog(
-        "[OrbitDock][ConversationClient] POST %@ accepted=%@ row=%@ session=%@",
-        path,
-        response.accepted ? "true" : "false",
-        response.row.id,
-        sessionId
-      )
-      return response
-    } catch {
-      NSLog(
-        "[OrbitDock][ConversationClient] POST %@ failed session=%@ error=%@",
-        path,
-        sessionId,
-        String(describing: error)
-      )
-      throw error
-    }
+    let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/messages"
+    return try await http.post(path, body: request)
   }
 
   func steerTurn(_ sessionId: String, request: SteerTurnRequest) async throws -> SteerTurnResponse {
     try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/steer",
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/steer",
       body: request
     )
   }
 
-  func interruptSession(_ sessionId: String) async throws {
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/interrupt",
+  func interruptSession(_ sessionId: String) async throws -> CommandAcceptedResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/interrupt",
       body: ServerEmptyBody()
     )
   }
 
-  func compactContext(_ sessionId: String) async throws {
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/compact",
+  func compactContext(_ sessionId: String) async throws -> CommandAcceptedResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/compact",
       body: ServerEmptyBody()
     )
   }
 
-  func undoLastTurn(_ sessionId: String) async throws {
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/undo",
+  func undoLastTurn(_ sessionId: String) async throws -> CommandAcceptedResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/undo",
       body: ServerEmptyBody()
     )
   }
 
-  func rollbackTurns(_ sessionId: String, numTurns: UInt32) async throws {
+  func rollbackTurns(_ sessionId: String, numTurns: UInt32) async throws -> CommandAcceptedResponse {
     struct Body: Encodable { let numTurns: UInt32 }
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/rollback",
+    return try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/rollback",
       body: Body(numTurns: numTurns)
     )
   }
 
-  func stopTask(_ sessionId: String, taskId: String) async throws {
+  func stopTask(_ sessionId: String, taskId: String) async throws -> CommandAcceptedResponse {
     struct Body: Encodable { let taskId: String }
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/stop-task",
+    return try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/stop",
       body: Body(taskId: taskId)
     )
   }
 
-  func rewindFiles(_ sessionId: String, userMessageId: String) async throws {
+  func rewindFiles(_ sessionId: String, userMessageId: String) async throws -> CommandAcceptedResponse {
     struct Body: Encodable { let userMessageId: String }
-    let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/rewind-files",
+    return try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/rewind",
       body: Body(userMessageId: userMessageId)
     )
   }
@@ -220,7 +201,7 @@ struct ConversationClient: Sendable {
     }
 
     let response: ServerUploadedImageAttachmentResponse = try await http.requestRaw(
-      path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/attachments/images",
+      path: "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/attachments/images",
       method: "POST",
       bodyData: data,
       contentType: mimeType,
@@ -231,7 +212,7 @@ struct ConversationClient: Sendable {
 
   func downloadImageAttachment(sessionId: String, attachmentId: String) async throws -> Data {
     try await http.fetchData(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/attachments/images/\(requestBuilder.encodePathComponent(attachmentId))"
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/attachments/images/\(requestBuilder.encodePathComponent(attachmentId))"
     )
   }
 
@@ -239,7 +220,7 @@ struct ConversationClient: Sendable {
   /// Content is computed on demand — not inlined in the row payload.
   func fetchRowContent(sessionId: String, rowId: String) async throws -> ServerRowContent {
     try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/rows/\(requestBuilder.encodePathComponent(rowId))/content"
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/rows/\(requestBuilder.encodePathComponent(rowId))/content"
     )
   }
 
@@ -256,7 +237,7 @@ struct ConversationClient: Sendable {
       }
     }
     let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/shell/exec",
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/shell/exec",
       body: Body(command: command, cwd: nil, timeoutSecs: timeoutSecs)
     )
   }
@@ -264,7 +245,7 @@ struct ConversationClient: Sendable {
   func cancelShell(sessionId: String, requestId: String) async throws {
     struct Body: Encodable { let requestId: String }
     let _: ServerAcceptedResponse = try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/shell/cancel",
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/shell/cancel",
       body: Body(requestId: requestId)
     )
   }

@@ -4,7 +4,6 @@ enum ClientStartupPhase: Equatable {
   case idle
   case bootstrapping
   case waitingForSetup
-  case waitingForRuntimeReady
   case ready
   case stopped
 }
@@ -37,12 +36,7 @@ final class ClientStartupCoordinator {
     }
 
     runtimeRegistry.configureFromSettings(startEnabled: true)
-    runtimeRegistry.startEnabledRuntimes()
     phase = .ready
-  }
-
-  func refreshInstallAndConnectivity() async {
-    runtimeRegistry.reconnectAllIfNeeded()
   }
 
   func stop() {

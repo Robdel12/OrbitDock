@@ -3,14 +3,14 @@ import Foundation
 @MainActor
 struct DemoModeExperience {
   let endpoint: ServerEndpoint
-  let sessionStore: SessionStore
+  let endpointStore: ServerEndpointRuntime
   let rootSessions: [RootSessionNode]
   let dashboardConversations: [DashboardConversationRecord]
 
   init() {
     let endpoint = Self.demoEndpoint()
     self.endpoint = endpoint
-    self.sessionStore = Self.demoSessionStore(endpoint: endpoint)
+    self.endpointStore = Self.demoEndpointStore(endpoint: endpoint)
 
     let sessionList = Self.demoSessionListItems()
     self.rootSessions = sessionList.map {
@@ -29,7 +29,7 @@ struct DemoModeExperience {
       )
     }
 
-    Self.populateSessionDetails(sessionStore: sessionStore, endpoint: endpoint)
+    Self.populateSessionDetails(endpointStore: endpointStore, endpoint: endpoint)
   }
 
   // MARK: - Endpoint & Store
@@ -44,7 +44,7 @@ struct DemoModeExperience {
     )
   }
 
-  private static func demoSessionStore(endpoint: ServerEndpoint) -> SessionStore {
+  private static func demoEndpointStore(endpoint: ServerEndpoint) -> ServerEndpointRuntime {
     let baseURL = ServerURLResolver.httpBaseURL(from: endpoint.wsURL)
     let requestBuilder = HTTPRequestBuilder(baseURL: baseURL, authToken: endpoint.authToken)
     let clients = ServerClients(
@@ -53,7 +53,7 @@ struct DemoModeExperience {
       responseLoader: { _ in throw HTTPTransportError.serverUnreachable }
     )
     let connection = ServerConnection(authToken: endpoint.authToken)
-    return SessionStore(
+    return ServerEndpointRuntime(
       clients: clients,
       connection: connection,
       endpointId: endpoint.id,
@@ -63,7 +63,7 @@ struct DemoModeExperience {
 
   // MARK: - Session Details (for detail view)
 
-  private static func populateSessionDetails(sessionStore: SessionStore, endpoint: ServerEndpoint) {
+  private static func populateSessionDetails(endpointStore: ServerEndpointRuntime, endpoint: ServerEndpoint) {
     let now = Date()
 
     // Session 1: Warp Drive — Claude working on a feature
@@ -244,19 +244,9 @@ struct DemoModeExperience {
     commsArray.repositoryRoot = "/Users/pilot/orbital-ui"
     commsArray.lastMessage = "Should encrypted transmissions show a lock icon inline, or should I group them in a separate \"Secure Channel\" section?"
 
-    // Populate each session into the store
-    let sessions: [Session] = [warpDrive, navArray, shields, dockingBay, commsArray]
-    let conversationGenerators: [String: (String) -> [ServerConversationRowEntry]] = [
-      "demo-warp-drive": { id in warpDriveConversation(sessionId: id) },
-      "demo-nav-array": { id in navArrayConversation(sessionId: id) },
-      "demo-shields": { id in shieldsConversation(sessionId: id) },
-      "demo-docking-bay": { id in dockingBayConversation(sessionId: id) },
-      "demo-comms-array": { id in commsArrayConversation(sessionId: id) },
-    ]
-
     // Demo sessions are seeded through the dashboard snapshot
 
-    sessionStore.codexModels = [
+    endpointStore.codexModels = [
       ServerCodexModelOption(
         id: "o3-pro",
         model: "o3-pro",
@@ -285,7 +275,7 @@ struct DemoModeExperience {
         supportsReasoningSummaries: false
       ),
     ]
-    sessionStore.codexAccountStatus = ServerCodexAccountStatus(
+    endpointStore.codexAccountStatus = ServerCodexAccountStatus(
       authMode: .chatgpt,
       requiresOpenaiAuth: false,
       account: .chatgpt(email: "pilot@orbitdock.app", planType: "Pro"),

@@ -107,6 +107,18 @@ pub async fn inspect_codex_config(
       CodexConfigMode::Inherit
     }
   });
+  let approval_policy_details = body.approval_policy_details.clone().or_else(|| {
+    body
+      .approval_policy
+      .as_deref()
+      .and_then(CodexApprovalPolicy::from_storage_text)
+  });
+  let sandbox_policy_details = body.sandbox_policy_details.clone().or_else(|| {
+    body
+      .sandbox_mode
+      .as_deref()
+      .and_then(CodexSandboxPolicy::from_storage_text)
+  });
   let response = resolve_codex_settings(
     &body.cwd,
     CodexConfigSelection {
@@ -117,18 +129,8 @@ pub async fn inspect_codex_config(
       overrides: CodexSessionOverrides {
         model: body.model,
         model_provider: body.codex_model_provider,
-        approval_policy: body
-          .approval_policy_details
-          .as_ref()
-          .map(|details| details.legacy_summary())
-          .or(body.approval_policy),
-        approval_policy_details: body.approval_policy_details,
-        sandbox_mode: body
-          .sandbox_policy_details
-          .as_ref()
-          .map(|details| details.legacy_summary())
-          .or(body.sandbox_mode),
-        sandbox_policy_details: body.sandbox_policy_details,
+        approval_policy_details,
+        sandbox_policy_details,
         approvals_reviewer: None,
         collaboration_mode: body.collaboration_mode,
         multi_agent: body.multi_agent,

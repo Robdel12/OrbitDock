@@ -11,6 +11,7 @@ struct SessionDetailMainContentArea<Conversation: View, Review: View, Companion:
       if layoutConfig != .reviewOnly {
         conversation()
           .frame(maxWidth: .infinity)
+          .layoutPriority(1)
 
         companion()
       }
@@ -23,6 +24,26 @@ struct SessionDetailMainContentArea<Conversation: View, Review: View, Companion:
           .frame(maxWidth: .infinity)
       }
     }
+  }
+}
+
+struct SessionDetailCompanionPane<Content: View>: View {
+  let isVisible: Bool
+  let width: CGFloat
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    HStack(spacing: 0) {
+      if isVisible {
+        Divider()
+          .foregroundStyle(Color.panelBorder)
+
+        content()
+          .background(Color.panelBackground)
+      }
+    }
+    .frame(width: isVisible ? width : 0)
+    .clipped()
   }
 }
 

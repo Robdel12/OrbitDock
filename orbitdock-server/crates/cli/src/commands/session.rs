@@ -731,10 +731,10 @@ fn conversation_snapshot_from_session(session: &SessionState) -> Option<Conversa
     revision: session.revision.unwrap_or_default(),
     replay_cursor: session.revision.unwrap_or_default(),
     session_id: session.id.clone(),
-    session: session.clone(),
     rows: session.rows.iter().map(|row| row.to_summary()).collect(),
     total_row_count: session.total_row_count,
     has_more_before: session.has_more_before,
+    forked_from_session_id: session.forked_from_session_id.clone(),
     oldest_sequence: session.oldest_sequence,
     newest_sequence: session.newest_sequence,
   })
@@ -758,7 +758,7 @@ async fn list(
   project: Option<&str>,
 ) -> i32 {
   match rest
-    .get::<LibrarySnapshot>("/api/library")
+    .get::<LibrarySnapshot>("/api/sessions/archive")
     .await
     .into_result()
   {
@@ -1755,7 +1755,7 @@ async fn rename(config: &ClientConfig, output: &Output, session_id: &str, name: 
 async fn resume(rest: &RestClient, output: &Output, session_id: &str) -> i32 {
   match rest
     .post_json::<_, ResumeSessionResponse>(
-      &format!("/api/sessions/{session_id}/resume"),
+      &format!("/api/sessions/{session_id}/lifecycle/resume"),
       &serde_json::json!({}),
     )
     .await
@@ -1901,7 +1901,9 @@ fn format_row_type_summary(
 fn event_type_name(msg: &ServerMessage) -> &'static str {
   match msg {
     ServerMessage::Hello { .. } => "hello",
+    ServerMessage::SessionsSummaryInvalidated { .. } => "sessions_summary_invalidated",
     ServerMessage::SessionDelta { .. } => "session_delta",
+    ServerMessage::SessionSurfaceInvalidated { .. } => "session_surface_invalidated",
     ServerMessage::ConversationRowsChanged { .. } => "conversation_rows_changed",
     ServerMessage::ApprovalRequested { .. } => "approval_requested",
     ServerMessage::ApprovalDecisionResult { .. } => "approval_decision_result",
@@ -1950,13 +1952,11 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
     ServerMessage::DirectoryListing { .. } => "directory_listing",
     ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
     ServerMessage::PermissionRules { .. } => "permission_rules",
-    ServerMessage::DashboardInvalidated { .. } => "dashboard_invalidated",
-    ServerMessage::DashboardConversationUpdated { .. } => "dashboard_conversation_updated",
-    ServerMessage::DashboardItemRemoved { .. } => "dashboard_item_removed",
+    ServerMessage::ActiveSessionsInvalidated { .. } => "active_sessions_invalidated",
+    ServerMessage::ArchivedSessionsInvalidated { .. } => "archived_sessions_invalidated",
     ServerMessage::MissionsInvalidated { .. } => "missions_invalidated",
-    ServerMessage::MissionsList { .. } => "missions_list",
-    ServerMessage::MissionDelta { .. } => "mission_delta",
     ServerMessage::MissionHeartbeat { .. } => "mission_heartbeat",
+    ServerMessage::MissionInvalidated { .. } => "mission_invalidated",
     ServerMessage::SteerOutcome { .. } => "steer_outcome",
     ServerMessage::UpdateAvailable { .. } => "update_available",
     ServerMessage::TerminalCreated { .. } => "terminal_created",

@@ -6,6 +6,7 @@ struct SidebarSessionRow: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(DashboardDataService.self) private var dashboardDataService
   @State private var isHovered = false
   @State private var isEnding = false
 
@@ -46,18 +47,7 @@ struct SidebarSessionRow: View {
     )
     .contentShape(Rectangle())
     .contextMenu {
-      Button {
-        _ = Platform.services.revealInFileBrowser(session.projectPath)
-      } label: {
-        Label("Reveal in Finder", systemImage: "folder")
-      }
-
-      Button {
-        let command = "claude --resume \(session.sessionId)"
-        Platform.services.copyToClipboard(command)
-      } label: {
-        Label("Copy Resume Command", systemImage: "doc.on.doc")
-      }
+      DashboardSessionContextActions.conversationBaseActions(for: session)
 
       if session.canEnd {
         Divider()
@@ -264,12 +254,11 @@ struct SidebarSessionRow: View {
   private func endSession() async {
     isEnding = true
     defer { isEnding = false }
-    let store = runtimeRegistry.sessionStore(
-      for: session.sessionRef.endpointId,
-      fallback: runtimeRegistry.activeSessionStore
-    )
-    try? await store.endSession(session.sessionId)
-    await runtimeRegistry.refreshDashboardConversations()
+    guard let store = runtimeRegistry.endpointStoreIfAvailable(for: session.sessionRef.endpointId) else {
+      return
+    }
+    _ = try? await store.session(session.sessionId).api.endSession()
+    await dashboardDataService.refreshNow()
   }
 
   // MARK: - Style Computation

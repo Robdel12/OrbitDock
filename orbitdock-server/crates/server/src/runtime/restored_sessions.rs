@@ -38,6 +38,7 @@ pub(crate) struct PreparedResumeSession {
   pub codex_thread_id: Option<String>,
   pub approval_policy: Option<String>,
   pub sandbox_mode: Option<String>,
+  pub sandbox_policy_details: Option<orbitdock_protocol::CodexSandboxPolicy>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
   pub personality: Option<String>,
@@ -388,6 +389,16 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
   let codex_thread_id = restored.codex_thread_id.clone();
   let approval_policy = restored.approval_policy.clone();
   let sandbox_mode = restored.sandbox_mode.clone();
+  let sandbox_policy_details = restored
+    .codex_config_overrides
+    .as_ref()
+    .and_then(|overrides| overrides.sandbox_policy_details.clone())
+    .or_else(|| {
+      restored
+        .sandbox_mode
+        .as_deref()
+        .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+    });
   let collaboration_mode = restored.collaboration_mode.clone();
   let multi_agent = restored.multi_agent;
   let personality = restored.personality.clone();
@@ -417,6 +428,7 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     codex_thread_id,
     approval_policy,
     sandbox_mode,
+    sandbox_policy_details,
     collaboration_mode,
     multi_agent,
     personality,

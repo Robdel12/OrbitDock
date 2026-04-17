@@ -42,14 +42,12 @@ struct ControlDeckView: View {
 
   // Terminal integration
   var terminalTitle: String?
-  var sessionDisplayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
   var onToggleTerminal: (() -> Void)?
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
   var onApprovalReviewerAction: ((ServerCodexApprovalsReviewer) -> Void)?
   var onSandboxPolicyAction: ((ServerCodexSandboxPolicy) -> Void)?
   var isDictating: Bool = false
-  var isSessionWorking: Bool = false
   var onDictation: (() -> Void)?
   var onInterrupt: (() -> Void)?
 
@@ -111,7 +109,7 @@ struct ControlDeckView: View {
             onSubmit: onSubmit,
             onResume: onResume,
             isDictating: isDictating,
-            isSessionWorking: isSessionWorking,
+            isSessionWorking: presentation.activityStatus.isWorking,
             onDictation: onDictation,
             onInterrupt: onInterrupt
           )
@@ -130,7 +128,7 @@ struct ControlDeckView: View {
   }
 
   private var isWorkingHighlight: Bool {
-    isSteerMode || isSessionWorking || sessionDisplayStatus == .working || isSubmitting
+    isSteerMode || presentation?.activityStatus.isWorking == true || isSubmitting
   }
 
   private var hasBorderHighlight: Bool {

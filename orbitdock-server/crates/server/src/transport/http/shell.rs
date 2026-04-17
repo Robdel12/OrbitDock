@@ -326,7 +326,10 @@ pub async fn cancel_shell_endpoint(
   }
 
   match state.shell_service().cancel(&session_id, &body.request_id) {
-    ShellCancelStatus::Canceled => Ok(Json(AcceptedResponse { accepted: true })),
+    ShellCancelStatus::Canceled => Ok(Json(AcceptedResponse {
+      accepted: true,
+      session_detail_snapshot: None,
+    })),
     ShellCancelStatus::NotFound => Err((
       StatusCode::NOT_FOUND,
       Json(ApiErrorResponse {

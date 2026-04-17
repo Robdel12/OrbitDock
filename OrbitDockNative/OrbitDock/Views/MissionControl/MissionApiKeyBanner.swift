@@ -3,7 +3,7 @@ import SwiftUI
 struct MissionApiKeyBanner: View {
   let missionId: String
   let trackerKind: String
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let onKeySet: () async -> Void
 
   private var isGitHub: Bool {
@@ -16,10 +16,6 @@ struct MissionApiKeyBanner: View {
 
   private var envVarName: String {
     isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY"
-  }
-
-  private var keyEndpoint: String {
-    isGitHub ? "/api/server/github-key" : "/api/server/linear-key"
   }
 
   private var placeholder: String {
@@ -153,16 +149,17 @@ struct MissionApiKeyBanner: View {
   }
 
   private func saveKey() async {
-    guard let http, !apiKey.isEmpty else { return }
+    guard let missionsClient, !apiKey.isEmpty else { return }
 
     isSaving = true
     error = nil
 
     do {
-      let _: TrackerKeyResponse = try await http.post(
-        keyEndpoint,
-        body: SetTrackerKeyBody(key: apiKey)
-      )
+      if isGitHub {
+        _ = try await missionsClient.setGitHubKey(apiKey)
+      } else {
+        _ = try await missionsClient.setLinearKey(apiKey)
+      }
       apiKey = ""
       keySaved = true
       await onKeySet()
@@ -186,15 +183,12 @@ struct MissionApiKeyBanner: View {
   }
 
   private func startOrchestrator() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isStartingOrchestrator = true
     error = nil
 
     do {
-      let _: MissionOkResponse = try await http.post(
-        "/api/missions/\(missionId)/start-orchestrator",
-        body: EmptyBody()
-      )
+      try await missionsClient.startOrchestrator(missionId)
       await onKeySet()
     } catch {
       self.error = "Failed to start: \(error.localizedDescription)"

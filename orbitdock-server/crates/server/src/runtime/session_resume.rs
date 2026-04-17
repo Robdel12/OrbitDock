@@ -126,6 +126,7 @@ pub(crate) async fn launch_resumed_session(
           codex_thread_id: prepared.codex_thread_id,
           approval_policy: prepared.approval_policy,
           sandbox_mode: prepared.sandbox_mode,
+          sandbox_policy_details: prepared.sandbox_policy_details,
           collaboration_mode: prepared.collaboration_mode,
           multi_agent: prepared.multi_agent,
           personality: prepared.personality,
@@ -193,13 +194,16 @@ fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection 
       .unwrap_or(CodexSessionOverrides {
         model: request.model.clone(),
         model_provider: request.codex_model_provider.clone(),
-        approval_policy: request.approval_policy.clone(),
-        approval_policy_details: None,
-        sandbox_mode: request.sandbox_mode.clone(),
-        sandbox_policy_details: request
-          .sandbox_mode
+        approval_policy_details: request
+          .approval_policy
           .as_deref()
-          .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text),
+          .and_then(orbitdock_protocol::CodexApprovalPolicy::from_storage_text),
+        sandbox_policy_details: request.sandbox_policy_details.clone().or_else(|| {
+          request
+            .sandbox_mode
+            .as_deref()
+            .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
+        }),
         approvals_reviewer: None,
         collaboration_mode: request.collaboration_mode.clone(),
         multi_agent: request.multi_agent,
@@ -260,7 +264,9 @@ async fn spawn_claude_resume(
       Ok(Ok(Ok(claude_session))) => {
         // claude_sdk_session_id is already in DB — no registration needed on resume.
         handle.set_list_tx(state.list_tx());
+        handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
         handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
+        handle.set_library_revision_counter(state.library_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
           claude_session,
           handle,
@@ -301,13 +307,13 @@ async fn spawn_claude_resume(
             messages = message_count,
             "HTTP: Resumed Claude session"
         );
-        state.notify_dashboard_session_updated(&session_id);
+        state.notify_active_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
       }
       Ok(Ok(Err(error))) => {
         handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
         state.add_session(handle);
-        state.notify_dashboard_session_updated(&session_id);
+        state.notify_active_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
         error!(
             component = "session",
@@ -390,10 +396,15 @@ async fn spawn_codex_resume(
       .or_else(|| normalized_selection.overrides.model.clone());
     let effective_approval = effective
       .and_then(|value| value.approval_policy.clone())
-      .or_else(|| normalized_selection.overrides.approval_policy.clone());
+      .or_else(|| normalized_selection.overrides.approval_policy_summary());
     let effective_sandbox = effective
       .and_then(|value| value.sandbox_mode.clone())
-      .or_else(|| normalized_selection.overrides.sandbox_mode.clone());
+      .or_else(|| normalized_selection.overrides.sandbox_mode_summary());
+    let effective_sandbox_policy_details = normalized_selection
+      .overrides
+      .sandbox_policy_details
+      .clone()
+      .or_else(|| effective.and_then(|value| value.sandbox_policy_details.clone()));
     let effective_collaboration_mode = effective
       .and_then(|value| value.collaboration_mode.clone())
       .or_else(|| normalized_selection.overrides.collaboration_mode.clone());
@@ -447,6 +458,7 @@ async fn spawn_codex_resume(
           model: effective_model.as_deref(),
           approval_policy: effective_approval.as_deref(),
           sandbox_mode: effective_sandbox.as_deref(),
+          sandbox_policy_details: effective_sandbox_policy_details.clone(),
           config_overrides: orbitdock_connector_codex::CodexConfigOverrides {
             model_provider: effective_model_provider.clone(),
             config_profile: effective_config_profile.clone(),
@@ -499,7 +511,9 @@ async fn spawn_codex_resume(
         .await;
 
         handle.set_list_tx(state.list_tx());
+        handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
         handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
+        handle.set_library_revision_counter(state.library_revision_counter());
         let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
           codex_session,
           handle,
@@ -516,13 +530,13 @@ async fn spawn_codex_resume(
             messages = message_count,
             "HTTP: Resumed Codex session"
         );
-        state.notify_dashboard_session_updated(&session_id);
+        state.notify_active_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
       }
       Err(error) => {
         handle.apply_changes(&direct_resume_failure_changes(Provider::Codex));
         state.add_session(handle);
-        state.notify_dashboard_session_updated(&session_id);
+        state.notify_active_session_updated(&session_id);
         let _ = startup_ready_tx.send(());
         error!(
             component = "session",
@@ -545,6 +559,7 @@ struct CodexResumeRequest {
   codex_thread_id: Option<String>,
   approval_policy: Option<String>,
   sandbox_mode: Option<String>,
+  sandbox_policy_details: Option<orbitdock_protocol::CodexSandboxPolicy>,
   collaboration_mode: Option<String>,
   multi_agent: Option<bool>,
   personality: Option<String>,
@@ -577,6 +592,7 @@ mod tests {
       codex_thread_id: None,
       approval_policy: None,
       sandbox_mode: None,
+      sandbox_policy_details: None,
       collaboration_mode: None,
       multi_agent: None,
       personality: None,

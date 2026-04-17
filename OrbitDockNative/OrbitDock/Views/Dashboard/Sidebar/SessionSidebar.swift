@@ -13,34 +13,6 @@ struct SessionSidebar: View {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  /// Pre-computed project groups from server, filtered to only show groups with active sessions.
-  private var projectGroups: [DashboardProjectGroup] {
-    viewModel.snapshot?.projectGroups.filter { $0.totalCount > 0 } ?? []
-  }
-
-  /// Lookup from scoped session reference to conversation record for rendering.
-  private var conversationsBySessionRef: [SessionRef: DashboardConversationRecord] {
-    Dictionary(
-      (viewModel.snapshot?.conversations ?? []).map { ($0.sessionRef, $0) },
-      uniquingKeysWith: { first, _ in first }
-    )
-  }
-
-  private func sessionRefs(for group: DashboardProjectGroup) -> [SessionRef] {
-    var seen: Set<SessionRef> = []
-    var refs: [SessionRef] = []
-    refs.reserveCapacity(group.sessionIds.count)
-
-    for sessionId in group.sessionIds {
-      let sessionRef = SessionRef(endpointId: group.endpointId, sessionId: sessionId)
-      if seen.insert(sessionRef).inserted {
-        refs.append(sessionRef)
-      }
-    }
-
-    return refs
-  }
-
   /// Total counts from server.
   private var totalAttentionCount: Int {
     viewModel.snapshot?.counts.attention ?? 0
@@ -71,13 +43,16 @@ struct SessionSidebar: View {
   }
 
   var body: some View {
+    let snapshot = viewModel.snapshot
+    let projectGroups = snapshot?.visibleProjectGroups ?? []
+
     VStack(spacing: 0) {
       sidebarHeader
 
       ScrollView {
         LazyVStack(alignment: .leading, spacing: Spacing.sm_) {
           ForEach(projectGroups) { group in
-            projectSection(group)
+            projectSection(group, snapshot: snapshot)
           }
 
           if projectGroups.isEmpty && !viewModel.isLoading {
@@ -181,7 +156,10 @@ struct SessionSidebar: View {
   // MARK: - Project Section
 
   @ViewBuilder
-  private func projectSection(_ group: DashboardProjectGroup) -> some View {
+  private func projectSection(
+    _ group: DashboardProjectGroup,
+    snapshot: DashboardSnapshot?
+  ) -> some View {
     let isExpanded = !collapsedProjects.contains(group.id)
     let hasAttention = group.attentionCount > 0
 
@@ -204,8 +182,8 @@ struct SessionSidebar: View {
       .padding(.horizontal, Spacing.xs)
 
       if isExpanded || hasAttention {
-        ForEach(sessionRefs(for: group), id: \.self) { sessionRef in
-          if let session = conversationsBySessionRef[sessionRef] {
+        ForEach(snapshot?.sessionRefs(for: group) ?? [], id: \.self) { sessionRef in
+          if let session = snapshot?.conversationsBySessionRef[sessionRef] {
             let isSelected = router.workspaceSelection == .session(session.sessionRef)
 
             Button {

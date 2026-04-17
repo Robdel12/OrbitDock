@@ -637,6 +637,12 @@ struct PermissionRuleMutationBody: Codable {
 
 struct ModifyPermissionRuleHTTPResponse: Codable {
   let ok: Bool
+  let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+  enum CodingKeys: String, CodingKey {
+    case ok
+    case sessionDetailSnapshot = "session_detail_snapshot"
+  }
 }
 
 struct ServerPermissionRulesResponse: Codable {

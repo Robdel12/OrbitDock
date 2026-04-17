@@ -13,32 +13,32 @@ struct SessionDetailView: View {
   @Environment(AppRouter.self) var router
   let sessionId: String
   let endpointId: UUID
-  let sessionStore: SessionStore
+  let session: ServerSessionContext
 
   @State var viewModel: SessionDetailViewModel
   @State var isDirectControlDeckFocused = false
 
-  init(sessionId: String, endpointId: UUID, sessionStore: SessionStore) {
+  init(sessionId: String, endpointId: UUID, session: ServerSessionContext) {
     self.sessionId = sessionId
     self.endpointId = endpointId
-    self.sessionStore = sessionStore
+    self.session = session
     _viewModel = State(
       initialValue: SessionDetailViewModel(
         sessionId: sessionId,
         endpointId: endpointId,
-        sessionStore: sessionStore
+        session: session
       )
     )
   }
 
-  var scopedServerState: SessionStore {
-    sessionStore
+  var scopedSession: ServerSessionContext {
+    session
   }
 
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
-  private var bindingIdentity: String {
-    "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(sessionStore))"
+  var bindingIdentity: String {
+    "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(session))"
   }
 
   var isCompactLayout: Bool {
@@ -83,13 +83,16 @@ struct SessionDetailView: View {
         TakeOverInputBar(
           onTakeOver: {
             Task {
-              try? await scopedServerState.takeoverSession(
-                sessionId,
+              if let payload = try? await scopedSession.api.takeoverSession(
                 model: nil, approvalPolicy: nil, approvalPolicyDetails: nil,
                 sandboxMode: nil, permissionMode: nil, collaborationMode: nil,
                 multiAgent: nil, personality: nil, serviceTier: nil,
                 developerInstructions: nil
-              )
+              ) {
+                await MainActor.run {
+                  viewModel.applyDetailPayload(payload)
+                }
+              }
             }
           },
           statusContent: {
@@ -104,34 +107,15 @@ struct SessionDetailView: View {
     }
     .background(Color.backgroundPrimary)
     .task(id: bindingIdentity) {
-      viewModel.bind(
+      await viewModel.runLifecycle(
+        bindingIdentity: bindingIdentity,
         sessionId: sessionId,
         endpointId: endpointId,
-        sessionStore: sessionStore,
-        modelPricingService: modelPricingService
+        session: session,
+        modelPricingService: modelPricingService,
+        terminalRegistry: terminalRegistry,
+        showWorkerPanel: showWorkerPanel
       )
-      await viewModel.refresh()
-      // Restore terminal if one already exists in the registry for this session
-      if viewModel.terminal.activeTerminalId == nil {
-        let prefix = "term-\(sessionId)-"
-        if let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix(prefix) }) {
-          viewModel.terminal.activeTerminalId = existingId
-          viewModel.terminal.showPanel = true
-        }
-      }
-      if showWorkerPanel {
-        viewModel.worker.loadDetails(
-          sessionId: sessionId,
-          sessionStore: scopedServerState,
-          layoutConfig: viewModel.layoutConfig
-        )
-      }
-    }
-    .task(id: bindingIdentity + ":ws") {
-      let (stream, _) = sessionStore.sessionDetailRefreshRequests(for: sessionId)
-      for await _ in stream {
-        await viewModel.refresh()
-      }
     }
     #if os(iOS)
     .navigationTitle(screenPresentation.displayName)
@@ -145,14 +129,8 @@ struct SessionDetailView: View {
       }
     }
     #endif
-    .environment(scopedServerState)
     .onChange(of: showWorkerPanel) { _, visible in
-      guard visible else { return }
-      viewModel.worker.loadDetails(
-        sessionId: sessionId,
-        sessionStore: scopedServerState,
-        layoutConfig: viewModel.layoutConfig
-      )
+      viewModel.handleWorkerPanelVisibilityChange(visible)
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -186,7 +164,7 @@ struct SessionDetailView: View {
   // MARK: - iOS Native Nav Bar
 
   #if os(iOS)
-    private var iOSStatusStrip: some View {
+    var iOSStatusStrip: some View {
       HStack(spacing: Spacing.sm) {
         HeaderCompactStatusBadge(
           presentation: HeaderCompactPresentation.build(
@@ -284,10 +262,6 @@ struct SessionDetailView: View {
 
   // Remaining sections and imperative handlers live in companion files so this root
   // stays focused on feature composition and lifecycle wiring.
-
-  var shouldSubscribeToServerSession: Bool {
-    viewModel.shouldSubscribeToServerSession
-  }
 }
 
 private struct SessionDetailTerminalToggleFocusedValueKey: FocusedValueKey {
@@ -305,7 +279,7 @@ extension FocusedValues {
   SessionDetailView(
     sessionId: "preview-123",
     endpointId: UUID(),
-    sessionStore: SessionStore.preview()
+    session: ServerSessionContext.preview()
   )
   .environment(AttentionService())
   .environment(AppRouter())

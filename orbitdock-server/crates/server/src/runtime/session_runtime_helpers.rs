@@ -234,11 +234,7 @@ pub(crate) async fn claim_codex_thread_for_direct_session(
   }
 
   if thread_id != session_id && state.remove_session(thread_id).is_some() {
-    let _ = state
-      .list_tx()
-      .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-        session_id: thread_id.to_string(),
-      });
+    state.publish_active_session_removed(thread_id);
   }
 
   let _ = persist_tx
@@ -1082,14 +1078,15 @@ mod tests {
     assert!(!snapshot.steerable);
     assert!(registry.get_codex_action_tx("cleanup-session").is_none());
 
-    let Some(orbitdock_protocol::ServerMessage::DashboardConversationUpdated { item, .. }) =
-      list_rx.recv().await.ok()
-    else {
-      panic!("expected dashboard update from actor-applied cleanup");
+    let revision = loop {
+      let Some(message) = list_rx.recv().await.ok() else {
+        panic!("expected dashboard update from actor-applied cleanup");
+      };
+      if let orbitdock_protocol::ServerMessage::ActiveSessionsInvalidated { revision } = message {
+        break revision;
+      }
     };
-    assert_eq!(item.session_id, "cleanup-session");
-    assert_eq!(item.lifecycle_state, SessionLifecycleState::Resumable);
-    assert_eq!(item.work_status, WorkStatus::Waiting);
+    assert!(revision > 0);
   }
 
   #[tokio::test]

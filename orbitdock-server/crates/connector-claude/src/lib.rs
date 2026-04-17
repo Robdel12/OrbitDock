@@ -1945,10 +1945,29 @@ impl ClaudeConnector {
 
     // Process tool_use blocks first (creates Tool rows)
     for block in tool_use_blocks {
+      // Extract tool name — check multiple field names for SDK compatibility
       let tool_name = block
         .get("name")
+        .or_else(|| block.get("tool_name"))
+        .or_else(|| block.get("toolName"))
         .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
+        .unwrap_or_else(|| {
+          // For Agent/Task tools, the tool name might be in the input structure
+          // as subagent_type or task_type. Fall back to "Agent" if we find agent-like input.
+          let input = block.get("input");
+          if let Some(input) = input {
+            if input.get("subagent_type").is_some()
+              || input.get("prompt").is_some()
+              || input
+                .get("description")
+                .and_then(|d| d.as_str())
+                .is_some_and(|d| !d.is_empty())
+            {
+              return "Agent";
+            }
+          }
+          "unknown"
+        });
       let input_value = block.get("input");
       let tool_use_id = block.get("id").and_then(|v| v.as_str());
       let message_id = tool_use_id.map(str::to_string).unwrap_or_else(|| {
@@ -3069,6 +3088,8 @@ mod tests {
     UserContentBlock,
   };
   use orbitdock_connector_core::ConnectorStateEvent;
+  use orbitdock_protocol::conversation_contracts::ConversationRow;
+  use orbitdock_protocol::domain_events::{ToolFamily, ToolKind};
 
   #[test]
   fn parse_data_uri_base64_extracts_media_type_and_payload() {
@@ -3376,6 +3397,52 @@ mod tests {
         && diff.contains("--- /dev/null")
         && diff.contains("+++ src/b.txt"),
       "expected combined diff for both edits"
+    );
+  }
+
+  #[test]
+  fn handle_assistant_message_infers_agent_tool_when_name_missing() {
+    // When a tool_use block lacks a "name" field but has agent-like input
+    // (subagent_type, prompt, or description), we should infer "Agent".
+    let raw = json!({
+        "type": "assistant",
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu-agent-1",
+                    "input": {
+                        "subagent_type": "Explore",
+                        "description": "Find all API endpoints"
+                    }
+                }
+            ]
+        }
+    });
+
+    let mut state = test_event_loop_state();
+    state.last_context_window = 200_000;
+
+    let events = ClaudeConnector::handle_assistant_message(&raw, "sess-1", &mut state);
+
+    // Should create a tool row with Agent classification
+    let tool_row = events.iter().find_map(|e| match e.as_state_event() {
+      Some(ConnectorStateEvent::ConversationRowCreated(entry)) => match &entry.row {
+        ConversationRow::Tool(tr) => Some(tr.clone()),
+        _ => None,
+      },
+      _ => None,
+    });
+
+    assert!(tool_row.is_some(), "expected a tool row to be created");
+    let tr = tool_row.unwrap();
+    assert_eq!(tr.family, ToolFamily::Agent, "expected Agent family");
+    assert_eq!(tr.kind, ToolKind::SpawnAgent, "expected SpawnAgent kind");
+    assert!(
+      tr.subtitle
+        .as_ref()
+        .is_some_and(|s: &String| s.contains("Explore")),
+      "expected subtitle to contain agent type"
     );
   }
 

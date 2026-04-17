@@ -12,7 +12,8 @@ use orbitdock_protocol::conversation_contracts::{
 use orbitdock_protocol::SessionState;
 
 #[cfg(test)]
-use super::conversation::{ConversationBootstrap, ConversationPage};
+use super::conversation::ConversationBootstrap;
+use super::conversation::ConversationPage;
 
 #[derive(Debug, Clone, Default)]
 pub struct ConversationState {
@@ -70,7 +71,6 @@ impl ConversationState {
     self
   }
 
-  #[cfg(test)]
   pub fn page(&self, before_sequence: Option<u64>, limit: usize) -> ConversationPage {
     if self.rows.is_empty() || limit == 0 {
       return ConversationPage {

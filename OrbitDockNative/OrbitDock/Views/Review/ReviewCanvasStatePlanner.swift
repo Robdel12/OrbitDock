@@ -54,8 +54,4 @@ enum ReviewCanvasStatePlanner {
       previousFileCount: newFileCount
     )
   }
-
-  static func shouldLoadReviewComments(existingComments: [ServerReviewComment]) -> Bool {
-    existingComments.isEmpty
-  }
 }

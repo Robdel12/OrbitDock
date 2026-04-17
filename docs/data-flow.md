@@ -10,7 +10,7 @@ The short version:
 - WebSocket owns realtime follow-up, replay, heartbeats, and explicit refetch hints.
 - The Rust server owns durable business truth.
 - The native app renders server state through explicit scene and surface owners.
-- `SessionStore` is transport infrastructure, not product state.
+- `ServerSessionContext` is a scoped dependency bag, not product state.
 
 ## Core Contract
 
@@ -24,11 +24,13 @@ Each rendered surface should have:
 
 Examples:
 
+- global sessions summary
 - dashboard
+- library
 - missions
 - session detail
 - conversation
-- control deck
+- control deck UI
 - review canvas
 - skills
 - MCP servers
@@ -66,11 +68,11 @@ The native app should follow this shape:
 
 1. scene owners resolve stable dependencies
 2. feature owners bootstrap and render one surface
-3. `SessionStore` provides transport APIs and async streams
+3. `ServerSessionContext` exposes a narrow session API and realtime transport
 
 That means:
 
-- scene owners resolve the endpoint-scoped `SessionStore` before mounting child features
+- scene owners resolve the `ServerEndpointRuntime` before mounting child features
 - feature owners decide which HTTP snapshot to load and which realtime feed to observe
 - child views render state passed to them explicitly
 
@@ -80,16 +82,15 @@ The client should not:
 - let multiple child features independently bootstrap the same surface
 - treat websocket events as the primary business-state model
 
-## SessionStore Contract
+## Session Runtime Contract
 
-`SessionStore` is a narrow transport shell.
+`ServerSessionContext` should stay boring.
 
 It may:
 
-- manage websocket connection lifecycle
-- expose typed HTTP clients
-- expose targeted async streams
-- handle replay and reconnect recovery
+- scope one session to one endpoint runtime
+- expose `api` for typed HTTP bootstrap and mutations
+- expose `transport` for websocket follow-up, replay, and reconnect recovery
 
 It should not:
 
@@ -103,7 +104,9 @@ It should not:
 flowchart TD
     UI[SwiftUI scenes and feature views]
     OWNERS[Scene owners and surface owners]
-    SS[SessionStore transport shell]
+    SC[ServerSessionContext]
+    APICTX[ServerSessionAPI]
+    TRANSPORT[ServerSessionTransport]
     WS[WebSocket replay and deltas]
     HTTP[HTTP snapshots and mutations]
     API[Rust transport layer]
@@ -112,9 +115,11 @@ flowchart TD
     RT[Connector runtime]
 
     UI --> OWNERS
-    OWNERS --> SS
-    OWNERS --> HTTP
-    SS --> WS
+    OWNERS --> SC
+    SC --> APICTX
+    SC --> TRANSPORT
+    APICTX --> HTTP
+    TRANSPORT --> WS
 
     HTTP --> API
     WS --> API
@@ -126,17 +131,45 @@ flowchart TD
 
 ## Surface Bootstrap Rules
 
+### Global Sessions Summary
+
+- HTTP: `GET /api/sessions/summary`
+- WS follow-up: sessions-summary invalidation
+- Owner: app runtime shell owner
+
+This surface exists for app-wide attention, endpoint health, and notification-driving state.
+
+It must stay compact.
+
+`control plane` is reserved for runtime endpoint-role and sync-topology concerns, not UI surface naming.
+
 ### Dashboard
 
-- HTTP: `GET /api/dashboard`
-- WS follow-up: dashboard replay or invalidation
+- HTTP: `GET /api/sessions/active`
+- WS follow-up: dashboard invalidation
 - Owner: dashboard scene or dashboard view model
 
-### Missions
+Dashboard should stay focused on active work, not cold archive browsing.
 
-- HTTP: canonical missions snapshot endpoint
-- WS follow-up: missions replay or invalidation
-- Owner: mission control scene or mission control view model
+### Library
+
+- HTTP: `GET /api/sessions/archive`
+- WS follow-up: library invalidation or explicit refresh while open
+- Owner: library scene or library view model
+
+Library is a cold surface. It should not be eagerly loaded just because dashboard or notifications need a smaller summary.
+
+### Missions List
+
+- HTTP: `GET /api/missions`
+- WS follow-up: missions invalidation
+- Owner: mission list scene or mission list view model
+
+### Mission Detail
+
+- HTTP: `GET /api/missions/{id}`
+- WS follow-up: mission-specific invalidation or heartbeat
+- Owner: mission detail scene or mission detail view model
 
 ### Session Detail Shell
 
@@ -166,15 +199,24 @@ These surfaces should not refresh because of a broad unrelated per-session event
 ### Dashboard Boot
 
 1. WebSocket connects and receives `hello`.
-2. The dashboard owner fetches `GET /api/dashboard`.
+2. The dashboard owner fetches `GET /api/sessions/active`.
 3. The owner applies the snapshot and stores its revision.
 4. The owner subscribes to dashboard follow-up from that revision.
 
 There should not be parallel eager dashboard bootstraps from sibling views.
 
+### Library Boot
+
+1. The library owner becomes active.
+2. The owner fetches `GET /api/sessions/archive`.
+3. The owner applies the page and any paging cursor or offset.
+4. The owner optionally subscribes to library follow-up while open.
+
+Library should not be treated like an always-hot global cache.
+
 ### Session Detail Boot
 
-1. The session detail scene resolves the real endpoint-scoped `SessionStore`.
+1. The session detail scene resolves the real `ServerEndpointRuntime`.
 2. The scene decides which surfaces are visible.
 3. Each visible surface owner performs exactly one HTTP bootstrap.
 4. Each surface owner subscribes to its own follow-up stream from the returned revision.
@@ -207,6 +249,14 @@ Do not wait for a later websocket event when the HTTP response already contains 
 - The client refetches the exact affected surface, not unrelated state.
 
 This is especially important for reconnects. Replay gaps should trigger targeted recovery, not full-screen rebuilds.
+
+## Memory And Efficiency Rules
+
+- Do not keep multiple heavyweight copies of the same cross-endpoint session data in memory.
+- Do not use dashboard payloads as the archive system.
+- Do not use library payloads as the notification or attention system.
+- Keep app-shell global state summary-sized.
+- Keep cold surfaces cold until the user actually opens them.
 
 ## Conversation Exception
 
@@ -264,7 +314,8 @@ When you touch the native client:
 - give each rendered surface one owner
 - use HTTP for authority
 - use websocket for follow-up
-- keep `SessionStore` narrow
+- keep `ServerSessionContext` narrow
+- keep `ServerSessionAPI` and `ServerSessionTransport` boring
 - refresh only the surface that actually changed
 
 When you touch the server:

@@ -112,7 +112,9 @@ pub(crate) async fn takeover_passive_session(
     .await
     .map_err(|_| TakeoverSessionError::TakeHandleFailed)?;
   handle.set_list_tx(state.list_tx());
+  handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
+  handle.set_library_revision_counter(state.library_revision_counter());
 
   hydrate_takeover_messages_if_needed(&mut handle, snapshot.transcript_path.as_deref(), session_id)
     .await;
@@ -293,6 +295,9 @@ async fn complete_codex_takeover(
   let model = effective_model.clone();
   let approval = effective_approval.clone();
   let sandbox = effective_sandbox.clone();
+  let sandbox_policy_details = sandbox
+    .as_deref()
+    .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text);
   let dynamic_tools_json =
     crate::domain::codex_tools::default_codex_dynamic_tools_json(include_mission_tools);
   let task_session_id = session_id.clone();
@@ -306,6 +311,7 @@ async fn complete_codex_takeover(
           model: model.as_deref(),
           approval_policy: approval.as_deref(),
           sandbox_mode: sandbox.as_deref(),
+          sandbox_policy_details: sandbox_policy_details.clone(),
           config_overrides: orbitdock_connector_codex::CodexConfigOverrides::default(),
           control_plane: control_plane.clone(),
           dynamic_tools_json: dynamic_tools_json.clone(),
@@ -321,6 +327,7 @@ async fn complete_codex_takeover(
             model.as_deref(),
             approval.as_deref(),
             sandbox.as_deref(),
+            sandbox_policy_details.as_ref(),
             control_plane.clone(),
             dynamic_tools_json.clone(),
           )
@@ -334,6 +341,7 @@ async fn complete_codex_takeover(
         model.as_deref(),
         approval.as_deref(),
         sandbox.as_deref(),
+        sandbox_policy_details.as_ref(),
         control_plane.clone(),
         dynamic_tools_json.clone(),
       )

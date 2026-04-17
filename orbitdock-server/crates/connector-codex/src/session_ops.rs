@@ -51,7 +51,7 @@ impl CodexConnector {
     control_plane: &CodexControlPlane,
   ) -> Result<codex_core::config::Config, ConnectorError> {
     let mut config =
-      Self::build_config(cwd, None, None, None, config_overrides, control_plane).await?;
+      Self::build_config(cwd, None, None, None, None, config_overrides, control_plane).await?;
     Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
     Ok(config)
   }
@@ -94,11 +94,13 @@ impl CodexConnector {
       model,
       approval_policy,
       sandbox_mode,
+      None,
       &CodexConfigOverrides::default(),
       &CodexControlPlane::default(),
     )
     .await?;
     Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
+    let configured_model = config.model.clone();
 
     let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
 
@@ -114,6 +116,15 @@ impl CodexConnector {
       self.thread_manager.clone(),
       self.codex_home.clone(),
     )?;
+    connector
+      .apply_post_start_overrides(
+        CodexControlPlane::default(),
+        configured_model,
+        None,
+        sandbox_mode,
+        None,
+      )
+      .await?;
 
     Ok((connector, new_thread_id))
   }

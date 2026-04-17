@@ -12,12 +12,11 @@ struct ServerConnectionListenerToken: Hashable, Sendable {
 /// Reuses the existing ServerToClientMessage decode pipeline.
 enum ServerEvent: Sendable {
   case hello(ServerHelloMetadata)
-  case dashboardSnapshot(ServerDashboardSnapshotPayload)
-  case missionsSnapshot(ServerMissionSnapshotPayload)
-  case dashboardInvalidated(revision: UInt64)
-  case dashboardConversationUpdated(revision: UInt64, item: ServerDashboardConversationItem)
-  case dashboardItemRemoved(sessionId: String)
+  case sessionsSummaryInvalidated(revision: UInt64)
+  case activeSessionsInvalidated(revision: UInt64)
+  case archivedSessionsInvalidated(revision: UInt64)
   case missionsInvalidated(revision: UInt64)
+  case sessionSurfaceInvalidated(sessionId: String, surface: ServerSessionSurface, revision: UInt64)
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case sessionEnded(sessionId: String, reason: String)
 
@@ -137,9 +136,8 @@ enum ServerEvent: Sendable {
   case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
 
   // Mission Control
-  case missionsList(missions: [MissionSummary])
-  case missionDelta(missionId: String, issues: [MissionIssueItem], summary: MissionSummary)
   case missionHeartbeat(missionId: String, tickStartedAt: String, nextTickAt: String)
+  case missionInvalidated(missionId: String, revision: UInt64)
 
   /// Connection lifecycle
   case connectionStatusChanged(ConnectionStatus)
@@ -167,9 +165,10 @@ final class ServerConnection {
   }
 
   private(set) var connectionStatus: ConnectionStatus = .disconnected
-  private(set) var hasReceivedInitialDashboardSnapshot = false
-  private(set) var hasReceivedInitialMissionsSnapshot = false
-  private(set) var hasSubscribedDashboardStream = false
+  private(set) var hasSubscribedSessionsSummaryStream = false
+  private(set) var hasSubscribedActiveSessionsStream = false
+  private(set) var hasSubscribedArchivedSessionsStream = false
+  private(set) var hasSubscribedMissionsStream = false
   private(set) var requiresManualReconnect = false
 
   /// Event listeners. Multiple consumers can register.
@@ -192,6 +191,9 @@ final class ServerConnection {
   private var serverURL: URL?
   private let authToken: String?
   private let transport: any ServerConnectionTransport
+  private var missionsSubscriptionRevision: UInt64?
+  private var archivedSessionsSubscriptionRevision: UInt64?
+  private var missionSubscriptionCounts: [String: Int] = [:]
   private var connectionProbeTask: Task<Void, Never>?
   private var connectionProbeGeneration: UInt64?
   private let circuitBreaker: ConnectionCircuitBreaker
@@ -278,9 +280,12 @@ final class ServerConnection {
     reconnectRetryHint = nil
     requiresManualReconnect = false
     lastConnectedAt = nil
-    hasReceivedInitialDashboardSnapshot = false
-    hasReceivedInitialMissionsSnapshot = false
-    hasSubscribedDashboardStream = false
+    hasSubscribedSessionsSummaryStream = false
+    hasSubscribedActiveSessionsStream = false
+    hasSubscribedArchivedSessionsStream = false
+    hasSubscribedMissionsStream = false
+    archivedSessionsSubscriptionRevision = nil
+    missionsSubscriptionRevision = nil
     setStatus(.disconnected)
     netLog(.info, cat: .circuit, "Circuit breaker reset (explicit disconnect)")
   }
@@ -301,20 +306,82 @@ final class ServerConnection {
 
   // MARK: - Outbound WS messages
 
-  func subscribeDashboard(sinceRevision: UInt64? = nil) {
-    guard !hasSubscribedDashboardStream else { return }
-    hasSubscribedDashboardStream = true
-    send(.subscribeDashboard(sinceRevision: sinceRevision))
+  func subscribeSessionsSummary(sinceRevision: UInt64? = nil) {
+    guard !hasSubscribedSessionsSummaryStream else { return }
+    hasSubscribedSessionsSummaryStream = true
+    send(.subscribeSessionsSummary(sinceRevision: sinceRevision))
   }
 
-  func unsubscribeDashboard() {
-    guard hasSubscribedDashboardStream else { return }
-    hasSubscribedDashboardStream = false
-    send(.unsubscribeDashboard)
+  func unsubscribeSessionsSummary() {
+    guard hasSubscribedSessionsSummaryStream else { return }
+    hasSubscribedSessionsSummaryStream = false
+    send(.unsubscribeSessionsSummary)
+  }
+
+  func subscribeActiveSessions(sinceRevision: UInt64? = nil) {
+    guard !hasSubscribedActiveSessionsStream else { return }
+    hasSubscribedActiveSessionsStream = true
+    send(.subscribeActiveSessions(sinceRevision: sinceRevision))
+  }
+
+  func unsubscribeActiveSessions() {
+    guard hasSubscribedActiveSessionsStream else { return }
+    hasSubscribedActiveSessionsStream = false
+    send(.unsubscribeActiveSessions)
   }
 
   func subscribeMissions(sinceRevision: UInt64? = nil) {
+    if hasSubscribedMissionsStream, missionsSubscriptionRevision == sinceRevision {
+      return
+    }
+    hasSubscribedMissionsStream = true
+    missionsSubscriptionRevision = sinceRevision
     send(.subscribeMissions(sinceRevision: sinceRevision))
+  }
+
+  func unsubscribeMissions() {
+    guard hasSubscribedMissionsStream else { return }
+    hasSubscribedMissionsStream = false
+    missionsSubscriptionRevision = nil
+    send(.unsubscribeMissions)
+  }
+
+  func subscribeArchivedSessions(sinceRevision: UInt64? = nil) {
+    if hasSubscribedArchivedSessionsStream, archivedSessionsSubscriptionRevision == sinceRevision {
+      return
+    }
+    hasSubscribedArchivedSessionsStream = true
+    archivedSessionsSubscriptionRevision = sinceRevision
+    send(.subscribeArchivedSessions(sinceRevision: sinceRevision))
+  }
+
+  func unsubscribeArchivedSessions() {
+    guard hasSubscribedArchivedSessionsStream else { return }
+    hasSubscribedArchivedSessionsStream = false
+    archivedSessionsSubscriptionRevision = nil
+    send(.unsubscribeArchivedSessions)
+  }
+
+  func subscribeMission(_ missionId: String) {
+    let currentCount = missionSubscriptionCounts[missionId] ?? 0
+    missionSubscriptionCounts[missionId] = currentCount + 1
+    guard currentCount == 0 else { return }
+    send(.subscribeMission(missionId: missionId))
+  }
+
+  func unsubscribeMission(_ missionId: String) {
+    guard let currentCount = missionSubscriptionCounts[missionId] else { return }
+    if currentCount > 1 {
+      missionSubscriptionCounts[missionId] = currentCount - 1
+      return
+    }
+    missionSubscriptionCounts.removeValue(forKey: missionId)
+    send(.unsubscribeMission(missionId: missionId))
+  }
+
+  func resubscribeMission(_ missionId: String) {
+    guard missionSubscriptionCounts[missionId, default: 0] > 0 else { return }
+    send(.subscribeMission(missionId: missionId))
   }
 
   func subscribeSessionSurface(
@@ -327,23 +394,6 @@ final class ServerConnection {
 
   func unsubscribeSessionSurface(_ sessionId: String, surface: ServerSessionSurface) {
     send(.unsubscribeSessionSurface(sessionId: sessionId, surface: surface))
-  }
-
-  func applyDashboardSnapshot(_ snapshot: ServerDashboardSnapshotPayload) {
-    hasReceivedInitialDashboardSnapshot = true
-    emit(.dashboardSnapshot(snapshot))
-  }
-
-  func applyMissionsSnapshot(_ snapshot: ServerMissionSnapshotPayload) {
-    hasReceivedInitialMissionsSnapshot = true
-    emit(.missionsSnapshot(snapshot))
-  }
-
-  // MARK: - Testing
-
-  func seedDashboardSnapshotForTesting(_ snapshot: ServerDashboardSnapshotPayload) {
-    hasReceivedInitialDashboardSnapshot = true
-    emit(.dashboardSnapshot(snapshot))
   }
 
   func emitForTesting(_ event: ServerEvent) {
@@ -850,12 +900,15 @@ final class ServerConnection {
   private func routeMessage(_ message: ServerToClientMessage) {
     switch message {
       case let .hello(hello): emit(.hello(hello))
-      case let .dashboardInvalidated(revision): emit(.dashboardInvalidated(revision: revision))
-      case let .dashboardConversationUpdated(revision, item):
-        emit(.dashboardConversationUpdated(revision: revision, item: item))
-      case let .dashboardItemRemoved(sessionId):
-        emit(.dashboardItemRemoved(sessionId: sessionId))
+      case let .sessionsSummaryInvalidated(revision):
+        emit(.sessionsSummaryInvalidated(revision: revision))
+      case let .activeSessionsInvalidated(revision):
+        emit(.activeSessionsInvalidated(revision: revision))
+      case let .archivedSessionsInvalidated(revision):
+        emit(.archivedSessionsInvalidated(revision: revision))
       case let .missionsInvalidated(revision): emit(.missionsInvalidated(revision: revision))
+      case let .sessionSurfaceInvalidated(sessionId, surface, revision):
+        emit(.sessionSurfaceInvalidated(sessionId: sessionId, surface: surface, revision: revision))
       case let .sessionDelta(sessionId, changes):
         emit(.sessionDelta(sessionId: sessionId, changes: changes))
       case let .conversationRowsChanged(sessionId, upserted, removedRowIds, totalRowCount):
@@ -999,12 +1052,10 @@ final class ServerConnection {
       case let .serverInfo(isPrimary, claims): emit(.serverInfo(isPrimary: isPrimary, claims: claims))
       case let .permissionRules(sessionId, rules): emit(.permissionRules(sessionId: sessionId, rules: rules))
       case let .error(code, message, sessionId): emit(.error(code: code, message: message, sessionId: sessionId))
-      case let .missionsList(missions):
-        emit(.missionsList(missions: missions))
-      case let .missionDelta(missionId, issues, summary):
-        emit(.missionDelta(missionId: missionId, issues: issues, summary: summary))
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         emit(.missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt))
+      case let .missionInvalidated(missionId, revision):
+        emit(.missionInvalidated(missionId: missionId, revision: revision))
       case let .terminalCreated(terminalId, sessionId):
         emit(.terminalCreated(terminalId: terminalId, sessionId: sessionId))
       case let .terminalExited(terminalId, exitCode):
@@ -1053,7 +1104,6 @@ final class ServerConnection {
   }
 
   private func emit(_ event: ServerEvent) {
-    updateRootState(for: event)
     onEvent?(event)
     let listeners = Array(additionalListeners.values)
     for listener in listeners {
@@ -1067,23 +1117,14 @@ final class ServerConnection {
     if status != .connected {
       // Keep the latest HTTP-backed snapshots available when WS drops so the
       // app remains navigable in degraded realtime mode.
-      hasSubscribedDashboardStream = false
+      hasSubscribedSessionsSummaryStream = false
+      hasSubscribedActiveSessionsStream = false
+      hasSubscribedArchivedSessionsStream = false
+      hasSubscribedMissionsStream = false
+      archivedSessionsSubscriptionRevision = nil
+      missionsSubscriptionRevision = nil
     }
     emit(.connectionStatusChanged(status))
-  }
-
-  private func updateRootState(for event: ServerEvent) {
-    switch event {
-      case let .dashboardSnapshot(snapshot):
-        _ = snapshot
-        hasReceivedInitialDashboardSnapshot = true
-      case let .missionsSnapshot(snapshot):
-        _ = snapshot
-        hasReceivedInitialMissionsSnapshot = true
-      case .dashboardInvalidated:
-        break
-      default: break
-    }
   }
 
   // MARK: - Terminal Binary Frames

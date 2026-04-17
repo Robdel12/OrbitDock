@@ -121,8 +121,8 @@ pub async fn run(action: &ReviewAction, rest: &RestClient, output: &Output) -> i
 
 async fn list(rest: &RestClient, output: &Output, session_id: &str, turn: Option<&str>) -> i32 {
   let path = match turn {
-    Some(t) => format!("/api/sessions/{session_id}/review-comments?turn_id={t}"),
-    None => format!("/api/sessions/{session_id}/review-comments"),
+    Some(t) => format!("/api/sessions/{session_id}/review/comments?turn_id={t}"),
+    None => format!("/api/sessions/{session_id}/review/comments"),
   };
 
   match rest
@@ -209,7 +209,7 @@ async fn create(args: CreateReviewArgs<'_>) -> i32 {
     tag: tag_str.map(|s| s.to_string()),
   };
 
-  let path = format!("/api/sessions/{session_id}/review-comments");
+  let path = format!("/api/sessions/{session_id}/review/comments");
   match rest
     .post_json::<_, ReviewCommentMutationResponse>(&path, &req)
     .await
@@ -251,7 +251,7 @@ async fn update(
     status: status_str,
   };
 
-  let path = format!("/api/review-comments/{comment_id}");
+  let path = format!("/api/review/comments/{comment_id}");
   match rest
     .patch_json::<_, ReviewCommentMutationResponse>(&path, &req)
     .await
@@ -277,7 +277,7 @@ async fn update(
 }
 
 async fn delete(rest: &RestClient, output: &Output, comment_id: &str) -> i32 {
-  let path = format!("/api/review-comments/{comment_id}");
+  let path = format!("/api/review/comments/{comment_id}");
   match rest
     .delete::<ReviewCommentMutationResponse>(&path)
     .await

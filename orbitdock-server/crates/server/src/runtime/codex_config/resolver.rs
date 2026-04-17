@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 use codex_app_server_protocol::{ConfigLayer, ConfigLayerMetadata, ConfigLayerSource};
 use codex_core::config::Config as CoreConfig;
-use orbitdock_connector_codex::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
+use orbitdock_connector_codex::{
+  config_loader_sandbox_mode, requested_sandbox_policy_details, CodexConfigOverrides,
+  CodexConnector, CodexControlPlane,
+};
 use orbitdock_protocol::{
   CodexApprovalMode, CodexApprovalPolicy, CodexApprovalsReviewer, CodexGranularApprovalPolicy,
   CodexSandboxMode, CodexSandboxPolicy, CodexSessionOverrides,
@@ -63,8 +66,9 @@ pub(crate) async fn build_effective_codex_config(
   CodexConnector::build_config_with_runtime_defaults(
     cwd,
     selection.overrides.model.as_deref(),
-    selection.overrides.approval_policy.as_deref(),
-    selection.overrides.sandbox_mode.as_deref(),
+    selection.overrides.approval_policy_summary().as_deref(),
+    selection.overrides.sandbox_mode_summary().as_deref(),
+    selection.overrides.sandbox_policy_details.as_ref(),
     &config_overrides,
     &control_plane,
     false,
@@ -149,6 +153,30 @@ fn effective_settings(
     ));
   }
 
+  let explicit_sandbox_policy = requested_sandbox_policy_details(
+    selection.overrides.sandbox_mode_summary().as_deref(),
+    selection.overrides.sandbox_policy_details.as_ref(),
+  );
+  let effective_sandbox_policy = explicit_sandbox_policy.clone().or_else(|| {
+    Some(core_sandbox_policy_to_details(
+      &config.permissions.sandbox_policy,
+    ))
+  });
+  let effective_sandbox_mode = explicit_sandbox_policy
+    .as_ref()
+    .map(CodexSandboxPolicy::legacy_summary)
+    .or_else(|| {
+      config_loader_sandbox_mode(
+        selection.overrides.sandbox_mode_summary().as_deref(),
+        selection.overrides.sandbox_policy_details.as_ref(),
+      )
+    })
+    .or_else(|| {
+      Some(core_sandbox_policy_to_string(
+        &config.permissions.sandbox_policy,
+      ))
+    });
+
   CodexResolvedSettings {
     config_source: selection.config_source,
     config_mode: selection.config_mode,
@@ -162,12 +190,8 @@ fn effective_settings(
     approval_policy_details: Some(core_approval_policy_to_details(
       *config.permissions.approval_policy.get(),
     )),
-    sandbox_mode: Some(core_sandbox_policy_to_string(
-      &config.permissions.sandbox_policy,
-    )),
-    sandbox_policy_details: Some(core_sandbox_policy_to_details(
-      &config.permissions.sandbox_policy,
-    )),
+    sandbox_mode: effective_sandbox_mode,
+    sandbox_policy_details: effective_sandbox_policy,
     collaboration_mode: selection.overrides.collaboration_mode.clone(),
     multi_agent: selection.overrides.multi_agent,
     personality: selection.overrides.personality.clone(),
@@ -249,13 +273,13 @@ fn apply_runtime_origin_overrides(
   if selection.overrides.model.is_some() {
     origins.insert("model".to_string(), runtime_origin("model"));
   }
-  if selection.overrides.approval_policy.is_some() {
+  if selection.overrides.approval_policy_details.is_some() {
     origins.insert(
       "approval_policy".to_string(),
       runtime_origin("approval_policy"),
     );
   }
-  if selection.overrides.sandbox_mode.is_some() {
+  if selection.overrides.sandbox_policy_details.is_some() {
     origins.insert("sandbox_mode".to_string(), runtime_origin("sandbox_mode"));
   }
   if selection.overrides.sandbox_policy_details.is_some() {
@@ -309,17 +333,14 @@ fn runtime_override_layer(selection: &CodexConfigSelection) -> Option<CodexInspe
   if let Some(model) = &selection.overrides.model {
     config.insert("model".to_string(), Value::String(model.clone()));
   }
-  if let Some(approval_policy) = &selection.overrides.approval_policy {
+  if let Some(approval_policy) = selection.overrides.approval_policy_summary() {
     config.insert(
       "approval_policy".to_string(),
-      Value::String(approval_policy.clone()),
+      Value::String(approval_policy),
     );
   }
-  if let Some(sandbox_mode) = &selection.overrides.sandbox_mode {
-    config.insert(
-      "sandbox_mode".to_string(),
-      Value::String(sandbox_mode.clone()),
-    );
+  if let Some(sandbox_mode) = selection.overrides.sandbox_mode_summary() {
+    config.insert("sandbox_mode".to_string(), Value::String(sandbox_mode));
   }
   if let Some(sandbox_policy_details) = &selection.overrides.sandbox_policy_details {
     if let Ok(value) = serde_json::to_value(sandbox_policy_details) {

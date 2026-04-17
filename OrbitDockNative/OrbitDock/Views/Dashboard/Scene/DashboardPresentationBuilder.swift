@@ -80,12 +80,12 @@ enum DashboardPresentationBuilder {
     _ conversations: [DashboardConversationRecord],
     sort: ActiveSessionSort
   ) -> [DashboardConversationRecord] {
-    conversations.sorted { lhs, rhs in
+    if preservesServerOrdering(sort: sort) {
+      return conversations
+    }
+
+    return conversations.sorted { lhs, rhs in
       switch sort {
-        case .recent, .tokens, .cost:
-          let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-          let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-          return lhsDate > rhsDate
         case .name:
           let nameOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
           if nameOrder != .orderedSame {
@@ -103,7 +103,18 @@ enum DashboardPresentationBuilder {
           let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
           let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
           return lhsDate > rhsDate
+        case .recent, .tokens, .cost:
+          return false
       }
+    }
+  }
+
+  private static func preservesServerOrdering(sort: ActiveSessionSort) -> Bool {
+    switch sort {
+      case .recent, .status, .tokens, .cost:
+        true
+      case .name:
+        false
     }
   }
 

@@ -384,7 +384,7 @@ For the rationale behind the REST/WS split, see `../docs/data-flow.md`.
 
 WebSocket is reserved for:
 
-- subscriptions (`subscribe_dashboard`, `subscribe_missions`, `subscribe_session_surface`, `unsubscribe_session_surface`)
+- subscriptions (`subscribe_active_sessions`, `subscribe_missions`, `subscribe_session_surface`, `unsubscribe_session_surface`)
 - command/actions (create/send/approve/interrupt/etc.)
 - realtime events (`session_delta`, `conversation_rows_changed`, `approval_requested`, ...)
 
@@ -429,7 +429,7 @@ X-OrbitDock-Client-Version: 0.4.0
 **Subscriptions:**
 
 ```json
-{ "type": "subscribe_dashboard", "since_revision": 42 }
+{ "type": "subscribe_active_sessions", "since_revision": 42 }
 { "type": "subscribe_missions", "since_revision": 8 }
 { "type": "subscribe_session_surface", "session_id": "...", "surface": "detail", "since_revision": 42 }
 { "type": "subscribe_session_surface", "session_id": "...", "surface": "conversation", "since_revision": 105 }
@@ -490,7 +490,7 @@ Server broadcasts `review_comment_created` / `review_comment_updated` / `review_
 
 ```json
 { "type": "hello", "hello": { "server_version": "0.4.0", "compatibility": { "compatible": true, "server_compatibility": "server_authoritative_session_v1" }, "capabilities": ["dashboard_projection_v1"] } }
-{ "type": "dashboard_invalidated", "revision": 43 }
+{ "type": "active_sessions_invalidated", "revision": 43 }
 { "type": "missions_invalidated", "revision": 9 }
 { "type": "session_delta", "session_id": "...", "changes": {...} }
 { "type": "conversation_rows_changed", "session_id": "...", "upserted": [...], "removed_row_ids": [], "total_row_count": 120 }

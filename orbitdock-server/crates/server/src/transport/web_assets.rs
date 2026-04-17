@@ -93,7 +93,7 @@ mod tests {
 
   #[tokio::test]
   async fn api_paths_never_fall_back_to_html() {
-    let response = web_asset_handler(Uri::from_static("/api/dashboard")).await;
+    let response = web_asset_handler(Uri::from_static("/api/sessions/active")).await;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(

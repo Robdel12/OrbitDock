@@ -196,6 +196,24 @@ struct ConversationTimelineViewModelTests {
     #expect(merged.hasMoreBefore == false)
   }
 
+  @Test func bootstrapMergePreservesNewerLocalRowsWhenBootstrapIsStale() {
+    let existingRows = (0..<101).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") }
+    let bootstrapRows = Array(existingRows.dropLast().suffix(50))
+
+    let merged = ConversationHistoryPaging.mergeBootstrap(
+      existingRows: existingRows,
+      existingHasMoreBefore: false,
+      existingTotalRowCount: 101,
+      bootstrapRows: bootstrapRows,
+      bootstrapHasMoreBefore: true,
+      bootstrapTotalRowCount: 100
+    )
+
+    #expect(merged.rows.count == 101)
+    #expect(merged.rows.last?.sequence == 100)
+    #expect(merged.totalRowCount == 101)
+  }
+
   @Test func olderPageMergeKeepsRowsSortedWithoutDuplicates() {
     let existingRows = (50..<100).map { makeToolEntry(id: "tool-\($0)", sequence: UInt64($0), summary: "Row \($0)") }
     let page = ServerConversationHistoryPage(
@@ -259,7 +277,8 @@ struct ConversationTimelineViewModelTests {
           displayTier: "standard",
           inputDisplay: nil,
           outputDisplay: nil,
-          diffDisplay: nil
+          diffDisplay: nil,
+          planExplanation: nil
         )
       ))
     )

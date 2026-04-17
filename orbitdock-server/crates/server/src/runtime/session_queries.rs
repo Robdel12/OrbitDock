@@ -450,7 +450,7 @@ pub(crate) async fn load_library_snapshot(
   };
 
   Ok(LibrarySnapshot {
-    revision: state.current_dashboard_revision(),
+    revision: state.current_library_revision(),
     sessions: sessions.iter().map(SessionListItem::from_summary).collect(),
     next_offset,
     total_count,
@@ -554,16 +554,41 @@ pub(crate) async fn load_conversation_bootstrap(
   state: &Arc<SessionRegistry>,
   session_id: &str,
   limit: usize,
-  include_diffs: bool,
 ) -> Result<ConversationBootstrap, SessionLoadError> {
+  if let Some(actor) = state.get_session(session_id) {
+    if let (Ok(mut session), Ok(page)) = (
+      actor.retained_state().await,
+      actor.conversation_page(None, limit).await,
+    ) {
+      let page = expand_conversation_page(session_id, page, limit).await?;
+
+      strip_diff_payloads(&mut session);
+      apply_page_to_session(&mut session, &page);
+      hydrate_subagents(&mut session, session_id).await;
+
+      return Ok(ConversationBootstrap {
+        session,
+        total_row_count: page.total_row_count,
+        has_more_before: page.has_more_before,
+        oldest_sequence: page.oldest_sequence,
+        newest_sequence: page.newest_sequence,
+      });
+    }
+
+    warn!(
+      component = "api",
+      event = "api.get_conversation.runtime_state_unavailable",
+      session_id = %session_id,
+      "Falling back to persisted conversation bootstrap"
+    );
+  }
+
   match load_session_metadata_by_id(session_id).await {
     Ok(Some(restored)) => {
       let page = load_conversation_page(session_id, None, limit).await?;
 
       let mut session = restored_session_to_state(restored);
-      if !include_diffs {
-        strip_diff_payloads(&mut session);
-      }
+      strip_diff_payloads(&mut session);
       apply_page_to_session(&mut session, &page);
       hydrate_ephemeral_state(&mut session, state, session_id).await;
       hydrate_subagents(&mut session, session_id).await;

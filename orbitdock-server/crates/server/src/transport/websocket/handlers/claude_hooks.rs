@@ -28,9 +28,8 @@ pub(crate) async fn handle(
 
     ClientMessage::GetSubagentTools {
       session_id,
-      subagent_id,
+      subagent_id: _,
     } => {
-      let _ = subagent_id;
       send_rest_only_error(
         client_tx,
         "GET /api/sessions/{session_id}/subagents/{subagent_id}/tools",

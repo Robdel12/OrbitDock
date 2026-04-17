@@ -28,7 +28,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::debug;
 
-pub use self::config::{discover_models, discover_models_for_context};
+pub use self::config::{
+  config_loader_sandbox_mode, discover_models, discover_models_for_context,
+  requested_sandbox_policy_details,
+};
 use self::runtime::EventLoopState;
 use orbitdock_connector_core::ConnectorOutput;
 

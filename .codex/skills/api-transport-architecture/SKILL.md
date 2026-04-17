@@ -20,6 +20,9 @@ Use this skill when touching any of these areas:
 - The Rust server owns durable business truth.
 - The client renders server state and derives presentation only.
 
+Reserve `control plane` for runtime endpoint selection, primary-claim routing, and sync topology only.
+Do not use `control plane` as the name of a UI-facing HTTP surface when the surface is really a compact sessions summary.
+
 If a payload is large, expensive to build, expensive to decode, or likely to be needed only on demand, it belongs on HTTP.
 
 ## Scale-First Rules
@@ -73,7 +76,7 @@ WebSocket messages should usually be one of these:
 - heartbeat
 - subscription ack
 - refetch/resync hint
-- lightweight control-plane event
+- lightweight surface invalidation event
 
 Be suspicious of any WS message that contains:
 
@@ -93,6 +96,7 @@ Do not introduce:
 - god-object stores that recompute every screen from one broad state blob
 - “accept first, fail later” mutation flows that create ghost state
 - dead compatibility branches with `allow(...)` suppressions instead of deleting obsolete code
+- mixed API clients that combine unrelated responsibilities like app-shell summary reads and server-role mutations
 
 ## Review Checklist
 
@@ -107,5 +111,5 @@ Do not introduce:
 ## References
 
 - Read [docs/data-flow.md](../../../docs/data-flow.md) for the shared contract and diagrams.
-- Read [docs/client-networking.md](../../../docs/client-networking.md) for client boot, reconnect, and readiness rules.
+- Read [docs/ARCHITECTURE.md](../../../docs/ARCHITECTURE.md) for scene ownership and surface boundaries.
 - Use the `rust-server-architecture` skill alongside this one for server implementation work.

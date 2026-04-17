@@ -1,4 +1,22 @@
-use super::*;
+use std::sync::Arc;
+
+use axum::{
+  extract::{Path, State},
+  Json,
+};
+use serde::{Deserialize, Serialize};
+use tracing::info;
+
+use crate::{
+  infrastructure::persistence::{load_mission_by_id, PersistCommand},
+  runtime::session_registry::SessionRegistry,
+  transport::http::{
+    errors::{bad_request, not_found},
+    ApiResult,
+  },
+};
+
+use super::{db_read, flush_persistence};
 
 #[derive(Serialize)]
 pub struct LinearKeyStatusResponse {
@@ -175,9 +193,10 @@ pub async fn set_mission_tracker_key(
       key: Some(body.key),
     })
     .await;
+  flush_persistence(&registry).await?;
 
-  // Broadcast updated mission state (key status may change orchestrator_status)
-  broadcast_mission_delta_by_id(&registry, &mission_id).await;
+  // Notify mission detail + list surfaces to refresh via HTTP.
+  registry.publish_mission_invalidation(&mission_id);
 
   Ok(Json(MissionTrackerKeyResponse {
     configured: true,
@@ -209,9 +228,10 @@ pub async fn delete_mission_tracker_key(
       key: None,
     })
     .await;
+  flush_persistence(&registry).await?;
 
-  // Broadcast updated mission state
-  broadcast_mission_delta_by_id(&registry, &mission_id).await;
+  // Notify mission detail + list surfaces to refresh via HTTP.
+  registry.publish_mission_invalidation(&mission_id);
 
   // Check if global fallback still provides a key
   let source = crate::support::api_keys::resolve_tracker_api_key(&mission.tracker_kind).map(|_| {
@@ -270,8 +290,10 @@ pub async fn adopt_global_tracker_key(
       key: Some(global_key),
     })
     .await;
+  flush_persistence(&registry).await?;
 
-  broadcast_mission_delta_by_id(&registry, &mission_id).await;
+  // Notify mission detail + list surfaces to refresh via HTTP.
+  registry.publish_mission_invalidation(&mission_id);
 
   Ok(Json(MissionTrackerKeyResponse {
     configured: true,

@@ -10,29 +10,29 @@ pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> 
   match message {
     ClientMessage::CreateSession { .. } => Some(route("POST /api/sessions", None)),
     ClientMessage::ResumeSession { session_id } => Some(route(
-      "POST /api/sessions/{session_id}/resume",
+      "POST /api/sessions/{session_id}/lifecycle/resume",
       Some(session_id.clone()),
     )),
     ClientMessage::TakeoverSession { session_id, .. } => Some(route(
-      "POST /api/sessions/{session_id}/takeover",
+      "POST /api/sessions/{session_id}/lifecycle/takeover",
       Some(session_id.clone()),
     )),
     ClientMessage::ForkSession {
       source_session_id, ..
     } => Some(route(
-      "POST /api/sessions/{session_id}/fork",
+      "POST /api/sessions/{session_id}/lifecycle/fork",
       Some(source_session_id.clone()),
     )),
     ClientMessage::ForkSessionToWorktree {
       source_session_id, ..
     } => Some(route(
-      "POST /api/sessions/{session_id}/fork-to-worktree",
+      "POST /api/sessions/{session_id}/lifecycle/fork/worktree",
       Some(source_session_id.clone()),
     )),
     ClientMessage::ForkSessionToExistingWorktree {
       source_session_id, ..
     } => Some(route(
-      "POST /api/sessions/{session_id}/fork-to-existing-worktree",
+      "POST /api/sessions/{session_id}/lifecycle/fork/existing-worktree",
       Some(source_session_id.clone()),
     )),
     ClientMessage::BrowseDirectory { .. } => Some(route("GET /api/fs/browse", None)),
@@ -52,19 +52,19 @@ pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> 
     }
     ClientMessage::DiscoverWorktrees { .. } => Some(route("POST /api/worktrees/discover", None)),
     ClientMessage::ListReviewComments { session_id, .. } => Some(route(
-      "GET /api/sessions/{session_id}/review-comments",
+      "GET /api/sessions/{session_id}/review/comments",
       Some(session_id.clone()),
     )),
     ClientMessage::CreateReviewComment { session_id, .. } => Some(route(
-      "POST /api/sessions/{session_id}/review-comments",
+      "POST /api/sessions/{session_id}/review/comments",
       Some(session_id.clone()),
     )),
     ClientMessage::UpdateReviewComment { comment_id, .. } => Some(route(
-      "PATCH /api/review-comments/{comment_id}",
+      "PATCH /api/review/comments/{comment_id}",
       Some(comment_id.clone()),
     )),
     ClientMessage::DeleteReviewComment { comment_id } => Some(route(
-      "DELETE /api/review-comments/{comment_id}",
+      "DELETE /api/review/comments/{comment_id}",
       Some(comment_id.clone()),
     )),
     ClientMessage::CodexAccountRead { .. } => Some(route("GET /api/codex/account", None)),
@@ -78,7 +78,7 @@ pub(crate) fn rest_only_route(message: &ClientMessage) -> Option<RestOnlyRoute> 
       Some(session_id.clone()),
     )),
     ClientMessage::ListMcpTools { session_id } => Some(route(
-      "GET /api/sessions/{session_id}/mcp/tools",
+      "GET /api/sessions/{session_id}/mcp",
       Some(session_id.clone()),
     )),
     ClientMessage::RefreshMcpServers { session_id } => Some(route(

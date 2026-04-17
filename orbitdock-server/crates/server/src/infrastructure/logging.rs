@@ -19,11 +19,23 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("codex_otel.log_only", "warn"),
   ("codex_client::custom_ca", "warn"),
   ("codex_api::endpoint::responses_websocket", "warn"),
+  ("codex_core::models_manager::cache", "warn"),
+  ("codex_core::models_manager::manager", "warn"),
+  ("codex_core::skills::manager", "warn"),
+  ("codex_core::stream_events_utils", "warn"),
   ("codex_core::config", "warn"),
   ("codex_core::models_manager", "warn"),
+  ("codex_features", "error"),
+  ("codex_features::legacy", "error"),
+  ("codex_rmcp_client::rmcp_client", "warn"),
+  ("codex_rollout::recorder", "warn"),
   ("connector_codex::config", "warn"),
+  ("orbitdock_connector_codex::config", "warn"),
+  ("orbitdock_server::runtime::control_deck", "warn"),
+  ("orbitdock_server::runtime::dashboard", "warn"),
   ("codex_core::features", "error"),
   ("feedback_tags", "warn"),
+  ("rmcp::service", "warn"),
   ("rmcp::transport::worker", "off"),
 ];
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -389,10 +401,17 @@ mod tests {
   fn resolve_filter_directives_adds_trace_safe_suppression_to_custom_filter() {
     let resolved = resolve_filter_directives(Some("debug".to_string()));
 
-    assert_eq!(
-      resolved,
-            "debug,codex_otel.trace_safe=warn,codex_otel.log_only=warn,codex_client::custom_ca=warn,codex_api::endpoint::responses_websocket=warn,codex_core::config=warn,codex_core::models_manager=warn,connector_codex::config=warn,codex_core::features=error,feedback_tags=warn,rmcp::transport::worker=off"
-        );
+    assert!(resolved.starts_with("debug,"));
+    assert!(resolved.contains("codex_otel.trace_safe=warn"));
+    assert!(resolved.contains("codex_otel.log_only=warn"));
+    assert!(resolved.contains("codex_client::custom_ca=warn"));
+    assert!(resolved.contains("codex_api::endpoint::responses_websocket=warn"));
+    assert!(resolved.contains("codex_core::config=warn"));
+    assert!(resolved.contains("codex_core::models_manager=warn"));
+    assert!(resolved.contains("connector_codex::config=warn"));
+    assert!(resolved.contains("codex_core::features=error"));
+    assert!(resolved.contains("feedback_tags=warn"));
+    assert!(resolved.contains("rmcp::transport::worker=off"));
   }
 
   #[test]

@@ -39,14 +39,14 @@ final class WorktreeListViewModel {
   var lastRemoveAttempt: WorktreeRemoveAttempt?
   var removeFeedbackAlert: WorktreeRemoveFeedbackAlert?
 
-  @ObservationIgnored private weak var serverState: SessionStore?
+  @ObservationIgnored private weak var endpointStore: ServerEndpointRuntime?
   @ObservationIgnored private var worktreeService: WorktreeService?
   @ObservationIgnored private var worktreeObservationGeneration: UInt64 = 0
   @ObservationIgnored private var repoRoot = ""
 
-  func bind(serverState: SessionStore, repoRoot: String) {
-    self.serverState = serverState
-    worktreeService = WorktreeService(sessionStore: serverState)
+  func bind(endpointStore: ServerEndpointRuntime, repoRoot: String) {
+    self.endpointStore = endpointStore
+    worktreeService = WorktreeService(endpointStore: endpointStore)
     self.repoRoot = repoRoot
     worktreeObservationGeneration &+= 1
     startObservation(generation: worktreeObservationGeneration)
@@ -134,7 +134,7 @@ final class WorktreeListViewModel {
     guard error.code == "remove_failed" else { return }
     guard !attempt.archiveOnly else { return }
 
-    serverState?.clearServerError()
+    endpointStore?.clearServerError()
 
     if !attempt.force, error.message.localizedCaseInsensitiveContains("contains modified or untracked files") {
       removeFeedbackAlert = .dirty(attempt)
@@ -171,13 +171,13 @@ final class WorktreeListViewModel {
   }
 
   private func startObservation(generation: UInt64) {
-    guard let serverState else {
+    guard let endpointStore else {
       worktrees = []
       return
     }
 
     let snapshot = withObservationTracking {
-      Self.filteredWorktrees(serverState.worktrees(for: repoRoot))
+      Self.filteredWorktrees(endpointStore.worktrees(for: repoRoot))
     } onChange: { [weak self] in
       Task { @MainActor [weak self] in
         guard let self, self.worktreeObservationGeneration == generation else { return }

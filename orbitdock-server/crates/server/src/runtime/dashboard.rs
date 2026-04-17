@@ -53,14 +53,6 @@ pub fn dashboard_snapshot_from_registry(registry: &SessionRegistry) -> Dashboard
 
   let project_groups = build_project_groups(&conversations);
 
-  tracing::info!(
-    component = "dashboard",
-    event = "dashboard.snapshot.built",
-    conversation_count = conversations.len(),
-    project_group_count = project_groups.len(),
-    "Built dashboard snapshot with project groups"
-  );
-
   DashboardSnapshot {
     revision: registry.current_dashboard_revision(),
     conversations,

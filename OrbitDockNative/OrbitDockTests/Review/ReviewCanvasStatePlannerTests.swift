@@ -90,24 +90,4 @@ struct ReviewCanvasStatePlannerTests {
     #expect(result.previousFileCount == 2)
   }
 
-  @Test func shouldLoadReviewCommentsOnlyWhenCanvasHasNoCommentsYet() {
-    #expect(ReviewCanvasStatePlanner.shouldLoadReviewComments(existingComments: []) == true)
-    #expect(ReviewCanvasStatePlanner.shouldLoadReviewComments(existingComments: [makeComment(id: "c1")]) == false)
-  }
-
-  private func makeComment(id: String) -> ServerReviewComment {
-    ServerReviewComment(
-      id: id,
-      sessionId: "session-1",
-      turnId: nil,
-      filePath: "Sources/A.swift",
-      lineStart: 10,
-      lineEnd: nil,
-      body: "Needs work",
-      tag: nil,
-      status: .open,
-      createdAt: "2026-03-10T00:00:00Z",
-      updatedAt: nil
-    )
-  }
 }

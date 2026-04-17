@@ -82,7 +82,7 @@ extension ControlDeckScreen {
   func submitDraft() {
     guard composer.draft.hasContent, !composer.isSubmitting else { return }
 
-    let shouldSteer = currentMode == .steer || sessionModel.steerable
+    let submissionAction = ControlDeckSubmissionPlanner.action(for: currentMode)
     composer.isSubmitting = true
     let currentDraft = composer.draft
 
@@ -104,7 +104,7 @@ extension ControlDeckScreen {
 
         composer.uploadedImageIds = imageIds
 
-        if shouldSteer {
+        if submissionAction == .steerTurn {
           try await sessionModel.steerTurn(draft: currentDraft, uploadedImageIds: imageIds)
         } else {
           try await sessionModel.submitTurn(draft: currentDraft, uploadedImageIds: imageIds)

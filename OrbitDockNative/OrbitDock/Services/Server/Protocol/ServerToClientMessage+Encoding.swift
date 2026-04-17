@@ -5,25 +5,30 @@ extension ServerToClientMessage {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
+      case let .sessionsSummaryInvalidated(revision):
+        try container.encode("sessions_summary_invalidated", forKey: .type)
+        try container.encode(revision, forKey: .revision)
+
       case let .hello(hello):
         try container.encode("hello", forKey: .type)
         try container.encode(hello, forKey: .hello)
 
-      case let .dashboardInvalidated(revision):
-        try container.encode("dashboard_invalidated", forKey: .type)
+      case let .activeSessionsInvalidated(revision):
+        try container.encode("active_sessions_invalidated", forKey: .type)
         try container.encode(revision, forKey: .revision)
 
-      case let .dashboardConversationUpdated(revision, item):
-        try container.encode("dashboard_conversation_updated", forKey: .type)
+      case let .archivedSessionsInvalidated(revision):
+        try container.encode("archived_sessions_invalidated", forKey: .type)
         try container.encode(revision, forKey: .revision)
-        try container.encode(item, forKey: .item)
-
-      case let .dashboardItemRemoved(sessionId):
-        try container.encode("dashboard_item_removed", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
 
       case let .missionsInvalidated(revision):
         try container.encode("missions_invalidated", forKey: .type)
+        try container.encode(revision, forKey: .revision)
+
+      case let .sessionSurfaceInvalidated(sessionId, surface, revision):
+        try container.encode("session_surface_invalidated", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(surface, forKey: .surface)
         try container.encode(revision, forKey: .revision)
 
       case let .sessionDelta(sessionId, changes):
@@ -323,21 +328,16 @@ extension ServerToClientMessage {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(rules, forKey: .rules)
 
-      case let .missionsList(missions):
-        try container.encode("missions_list", forKey: .type)
-        try container.encode(missions, forKey: .missions)
-
-      case let .missionDelta(missionId, issues, summary):
-        try container.encode("mission_delta", forKey: .type)
-        try container.encode(missionId, forKey: .missionId)
-        try container.encode(issues, forKey: .issues)
-        try container.encode(summary, forKey: .summary)
-
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         try container.encode("mission_heartbeat", forKey: .type)
         try container.encode(missionId, forKey: .missionId)
         try container.encode(tickStartedAt, forKey: .tickStartedAt)
         try container.encode(nextTickAt, forKey: .nextTickAt)
+
+      case let .missionInvalidated(missionId, revision):
+        try container.encode("mission_invalidated", forKey: .type)
+        try container.encode(missionId, forKey: .missionId)
+        try container.encode(revision, forKey: .revision)
 
       case let .steerOutcome(sessionId, messageId, outcome):
         try container.encode("steer_outcome", forKey: .type)

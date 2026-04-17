@@ -163,11 +163,16 @@ pub(crate) async fn dispatch_send_message(
     Some(MessageDeliveryStatus::Accepted),
   );
 
+  let (reply_tx, reply_rx) = oneshot::channel();
   actor
-    .send(SessionCommand::AddRowAndBroadcast {
+    .send(SessionCommand::AddRowAndBroadcastAndReply {
       entry: user_entry.clone(),
+      reply: reply_tx,
     })
     .await;
+  let user_entry = reply_rx
+    .await
+    .map_err(|_| DispatchMessageError::ConnectorUnavailable)?;
 
   if let Some(prompt) = first_prompt {
     // First message: persist prompt_count + first_prompt + broadcast via transition
@@ -259,11 +264,16 @@ pub(crate) async fn dispatch_steer_turn(
     Some(MessageDeliveryStatus::Pending),
   );
 
+  let (reply_tx, reply_rx) = oneshot::channel();
   actor
-    .send(SessionCommand::AddRowAndBroadcast {
+    .send(SessionCommand::AddRowAndBroadcastAndReply {
       entry: steer_entry.clone(),
+      reply: reply_tx,
     })
     .await;
+  let steer_entry = reply_rx
+    .await
+    .map_err(|_| DispatchMessageError::ConnectorUnavailable)?;
 
   if let Some(tx) = codex_tx {
     let _ = tx

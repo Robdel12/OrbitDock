@@ -1,8 +1,22 @@
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use axum::{
+  extract::{Path, Query, State},
+  http::StatusCode,
+  Json,
+};
+use serde::{Deserialize, Serialize};
 
 use super::errors::{bad_request, internal, not_found, unprocessable};
-use super::*;
-use orbitdock_protocol::{PermissionGrantScope, ToolApprovalDecision};
+use super::{ApiErrorResponse, ApiResult};
+use crate::infrastructure::persistence::{delete_approval, list_approvals};
+use crate::runtime::session_queries::load_full_session_state;
+use crate::runtime::session_queries::SessionLoadError;
+use crate::runtime::session_registry::SessionRegistry;
+use orbitdock_protocol::{
+  ApprovalHistoryItem, PermissionGrantScope, SessionDetailSnapshot, ToolApprovalDecision,
+};
 
 fn approval_dispatch_error_response(
   code: &'static str,
@@ -69,7 +83,6 @@ pub struct ApprovalsQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct ApproveToolRequest {
-  pub request_id: String,
   pub decision: ToolApprovalDecision,
   #[serde(default)]
   pub message: Option<String>,
@@ -81,7 +94,6 @@ pub struct ApproveToolRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AnswerQuestionRequest {
-  pub request_id: String,
   #[serde(default)]
   pub answer: String,
   #[serde(default)]
@@ -92,7 +104,6 @@ pub struct AnswerQuestionRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct RespondToPermissionRequest {
-  pub request_id: String,
   #[serde(default)]
   pub permissions: Option<serde_json::Value>,
   #[serde(default)]
@@ -106,6 +117,37 @@ pub struct ApprovalDecisionResponse {
   pub outcome: String,
   pub active_request_id: Option<String>,
   pub approval_version: u64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
+}
+
+async fn build_approval_decision_response(
+  state: &Arc<SessionRegistry>,
+  session_id: String,
+  request_id: String,
+  outcome: String,
+  active_request_id: Option<String>,
+  approval_version: u64,
+) -> ApprovalDecisionResponse {
+  let session_detail_snapshot =
+    match load_full_session_state(state, &session_id, false, false).await {
+      Ok(session) => Some(SessionDetailSnapshot {
+        revision: session.revision.unwrap_or_default(),
+        session,
+      }),
+      Err(SessionLoadError::NotFound | SessionLoadError::Db(_) | SessionLoadError::Runtime(_)) => {
+        None
+      }
+    };
+
+  ApprovalDecisionResponse {
+    session_id,
+    request_id,
+    outcome,
+    active_request_id,
+    approval_version,
+    session_detail_snapshot,
+  }
 }
 
 pub async fn list_approvals_endpoint(
@@ -152,14 +194,14 @@ pub async fn delete_approval_endpoint(
 }
 
 pub async fn approve_tool(
-  Path(session_id): Path<String>,
+  Path((session_id, request_id)): Path<(String, String)>,
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<ApproveToolRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   let result = crate::runtime::approval_dispatch::dispatch_approve_tool(
     &state,
     &session_id,
-    body.request_id.clone(),
+    request_id.clone(),
     body.decision,
     body.message,
     body.interrupt,
@@ -168,24 +210,28 @@ pub async fn approve_tool(
   .await
   .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
 
-  Ok(Json(ApprovalDecisionResponse {
-    session_id,
-    request_id: body.request_id,
-    outcome: result.outcome,
-    active_request_id: result.active_request_id,
-    approval_version: result.approval_version,
-  }))
+  Ok(Json(
+    build_approval_decision_response(
+      &state,
+      session_id,
+      request_id,
+      result.outcome,
+      result.active_request_id,
+      result.approval_version,
+    )
+    .await,
+  ))
 }
 
 pub async fn answer_question(
-  Path(session_id): Path<String>,
+  Path((session_id, request_id)): Path<(String, String)>,
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<AnswerQuestionRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   let result = crate::runtime::message_dispatch::dispatch_answer_question(
     &state,
     &session_id,
-    body.request_id.clone(),
+    request_id.clone(),
     body.answer,
     body.question_id,
     body.answers,
@@ -193,35 +239,43 @@ pub async fn answer_question(
   .await
   .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
 
-  Ok(Json(ApprovalDecisionResponse {
-    session_id,
-    request_id: body.request_id,
-    outcome: result.outcome,
-    active_request_id: result.active_request_id,
-    approval_version: result.approval_version,
-  }))
+  Ok(Json(
+    build_approval_decision_response(
+      &state,
+      session_id,
+      request_id,
+      result.outcome,
+      result.active_request_id,
+      result.approval_version,
+    )
+    .await,
+  ))
 }
 
 pub async fn respond_to_permission_request(
-  Path(session_id): Path<String>,
+  Path((session_id, request_id)): Path<(String, String)>,
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<RespondToPermissionRequest>,
 ) -> Result<Json<ApprovalDecisionResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   let result = crate::runtime::message_dispatch::dispatch_request_permissions_response(
     &state,
     &session_id,
-    body.request_id.clone(),
+    request_id.clone(),
     body.permissions,
     body.scope,
   )
   .await
   .map_err(|code| approval_dispatch_error_response(code, &session_id))?;
 
-  Ok(Json(ApprovalDecisionResponse {
-    session_id,
-    request_id: body.request_id,
-    outcome: result.outcome,
-    active_request_id: result.active_request_id,
-    approval_version: result.approval_version,
-  }))
+  Ok(Json(
+    build_approval_decision_response(
+      &state,
+      session_id,
+      request_id,
+      result.outcome,
+      result.active_request_id,
+      result.approval_version,
+    )
+    .await,
+  ))
 }

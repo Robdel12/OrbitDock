@@ -4,8 +4,6 @@ import Testing
 
 @MainActor
 struct ServerRuntimeRegistryRealtimeSubscriptionTests {
-  // Dashboard subscription tests moved to DashboardViewModel-level testing.
-  // The ServerConnection test helpers (seedDashboardSnapshotForTesting,
-  // hasSubscribedDashboardStream) were removed with the surface-owned
-  // architecture — each ViewModel now manages its own WS subscriptions.
+  // Surface-owned dashboard subscription coverage lives with the dashboard
+  // data/view-model tests now that the runtime registry no longer owns it.
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use orbitdock_protocol::{Provider, ServerMessage};
+use orbitdock_protocol::Provider;
 
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -65,8 +65,6 @@ pub(crate) async fn handle_claude_session_end(
     .await;
 
   if state.remove_session(&session_id).is_some() {
-    let _ = state.list_tx().send(ServerMessage::DashboardItemRemoved {
-      session_id: session_id.clone(),
-    });
+    state.publish_active_session_removed(&session_id);
   }
 }

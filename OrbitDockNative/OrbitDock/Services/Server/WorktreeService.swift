@@ -2,21 +2,21 @@ import Foundation
 
 @MainActor
 final class WorktreeService {
-  private let sessionStore: SessionStore
+  private let endpointStore: ServerEndpointRuntime
 
-  init(sessionStore: SessionStore) {
-    self.sessionStore = sessionStore
+  init(endpointStore: ServerEndpointRuntime) {
+    self.endpointStore = endpointStore
   }
 
   func listWorktrees(repoRoot: String) async throws -> [ServerWorktreeSummary] {
-    let worktrees = try await sessionStore.clients.worktrees.listWorktrees(repoRoot: repoRoot)
-    sessionStore.worktreesByRepo[repoRoot] = worktrees
+    let worktrees = try await endpointStore.clients.worktrees.listWorktrees(repoRoot: repoRoot)
+    endpointStore.worktreesByRepo[repoRoot] = worktrees
     return worktrees
   }
 
   func discoverWorktrees(repoPath: String) async throws -> [ServerWorktreeSummary] {
-    let worktrees = try await sessionStore.clients.worktrees.discoverWorktrees(repoPath: repoPath)
-    sessionStore.worktreesByRepo[repoPath] = worktrees
+    let worktrees = try await endpointStore.clients.worktrees.discoverWorktrees(repoPath: repoPath)
+    endpointStore.worktreesByRepo[repoPath] = worktrees
     return worktrees
   }
 
@@ -25,7 +25,7 @@ final class WorktreeService {
     branchName: String,
     baseBranch: String?
   ) async throws -> ServerWorktreeSummary {
-    try await sessionStore.clients.worktrees.createWorktree(
+    try await endpointStore.clients.worktrees.createWorktree(
       repoPath: repoPath,
       branchName: branchName,
       baseBranch: baseBranch
@@ -39,7 +39,7 @@ final class WorktreeService {
     deleteRemoteBranch: Bool = false,
     archiveOnly: Bool = false
   ) async throws {
-    try await sessionStore.clients.worktrees.removeWorktree(
+    try await endpointStore.clients.worktrees.removeWorktree(
       worktreeId: worktreeId,
       force: force,
       deleteBranch: deleteBranch,
@@ -69,12 +69,12 @@ final class WorktreeService {
   }
 
   private func removeWorktreeFromCache(worktreeId: String) {
-    let repoRoots = Array(sessionStore.worktreesByRepo.keys)
+    let repoRoots = Array(endpointStore.worktreesByRepo.keys)
     for repoRoot in repoRoots {
-      guard let worktrees = sessionStore.worktreesByRepo[repoRoot] else { continue }
+      guard let worktrees = endpointStore.worktreesByRepo[repoRoot] else { continue }
       let updatedWorktrees = worktrees.filter { $0.id != worktreeId }
       if updatedWorktrees.count != worktrees.count {
-        sessionStore.worktreesByRepo[repoRoot] = updatedWorktrees
+        endpointStore.worktreesByRepo[repoRoot] = updatedWorktrees
       }
     }
   }

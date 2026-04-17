@@ -3,6 +3,7 @@ import SwiftUI
 struct DashboardView: View {
   @Environment(AppRouter.self) private var router
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(LibraryDataService.self) private var libraryDataService
   let viewModel: DashboardViewModel
 
   var body: some View {
@@ -17,21 +18,40 @@ struct DashboardView: View {
             missionsTab
           case .library:
             LibraryView(
-              sessions: viewModel.librarySessions,
-              hasMoreSessions: false,
-              onLoadMoreSessions: {},
+              sessions: libraryDataService.sessions,
+              hasMoreSessions: libraryDataService.hasMoreSessions,
+              onLoadMoreSessions: {
+                await libraryDataService.loadMore(runtimeRegistry: runtimeRegistry)
+              },
               containerWidth: containerWidth
             )
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .background(Color.backgroundPrimary)
+      .task(id: router.dashboardTab) {
+        guard router.dashboardTab == .library else {
+          libraryDataService.stopLiveUpdates()
+          return
+        }
+        libraryDataService.startLiveUpdates(runtimeRegistry: runtimeRegistry)
+        await libraryDataService.refreshNow(runtimeRegistry: runtimeRegistry)
+      }
+    }
+    .onDisappear {
+      libraryDataService.stopLiveUpdates()
     }
     .navigationTitle(router.dashboardTab.navigationTitle)
     .toolbarTitleDisplayMode(.inline)
     .refreshable {
-      await runtimeRegistry.refreshAll()
-      await viewModel.refreshNow()
+      switch router.dashboardTab {
+        case .missionControl:
+          await viewModel.refreshNow()
+        case .missions:
+          break
+        case .library:
+          await libraryDataService.refreshNow(runtimeRegistry: runtimeRegistry)
+      }
     }
   }
 
@@ -59,8 +79,10 @@ struct DashboardView: View {
   )
   let router = AppRouter()
   let dataService = DashboardDataService()
+  let libraryDataService = LibraryDataService()
   DashboardView(viewModel: DashboardViewModel(dataService: dataService))
     .frame(width: 900, height: 500)
     .environment(runtimeRegistry)
     .environment(router)
+    .environment(libraryDataService)
 }

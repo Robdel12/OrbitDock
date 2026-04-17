@@ -13,4 +13,16 @@ final class MenuBarViewModel {
       totalCount: RootSessionSnapshotLoader.counts(from: sessions).total
     )
   }
+
+  func apply(
+    activeSessions: [RootSessionNode],
+    recentSessions: [RootSessionNode],
+    totalCount: Int
+  ) {
+    snapshot = MenuBarSnapshot(
+      activeSessions: Array(activeSessions.prefix(8)),
+      recentSessions: Array(recentSessions.prefix(5)),
+      totalCount: totalCount
+    )
+  }
 }

@@ -53,7 +53,7 @@ struct StatsPopoverContent: View {
     }
     .frame(minWidth: layoutMode.isPhoneCompact ? nil : 300)
     .task {
-      await registry.refreshAll(todayStart: Calendar.current.startOfDay(for: Date()))
+      await registry.refreshIfNeeded(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }
 

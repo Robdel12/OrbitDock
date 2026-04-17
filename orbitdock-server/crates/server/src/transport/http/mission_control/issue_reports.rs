@@ -1,4 +1,27 @@
-use super::*;
+use std::sync::Arc;
+
+use axum::{
+  extract::{Path, State},
+  Json,
+};
+use rusqlite::params;
+use serde::{Deserialize, Serialize};
+use tracing::{info, warn};
+
+use orbitdock_protocol::OrchestrationState;
+
+use crate::{
+  infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand},
+  runtime::session_registry::SessionRegistry,
+  transport::http::{
+    errors::{bad_request, not_found},
+    ApiResult,
+  },
+};
+
+use super::{
+  build_detail_response, db_read, flush_persistence, load_detail_response, MissionDetailResponse,
+};
 
 #[derive(Deserialize)]
 pub struct SetPrUrlRequest {
@@ -13,7 +36,7 @@ pub async fn set_issue_pr_url(
   State(registry): State<Arc<SessionRegistry>>,
   Path((mission_id, issue_id)): Path<(String, String)>,
   Json(body): Json<SetPrUrlRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionDetailResponse> {
   let _ = registry
     .persist()
     .send(PersistCommand::MissionIssueSetPrUrl {
@@ -22,10 +45,13 @@ pub async fn set_issue_pr_url(
       pr_url: body.pr_url.clone(),
     })
     .await;
+  flush_persistence(&registry).await?;
 
-  broadcast_mission_delta_by_id(&registry, &mission_id).await;
+  registry.publish_mission_invalidation(&mission_id);
 
-  Ok(Json(serde_json::json!({ "ok": true })))
+  Ok(Json(
+    load_detail_response(&registry, &mission_id, None, false).await?,
+  ))
 }
 
 /// POST /api/missions/:mission_id/issues/:issue_id/transition
@@ -175,8 +201,8 @@ pub async fn transition_mission_issue(
       "Admin state transition applied"
   );
 
-  // Broadcast updated state
-  broadcast_mission_delta_by_id(&registry, &mission_id).await;
+  // Notify mission detail + list surfaces to refresh via HTTP.
+  registry.publish_mission_invalidation(&mission_id);
 
   // When re-queuing an issue, trigger an immediate orchestrator tick so it gets picked up now
   if target == OrchestrationState::Queued {
@@ -299,7 +325,7 @@ pub async fn report_issue_blocked(
   State(registry): State<Arc<SessionRegistry>>,
   Path((mission_id, issue_id)): Path<(String, String)>,
   Json(body): Json<ReportBlockedRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionDetailResponse> {
   let mid = mission_id.clone();
   let iid = issue_id.clone();
   let reason = body.reason.clone();
@@ -321,6 +347,9 @@ pub async fn report_issue_blocked(
       completed_at: Some(Some(now)),
     })
     .await;
+  flush_persistence(&registry).await?;
+
+  registry.publish_mission_invalidation(&mid);
 
   info!(
       component = "mission_control",
@@ -331,7 +360,9 @@ pub async fn report_issue_blocked(
       "Agent reported issue blocked"
   );
 
-  Ok(Json(serde_json::json!({ "blocked": true })))
+  Ok(Json(
+    load_detail_response(&registry, &mid, None, false).await?,
+  ))
 }
 
 /// POST /api/missions/:mission_id/issues/:issue_id/complete
@@ -342,7 +373,7 @@ pub async fn report_issue_completed(
   State(registry): State<Arc<SessionRegistry>>,
   Path((mission_id, issue_id)): Path<(String, String)>,
   Json(body): Json<ReportCompletedRequest>,
-) -> ApiResult<serde_json::Value> {
+) -> ApiResult<MissionDetailResponse> {
   let mid = mission_id.clone();
   let iid = issue_id.clone();
   let now = chrono::Utc::now().to_rfc3339();
@@ -402,6 +433,7 @@ pub async fn report_issue_completed(
       completed_at: Some(Some(now)),
     })
     .await;
+  flush_persistence(&registry).await?;
 
   // End the agent session now that its issue is done
   if let Some(ref sid) = session_id {
@@ -435,7 +467,7 @@ pub async fn report_issue_completed(
     }
   }
 
-  crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(&registry, &mid).await;
+  registry.publish_mission_invalidation(&mid);
 
   info!(
       component = "mission_control",
@@ -447,5 +479,7 @@ pub async fn report_issue_completed(
       "Agent reported issue completed"
   );
 
-  Ok(Json(serde_json::json!({ "completed": true })))
+  Ok(Json(
+    load_detail_response(&registry, &mid, None, false).await?,
+  ))
 }

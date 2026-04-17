@@ -9,16 +9,19 @@ use serde::Serialize;
 
 use super::super::errors::{internal, ApiErrorResponse};
 use super::super::session_not_found_error;
-use super::common::map_resume_error;
+use super::common::{flush_persistence, load_session_detail_snapshot, map_resume_error};
 use crate::runtime::restored_sessions::load_prepared_resume_session;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_resume::launch_resumed_session;
 use crate::runtime::session_runtime_helpers::verify_direct_runtime_ready_snapshot;
+use orbitdock_protocol::SessionDetailSnapshot;
 
 #[derive(Debug, Serialize)]
 pub struct ResumeSessionResponse {
   pub session_id: String,
   pub session: orbitdock_protocol::SessionSummary,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_detail_snapshot: Option<SessionDetailSnapshot>,
 }
 
 pub async fn resume_session(
@@ -53,9 +56,12 @@ pub async fn resume_session(
             .await;
           }
 
+          flush_persistence(&state).await;
+
           return Ok(Json(ResumeSessionResponse {
-            session_id,
+            session_id: session_id.clone(),
             session: summary,
+            session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
           }));
         }
 
@@ -91,9 +97,12 @@ pub async fn resume_session(
     crate::runtime::session_mutations::sync_mission_issue_on_resume(&state, &session_id, mid).await;
   }
 
+  flush_persistence(&state).await;
+
   Ok(Json(ResumeSessionResponse {
-    session_id,
+    session_id: session_id.clone(),
     session: summary,
+    session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
   }))
 }
 

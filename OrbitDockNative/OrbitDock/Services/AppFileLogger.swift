@@ -93,7 +93,6 @@ final class AppFileLogger: @unchecked Sendable {
     #endif
 
     redirected = true
-    print("=== OrbitDock app logger started pid=\(ProcessInfo.processInfo.processIdentifier) ===")
   }
 
   #if DEBUG

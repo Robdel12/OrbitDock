@@ -8,7 +8,7 @@ struct ServerHandshakeContractsTests {
     let request = try? HTTPRequestBuilder(
       baseURL: URL(string: "http://127.0.0.1:4000")!,
       authToken: nil
-    ).build(path: "/api/dashboard", method: "GET")
+    ).build(path: "/api/sessions/active", method: "GET")
 
     #expect(request?.value(forHTTPHeaderField: "X-OrbitDock-Client-Version") == "0.4.0")
     #expect(

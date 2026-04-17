@@ -12,9 +12,16 @@ import Foundation
 /// WebSocket-only outbound messages.
 /// All reads and mutations go via typed HTTP server clients. Only subscription management uses WS.
 enum ClientToServerMessage: Codable, Sendable {
-  case subscribeDashboard(sinceRevision: UInt64? = nil)
-  case unsubscribeDashboard
+  case subscribeSessionsSummary(sinceRevision: UInt64? = nil)
+  case unsubscribeSessionsSummary
+  case subscribeActiveSessions(sinceRevision: UInt64? = nil)
+  case unsubscribeActiveSessions
+  case subscribeArchivedSessions(sinceRevision: UInt64? = nil)
+  case unsubscribeArchivedSessions
   case subscribeMissions(sinceRevision: UInt64? = nil)
+  case unsubscribeMissions
+  case subscribeMission(missionId: String)
+  case unsubscribeMission(missionId: String)
   case subscribeSessionSurface(sessionId: String, surface: ServerSessionSurface, sinceRevision: UInt64? = nil)
   case unsubscribeSessionSurface(sessionId: String, surface: ServerSessionSurface)
   case subscribeToolPty(toolId: String, sessionId: String)
@@ -23,6 +30,7 @@ enum ClientToServerMessage: Codable, Sendable {
   enum CodingKeys: String, CodingKey {
     case type
     case sessionId = "session_id"
+    case missionId = "mission_id"
     case surface
     case sinceRevision = "since_revision"
     case toolId = "tool_id"
@@ -32,16 +40,41 @@ enum ClientToServerMessage: Codable, Sendable {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
-      case let .subscribeDashboard(sinceRevision):
-        try container.encode("subscribe_dashboard", forKey: .type)
+      case let .subscribeSessionsSummary(sinceRevision):
+        try container.encode("subscribe_sessions_summary", forKey: .type)
         try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
 
-      case .unsubscribeDashboard:
-        try container.encode("unsubscribe_dashboard", forKey: .type)
+      case .unsubscribeSessionsSummary:
+        try container.encode("unsubscribe_sessions_summary", forKey: .type)
+
+      case let .subscribeActiveSessions(sinceRevision):
+        try container.encode("subscribe_active_sessions", forKey: .type)
+        try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+
+      case .unsubscribeActiveSessions:
+        try container.encode("unsubscribe_active_sessions", forKey: .type)
+
+      case let .subscribeArchivedSessions(sinceRevision):
+        try container.encode("subscribe_archived_sessions", forKey: .type)
+        try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+
+      case .unsubscribeArchivedSessions:
+        try container.encode("unsubscribe_archived_sessions", forKey: .type)
 
       case let .subscribeMissions(sinceRevision):
         try container.encode("subscribe_missions", forKey: .type)
         try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+
+      case .unsubscribeMissions:
+        try container.encode("unsubscribe_missions", forKey: .type)
+
+      case let .subscribeMission(missionId):
+        try container.encode("subscribe_mission", forKey: .type)
+        try container.encode(missionId, forKey: .missionId)
+
+      case let .unsubscribeMission(missionId):
+        try container.encode("unsubscribe_mission", forKey: .type)
+        try container.encode(missionId, forKey: .missionId)
 
       case let .subscribeSessionSurface(sessionId, surface, sinceRevision):
         try container.encode("subscribe_session_surface", forKey: .type)
@@ -70,15 +103,37 @@ enum ClientToServerMessage: Codable, Sendable {
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
-      case "subscribe_dashboard":
-        self = try .subscribeDashboard(
+      case "subscribe_sessions_summary":
+        self = try .subscribeSessionsSummary(
           sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
         )
-      case "unsubscribe_dashboard":
-        self = .unsubscribeDashboard
+      case "unsubscribe_sessions_summary":
+        self = .unsubscribeSessionsSummary
+      case "subscribe_active_sessions":
+        self = try .subscribeActiveSessions(
+          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
+        )
+      case "unsubscribe_active_sessions":
+        self = .unsubscribeActiveSessions
+      case "subscribe_archived_sessions":
+        self = try .subscribeArchivedSessions(
+          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
+        )
+      case "unsubscribe_archived_sessions":
+        self = .unsubscribeArchivedSessions
       case "subscribe_missions":
         self = try .subscribeMissions(
           sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
+        )
+      case "unsubscribe_missions":
+        self = .unsubscribeMissions
+      case "subscribe_mission":
+        self = try .subscribeMission(
+          missionId: container.decode(String.self, forKey: .missionId)
+        )
+      case "unsubscribe_mission":
+        self = try .unsubscribeMission(
+          missionId: container.decode(String.self, forKey: .missionId)
         )
       case "subscribe_session_surface":
         self = try .subscribeSessionSurface(

@@ -4,43 +4,14 @@ struct ServerHTTPClient: Sendable {
   let requestBuilder: HTTPRequestBuilder
   let responseLoader: @Sendable (URLRequest) async throws -> HTTPResponse
 
-  private static let encoder: JSONEncoder = {
+  private static func makeEncoder() -> JSONEncoder {
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
     return encoder
-  }()
-
-  private static let decoder = JSONDecoder()
-
-  private func debugPreview(_ data: Data, maxCharacters: Int = 600) -> String {
-    guard let text = String(data: data, encoding: .utf8) else {
-      return "<non-utf8 body: \(data.count) bytes>"
-    }
-    if text.count <= maxCharacters {
-      return text
-    }
-    return String(text.prefix(maxCharacters)) + "…"
   }
 
-  private func logDecodeFailure(method: String, path: String, error: String, body: Data) {
-    print("[OrbitDock][HTTP] Decode failed \(method) \(path)")
-    print("[OrbitDock][HTTP] Error: \(error)")
-    print("[OrbitDock][HTTP] Body preview: \(debugPreview(body))")
-  }
-
-  private func logHTTPFailure(
-    method: String,
-    path: String,
-    statusCode: Int,
-    code: String?,
-    message: String?,
-    body: Data
-  ) {
-    print("[OrbitDock][HTTP] Request failed \(method) \(path)")
-    print("[OrbitDock][HTTP] Status: \(statusCode)")
-    print("[OrbitDock][HTTP] Code: \(code ?? "-")")
-    print("[OrbitDock][HTTP] Message: \(message ?? "-")")
-    print("[OrbitDock][HTTP] Body preview: \(debugPreview(body))")
+  private static func makeDecoder() -> JSONDecoder {
+    JSONDecoder()
   }
 
   private func describeDecodingError(_ error: Error) -> String {
@@ -95,11 +66,10 @@ struct ServerHTTPClient: Sendable {
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
     do {
-      return try Self.decoder.decode(R.self, from: response.body)
+      return try Self.makeDecoder().decode(R.self, from: response.body)
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
@@ -116,16 +86,15 @@ struct ServerHTTPClient: Sendable {
       method: method,
       query: query,
       contentType: "application/json",
-      body: Self.encoder.encode(body)
+      body: Self.makeEncoder().encode(body)
     )
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
     do {
-      return try Self.decoder.decode(R.self, from: response.body)
+      return try Self.makeDecoder().decode(R.self, from: response.body)
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
@@ -149,11 +118,10 @@ struct ServerHTTPClient: Sendable {
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
     do {
-      return try Self.decoder.decode(R.self, from: response.body)
+      return try Self.makeDecoder().decode(R.self, from: response.body)
     } catch {
       let detailedError = describeDecodingError(error)
       netLog(.error, cat: .api, "Decode failed \(method) \(path)", data: ["error": detailedError])
-      logDecodeFailure(method: method, path: path, error: detailedError, body: response.body)
       throw error
     }
   }
@@ -170,7 +138,7 @@ struct ServerHTTPClient: Sendable {
       method: method,
       query: query,
       contentType: "application/json",
-      body: Self.encoder.encode(body)
+      body: Self.makeEncoder().encode(body)
     )
     let response = try await loadResponse(request)
     try validate(response: response, method: method, path: path)
@@ -244,20 +212,12 @@ struct ServerHTTPClient: Sendable {
 
   private func validate(response: HTTPResponse, method: String, path: String) throws {
     guard (200 ..< 300).contains(response.statusCode) else {
-      let apiError = try? Self.decoder.decode(APIErrorResponse.self, from: response.body)
+      let apiError = try? Self.makeDecoder().decode(APIErrorResponse.self, from: response.body)
       netLog(
         .error,
         cat: .api,
         "HTTP \(response.statusCode) \(method) \(path)",
         data: ["code": apiError?.code ?? "-", "error": apiError?.error ?? "-"]
-      )
-      logHTTPFailure(
-        method: method,
-        path: path,
-        statusCode: response.statusCode,
-        code: apiError?.code,
-        message: apiError?.error,
-        body: response.body
       )
       throw ServerRequestError.httpStatus(
         response.statusCode,

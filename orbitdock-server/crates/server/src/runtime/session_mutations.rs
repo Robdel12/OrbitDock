@@ -153,7 +153,7 @@ pub(crate) async fn update_session_config(
   }
 
   let (
-    approval_policy,
+    mut approval_policy,
     approval_policy_details,
     mut sandbox_mode,
     sandbox_policy_details,
@@ -180,22 +180,20 @@ pub(crate) async fn update_session_config(
       overrides.model = value.clone();
     }
     if let Some(ref value) = approval_policy {
-      overrides.approval_policy = value.clone();
+      overrides.approval_policy_details = value
+        .as_deref()
+        .and_then(CodexApprovalPolicy::from_storage_text);
     }
     if let Some(value) = approval_policy_details.clone() {
       overrides.approval_policy_details = value;
-      if let Some(ref details) = overrides.approval_policy_details {
-        overrides.approval_policy = Some(details.legacy_summary());
-      }
     }
     if let Some(ref value) = sandbox_mode {
-      overrides.sandbox_mode = value.clone();
+      overrides.sandbox_policy_details = value
+        .as_deref()
+        .and_then(CodexSandboxPolicy::from_storage_text);
     }
     if let Some(value) = sandbox_policy_details.clone() {
       overrides.sandbox_policy_details = value;
-      if let Some(ref details) = overrides.sandbox_policy_details {
-        overrides.sandbox_mode = Some(details.legacy_summary());
-      }
     }
     if let Some(value) = approvals_reviewer {
       overrides.approvals_reviewer = value;
@@ -261,7 +259,10 @@ pub(crate) async fn update_session_config(
     )
   };
 
-  // Keep legacy compatibility in sync when canonical sandbox details are updated.
+  // Keep compatibility summaries in sync when canonical policy details are updated.
+  if let Some(ref details) = approval_policy_details {
+    approval_policy = Some(details.as_ref().map(CodexApprovalPolicy::storage_text));
+  }
   if let Some(ref details) = sandbox_policy_details {
     sandbox_mode = Some(details.as_ref().map(CodexSandboxPolicy::legacy_summary));
   }
@@ -576,12 +577,12 @@ mod tests {
   #[tokio::test]
   async fn update_session_config_updates_runtime_snapshot_before_handler_returns() {
     let state = new_test_session_registry(true);
-    let session_id = "control-deck-update-runtime";
+    let session_id = "session-detail-update-runtime";
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
       Provider::Claude,
-      "/tmp/control-deck-update-runtime".to_string(),
+      "/tmp/session-detail-update-runtime".to_string(),
     ));
 
     update_session_config(
@@ -596,7 +597,7 @@ mod tests {
       },
     )
     .await
-    .expect("control deck config update should succeed");
+    .expect("session config update should succeed");
 
     let snapshot = state
       .get_session(session_id)
@@ -614,12 +615,12 @@ mod tests {
   #[tokio::test]
   async fn update_session_config_syncs_legacy_sandbox_mode_from_details_only() {
     let state = new_test_session_registry(true);
-    let session_id = "control-deck-sandbox-compat";
+    let session_id = "session-detail-sandbox-compat";
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
       Provider::Codex,
-      "/tmp/control-deck-sandbox-compat".to_string(),
+      "/tmp/session-detail-sandbox-compat".to_string(),
     ));
 
     update_session_config(
@@ -699,12 +700,12 @@ mod tests {
   #[tokio::test]
   async fn update_session_config_emits_notice_row_for_effective_changes() {
     let state = new_test_session_registry(true);
-    let session_id = "control-deck-update-row";
+    let session_id = "session-detail-update-row";
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
       Provider::Claude,
-      "/tmp/control-deck-update-row".to_string(),
+      "/tmp/session-detail-update-row".to_string(),
     ));
 
     let actor = state
@@ -724,7 +725,7 @@ mod tests {
       },
     )
     .await
-    .expect("control deck config update should succeed");
+    .expect("session config update should succeed");
 
     let actor = state
       .get_session(session_id)
@@ -774,12 +775,12 @@ mod tests {
   #[tokio::test]
   async fn update_session_config_skips_notice_row_when_values_do_not_change() {
     let state = new_test_session_registry(true);
-    let session_id = "control-deck-update-noop-row";
+    let session_id = "session-detail-update-noop-row";
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
       Provider::Claude,
-      "/tmp/control-deck-update-noop-row".to_string(),
+      "/tmp/session-detail-update-noop-row".to_string(),
     ));
 
     update_session_config(

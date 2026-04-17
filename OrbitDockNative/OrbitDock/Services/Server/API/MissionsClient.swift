@@ -15,10 +15,6 @@ struct MissionsClient: Sendable {
     try await http.get("/api/missions")
   }
 
-  func listMissions() async throws -> MissionsListResponse {
-    try await http.get("/api/missions")
-  }
-
   func getMission(_ id: String) async throws -> MissionDetailResponse {
     try await http.get("/api/missions/\(requestBuilder.encodePathComponent(id))")
   }
@@ -39,20 +35,6 @@ struct MissionsClient: Sendable {
   }
 
   func updateMission(
-    _ id: String,
-    name: String? = nil,
-    enabled: Bool? = nil,
-    paused: Bool? = nil
-  ) async throws -> MissionOkResponse {
-    let body = MissionUpdateBody(name: name, enabled: enabled, paused: paused)
-    return try await http.request(
-      path: "/api/missions/\(requestBuilder.encodePathComponent(id))",
-      method: "PUT",
-      body: body
-    )
-  }
-
-  func updateMissionDetail(
     _ id: String,
     name: String? = nil,
     enabled: Bool? = nil,
@@ -96,10 +78,27 @@ struct MissionsClient: Sendable {
     )
   }
 
-  func retryIssue(missionId: String, issueId: String) async throws {
-    let _: MissionOkResponse = try await http.request(
+  func retryIssue(missionId: String, issueId: String) async throws -> MissionDetailResponse {
+    try await http.request(
       path: "/api/missions/\(requestBuilder.encodePathComponent(missionId))/issues/\(requestBuilder.encodePathComponent(issueId))/retry",
       method: "POST"
+    )
+  }
+
+  func transitionIssue(
+    missionId: String,
+    issueId: String,
+    targetState: OrchestrationState,
+    reason: String? = nil
+  ) async throws -> MissionDetailResponse {
+    var body: [String: String] = ["target_state": targetState.rawValue]
+    if let reason, !reason.isEmpty {
+      body["reason"] = reason
+    }
+
+    return try await http.post(
+      "/api/missions/\(requestBuilder.encodePathComponent(missionId))/issues/\(requestBuilder.encodePathComponent(issueId))/transition",
+      body: body
     )
   }
 

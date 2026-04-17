@@ -14,7 +14,7 @@ use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::errors::{
-  bad_request, conflict, gateway_timeout, internal, not_found, service_unavailable, unprocessable,
+  bad_request, gateway_timeout, internal, not_found, service_unavailable, unprocessable,
   ApiErrorResponse, ApiInnerResult,
 };
 
@@ -243,10 +243,7 @@ fn codex_action_error_response(
     CodexActionError::SessionNotFound => {
       not_found("not_found", format!("Session {session_id} not found"))
     }
-    CodexActionError::ConnectorNotAvailable => conflict(
-      "session_not_found",
-      format!("Session {session_id} not found or has no active connector"),
-    ),
+    CodexActionError::ConnectorNotAvailable => connector_unavailable_error(session_id),
     CodexActionError::ChannelClosed => service_unavailable(
       "channel_closed",
       format!("Session {session_id} connector channel is closed"),

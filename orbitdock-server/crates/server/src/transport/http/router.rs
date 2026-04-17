@@ -15,7 +15,7 @@ pub fn build_router() -> Router<Arc<SessionRegistry>> {
     .merge(session_lifecycle_routes())
     .merge(session_action_routes())
     .merge(session_attachment_routes())
-    .merge(session_capability_routes())
+    .merge(session_support_routes())
     .merge(approval_routes())
     .merge(review_routes())
     .merge(server_routes())
@@ -33,46 +33,45 @@ fn hook_routes() -> Router<Arc<SessionRegistry>> {
 
 fn session_read_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
-    .route("/api/dashboard", get(super::get_dashboard_snapshot))
-    .route("/api/library", get(super::get_library_snapshot))
+    .route(
+      "/api/sessions/active",
+      get(super::get_active_sessions_snapshot),
+    )
+    .route(
+      "/api/sessions/archive",
+      get(super::get_archived_sessions_snapshot),
+    )
+    .route("/api/sessions/summary", get(super::get_sessions_summary))
     .route(
       "/api/sessions/{session_id}/detail",
       get(super::get_session_detail),
-    )
-    .route(
-      "/api/sessions/{session_id}/composer",
-      get(super::get_session_composer),
-    )
-    .route(
-      "/api/sessions/{session_id}/control-deck",
-      get(super::get_control_deck_snapshot).patch(super::update_control_deck_config),
     )
     .route(
       "/api/sessions/{session_id}/conversation",
       get(super::get_conversation_snapshot),
     )
     .route(
-      "/api/sessions/{session_id}/messages",
+      "/api/sessions/{session_id}/review",
+      get(super::get_session_review),
+    )
+    .route(
+      "/api/sessions/{session_id}/conversation/messages",
       get(super::get_conversation_history),
     )
     .route(
-      "/api/sessions/{session_id}/diffs",
-      get(super::get_session_diffs),
-    )
-    .route(
-      "/api/sessions/{session_id}/search",
+      "/api/sessions/{session_id}/conversation/search",
       get(super::search_conversation_rows),
     )
     .route(
-      "/api/sessions/{session_id}/stats",
+      "/api/sessions/{session_id}/conversation/stats",
       get(super::get_session_stats),
     )
     .route(
-      "/api/sessions/{session_id}/rows/{row_id}/content",
+      "/api/sessions/{session_id}/conversation/rows/{row_id}/content",
       get(super::get_row_content),
     )
     .route(
-      "/api/sessions/{session_id}/mark-read",
+      "/api/sessions/{session_id}/detail/read",
       post(super::mark_session_read),
     )
 }
@@ -81,49 +80,51 @@ fn session_write_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route("/api/sessions", post(super::create_session))
     .route(
-      "/api/sessions/{session_id}/messages",
+      "/api/sessions/{session_id}/conversation/messages",
       post(super::post_session_message),
     )
     .route(
-      "/api/sessions/{session_id}/steer",
+      "/api/sessions/{session_id}/conversation/steer",
       post(super::post_steer_turn),
     )
     .route(
-      "/api/sessions/{session_id}/name",
+      "/api/sessions/{session_id}/detail/name",
       patch(super::rename_session),
     )
     .route(
-      "/api/sessions/{session_id}/summary",
+      "/api/sessions/{session_id}/detail/summary",
       patch(super::set_summary),
     )
     .route(
-      "/api/sessions/{session_id}/config",
+      "/api/sessions/{session_id}/detail/config",
       patch(super::update_session_config),
-    )
-    .route(
-      "/api/sessions/{session_id}/control-deck/submit",
-      post(super::submit_control_deck_turn),
     )
 }
 
 fn session_lifecycle_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
-      "/api/sessions/{session_id}/resume",
+      "/api/sessions/{session_id}/lifecycle/resume",
       post(super::resume_session),
     )
     .route(
-      "/api/sessions/{session_id}/takeover",
+      "/api/sessions/{session_id}/lifecycle/takeover",
       post(super::takeover_session),
     )
-    .route("/api/sessions/{session_id}/end", post(super::end_session))
-    .route("/api/sessions/{session_id}/fork", post(super::fork_session))
     .route(
-      "/api/sessions/{session_id}/fork-to-worktree",
+      "/api/sessions/{session_id}/lifecycle/end",
+      post(super::end_session),
+    )
+    .route(
+      "/api/sessions/{session_id}/lifecycle/fork",
+      post(super::fork_session),
+    )
+    .route(
+      "/api/sessions/{session_id}/lifecycle/fork/worktree",
       post(super::fork_session_to_worktree),
     )
     .route(
-      "/api/sessions/{session_id}/fork-to-existing-worktree",
+      "/api/sessions/{session_id}/lifecycle/fork/existing-worktree",
       post(super::fork_session_to_existing_worktree),
     )
 }
@@ -131,39 +132,39 @@ fn session_lifecycle_routes() -> Router<Arc<SessionRegistry>> {
 fn session_action_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
-      "/api/sessions/{session_id}/interrupt",
+      "/api/sessions/{session_id}/conversation/interrupt",
       post(super::interrupt_session),
     )
     .route(
-      "/api/sessions/{session_id}/compact",
+      "/api/sessions/{session_id}/conversation/compact",
       post(super::compact_context),
     )
     .route(
-      "/api/sessions/{session_id}/undo",
+      "/api/sessions/{session_id}/conversation/undo",
       post(super::undo_last_turn),
     )
     .route(
-      "/api/sessions/{session_id}/rollback",
+      "/api/sessions/{session_id}/conversation/rollback",
       post(super::rollback_turns),
     )
     .route(
-      "/api/sessions/{session_id}/stop-task",
+      "/api/sessions/{session_id}/conversation/stop",
       post(super::stop_task),
     )
     .route(
-      "/api/sessions/{session_id}/rewind-files",
+      "/api/sessions/{session_id}/conversation/rewind",
       post(super::rewind_files),
     )
     .route(
-      "/api/sessions/{session_id}/approve",
+      "/api/sessions/{session_id}/approvals/requests/{request_id}/decision",
       post(super::approve_tool),
     )
     .route(
-      "/api/sessions/{session_id}/answer",
+      "/api/sessions/{session_id}/questions/requests/{request_id}/answer",
       post(super::answer_question),
     )
     .route(
-      "/api/sessions/{session_id}/permissions/respond",
+      "/api/sessions/{session_id}/permissions/requests/{request_id}/response",
       post(super::respond_to_permission_request),
     )
 }
@@ -171,28 +172,24 @@ fn session_action_routes() -> Router<Arc<SessionRegistry>> {
 fn session_attachment_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
-      "/api/sessions/{session_id}/attachments/images",
+      "/api/sessions/{session_id}/conversation/attachments/images",
       post(super::upload_session_image_attachment),
     )
     .route(
-      "/api/sessions/{session_id}/attachments/images/{attachment_id}",
+      "/api/sessions/{session_id}/conversation/attachments/images/{attachment_id}",
       get(super::get_session_image_attachment),
     )
     .route(
-      "/api/sessions/{session_id}/control-deck/attachments/images",
-      post(super::upload_control_deck_image_attachment),
-    )
-    .route(
-      "/api/sessions/{session_id}/shell/exec",
+      "/api/sessions/{session_id}/conversation/shell/exec",
       post(super::execute_shell_endpoint),
     )
     .route(
-      "/api/sessions/{session_id}/shell/cancel",
+      "/api/sessions/{session_id}/conversation/shell/cancel",
       post(super::cancel_shell_endpoint),
     )
 }
 
-fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
+fn session_support_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
       "/api/sessions/{session_id}/subagents/{subagent_id}/tools",
@@ -219,7 +216,7 @@ fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
       post(super::uninstall_plugin),
     )
     .route(
-      "/api/sessions/{session_id}/mcp/tools",
+      "/api/sessions/{session_id}/mcp",
       get(super::list_mcp_tools_endpoint),
     )
     .route(
@@ -251,12 +248,10 @@ fn session_capability_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_session_instructions),
     )
     .route(
-      "/api/sessions/{session_id}/permissions",
-      get(super::get_permission_rules),
-    )
-    .route(
       "/api/sessions/{session_id}/permissions/rules",
-      post(super::add_permission_rule).delete(super::remove_permission_rule),
+      get(super::get_permission_rules)
+        .post(super::add_permission_rule)
+        .delete(super::remove_permission_rule),
     )
 }
 
@@ -272,11 +267,11 @@ fn approval_routes() -> Router<Arc<SessionRegistry>> {
 fn review_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
-      "/api/sessions/{session_id}/review-comments",
+      "/api/sessions/{session_id}/review/comments",
       get(super::list_review_comments_endpoint).post(super::create_review_comment_endpoint),
     )
     .route(
-      "/api/review-comments/{comment_id}",
+      "/api/review/comments/{comment_id}",
       patch(super::update_review_comment).delete(super::delete_review_comment_by_id),
     )
 }
@@ -312,10 +307,6 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/client/primary-claim",
       post(super::set_client_primary_claim),
-    )
-    .route(
-      "/api/control-deck/preferences",
-      get(super::get_control_deck_preferences).put(super::update_control_deck_preferences),
     )
     .route("/api/usage/summary", get(super::fetch_usage_summary))
     .route("/api/usage/codex", get(super::fetch_codex_usage))

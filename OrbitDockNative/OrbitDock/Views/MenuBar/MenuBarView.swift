@@ -10,7 +10,7 @@ import SwiftUI
   struct MenuBarView: View {
     @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
     @Environment(UsageServiceRegistry.self) private var usageServiceRegistry
-    @Environment(DashboardDataService.self) private var dashboardDataService
+    @Environment(SessionsSummaryDataService.self) private var sessionsSummaryDataService
     @Environment(OrbitDockAppRuntime.self) private var appRuntime
     @Environment(\.colorScheme) private var colorScheme
     @State private var viewModel = MenuBarViewModel()
@@ -128,7 +128,8 @@ import SwiftUI
           Spacer()
 
           Button {
-            runtimeRegistry.refreshEnabledSessionLists()
+            runtimeRegistry.reconnectAllIfNeeded()
+            Task { await sessionsSummaryDataService.refreshNow() }
             Task { await usageServiceRegistry.refreshAll() }
           } label: {
             Image(systemName: "arrow.clockwise")
@@ -144,12 +145,20 @@ import SwiftUI
       .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
       .task {
         if appRuntime.isDemoModeEnabled {
-          viewModel.applySessions(appRuntime.demoExperience.rootSessions)
+          viewModel.apply(
+            activeSessions: RootSessionSnapshotLoader.missionControlSessions(from: appRuntime.demoExperience.rootSessions),
+            recentSessions: RootSessionSnapshotLoader.recentSessions(from: appRuntime.demoExperience.rootSessions),
+            totalCount: appRuntime.demoExperience.rootSessions.count
+          )
         }
       }
-      .onChange(of: dashboardDataService.librarySessions) { _, sessions in
+      .onChange(of: sessionsSummaryDataService.summaryRevision) { _, _ in
         guard !appRuntime.isDemoModeEnabled else { return }
-        viewModel.applySessions(sessions)
+        viewModel.apply(
+          activeSessions: sessionsSummaryDataService.activeSessions,
+          recentSessions: sessionsSummaryDataService.recentSessions,
+          totalCount: sessionsSummaryDataService.counts.total
+        )
       }
     }
 
@@ -263,10 +272,7 @@ import SwiftUI
 
   #Preview {
     let runtime = PreviewRuntime(scenario: .dashboard)
-    MenuBarView()
-      .environment(runtime.appRuntime)
-      .environment(runtime.runtimeRegistry)
-      .environment(runtime.usageServiceRegistry)
+    runtime.inject(MenuBarView())
       .environment(\.colorScheme, .dark)
   }
 

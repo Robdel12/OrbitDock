@@ -22,9 +22,16 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
   }
 
   match message {
-    ClientMessage::SubscribeDashboard { .. }
-    | ClientMessage::UnsubscribeDashboard
+    ClientMessage::SubscribeSessionsSummary { .. }
+    | ClientMessage::UnsubscribeSessionsSummary
+    | ClientMessage::SubscribeActiveSessions { .. }
+    | ClientMessage::UnsubscribeActiveSessions
+    | ClientMessage::SubscribeArchivedSessions { .. }
+    | ClientMessage::UnsubscribeArchivedSessions
     | ClientMessage::SubscribeMissions { .. }
+    | ClientMessage::UnsubscribeMissions
+    | ClientMessage::SubscribeMission { .. }
+    | ClientMessage::UnsubscribeMission { .. }
     | ClientMessage::SubscribeSessionSurface { .. }
     | ClientMessage::UnsubscribeSessionSurface { .. } => MessageGroup::Subscribe,
 

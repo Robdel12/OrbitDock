@@ -8,7 +8,7 @@ struct MissionTrackerSection: View {
   @Binding var keyError: String?
   let trackerKind: String
   let missionId: String
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let onUpdated: () async -> Void
 
   private var isGitHub: Bool {
@@ -21,10 +21,6 @@ struct MissionTrackerSection: View {
 
   private var envVarName: String {
     isGitHub ? "GITHUB_TOKEN" : "LINEAR_API_KEY"
-  }
-
-  private var keyEndpoint: String {
-    "/api/missions/\(missionId)/tracker-key"
   }
 
   private var placeholder: String {
@@ -206,15 +202,11 @@ struct MissionTrackerSection: View {
   }
 
   private func saveTrackerKey() async {
-    guard let http, !newApiKey.isEmpty else { return }
+    guard let missionsClient, !newApiKey.isEmpty else { return }
     isSavingKey = true
     keyError = nil
     do {
-      let _: MissionTrackerKeyResponse = try await http.request(
-        path: keyEndpoint,
-        method: "PUT",
-        body: SetTrackerKeyBody(key: newApiKey)
-      )
+      _ = try await missionsClient.setMissionTrackerKey(missionId, key: newApiKey)
       newApiKey = ""
       trackerKeyConfigured = true
       trackerKeySource = "mission"
@@ -226,12 +218,9 @@ struct MissionTrackerSection: View {
   }
 
   private func deleteTrackerKey() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     do {
-      let response: MissionTrackerKeyResponse = try await http.request(
-        path: keyEndpoint,
-        method: "DELETE"
-      )
+      let response = try await missionsClient.deleteMissionTrackerKey(missionId)
       trackerKeyConfigured = response.configured
       trackerKeySource = response.source
       await onUpdated()
@@ -241,14 +230,11 @@ struct MissionTrackerSection: View {
   }
 
   private func adoptGlobalKey() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isSavingKey = true
     keyError = nil
     do {
-      let _: MissionTrackerKeyResponse = try await http.post(
-        "/api/missions/\(missionId)/adopt-global-key",
-        body: EmptyBody()
-      )
+      _ = try await missionsClient.adoptGlobalKey(missionId)
       trackerKeyConfigured = true
       trackerKeySource = "mission"
       await onUpdated()

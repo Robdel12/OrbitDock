@@ -1,15 +1,15 @@
 import SwiftUI
 
 struct SetupSettingsView: View {
-  let serverState: SessionStore
+  let endpointStore: ServerEndpointRuntime
   @State private var viewModel: CodexAccountSetupViewModel
   private var bindingIdentity: String {
-    "\(serverState.endpointId.uuidString):\(ObjectIdentifier(serverState))"
+    "\(endpointStore.endpointId.uuidString):\(ObjectIdentifier(endpointStore))"
   }
 
-  init(serverState: SessionStore) {
-    self.serverState = serverState
-    _viewModel = State(initialValue: CodexAccountSetupViewModel(serverState: serverState))
+  init(endpointStore: ServerEndpointRuntime) {
+    self.endpointStore = endpointStore
+    _viewModel = State(initialValue: CodexAccountSetupViewModel(endpointStore: endpointStore))
   }
 
   var body: some View {
@@ -22,7 +22,7 @@ struct SetupSettingsView: View {
       .frame(maxWidth: 980, alignment: .leading)
     }
     .task(id: bindingIdentity) {
-      viewModel.update(serverState: serverState)
+      viewModel.update(endpointStore: endpointStore)
       viewModel.refresh()
     }
   }

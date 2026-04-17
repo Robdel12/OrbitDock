@@ -107,7 +107,7 @@ pub(crate) async fn materialize_claude_session(
   }
 
   if actor.summary().await.is_ok() {
-    state.notify_dashboard_session_updated(session_id);
+    state.notify_active_session_updated(session_id);
   }
 
   let _ = persist_tx
@@ -252,11 +252,7 @@ async fn run_stale_shell_pruning(
       })
       .await;
     if state.remove_session(&stale_id).is_some() {
-      let _ = state
-        .list_tx()
-        .send(orbitdock_protocol::ServerMessage::DashboardItemRemoved {
-          session_id: stale_id,
-        });
+      state.publish_active_session_removed(&stale_id);
     }
   }
 }

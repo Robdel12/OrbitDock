@@ -30,7 +30,7 @@ struct ServerClientsTests {
       }
     )
 
-    let isPrimary = try await clients.controlPlane.setServerRole(true)
+    let isPrimary = try await clients.serverRole.setServerRole(true)
     let request = try #require(await recorder.singleRequest())
 
     #expect(isPrimary)
@@ -59,7 +59,7 @@ struct ServerClientsTests {
       }
     )
 
-    try await clients.controlPlane.setClientPrimaryClaim(
+    try await clients.serverRole.setClientPrimaryClaim(
       ServerClientIdentity(clientId: "client-1", deviceName: "Robert's MacBook Pro"),
       true
     )
@@ -215,9 +215,64 @@ struct ServerClientsTests {
       }
     )
 
-    let snapshot = try await clients.dashboard.fetchDashboardSnapshot()
+    let snapshot = try await clients.activeSessions.fetchSnapshot()
 
     #expect(snapshot.conversations.isEmpty)
+  }
+
+  @Test func renameSessionDecodesAuthoritativeDetailSnapshotFromAcceptedResponse() async throws {
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
+      authToken: nil,
+      dataLoader: { request in
+        Self.jsonResponse(
+          url: request.url!,
+          statusCode: 200,
+          json: """
+          {
+            "accepted": true,
+            "session_detail_snapshot": \(Self.detailSnapshotJSON(revision: 12))
+          }
+          """
+        )
+      }
+    )
+
+    let response = try await clients.sessions.renameSession("session-1", name: "Renamed")
+
+    #expect(response.accepted)
+    #expect(response.sessionDetailSnapshot?.revision == 12)
+    #expect(response.sessionDetailSnapshot?.session.id == "session-1")
+  }
+
+  @Test func missionMutationsDecodeAuthoritativeMissionDetailResponses() async throws {
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://localhost:4000")),
+      authToken: nil,
+      dataLoader: { request in
+        Self.jsonResponse(
+          url: request.url!,
+          statusCode: 200,
+          json: Self.missionDetailJSON(name: "API Cleanup")
+        )
+      }
+    )
+
+    let updatedMission = try await clients.missions.updateMission(
+      "mission-1",
+      enabled: true,
+      paused: false
+    )
+    let retriedIssue = try await clients.missions.retryIssue(
+      missionId: "mission-1",
+      issueId: "issue-1"
+    )
+
+    #expect(updatedMission.summary.id == "mission-1")
+    #expect(updatedMission.summary.name == "API Cleanup")
+    #expect(retriedIssue.issues.count == 1)
+    #expect(retriedIssue.issues.first?.issueId == "issue-1")
+    #expect(retriedIssue.issues.first?.orchestrationState == .queued)
   }
 
   private nonisolated static func jsonResponse(
@@ -237,6 +292,100 @@ struct ServerClientsTests {
       headerFields: headers
     )!
     return (Data(json.utf8), response)
+  }
+
+  private nonisolated static func detailSnapshotJSON(revision: UInt64) -> String {
+    """
+    {
+      "revision": \(revision),
+      "session": {
+        "id": "session-1",
+        "provider": "claude",
+        "project_path": "/tmp/project",
+        "project_name": "OrbitDock",
+        "status": "active",
+        "work_status": "waiting",
+        "control_mode": "direct",
+        "lifecycle_state": "open",
+        "accepts_user_input": true,
+        "steerable": false,
+        "rows": [],
+        "total_row_count": 0,
+        "has_more_before": false,
+        "pending_approval": null,
+        "token_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cached_tokens": 0,
+          "context_window": 0
+        },
+        "token_usage_snapshot_kind": "unknown",
+        "allow_bypass_permissions": false,
+        "turn_count": 0,
+        "turn_diffs": [],
+        "subagents": [],
+        "is_worktree": false,
+        "unread_count": 0,
+        "claude_integration_mode": "direct",
+        "revision": \(revision)
+      }
+    }
+    """
+  }
+
+  private nonisolated static func missionDetailJSON(name: String) -> String {
+    """
+    {
+      "summary": {
+        "id": "mission-1",
+        "name": "\(name)",
+        "repo_root": "/tmp/project",
+        "enabled": true,
+        "paused": false,
+        "tracker_kind": "linear",
+        "provider": "claude",
+        "provider_strategy": "single",
+        "primary_provider": "claude",
+        "secondary_provider": null,
+        "active_count": 0,
+        "queued_count": 1,
+        "completed_count": 0,
+        "failed_count": 0,
+        "parse_error": null,
+        "orchestrator_status": "polling",
+        "last_polled_at": null,
+        "poll_interval": null,
+        "mission_file_path": null,
+        "tracker_key_source": null
+      },
+      "issues": [
+        {
+          "issue_id": "issue-1",
+          "identifier": "ENG-42",
+          "title": "Fix sync path",
+          "tracker_state": "Todo",
+          "orchestration_state": "queued",
+          "session_id": null,
+          "provider": "claude",
+          "attempt": 1,
+          "error": null,
+          "url": null,
+          "last_activity": null,
+          "started_at": null,
+          "completed_at": null,
+          "allowed_transitions": ["completed", "failed", "blocked"],
+          "work_status": null,
+          "last_message": null,
+          "pr_url": null
+        }
+      ],
+      "cleanup_prompt": null,
+      "settings": null,
+      "mission_file_exists": true,
+      "mission_file_path": null,
+      "workflow_migration_available": false
+    }
+    """
   }
 }
 

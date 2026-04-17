@@ -5,10 +5,17 @@ import SwiftUI
 @MainActor
 @Observable
 final class SessionDetailViewModel {
+  private struct BindingContext {
+    let sessionId: String
+    let endpointId: UUID
+    let session: ServerSessionContext
+    let revision: Int
+  }
+
   var copiedResume = false
   var currentSessionId = ""
   var currentEndpointId = UUID()
-  var currentSessionStore: SessionStore
+  var currentSession: ServerSessionContext
   var layoutConfig: LayoutConfiguration = .conversationOnly {
     didSet {
       syncSectionPresentations()
@@ -24,9 +31,15 @@ final class SessionDetailViewModel {
   var cleanup = SessionDetailWorktreeCleanupModel()
 
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
-  @ObservationIgnored private var isRefreshing = false
-  @ObservationIgnored private var refreshQueued = false
+  @ObservationIgnored private let refreshRunner = CoalescedRefreshRunner()
+  @ObservationIgnored private var currentBindingRevision = 0
+  @ObservationIgnored private var activeSubscriptionIdentity: String?
+  @ObservationIgnored private var activeSubscriptionSession: ServerSessionContext?
+  @ObservationIgnored private var diffBannerDismissTask: Task<Void, Never>?
+  @ObservationIgnored private var pendingInvalidationRevision: UInt64?
+  @ObservationIgnored private var lastLoadedRevision: UInt64?
 
+  var detailPayload: ServerSessionDetailSnapshotPayload?
   var screenPresentation = SessionDetailScreenPresentation.empty
   var usageSource = SessionDetailUsageSource.empty
   var worktreeState = SessionDetailWorktreeState.empty
@@ -40,25 +53,25 @@ final class SessionDetailViewModel {
   init(
     sessionId: String,
     endpointId: UUID,
-    sessionStore: SessionStore
+    session: ServerSessionContext
   ) {
     currentSessionId = sessionId
     currentEndpointId = endpointId
-    currentSessionStore = sessionStore
+    currentSession = session
   }
 
   convenience init() {
     self.init(
       sessionId: "",
       endpointId: UUID(),
-      sessionStore: SessionStore.preview()
+      session: ServerSessionContext.preview()
     )
   }
 
   func bind(
     sessionId: String,
     endpointId: UUID,
-    sessionStore: SessionStore,
+    session: ServerSessionContext,
     modelPricingService: ModelPricingService
   ) {
     self.modelPricingService = modelPricingService
@@ -66,13 +79,19 @@ final class SessionDetailViewModel {
     let didSessionChange =
       currentSessionId != sessionId
       || currentEndpointId != endpointId
-      || currentSessionStore !== sessionStore
+      || currentSession !== session
 
     currentSessionId = sessionId
     currentEndpointId = endpointId
-    currentSessionStore = sessionStore
+    currentSession = session
 
     if didSessionChange {
+      currentBindingRevision += 1
+      refreshRunner.cancel()
+      diffBannerDismissTask?.cancel()
+      pendingInvalidationRevision = nil
+      lastLoadedRevision = nil
+      detailPayload = nil
       conversation.reset()
       review.reset()
       terminal.reset()
@@ -90,8 +109,8 @@ final class SessionDetailViewModel {
     currentEndpointId
   }
 
-  var sessionStore: SessionStore {
-    currentSessionStore
+  var session: ServerSessionContext {
+    currentSession
   }
 
   var actionBarState: SessionDetailActionBarState {
@@ -141,52 +160,73 @@ final class SessionDetailViewModel {
     !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
-  func refresh() async {
-    guard shouldSubscribeToServerSession else {
-      apply(snapshot: .empty(endpointId: endpointId, sessionId: sessionId))
-      return
-    }
-
-    if isRefreshing {
-      refreshQueued = true
-      return
-    }
-
-    isRefreshing = true
-    refreshQueued = false
+  func runLifecycle(
+    bindingIdentity: String,
+    sessionId: String,
+    endpointId: UUID,
+    session: ServerSessionContext,
+    modelPricingService: ModelPricingService,
+    terminalRegistry: TerminalSessionRegistry,
+    showWorkerPanel: Bool
+  ) async {
+    let (stream, listenerId) = session.transport.events()
     defer {
-      isRefreshing = false
-      if refreshQueued {
-        refreshQueued = false
-        Task { await refresh() }
-      }
+      session.transport.removeEventListener(id: listenerId)
+      clearSessionSubscription()
     }
 
-    let targetSessionId = sessionId
-    let targetEndpointId = endpointId
-    let targetStore = sessionStore
+    bind(
+      sessionId: sessionId,
+      endpointId: endpointId,
+      session: session,
+      modelPricingService: modelPricingService
+    )
+    reconcileSessionSubscription(bindingIdentity: bindingIdentity)
+    await refresh()
+    restoreExistingTerminalIfNeeded(from: terminalRegistry)
 
-    do {
-      let payload = try await targetStore.clients.conversation.fetchSessionDetail(targetSessionId)
-      guard sessionId == targetSessionId,
-            endpointId == targetEndpointId,
-            sessionStore === targetStore
-      else { return }
-      apply(snapshot: SessionDetailSnapshotBuilder.build(
-        payload: payload,
-        endpointId: targetEndpointId,
-        sourceServerInstanceId: targetStore.serverInstanceId,
-        sourceIsRemoteConnection: targetStore.isRemoteConnection
-      ))
-    } catch {
-      // Non-fatal: the view keeps showing the last snapshot
+    if showWorkerPanel {
+      handleWorkerPanelVisibilityChange(true)
     }
+
+    for await event in stream {
+      guard !Task.isCancelled else { break }
+      guard event.invalidates(.detail) else { continue }
+      let invalidationRevision = session.transport.latestRevision
+      guard SessionSurfaceRefreshPlanner.shouldRequestRefresh(
+        snapshotRevision: lastLoadedRevision,
+        pendingRevision: pendingInvalidationRevision,
+        incomingInvalidationRevision: invalidationRevision
+      ) else { continue }
+      pendingInvalidationRevision = SessionSurfaceRefreshPlanner.nextPendingRevision(
+        pendingRevision: pendingInvalidationRevision,
+        incomingInvalidationRevision: invalidationRevision
+      )
+      requestRefresh()
+    }
+  }
+
+  func refresh() async {
+    requestRefresh()
+    await refreshRunner.waitForCurrentRefresh()
   }
 
   // MARK: - Follow State (mirrored from TimelineScrollView)
 
   func handleConversationFollowStateChanged(_ state: ConversationFollowState) {
     conversation.handleFollowStateChanged(state)
+  }
+
+  func handleWorkerPanelVisibilityChange(_ visible: Bool) {
+    guard visible else {
+      worker.cancelDetailLoad()
+      return
+    }
+    worker.loadDetails(
+      sessionId: sessionId,
+      session: session,
+      layoutConfig: layoutConfig
+    )
   }
 
   func jumpConversationToLatest() {
@@ -246,18 +286,28 @@ final class SessionDetailViewModel {
   }
 
   func handleDiffChange(oldDiff: String?, newDiff: String?) -> Bool {
-    guard reviewState.isDirect, oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly else {
+    guard SessionDetailDiffBannerPlanner.shouldRevealForFirstDiff(
+      isDirect: reviewState.isDirect,
+      oldDiff: oldDiff,
+      newDiff: newDiff,
+      layoutConfig: layoutConfig
+    ) else {
       return false
     }
-    review.showDiffBanner = true
+    presentDiffBanner()
     return true
   }
 
   func handleReviewTurnCountChange(oldCount: UInt64, newCount: UInt64) -> Bool {
-    guard reviewState.isDirect, newCount > oldCount, layoutConfig == .conversationOnly else {
+    guard SessionDetailDiffBannerPlanner.shouldRevealForNewReviewTurn(
+      isDirect: reviewState.isDirect,
+      oldCount: oldCount,
+      newCount: newCount,
+      layoutConfig: layoutConfig
+    ) else {
       return false
     }
-    review.showDiffBanner = true
+    presentDiffBanner()
     return true
   }
 
@@ -275,7 +325,13 @@ final class SessionDetailViewModel {
   }
 
   func endSession() {
-    Task { try? await sessionStore.endSession(sessionId) }
+    Task {
+      if let payload = try? await session.api.endSession() {
+        await MainActor.run {
+          applyDetailPayload(payload)
+        }
+      }
+    }
   }
 
   func sendReviewToModel() {
@@ -290,10 +346,10 @@ final class SessionDetailViewModel {
     }
 
     Task {
-      try? await sessionStore.sendMessage(sessionId: sessionId, content: plan.message)
+      _ = try? await session.api.sendMessage(content: plan.message)
 
       for commentId in plan.commentIdsToResolve {
-        try? await sessionStore.clients.approvals.updateReviewComment(
+        _ = try? await session.api.updateReviewComment(
           commentId: commentId,
           body: ApprovalsClient.UpdateReviewCommentRequest(status: .resolved)
         )
@@ -301,6 +357,25 @@ final class SessionDetailViewModel {
     }
 
     review.selectedCommentIds.removeAll()
+  }
+
+  func applyDetailPayload(_ payload: ServerSessionDetailSnapshotPayload) {
+    guard payload.session.id == sessionId else { return }
+    if let currentRevision = detailPayload?.revision, payload.revision < currentRevision {
+      return
+    }
+    session.transport.recordRevision(payload.revision)
+    lastLoadedRevision = max(lastLoadedRevision ?? payload.revision, payload.revision)
+    if let pendingInvalidationRevision, pendingInvalidationRevision <= payload.revision {
+      self.pendingInvalidationRevision = nil
+    }
+    detailPayload = payload
+    apply(snapshot: SessionDetailSnapshotBuilder.build(
+      payload: payload,
+      endpointId: endpointId,
+      sourceServerInstanceId: session.serverInstanceId,
+      sourceIsRemoteConnection: session.isRemoteConnection
+    ))
   }
 
   private func apply(snapshot: SessionDetailSnapshot) {
@@ -332,5 +407,103 @@ final class SessionDetailViewModel {
       isSessionActive: screenPresentation.isActive,
       compact: layoutConfig == .split
     )
+  }
+
+  private func reconcileSessionSubscription(bindingIdentity: String) {
+    guard shouldSubscribeToServerSession else {
+      clearSessionSubscription()
+      return
+    }
+
+    guard activeSubscriptionIdentity != bindingIdentity else { return }
+    clearSessionSubscription()
+    session.transport.subscribe(surfaces: [.detail])
+    activeSubscriptionIdentity = bindingIdentity
+    activeSubscriptionSession = session
+  }
+
+  func clearSessionSubscription() {
+    refreshRunner.cancel()
+    diffBannerDismissTask?.cancel()
+    pendingInvalidationRevision = nil
+    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail])
+    activeSubscriptionSession = nil
+    activeSubscriptionIdentity = nil
+  }
+
+  private func restoreExistingTerminalIfNeeded(from terminalRegistry: TerminalSessionRegistry) {
+    guard terminal.activeTerminalId == nil else { return }
+    let prefix = "term-\(sessionId)-"
+    guard let existingId = terminalRegistry.sessions.keys.first(where: { $0.hasPrefix(prefix) }) else { return }
+    terminal.activeTerminalId = existingId
+    terminal.showPanel = true
+  }
+
+  private func presentDiffBanner() {
+    withAnimation(Motion.standard) {
+      review.showDiffBanner = true
+    }
+
+    diffBannerDismissTask?.cancel()
+    diffBannerDismissTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(8))
+      guard !Task.isCancelled else { return }
+      await MainActor.run {
+        guard let self else { return }
+        withAnimation(Motion.standard) {
+          self.review.showDiffBanner = false
+        }
+        self.diffBannerDismissTask = nil
+      }
+    }
+  }
+
+  private func requestRefresh() {
+    refreshRunner.schedule { [weak self] in
+      await self?.performRefresh()
+    }
+  }
+
+  private func performRefresh() async {
+    guard shouldSubscribeToServerSession else {
+      detailPayload = nil
+      apply(snapshot: .empty(endpointId: endpointId, sessionId: sessionId))
+      return
+    }
+
+    guard let binding = currentBindingContext else { return }
+    if let pendingInvalidationRevision,
+       let lastLoadedRevision,
+       pendingInvalidationRevision <= lastLoadedRevision
+    {
+      self.pendingInvalidationRevision = nil
+      return
+    }
+
+    do {
+      let payload = try await binding.session.api.fetchSessionDetail()
+      guard isCurrent(binding) else { return }
+      applyDetailPayload(payload)
+    } catch {
+      pendingInvalidationRevision = nil
+      // Non-fatal: the view keeps showing the last snapshot
+    }
+  }
+
+  private var currentBindingContext: BindingContext? {
+    guard shouldSubscribeToServerSession else { return nil }
+    return BindingContext(
+      sessionId: sessionId,
+      endpointId: endpointId,
+      session: session,
+      revision: currentBindingRevision
+    )
+  }
+
+  private func isCurrent(_ binding: BindingContext) -> Bool {
+    sessionId == binding.sessionId
+      && endpointId == binding.endpointId
+      && session === binding.session
+      && currentBindingRevision == binding.revision
   }
 }

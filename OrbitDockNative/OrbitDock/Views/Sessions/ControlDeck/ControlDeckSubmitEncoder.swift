@@ -1,20 +1,31 @@
 import Foundation
 
 enum ControlDeckSubmitEncoder {
+  struct SendPayload {
+    let content: String
+    let model: String?
+    let effort: String?
+    let skills: [ServerSkillInput]
+    let images: [ServerImageInput]
+    let mentions: [ServerMentionInput]
+  }
+
   static func encode(
     draft: ControlDeckDraft,
     uploadedImageIds: [String: String],
     availableSkills: [ControlDeckSkill]
-  ) -> ServerControlDeckSubmitTurnRequest {
-    ServerControlDeckSubmitTurnRequest(
-      text: draft.trimmedText,
-      attachments: encodeAttachments(draft.attachments, uploadedImageIds: uploadedImageIds),
+  ) -> SendPayload {
+    SendPayload(
+      content: draft.trimmedText,
+      model: draft.modelOverride,
+      effort: draft.effortOverride,
       skills: ControlDeckSkillResolver.resolveSkillRefs(
         content: draft.text,
         selectedSkillPaths: draft.selectedSkillPaths,
         availableSkills: availableSkills
       ),
-      overrides: encodeOverrides(model: draft.modelOverride, effort: draft.effortOverride)
+      images: encodeImages(draft.attachments, uploadedImageIds: uploadedImageIds),
+      mentions: encodeMentions(draft.attachments)
     )
   }
 
@@ -42,46 +53,25 @@ enum ControlDeckSubmitEncoder {
     }
   }
 
-  private static func encodeAttachments(
+  private static func encodeImages(
     _ state: ControlDeckAttachmentState,
     uploadedImageIds: [String: String]
-  ) -> [ServerControlDeckAttachmentRef] {
-    state.items.compactMap { item in
-      switch item.kind {
-        case let .image(image):
-          guard let serverId = uploadedImageIds[image.localId] else { return nil }
-          return .image(ServerControlDeckImageAttachmentRef(
-            attachmentId: serverId,
-            displayName: image.displayName
-          ))
-        case let .mention(mention):
-          return .mention(ServerControlDeckMentionRef(
-            mentionId: mention.fileId,
-            kind: encodeMentionKind(mention.kind),
-            name: mention.name,
-            path: mention.absolutePath,
-            relativePath: mention.relativePath
-          ))
-      }
+  ) -> [ServerImageInput] {
+    state.images.compactMap { image in
+      guard let serverId = uploadedImageIds[image.localId] else { return nil }
+      return ServerImageInput(
+        inputType: "attachment",
+        value: serverId,
+        displayName: image.displayName,
+        pixelWidth: image.pixelWidth,
+        pixelHeight: image.pixelHeight
+      )
     }
   }
 
-  // MARK: - Overrides
-
-  private static func encodeOverrides(model: String?, effort: String?) -> ServerControlDeckTurnOverrides? {
-    guard model != nil || effort != nil else { return nil }
-    return ServerControlDeckTurnOverrides(model: model, effort: effort)
-  }
-
-  // MARK: - Mention Kind
-
-  private static func encodeMentionKind(_ kind: ControlDeckMentionKind) -> ServerControlDeckMentionKind {
-    switch kind {
-      case .file: .file
-      case .mcpResource: .mcpResource
-      case .url: .url
-      case .symbol: .symbol
-      case .generic: .generic
+  private static func encodeMentions(_ state: ControlDeckAttachmentState) -> [ServerMentionInput] {
+    state.mentions.map { mention in
+      ServerMentionInput(name: mention.name, path: mention.absolutePath)
     }
   }
 }

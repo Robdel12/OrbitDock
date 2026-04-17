@@ -33,6 +33,35 @@ struct DashboardSnapshot: Sendable {
   let hasMultipleEndpoints: Bool
   /// Project groups derived from conversations.
   let projectGroups: [DashboardProjectGroup]
+  let visibleProjectGroups: [DashboardProjectGroup]
+  let conversationsBySessionRef: [SessionRef: DashboardConversationRecord]
+  private let sessionRefsByProjectGroupID: [String: [SessionRef]]
+
+  init(
+    revision: UInt64,
+    conversations: [DashboardConversationRecord],
+    counts: DashboardTriageCounts,
+    directCount: Int,
+    hasMultipleEndpoints: Bool,
+    projectGroups: [DashboardProjectGroup]
+  ) {
+    self.revision = revision
+    self.conversations = conversations
+    self.counts = counts
+    self.directCount = directCount
+    self.hasMultipleEndpoints = hasMultipleEndpoints
+    self.projectGroups = projectGroups
+    self.visibleProjectGroups = projectGroups.filter { $0.totalCount > 0 }
+    self.conversationsBySessionRef = Dictionary(
+      conversations.map { ($0.sessionRef, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    self.sessionRefsByProjectGroupID = Self.buildSessionRefsByProjectGroupID(projectGroups)
+  }
+
+  func sessionRefs(for group: DashboardProjectGroup) -> [SessionRef] {
+    sessionRefsByProjectGroupID[group.id] ?? []
+  }
 
   func replacing(conversations: [DashboardConversationRecord], revision: UInt64? = nil) -> DashboardSnapshot {
     DashboardSnapshot(
@@ -120,5 +149,29 @@ struct DashboardSnapshot: Sendable {
         )
       }
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+  }
+
+  private static func buildSessionRefsByProjectGroupID(
+    _ groups: [DashboardProjectGroup]
+  ) -> [String: [SessionRef]] {
+    var sessionRefsByProjectGroupID: [String: [SessionRef]] = [:]
+    sessionRefsByProjectGroupID.reserveCapacity(groups.count)
+
+    for group in groups {
+      var seen: Set<SessionRef> = []
+      var sessionRefs: [SessionRef] = []
+      sessionRefs.reserveCapacity(group.sessionIds.count)
+
+      for sessionId in group.sessionIds {
+        let sessionRef = SessionRef(endpointId: group.endpointId, sessionId: sessionId)
+        if seen.insert(sessionRef).inserted {
+          sessionRefs.append(sessionRef)
+        }
+      }
+
+      sessionRefsByProjectGroupID[group.id] = sessionRefs
+    }
+
+    return sessionRefsByProjectGroupID
   }
 }

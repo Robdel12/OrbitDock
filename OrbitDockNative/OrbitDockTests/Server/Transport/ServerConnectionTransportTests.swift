@@ -48,30 +48,18 @@ struct ServerConnectionTransportTests {
     connection.disconnect()
   }
 
-  @Test func readinessTracksDashboardAndMissionsIndependently() {
-    let readiness = ServerRuntimeReadiness.derive(
-      connectionStatus: .connected,
-      hasReceivedInitialDashboardSnapshot: true,
-      hasReceivedInitialMissionsSnapshot: false
-    )
+  @Test func readinessTracksConnectedTransport() {
+    let readiness = ServerRuntimeReadiness.derive(connectionStatus: .connected)
 
     #expect(readiness.transportReady)
-    #expect(readiness.controlPlaneReady)
-    #expect(readiness.dashboardReady)
-    #expect(readiness.missionsReady == false)
+    #expect(readiness.serverRoleReady)
   }
 
-  @Test func readinessStaysUsableWithBootstrapWhenWebSocketDrops() {
-    let readiness = ServerRuntimeReadiness.derive(
-      connectionStatus: .disconnected,
-      hasReceivedInitialDashboardSnapshot: true,
-      hasReceivedInitialMissionsSnapshot: false
-    )
+  @Test func readinessGoesOfflineWhenTransportDrops() {
+    let readiness = ServerRuntimeReadiness.derive(connectionStatus: .disconnected)
 
-    #expect(readiness.transportReady)
-    #expect(readiness.controlPlaneReady)
-    #expect(readiness.dashboardReady)
-    #expect(readiness.missionsReady == false)
+    #expect(readiness.transportReady == false)
+    #expect(readiness.serverRoleReady == false)
   }
 
   @Test func executeOmitsMinimumServerVersionHeader() async throws {
@@ -82,7 +70,7 @@ struct ServerConnectionTransportTests {
     )
     let transport = TransportSpy(responses: [success])
     let connection = ServerConnection(authToken: nil, transport: transport)
-    let url = try #require(URL(string: "https://example.com/api/dashboard"))
+    let url = try #require(URL(string: "https://example.com/api/sessions/active"))
 
     let first = try await connection.execute(URLRequest(url: url))
 
@@ -110,7 +98,7 @@ struct ServerConnectionTransportTests {
     )
     let transport = TransportSpy(responses: [incompatible, incompatible])
     let connection = ServerConnection(authToken: nil, transport: transport)
-    let url = try #require(URL(string: "https://example.com/api/dashboard"))
+    let url = try #require(URL(string: "https://example.com/api/sessions/active"))
 
     let first = try await connection.execute(URLRequest(url: url))
 

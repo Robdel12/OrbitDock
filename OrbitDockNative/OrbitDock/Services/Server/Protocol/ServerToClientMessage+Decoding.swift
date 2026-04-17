@@ -6,26 +6,31 @@ extension ServerToClientMessage {
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
+      case "sessions_summary_invalidated":
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        self = .sessionsSummaryInvalidated(revision: revision)
+
       case "hello":
         let hello = try container.decode(ServerHelloMetadata.self, forKey: .hello)
         self = .hello(hello: hello)
 
-      case "dashboard_invalidated":
+      case "active_sessions_invalidated":
         let revision = try container.decode(UInt64.self, forKey: .revision)
-        self = .dashboardInvalidated(revision: revision)
+        self = .activeSessionsInvalidated(revision: revision)
 
-      case "dashboard_conversation_updated":
+      case "archived_sessions_invalidated":
         let revision = try container.decode(UInt64.self, forKey: .revision)
-        let item = try container.decode(ServerDashboardConversationItem.self, forKey: .item)
-        self = .dashboardConversationUpdated(revision: revision, item: item)
-
-      case "dashboard_item_removed":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        self = .dashboardItemRemoved(sessionId: sessionId)
+        self = .archivedSessionsInvalidated(revision: revision)
 
       case "missions_invalidated":
         let revision = try container.decode(UInt64.self, forKey: .revision)
         self = .missionsInvalidated(revision: revision)
+
+      case "session_surface_invalidated":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let surface = try container.decode(ServerSessionSurface.self, forKey: .surface)
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        self = .sessionSurfaceInvalidated(sessionId: sessionId, surface: surface, revision: revision)
 
       case "session_delta":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -371,21 +376,16 @@ extension ServerToClientMessage {
         let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         self = .error(code: code, message: message, sessionId: sessionId)
 
-      case "missions_list":
-        let missions = try container.decode([MissionSummary].self, forKey: .missions)
-        self = .missionsList(missions: missions)
-
-      case "mission_delta":
-        let missionId = try container.decode(String.self, forKey: .missionId)
-        let issues = try container.decode([MissionIssueItem].self, forKey: .issues)
-        let summary = try container.decode(MissionSummary.self, forKey: .summary)
-        self = .missionDelta(missionId: missionId, issues: issues, summary: summary)
-
       case "mission_heartbeat":
         let missionId = try container.decode(String.self, forKey: .missionId)
         let tickStartedAt = try container.decode(String.self, forKey: .tickStartedAt)
         let nextTickAt = try container.decode(String.self, forKey: .nextTickAt)
         self = .missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt)
+
+      case "mission_invalidated":
+        let missionId = try container.decode(String.self, forKey: .missionId)
+        let revision = try container.decode(UInt64.self, forKey: .revision)
+        self = .missionInvalidated(missionId: missionId, revision: revision)
 
       case "steer_outcome":
         let sessionId = try container.decode(String.self, forKey: .sessionId)

@@ -97,21 +97,23 @@ fn create_codex_selection(
     return None;
   }
 
+  let approval_policy_details = body.approval_policy_details.clone().or_else(|| {
+    body
+      .approval_policy
+      .as_deref()
+      .and_then(CodexApprovalPolicy::from_storage_text)
+  });
+  let sandbox_policy_details = body.sandbox_policy_details.clone().or_else(|| {
+    body
+      .sandbox_mode
+      .as_deref()
+      .and_then(CodexSandboxPolicy::from_storage_text)
+  });
   let codex_overrides = CodexSessionOverrides {
     model: body.model.clone(),
     model_provider: body.codex_model_provider.clone(),
-    approval_policy: body
-      .approval_policy_details
-      .as_ref()
-      .map(|details| details.legacy_summary())
-      .or(body.approval_policy.clone()),
-    approval_policy_details: body.approval_policy_details.clone(),
-    sandbox_mode: body
-      .sandbox_policy_details
-      .as_ref()
-      .map(|details| details.legacy_summary())
-      .or(body.sandbox_mode.clone()),
-    sandbox_policy_details: body.sandbox_policy_details.clone(),
+    approval_policy_details,
+    sandbox_policy_details,
     approvals_reviewer: None,
     collaboration_mode: body.collaboration_mode.clone(),
     multi_agent: body.multi_agent,
@@ -242,7 +244,7 @@ pub async fn create_session(
         .or_else(|| {
           normalized_codex_selection
             .as_ref()
-            .and_then(|selection| selection.overrides.approval_policy.clone())
+            .and_then(|selection| selection.overrides.approval_policy_summary())
         }),
       sandbox_mode: resolved_codex
         .as_ref()
@@ -250,7 +252,15 @@ pub async fn create_session(
         .or_else(|| {
           normalized_codex_selection
             .as_ref()
-            .and_then(|selection| selection.overrides.sandbox_mode.clone())
+            .and_then(|selection| selection.overrides.sandbox_mode_summary())
+        }),
+      sandbox_policy_details: resolved_codex
+        .as_ref()
+        .and_then(|resolved| resolved.effective_settings.sandbox_policy_details.clone())
+        .or_else(|| {
+          normalized_codex_selection
+            .as_ref()
+            .and_then(|selection| selection.overrides.sandbox_policy_details.clone())
         }),
       permission_mode: body.permission_mode.clone(),
       allowed_tools: body.allowed_tools.clone(),
@@ -396,7 +406,7 @@ pub async fn create_session(
       .await;
   }
 
-  state.notify_dashboard_session_updated(&session_id);
+  state.notify_active_session_updated(&session_id);
 
   Ok(Json(CreateSessionResponse {
     session_id,

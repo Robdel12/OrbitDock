@@ -3,7 +3,6 @@ import SwiftUI
 struct SidebarUsageSection: View {
   @State private var expandedProviderIDs: Set<String> = []
   @Environment(UsageServiceRegistry.self) private var registry
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   private var activeProviders: [(
     provider: Provider,
@@ -45,7 +44,7 @@ struct SidebarUsageSection: View {
       .padding(.bottom, Spacing.md)
     }
     .task {
-      await registry.refreshAll()
+      await registry.refreshIfNeeded()
     }
   }
 

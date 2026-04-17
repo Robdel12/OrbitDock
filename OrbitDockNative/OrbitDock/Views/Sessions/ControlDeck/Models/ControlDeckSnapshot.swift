@@ -37,6 +37,7 @@ struct ControlDeckSessionState: Sendable {
   let provider: ControlDeckProvider
   let controlMode: ControlDeckControlMode
   let lifecycle: ControlDeckLifecycle
+  let workStatus: ControlDeckWorkStatus
   let acceptsUserInput: Bool
   let steerable: Bool
   /// True when a connector process is attached and can receive actions.
@@ -60,6 +61,15 @@ enum ControlDeckControlMode: String, Sendable {
 enum ControlDeckLifecycle: String, Sendable {
   case open
   case resumable
+  case ended
+}
+
+enum ControlDeckWorkStatus: String, Sendable {
+  case working
+  case waiting
+  case permission
+  case question
+  case reply
   case ended
 }
 

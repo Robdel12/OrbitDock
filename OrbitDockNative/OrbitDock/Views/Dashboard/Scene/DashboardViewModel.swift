@@ -76,12 +76,6 @@ final class DashboardViewModel {
     snapshot == nil
   }
 
-  // MARK: - Library (reads from service — @Observable propagates automatically)
-
-  var librarySessions: [RootSessionNode] {
-    dataService.librarySessions
-  }
-
   // MARK: - Demo mode
 
   func refreshNow() async {

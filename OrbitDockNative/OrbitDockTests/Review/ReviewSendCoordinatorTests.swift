@@ -62,10 +62,12 @@ struct ReviewSendCoordinatorTests {
       turnDiffs: [ServerTurnDiff(turnId: "turn-1", diff: "diff-a")]
     )
 
-    if case .pending? = pendingBanner?.tone {
-      #expect(true)
-    } else {
-      Issue.record("Expected pending review banner tone")
+    switch pendingBanner?.tone {
+      case .pending?:
+        break
+
+      default:
+        Issue.record("Expected pending review banner tone")
     }
     #expect(pendingBanner?.title == "Review sent")
 
@@ -89,10 +91,12 @@ struct ReviewSendCoordinatorTests {
       turnDiffs: progressTurnDiffs
     )
 
-    if case .progress? = progressBanner?.tone {
-      #expect(true)
-    } else {
-      Issue.record("Expected progress review banner tone")
+    switch progressBanner?.tone {
+      case .progress?:
+        break
+
+      default:
+        Issue.record("Expected progress review banner tone")
     }
     #expect(progressBanner?.title == "1 of 1 reviewed file updated")
     #expect(addressed == ["Sources/App.swift"])

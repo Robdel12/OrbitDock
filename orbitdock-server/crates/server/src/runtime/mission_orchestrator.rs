@@ -3,20 +3,19 @@
 //! Spawned as a tokio task at server startup. Each tick:
 //! 1. Load enabled missions from DB
 //! 2. For each mission: parse MISSION.md -> validate -> fetch candidates -> gate -> dispatch
-//! 3. Broadcast MissionDelta on state changes
+//! 3. Publish mission invalidation on state changes
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use orbitdock_protocol::{MissionIssueItem, MissionSummary, OrchestrationState, Provider};
 use tracing::{debug, error, info, warn};
 
 use crate::domain::mission_control::config::{parse_mission_file, MissionConfig};
 use crate::domain::mission_control::eligibility::{is_eligible, sort_candidates};
 use crate::domain::mission_control::tracker::Tracker;
 use crate::infrastructure::persistence::mission_control::{
-  load_manually_queued_issues, load_mission_by_id, load_mission_issues, load_missions,
-  load_retry_ready_issues, MissionIssueRow, MissionRow,
+  load_manually_queued_issues, load_mission_issues, load_missions, load_retry_ready_issues,
+  MissionIssueRow, MissionRow,
 };
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_registry::SessionRegistry;
@@ -108,9 +107,9 @@ async fn orchestrator_tick(
           error = %err,
           "Failed to process mission"
       );
-      // Broadcast updated state — don't persist tracker/runtime errors as
+      // Publish updated state — don't persist tracker/runtime errors as
       // parse_error (that column is for MISSION.md parse failures only).
-      broadcast_mission_delta_by_id(registry, &mission.id).await;
+      registry.publish_mission_invalidation(&mission.id);
     }
   }
 
@@ -318,7 +317,7 @@ async fn process_mission(
 
   // Skip candidate fetch + dispatch for manual-only missions
   if workflow.config.trigger.kind == "manual_only" {
-    broadcast_mission_delta_by_id(registry, &mission.id).await;
+    registry.publish_mission_invalidation(&mission.id);
     return Ok(());
   }
 
@@ -407,7 +406,7 @@ async fn process_mission(
       }
 
       // Broadcast updated state immediately so the UI reflects the change
-      broadcast_mission_delta_by_id(&registry, &mission_id).await;
+      registry.publish_mission_invalidation(&mission_id);
     });
   }
 
@@ -484,7 +483,7 @@ async fn process_mission(
         );
       }
 
-      broadcast_mission_delta_by_id(&registry, &mission_id).await;
+      registry.publish_mission_invalidation(&mission_id);
     });
   }
 
@@ -565,240 +564,17 @@ async fn process_mission(
         );
       }
 
-      broadcast_mission_delta_by_id(&registry, &mission_id).await;
+      registry.publish_mission_invalidation(&mission_id);
     });
   }
 
   // Record that we processed this mission
   last_poll_at.insert(mission.id.clone(), std::time::Instant::now());
 
-  // Broadcast MissionDelta (reload from DB to include any PersistCommand updates)
-  broadcast_mission_delta_by_id(registry, &mission.id).await;
+  // Broadcast mission invalidation now that persistence-backed mission state changed.
+  registry.publish_mission_invalidation(&mission.id);
 
   Ok(())
-}
-
-/// Build and broadcast a MissionDelta message for a mission.
-pub async fn broadcast_mission_delta(registry: &Arc<SessionRegistry>, mission: &MissionRow) {
-  let db_path = registry.db_path().clone();
-  let mission_id = mission.id.clone();
-
-  let issues_result: anyhow::Result<Vec<MissionIssueRow>> = {
-    let path = db_path;
-    let mid = mission_id.clone();
-    tokio::task::spawn_blocking(move || {
-      let conn = rusqlite::Connection::open(&path)?;
-      load_mission_issues(&conn, &mid)
-    })
-    .await
-    .unwrap_or_else(|e| Err(anyhow::anyhow!("join error: {e}")))
-  };
-
-  let issue_rows = match issues_result {
-    Ok(rows) => rows,
-    Err(_) => return,
-  };
-
-  let mut active_count = 0u32;
-  let mut queued_count = 0u32;
-  let mut completed_count = 0u32;
-  let mut failed_count = 0u32;
-
-  let issues: Vec<MissionIssueItem> = issue_rows
-    .iter()
-    .map(|row| {
-      let state = match row.orchestration_state.as_str() {
-        "queued" => {
-          queued_count += 1;
-          OrchestrationState::Queued
-        }
-        "claimed" => {
-          active_count += 1;
-          OrchestrationState::Claimed
-        }
-        "provisioning" => {
-          active_count += 1;
-          OrchestrationState::Provisioning
-        }
-        "running" => {
-          active_count += 1;
-          OrchestrationState::Running
-        }
-        "retry_queued" => {
-          queued_count += 1;
-          OrchestrationState::RetryQueued
-        }
-        "completed" => {
-          completed_count += 1;
-          OrchestrationState::Completed
-        }
-        "failed" => {
-          failed_count += 1;
-          OrchestrationState::Failed
-        }
-        "blocked" => {
-          failed_count += 1;
-          OrchestrationState::Blocked
-        }
-        _ => {
-          queued_count += 1;
-          OrchestrationState::Queued
-        }
-      };
-
-      // Enrich with live session data if available
-      let (work_status, last_message, last_activity) = row
-        .session_id
-        .as_deref()
-        .and_then(|sid| registry.get_session(sid))
-        .map(|handle| {
-          let snap = handle.snapshot();
-          let ws = snap.work_status;
-          let msg = snap.last_message.clone();
-          let activity = snap.last_progress_at.clone();
-          (Some(ws), msg, activity)
-        })
-        .unwrap_or((None, None, None));
-
-      MissionIssueItem {
-        issue_id: row.issue_id.clone(),
-        identifier: row.issue_identifier.clone(),
-        title: row.issue_title.clone().unwrap_or_default(),
-        tracker_state: row.issue_state.clone().unwrap_or_default(),
-        orchestration_state: state,
-        session_id: row.session_id.clone(),
-        provider: row
-          .provider
-          .as_deref()
-          .unwrap_or("claude")
-          .parse::<Provider>()
-          .unwrap_or_else(|_| {
-            warn!(
-                component = "mission_control",
-                event = "provider.invalid_issue",
-                issue_id = %row.issue_id,
-                raw_value = ?row.provider,
-                "Invalid provider for issue, falling back to Claude"
-            );
-            Provider::Claude
-          }),
-        attempt: row.attempt,
-        error: row.last_error.clone(),
-        url: row.url.clone(),
-        last_activity,
-        started_at: row.started_at.clone(),
-        completed_at: row.completed_at.clone(),
-        allowed_transitions: state.allowed_transitions(),
-        work_status,
-        last_message,
-        pr_url: row.pr_url.clone(),
-      }
-    })
-    .collect();
-
-  let primary_provider: Provider = mission.provider.parse().unwrap_or_else(|_| {
-    warn!(
-        component = "mission_control",
-        event = "provider.invalid_mission",
-        mission_id = %mission.id,
-        raw_value = %mission.provider,
-        "Invalid primary provider for mission, falling back to Claude"
-    );
-    Provider::Claude
-  });
-
-  let orchestrator_running = registry.is_orchestrator_running();
-  let orchestrator_status =
-    crate::domain::mission_control::compute_orchestrator_status(mission, orchestrator_running);
-
-  // Read strategy from config_json if available
-  let (provider_strategy, secondary_provider) = if let Some(ref json) = mission.config_json {
-    if let Ok(config) =
-      serde_json::from_str::<crate::domain::mission_control::config::MissionConfig>(json)
-    {
-      let secondary = config.provider.secondary.as_ref().and_then(|s| {
-        s.parse::<Provider>().ok().or_else(|| {
-          warn!(
-              component = "mission_control",
-              event = "provider.invalid_secondary",
-              mission_id = %mission.id,
-              raw_value = %s,
-              "Invalid secondary provider for mission, dropping to None"
-          );
-          None
-        })
-      });
-      (config.provider.strategy, secondary)
-    } else {
-      ("single".to_string(), None)
-    }
-  } else {
-    ("single".to_string(), None)
-  };
-
-  let summary = MissionSummary {
-    id: mission.id.clone(),
-    name: mission.name.clone(),
-    repo_root: mission.repo_root.clone(),
-    enabled: mission.enabled,
-    paused: mission.paused,
-    tracker_kind: mission.tracker_kind.clone(),
-    provider: primary_provider,
-    provider_strategy,
-    primary_provider,
-    secondary_provider,
-    active_count,
-    queued_count,
-    completed_count,
-    failed_count,
-    parse_error: mission.parse_error.clone(),
-    orchestrator_status,
-    last_polled_at: Some(chrono::Utc::now().to_rfc3339()),
-    poll_interval: {
-      // Try to extract interval from config_json
-      mission.config_json.as_ref().and_then(|json| {
-        serde_json::from_str::<crate::domain::mission_control::config::MissionConfig>(json)
-          .ok()
-          .map(|c| c.trigger.interval)
-      })
-    },
-    mission_file_path: mission.mission_file_path.clone(),
-    tracker_key_source: crate::support::api_keys::tracker_key_source_for_mission(
-      &mission.id,
-      &mission.tracker_kind,
-    )
-    .map(|s| s.to_string()),
-  };
-
-  let msg = orbitdock_protocol::ServerMessage::MissionDelta {
-    mission_id,
-    issues,
-    summary,
-  };
-
-  let _ = registry.list_tx().send(msg);
-  registry.publish_missions_snapshot();
-}
-
-/// Broadcast a MissionDelta by loading the mission from DB.
-/// Used by spawned dispatch tasks that don't have the MissionRow in scope.
-pub async fn broadcast_mission_delta_by_id(registry: &Arc<SessionRegistry>, mission_id: &str) {
-  let db_path = registry.db_path().clone();
-  let mid = mission_id.to_string();
-  let mission = {
-    let path = db_path;
-    let id = mid;
-    tokio::task::spawn_blocking(move || {
-      let conn = rusqlite::Connection::open(&path)?;
-      load_mission_by_id(&conn, &id)
-    })
-    .await
-    .unwrap_or_else(|e| Err(anyhow::anyhow!("join error: {e}")))
-  };
-
-  if let Ok(Some(row)) = mission {
-    broadcast_mission_delta(registry, &row).await;
-  }
 }
 
 #[cfg(test)]

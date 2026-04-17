@@ -4,24 +4,17 @@ import Observation
 @Observable
 @MainActor
 final class DashboardDataService {
-  private struct ListenerBinding {
-    let connection: ServerConnection
-    let token: ServerConnectionListenerToken
-  }
-
-  // MARK: - Observable state (consumers read these)
+  // MARK: - Observable state
 
   private(set) var snapshot: DashboardSnapshot?
-  private(set) var librarySessions: [RootSessionNode] = []
 
   // MARK: - Private
 
-  @ObservationIgnored private var listenerBindingsByEndpointId: [UUID: ListenerBinding] = [:]
+  @ObservationIgnored private var endpointRevisionsByEndpointId: [UUID: UInt64] = [:]
   @ObservationIgnored private weak var runtimeRegistry: ServerRuntimeRegistry?
-  @ObservationIgnored private var dashboardRefreshTask: Task<Void, Never>?
-  @ObservationIgnored private var libraryRefreshTask: Task<Void, Never>?
-  @ObservationIgnored private var dashboardRefreshGeneration: UInt64 = 0
-  @ObservationIgnored private var runtimeTopologyTask: Task<Void, Never>?
+  @ObservationIgnored private let listenerHub = EndpointListenerHub()
+  @ObservationIgnored private let topologyObserver = RuntimeTopologyObserver()
+  @ObservationIgnored private let refreshRunner = CoalescedRefreshRunner()
 
   // MARK: - Lifecycle
 
@@ -29,205 +22,93 @@ final class DashboardDataService {
     guard self.runtimeRegistry == nil else { return }
     self.runtimeRegistry = runtimeRegistry
     reconcileListeners(runtimeRegistry: runtimeRegistry)
-    observeRuntimeTopology(runtimeRegistry: runtimeRegistry)
-    scheduleDashboardRefresh()
-    scheduleLibraryRefresh()
+    topologyObserver.start(runtimeRegistry: runtimeRegistry) { [weak self] in
+      guard let self, let runtimeRegistry = self.runtimeRegistry else { return }
+      self.reconcileListeners(runtimeRegistry: runtimeRegistry)
+    }
+    scheduleRefresh()
   }
 
   func stop() {
-    runtimeTopologyTask?.cancel()
-    runtimeTopologyTask = nil
-    for binding in listenerBindingsByEndpointId.values {
-      binding.connection.removeListener(binding.token)
+    topologyObserver.stop()
+    listenerHub.clear { _, connection in
+      connection.unsubscribeActiveSessions()
     }
-    listenerBindingsByEndpointId.removeAll()
-    dashboardRefreshTask?.cancel()
-    dashboardRefreshTask = nil
-    libraryRefreshTask?.cancel()
-    libraryRefreshTask = nil
+    endpointRevisionsByEndpointId.removeAll()
+    refreshRunner.cancel()
     runtimeRegistry = nil
   }
 
   func refreshNow() async {
-    scheduleDashboardRefresh()
-    scheduleLibraryRefresh()
-    let dashboardTask = dashboardRefreshTask
-    let libraryTask = libraryRefreshTask
-    if let dashboardTask {
-      await dashboardTask.value
-    }
-    if let libraryTask {
-      await libraryTask.value
-    }
+    scheduleRefresh()
+    await refreshRunner.waitForCurrentRefresh()
   }
 
-  // MARK: - Listeners
-
-  private func observeRuntimeTopology(runtimeRegistry: ServerRuntimeRegistry) {
-    runtimeTopologyTask?.cancel()
-    runtimeTopologyTask = Task { @MainActor [weak self] in
-      guard let self else { return }
-      let updates = runtimeRegistry.readinessUpdates
-      for await _ in updates {
-        guard !Task.isCancelled else { return }
-        guard let runtimeRegistry = self.runtimeRegistry else { return }
-        self.reconcileListeners(runtimeRegistry: runtimeRegistry)
-      }
-    }
-  }
+  // MARK: - Listener topology
 
   private func reconcileListeners(runtimeRegistry: ServerRuntimeRegistry) {
     let enabledRuntimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
-    let activeConnectionsByEndpointId = Dictionary(
-      uniqueKeysWithValues: enabledRuntimes.map { ($0.endpoint.id, $0.connection) }
+    let topologyChanged = listenerHub.reconcile(
+      runtimes: enabledRuntimes,
+      onConnect: { [weak self] endpointId, connection in
+        guard let self else { return }
+        if connection.connectionStatus == .connected {
+          connection.subscribeActiveSessions(sinceRevision: self.endpointRevisionsByEndpointId[endpointId])
+        }
+      },
+      onDisconnect: { [weak self] endpointId, connection in
+        connection.unsubscribeActiveSessions()
+        self?.endpointRevisionsByEndpointId.removeValue(forKey: endpointId)
+      },
+      makeListener: { [weak self] endpointId, connection in
+        { [weak self] event in
+          guard let self else { return }
+          switch event {
+            case .activeSessionsInvalidated:
+              self.scheduleRefresh()
+
+            case .connectionStatusChanged(.connected):
+              connection.subscribeActiveSessions(sinceRevision: self.endpointRevisionsByEndpointId[endpointId])
+              self.scheduleRefresh()
+
+            case let .error(code, _, sessionId):
+              guard sessionId == nil, code == "lagged" || code == "replay_oversized" else { return }
+              self.scheduleRefresh()
+
+            default:
+              break
+          }
+        }
+      }
     )
-    var topologyChanged = false
-
-    for (endpointId, binding) in Array(listenerBindingsByEndpointId) {
-      guard let activeConnection = activeConnectionsByEndpointId[endpointId],
-            activeConnection === binding.connection
-      else {
-        binding.connection.removeListener(binding.token)
-        listenerBindingsByEndpointId.removeValue(forKey: endpointId)
-        topologyChanged = true
-        continue
-      }
-    }
-
-    for runtime in enabledRuntimes {
-      let endpointId = runtime.endpoint.id
-      let connection = runtime.connection
-      guard listenerBindingsByEndpointId[endpointId] == nil else { continue }
-
-      if connection.connectionStatus == .connected {
-        connection.subscribeDashboard()
-      }
-
-      let token = makeListener(connection: connection, endpointId: endpointId, endpointName: runtime.endpoint.name)
-      listenerBindingsByEndpointId[endpointId] = ListenerBinding(connection: connection, token: token)
-      topologyChanged = true
-    }
 
     if topologyChanged {
-      scheduleDashboardRefresh()
-      scheduleLibraryRefresh()
+      scheduleRefresh()
     }
   }
 
-  private func makeListener(
-    connection: ServerConnection,
-    endpointId: UUID,
-    endpointName: String?
-  ) -> ServerConnectionListenerToken {
-    connection.addListener { [weak self] event in
-      guard let self else { return }
-      switch event {
-      case let .dashboardConversationUpdated(revision, item):
-        self.applyConversationUpdate(item, revision: revision, endpointId: endpointId, endpointName: endpointName)
+  // MARK: - Refresh
 
-      case let .dashboardItemRemoved(sessionId):
-        self.removeConversation(sessionId: sessionId, endpointId: endpointId)
-
-      case .dashboardInvalidated:
-        self.scheduleDashboardRefresh()
-
-      case .connectionStatusChanged(.connected):
-        connection.subscribeDashboard()
-        self.scheduleDashboardRefresh()
-        self.scheduleLibraryRefresh()
-
-      case let .error(code, _, sessionId) where sessionId == nil:
-        switch code {
-        case "dashboard_resync_required", "lagged", "replay_oversized":
-          self.scheduleDashboardRefresh()
-        default:
-          break
-        }
-
-      default:
-        break
-      }
+  private func scheduleRefresh() {
+    refreshRunner.schedule { [weak self] in
+      await self?.refresh()
     }
   }
 
-  // MARK: - Incremental updates
+  private func refresh() async {
+    guard !Task.isCancelled, let runtimeRegistry else { return }
 
-  private func applyConversationUpdate(
-    _ item: ServerDashboardConversationItem,
-    revision: UInt64,
-    endpointId: UUID,
-    endpointName: String?
-  ) {
-    guard let current = snapshot else {
-      // No snapshot yet — need a full fetch first
-      scheduleDashboardRefresh()
-      return
-    }
-
-    let updatedRecord = DashboardConversationRecord(
-      item: item, endpointId: endpointId, endpointName: endpointName
+    let runtimes = ServerEndpointIdentityPlanner.dedupedRuntimes(
+      runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
     )
-
-    var conversations = current.conversations
-    if let index = conversations.firstIndex(where: {
-      $0.sessionId == item.sessionId && $0.sessionRef.endpointId == endpointId
-    }) {
-      conversations[index] = updatedRecord
-    } else {
-      conversations.append(updatedRecord)
-      scheduleLibraryRefresh()
-    }
-
-    conversations.sort { lhs, rhs in
-      let lhsDate = lhs.lastActivityAt ?? lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.lastActivityAt ?? rhs.startedAt ?? .distantPast
-      return lhsDate > rhsDate
-    }
-
-    snapshot = current.replacing(conversations: conversations, revision: max(revision, current.revision))
-  }
-
-  private func removeConversation(sessionId: String, endpointId: UUID) {
-    guard let current = snapshot else { return }
-
-    let before = current.conversations.count
-    var conversations = current.conversations
-    conversations.removeAll {
-      $0.sessionId == sessionId && $0.sessionRef.endpointId == endpointId
-    }
-
-    snapshot = current.replacing(conversations: conversations)
-
-    if conversations.count != before {
-      scheduleLibraryRefresh()
-    }
-  }
-
-  // MARK: - Full refresh (dashboard only)
-
-  private func scheduleDashboardRefresh() {
-    dashboardRefreshTask?.cancel()
-    dashboardRefreshGeneration &+= 1
-    let generation = dashboardRefreshGeneration
-    dashboardRefreshTask = Task { await refreshDashboard(generation: generation) }
-  }
-
-  private func refreshDashboard(generation: UInt64) async {
-    guard !Task.isCancelled, generation == dashboardRefreshGeneration, let runtimeRegistry else { return }
-
-    let runtimes = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
     guard !runtimes.isEmpty else {
-      guard generation == dashboardRefreshGeneration else { return }
-      snapshot = DashboardSnapshot(
-        revision: 0,
-        conversations: [],
-        counts: DashboardTriageCounts(),
-        directCount: 0,
-        hasMultipleEndpoints: false,
-        projectGroups: []
-      )
+      endpointRevisionsByEndpointId.removeAll()
+      snapshot = emptyDashboardSnapshot()
       return
     }
+
+    let activeEndpointIds = Set(runtimes.map(\.endpoint.id))
+    endpointRevisionsByEndpointId = endpointRevisionsByEndpointId.filter { activeEndpointIds.contains($0.key) }
 
     var endpointResults: [DashboardSnapshotMapper.EndpointResult] = []
     var failedEndpointIds: Set<UUID> = []
@@ -236,41 +117,69 @@ final class DashboardDataService {
 
     for runtime in runtimes {
       let endpointId = runtime.endpoint.id
-      endpointIdentityByEndpointId[endpointId] = endpointIdentity(for: runtime)
+      endpointIdentityByEndpointId[endpointId] = ServerEndpointIdentityPlanner.identity(for: runtime)
       defaultEndpointById[endpointId] = runtime.endpoint.isDefault
     }
 
-    for runtime in runtimes {
-      do {
-        let payload = try await runtime.clients.dashboard.fetchDashboardSnapshot()
-        guard !Task.isCancelled, generation == dashboardRefreshGeneration else { return }
+    typealias FetchResult = (
+      payload: ServerDashboardSnapshotPayload?,
+      endpointId: UUID,
+      endpointName: String?,
+      connectionStatus: ConnectionStatus
+    )
+    let descriptors = runtimes.map { runtime in
+      (
+        endpointId: runtime.endpoint.id,
+        endpointName: runtime.endpoint.name,
+        connectionStatus: runtime.connection.connectionStatus,
+        client: runtime.clients.activeSessions
+      )
+    }
 
-        let result = DashboardSnapshotMapper.mapEndpoint(
-          payload,
-          endpointId: runtime.endpoint.id,
-          endpointName: runtime.endpoint.name,
-          connectionStatus: runtime.connection.connectionStatus
-        )
-        endpointResults.append(result)
-      } catch {
-        failedEndpointIds.insert(runtime.endpoint.id)
+    let results = await withTaskGroup(of: FetchResult.self) { group in
+      for descriptor in descriptors {
+        group.addTask {
+          do {
+            let payload = try await descriptor.client.fetchSnapshot()
+            return (payload, descriptor.endpointId, descriptor.endpointName, descriptor.connectionStatus)
+          } catch {
+            return (nil, descriptor.endpointId, descriptor.endpointName, descriptor.connectionStatus)
+          }
+        }
+      }
+
+      var collected: [FetchResult] = []
+      for await result in group {
+        collected.append(result)
+      }
+      return collected
+    }
+
+    guard !Task.isCancelled else { return }
+    for result in results {
+      guard let payload = result.payload else {
+        failedEndpointIds.insert(result.endpointId)
         continue
       }
+
+      endpointRevisionsByEndpointId[result.endpointId] = payload.revision
+      endpointResults.append(
+        DashboardSnapshotMapper.mapEndpoint(
+          payload,
+          endpointId: result.endpointId,
+          endpointName: result.endpointName,
+          connectionStatus: result.connectionStatus
+        )
+      )
     }
 
-    let successfulIdentities = Set(
-      endpointResults.map { result in
-        endpointIdentityByEndpointId[result.endpointId]
-          ?? "endpoint:\(result.endpointId.uuidString.lowercased())"
-      }
-    )
+    let successfulIdentities = Set(endpointResults.map { result in
+      endpointIdentity(for: result.endpointId, by: endpointIdentityByEndpointId)
+    })
     let failedEndpointIdsWithoutSuccessfulIdentity = failedEndpointIds.filter { endpointId in
-      let identity = endpointIdentityByEndpointId[endpointId]
-        ?? "endpoint:\(endpointId.uuidString.lowercased())"
-      return !successfulIdentities.contains(identity)
+      !successfulIdentities.contains(endpointIdentity(for: endpointId, by: endpointIdentityByEndpointId))
     }
 
-    // Preserve existing endpoint slices that failed this refresh.
     if let existing = snapshot, !failedEndpointIdsWithoutSuccessfulIdentity.isEmpty {
       endpointResults.append(
         contentsOf: preservedResults(for: Set(failedEndpointIdsWithoutSuccessfulIdentity), from: existing)
@@ -282,21 +191,22 @@ final class DashboardDataService {
       endpointIdentityByEndpointId: endpointIdentityByEndpointId,
       defaultEndpointById: defaultEndpointById
     )
-    let merged = DashboardSnapshotMapper.merge(dedupedResults)
-    guard generation == dashboardRefreshGeneration else { return }
-    snapshot = merged
+    snapshot = DashboardSnapshotMapper.merge(dedupedResults)
   }
 
-  // MARK: - Library refresh (independent lifecycle)
-
-  private func scheduleLibraryRefresh() {
-    libraryRefreshTask?.cancel()
-    libraryRefreshTask = Task { await refreshLibrary() }
+  private func emptyDashboardSnapshot() -> DashboardSnapshot {
+    DashboardSnapshot(
+      revision: 0,
+      conversations: [],
+      counts: DashboardTriageCounts(),
+      directCount: 0,
+      hasMultipleEndpoints: false,
+      projectGroups: []
+    )
   }
 
-  private func refreshLibrary() async {
-    guard !Task.isCancelled, let runtimeRegistry else { return }
-    librarySessions = await RootSessionSnapshotLoader.fetchLibrarySessions(from: runtimeRegistry)
+  private func endpointIdentity(for endpointId: UUID, by endpointIdentityByEndpointId: [UUID: String]) -> String {
+    endpointIdentityByEndpointId[endpointId] ?? "endpoint:\(endpointId.uuidString.lowercased())"
   }
 
   private func preservedResults(
@@ -319,39 +229,6 @@ final class DashboardDataService {
     }
   }
 
-  private func endpointIdentity(for runtime: ServerRuntime) -> String {
-    if let serverInstanceId = runtime.sessionStore.serverInstanceId?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-      .lowercased(),
-      !serverInstanceId.isEmpty
-    {
-      return "server:\(serverInstanceId)"
-    }
-    return Self.endpointIdentity(for: runtime.endpoint.wsURL)
-  }
-
-  private static func endpointIdentity(for wsURL: URL) -> String {
-    guard let components = URLComponents(url: wsURL, resolvingAgainstBaseURL: false) else {
-      return "url:\(wsURL.absoluteString.lowercased())"
-    }
-
-    let scheme = (components.scheme ?? "ws").lowercased()
-    let host = (components.host ?? "").lowercased()
-    let port = components.port ?? (scheme == "wss" ? 443 : 80)
-    var path = components.percentEncodedPath
-
-    if path.isEmpty {
-      path = "/ws"
-    }
-
-    while path.count > 1 && path.hasSuffix("/") {
-      path.removeLast()
-    }
-
-    let query = components.percentEncodedQuery.map { "?\($0)" } ?? ""
-    return "url:\(scheme)://\(host):\(port)\(path)\(query)"
-  }
-
   private func dedupeEndpointResults(
     _ results: [DashboardSnapshotMapper.EndpointResult],
     endpointIdentityByEndpointId: [UUID: String],
@@ -361,9 +238,7 @@ final class DashboardDataService {
     var identityOrder: [String] = []
 
     for result in results {
-      let identity = endpointIdentityByEndpointId[result.endpointId]
-        ?? "endpoint:\(result.endpointId.uuidString.lowercased())"
-
+      let identity = endpointIdentity(for: result.endpointId, by: endpointIdentityByEndpointId)
       guard let existing = keptByIdentity[identity] else {
         keptByIdentity[identity] = result
         identityOrder.append(identity)
@@ -385,8 +260,5 @@ final class DashboardDataService {
   func applyDemoSnapshot(_ snapshot: DashboardSnapshot) {
     self.snapshot = snapshot
   }
-
-  func applyDemoSessions(_ sessions: [RootSessionNode]) {
-    librarySessions = RootSessionSnapshotLoader.sortSessions(sessions)
-  }
 }
+

@@ -126,7 +126,7 @@ pub(crate) async fn sync_mission_issue_on_resume(
     })
     .await;
 
-  crate::runtime::mission_orchestrator::broadcast_mission_delta_by_id(state, mission_id).await;
+  state.publish_mission_invalidation(mission_id);
 
   tracing::info!(
       component = "mission_control",

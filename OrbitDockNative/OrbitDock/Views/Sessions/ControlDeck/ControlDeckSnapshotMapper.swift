@@ -1,60 +1,22 @@
 import Foundation
 
-nonisolated enum ControlDeckSnapshotMapper {
-  static func map(_ payload: ServerControlDeckSnapshotPayload) -> ControlDeckSnapshot {
-    ControlDeckSnapshot(
+enum ControlDeckSnapshotMapper {
+  @MainActor
+  static func map(
+    _ payload: ServerSessionDetailSnapshotPayload,
+    codexModels: [ServerCodexModelOption]
+  ) -> ControlDeckSnapshot {
+    let session = payload.session
+    return ControlDeckSnapshot(
       revision: payload.revision,
-      sessionId: payload.sessionId,
-      state: mapState(payload.state),
-      capabilities: mapCapabilities(payload.capabilities),
-      preferences: mapPreferences(payload.preferences),
-      tokenUsage: mapTokenUsage(payload.tokenUsage),
-      tokenUsageSnapshotKind: mapSnapshotKind(payload.tokenUsageSnapshotKind),
-      tokenStatus: mapTokenStatus(payload.tokenStatus),
-      pendingApproval: payload.pendingApproval.map(mapApproval)
-    )
-  }
-
-  static func mapState(_ state: ServerControlDeckState) -> ControlDeckSessionState {
-    ControlDeckSessionState(
-      provider: mapProvider(state.provider),
-      controlMode: mapControlMode(state.controlMode),
-      lifecycle: mapLifecycle(state.lifecycleState),
-      acceptsUserInput: state.acceptsUserInput,
-      steerable: state.steerable,
-      connectorAttached: state.connectorAttached,
-      projectPath: state.projectPath,
-      currentCwd: state.currentCwd,
-      gitBranch: state.gitBranch,
-      config: mapConfig(state.config)
-    )
-  }
-
-  static func mapCapabilities(_ caps: ServerControlDeckCapabilities) -> ControlDeckCapabilities {
-    ControlDeckCapabilities(
-      supportsSkills: caps.supportsSkills,
-      supportsMentions: caps.supportsMentions,
-      supportsImages: caps.supportsImages,
-      supportsSteer: caps.supportsSteer,
-      allowPerTurnModelOverride: caps.allowPerTurnModelOverride,
-      allowPerTurnEffortOverride: caps.allowPerTurnEffortOverride,
-      effortOptions: caps.effortOptions.map(mapPickerOption),
-      approvalModeOptions: caps.approvalModeOptions.map(mapPickerOption),
-      permissionModeOptions: caps.permissionModeOptions.map(mapPickerOption),
-      collaborationModeOptions: caps.collaborationModeOptions.map(mapPickerOption),
-      autoReviewOptions: caps.autoReviewOptions.map(mapAutoReviewOption),
-      availableStatusModules: caps.availableStatusModules.compactMap(mapModule)
-    )
-  }
-
-  static func mapPreferences(_ prefs: ServerControlDeckPreferences) -> ControlDeckPreferences {
-    ControlDeckPreferences(
-      density: mapDensity(prefs.density),
-      showWhenEmpty: mapEmptyVisibility(prefs.showWhenEmpty),
-      modules: prefs.modules.compactMap { pref in
-        guard let module = mapModule(pref.module) else { return nil }
-        return ControlDeckModulePreference(module: module, visible: pref.visible)
-      }
+      sessionId: session.id,
+      state: mapState(session),
+      capabilities: mapCapabilities(session, codexModels: codexModels),
+      preferences: defaultPreferences(),
+      tokenUsage: mapTokenUsage(session.tokenUsage),
+      tokenUsageSnapshotKind: mapSnapshotKind(session.tokenUsageSnapshotKind),
+      tokenStatus: buildTokenStatus(session),
+      pendingApproval: session.pendingApproval.map(mapApproval)
     )
   }
 
@@ -67,7 +29,249 @@ nonisolated enum ControlDeckSnapshotMapper {
     )
   }
 
-  // MARK: - Private
+  private static func mapState(_ session: ServerSessionState) -> ControlDeckSessionState {
+    ControlDeckSessionState(
+      provider: mapProvider(session.provider),
+      controlMode: mapControlMode(session.controlMode),
+      lifecycle: mapLifecycle(session.lifecycleState),
+      workStatus: mapWorkStatus(session.workStatus),
+      acceptsUserInput: session.acceptsUserInput,
+      steerable: session.steerable,
+      // Detail owns session shell truth. A resumable or ended lifecycle means the
+      // direct connector is no longer attached enough for interactive work.
+      connectorAttached: session.lifecycleState == .open,
+      projectPath: session.projectPath,
+      currentCwd: session.currentCwd,
+      gitBranch: session.gitBranch,
+      config: mapConfig(session)
+    )
+  }
+
+  private static func mapCapabilities(
+    _ session: ServerSessionState,
+    codexModels: [ServerCodexModelOption]
+  ) -> ControlDeckCapabilities {
+    let selectedCodexModel = selectedCodexModelOption(for: session, codexModels: codexModels)
+    return ControlDeckCapabilities(
+      supportsSkills: session.provider == .codex,
+      supportsMentions: session.provider == .codex,
+      supportsImages: true,
+      supportsSteer: session.steerable,
+      allowPerTurnModelOverride: true,
+      allowPerTurnEffortOverride: session.provider == .codex,
+      effortOptions: effortOptions(for: session, selectedCodexModel: selectedCodexModel),
+      approvalModeOptions: approvalModeOptions(for: session.provider),
+      permissionModeOptions: permissionModeOptions(for: session.provider),
+      collaborationModeOptions: collaborationModeOptions(
+        for: session.provider,
+        selectedCodexModel: selectedCodexModel
+      ),
+      autoReviewOptions: [],
+      availableStatusModules: availableStatusModules(for: session.provider)
+    )
+  }
+
+  private static func mapConfig(_ session: ServerSessionState) -> ControlDeckConfig {
+    ControlDeckConfig(
+      model: session.model,
+      effort: session.effort,
+      approvalPolicy: session.approvalPolicy,
+      approvalPolicyDetails: session.approvalPolicyDetails,
+      sandboxMode: session.sandboxMode,
+      sandboxPolicyDetails: session.sandboxPolicyDetails,
+      approvalsReviewer: session.codexConfigOverrides?.approvalsReviewer,
+      permissionMode: session.permissionMode,
+      collaborationMode: session.collaborationMode
+    )
+  }
+
+  private static func defaultPreferences() -> ControlDeckPreferences {
+    ControlDeckPreferences(
+      density: .comfortable,
+      showWhenEmpty: .auto,
+      modules: [
+        .init(module: .autonomy, visible: true),
+        .init(module: .approvalMode, visible: true),
+        .init(module: .collaborationMode, visible: true),
+        .init(module: .autoReview, visible: true),
+        .init(module: .attachments, visible: true),
+        .init(module: .model, visible: true),
+        .init(module: .effort, visible: true),
+        .init(module: .tokens, visible: true),
+        .init(module: .branch, visible: true),
+        .init(module: .cwd, visible: true),
+      ]
+    )
+  }
+
+  private static func approvalModeOptions(for provider: ServerProvider) -> [ControlDeckPickerOption] {
+    guard provider == .codex else { return [] }
+    return [
+      .init(value: "untrusted", label: "Trusted Only"),
+      .init(value: "on-failure", label: "On Failure"),
+      .init(value: "on-request", label: "Default"),
+      .init(value: "never", label: "Never Ask"),
+    ]
+  }
+
+  private static func permissionModeOptions(for provider: ServerProvider) -> [ControlDeckPickerOption] {
+    guard provider == .claude else { return [] }
+    return ClaudePermissionMode.allCases.map {
+      ControlDeckPickerOption(value: $0.rawValue, label: $0.displayName)
+    }
+  }
+
+  private static func collaborationModeOptions(
+    for provider: ServerProvider,
+    selectedCodexModel: ServerCodexModelOption?
+  ) -> [ControlDeckPickerOption] {
+    guard provider == .codex else { return [] }
+    return CodexCollaborationMode.supportedCases(from: selectedCodexModel).map {
+      ControlDeckPickerOption(value: $0.rawValue, label: $0.displayName)
+    }
+  }
+
+  private static func effortOptions(
+    for session: ServerSessionState,
+    selectedCodexModel: ServerCodexModelOption?
+  ) -> [ControlDeckPickerOption] {
+    switch session.provider {
+      case .claude:
+        return [
+          .init(value: "low", label: "Low"),
+          .init(value: "medium", label: "Medium"),
+          .init(value: "high", label: "High"),
+          .init(value: "max", label: "Max"),
+        ]
+      case .codex:
+        let efforts = selectedCodexModel?.supportedReasoningEfforts ?? ["none", "minimal", "low", "medium", "high", "xhigh"]
+        return uniqueLowercased(efforts).map { effort in
+          ControlDeckPickerOption(value: effort, label: effortLabel(for: effort))
+        }
+    }
+  }
+
+  private static func availableStatusModules(for provider: ServerProvider) -> [ControlDeckStatusModule] {
+    let shared: [ControlDeckStatusModule] = [.model, .effort, .tokens, .branch, .cwd]
+    switch provider {
+      case .claude:
+        return [.autonomy] + shared
+      case .codex:
+        return [.approvalMode, .collaborationMode, .attachments] + shared
+    }
+  }
+
+  private static func selectedCodexModelOption(
+    for session: ServerSessionState,
+    codexModels: [ServerCodexModelOption]
+  ) -> ServerCodexModelOption? {
+    guard session.provider == .codex else { return nil }
+    guard let model = session.model?.trimmingCharacters(in: .whitespacesAndNewlines), !model.isEmpty else {
+      return codexModels.first(where: \.isDefault) ?? codexModels.first
+    }
+    return codexModels.first {
+      $0.model.caseInsensitiveCompare(model) == .orderedSame
+        || $0.id.caseInsensitiveCompare(model) == .orderedSame
+    }
+  }
+
+  private static func uniqueLowercased(_ values: [String]) -> [String] {
+    var seen: Set<String> = []
+    var ordered: [String] = []
+    for value in values {
+      let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      guard !normalized.isEmpty else { continue }
+      guard seen.insert(normalized).inserted else { continue }
+      ordered.append(normalized)
+    }
+    return ordered
+  }
+
+  private static func effortLabel(for value: String) -> String {
+    switch value {
+      case "none": return "None"
+      case "minimal": return "Minimal"
+      case "low": return "Low"
+      case "medium": return "Medium"
+      case "high": return "High"
+      case "xhigh": return "XHigh"
+      case "max": return "Max"
+      default:
+        let first = value.prefix(1).uppercased()
+        return first + value.dropFirst()
+    }
+  }
+
+  private static func buildTokenStatus(_ session: ServerSessionState) -> ControlDeckTokenStatus {
+    let usage = session.tokenUsage
+    guard usage.contextWindow > 0 else {
+      return ControlDeckTokenStatus(label: "—", tone: .muted)
+    }
+
+    let effectiveInput = effectiveContextInputTokens(
+      provider: session.provider,
+      usage: usage,
+      snapshotKind: session.tokenUsageSnapshotKind
+    )
+    let fillPercent = Double(effectiveInput) / Double(usage.contextWindow) * 100
+    let displayPercent: String
+    if effectiveInput > 0, fillPercent > 0, fillPercent < 1 {
+      displayPercent = "<1"
+    } else {
+      displayPercent = "\(UInt64(fillPercent.rounded(.down)))"
+    }
+
+    return ControlDeckTokenStatus(
+      label: "\(displayPercent)% · \(formatTokenCount(effectiveInput))/\(formatTokenCount(usage.contextWindow))",
+      tone: tokenTone(fillPercent)
+    )
+  }
+
+  private static func effectiveContextInputTokens(
+    provider: ServerProvider,
+    usage: ServerTokenUsage,
+    snapshotKind: ServerTokenUsageSnapshotKind
+  ) -> UInt64 {
+    switch snapshotKind {
+      case .mixedLegacy:
+        saturatingAdd(usage.inputTokens, usage.cachedTokens)
+      case .compactionReset:
+        0
+      case .contextTurn:
+        provider == .claude
+          ? saturatingAdd(usage.inputTokens, usage.cachedTokens)
+          : usage.inputTokens
+      case .lifetimeTotals:
+        usage.inputTokens
+      case .unknown:
+        provider == .codex
+          ? usage.inputTokens
+          : saturatingAdd(usage.inputTokens, usage.cachedTokens)
+    }
+  }
+
+  private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+    let (result, overflow) = lhs.addingReportingOverflow(rhs)
+    return overflow ? .max : result
+  }
+
+  private static func tokenTone(_ fillPercent: Double) -> ControlDeckTokenStatus.Tone {
+    if fillPercent > 90 { return .critical }
+    if fillPercent > 70 { return .caution }
+    return .normal
+  }
+
+  private static func formatTokenCount(_ count: UInt64) -> String {
+    if count >= 1_000_000 {
+      return String(format: "%.1fM", Double(count) / 1_000_000)
+    }
+    if count >= 1_000 {
+      return String(format: "%.0fK", Double(count) / 1_000)
+    }
+    return "\(count)"
+  }
+
+  // MARK: - Shared Mapping
 
   private static func mapProvider(_ provider: ServerProvider) -> ControlDeckProvider {
     switch provider {
@@ -83,56 +287,22 @@ nonisolated enum ControlDeckSnapshotMapper {
     }
   }
 
+  private static func mapWorkStatus(_ status: ServerWorkStatus) -> ControlDeckWorkStatus {
+    switch status {
+      case .working: .working
+      case .waiting: .waiting
+      case .permission: .permission
+      case .question: .question
+      case .reply: .reply
+      case .ended: .ended
+    }
+  }
+
   private static func mapLifecycle(_ state: ServerSessionLifecycleState) -> ControlDeckLifecycle {
     switch state {
       case .open: .open
       case .resumable: .resumable
       case .ended: .ended
-    }
-  }
-
-  private static func mapConfig(_ config: ServerControlDeckConfigState) -> ControlDeckConfig {
-    ControlDeckConfig(
-      model: config.model,
-      effort: config.effort,
-      approvalPolicy: config.approvalPolicy,
-      approvalPolicyDetails: config.approvalPolicyDetails,
-      sandboxMode: config.sandboxMode,
-      sandboxPolicyDetails: config.sandboxPolicyDetails,
-      approvalsReviewer: config.approvalsReviewer,
-      permissionMode: config.permissionMode,
-      collaborationMode: config.collaborationMode
-    )
-  }
-
-  private static func mapModule(_ module: ServerControlDeckModule) -> ControlDeckStatusModule? {
-    switch module {
-      case .connection: nil // App-level concern, not a session module
-      case .autonomy: .autonomy
-      case .approvalMode: .approvalMode
-      case .collaborationMode: .collaborationMode
-      case .autoReview: .autoReview
-      case .tokens: .tokens
-      case .model: .model
-      case .effort: .effort
-      case .branch: .branch
-      case .cwd: .cwd
-      case .attachments: nil // The deck already renders real attachments inline
-    }
-  }
-
-  private static func mapDensity(_ density: ServerControlDeckDensity) -> ControlDeckDensity {
-    switch density {
-      case .comfortable: .comfortable
-      case .compact: .compact
-    }
-  }
-
-  private static func mapEmptyVisibility(_ vis: ServerControlDeckEmptyVisibility) -> ControlDeckEmptyVisibility {
-    switch vis {
-      case .auto: .auto
-      case .always: .always
-      case .hidden: .hidden
     }
   }
 
@@ -145,11 +315,14 @@ nonisolated enum ControlDeckSnapshotMapper {
     )
   }
 
-  static func mapTokenStatus(_ status: ServerControlDeckTokenStatus) -> ControlDeckTokenStatus {
-    ControlDeckTokenStatus(
-      label: status.label,
-      tone: mapTokenTone(status.tone)
-    )
+  private static func mapSnapshotKind(_ kind: ServerTokenUsageSnapshotKind) -> ControlDeckTokenUsageSnapshotKind {
+    switch kind {
+      case .unknown: .unknown
+      case .contextTurn: .contextTurn
+      case .lifetimeTotals: .lifetimeTotals
+      case .mixedLegacy: .mixedLegacy
+      case .compactionReset: .compactionReset
+    }
   }
 
   // MARK: - Approval Mapping
@@ -191,8 +364,6 @@ nonisolated enum ControlDeckSnapshotMapper {
     )
   }
 
-  // MARK: - Tool Approval
-
   private static func mapToolApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.ToolApproval {
     let segments = request.preview?.shellSegments ?? []
     let commandChain: [ControlDeckApproval.CommandSegment] = segments.enumerated().map { index, segment in
@@ -211,8 +382,6 @@ nonisolated enum ControlDeckSnapshotMapper {
     )
   }
 
-  // MARK: - Patch Approval
-
   private static func mapPatchApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.PatchApproval {
     ControlDeckApproval.PatchApproval(
       toolName: request.toolName,
@@ -220,8 +389,6 @@ nonisolated enum ControlDeckSnapshotMapper {
       diff: request.diff
     )
   }
-
-  // MARK: - Question Prompts
 
   private static func mapPrompts(_ prompts: [ServerApprovalQuestionPrompt]) -> [ControlDeckApproval.Prompt] {
     prompts.map { prompt in
@@ -242,8 +409,6 @@ nonisolated enum ControlDeckSnapshotMapper {
     }
   }
 
-  // MARK: - Permission Approval
-
   private static func mapPermissionApproval(_ request: ServerApprovalRequest) -> ControlDeckApproval.PermissionApproval {
     let groups = groupPermissions(request.requestedPermissions ?? [])
     return ControlDeckApproval.PermissionApproval(
@@ -262,46 +427,31 @@ nonisolated enum ControlDeckSnapshotMapper {
       switch descriptor {
         case let .network(hosts):
           if hosts.isEmpty {
-            networkItems.append(ControlDeckApproval.PermissionItem(action: "access", target: "any host"))
+            networkItems.append(.init(action: "access", target: "any host"))
           } else {
             for host in hosts {
-              networkItems.append(ControlDeckApproval.PermissionItem(action: "access", target: host))
+              networkItems.append(.init(action: "access", target: host))
             }
           }
-
         case let .filesystem(readPaths, writePaths):
           for path in readPaths {
-            filesystemItems.append(ControlDeckApproval.PermissionItem(action: "read", target: path))
+            filesystemItems.append(.init(action: "read", target: path))
           }
           for path in writePaths {
-            filesystemItems.append(ControlDeckApproval.PermissionItem(action: "write", target: path))
+            filesystemItems.append(.init(action: "write", target: path))
           }
-
         case let .macOs(entitlement, details):
-          let target = formatMacOsEntitlement(entitlement: entitlement, details: details)
-          macOsItems.append(ControlDeckApproval.PermissionItem(action: entitlement, target: target))
-
+          macOsItems.append(.init(action: entitlement, target: formatMacOsEntitlement(entitlement: entitlement, details: details)))
         case let .generic(permission, details):
-          genericItems.append(ControlDeckApproval.PermissionItem(
-            action: permission,
-            target: details ?? permission
-          ))
+          genericItems.append(.init(action: permission, target: details ?? permission))
       }
     }
 
     var groups: [ControlDeckApproval.PermissionGroup] = []
-    if !networkItems.isEmpty {
-      groups.append(ControlDeckApproval.PermissionGroup(category: .network, items: networkItems))
-    }
-    if !filesystemItems.isEmpty {
-      groups.append(ControlDeckApproval.PermissionGroup(category: .filesystem, items: filesystemItems))
-    }
-    if !macOsItems.isEmpty {
-      groups.append(ControlDeckApproval.PermissionGroup(category: .macOs, items: macOsItems))
-    }
-    if !genericItems.isEmpty {
-      groups.append(ControlDeckApproval.PermissionGroup(category: .generic, items: genericItems))
-    }
+    if !networkItems.isEmpty { groups.append(.init(category: .network, items: networkItems)) }
+    if !filesystemItems.isEmpty { groups.append(.init(category: .filesystem, items: filesystemItems)) }
+    if !macOsItems.isEmpty { groups.append(.init(category: .macOs, items: macOsItems)) }
+    if !genericItems.isEmpty { groups.append(.init(category: .generic, items: genericItems)) }
     return groups
   }
 
@@ -327,8 +477,6 @@ nonisolated enum ControlDeckSnapshotMapper {
     }
   }
 
-  // MARK: - Elicitation
-
   private static func mapElicitation(_ request: ServerApprovalRequest) -> ControlDeckApproval.Elicitation? {
     guard let mode = request.elicitationMode else { return nil }
     return ControlDeckApproval.Elicitation(
@@ -344,8 +492,6 @@ nonisolated enum ControlDeckSnapshotMapper {
       case .url: .url
     }
   }
-
-  // MARK: - Risk & Preview
 
   private static func mapRiskLevel(_ level: ServerApprovalRiskLevel?) -> ControlDeckApproval.RiskLevel {
     switch level {
@@ -370,53 +516,14 @@ nonisolated enum ControlDeckSnapshotMapper {
     }
   }
 
-  // MARK: - Formatting Helpers
-
   private static func formatFilePath(_ path: String) -> String {
     let components = path.split(separator: "/")
-    guard components.count > 0 else { return path }
-
-    // Show parent/filename for context (e.g., "Edit Views/MyFile.swift")
+    guard !components.isEmpty else { return path }
     if components.count >= 2 {
       let parent = components[components.count - 2]
       let fileName = components[components.count - 1]
       return "Edit \(parent)/\(fileName)"
     }
-
     return "Edit \(components.last!)"
-  }
-
-  private static func mapSnapshotKind(_ kind: ServerTokenUsageSnapshotKind) -> ControlDeckTokenUsageSnapshotKind {
-    switch kind {
-      case .unknown: .unknown
-      case .contextTurn: .contextTurn
-      case .lifetimeTotals: .lifetimeTotals
-      case .mixedLegacy: .mixedLegacy
-      case .compactionReset: .compactionReset
-    }
-  }
-
-  private static func mapPickerOption(_ option: ServerControlDeckPickerOption) -> ControlDeckPickerOption {
-    ControlDeckPickerOption(value: option.value, label: option.label)
-  }
-
-  private static func mapAutoReviewOption(_ option: ServerControlDeckAutoReviewOption) -> ControlDeckAutoReviewOption {
-    ControlDeckAutoReviewOption(
-      value: option.value,
-      label: option.label,
-      approvalPolicy: option.approvalPolicy,
-      approvalPolicyDetails: option.approvalPolicyDetails,
-      sandboxMode: option.sandboxMode,
-      sandboxPolicyDetails: option.sandboxPolicyDetails
-    )
-  }
-
-  private static func mapTokenTone(_ tone: ServerControlDeckTokenStatusTone) -> ControlDeckTokenStatus.Tone {
-    switch tone {
-      case .muted: .muted
-      case .normal: .normal
-      case .caution: .caution
-      case .critical: .critical
-    }
   }
 }

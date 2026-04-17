@@ -127,7 +127,7 @@ struct MarkdownParsingTests {
     **What changed**
     - Question answers now carry `questionId` through the app -> websocket protocol path:
       - UI callsites: `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+iOS.swift:357`, `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+macOS.swift:884`
-      - session store + connection: `OrbitDock/OrbitDock/Services/Server/SessionStore.swift:108`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:197`
+      - session runtime + connection: `OrbitDock/OrbitDock/Services/Server/ServerSessionTransport.swift`, `OrbitDock/OrbitDock/Services/Server/ServerSessionAPI.swift`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift`
       - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/Protocol/ClientToServerMessage.swift:13`
       - Rust protocol + websocket handling: `orbitdock-server/crates/protocol/src/client.rs:51`, `orbitdock-server/crates/server/src/websocket.rs:2103`.
     """
@@ -154,11 +154,11 @@ struct MarkdownParsingTests {
 
     #expect(list != nil)
     #expect(list?.count == 3)
-    #expect(list?[0].marker == .number(1))
+    #expect(markerLabel(list?[0].marker) == "1.")
     #expect(list?[0].content == "First item")
-    #expect(list?[1].marker == .number(2))
+    #expect(markerLabel(list?[1].marker) == "2.")
     #expect(list?[1].content == "Second item")
-    #expect(list?[2].marker == .number(3))
+    #expect(markerLabel(list?[2].marker) == "3.")
     #expect(list?[2].content == "Third item")
   }
 
@@ -175,10 +175,10 @@ struct MarkdownParsingTests {
 
     #expect(list != nil)
     #expect(list?.count == 2)
-    #expect(list?[0].marker == .checked)
+    #expect(markerLabel(list?[0].marker) == "[x]")
     #expect(list?[0].content.contains("Completed task") == true)
     #expect(list?[0].continuation.first?.contains("continuation paragraph") == true)
-    #expect(list?[1].marker == .unchecked)
+    #expect(markerLabel(list?[1].marker) == "[ ]")
     #expect(list?[1].content.contains("Open task") == true)
   }
 
@@ -403,7 +403,7 @@ struct MarkdownParsingTests {
     let standard = MarkdownSystemParser.parse(markdown, style: .standard)
     let thinking = MarkdownSystemParser.parse(markdown, style: .thinking)
 
-    #expect(standard == thinking)
+    #expect(blockSummary(standard) == blockSummary(thinking))
   }
 
   @Test func streamingProjectionKeepsOpenParagraphInCheapTail() {
@@ -480,6 +480,53 @@ struct MarkdownParsingTests {
       if case let .list(items) = block { return items }
     }
     return nil
+  }
+
+  private func markerLabel(_ marker: ListMarker?) -> String? {
+    switch marker {
+      case .bullet:
+        "bullet"
+      case let .number(value):
+        "\(value)."
+      case .checked:
+        "[x]"
+      case .unchecked:
+        "[ ]"
+      case nil:
+        nil
+    }
+  }
+
+  private func blockSummary(_ blocks: [MarkdownBlock]) -> [String] {
+    blocks.map { block in
+      switch block {
+        case let .text(text):
+          "text:\(text)"
+        case let .heading(level, text):
+          "heading:\(level):\(text)"
+        case let .codeBlock(language, code):
+          "code:\(language ?? "nil"):\(code)"
+        case let .blockquote(text):
+          "blockquote:\(text)"
+        case let .table(headers, rows):
+          "table:\(headers.joined(separator: "|")):\(rows.flatMap { $0 }.joined(separator: "|"))"
+        case .thematicBreak:
+          "thematicBreak"
+        case let .list(items):
+          "list:\(listSummary(items).joined(separator: ","))"
+      }
+    }
+  }
+
+  private func listSummary(_ items: [ListItem]) -> [String] {
+    items.map { item in
+      [
+        markerLabel(item.marker) ?? "nil",
+        item.content,
+        item.continuation.joined(separator: "\n"),
+        listSummary(item.children).joined(separator: ";"),
+      ].joined(separator: "::")
+    }
   }
 
   private func links(in attributed: AttributedString) -> Set<String> {

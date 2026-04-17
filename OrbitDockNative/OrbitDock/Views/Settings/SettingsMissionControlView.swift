@@ -24,8 +24,8 @@ struct MissionControlDefaultsView: View {
 
   @State private var isLoading = true
 
-  private var http: ServerHTTPClient? {
-    runtimeRegistry.primaryRuntime?.clients.http ?? runtimeRegistry.activeRuntime?.clients.http
+  private var missionsClient: MissionsClient? {
+    runtimeRegistry.primaryRuntime?.clients.missions ?? runtimeRegistry.activeRuntime?.clients.missions
   }
 
   var body: some View {
@@ -374,47 +374,43 @@ struct MissionControlDefaultsView: View {
   // MARK: - Networking
 
   private func loadState() async {
-    guard let http else {
+    guard let missionsClient else {
       isLoading = false
       return
     }
 
     isLoading = true
 
-    // Load tracker keys
     do {
-      let keys: TrackerKeysResponse = try await http.get("/api/server/tracker-keys")
+      let keys = try await missionsClient.getTrackerKeys()
       linearKeyConfigured = keys.linear.configured
       linearKeySource = keys.linear.source
       githubKeyConfigured = keys.github.configured
       githubKeySource = keys.github.source
     } catch {
-      // Fallback — try old endpoint
-      if let status: LinearKeyStatus = try? await http.get("/api/server/linear-key") {
-        linearKeyConfigured = status.configured
-      }
+      keyError = "Failed to load tracker keys: \(error.localizedDescription)"
+      githubKeyError = keyError
     }
 
-    // Load defaults
-    if let defaults: MissionDefaultsResponse = try? await http.get("/api/server/mission-defaults") {
+    do {
+      let defaults = try await missionsClient.getMissionDefaults()
       defaultStrategy = defaults.providerStrategy
       defaultPrimary = defaults.primaryProvider
       defaultSecondary = defaults.secondaryProvider ?? ""
+    } catch {
+      keyError = keyError ?? "Failed to load mission defaults: \(error.localizedDescription)"
     }
 
     isLoading = false
   }
 
   private func saveLinearKey() async {
-    guard let http, !linearApiKey.isEmpty else { return }
+    guard let missionsClient, !linearApiKey.isEmpty else { return }
     isSavingKey = true
     keyError = nil
 
     do {
-      let _: LinearKeyStatus = try await http.post(
-        "/api/server/linear-key",
-        body: SetTrackerKeyBody(key: linearApiKey)
-      )
+      let _ = try await missionsClient.setLinearKey(linearApiKey)
       linearApiKey = ""
       linearKeyConfigured = true
       linearKeySource = "settings"
@@ -426,14 +422,11 @@ struct MissionControlDefaultsView: View {
   }
 
   private func deleteLinearKey() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isDeletingKey = true
 
     do {
-      let _: LinearKeyStatus = try await http.request(
-        path: "/api/server/linear-key",
-        method: "DELETE"
-      )
+      let _ = try await missionsClient.deleteLinearKey()
       linearKeyConfigured = false
       linearKeySource = nil
     } catch {
@@ -444,15 +437,12 @@ struct MissionControlDefaultsView: View {
   }
 
   private func saveGitHubKey() async {
-    guard let http, !githubToken.isEmpty else { return }
+    guard let missionsClient, !githubToken.isEmpty else { return }
     isSavingGithubKey = true
     githubKeyError = nil
 
     do {
-      let _: LinearKeyStatus = try await http.post(
-        "/api/server/github-key",
-        body: SetTrackerKeyBody(key: githubToken)
-      )
+      let _ = try await missionsClient.setGitHubKey(githubToken)
       githubToken = ""
       githubKeyConfigured = true
       githubKeySource = "settings"
@@ -464,14 +454,11 @@ struct MissionControlDefaultsView: View {
   }
 
   private func deleteGitHubKey() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isDeletingGithubKey = true
 
     do {
-      let _: LinearKeyStatus = try await http.request(
-        path: "/api/server/github-key",
-        method: "DELETE"
-      )
+      let _ = try await missionsClient.deleteGitHubKey()
       githubKeyConfigured = false
       githubKeySource = nil
     } catch {
@@ -482,39 +469,20 @@ struct MissionControlDefaultsView: View {
   }
 
   private func saveDefaults() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
     isSavingDefaults = true
+    keyError = nil
 
-    let body = UpdateDefaultsBody(
-      providerStrategy: defaultStrategy,
-      primaryProvider: defaultPrimary,
-      secondaryProvider: defaultSecondary.isEmpty ? nil : defaultSecondary
-    )
-
-    let _: MissionDefaultsResponse? = try? await http.request(
-      path: "/api/server/mission-defaults",
-      method: "PUT",
-      body: body
-    )
+    do {
+      let _ = try await missionsClient.updateMissionDefaults(
+        providerStrategy: defaultStrategy,
+        primaryProvider: defaultPrimary,
+        secondaryProvider: defaultSecondary.isEmpty ? nil : defaultSecondary
+      )
+    } catch {
+      keyError = "Failed to save mission defaults: \(error.localizedDescription)"
+    }
 
     isSavingDefaults = false
-  }
-}
-
-// MARK: - Network Types (local-only)
-
-private struct LinearKeyStatus: Decodable {
-  let configured: Bool
-}
-
-private struct UpdateDefaultsBody: Encodable {
-  let providerStrategy: String
-  let primaryProvider: String
-  let secondaryProvider: String?
-
-  enum CodingKeys: String, CodingKey {
-    case providerStrategy = "provider_strategy"
-    case primaryProvider = "primary_provider"
-    case secondaryProvider = "secondary_provider"
   }
 }

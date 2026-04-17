@@ -4,7 +4,7 @@ struct MissionSetupCard: View {
   let missionId: String
   let repoRoot: String
   let missionFileName: String
-  let http: ServerHTTPClient?
+  let missionsClient: MissionsClient?
   let onApplyDetail: (MissionDetailResponse) -> Void
   let onRefresh: () async -> Void
 
@@ -181,16 +181,13 @@ struct MissionSetupCard: View {
   // MARK: - Networking
 
   private func scaffoldWorkflow() async {
-    guard let http else { return }
+    guard let missionsClient else { return }
 
     isScaffolding = true
     scaffoldError = nil
 
     do {
-      let response: MissionDetailResponse = try await http.post(
-        "/api/missions/\(missionId)/scaffold",
-        body: EmptyBody()
-      )
+      let response = try await missionsClient.scaffoldMission(missionId)
       onApplyDetail(response)
     } catch {
       scaffoldError = "Failed to generate template: \(error.localizedDescription)"

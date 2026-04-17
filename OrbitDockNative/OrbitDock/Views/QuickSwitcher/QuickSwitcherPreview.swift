@@ -6,6 +6,8 @@ import SwiftUI
     runtimeFactory: { _ in fatalError("No runtime in preview") },
     shouldBootstrapFromSettings: false
   )
+  let appRuntime = OrbitDockAppRuntime()
+  let libraryDataService = LibraryDataService()
 
   ZStack {
     Color.black.opacity(0.5)
@@ -18,7 +20,8 @@ import SwiftUI
     )
     .environment(AppRouter())
     .environment(runtimeRegistry)
-    .environment(OrbitDockAppRuntime())
+    .environment(appRuntime)
+    .environment(libraryDataService)
   }
   .frame(width: 800, height: 600)
 }
