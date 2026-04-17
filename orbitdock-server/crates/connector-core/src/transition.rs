@@ -548,27 +548,25 @@ fn finalize_in_progress_rows(
   let mut finalized_entries = Vec::new();
   for entry in rows.iter_mut() {
     match &mut entry.row {
-      ConversationRow::Tool(ref mut tool) => {
-        if tool.status == ToolStatus::Running {
-          tool.status = ToolStatus::Completed;
-          finalized_entries.push(entry.clone());
-          effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
-            session_id: sid.to_string(),
-            entry: entry.clone(),
-          })));
-        }
+      ConversationRow::Tool(ref mut tool) if tool.status == ToolStatus::Running => {
+        tool.status = ToolStatus::Completed;
+        finalized_entries.push(entry.clone());
+        effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
+          session_id: sid.to_string(),
+          entry: entry.clone(),
+        })));
       }
       ConversationRow::Assistant(ref mut msg)
       | ConversationRow::Thinking(ref mut msg)
-      | ConversationRow::System(ref mut msg) => {
-        if msg.is_streaming {
-          msg.is_streaming = false;
-          finalized_entries.push(entry.clone());
-          effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
-            session_id: sid.to_string(),
-            entry: entry.clone(),
-          })));
-        }
+      | ConversationRow::System(ref mut msg)
+        if msg.is_streaming =>
+      {
+        msg.is_streaming = false;
+        finalized_entries.push(entry.clone());
+        effects.push(Effect::Persist(Box::new(PersistOp::RowUpsert {
+          session_id: sid.to_string(),
+          entry: entry.clone(),
+        })));
       }
       _ => {}
     }
