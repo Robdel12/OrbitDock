@@ -170,7 +170,7 @@ orbitdock install-hooks --server-url https://your-server.example.com:4000
 `remote-setup` guides secure exposure, creates a fresh auth token, and tells you the exact next commands
 for pairing clients and forwarding hooks. For the app, add the same server URL and token in Settings → Servers.
 
-See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse proxies, and Raspberry Pi notes.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md#deployment) for Cloudflare tunnels, TLS, reverse proxies, and Raspberry Pi notes.
 
 ## Requirements
 
@@ -181,9 +181,10 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, reverse pro
 
 ## Documentation
 
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Development setup, build commands, and day-to-day workflow
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Client and server architecture guardrails
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — Deployment, persistence, debugging, and troubleshooting
 - [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Server deployment (remote, TLS, tunnels)
-- [CONTRIBUTING.md](docs/CONTRIBUTING.md) — Development setup and architecture
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 - [orbitdock-server/docs/API.md](orbitdock-server/docs/API.md) — HTTP and WebSocket contract
 

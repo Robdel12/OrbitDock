@@ -95,7 +95,7 @@ orbitdock pair --tunnel-url https://your-tunnel.trycloudflare.com
 
 If auth is enabled, enter the token separately in the client. The connection URL intentionally excludes it.
 
-For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../docs/DEPLOYMENT.md).
+For the full deployment guide covering all topologies, security, and operations, see [docs/OPERATIONS.md](../docs/OPERATIONS.md#deployment).
 
 ### OrbitDock Client Connectivity
 
@@ -299,7 +299,7 @@ Current module groups:
 - `infrastructure/` — SQLite persistence, paths, auth, crypto, metrics, shell, logging
 - `support/` — small shared pure helpers
 
-For the layer rules, dependency boundaries, and do/don't guidance, read `docs/server-architecture.md`. That is the architecture reference doc.
+For the layer rules, dependency boundaries, and do/don't guidance, read [docs/server-architecture.md](docs/server-architecture.md). That is the architecture reference doc.
 
 ## Where New Server Code Goes
 
@@ -324,7 +324,7 @@ Shared message types for server and client (Swift app):
 - `Message`, `TokenUsage`, `ApprovalRequest`
 - `TokenUsageSnapshotKind` — explicit semantics for token snapshots (context vs totals)
 
-Usage architecture reference: `docs/token-context-architecture.md`
+Usage semantics are part of the typed protocol here in `crates/protocol` and are surfaced to clients through [docs/API.md](docs/API.md).
 
 ### connector-core
 

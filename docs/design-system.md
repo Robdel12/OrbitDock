@@ -708,8 +708,8 @@ Motion:   snappy, standard, gentle, bouncy, hover, fade
 | `tokens.css` | Web | All CSS custom properties — colors, spacing, type, radius, shadows, transitions, z-index |
 | `global.css` | Web | Base styles, scrollbar styling, selection color, focus rings, reduced motion |
 | `typography.md` | Docs | Full typography reference with examples |
-| `CLIENT_DESIGN_PRINCIPLES.md` | Docs | Architecture principles for the Swift client |
-| `UI_CROSS_PLATFORM_GUIDELINES.md` | Docs | Platform-specific layout rules |
+| `ARCHITECTURE.md` | Docs | Client ownership and cross-layer guardrails that pair with the design system |
+| `FEATURES.md` | Docs | Product surfaces and workflows the design system needs to support |
 
 ---
 
@@ -736,4 +736,3 @@ When building a new view or component, verify:
 ---
 
 ## Typography System
-

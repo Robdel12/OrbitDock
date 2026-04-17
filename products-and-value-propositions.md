@@ -399,7 +399,7 @@ Recommended setups:
 - **Raspberry Pi** — Self-host on a Pi in the closet
 - **VPS** — Run on a cloud instance, connect via Cloudflare Tunnel or direct bind
 
-See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full guide.
+See [docs/OPERATIONS.md](docs/OPERATIONS.md#deployment) for the full guide.
 
 ---
 
@@ -422,16 +422,12 @@ OrbitDock is:
 
 ## Related Documentation
 
-- [NORTH_STAR.md](docs/NORTH_STAR.md) — Product vision and core concepts
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Project shape, commands, testing, and day-to-day workflow
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Client and server architecture guardrails
 - [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
-- [docs/repo-workflow.md](docs/repo-workflow.md) — Project shape, commands, testing, and day-to-day workflow
 - [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — Testing principles and hard lines
-- [docs/engineering-guardrails.md](docs/engineering-guardrails.md) — Architecture and persistence rules
-- [docs/local-development.md](docs/local-development.md) — Local setup flow, file locations, and CLI basics
-- [docs/debugging.md](docs/debugging.md) — Logs, hook checks, and database inspection
-- [docs/database-and-persistence.md](docs/database-and-persistence.md) — Migration and persistence rules
+- [docs/OPERATIONS.md](docs/OPERATIONS.md) — Deployment, persistence, debugging, and troubleshooting
 - [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract and surface model
-- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Deployment and install flows
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 - [orbitdock-server/docs/API.md](orbitdock-server/docs/API.md) — HTTP and WebSocket contract
 
