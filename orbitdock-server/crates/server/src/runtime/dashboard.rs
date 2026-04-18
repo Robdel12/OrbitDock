@@ -159,7 +159,7 @@ fn build_project_groups(conversations: &[DashboardConversationItem]) -> Vec<Dash
     .collect();
 
   // Sort alphabetically by name for consistent ordering
-  result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+  result.sort_by_key(|group| group.name.to_lowercase());
 
   result
 }

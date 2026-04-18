@@ -1261,10 +1261,11 @@ mod tests {
         ServerMessage::ConversationRowsChanged { upserted, .. } => {
           saw_row_update = upserted.iter().any(|entry| entry.id() == "steer-1");
         }
-        ServerMessage::SessionSurfaceInvalidated { surface, .. } => {
-          if surface == SessionSurface::Detail {
-            saw_detail_invalidation = true;
-          }
+        ServerMessage::SessionSurfaceInvalidated {
+          surface: SessionSurface::Detail,
+          ..
+        } => {
+          saw_detail_invalidation = true;
         }
         _ => {}
       }

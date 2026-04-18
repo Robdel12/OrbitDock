@@ -121,12 +121,8 @@ pub(crate) async fn resolve_pending_approvals_after_tool_outcome(
   decision: &str,
   fallback_work_status: orbitdock_protocol::WorkStatus,
 ) {
-  loop {
-    let Some(request_id) = normalized_non_empty(actor.snapshot().pending_approval_id.as_deref())
-    else {
-      break;
-    };
-
+  while let Some(request_id) = normalized_non_empty(actor.snapshot().pending_approval_id.as_deref())
+  {
     let (reply_tx, reply_rx) = oneshot::channel();
     actor
       .send(SessionCommand::ResolvePendingApproval {

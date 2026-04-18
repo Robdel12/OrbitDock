@@ -268,27 +268,45 @@ pub(crate) async fn handle(
       session_id,
       task_id,
     } => {
-      if dispatch_stop_task(state, &session_id, task_id)
-        .await
-        .is_err()
-      {
-        send_not_found(client_tx, &session_id).await;
-      }
+      handle_stop_task(state, client_tx, session_id, task_id).await;
     }
 
     ClientMessage::RewindFiles {
       session_id,
       user_message_id,
     } => {
-      if dispatch_rewind_files(state, &session_id, user_message_id)
-        .await
-        .is_err()
-      {
-        send_not_found(client_tx, &session_id).await;
-      }
+      handle_rewind_files(state, client_tx, session_id, user_message_id).await;
     }
 
     _ => {}
+  }
+}
+
+async fn handle_stop_task(
+  state: &Arc<SessionRegistry>,
+  client_tx: &mpsc::Sender<OutboundMessage>,
+  session_id: String,
+  task_id: String,
+) {
+  if dispatch_stop_task(state, &session_id, task_id)
+    .await
+    .is_err()
+  {
+    send_not_found(client_tx, &session_id).await;
+  }
+}
+
+async fn handle_rewind_files(
+  state: &Arc<SessionRegistry>,
+  client_tx: &mpsc::Sender<OutboundMessage>,
+  session_id: String,
+  user_message_id: String,
+) {
+  if dispatch_rewind_files(state, &session_id, user_message_id)
+    .await
+    .is_err()
+  {
+    send_not_found(client_tx, &session_id).await;
   }
 }
 

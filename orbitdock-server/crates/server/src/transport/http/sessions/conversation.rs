@@ -164,11 +164,9 @@ pub async fn get_session_stats(
     tool_count,
     tool_count_by_family,
     failed_tool_count,
-    average_tool_duration_ms: if timed_tool_count == 0 {
-      0
-    } else {
-      total_tool_duration_ms / timed_tool_count
-    },
+    average_tool_duration_ms: total_tool_duration_ms
+      .checked_div(timed_tool_count)
+      .unwrap_or_default(),
     turn_count: session.turn_count,
     total_tokens: session.token_usage,
     worker_count: session

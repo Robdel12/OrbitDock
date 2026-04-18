@@ -10,10 +10,10 @@ pub(crate) fn inject_approval_version(msg: &mut ServerMessage, version: u64) {
     } => {
       *approval_version = Some(version);
     }
-    ServerMessage::SessionDelta { changes, .. } => {
-      if changes.pending_approval.is_some() && changes.approval_version.is_none() {
-        changes.approval_version = Some(version);
-      }
+    ServerMessage::SessionDelta { changes, .. }
+      if changes.pending_approval.is_some() && changes.approval_version.is_none() =>
+    {
+      changes.approval_version = Some(version);
     }
     _ => {}
   }
