@@ -19,7 +19,7 @@ struct ControlDeckStatusBar: View {
   var onSubmit: (() -> Void)?
   var onResume: (() -> Void)?
   var isDictating: Bool = false
-  var isSessionWorking: Bool = false
+  var canInterruptSession: Bool = false
   var onDictation: (() -> Void)?
   var onInterrupt: (() -> Void)?
 
@@ -107,7 +107,7 @@ struct ControlDeckStatusBar: View {
 
   @ViewBuilder
   private var sendButton: some View {
-    if isSessionWorking, !canSubmit {
+    if canInterruptSession, !canSubmit {
       Button(action: { onInterrupt?() }) {
         Image(systemName: "stop.fill")
           .font(.system(size: TypeScale.caption, weight: .bold))

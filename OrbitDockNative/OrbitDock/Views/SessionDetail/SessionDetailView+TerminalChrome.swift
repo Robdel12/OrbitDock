@@ -80,13 +80,11 @@ extension SessionDetailView {
 
       ControlDeckScreen(
         sessionId: sessionId,
-        session: scopedSession,
+        interaction: viewModel.interaction,
         chromeStyle: .embedded,
-        detailPayload: viewModel.detailPayload,
         terminalTitle: controlDeckTerminalSession?.title,
         sessionDisplayStatus: screenPresentation.displayStatus,
         currentTool: currentTool,
-        onDetailPayloadChange: { viewModel.applyDetailPayload($0) },
         onFocusStateChange: { isDirectControlDeckFocused = $0 },
         onToggleTerminal: {
           if let session = controlDeckTerminalSession {

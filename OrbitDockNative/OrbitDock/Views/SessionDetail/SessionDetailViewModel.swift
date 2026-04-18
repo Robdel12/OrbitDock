@@ -29,6 +29,8 @@ final class SessionDetailViewModel {
   var terminal = SessionDetailTerminalModel()
   var worker = SessionDetailWorkerModel()
   var cleanup = SessionDetailWorktreeCleanupModel()
+  var conversationViewModel: ConversationViewModel
+  var interaction = SessionInteractionModel()
 
   @ObservationIgnored private weak var modelPricingService: ModelPricingService?
   @ObservationIgnored private let refreshRunner = CoalescedRefreshRunner()
@@ -58,6 +60,12 @@ final class SessionDetailViewModel {
     currentSessionId = sessionId
     currentEndpointId = endpointId
     currentSession = session
+    conversationViewModel = ConversationViewModel(
+      sessionId: sessionId,
+      session: session,
+      viewMode: .focused
+    )
+    bindInteraction(sessionId: sessionId, session: session)
   }
 
   convenience init() {
@@ -72,7 +80,8 @@ final class SessionDetailViewModel {
     sessionId: String,
     endpointId: UUID,
     session: ServerSessionContext,
-    modelPricingService: ModelPricingService
+    modelPricingService: ModelPricingService,
+    chatViewMode: ChatViewMode = .focused
   ) {
     self.modelPricingService = modelPricingService
 
@@ -84,20 +93,15 @@ final class SessionDetailViewModel {
     currentSessionId = sessionId
     currentEndpointId = endpointId
     currentSession = session
+    conversationViewModel.bind(
+      sessionId: sessionId,
+      session: session,
+      viewMode: chatViewMode
+    )
+    bindInteraction(sessionId: sessionId, session: session)
 
     if didSessionChange {
-      currentBindingRevision += 1
-      refreshRunner.cancel()
-      diffBannerDismissTask?.cancel()
-      pendingInvalidationRevision = nil
-      lastLoadedRevision = nil
-      detailPayload = nil
-      conversation.reset()
-      review.reset()
-      terminal.reset()
-      worker.reset()
-      cleanup.reset()
-      pendingApprovalPanelOpenSignal = 0
+      resetBoundSessionState()
     }
   }
 
@@ -111,6 +115,34 @@ final class SessionDetailViewModel {
 
   var session: ServerSessionContext {
     currentSession
+  }
+
+  private func bindInteraction(sessionId: String, session: ServerSessionContext) {
+    interaction.bind(
+      sessionId: sessionId,
+      session: session,
+      detailSnapshotSink: { [weak self] payload in
+        self?.applyDetailPayload(payload)
+      },
+      conversationRowSink: { [weak self] row in
+        self?.applyConversationMutationRow(row)
+      }
+    )
+  }
+
+  private func resetBoundSessionState() {
+    currentBindingRevision += 1
+    refreshRunner.cancel()
+    diffBannerDismissTask?.cancel()
+    pendingInvalidationRevision = nil
+    lastLoadedRevision = nil
+    detailPayload = nil
+    conversation.reset()
+    review.reset()
+    terminal.reset()
+    worker.reset()
+    cleanup.reset()
+    pendingApprovalPanelOpenSignal = 0
   }
 
   var actionBarState: SessionDetailActionBarState {
@@ -167,7 +199,8 @@ final class SessionDetailViewModel {
     session: ServerSessionContext,
     modelPricingService: ModelPricingService,
     terminalRegistry: TerminalSessionRegistry,
-    showWorkerPanel: Bool
+    showWorkerPanel: Bool,
+    chatViewMode: ChatViewMode
   ) async {
     let (stream, listenerId) = session.transport.events()
     defer {
@@ -179,10 +212,11 @@ final class SessionDetailViewModel {
       sessionId: sessionId,
       endpointId: endpointId,
       session: session,
-      modelPricingService: modelPricingService
+      modelPricingService: modelPricingService,
+      chatViewMode: chatViewMode
     )
+    await bootstrapVisibleSurfaces()
     reconcileSessionSubscription(bindingIdentity: bindingIdentity)
-    await refresh()
     restoreExistingTerminalIfNeeded(from: terminalRegistry)
 
     if showWorkerPanel {
@@ -191,19 +225,43 @@ final class SessionDetailViewModel {
 
     for await event in stream {
       guard !Task.isCancelled else { break }
-      guard event.invalidates(.detail) else { continue }
-      let invalidationRevision = session.transport.latestRevision
-      guard SessionSurfaceRefreshPlanner.shouldRequestRefresh(
-        snapshotRevision: lastLoadedRevision,
-        pendingRevision: pendingInvalidationRevision,
-        incomingInvalidationRevision: invalidationRevision
-      ) else { continue }
-      pendingInvalidationRevision = SessionSurfaceRefreshPlanner.nextPendingRevision(
-        pendingRevision: pendingInvalidationRevision,
-        incomingInvalidationRevision: invalidationRevision
-      )
-      requestRefresh()
+      handleSessionEvent(event)
     }
+  }
+
+  private func bootstrapVisibleSurfaces() async {
+    await refresh()
+    await conversationViewModel.refresh()
+  }
+
+  private func handleSessionEvent(_ event: ServerSessionTransport.Event) {
+    switch event {
+      case let .conversationRowsChanged(delta):
+        conversationViewModel.handleConversationRowDelta(delta)
+      case let .invalidated(targets):
+        handleSessionInvalidation(targets, revision: session.transport.latestRevision)
+    }
+  }
+
+  private func handleSessionInvalidation(
+    _ targets: SessionInvalidationSet,
+    revision: UInt64?
+  ) {
+    if targets.contains(.conversation) {
+      conversationViewModel.requestForcedResync(revision: revision)
+    }
+
+    guard targets.contains(.detail) else { return }
+    guard SessionSurfaceRefreshPlanner.shouldRequestRefresh(
+      snapshotRevision: lastLoadedRevision,
+      pendingRevision: pendingInvalidationRevision,
+      incomingInvalidationRevision: revision
+    ) else { return }
+    pendingInvalidationRevision = SessionSurfaceRefreshPlanner.nextPendingRevision(
+      pendingRevision: pendingInvalidationRevision,
+      incomingInvalidationRevision: revision
+    )
+    requestRefresh()
   }
 
   func refresh() async {
@@ -242,6 +300,22 @@ final class SessionDetailViewModel {
       pendingApprovalPanelOpenSignal += 1
     }
     conversation.openPendingApproval()
+  }
+
+  func takeOverSession() async {
+    guard let payload = try? await session.api.takeoverSession(
+      model: nil,
+      approvalPolicy: nil,
+      approvalPolicyDetails: nil,
+      sandboxMode: nil,
+      permissionMode: nil,
+      collaborationMode: nil,
+      multiAgent: nil,
+      personality: nil,
+      serviceTier: nil,
+      developerInstructions: nil
+    ) else { return }
+    applyDetailPayload(payload)
   }
 
   func navigateToReviewComment(_ comment: ServerReviewComment) {
@@ -370,12 +444,23 @@ final class SessionDetailViewModel {
       self.pendingInvalidationRevision = nil
     }
     detailPayload = payload
+    interaction.applyOwnerDetailSnapshot(
+      payload,
+      source: "session_detail_owner"
+    )
     apply(snapshot: SessionDetailSnapshotBuilder.build(
       payload: payload,
       endpointId: endpointId,
       sourceServerInstanceId: session.serverInstanceId,
       sourceIsRemoteConnection: session.isRemoteConnection
     ))
+  }
+
+  func applyConversationMutationRow(_ row: ServerConversationRowEntry) {
+    guard row.sessionId == sessionId else { return }
+    conversationViewModel.handleConversationRowDelta(
+      .init(upserted: [row], removedIds: [])
+    )
   }
 
   private func apply(snapshot: SessionDetailSnapshot) {
@@ -417,7 +502,7 @@ final class SessionDetailViewModel {
 
     guard activeSubscriptionIdentity != bindingIdentity else { return }
     clearSessionSubscription()
-    session.transport.subscribe(surfaces: [.detail])
+    session.transport.subscribe(surfaces: [.detail, .conversation])
     activeSubscriptionIdentity = bindingIdentity
     activeSubscriptionSession = session
   }
@@ -426,7 +511,7 @@ final class SessionDetailViewModel {
     refreshRunner.cancel()
     diffBannerDismissTask?.cancel()
     pendingInvalidationRevision = nil
-    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail])
+    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail, .conversation])
     activeSubscriptionSession = nil
     activeSubscriptionIdentity = nil
   }

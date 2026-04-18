@@ -426,8 +426,8 @@ private func conversationCapabilityBadge(
 private struct DashboardConversationActionsModifier: ViewModifier {
   let conversation: DashboardConversationRecord
 
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(DashboardDataService.self) private var dashboardDataService
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @State private var isEndingConversation = false
 
   func body(content: Content) -> some View {
@@ -454,10 +454,7 @@ private struct DashboardConversationActionsModifier: ViewModifier {
     defer { isEndingConversation = false }
 
     do {
-      guard let store = runtimeRegistry.endpointStoreIfAvailable(for: conversation.sessionRef.endpointId) else {
-        return
-      }
-      _ = try await store.session(conversation.sessionId).api.endSession()
+      try await rootSessionActions.endSession(conversation.sessionRef)
       await dashboardDataService.refreshNow()
     } catch {
       return

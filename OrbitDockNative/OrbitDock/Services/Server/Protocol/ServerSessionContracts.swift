@@ -997,6 +997,7 @@ struct ServerSessionState: Codable, Identifiable {
   let lifecycleState: ServerSessionLifecycleState
   let acceptsUserInput: Bool
   let steerable: Bool
+  let canInterrupt: Bool?
   let rows: [ServerConversationRowEntry]
   let totalRowCount: UInt64
   let hasMoreBefore: Bool
@@ -1069,6 +1070,7 @@ struct ServerSessionState: Codable, Identifiable {
     case lifecycleState = "lifecycle_state"
     case acceptsUserInput = "accepts_user_input"
     case steerable
+    case canInterrupt = "can_interrupt"
     case rows
     case totalRowCount = "total_row_count"
     case hasMoreBefore = "has_more_before"

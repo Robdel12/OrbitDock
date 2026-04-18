@@ -17,6 +17,7 @@ enum ControlDeckPresentationBuilder {
       lifecycleLabel: lifecycleLabel(state.lifecycle),
       lifecycleTint: lifecycleTint(state.lifecycle),
       acceptsUserInput: state.acceptsUserInput,
+      canInterrupt: state.canInterrupt,
       canResume: canResume(state: state),
       supportsImages: snapshot.capabilities.supportsImages,
       headerSubtitle: headerSubtitle(state: state, activityStatus: activityStatus, isLoading: isLoading),

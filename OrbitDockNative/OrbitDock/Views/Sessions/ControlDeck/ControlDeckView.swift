@@ -109,7 +109,7 @@ struct ControlDeckView: View {
             onSubmit: onSubmit,
             onResume: onResume,
             isDictating: isDictating,
-            isSessionWorking: presentation.activityStatus.isWorking,
+            canInterruptSession: presentation.canInterrupt,
             onDictation: onDictation,
             onInterrupt: onInterrupt
           )

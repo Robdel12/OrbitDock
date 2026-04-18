@@ -37,8 +37,9 @@ enum ControlDeckSnapshotMapper {
       workStatus: mapWorkStatus(session.workStatus),
       acceptsUserInput: session.acceptsUserInput,
       steerable: session.steerable,
-      // Detail owns session shell truth. A resumable or ended lifecycle means the
-      // direct connector is no longer attached enough for interactive work.
+      canInterrupt: session.canInterrupt ?? false,
+      // Detail owns session shell truth. A resumable or ended lifecycle means
+      // the direct connector is no longer attached enough for interactive work.
       connectorAttached: session.lifecycleState == .open,
       projectPath: session.projectPath,
       currentCwd: session.currentCwd,

@@ -1,6 +1,6 @@
 import Foundation
 
-extension ControlDeckSessionModel {
+extension SessionInteractionModel {
   func submitTurn(
     draft: ControlDeckDraft,
     uploadedImageIds: [String: String]
@@ -24,11 +24,11 @@ extension ControlDeckSessionModel {
       images: request.images,
       mentions: request.mentions
     )
+    conversationRowSink?(result.row)
     if let snapshot = result.sessionDetailSnapshot {
-      applyDetailSnapshotPayload(
+      acceptAuthoritativeDetailSnapshot(
         snapshot,
-        source: "send_message_response",
-        propagateToBindingOwner: true
+        source: "send_message_response"
       )
     }
   }
@@ -46,11 +46,11 @@ extension ControlDeckSessionModel {
       ),
       mentions: ControlDeckSubmitEncoder.encodeSteerMentions(draft.attachments)
     )
+    conversationRowSink?(result.row)
     if let snapshot = result.sessionDetailSnapshot {
-      applyDetailSnapshotPayload(
+      acceptAuthoritativeDetailSnapshot(
         snapshot,
-        source: "steer_turn_response",
-        propagateToBindingOwner: true
+        source: "steer_turn_response"
       )
     }
   }
@@ -59,10 +59,9 @@ extension ControlDeckSessionModel {
     guard currentSessionId != nil, let session = currentSession else { return }
     do {
       if let snapshot = try await session.api.interruptSession() {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "interrupt_response",
-          propagateToBindingOwner: true
+          source: "interrupt_response"
         )
       }
     } catch {
@@ -76,7 +75,7 @@ extension ControlDeckSessionModel {
     let session = binding.session
     guard !isResuming else { return }
     isResuming = true
-    netLog(.info, cat: .store, "ControlDeck resume started", sid: sessionId, data: [
+    netLog(.info, cat: .store, "Session interaction resume started", sid: sessionId, data: [
       "lifecycle": lifecycle.rawValue,
       "controlMode": controlMode.rawValue,
       "acceptsUserInput": acceptsUserInput,
@@ -91,15 +90,14 @@ extension ControlDeckSessionModel {
       let snapshot = try await session.api.resumeSession()
       guard isCurrent(binding) else { return }
       if let snapshot {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "resume_response",
-          propagateToBindingOwner: true
+          source: "resume_response"
         )
       } else {
         await refresh()
       }
-      netLog(.info, cat: .store, "ControlDeck resume sync complete", sid: sessionId, data: [
+      netLog(.info, cat: .store, "Session interaction resume sync complete", sid: sessionId, data: [
         "lifecycle": lifecycle.rawValue,
         "controlMode": controlMode.rawValue,
         "acceptsUserInput": acceptsUserInput,
@@ -108,7 +106,7 @@ extension ControlDeckSessionModel {
       ])
     } catch {
       lastError = String(describing: error)
-      netLog(.error, cat: .store, "ControlDeck resume failed", sid: sessionId, data: [
+      netLog(.error, cat: .store, "Session interaction resume failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
     }
@@ -122,7 +120,7 @@ extension ControlDeckSessionModel {
     pixelHeight: Int?
   ) async throws -> String {
     guard let session = currentSession else {
-      throw ControlDeckError.notBound
+      throw SessionInteractionError.notBound
     }
 
     let result = try await session.api.uploadImageAttachment(

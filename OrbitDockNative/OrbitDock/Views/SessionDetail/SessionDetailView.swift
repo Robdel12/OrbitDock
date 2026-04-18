@@ -83,16 +83,7 @@ struct SessionDetailView: View {
         TakeOverInputBar(
           onTakeOver: {
             Task {
-              if let payload = try? await scopedSession.api.takeoverSession(
-                model: nil, approvalPolicy: nil, approvalPolicyDetails: nil,
-                sandboxMode: nil, permissionMode: nil, collaborationMode: nil,
-                multiAgent: nil, personality: nil, serviceTier: nil,
-                developerInstructions: nil
-              ) {
-                await MainActor.run {
-                  viewModel.applyDetailPayload(payload)
-                }
-              }
+              await viewModel.takeOverSession()
             }
           },
           statusContent: {
@@ -114,7 +105,8 @@ struct SessionDetailView: View {
         session: session,
         modelPricingService: modelPricingService,
         terminalRegistry: terminalRegistry,
-        showWorkerPanel: showWorkerPanel
+        showWorkerPanel: showWorkerPanel,
+        chatViewMode: chatViewMode
       )
     }
     #if os(iOS)

@@ -100,6 +100,7 @@ extension SessionDetailView {
     return SessionDetailConversationSection(
       sessionId: sessionId,
       session: scopedSession,
+      viewModel: viewModel.conversationViewModel,
       endpointId: endpointId,
       isSessionActive: presentation.isSessionActive,
       displayStatus: presentation.displayStatus,

@@ -2244,6 +2244,7 @@ mod tests {
       lifecycle_state: SessionLifecycleState::Open,
       accepts_user_input: true,
       steerable: true,
+      can_interrupt: false,
       pending_approval: None,
       permission_mode: Some("acceptEdits".to_string()),
       allow_bypass_permissions: false,

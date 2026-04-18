@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionDetailConversationSection: View {
   let sessionId: String
   let session: ServerSessionContext
+  let viewModel: ConversationViewModel
   let endpointId: UUID
   let isSessionActive: Bool
   let displayStatus: SessionDisplayStatus
@@ -23,6 +24,7 @@ struct SessionDetailConversationSection: View {
     ConversationView(
       sessionId: sessionId,
       session: session,
+      viewModel: viewModel,
       endpointId: endpointId,
       isSessionActive: isSessionActive,
       displayStatus: displayStatus,

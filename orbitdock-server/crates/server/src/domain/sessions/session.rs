@@ -1307,6 +1307,25 @@ mod tests {
   }
 
   #[test]
+  fn retained_state_only_marks_active_turns_interruptible() {
+    let mut session = session_handle(Provider::Codex);
+    session.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    session.set_status(SessionStatus::Active);
+    session.set_work_status(WorkStatus::Working);
+
+    let without_turn = session.retained_state();
+    assert!(!without_turn.can_interrupt);
+
+    session.state.current_turn_id = Some("turn-1".to_string());
+    let with_turn = session.retained_state();
+    assert!(with_turn.can_interrupt);
+
+    session.set_work_status(WorkStatus::Waiting);
+    let settled = session.retained_state();
+    assert!(!settled.can_interrupt);
+  }
+
+  #[test]
   fn conversation_bootstrap_projects_passive_sessions_as_open_but_not_sendable() {
     let mut session = session_handle(Provider::Codex);
     session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));

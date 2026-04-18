@@ -79,7 +79,55 @@ final class MissionListViewModel {
     endpointName: String?
   ) {
     missionRevisionByEndpoint[endpointId] = response.revision
-    let updatedMissions = response.missions.map { mission in
+    replaceMissions(response.missions, endpointId: endpointId, endpointName: endpointName)
+  }
+
+  func applyMissionList(
+    _ response: MissionsListResponse,
+    endpointId: UUID,
+    endpointName: String?
+  ) {
+    replaceMissions(response.missions, endpointId: endpointId, endpointName: endpointName)
+  }
+
+  func updateMission(
+    _ aggregate: AggregatedMissionSummary,
+    enabled: Bool? = nil,
+    paused: Bool? = nil
+  ) async {
+    guard let client = missionsClient(for: aggregate) else { return }
+    do {
+      _ = try await client.updateMission(
+        aggregate.mission.id,
+        enabled: enabled,
+        paused: paused
+      )
+      await refreshEndpointMissions(endpointId: aggregate.endpointId)
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
+  func deleteMission(_ aggregate: AggregatedMissionSummary) async {
+    guard let client = missionsClient(for: aggregate) else { return }
+    do {
+      let response = try await client.deleteMission(aggregate.mission.id)
+      applyMissionList(
+        response,
+        endpointId: aggregate.endpointId,
+        endpointName: aggregate.endpointName
+      )
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
+  private func replaceMissions(
+    _ summaries: [MissionSummary],
+    endpointId: UUID,
+    endpointName: String?
+  ) {
+    let updatedMissions = summaries.map { mission in
       AggregatedMissionSummary(
         mission: mission,
         endpointId: endpointId,
@@ -91,21 +139,8 @@ final class MissionListViewModel {
     missions = sortMissions(missions)
   }
 
-  func applyMissionList(
-    _ response: MissionsListResponse,
-    endpointId: UUID,
-    endpointName: String?
-  ) {
-    let updatedMissions = response.missions.map { mission in
-      AggregatedMissionSummary(
-        mission: mission,
-        endpointId: endpointId,
-        endpointName: endpointName
-      )
-    }
-    missions.removeAll { $0.endpointId == endpointId }
-    missions.append(contentsOf: updatedMissions)
-    missions = sortMissions(missions)
+  private func missionsClient(for aggregate: AggregatedMissionSummary) -> MissionsClient? {
+    runtimeRegistry?.runtimesByEndpointId[aggregate.endpointId]?.clients.missions
   }
 
   private func sortMissions(_ missions: [AggregatedMissionSummary]) -> [AggregatedMissionSummary] {

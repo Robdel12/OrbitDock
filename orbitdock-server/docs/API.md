@@ -95,6 +95,14 @@ Top-level fields:
 
 `session` is the authoritative session shell for detail/control-deck style UI. It does not include the full conversation timeline.
 
+Important control-deck fields:
+
+- `work_status` — display status only; do not use it as a proxy for individual actions.
+- `accepts_user_input` — true when a direct/open session accepts a new user turn.
+- `steerable` — true when the current turn accepts steering feedback.
+- `can_interrupt` — true only when the server knows an active turn can be interrupted.
+- `current_turn_id` — current active turn identity, when one exists.
+
 ### `MissionDetailResponse`
 
 Used by `GET /api/missions/{mission_id}` and most mission mutations.

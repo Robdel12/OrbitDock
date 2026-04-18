@@ -1,28 +1,22 @@
 import Foundation
 
-extension ControlDeckSessionModel {
+extension SessionInteractionModel {
   func bind(
     sessionId: String,
     session: ServerSessionContext,
-    detailSnapshotSink: ((ServerSessionDetailSnapshotPayload) -> Void)? = nil
+    detailSnapshotSink: ((ServerSessionDetailSnapshotPayload) -> Void)? = nil,
+    conversationRowSink: ((ServerConversationRowEntry) -> Void)? = nil
   ) {
     let didBindingChange = currentSessionId != sessionId || currentSession !== session
     currentSessionId = sessionId
     currentSession = session
     self.detailSnapshotSink = detailSnapshotSink
+    self.conversationRowSink = conversationRowSink
     if didBindingChange {
       currentBindingRevision += 1
       refreshRunner.cancel()
       resetBoundStateForSessionChange()
     }
-  }
-
-  func bootstrap(detailPayload: ServerSessionDetailSnapshotPayload?) async {
-    if let detailPayload {
-      await applyExternalDetailSnapshot(detailPayload)
-      return
-    }
-    await refresh()
   }
 
   func refresh() async {
@@ -40,7 +34,22 @@ extension ControlDeckSessionModel {
       propagateToBindingOwner: false
     )
     guard let binding = currentBindingContext else { return }
-    await loadCodexModelsIfNeeded(for: payload.session.provider, binding: binding)
+    await loadSupportData(for: payload.session, binding: binding)
+  }
+
+  func applyOwnerDetailSnapshot(
+    _ payload: ServerSessionDetailSnapshotPayload,
+    source: String = "session_detail_owner"
+  ) {
+    applyDetailSnapshotPayload(
+      payload,
+      source: source,
+      propagateToBindingOwner: false
+    )
+    guard let binding = currentBindingContext else { return }
+    Task {
+      await loadSupportData(for: payload.session, binding: binding)
+    }
   }
 
   func loadSkills() async {

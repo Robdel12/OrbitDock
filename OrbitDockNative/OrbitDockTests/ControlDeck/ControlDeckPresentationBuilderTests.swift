@@ -9,7 +9,8 @@ struct ControlDeckPresentationBuilderTests {
       snapshot: makeSnapshot(
         workStatus: .working,
         acceptsUserInput: true,
-        steerable: true
+        steerable: true,
+        canInterrupt: true
       ),
       isLoading: false
     )
@@ -18,7 +19,24 @@ struct ControlDeckPresentationBuilderTests {
     #expect(presentation.mode == .steer)
     #expect(presentation.headerSubtitle == "Working")
     #expect(presentation.sendTint == "feedbackWarning")
+    #expect(presentation.canInterrupt)
     #expect(!presentation.canResume)
+  }
+
+  @Test func workingStatusWithoutInterruptCapabilityDoesNotShowStopCapability() {
+    let presentation = ControlDeckPresentationBuilder.build(
+      snapshot: makeSnapshot(
+        workStatus: .working,
+        acceptsUserInput: true,
+        steerable: true,
+        canInterrupt: false
+      ),
+      isLoading: false
+    )
+
+    #expect(presentation.activityStatus == .working)
+    #expect(presentation.mode == .steer)
+    #expect(!presentation.canInterrupt)
   }
 
   @Test func pendingPermissionApprovalOverridesReadyStatus() {
@@ -107,6 +125,7 @@ struct ControlDeckPresentationBuilderTests {
     workStatus: ControlDeckWorkStatus = .waiting,
     acceptsUserInput: Bool = true,
     steerable: Bool = false,
+    canInterrupt: Bool = false,
     connectorAttached: Bool = true,
     pendingApproval: ControlDeckApproval? = nil
   ) -> ControlDeckSnapshot {
@@ -120,6 +139,7 @@ struct ControlDeckPresentationBuilderTests {
         workStatus: workStatus,
         acceptsUserInput: acceptsUserInput,
         steerable: steerable,
+        canInterrupt: canInterrupt,
         connectorAttached: connectorAttached,
         projectPath: "/tmp/project",
         currentCwd: "/tmp/project",

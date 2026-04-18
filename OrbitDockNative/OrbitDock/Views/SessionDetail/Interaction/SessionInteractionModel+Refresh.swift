@@ -1,6 +1,6 @@
 import Foundation
 
-extension ControlDeckSessionModel {
+extension SessionInteractionModel {
   var projectFileIndex: ProjectFileIndex? {
     currentSession?.projectFileIndex
   }
@@ -58,7 +58,7 @@ extension ControlDeckSessionModel {
     netLog(
       .info,
       cat: .store,
-      "ControlDeck snapshot apply start",
+      "Session interaction snapshot apply start",
       sid: payload.session.id,
       data: snapshotLogData(snapshot: payload, source: source)
     )
@@ -67,6 +67,21 @@ extension ControlDeckSessionModel {
     logSessionStateIfChanged(source: "applyDetail(\(source))")
     if propagateToBindingOwner {
       detailSnapshotSink?(payload)
+    }
+  }
+
+  func acceptAuthoritativeDetailSnapshot(
+    _ payload: ServerSessionDetailSnapshotPayload,
+    source: String
+  ) {
+    if let detailSnapshotSink {
+      detailSnapshotSink(payload)
+    } else {
+      applyDetailSnapshotPayload(
+        payload,
+        source: source,
+        propagateToBindingOwner: false
+      )
     }
   }
 
@@ -89,7 +104,7 @@ extension ControlDeckSessionModel {
 
     guard signature != lastLoggedSessionSignature else { return }
     lastLoggedSessionSignature = signature
-    netLog(.debug, cat: .store, "ControlDeck session state updated", sid: currentSessionId, data: [
+    netLog(.debug, cat: .store, "Session interaction state updated", sid: currentSessionId, data: [
       "source": source,
       "lifecycle": lifecycle.rawValue,
       "controlMode": controlMode.rawValue,
@@ -131,22 +146,21 @@ extension ControlDeckSessionModel {
     let sessionId = binding.sessionId
     let session = binding.session
 
-    netLog(.debug, cat: .store, "ControlDeck refresh started", sid: sessionId)
+    netLog(.debug, cat: .store, "Session interaction refresh started", sid: sessionId)
     do {
       let serverSnapshot = try await session.api.fetchSessionDetail()
       guard isCurrent(binding) else { return }
-      applyDetailSnapshotPayload(
+      acceptAuthoritativeDetailSnapshot(
         serverSnapshot,
-        source: "refresh",
-        propagateToBindingOwner: true
+        source: "refresh"
       )
-      await loadCodexModelsIfNeeded(for: serverSnapshot.session.provider, binding: binding)
+      await loadSupportData(for: serverSnapshot.session, binding: binding)
       guard isCurrent(binding) else { return }
-      netLog(.debug, cat: .store, "ControlDeck refresh finished", sid: sessionId)
+      netLog(.debug, cat: .store, "Session interaction refresh finished", sid: sessionId)
     } catch {
       guard isCurrent(binding) else { return }
       lastError = String(describing: error)
-      netLog(.error, cat: .store, "ControlDeck refresh failed", sid: sessionId, data: [
+      netLog(.error, cat: .store, "Session interaction refresh failed", sid: sessionId, data: [
         "error": String(describing: error),
       ])
     }
@@ -189,6 +203,20 @@ extension ControlDeckSessionModel {
 
     guard isCurrent(binding) else { return }
     rebuildPresentation()
+  }
+
+  func loadSupportData(
+    for session: ServerSessionState,
+    binding: BindingContext
+  ) async {
+    await loadCodexModelsIfNeeded(for: session.provider, binding: binding)
+    await loadProjectFileIndexIfNeeded(for: session.projectPath, binding: binding)
+  }
+
+  func loadProjectFileIndexIfNeeded(for projectPath: String?, binding: BindingContext) async {
+    guard let projectPath, !projectPath.isEmpty else { return }
+    guard isCurrent(binding) else { return }
+    await binding.session.projectFileIndex.loadIfNeeded(projectPath)
   }
 
   func rebuildPresentation() {

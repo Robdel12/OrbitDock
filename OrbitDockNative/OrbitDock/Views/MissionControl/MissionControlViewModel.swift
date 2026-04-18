@@ -170,6 +170,25 @@ final class MissionControlViewModel {
     }
   }
 
+  func startOrchestrator() async {
+    guard let missionId = boundMissionId, let missionsClient else { return }
+    do {
+      try await missionsClient.startOrchestrator(missionId)
+      await refreshDetail()
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
+  func triggerPoll() async {
+    guard let missionId = boundMissionId, let missionsClient else { return }
+    do {
+      try await missionsClient.triggerPoll(missionId)
+    } catch {
+      actionError = error.localizedDescription
+    }
+  }
+
   func transitionIssue(
     issueId: String,
     targetState: OrchestrationState,

@@ -1,6 +1,6 @@
 import Foundation
 
-extension ControlDeckSessionModel {
+extension SessionInteractionModel {
   func updateConfig(
     session: ServerSessionContext,
     configure: (inout SessionsClient.UpdateSessionConfigRequest) -> Void
@@ -8,7 +8,7 @@ extension ControlDeckSessionModel {
     var request = SessionsClient.UpdateSessionConfigRequest()
     configure(&request)
     let requestData = configUpdateLogData(request: request)
-    netLog(.info, cat: .store, "ControlDeck config update requested", sid: session.sessionId, data: requestData)
+    netLog(.info, cat: .store, "Session interaction config update requested", sid: session.sessionId, data: requestData)
     do {
       let updated = try await session.api.updateSessionConfig(
         approvalPolicy: request.approvalPolicy,
@@ -27,19 +27,18 @@ extension ControlDeckSessionModel {
       netLog(
         .info,
         cat: .store,
-        "ControlDeck config update response received",
+        "Session interaction config update response received",
         sid: session.sessionId,
         data: snapshotLogData(snapshot: updated, source: "config_update_response")
       )
-      applyDetailSnapshotPayload(
+      acceptAuthoritativeDetailSnapshot(
         updated,
-        source: "config_update",
-        propagateToBindingOwner: true
+        source: "config_update"
       )
     } catch {
       var errorData = requestData
       errorData["error"] = String(describing: error)
-      netLog(.error, cat: .store, "ControlDeck config update failed", sid: session.sessionId, data: errorData)
+      netLog(.error, cat: .store, "Session interaction config update failed", sid: session.sessionId, data: errorData)
       throw error
     }
   }

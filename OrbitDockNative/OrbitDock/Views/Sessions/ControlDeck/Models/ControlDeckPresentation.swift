@@ -35,6 +35,7 @@ struct ControlDeckPresentation: Equatable, Sendable {
   let lifecycleLabel: String
   let lifecycleTint: String
   let acceptsUserInput: Bool
+  let canInterrupt: Bool
   let canResume: Bool
   let supportsImages: Bool
   let headerSubtitle: String

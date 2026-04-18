@@ -177,6 +177,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
       && control_mode == orbitdock_protocol::SessionControlMode::Direct
       && status == SessionStatus::Active,
     steerable: work_status == WorkStatus::Working,
+    can_interrupt: false,
     rows: restored.rows,
     total_row_count,
     has_more_before: false,

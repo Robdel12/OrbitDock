@@ -3,12 +3,12 @@ import Foundation
 import Testing
 
 @MainActor
-struct ControlDeckSessionModelTests {
+struct SessionInteractionModelTests {
   @Test func refreshPropagatesAuthoritativeDetailSnapshotToOwner() async throws {
     let fixture = ControlDeckDetailFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
     let session = runtime.session("session-1")
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     var propagatedRevisions: [UInt64] = []
 
     model.bind(
@@ -16,6 +16,7 @@ struct ControlDeckSessionModelTests {
       session: session,
       detailSnapshotSink: { payload in
         propagatedRevisions.append(payload.revision)
+        model.applyOwnerDetailSnapshot(payload)
       }
     )
 
@@ -32,7 +33,7 @@ struct ControlDeckSessionModelTests {
       throw URLError(.badURL)
     })
     let session = runtime.session("session-1")
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     var propagatedRevisions: [UInt64] = []
 
     model.bind(
@@ -51,7 +52,7 @@ struct ControlDeckSessionModelTests {
   }
 
   @Test func staleDetailSnapshotDoesNotOverwriteNewerAppliedState() async throws {
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     let runtime = try makeRuntime(loader: { _ in
       throw URLError(.badURL)
     })
@@ -74,7 +75,7 @@ struct ControlDeckSessionModelTests {
   }
 
   @Test func workingSnapshotMapsToWorkingActivityAndSteerMode() async throws {
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     let runtime = try makeRuntime(loader: { _ in
       throw URLError(.badURL)
     })
@@ -96,7 +97,7 @@ struct ControlDeckSessionModelTests {
   }
 
   @Test func permissionApprovalWinsOverGenericWorkStatus() async throws {
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     let runtime = try makeRuntime(loader: { _ in
       throw URLError(.badURL)
     })
@@ -126,7 +127,7 @@ struct ControlDeckSessionModelTests {
   }
 
   @Test func questionApprovalMapsToQuestionActivity() async throws {
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     let runtime = try makeRuntime(loader: { _ in
       throw URLError(.badURL)
     })
@@ -156,7 +157,7 @@ struct ControlDeckSessionModelTests {
   }
 
   @Test func bindingNewSessionClearsPreviouslyAppliedSnapshotState() async {
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     let runtime = ServerEndpointRuntime.preview()
     let firstSession = runtime.session("session-1")
     let secondSession = runtime.session("session-2")
@@ -176,14 +177,19 @@ struct ControlDeckSessionModelTests {
     let fixture = ControlDeckDetailFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
     let session = runtime.session("session-1")
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     var propagatedRevisions: [UInt64] = []
+    var acceptedRowIDs: [String] = []
 
     model.bind(
       sessionId: "session-1",
       session: session,
       detailSnapshotSink: { payload in
         propagatedRevisions.append(payload.revision)
+        model.applyOwnerDetailSnapshot(payload)
+      },
+      conversationRowSink: { row in
+        acceptedRowIDs.append(row.id)
       }
     )
 
@@ -200,13 +206,14 @@ struct ControlDeckSessionModelTests {
     #expect(model.presentation?.mode == .steer)
     #expect(model.presentation?.headerSubtitle == "Working")
     #expect(propagatedRevisions == [8])
+    #expect(acceptedRowIDs == ["send-row-1"])
   }
 
   @Test func interruptAppliesAuthoritativeDetailSnapshotFromMutationResponse() async throws {
     let fixture = ControlDeckDetailFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
     let session = runtime.session("session-1")
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     var propagatedRevisions: [UInt64] = []
 
     model.bind(
@@ -214,6 +221,7 @@ struct ControlDeckSessionModelTests {
       session: session,
       detailSnapshotSink: { payload in
         propagatedRevisions.append(payload.revision)
+        model.applyOwnerDetailSnapshot(payload)
       }
     )
 
@@ -240,7 +248,7 @@ struct ControlDeckSessionModelTests {
     let fixture = ControlDeckDetailFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
     let session = runtime.session("session-1")
-    let model = ControlDeckSessionModel()
+    let model = SessionInteractionModel()
     var propagatedRevisions: [UInt64] = []
 
     model.bind(
@@ -248,6 +256,7 @@ struct ControlDeckSessionModelTests {
       session: session,
       detailSnapshotSink: { payload in
         propagatedRevisions.append(payload.revision)
+        model.applyOwnerDetailSnapshot(payload)
       }
     )
 
@@ -288,6 +297,7 @@ struct ControlDeckSessionModelTests {
     workStatus: String = "waiting",
     acceptsUserInput: Bool = true,
     steerable: Bool = false,
+    canInterrupt: Bool = false,
     pendingApprovalJSON: String = "null"
   ) -> ServerSessionDetailSnapshotPayload {
     let data = Data(
@@ -296,6 +306,7 @@ struct ControlDeckSessionModelTests {
         workStatus: workStatus,
         acceptsUserInput: acceptsUserInput,
         steerable: steerable,
+        canInterrupt: canInterrupt,
         pendingApprovalJSON: pendingApprovalJSON
       ).utf8
     )
@@ -307,6 +318,7 @@ struct ControlDeckSessionModelTests {
     workStatus: String = "waiting",
     acceptsUserInput: Bool = true,
     steerable: Bool = false,
+    canInterrupt: Bool = false,
     pendingApprovalJSON: String = "null"
   ) -> String {
     """
@@ -323,6 +335,7 @@ struct ControlDeckSessionModelTests {
         "lifecycle_state": "open",
         "accepts_user_input": \(acceptsUserInput),
         "steerable": \(steerable),
+        "can_interrupt": \(canInterrupt),
         "rows": [],
         "total_row_count": 0,
         "has_more_before": false,
@@ -429,7 +442,7 @@ private actor ControlDeckDetailFixture {
       case ("GET", "/api/sessions/session-1/detail"):
         detailRequestCount += 1
         return (
-          Data(ControlDeckSessionModelTests.detailResponseJSON(revision: 7).utf8),
+          Data(SessionInteractionModelTests.detailResponseJSON(revision: 7).utf8),
           response
         )
       case ("POST", "/api/sessions/session-1/conversation/messages"):
@@ -450,11 +463,12 @@ private actor ControlDeckDetailFixture {
                   "is_streaming": false
                 }
               },
-              "session_detail_snapshot": \(ControlDeckSessionModelTests.detailResponseJSON(
+              "session_detail_snapshot": \(SessionInteractionModelTests.detailResponseJSON(
                 revision: 8,
                 workStatus: "working",
                 acceptsUserInput: true,
-                steerable: true
+                steerable: true,
+                canInterrupt: true
               ))
             }
             """.utf8
@@ -468,7 +482,7 @@ private actor ControlDeckDetailFixture {
             """
             {
               "accepted": true,
-              "session_detail_snapshot": \(ControlDeckSessionModelTests.detailResponseJSON(
+              "session_detail_snapshot": \(SessionInteractionModelTests.detailResponseJSON(
                 revision: 9,
                 workStatus: "waiting",
                 acceptsUserInput: true,
@@ -486,8 +500,8 @@ private actor ControlDeckDetailFixture {
             """
             {
               "session_id": "session-1",
-              "session": \(ControlDeckSessionModelTests.summaryResponseJSON()),
-              "session_detail_snapshot": \(ControlDeckSessionModelTests.detailResponseJSON(
+              "session": \(SessionInteractionModelTests.summaryResponseJSON()),
+              "session_detail_snapshot": \(SessionInteractionModelTests.detailResponseJSON(
                 revision: 10,
                 workStatus: "waiting",
                 acceptsUserInput: true,

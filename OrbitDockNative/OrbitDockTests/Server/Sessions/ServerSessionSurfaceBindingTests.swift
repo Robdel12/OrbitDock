@@ -31,6 +31,37 @@ struct ServerSessionSurfaceBindingTests {
     #expect(viewModel.timelineViewModel.displayedEntryCount == 1)
   }
 
+  @Test func sessionDetailAppliesAcceptedMutationRowToOwnedConversation() async throws {
+    let runtime = try makeRuntime(loader: { _ in
+      throw URLError(.badURL)
+    })
+    let endpointId = runtime.endpointId
+    let session = runtime.session("session-1")
+    let viewModel = SessionDetailViewModel(
+      sessionId: "session-1",
+      endpointId: endpointId,
+      session: session
+    )
+
+    viewModel.bind(
+      sessionId: "session-1",
+      endpointId: endpointId,
+      session: session,
+      modelPricingService: ModelPricingService()
+    )
+    viewModel.applyConversationMutationRow(
+      makeUserRowEntry(
+        sessionId: "session-1",
+        rowId: "send-row-1",
+        sequence: 1,
+        content: "Ship it"
+      )
+    )
+
+    #expect(viewModel.conversationViewModel.hasTimeline)
+    #expect(viewModel.conversationViewModel.rowEntries.map(\.id) == ["send-row-1"])
+  }
+
   @Test func reviewRefreshIgnoresStaleDiffPayloadAfterSessionRebind() async throws {
     let fixture = ReviewSurfaceSwitchFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
@@ -238,7 +269,7 @@ struct ServerSessionSurfaceBindingTests {
     revision: UInt64,
     projectName: String
   ) -> String {
-    ControlDeckSessionModelTests.detailResponseJSON(revision: revision)
+    SessionInteractionModelTests.detailResponseJSON(revision: revision)
       .replacingOccurrences(
         of: "\"id\": \"session-1\"",
         with: "\"id\": \"\(sessionId)\""

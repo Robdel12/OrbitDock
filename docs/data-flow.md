@@ -284,6 +284,8 @@ The server owns durable session truth such as:
 - `control_mode`
 - `lifecycle_state`
 - `accepts_user_input`
+- `steerable`
+- `can_interrupt`
 
 The client may derive presentation from those fields, but it must not infer them from:
 

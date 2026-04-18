@@ -1132,6 +1132,9 @@ pub struct SessionState {
   /// Server-computed: true when the session accepts steer requests.
   #[serde(default)]
   pub steerable: bool,
+  /// Server-computed: true when an active turn can be interrupted.
+  #[serde(default)]
+  pub can_interrupt: bool,
   pub pending_approval: Option<ApprovalRequest>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub permission_mode: Option<String>,

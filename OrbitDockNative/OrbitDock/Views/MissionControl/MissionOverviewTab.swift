@@ -9,7 +9,6 @@ struct MissionOverviewTab: View {
   let missionFileExists: Bool
   let workflowMigrationAvailable: Bool
   let missionsClient: MissionsClient?
-  let sessionsClient: SessionsClient?
   let isCompact: Bool
   let endpointId: UUID
   let nextTickAt: Date?
@@ -19,11 +18,11 @@ struct MissionOverviewTab: View {
   let onShowCleanup: () -> Void
   let onSelectTab: (MissionTab) -> Void
   let onUpdateMission: (Bool?, Bool?) async -> Void
+  let onStartOrchestrator: () async -> Void
+  let onTriggerPoll: () async -> Void
   let onNavigateToSession: (String) -> Void
   let onTransitionIssue: (String, OrchestrationState, String?) async -> Void
 
-  @State private var isStartingOrchestrator = false
-  @State private var actionError: String?
   private var isPolling: Bool {
     mission.orchestratorStatus == "polling"
   }
@@ -121,8 +120,8 @@ struct MissionOverviewTab: View {
         lastTickAt: lastTickAt,
         isCompact: isCompact,
         onUpdateMission: onUpdateMission,
-        onStartOrchestrator: startOrchestrator,
-        onTriggerPoll: triggerPoll
+        onStartOrchestrator: onStartOrchestrator,
+        onTriggerPoll: onTriggerPoll
       )
 
       if lingeringWorktreeCount > 0 {
@@ -133,11 +132,6 @@ struct MissionOverviewTab: View {
       }
 
       overviewBoard
-    }
-    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text(actionError ?? "")
     }
   }
 
@@ -154,7 +148,7 @@ struct MissionOverviewTab: View {
     } else if issues.isEmpty {
       MissionDockedState(
         mission: mission,
-        onStartOrchestrator: startOrchestrator,
+        onStartOrchestrator: onStartOrchestrator,
         onUpdateMission: onUpdateMission
       )
     } else {
@@ -432,38 +426,6 @@ struct MissionOverviewTab: View {
     return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
   }
 
-  // MARK: - Networking
-
-  private func startOrchestrator() async {
-    guard let missionsClient else { return }
-    isStartingOrchestrator = true
-    do {
-      try await missionsClient.startOrchestrator(missionId)
-    } catch {
-      actionError = error.localizedDescription
-    }
-    isStartingOrchestrator = false
-    await onRefresh()
-  }
-
-  private func triggerPoll() async {
-    guard let missionsClient else { return }
-    do {
-      try await missionsClient.triggerPoll(missionId)
-    } catch {
-      actionError = error.localizedDescription
-    }
-  }
-
-  private func endAgentSession(_ sessionId: String) async {
-    guard let sessionsClient else { return }
-    do {
-      _ = try await sessionsClient.endSession(sessionId)
-      await onRefresh()
-    } catch {
-      actionError = error.localizedDescription
-    }
-  }
 }
 
 private final class MissionOverviewTimestampParser {

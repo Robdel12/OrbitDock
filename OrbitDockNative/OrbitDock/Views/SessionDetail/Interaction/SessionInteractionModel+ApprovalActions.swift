@@ -1,6 +1,6 @@
 import Foundation
 
-extension ControlDeckSessionModel {
+extension SessionInteractionModel {
   func approveTool(
     decision: ApprovalsClient.ToolApprovalDecision,
     message: String? = nil,
@@ -16,10 +16,9 @@ extension ControlDeckSessionModel {
         updatedInput: updatedInput
       )
       if let snapshot = response.sessionDetailSnapshot {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "approval_response",
-          propagateToBindingOwner: true
+          source: "approval_response"
         )
       } else {
         clearPendingApprovalOptimistically()
@@ -56,10 +55,9 @@ extension ControlDeckSessionModel {
         questionId: questionId
       )
       if let snapshot = response.sessionDetailSnapshot {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "question_response",
-          propagateToBindingOwner: true
+          source: "question_response"
         )
       } else {
         clearPendingApprovalOptimistically()
@@ -81,10 +79,9 @@ extension ControlDeckSessionModel {
         answers: answers
       )
       if let snapshot = response.sessionDetailSnapshot {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "question_batch_response",
-          propagateToBindingOwner: true
+          source: "question_batch_response"
         )
       } else {
         clearPendingApprovalOptimistically()
@@ -105,10 +102,9 @@ extension ControlDeckSessionModel {
         grantRequestedPermissions: grant
       )
       if let snapshot = response.sessionDetailSnapshot {
-        applyDetailSnapshotPayload(
+        acceptAuthoritativeDetailSnapshot(
           snapshot,
-          source: "permission_response",
-          propagateToBindingOwner: true
+          source: "permission_response"
         )
       } else {
         clearPendingApprovalOptimistically()

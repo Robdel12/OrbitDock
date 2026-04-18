@@ -40,6 +40,7 @@ struct ControlDeckSessionState: Sendable {
   let workStatus: ControlDeckWorkStatus
   let acceptsUserInput: Bool
   let steerable: Bool
+  let canInterrupt: Bool
   /// True when a connector process is attached and can receive actions.
   let connectorAttached: Bool
   let projectPath: String

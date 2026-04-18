@@ -8,6 +8,7 @@ import SwiftUI
 struct ConversationView: View {
   let sessionId: String?
   let session: ServerSessionContext
+  let viewModel: ConversationViewModel
   var endpointId: UUID?
   var isSessionActive: Bool = false
   var displayStatus: SessionDisplayStatus = .ended
@@ -18,14 +19,11 @@ struct ConversationView: View {
 
   let onJumpToLatest: () -> Void
   let onFollowStateChanged: (ConversationFollowState) -> Void
-  @State private var viewModel: ConversationViewModel
-  private var bindingIdentity: String {
-    "\(session.endpointId.uuidString):\(sessionId ?? ""):\(ObjectIdentifier(session))"
-  }
 
   init(
     sessionId: String?,
     session: ServerSessionContext,
+    viewModel: ConversationViewModel,
     endpointId: UUID? = nil,
     isSessionActive: Bool = false,
     displayStatus: SessionDisplayStatus = .ended,
@@ -38,6 +36,7 @@ struct ConversationView: View {
   ) {
     self.sessionId = sessionId
     self.session = session
+    self.viewModel = viewModel
     self.endpointId = endpointId
     self.isSessionActive = isSessionActive
     self.displayStatus = displayStatus
@@ -47,13 +46,6 @@ struct ConversationView: View {
     _scrollCommand = scrollCommand
     self.onJumpToLatest = onJumpToLatest
     self.onFollowStateChanged = onFollowStateChanged
-    _viewModel = State(
-      initialValue: ConversationViewModel(
-        sessionId: sessionId,
-        session: session,
-        viewMode: chatViewMode
-      )
-    )
   }
 
   var body: some View {
@@ -62,9 +54,6 @@ struct ConversationView: View {
         .ignoresSafeArea()
 
       content
-    }
-    .task(id: bindingIdentity) {
-      await runLifecycle()
     }
     .animation(Motion.fade, value: viewModel.loadState == .loading)
     .onChange(of: viewModel.loadState) { _, newState in
@@ -151,45 +140,6 @@ struct ConversationView: View {
       ConversationEmptyStateView()
     }
   }
-
-  private func runLifecycle() async {
-    viewModel.bind(sessionId: sessionId, session: session, viewMode: chatViewMode)
-
-    guard let sessionId, !sessionId.isEmpty else {
-      await viewModel.refresh()
-      return
-    }
-
-    // Keep bind, initial refresh, and event consumption in one ordered lifecycle
-    // task so replayed row deltas cannot race a later state reset.
-    let (stream, id) = session.transport.events()
-    defer {
-      session.transport.removeEventListener(id: id)
-      session.transport.unsubscribe(surfaces: [.conversation])
-    }
-
-    session.transport.subscribe(surfaces: [.conversation])
-    await viewModel.refresh()
-    await consumeConversationEvents(stream, sessionId: sessionId)
-  }
-
-  private func consumeConversationEvents(
-    _ stream: AsyncStream<ServerSessionTransport.Event>,
-    sessionId: String
-  ) async {
-    for await event in stream {
-      guard !Task.isCancelled else { break }
-      guard viewModel.currentSessionId == sessionId else { break }
-      switch event {
-        case let .conversationRowsChanged(delta):
-          viewModel.handleConversationRowDelta(delta)
-        case .invalidated where event.invalidates(.conversation):
-          viewModel.requestForcedResync(revision: session.transport.latestRevision)
-        case .invalidated:
-          continue
-      }
-    }
-  }
 }
 
 /// Internal to ConversationView — declared at file scope for Equatable conformance
@@ -201,10 +151,16 @@ enum ConversationLoadState: Equatable {
 
 #Preview {
   @Previewable @State var scrollCommand: ConversationScrollCommand?
+  @Previewable @State var viewModel = ConversationViewModel(
+    sessionId: nil,
+    session: ServerSessionContext.preview(),
+    viewMode: .focused
+  )
 
   ConversationView(
     sessionId: nil,
     session: ServerSessionContext.preview(),
+    viewModel: viewModel,
     isSessionActive: true,
     displayStatus: .working,
     currentTool: "Edit",

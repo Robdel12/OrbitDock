@@ -5,8 +5,8 @@ struct SidebarSessionRow: View {
   let isSelected: Bool
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(DashboardDataService.self) private var dashboardDataService
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @State private var isHovered = false
   @State private var isEnding = false
 
@@ -254,10 +254,7 @@ struct SidebarSessionRow: View {
   private func endSession() async {
     isEnding = true
     defer { isEnding = false }
-    guard let store = runtimeRegistry.endpointStoreIfAvailable(for: session.sessionRef.endpointId) else {
-      return
-    }
-    _ = try? await store.session(session.sessionId).api.endSession()
+    try? await rootSessionActions.endSession(session.sessionRef)
     await dashboardDataService.refreshNow()
   }
 

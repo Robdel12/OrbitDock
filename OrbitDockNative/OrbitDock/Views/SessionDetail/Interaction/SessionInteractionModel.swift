@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 @Observable
-final class ControlDeckSessionModel {
+final class SessionInteractionModel {
   struct BindingContext {
     let sessionId: String
     let session: ServerSessionContext
@@ -29,6 +29,7 @@ final class ControlDeckSessionModel {
   @ObservationIgnored var currentBindingRevision = 0
   @ObservationIgnored var lastLoggedSessionSignature: String?
   @ObservationIgnored var detailSnapshotSink: ((ServerSessionDetailSnapshotPayload) -> Void)?
+  @ObservationIgnored var conversationRowSink: ((ServerConversationRowEntry) -> Void)?
 }
 
 extension ControlDeckMode {
@@ -42,6 +43,6 @@ extension ControlDeckMode {
   }
 }
 
-enum ControlDeckError: Error {
+enum SessionInteractionError: Error {
   case notBound
 }

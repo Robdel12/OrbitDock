@@ -92,24 +92,17 @@ struct MissionListView: View {
         )
 
         ForEach(viewModel.missions) { agg in
-          let missionsClient = runtimeRegistry.runtimesByEndpointId[agg.endpointId]?.clients.missions
-
           Button {
             router.navigateToMission(missionId: agg.mission.id, endpointId: agg.endpointId)
           } label: {
             MissionRowView(
               mission: agg.mission,
               endpointName: runtimeRegistry.hasMultipleEndpoints ? agg.endpointName : nil,
-              missionsClient: missionsClient,
-              onRefresh: { await viewModel.fetchAllMissions() },
-              onApplyList: { response in
-                withAnimation(Motion.standard) {
-                  viewModel.applyMissionList(
-                    response,
-                    endpointId: agg.endpointId,
-                    endpointName: agg.endpointName
-                  )
-                }
+              onUpdateMission: { enabled, paused in
+                await viewModel.updateMission(agg, enabled: enabled, paused: paused)
+              },
+              onDeleteMission: {
+                await viewModel.deleteMission(agg)
               }
             )
           }
@@ -357,15 +350,13 @@ private struct MissionOverviewMetric: View {
 private struct MissionRowView: View {
   let mission: MissionSummary
   let endpointName: String?
-  let missionsClient: MissionsClient?
-  let onRefresh: () async -> Void
-  let onApplyList: (MissionsListResponse) -> Void
+  let onUpdateMission: (Bool?, Bool?) async -> Void
+  let onDeleteMission: () async -> Void
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var isHovering = false
   @State private var showDeleteConfirmation = false
-  @State private var actionError: String?
 
   private var isCompact: Bool {
     horizontalSizeClass == .compact
@@ -435,11 +426,6 @@ private struct MissionRowView: View {
     .clipShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
     .onHover { hovering in
       withAnimation(Motion.hover) { isHovering = hovering }
-    }
-    .alert("Error", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text(actionError ?? "")
     }
   }
 
@@ -733,23 +719,11 @@ private struct MissionRowView: View {
   // MARK: - Helpers
 
   private func updateMission(enabled: Bool? = nil, paused: Bool? = nil) async {
-    guard let missionsClient else { return }
-    do {
-      _ = try await missionsClient.updateMission(mission.id, enabled: enabled, paused: paused)
-      await onRefresh()
-    } catch {
-      actionError = error.localizedDescription
-    }
+    await onUpdateMission(enabled, paused)
   }
 
   private func deleteMission() async {
-    guard let missionsClient else { return }
-    do {
-      let response = try await missionsClient.deleteMission(mission.id)
-      onApplyList(response)
-    } catch {
-      actionError = error.localizedDescription
-    }
+    await onDeleteMission()
   }
 }
 

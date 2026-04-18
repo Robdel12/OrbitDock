@@ -140,6 +140,14 @@ impl SessionCoreState {
     }
   }
 
+  fn can_interrupt(&self) -> bool {
+    self.status == SessionStatus::Active
+      && self.control_mode == SessionControlMode::Direct
+      && self.lifecycle_state == SessionLifecycleState::Open
+      && self.work_status == WorkStatus::Working
+      && self.current_turn_id.is_some()
+  }
+
   pub fn restore(data: SessionRestoreData) -> Self {
     let SessionRestoreData {
       identity,
@@ -366,6 +374,7 @@ impl SessionCoreState {
       lifecycle_state: self.lifecycle_state,
       accepts_user_input,
       pending_approval: self.pending_approval.clone(),
+      can_interrupt: self.can_interrupt(),
       permission_mode: self.permission_mode.clone(),
       collaboration_mode: self.config.collaboration_mode.clone(),
       multi_agent: self.config.multi_agent,

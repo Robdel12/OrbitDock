@@ -143,7 +143,6 @@ struct MissionShowView: View {
                 missionFileExists: viewModel.missionFileExists,
                 workflowMigrationAvailable: viewModel.workflowMigrationAvailable,
                 missionsClient: viewModel.missionsClient,
-                sessionsClient: viewModel.sessionsClient,
                 isCompact: isCompact,
                 endpointId: endpointId,
                 nextTickAt: viewModel.nextTickAt,
@@ -158,6 +157,12 @@ struct MissionShowView: View {
                 },
                 onUpdateMission: { enabled, paused in
                   await viewModel.updateMission(enabled: enabled, paused: paused)
+                },
+                onStartOrchestrator: {
+                  await viewModel.startOrchestrator()
+                },
+                onTriggerPoll: {
+                  await viewModel.triggerPoll()
                 },
                 onNavigateToSession: { sessionId in
                   let ref = SessionRef(endpointId: endpointId, sessionId: sessionId)

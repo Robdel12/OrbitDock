@@ -10,6 +10,7 @@ struct OverviewPanel: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(DashboardDataService.self) private var dashboardDataService
   @Environment(UsageServiceRegistry.self) private var usageRegistry
+  @Environment(\.rootSessionActions) private var rootSessionActions
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var collapsedGroups: Set<String> = []
@@ -208,10 +209,7 @@ struct OverviewPanel: View {
   }
 
   private func endSession(_ session: DashboardConversationRecord) async {
-    guard let store = runtimeRegistry.endpointStoreIfAvailable(for: session.sessionRef.endpointId) else {
-      return
-    }
-    _ = try? await store.session(session.sessionId).api.endSession()
+    try? await rootSessionActions.endSession(session.sessionRef)
     await dashboardDataService.refreshNow()
   }
 }

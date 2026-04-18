@@ -5,33 +5,30 @@ struct ControlDeckScreen: View {
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
   let sessionId: String
-  let session: ServerSessionContext
+  let interaction: SessionInteractionModel
   var chromeStyle: ControlDeckChromeStyle = .standalone
-  var detailPayload: ServerSessionDetailSnapshotPayload?
   var terminalTitle: String?
   var sessionDisplayStatus: SessionDisplayStatus = .ended
   var currentTool: String?
-  var onDetailPayloadChange: ((ServerSessionDetailSnapshotPayload) -> Void)?
   var onFocusStateChange: ((Bool) -> Void)?
   var onToggleTerminal: (() -> Void)?
 
-  @State var sessionModel = ControlDeckSessionModel()
   @State var composer = ControlDeckComposerModel()
   @AppStorage("localDictationEnabled") var localDictationEnabled = true
 
   var bindingIdentity: String {
-    "\(session.endpointId.uuidString):\(sessionId):\(ObjectIdentifier(session))"
+    "\(sessionId):\(ObjectIdentifier(interaction))"
   }
 
   var isWaitingForParentDetailPayload: Bool {
-    detailPayload == nil && sessionModel.snapshot == nil
+    interaction.snapshot == nil
   }
 
   var body: some View {
     Group {
-      if (sessionModel.isLoading || isWaitingForParentDetailPayload), sessionModel.snapshot == nil {
+      if (interaction.isLoading || isWaitingForParentDetailPayload), interaction.snapshot == nil {
         loadingView
-      } else if let error = sessionModel.lastError, sessionModel.snapshot == nil {
+      } else if let error = interaction.lastError, interaction.snapshot == nil {
         errorView(error)
       } else {
         controlDeckBody
@@ -42,26 +39,14 @@ struct ControlDeckScreen: View {
     .padding(.bottom, Spacing.xs)
     .task(id: bindingIdentity) {
       composer.restoreDraft(for: sessionId)
-      sessionModel.bind(
-        sessionId: sessionId,
-        session: session,
-        detailSnapshotSink: onDetailPayloadChange
-      )
-      await sessionModel.bootstrap(detailPayload: detailPayload)
-    }
-    .onChange(of: detailPayload?.revision) { _, _ in
-      guard let detailPayload else { return }
-      Task {
-        await sessionModel.applyExternalDetailSnapshot(detailPayload)
-      }
     }
     .onChange(of: composer.draft) { _, _ in
       composer.persistDraft(for: sessionId)
     }
-    .onChange(of: sessionModel.skills) { _, _ in
-      composer.syncSelectedSkillsFromText(composer.draft.text, availableSkills: sessionModel.skills)
+    .onChange(of: interaction.skills) { _, _ in
+      composer.syncSelectedSkillsFromText(composer.draft.text, availableSkills: interaction.skills)
     }
-    .onChange(of: sessionModel.pendingApproval) { old, new in
+    .onChange(of: interaction.pendingApproval) { old, new in
       if old == nil, new != nil {
         Platform.services.playHaptic(.warning)
       }
@@ -74,10 +59,6 @@ struct ControlDeckScreen: View {
       if !enabled {
         Task { await composer.cancelDictation() }
       }
-    }
-    .task(id: sessionModel.snapshot?.state.projectPath ?? "") {
-      guard let path = sessionModel.snapshot?.state.projectPath, !path.isEmpty else { return }
-      await sessionModel.projectFileIndex?.loadIfNeeded(path)
     }
     .fileImporter(
       isPresented: Binding(

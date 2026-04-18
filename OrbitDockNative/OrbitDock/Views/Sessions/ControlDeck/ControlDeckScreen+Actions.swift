@@ -2,9 +2,9 @@ import SwiftUI
 
 extension ControlDeckScreen {
   func handleTextChange(_ text: String) {
-    let shouldLoadSkills = composer.handleTextChange(text, availableSkills: sessionModel.skills)
+    let shouldLoadSkills = composer.handleTextChange(text, availableSkills: interaction.skills)
     if shouldLoadSkills {
-      Task { await sessionModel.loadSkills() }
+      Task { await interaction.loadSkills() }
     }
   }
 
@@ -35,17 +35,17 @@ extension ControlDeckScreen {
     Task {
       switch module {
       case .model:
-        await sessionModel.updateModel(value)
+        await interaction.updateModel(value)
       case .effort:
-        await sessionModel.updateEffort(value)
+        await interaction.updateEffort(value)
       case .autonomy:
-        await sessionModel.updatePermissionMode(value)
+        await interaction.updatePermissionMode(value)
       case .approvalMode:
-        await sessionModel.updateApprovalPolicy(value)
+        await interaction.updateApprovalPolicy(value)
       case .collaborationMode:
-        await sessionModel.updateCollaborationMode(value)
+        await interaction.updateCollaborationMode(value)
       case .autoReview:
-        await sessionModel.updateAutoReview(value)
+        await interaction.updateAutoReview(value)
       default:
         break
       }
@@ -57,7 +57,7 @@ extension ControlDeckScreen {
       "reviewer": reviewer.rawValue
     ])
     Task {
-      await sessionModel.updateApprovalsReviewer(reviewer)
+      await interaction.updateApprovalsReviewer(reviewer)
     }
   }
 
@@ -66,16 +66,16 @@ extension ControlDeckScreen {
       "policy": policy.legacySummary
     ])
     Task {
-      await sessionModel.updateSandboxPolicy(policy)
+      await interaction.updateSandboxPolicy(policy)
     }
   }
 
   func acceptSuggestion(_ suggestion: ControlDeckCompletionSuggestion) {
     composer.acceptSuggestion(
       suggestion,
-      availableSkills: sessionModel.skills,
-      projectPath: sessionModel.projectPath,
-      projectFileIndex: sessionModel.projectFileIndex
+      availableSkills: interaction.skills,
+      projectPath: interaction.projectPath,
+      projectFileIndex: interaction.projectFileIndex
     )
   }
 
@@ -92,7 +92,7 @@ extension ControlDeckScreen {
       do {
         var imageIds = composer.uploadedImageIds
         for image in currentDraft.attachments.images where imageIds[image.localId] == nil {
-          let attachmentId = try await sessionModel.uploadImage(
+          let attachmentId = try await interaction.uploadImage(
             data: image.uploadData,
             mimeType: image.uploadMimeType,
             displayName: image.displayName,
@@ -105,16 +105,16 @@ extension ControlDeckScreen {
         composer.uploadedImageIds = imageIds
 
         if submissionAction == .steerTurn {
-          try await sessionModel.steerTurn(draft: currentDraft, uploadedImageIds: imageIds)
+          try await interaction.steerTurn(draft: currentDraft, uploadedImageIds: imageIds)
         } else {
-          try await sessionModel.submitTurn(draft: currentDraft, uploadedImageIds: imageIds)
+          try await interaction.submitTurn(draft: currentDraft, uploadedImageIds: imageIds)
         }
 
-        sessionModel.lastError = nil
+        interaction.lastError = nil
         composer.clearDraft(for: sessionId)
       } catch {
-        sessionModel.lastError = String(describing: error)
-        await sessionModel.refresh()
+        interaction.lastError = String(describing: error)
+        await interaction.refresh()
       }
     }
   }
@@ -123,23 +123,23 @@ extension ControlDeckScreen {
     guard !composer.isSubmitting else { return }
     netLog(.info, cat: .store, "ControlDeckScreen resume tapped", sid: sessionId, data: [
       "isSubmitting": composer.isSubmitting,
-      "isResuming": sessionModel.isResuming,
-      "presentationMode": sessionModel.presentation?.mode.debugLabel ?? "nil",
-      "canResume": sessionModel.presentation?.canResume ?? false
+      "isResuming": interaction.isResuming,
+      "presentationMode": interaction.presentation?.mode.debugLabel ?? "nil",
+      "canResume": interaction.presentation?.canResume ?? false
     ])
-    Task { await sessionModel.resumeSession() }
+    Task { await interaction.resumeSession() }
   }
 
   func handleAttachmentImport(_ result: Result<[URL], Error>) {
-    if let error = composer.handleAttachmentImport(result, projectPath: sessionModel.projectPath) {
-      sessionModel.lastError = error
+    if let error = composer.handleAttachmentImport(result, projectPath: interaction.projectPath) {
+      interaction.lastError = error
     }
   }
 
   func toggleDictation() {
     Task {
       if let error = await composer.toggleDictation(localDictationEnabled: localDictationEnabled) {
-        sessionModel.lastError = error
+        interaction.lastError = error
       }
     }
   }

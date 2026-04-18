@@ -2,16 +2,16 @@ import SwiftUI
 
 extension ControlDeckScreen {
   var currentMode: ControlDeckMode {
-    sessionModel.presentation?.mode ?? .disabled
+    interaction.presentation?.mode ?? .disabled
   }
 
   var canSubmit: Bool {
     let modeAllowsInput = currentMode == .compose || currentMode == .steer
-    return modeAllowsInput && composer.draft.hasContent && !composer.isSubmitting && !sessionModel.isResuming
+    return modeAllowsInput && composer.draft.hasContent && !composer.isSubmitting && !interaction.isResuming
   }
 
   var isInputEnabled: Bool {
-    (currentMode == .compose || currentMode == .steer) && !composer.isSubmitting && !sessionModel.isResuming
+    (currentMode == .compose || currentMode == .steer) && !composer.isSubmitting && !interaction.isResuming
   }
 
   var shouldShowDictation: Bool {
@@ -29,7 +29,7 @@ extension ControlDeckScreen {
   }
 
   var isApprovalMode: Bool {
-    currentMode == .approval && sessionModel.pendingApproval != nil
+    currentMode == .approval && interaction.pendingApproval != nil
   }
 
   var shouldShowCompletionPanel: Bool {
@@ -52,9 +52,9 @@ extension ControlDeckScreen {
 
   var currentSuggestions: [ControlDeckCompletionSuggestion] {
     composer.currentSuggestions(
-      availableSkills: sessionModel.skills,
-      projectPath: sessionModel.projectPath,
-      projectFileIndex: sessionModel.projectFileIndex
+      availableSkills: interaction.skills,
+      projectPath: interaction.projectPath,
+      projectFileIndex: interaction.projectFileIndex
     )
   }
 
@@ -62,12 +62,12 @@ extension ControlDeckScreen {
     ControlDeckView(
       composer: composer,
       isSubmitting: composer.isSubmitting,
-      isResuming: sessionModel.isResuming,
+      isResuming: interaction.isResuming,
       isInputEnabled: isInputEnabled,
       canSubmit: canSubmit,
-      presentation: sessionModel.presentation,
-      pendingApproval: sessionModel.pendingApproval,
-      errorMessage: sessionModel.lastError,
+      presentation: interaction.presentation,
+      pendingApproval: interaction.pendingApproval,
+      errorMessage: interaction.lastError,
       chromeStyle: chromeStyle,
       onTextChange: handleTextChange,
       onKeyCommand: handleKeyCommand,
@@ -79,23 +79,23 @@ extension ControlDeckScreen {
       onDropImages: handleDrop,
       onSubmit: submitDraft,
       onResume: resumeSession,
-      onApprove: { Task { await sessionModel.approveTool(decision: .approved) } },
-      onApproveForSession: { Task { await sessionModel.approveTool(decision: .approvedForSession) } },
+      onApprove: { Task { await interaction.approveTool(decision: .approved) } },
+      onApproveForSession: { Task { await interaction.approveTool(decision: .approvedForSession) } },
       onApproveAlwaysForHost: { host in
-        Task { await sessionModel.approveToolAlwaysAllowHost(host) }
+        Task { await interaction.approveToolAlwaysAllowHost(host) }
       },
-      onDeny: { Task { await sessionModel.approveTool(decision: .denied) } },
+      onDeny: { Task { await interaction.approveTool(decision: .denied) } },
       onAnswer: { answer, promptId in
-        Task { await sessionModel.answerQuestion(answer: answer, questionId: promptId) }
+        Task { await interaction.answerQuestion(answer: answer, questionId: promptId) }
       },
       onSubmitAllAnswers: { answers in
-        Task { await sessionModel.answerQuestionBatch(answers: answers) }
+        Task { await interaction.answerQuestionBatch(answers: answers) }
       },
-      onGrantPermission: { Task { await sessionModel.respondToPermission(grant: true, scope: .turn) } },
+      onGrantPermission: { Task { await interaction.respondToPermission(grant: true, scope: .turn) } },
       onGrantPermissionForSession: {
-        Task { await sessionModel.respondToPermission(grant: true, scope: .session) }
+        Task { await interaction.respondToPermission(grant: true, scope: .session) }
       },
-      onDenyPermission: { Task { await sessionModel.respondToPermission(grant: false) } },
+      onDenyPermission: { Task { await interaction.respondToPermission(grant: false) } },
       terminalTitle: terminalTitle,
       currentTool: currentTool,
       onToggleTerminal: onToggleTerminal,
@@ -104,7 +104,7 @@ extension ControlDeckScreen {
       onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
       onDictation: dictationAction,
-      onInterrupt: { Task { await sessionModel.interruptSession() } }
+      onInterrupt: { Task { await interaction.interruptSession() } }
     )
     .background(
       GeometryReader { proxy in
@@ -167,7 +167,7 @@ extension ControlDeckScreen {
         .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.statusPermission)
         .lineLimit(3)
-      Button("Retry") { Task { await sessionModel.refresh() } }
+      Button("Retry") { Task { await interaction.refresh() } }
         .buttonStyle(.bordered)
         .controlSize(.small)
     }
