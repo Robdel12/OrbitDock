@@ -496,7 +496,7 @@ jobs:
           ref: ${{ needs.metadata.outputs.source_sha }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93.1
 
       - name: Install native dependencies
         if: ${{ startsWith(matrix.target, 'linux') }}

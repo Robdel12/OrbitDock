@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.93.1
 
       # Swatinem/rust-cache — caches Cargo registry + target dir with
       # automatic pruning of stale artifacts. Keyed off Cargo.lock so
