@@ -26,7 +26,7 @@ enum ServerTokenUsageSnapshotKind: String, Codable, Hashable, Sendable {
   case unknown
   case contextTurn = "context_turn"
   case lifetimeTotals = "lifetime_totals"
-  case mixedLegacy = "mixed_legacy"
+  case mixed = "mixed"
   case compactionReset = "compaction_reset"
 }
 

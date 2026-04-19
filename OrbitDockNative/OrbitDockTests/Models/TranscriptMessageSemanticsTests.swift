@@ -44,7 +44,13 @@ struct TranscriptMessageSemanticsTests {
   @Test func formattedToolInputUsesToolDisplay() {
     let readMessage = makeMessage(
       toolName: "Read",
-      toolDisplay: ServerToolDisplay.placeholder(summary: "/tmp/file.txt", toolType: "read")
+      toolDisplay: ServerToolDisplay(
+        summary: "/tmp/file.txt", subtitle: nil, rightMeta: nil,
+        subtitleAbsorbsMeta: false, glyphSymbol: "doc.text", glyphColor: "blue",
+        language: nil, diffPreview: nil, outputPreview: nil, liveOutputPreview: nil,
+        todoItems: [], toolType: "read", summaryFont: "monospace", displayTier: "standard",
+        inputDisplay: "/tmp/file.txt", outputDisplay: nil, diffDisplay: nil, planExplanation: nil
+      )
     )
     let taskMessage = makeMessage(
       toolName: "Task",

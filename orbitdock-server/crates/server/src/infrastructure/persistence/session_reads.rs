@@ -38,23 +38,14 @@ type StoredCodexConfigRow = (
 
 pub(super) fn infer_codex_config_mode(
   raw_mode: Option<&str>,
-  config_profile: Option<&str>,
-  model_provider: Option<&str>,
+  _config_profile: Option<&str>,
+  _model_provider: Option<&str>,
 ) -> Option<CodexConfigMode> {
   match raw_mode {
     Some("inherit") => Some(CodexConfigMode::Inherit),
     Some("profile") => Some(CodexConfigMode::Profile),
     Some("custom") => Some(CodexConfigMode::Custom),
-    Some(_) => None,
-    None => {
-      if config_profile.is_some_and(|value| !value.trim().is_empty()) {
-        Some(CodexConfigMode::Profile)
-      } else if model_provider.is_some_and(|value| !value.trim().is_empty()) {
-        Some(CodexConfigMode::Custom)
-      } else {
-        None
-      }
-    }
+    _ => None,
   }
 }
 

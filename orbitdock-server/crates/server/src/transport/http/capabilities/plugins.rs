@@ -25,7 +25,7 @@ pub async fn list_plugins_endpoint(
   let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| session_not_found_error(&session_id))?;
-  let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+  let (cwd, config_overrides, runtime_overrides) = codex_plugin_context(&session);
   let (reply_tx, reply_rx) = oneshot::channel();
 
   let response = dispatch_codex_query(
@@ -37,7 +37,7 @@ pub async fn list_plugins_endpoint(
       cwds: query.cwd,
       force_remote_sync: query.force_remote_sync.unwrap_or(false),
       config_overrides,
-      control_plane,
+      runtime_overrides,
       reply_tx,
     },
   )
@@ -54,7 +54,7 @@ pub async fn install_plugin(
   let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| session_not_found_error(&session_id))?;
-  let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+  let (cwd, config_overrides, runtime_overrides) = codex_plugin_context(&session);
   let (reply_tx, reply_rx) = oneshot::channel();
 
   let response = dispatch_codex_query(
@@ -65,7 +65,7 @@ pub async fn install_plugin(
       cwd,
       params: body,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       reply_tx,
     },
   )
@@ -82,7 +82,7 @@ pub async fn uninstall_plugin(
   let session = load_full_session_state(&state, &session_id, false, false)
     .await
     .map_err(|_| session_not_found_error(&session_id))?;
-  let (cwd, config_overrides, control_plane) = codex_plugin_context(&session);
+  let (cwd, config_overrides, runtime_overrides) = codex_plugin_context(&session);
   let (reply_tx, reply_rx) = oneshot::channel();
 
   let response = dispatch_codex_query(
@@ -93,7 +93,7 @@ pub async fn uninstall_plugin(
       cwd,
       params: body,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       reply_tx,
     },
   )

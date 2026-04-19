@@ -297,6 +297,7 @@ struct SessionInteractionModelTests {
     workStatus: String = "waiting",
     acceptsUserInput: Bool = true,
     steerable: Bool = false,
+    connectorAttached: Bool = true,
     canInterrupt: Bool = false,
     pendingApprovalJSON: String = "null"
   ) -> ServerSessionDetailSnapshotPayload {
@@ -306,6 +307,7 @@ struct SessionInteractionModelTests {
         workStatus: workStatus,
         acceptsUserInput: acceptsUserInput,
         steerable: steerable,
+        connectorAttached: connectorAttached,
         canInterrupt: canInterrupt,
         pendingApprovalJSON: pendingApprovalJSON
       ).utf8
@@ -318,6 +320,7 @@ struct SessionInteractionModelTests {
     workStatus: String = "waiting",
     acceptsUserInput: Bool = true,
     steerable: Bool = false,
+    connectorAttached: Bool = true,
     canInterrupt: Bool = false,
     pendingApprovalJSON: String = "null"
   ) -> String {
@@ -335,6 +338,7 @@ struct SessionInteractionModelTests {
         "lifecycle_state": "open",
         "accepts_user_input": \(acceptsUserInput),
         "steerable": \(steerable),
+        "connector_attached": \(connectorAttached),
         "can_interrupt": \(canInterrupt),
         "rows": [],
         "total_row_count": 0,

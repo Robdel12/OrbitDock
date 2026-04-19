@@ -3,10 +3,10 @@
 -- These columns were superseded by `row_data` (V022) and are no longer
 -- read or written by any code path:
 --
---   tool_output  (V001) — legacy tool results
---   tool_input   (V001) — legacy tool payloads
---   tool_name    (V001) — legacy tool name strings
---   tool_duration(V001) — legacy duration floats
+--   tool_output  (V001) — old tool results
+--   tool_input   (V001) — old tool payloads
+--   tool_name    (V001) — old tool name strings
+--   tool_duration(V001) — old duration floats
 --   content      (V001) — redundant extract of row_data content
 --
 -- Some columns (images_json, thinking) were added ad-hoc on existing installs

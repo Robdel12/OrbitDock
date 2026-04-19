@@ -1,15 +1,8 @@
 //! Database migrations powered by refinery.
-//!
-//! New installs use refinery's migration history table. Existing installs may
-//! still have the legacy `schema_versions` table from OrbitDock's prior custom
-//! runner, so startup performs a one-time import before running pending
-//! migrations.
-
-use std::collections::HashMap;
 
 use anyhow::Context;
 use rusqlite::{params, Connection, OptionalExtension};
-use tracing::{info, warn};
+use tracing::info;
 
 mod embedded {
   use refinery::embed_migrations;
@@ -17,7 +10,6 @@ mod embedded {
   embed_migrations!("../../migrations");
 }
 
-const LEGACY_MIGRATION_TABLE: &str = "schema_versions";
 const REFINERY_MIGRATION_TABLE: &str = "refinery_schema_history";
 
 /// Run all pending migrations against the given connection.
@@ -31,7 +23,6 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
          PRAGMA foreign_keys = ON;",
   )?;
 
-  import_legacy_history(conn)?;
   let had_v042_before = refinery_history_has_version(conn, 42)?;
 
   let report = embedded::migrations::runner()
@@ -167,122 +158,6 @@ fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> anyh
   Ok(exists)
 }
 
-fn import_legacy_history(conn: &mut Connection) -> anyhow::Result<()> {
-  if refinery_history_count(conn)? > 0 {
-    return Ok(());
-  }
-
-  if !table_exists(conn, LEGACY_MIGRATION_TABLE)? {
-    return Ok(());
-  }
-
-  let legacy_history = load_legacy_history(conn)?;
-  if legacy_history.is_empty() {
-    return Ok(());
-  }
-
-  let migrations = embedded::migrations::runner().get_migrations().to_vec();
-  ensure_refinery_history_table(conn)?;
-  let mut imported = 0usize;
-
-  for migration in &migrations {
-    let version = i64::from(migration.version());
-    let Some(applied_on) = legacy_history.get(&version) else {
-      continue;
-    };
-
-    conn
-      .execute(
-        "INSERT INTO refinery_schema_history (version, name, applied_on, checksum)
-             VALUES (?1, ?2, ?3, ?4)",
-        params![
-          migration.version(),
-          migration.name(),
-          applied_on,
-          migration.checksum().to_string()
-        ],
-      )
-      .with_context(|| format!("import legacy migration v{version}"))?;
-
-    imported += 1;
-  }
-
-  let unmatched: Vec<i64> = legacy_history
-    .keys()
-    .copied()
-    .filter(|version| {
-      !migrations
-        .iter()
-        .any(|migration| i64::from(migration.version()) == *version)
-    })
-    .collect();
-
-  if !unmatched.is_empty() {
-    warn!(
-        component = "migrations",
-        event = "migrations.legacy_versions_unmatched",
-        unmatched = ?unmatched,
-        "Legacy schema versions contained versions not present in refinery migrations"
-    );
-  }
-
-  if imported > 0 {
-    info!(
-      component = "migrations",
-      event = "migrations.legacy_history_imported",
-      imported = imported,
-      "Imported legacy schema_versions rows into refinery history"
-    );
-  }
-
-  Ok(())
-}
-
-fn load_legacy_history(conn: &Connection) -> anyhow::Result<HashMap<i64, String>> {
-  let mut stmt = conn
-    .prepare("SELECT version, applied_at FROM schema_versions")
-    .context("prepare legacy schema_versions query")?;
-
-  let history = stmt
-    .query_map([], |row| {
-      Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-    })
-    .context("query legacy schema_versions")?
-    .filter_map(Result::ok)
-    .collect();
-
-  Ok(history)
-}
-
-fn ensure_refinery_history_table(conn: &Connection) -> anyhow::Result<()> {
-  conn
-    .execute_batch(
-      "CREATE TABLE IF NOT EXISTS refinery_schema_history(
-            version int4 PRIMARY KEY,
-            name VARCHAR(255),
-            applied_on VARCHAR(255),
-            checksum VARCHAR(255)
-        );",
-    )
-    .context("create refinery_schema_history table")?;
-
-  Ok(())
-}
-
-fn refinery_history_count(conn: &Connection) -> anyhow::Result<i64> {
-  if !table_exists(conn, REFINERY_MIGRATION_TABLE)? {
-    return Ok(0);
-  }
-
-  let count = conn
-    .query_row("SELECT COUNT(*) FROM refinery_schema_history", [], |row| {
-      row.get(0)
-    })
-    .context("count refinery_schema_history rows")?;
-
-  Ok(count)
-}
-
 fn refinery_history_has_version(conn: &Connection, version: i64) -> anyhow::Result<bool> {
   if !table_exists(conn, REFINERY_MIGRATION_TABLE)? {
     return Ok(false);
@@ -341,14 +216,14 @@ mod tests {
       .unwrap();
     assert_eq!(sessions_table_exists, 1);
 
-    let legacy_table_exists: i64 = conn
+    let old_runner_table_exists: i64 = conn
       .query_row(
         "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'schema_versions'",
         [],
         |row| row.get(0),
       )
       .unwrap();
-    assert_eq!(legacy_table_exists, 0);
+    assert_eq!(old_runner_table_exists, 0);
 
     let mut stmt = conn
       .prepare("PRAGMA table_info(approval_history)")
@@ -396,69 +271,6 @@ mod tests {
         "expected sessions to include column {expected}"
       );
     }
-  }
-
-  #[test]
-  fn imports_legacy_schema_versions_before_running_pending_migrations() {
-    let mut conn = Connection::open_in_memory().expect("open in-memory db");
-    for migration in embedded::migrations::runner().get_migrations() {
-      if migration.version() > 13 {
-        break;
-      }
-
-      conn
-        .execute_batch(migration.sql().expect("legacy migration sql"))
-        .expect("apply legacy schema migration");
-    }
-
-    conn
-      .execute_batch(
-        "CREATE TABLE schema_versions (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-            );",
-      )
-      .expect("create legacy schema_versions");
-
-    for version in 1..=13 {
-      let name = if version == 4 {
-        "quest_inbox".to_string()
-      } else {
-        format!("{version:03}_legacy")
-      };
-
-      conn
-        .execute(
-          "INSERT INTO schema_versions (version, name) VALUES (?1, ?2)",
-          params![version, name],
-        )
-        .expect("insert legacy schema_versions row");
-    }
-
-    run_migrations(&mut conn).expect("migrations should succeed");
-    let expected_migration_count = embedded::migrations::runner().get_migrations().len() as i64;
-
-    let migration_count: i64 = conn
-      .query_row("SELECT COUNT(*) FROM refinery_schema_history", [], |row| {
-        row.get(0)
-      })
-      .expect("count refinery history rows");
-    assert_eq!(migration_count, expected_migration_count);
-
-    let imported_name: String = conn
-      .query_row(
-        "SELECT name FROM refinery_schema_history WHERE version = 4",
-        [],
-        |row| row.get(0),
-      )
-      .expect("load imported version 4");
-    assert_eq!(imported_name, "claude_models");
-
-    let legacy_count: i64 = conn
-      .query_row("SELECT COUNT(*) FROM schema_versions", [], |row| row.get(0))
-      .expect("count legacy rows");
-    assert_eq!(legacy_count, 13);
   }
 
   #[test]

@@ -63,7 +63,7 @@ extension ControlDeckScreen {
 
   func handleSandboxPolicyAction(_ policy: ServerCodexSandboxPolicy) {
     netLog(.info, cat: .store, "ControlDeck sandbox policy action tapped", sid: sessionId, data: [
-      "policy": policy.legacySummary
+      "policy": policy.summaryText
     ])
     Task {
       await interaction.updateSandboxPolicy(policy)

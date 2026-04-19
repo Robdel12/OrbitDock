@@ -111,6 +111,18 @@ fn provider_str(provider: &orbitdock_protocol::Provider) -> &'static str {
   }
 }
 
+fn mission_provider_label(summary: &MissionSummary) -> String {
+  match &summary.secondary_provider {
+    Some(secondary) => format!(
+      "{}:{}->{}",
+      summary.provider_strategy,
+      provider_str(&summary.primary_provider),
+      provider_str(secondary)
+    ),
+    None => provider_str(&summary.primary_provider).to_string(),
+  }
+}
+
 fn mission_state(summary: &MissionSummary) -> &'static str {
   if !summary.enabled {
     "disabled"
@@ -367,7 +379,7 @@ async fn enable(
       } else {
         println!("Mission enabled: {} ({})", resp.id, resp.repo_root);
         println!("  Name:     {}", resp.name);
-        println!("  Provider: {}", provider_str(&resp.provider));
+        println!("  Provider: {}", mission_provider_label(&resp));
         println!("  Tracker:  {}", resp.tracker_kind);
       }
       EXIT_SUCCESS
@@ -402,7 +414,7 @@ async fn list(rest: &RestClient, output: &Output) -> i32 {
             m.id,
             mission_state(m),
             m.repo_root,
-            provider_str(&m.provider),
+            mission_provider_label(m),
             m.active_count,
             m.queued_count,
             m.completed_count,
@@ -438,7 +450,7 @@ async fn status(rest: &RestClient, output: &Output, mission_id: &str) -> i32 {
         println!("Mission {} [{}]", m.id, mission_state(m));
         println!("  Name:     {}", m.name);
         println!("  Repo:     {}", m.repo_root);
-        println!("  Provider: {}", provider_str(&m.provider));
+        println!("  Provider: {}", mission_provider_label(m));
         println!("  Tracker:  {}", m.tracker_kind);
         println!(
           "  Issues:   {} active, {} queued, {} completed, {} failed",

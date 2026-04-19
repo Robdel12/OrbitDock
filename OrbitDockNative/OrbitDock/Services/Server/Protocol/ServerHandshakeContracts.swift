@@ -1,9 +1,5 @@
 import Foundation
 
-private let fallbackServerMetaMinimumClientVersion = Bundle.main.object(
-  forInfoDictionaryKey: "CFBundleShortVersionString"
-) as? String ?? "0.0.0"
-
 enum ServerSessionSurface: String, Codable, CaseIterable, Sendable {
   case detail
   case composer
@@ -64,13 +60,11 @@ struct ServerMetaResponse: Codable, Sendable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     serverVersion = try container.decode(String.self, forKey: .serverVersion)
-    minimumClientVersion = try container.decodeIfPresent(String.self, forKey: .minimumClientVersion)
-      ?? fallbackServerMetaMinimumClientVersion
-    capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    minimumClientVersion = try container.decode(String.self, forKey: .minimumClientVersion)
+    capabilities = try container.decode([String].self, forKey: .capabilities)
     serverInstanceId = try container.decodeIfPresent(String.self, forKey: .serverInstanceId)
-    isPrimary = try container.decodeIfPresent(Bool.self, forKey: .isPrimary) ?? false
-    clientPrimaryClaims =
-      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
+    isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
+    clientPrimaryClaims = try container.decode([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims)
     updateStatus = try container.decodeIfPresent(ServerUpdateStatus.self, forKey: .updateStatus)
   }
 }

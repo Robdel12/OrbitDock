@@ -5,7 +5,7 @@ use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
 use orbitdock_protocol::domain_events::AgentType;
-use orbitdock_protocol::{CodexConfigMode, Provider, SessionLifecycleState, SessionStatus};
+use orbitdock_protocol::{Provider, SessionLifecycleState, SessionStatus};
 
 use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
@@ -833,91 +833,6 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
   assert_eq!(
     session_control_mode(&conn, "control-mode-session"),
     "direct"
-  );
-}
-
-#[test]
-fn legacy_codex_rows_without_mode_infer_profile_and_custom_modes() {
-  let (conn, _db_path, _dir, _guard) = setup_test_db();
-
-  conn
-    .execute(
-      "INSERT INTO sessions (
-            id, provider, status, work_status, lifecycle_state, control_mode,
-            project_path, model, codex_config_mode, codex_config_profile, codex_model_provider
-         ) VALUES (
-            'legacy-codex-profile', 'codex', 'active', 'waiting', 'open', 'direct',
-            '/tmp/profile', 'qwen/qwen3-coder-next', NULL, 'qwen', 'openrouter'
-         )",
-      [],
-    )
-    .unwrap();
-  conn
-    .execute(
-      "INSERT INTO sessions (
-            id, provider, status, work_status, lifecycle_state, control_mode,
-            project_path, model, codex_config_mode, codex_config_profile, codex_model_provider
-         ) VALUES (
-            'legacy-codex-custom', 'codex', 'active', 'waiting', 'open', 'direct',
-            '/tmp/custom', 'qwen/qwen3-coder-next', NULL, NULL, 'openrouter'
-         )",
-      [],
-    )
-    .unwrap();
-  drop(conn);
-
-  let runtime = tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap();
-
-  let profile_row = runtime
-    .block_on(super::session_reads::load_session_by_id(
-      "legacy-codex-profile",
-    ))
-    .unwrap()
-    .expect("legacy profile row should load");
-  assert_eq!(
-    profile_row.codex_config_mode,
-    Some(CodexConfigMode::Profile)
-  );
-  assert_eq!(profile_row.codex_config_profile.as_deref(), Some("qwen"));
-  assert_eq!(
-    profile_row.codex_model_provider.as_deref(),
-    Some("openrouter")
-  );
-
-  let custom_row = runtime
-    .block_on(super::session_reads::load_session_by_id(
-      "legacy-codex-custom",
-    ))
-    .unwrap()
-    .expect("legacy custom row should load");
-  assert_eq!(custom_row.codex_config_mode, Some(CodexConfigMode::Custom));
-  assert_eq!(
-    custom_row.codex_model_provider.as_deref(),
-    Some("openrouter")
-  );
-
-  let restored = runtime
-    .block_on(super::session_reads::load_sessions_for_startup())
-    .unwrap();
-  let startup_profile = restored
-    .iter()
-    .find(|session| session.id == "legacy-codex-profile")
-    .expect("legacy profile row should restore");
-  assert_eq!(
-    startup_profile.codex_config_mode,
-    Some(CodexConfigMode::Profile)
-  );
-
-  let startup_custom = restored
-    .iter()
-    .find(|session| session.id == "legacy-codex-custom")
-    .expect("legacy custom row should restore");
-  assert_eq!(
-    startup_custom.codex_config_mode,
-    Some(CodexConfigMode::Custom)
   );
 }
 

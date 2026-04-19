@@ -16,18 +16,12 @@ fn row_entry_from_db(
 ) -> Result<Option<ConversationRowEntry>, rusqlite::Error> {
   let sequence: i64 = row.get::<_, Option<i64>>(3)?.unwrap_or(0);
   let row_data: Option<String> = row.get(4)?;
-  let msg_type: String = row.get(1)?;
-
   let conversation_row = if let Some(json) = row_data {
     match serde_json::from_str::<ConversationRow>(&json) {
-      Ok(cr) => crate::domain::conversation_semantics::upgrade_row(
-        Provider::Claude,
-        normalize_legacy_message_kind(&msg_type, &json, cr),
-      ),
+      Ok(row) => crate::domain::conversation_semantics::upgrade_row(Provider::Claude, row),
       Err(_) => return Ok(None),
     }
   } else {
-    // No row_data — skip. Legacy flat columns have been dropped (V042).
     return Ok(None);
   };
 
@@ -45,33 +39,6 @@ fn row_entry_from_db(
     turn_status,
     row: conversation_row,
   }))
-}
-
-fn normalize_legacy_message_kind(
-  msg_type: &str,
-  raw_json: &str,
-  row: ConversationRow,
-) -> ConversationRow {
-  match (msg_type, row) {
-    ("steer", ConversationRow::User(message)) => ConversationRow::Steer(message),
-    ("user", ConversationRow::User(message)) if raw_json_contains_legacy_steer(raw_json) => {
-      ConversationRow::Steer(message)
-    }
-    (_, row) => row,
-  }
-}
-
-fn raw_json_contains_legacy_steer(raw_json: &str) -> bool {
-  serde_json::from_str::<serde_json::Value>(raw_json)
-    .ok()
-    .and_then(|value| {
-      value
-        .get("input_kind")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-    })
-    .as_deref()
-    == Some("steer")
 }
 
 pub(super) fn load_messages_from_db(

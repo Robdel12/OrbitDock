@@ -495,7 +495,7 @@ fn token_usage_snapshot_kind_str(kind: orbitdock_protocol::TokenUsageSnapshotKin
     orbitdock_protocol::TokenUsageSnapshotKind::Unknown => "unknown",
     orbitdock_protocol::TokenUsageSnapshotKind::ContextTurn => "context_turn",
     orbitdock_protocol::TokenUsageSnapshotKind::LifetimeTotals => "lifetime_totals",
-    orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy => "mixed_legacy",
+    orbitdock_protocol::TokenUsageSnapshotKind::Mixed => "mixed",
     orbitdock_protocol::TokenUsageSnapshotKind::CompactionReset => "compaction_reset",
   }
 }
@@ -2244,6 +2244,7 @@ mod tests {
       lifecycle_state: SessionLifecycleState::Open,
       accepts_user_input: true,
       steerable: true,
+      connector_attached: true,
       can_interrupt: false,
       pending_approval: None,
       permission_mode: Some("acceptEdits".to_string()),
@@ -2268,7 +2269,7 @@ mod tests {
         cached_tokens: 600,
         context_window: 10_000,
       },
-      token_usage_snapshot_kind: TokenUsageSnapshotKind::MixedLegacy,
+      token_usage_snapshot_kind: TokenUsageSnapshotKind::Mixed,
       current_diff: None,
       cumulative_diff: None,
       current_plan: None,
@@ -2342,7 +2343,7 @@ mod tests {
     assert_eq!(value["context_fill_percent"], Value::from(12.0));
     assert_eq!(
       value["token_usage_snapshot_kind"],
-      Value::String("mixed_legacy".to_string())
+      Value::String("mixed".to_string())
     );
     assert_eq!(value["cache_hit_percent"], Value::from(50.0));
   }
@@ -2464,7 +2465,7 @@ mod tests {
     assert!(value.get("cache_hit_percent").is_none());
     assert_eq!(
       value["token_usage_snapshot_kind"],
-      Value::String("mixed_legacy".to_string())
+      Value::String("mixed".to_string())
     );
   }
 }

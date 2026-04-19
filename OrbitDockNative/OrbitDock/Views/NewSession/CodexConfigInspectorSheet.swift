@@ -69,12 +69,10 @@ struct CodexConfigInspectorSheet: View {
 
   private func effectiveSettingsSection(_ response: SessionsClient.CodexInspectorResponse) -> some View {
     let resolvedApprovalPolicy = ServerCodexApprovalPolicy.resolved(
-      details: response.effectiveSettings.approvalPolicyDetails,
-      fallbackPolicy: response.effectiveSettings.approvalPolicy
+      details: response.effectiveSettings.approvalPolicyDetails
     )
     let resolvedSandboxPolicy = ServerCodexSandboxPolicy.resolved(
-      details: response.effectiveSettings.sandboxPolicyDetails,
-      fallbackMode: response.effectiveSettings.sandboxMode
+      details: response.effectiveSettings.sandboxPolicyDetails
     )
 
     return inspectorCard(title: "Effective Settings") {

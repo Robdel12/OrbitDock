@@ -224,7 +224,7 @@ enum AutonomyLevel: String, Codable, CaseIterable, Identifiable {
 
   var sandboxPolicyDetails: ServerCodexSandboxPolicy? {
     guard let sandboxMode else { return nil }
-    return ServerCodexSandboxPolicy.fromLegacySummary(sandboxMode)
+    return ServerCodexSandboxPolicy.fromSummaryText(sandboxMode)
   }
 
   /// Infer autonomy level from approval policy + sandbox mode strings

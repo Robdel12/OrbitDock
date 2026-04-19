@@ -80,7 +80,7 @@ struct MissionControlCommandDeck: View {
     if statuses.contains(where: \.isConnectingLike) {
       return (
         "Connecting to server",
-        "OrbitDock is waiting for a compatible dashboard snapshot before showing sessions."
+        "OrbitDock is waiting for the dashboard snapshot before showing sessions."
       )
     }
 

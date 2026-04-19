@@ -32,7 +32,7 @@ endif
 
 RUST_WORKSPACE_DIR ?= orbitdock-server
 RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
-RUST_LEGACY_TARGET_DIR ?= $(abspath $(RUST_WORKSPACE_DIR)/target)
+RUST_WORKSPACE_TARGET_DIR ?= $(abspath $(RUST_WORKSPACE_DIR)/target)
 RUST_BIN_PACKAGE ?= orbitdock
 ORBITDOCK_INSTALL_ROOT ?= $(HOME)/.orbitdock
 ORBITDOCK_INSTALLED_BIN ?= $(ORBITDOCK_INSTALL_ROOT)/bin/orbitdock
@@ -107,7 +107,7 @@ endef
 
 define gather_cargo_lock_files
 lock_dirs=(); \
-for dir in "$(RUST_TARGET_DIR)" "$(RUST_LEGACY_TARGET_DIR)"; do \
+for dir in "$(RUST_TARGET_DIR)" "$(RUST_WORKSPACE_TARGET_DIR)"; do \
 	if [[ -d "$$dir" ]]; then \
 		lock_dirs+=("$$dir"); \
 	fi; \

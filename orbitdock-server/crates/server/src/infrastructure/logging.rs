@@ -26,7 +26,6 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("codex_core::config", "warn"),
   ("codex_core::models_manager", "warn"),
   ("codex_features", "error"),
-  ("codex_features::legacy", "error"),
   ("codex_rmcp_client::rmcp_client", "warn"),
   ("codex_rollout::recorder", "warn"),
   ("connector_codex::config", "warn"),

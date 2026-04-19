@@ -50,7 +50,7 @@ pub struct CodexConnector {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CodexControlPlane {
+pub struct CodexRuntimeOverrides {
   pub approvals_reviewer: Option<String>,
   pub collaboration_mode: Option<String>,
   pub multi_agent: Option<bool>,
@@ -133,15 +133,7 @@ impl CodexConnector {
         event_mapping::messages::handle_agent_message(&event.id, e, streaming_message).await
       }
 
-      EventMsg::AgentReasoning(e) => {
-        event_mapping::messages::handle_agent_reasoning(
-          &event.id,
-          e,
-          reasoning_tracker,
-          msg_counter,
-        )
-        .await
-      }
+      EventMsg::AgentReasoning(_) => Vec::new(),
 
       EventMsg::GuardianAssessment(e) => event_mapping::guardian::handle_guardian_assessment(e),
 
@@ -302,11 +294,7 @@ impl CodexConnector {
         event_mapping::streaming::handle_agent_message_content_delta(e, streaming_message).await
       }
 
-      // Legacy fallback — older codex-core versions send this instead.
-      // Skipped when AgentMessageContentDelta is active (both fire simultaneously).
-      EventMsg::AgentMessageDelta(e) => {
-        event_mapping::streaming::handle_agent_message_delta(&event.id, e, streaming_message).await
-      }
+      EventMsg::AgentMessageDelta(_) => Vec::new(),
 
       EventMsg::ReasoningContentDelta(e) => {
         event_mapping::streaming::handle_reasoning_content_delta(
@@ -326,35 +314,11 @@ impl CodexConnector {
         .await
       }
 
-      EventMsg::AgentReasoningDelta(e) => {
-        event_mapping::streaming::handle_agent_reasoning_delta(
-          &event.id,
-          delta_buffers,
-          reasoning_tracker,
-          e,
-        )
-        .await
-      }
+      EventMsg::AgentReasoningDelta(_) => Vec::new(),
 
-      EventMsg::AgentReasoningRawContent(e) => {
-        event_mapping::streaming::handle_agent_reasoning_raw_content(
-          &event.id,
-          e,
-          reasoning_tracker,
-          msg_counter,
-        )
-        .await
-      }
+      EventMsg::AgentReasoningRawContent(_) => Vec::new(),
 
-      EventMsg::AgentReasoningRawContentDelta(e) => {
-        event_mapping::streaming::handle_agent_reasoning_raw_content_delta(
-          &event.id,
-          delta_buffers,
-          reasoning_tracker,
-          e,
-        )
-        .await
-      }
+      EventMsg::AgentReasoningRawContentDelta(_) => Vec::new(),
 
       EventMsg::AgentReasoningSectionBreak(_) => {
         event_mapping::streaming::handle_agent_reasoning_section_break(reasoning_tracker).await

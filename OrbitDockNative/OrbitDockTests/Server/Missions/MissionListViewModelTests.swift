@@ -168,7 +168,6 @@ private extension MissionSummary {
       enabled: true,
       paused: false,
       trackerKind: "linear",
-      provider: "claude",
       providerStrategy: "single",
       primaryProvider: "claude",
       secondaryProvider: nil,

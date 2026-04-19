@@ -120,6 +120,25 @@ struct ControlDeckPresentationBuilderTests {
     #expect(presentation.mode == .disabled)
   }
 
+  @Test func detachedWorkingSessionDoesNotExposeLiveControls() {
+    let presentation = ControlDeckPresentationBuilder.build(
+      snapshot: makeSnapshot(
+        lifecycle: .open,
+        workStatus: .working,
+        acceptsUserInput: true,
+        steerable: true,
+        canInterrupt: true,
+        connectorAttached: false
+      ),
+      isLoading: false
+    )
+
+    #expect(presentation.activityStatus == .working)
+    #expect(presentation.mode == .disabled)
+    #expect(!presentation.canInterrupt)
+    #expect(presentation.canResume)
+  }
+
   private func makeSnapshot(
     lifecycle: ControlDeckLifecycle = .open,
     workStatus: ControlDeckWorkStatus = .waiting,

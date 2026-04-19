@@ -25,11 +25,7 @@ pub struct CreateSessionRequest {
   #[serde(default)]
   pub model: Option<String>,
   #[serde(default)]
-  pub approval_policy: Option<String>,
-  #[serde(default)]
   pub approval_policy_details: Option<CodexApprovalPolicy>,
-  #[serde(default)]
-  pub sandbox_mode: Option<String>,
   #[serde(default)]
   pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default)]
@@ -97,23 +93,11 @@ fn create_codex_selection(
     return None;
   }
 
-  let approval_policy_details = body.approval_policy_details.clone().or_else(|| {
-    body
-      .approval_policy
-      .as_deref()
-      .and_then(CodexApprovalPolicy::from_storage_text)
-  });
-  let sandbox_policy_details = body.sandbox_policy_details.clone().or_else(|| {
-    body
-      .sandbox_mode
-      .as_deref()
-      .and_then(CodexSandboxPolicy::from_storage_text)
-  });
   let codex_overrides = CodexSessionOverrides {
     model: body.model.clone(),
     model_provider: body.codex_model_provider.clone(),
-    approval_policy_details,
-    sandbox_policy_details,
+    approval_policy_details: body.approval_policy_details.clone(),
+    sandbox_policy_details: body.sandbox_policy_details.clone(),
     approvals_reviewer: None,
     collaboration_mode: body.collaboration_mode.clone(),
     multi_agent: body.multi_agent,
@@ -429,9 +413,7 @@ mod tests {
       provider: Provider::Codex,
       cwd: "/tmp/project".to_string(),
       model: model.map(str::to_string),
-      approval_policy: None,
       approval_policy_details: None,
-      sandbox_mode: None,
       sandbox_policy_details: None,
       permission_mode: None,
       allowed_tools: Vec::new(),

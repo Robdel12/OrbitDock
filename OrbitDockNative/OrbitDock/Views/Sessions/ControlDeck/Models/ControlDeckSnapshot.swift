@@ -162,7 +162,7 @@ enum ControlDeckTokenUsageSnapshotKind: Sendable {
   case unknown
   case contextTurn
   case lifetimeTotals
-  case mixedLegacy
+  case mixed
   case compactionReset
 }
 

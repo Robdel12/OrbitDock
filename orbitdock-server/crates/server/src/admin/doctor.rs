@@ -40,7 +40,6 @@ struct HookTransportConfigStatus<'a> {
   path: &'a Path,
   server_url: Option<&'a str>,
   encrypted_token_present: bool,
-  legacy_plaintext_token: bool,
   encrypted_token_decryptable: bool,
 }
 
@@ -285,12 +284,6 @@ fn check_hook_transport_config() -> Check {
     .and_then(|v| v.as_str())
     .map(|v| !v.trim().is_empty())
     .unwrap_or(false);
-  let legacy_plaintext_token = parsed
-    .get("auth_token")
-    .and_then(|v| v.as_str())
-    .map(|v| !v.trim().is_empty())
-    .unwrap_or(false);
-
   let encrypted_token_decryptable = parsed
     .get("auth_token_enc")
     .and_then(|v| v.as_str())
@@ -302,7 +295,6 @@ fn check_hook_transport_config() -> Check {
     path: &config_path,
     server_url: parsed.get("server_url").and_then(|v| v.as_str()),
     encrypted_token_present: token_present,
-    legacy_plaintext_token,
     encrypted_token_decryptable,
   })
 }
@@ -530,17 +522,6 @@ fn classify_hook_transport_config(status: HookTransportConfigStatus<'_>) -> Chec
     };
   };
 
-  if status.legacy_plaintext_token && !status.encrypted_token_present {
-    return Check {
-      name: "Hook transport",
-      status: Status::Warn,
-      detail: format!(
-        "{} uses legacy plaintext auth_token; rerun `orbitdock install-hooks`",
-        status.path.display()
-      ),
-    };
-  }
-
   if status.encrypted_token_present && !status.encrypted_token_decryptable {
     return Check {
       name: "Hook transport",
@@ -714,25 +695,14 @@ mod tests {
       path: &path,
       server_url: None,
       encrypted_token_present: false,
-      legacy_plaintext_token: false,
       encrypted_token_decryptable: false,
     });
     assert_eq!(missing_server_url.status, Status::Fail);
-
-    let legacy_token = classify_hook_transport_config(HookTransportConfigStatus {
-      path: &path,
-      server_url: Some("http://127.0.0.1:4000"),
-      encrypted_token_present: false,
-      legacy_plaintext_token: true,
-      encrypted_token_decryptable: false,
-    });
-    assert_eq!(legacy_token.status, Status::Warn);
 
     let undecryptable_token = classify_hook_transport_config(HookTransportConfigStatus {
       path: &path,
       server_url: Some("http://127.0.0.1:4000"),
       encrypted_token_present: true,
-      legacy_plaintext_token: false,
       encrypted_token_decryptable: false,
     });
     assert_eq!(undecryptable_token.status, Status::Warn);
@@ -741,7 +711,6 @@ mod tests {
       path: &path,
       server_url: Some("http://127.0.0.1:4000"),
       encrypted_token_present: true,
-      legacy_plaintext_token: false,
       encrypted_token_decryptable: true,
     });
     assert_eq!(healthy.status, Status::Pass);

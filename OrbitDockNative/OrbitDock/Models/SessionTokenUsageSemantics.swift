@@ -11,7 +11,7 @@ enum SessionTokenUsageSemantics {
     let cached = max(cachedTokens ?? 0, 0)
 
     switch snapshotKind {
-      case .mixedLegacy:
+      case .mixed:
         return input + cached
       case .compactionReset:
         return 0
@@ -43,7 +43,7 @@ enum SessionTokenUsageSemantics {
     guard cached > 0 else { return 0 }
 
     switch snapshotKind {
-      case .mixedLegacy:
+      case .mixed:
         guard effectiveContextInputTokens > 0 else { return 0 }
         return Double(cached) / Double(effectiveContextInputTokens) * 100
       case .compactionReset:

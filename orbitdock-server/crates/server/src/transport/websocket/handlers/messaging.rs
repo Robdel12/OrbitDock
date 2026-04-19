@@ -341,6 +341,13 @@ async fn send_dispatch_error(
         session_id
       ),
     ),
+    crate::runtime::message_dispatch::DispatchMessageError::NotSteerable => (
+      "not_steerable",
+      format!(
+        "Session {} does not have an active steerable turn",
+        session_id
+      ),
+    ),
   };
 
   send_json(

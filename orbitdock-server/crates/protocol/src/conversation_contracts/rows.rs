@@ -34,7 +34,6 @@ pub struct MemoryCitationEntry {
 pub enum MessageDeliveryStatus {
   Pending,
   Accepted,
-  FellBackToNewTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1408,7 +1407,7 @@ mod tests {
   fn command_execution_row_deserializes_without_terminal_snapshot() {
     let json = serde_json::json!({
       "row_type": "command_execution",
-      "id": "cmd-legacy",
+      "id": "cmd-current",
       "status": "completed",
       "command": "echo hi",
       "cwd": "/tmp/project",

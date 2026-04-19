@@ -79,8 +79,8 @@ struct ServerCodexSandboxPolicy: Codable, Equatable, Hashable, Sendable {
   }
 
   init(from decoder: Decoder) throws {
-    if let legacy = try? decoder.singleValueContainer().decode(String.self),
-       let parsed = Self.fromLegacySummary(legacy)
+    if let summary = try? decoder.singleValueContainer().decode(String.self),
+       let parsed = Self.fromSummaryText(summary)
     {
       self = parsed
       return
@@ -125,8 +125,8 @@ enum ServerCodexApprovalPolicy: Codable, Equatable, Hashable, Sendable {
 
   init(from decoder: Decoder) throws {
     let singleValueContainer = try decoder.singleValueContainer()
-    if let legacyMode = try? singleValueContainer.decode(String.self),
-       let mode = ServerCodexApprovalMode(serverValue: legacyMode)
+    if let modeText = try? singleValueContainer.decode(String.self),
+       let mode = ServerCodexApprovalMode(serverValue: modeText)
     {
       self = .mode(mode)
       return
@@ -156,7 +156,7 @@ enum ServerCodexApprovalPolicy: Codable, Equatable, Hashable, Sendable {
     switch self {
       case let .mode(mode):
         var container = encoder.singleValueContainer()
-        try container.encode(mode.legacySummary)
+        try container.encode(mode.summaryText)
       case let .granular(granular):
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(granular, forKey: .granular)
@@ -182,18 +182,11 @@ private extension ServerCodexApprovalMode {
 }
 
 extension ServerCodexSandboxPolicy {
-  nonisolated static func resolved(
-    details: ServerCodexSandboxPolicy?,
-    fallbackMode: String?
-  ) -> ServerCodexSandboxPolicy? {
-    if let details {
-      return details
-    }
-    guard let fallbackMode else { return nil }
-    return fromLegacySummary(fallbackMode)
+  nonisolated static func resolved(details: ServerCodexSandboxPolicy?) -> ServerCodexSandboxPolicy? {
+    details
   }
 
-  nonisolated static func fromLegacySummary(_ value: String) -> ServerCodexSandboxPolicy? {
+  nonisolated static func fromSummaryText(_ value: String) -> ServerCodexSandboxPolicy? {
     switch value {
       case "danger-full-access":
         ServerCodexSandboxPolicy(mode: .dangerFullAccess, networkAccess: true)
@@ -214,7 +207,7 @@ extension ServerCodexSandboxPolicy {
     }
   }
 
-  nonisolated var legacySummary: String {
+  nonisolated var summaryText: String {
     if networkAccess {
       switch mode {
         case .dangerFullAccess: "danger-full-access"
@@ -583,7 +576,7 @@ struct ServerLibrarySnapshotPayload: Codable, Sendable {
     revision = try container.decode(UInt64.self, forKey: .revision)
     sessions = try container.decode([ServerSessionListItem].self, forKey: .sessions)
     nextOffset = try container.decodeIfPresent(UInt64.self, forKey: .nextOffset)
-    totalCount = try container.decodeIfPresent(UInt64.self, forKey: .totalCount) ?? UInt64(sessions.count)
+    totalCount = try container.decode(UInt64.self, forKey: .totalCount)
   }
 }
 
@@ -997,6 +990,7 @@ struct ServerSessionState: Codable, Identifiable {
   let lifecycleState: ServerSessionLifecycleState
   let acceptsUserInput: Bool
   let steerable: Bool
+  let connectorAttached: Bool?
   let canInterrupt: Bool?
   let rows: [ServerConversationRowEntry]
   let totalRowCount: UInt64
@@ -1070,6 +1064,7 @@ struct ServerSessionState: Codable, Identifiable {
     case lifecycleState = "lifecycle_state"
     case acceptsUserInput = "accepts_user_input"
     case steerable
+    case connectorAttached = "connector_attached"
     case canInterrupt = "can_interrupt"
     case rows
     case totalRowCount = "total_row_count"

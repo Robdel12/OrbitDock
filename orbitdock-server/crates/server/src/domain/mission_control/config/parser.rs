@@ -3,8 +3,6 @@ use anyhow::{Context, Result};
 use super::{MissionConfig, MissionDefinition};
 
 /// Parse a MISSION.md file: YAML front matter between `---` fences, rest is Liquid template.
-///
-/// Supports the top-level `MissionConfig` schema and legacy flat schema for backward compat.
 pub fn parse_mission_file(content: &str) -> Result<MissionDefinition> {
   let content = content.trim();
   if !content.starts_with("---") {

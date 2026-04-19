@@ -5,7 +5,7 @@ import { FilterToolbar } from '../components/dashboard/filter-toolbar.jsx'
 import { UsageSummary } from '../components/dashboard/usage-summary.jsx'
 import { classifyZone, SessionList } from '../components/session/session-list.jsx'
 import { useKeyboard } from '../hooks/use-keyboard.js'
-import { extractRepoName, groupByRepo } from '../lib/group-sessions.js'
+import { extractRepoName } from '../lib/group-sessions.js'
 import { connectionState } from '../stores/connection.js'
 import { selectSession, sessions, showCreateDialog } from '../stores/sessions.js'
 import styles from './dashboard.module.css'
@@ -87,8 +87,8 @@ const DashboardPage = () => {
     return counts
   }, [sessions.value, filters.repo])
 
-  // Apply filters then sort then group.
-  const groups = useMemo(() => {
+  // Apply filters, then sort into the exact list the dashboard renders.
+  const sessionList = useMemo(() => {
     let filtered = allSessions
 
     // Zone filter
@@ -100,12 +100,8 @@ const DashboardPage = () => {
       filtered = filtered.filter((s) => (s.repository_root || s.project_path || 'Unknown') === filters.repo)
     }
 
-    const sorted = sortSessions(filtered, sort)
-    return groupByRepo(sorted)
+    return sortSessions(filtered, sort)
   }, [sessions.value, filters, sort])
-
-  // Flat ordered list for keyboard nav.
-  const sessionList = useMemo(() => groups.flatMap((g) => g.sessions), [groups])
 
   const handleSelect = (id) => {
     selectSession(id)
@@ -192,7 +188,7 @@ const DashboardPage = () => {
       </div>
 
       <div class={styles.scrollArea}>
-        <SessionList groups={groups} onSelect={handleSelect} />
+        <SessionList sessions={sessionList} onSelect={handleSelect} />
       </div>
 
       {/* Mobile floating action button */}

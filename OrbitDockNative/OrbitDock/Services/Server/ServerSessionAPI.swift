@@ -139,13 +139,13 @@ final class ServerSessionAPI {
     request.images = images
     request.mentions = mentions
     let response = try await clients.conversation.sendMessage(sessionId, request: request)
+    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
     transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
     transport.invalidate([.conversation])
     triggerLocalNamingIfNeeded(prompt: content)
     return ConversationMutationResult(
       row: response.row,
-      sessionDetailSnapshot: response.sessionDetailSnapshot
+      sessionDetailSnapshot: detailSnapshot
     )
   }
 
@@ -158,12 +158,12 @@ final class ServerSessionAPI {
     request.images = images
     request.mentions = mentions
     let response = try await clients.conversation.steerTurn(sessionId, request: request)
+    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
     transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
     transport.invalidate([.conversation])
     return ConversationMutationResult(
       row: response.row,
-      sessionDetailSnapshot: response.sessionDetailSnapshot
+      sessionDetailSnapshot: detailSnapshot
     )
   }
 
@@ -226,9 +226,8 @@ final class ServerSessionAPI {
 
   func takeoverSession(
     model: String?,
-    approvalPolicy: String?,
     approvalPolicyDetails: ServerCodexApprovalPolicy?,
-    sandboxMode: String?,
+    sandboxPolicyDetails: ServerCodexSandboxPolicy?,
     permissionMode: String?,
     collaborationMode: String?,
     multiAgent: Bool?,
@@ -238,9 +237,8 @@ final class ServerSessionAPI {
   ) async throws -> ServerSessionDetailSnapshotPayload? {
     let request = SessionsClient.TakeoverRequest(
       model: model,
-      approvalPolicy: approvalPolicy,
       approvalPolicyDetails: approvalPolicyDetails,
-      sandboxMode: sandboxMode,
+      sandboxPolicyDetails: sandboxPolicyDetails,
       permissionMode: permissionMode,
       collaborationMode: collaborationMode,
       multiAgent: multiAgent,
@@ -269,9 +267,8 @@ final class ServerSessionAPI {
   }
 
   func updateSessionConfig(
-    approvalPolicy: String? = nil,
     approvalPolicyDetails: ServerCodexApprovalPolicy? = nil,
-    sandboxMode: String? = nil,
+    sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil,
     approvalsReviewer: ServerCodexApprovalsReviewer? = nil,
     permissionMode: String? = nil,
     collaborationMode: String? = nil,
@@ -283,9 +280,8 @@ final class ServerSessionAPI {
     effort: String? = nil
   ) async throws -> ServerSessionDetailSnapshotPayload {
     let config = SessionsClient.UpdateSessionConfigRequest(
-      approvalPolicy: approvalPolicy,
       approvalPolicyDetails: approvalPolicyDetails,
-      sandboxMode: sandboxMode,
+      sandboxPolicyDetails: sandboxPolicyDetails,
       approvalsReviewer: approvalsReviewer,
       permissionMode: permissionMode,
       collaborationMode: collaborationMode,

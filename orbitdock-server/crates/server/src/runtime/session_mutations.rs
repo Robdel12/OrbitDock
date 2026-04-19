@@ -259,12 +259,12 @@ pub(crate) async fn update_session_config(
     )
   };
 
-  // Keep compatibility summaries in sync when canonical policy details are updated.
+  // Keep compact summaries in sync when canonical policy details are updated.
   if let Some(ref details) = approval_policy_details {
     approval_policy = Some(details.as_ref().map(CodexApprovalPolicy::storage_text));
   }
   if let Some(ref details) = sandbox_policy_details {
-    sandbox_mode = Some(details.as_ref().map(CodexSandboxPolicy::legacy_summary));
+    sandbox_mode = Some(details.as_ref().map(CodexSandboxPolicy::summary_text));
   }
 
   let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -613,14 +613,14 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn update_session_config_syncs_legacy_sandbox_mode_from_details_only() {
+  async fn update_session_config_syncs_sandbox_summary_from_details_only() {
     let state = new_test_session_registry(true);
-    let session_id = "session-detail-sandbox-compat";
+    let session_id = "session-detail-sandbox-summary";
 
     state.add_session(SessionHandle::new(
       session_id.to_string(),
       Provider::Codex,
-      "/tmp/session-detail-sandbox-compat".to_string(),
+      "/tmp/session-detail-sandbox-summary".to_string(),
     ));
 
     update_session_config(
@@ -651,7 +651,7 @@ mod tests {
       summary
         .sandbox_policy_details
         .as_ref()
-        .map(CodexSandboxPolicy::legacy_summary)
+        .map(CodexSandboxPolicy::summary_text)
         .as_deref(),
       Some("workspace-write-network")
     );

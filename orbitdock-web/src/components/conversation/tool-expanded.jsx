@@ -61,7 +61,7 @@ const GuardianExpanded = ({ data }) => {
         )}
       </div>
 
-      {/* Fallback: if server didn't produce structured output, show raw */}
+      {/* Generic result display for tools without a dedicated shape. */}
       {!verdict && !risk && !rationale && data.output_display && (
         <div class={styles.section}>
           <div class={styles.sectionLabel}>Result</div>

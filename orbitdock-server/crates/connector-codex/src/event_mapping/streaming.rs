@@ -2,8 +2,8 @@ use super::{
   row_created_output, row_updated_output, state_output, tool_row_entry, ConnectorOutputs,
 };
 use crate::runtime::{
-  apply_delta_thinking, finalized_thinking_row_entry, row_entry, thinking_row_entry,
-  RawToolCallContext, ReasoningEventTracker, StreamingMessage, STREAM_THROTTLE_MS,
+  apply_delta_thinking, finalized_thinking_row_entry, row_entry, RawToolCallContext,
+  ReasoningEventTracker, StreamingMessage, STREAM_THROTTLE_MS,
 };
 use crate::timeline::{render_review_output, review_request_summary};
 use crate::workers::iso_now;
@@ -11,10 +11,8 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::{
-  AgentMessageContentDeltaEvent, AgentMessageDeltaEvent, AgentReasoningDeltaEvent,
-  AgentReasoningRawContentDeltaEvent, AgentReasoningRawContentEvent, ExitedReviewModeEvent,
-  ItemCompletedEvent, ItemStartedEvent, RawResponseItemEvent, ReasoningContentDeltaEvent,
-  ReasoningRawContentDeltaEvent,
+  AgentMessageContentDeltaEvent, ExitedReviewModeEvent, ItemCompletedEvent, ItemStartedEvent,
+  RawResponseItemEvent, ReasoningContentDeltaEvent, ReasoningRawContentDeltaEvent,
 };
 use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{
@@ -68,7 +66,6 @@ pub(crate) async fn handle_agent_message_content_delta(
         message_id: msg_id,
         content: event.delta,
         last_broadcast: std::time::Instant::now(),
-        from_content_delta: true,
       });
       vec![row_created_output(entry)]
     }
@@ -91,58 +88,6 @@ pub(crate) async fn handle_agent_message_content_delta(
       } else {
         vec![]
       }
-    }
-  }
-}
-
-pub(crate) async fn handle_agent_message_delta(
-  event_id: &str,
-  event: AgentMessageDeltaEvent,
-  streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-) -> ConnectorOutputs {
-  let mut streaming = streaming_message.lock().await;
-  match streaming.as_mut() {
-    None => {
-      let msg_id = event_id.to_string();
-      let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
-        id: msg_id.clone(),
-        content: event.delta.clone(),
-        turn_id: None,
-        timestamp: Some(iso_now()),
-        is_streaming: true,
-        images: vec![],
-        memory_citation: None,
-        delivery_status: None,
-      }));
-      *streaming = Some(StreamingMessage {
-        message_id: msg_id,
-        content: event.delta,
-        last_broadcast: std::time::Instant::now(),
-        from_content_delta: false,
-      });
-      vec![row_created_output(entry)]
-    }
-    Some(streaming_msg) => {
-      if streaming_msg.from_content_delta {
-        return vec![];
-      }
-      streaming_msg.content.push_str(&event.delta);
-      let now = std::time::Instant::now();
-      if now.duration_since(streaming_msg.last_broadcast).as_millis() < STREAM_THROTTLE_MS {
-        return vec![];
-      }
-      streaming_msg.last_broadcast = now;
-      let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
-        id: streaming_msg.message_id.clone(),
-        content: streaming_msg.content.clone(),
-        turn_id: None,
-        timestamp: Some(iso_now()),
-        is_streaming: true,
-        images: vec![],
-        memory_citation: None,
-        delivery_status: None,
-      }));
-      vec![row_updated_output(streaming_msg.message_id.clone(), entry)]
     }
   }
 }
@@ -185,66 +130,6 @@ pub(crate) async fn handle_reasoning_raw_content_delta(
   apply_delta_thinking(
     delta_buffers,
     format!("reasoning-raw-{}-{}", event.item_id, event.content_index),
-    event.delta,
-  )
-  .await
-}
-
-pub(crate) async fn handle_agent_reasoning_delta(
-  event_id: &str,
-  delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-  reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-  event: AgentReasoningDeltaEvent,
-) -> ConnectorOutputs {
-  let should_process = {
-    let mut tracker = reasoning_tracker.lock().await;
-    tracker.should_process_legacy_summary()
-  };
-  if !should_process {
-    return vec![];
-  }
-  apply_delta_thinking(
-    delta_buffers,
-    format!("reasoning-summary-legacy-{}", event_id),
-    event.delta,
-  )
-  .await
-}
-
-pub(crate) async fn handle_agent_reasoning_raw_content(
-  event_id: &str,
-  event: AgentReasoningRawContentEvent,
-  reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-  msg_counter: &AtomicU64,
-) -> ConnectorOutputs {
-  let should_process = {
-    let mut tracker = reasoning_tracker.lock().await;
-    tracker.should_process_legacy_raw()
-  };
-  if !should_process {
-    return vec![];
-  }
-  let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-  let entry = thinking_row_entry(format!("reasoning-raw-{}-{}", event_id, seq), event.text);
-  vec![row_created_output(entry)]
-}
-
-pub(crate) async fn handle_agent_reasoning_raw_content_delta(
-  event_id: &str,
-  delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-  reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-  event: AgentReasoningRawContentDeltaEvent,
-) -> ConnectorOutputs {
-  let should_process = {
-    let mut tracker = reasoning_tracker.lock().await;
-    tracker.should_process_legacy_raw()
-  };
-  if !should_process {
-    return vec![];
-  }
-  apply_delta_thinking(
-    delta_buffers,
-    format!("reasoning-raw-legacy-{}", event_id),
     event.delta,
   )
   .await

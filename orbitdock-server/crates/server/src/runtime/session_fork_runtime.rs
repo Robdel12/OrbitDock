@@ -238,7 +238,7 @@ pub(crate) async fn finalize_codex_fork_session(
     &persist_tx,
     &new_session_id,
     &new_thread_id,
-    "legacy_codex_thread_row_cleanup",
+    "fork_codex_thread_claim",
   )
   .await;
 

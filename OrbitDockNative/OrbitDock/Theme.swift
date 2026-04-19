@@ -113,7 +113,6 @@ extension Color {
   /// Muted accent for subtle highlights
   static let accentMuted = Color(red: 0.2, green: 0.5, blue: 0.6)
 
-  /// Alias for backwards compatibility
   static let accentPrimary = accent
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -257,13 +256,6 @@ extension Color {
   /// Error/danger: failed, disconnected (red)
   static let feedbackNegative = statusError
 
-  // Legacy aliases removed — all usages migrated:
-  //   statusAttention → statusPermission
-  //   statusReady     → feedbackPositive
-  //   statusWaiting   → feedbackCaution
-  //   statusSuccess   → feedbackPositive
-  //   statusIdle      → statusEnded
-
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Model Colors
 
@@ -366,9 +358,6 @@ extension Color {
 
   /// Attention pulse color
   static let beaconPulse = statusPermission
-
-  // Legacy colors removed: nebulaStart, nebulaEnd, starlight, voidBlack, statusDocked
-  // Use backgroundPrimary/Secondary/Tertiary and accent instead.
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Composer Border — Input Mode Colors

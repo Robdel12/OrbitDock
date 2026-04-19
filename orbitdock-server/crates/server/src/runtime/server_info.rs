@@ -1,8 +1,7 @@
 use orbitdock_protocol::{
-  CompatibilityStatus, ServerHello, ServerMessage, ServerMeta, CAPABILITY_CONVERSATION_SURFACE_V1,
+  ServerHello, ServerMessage, ServerMeta, CAPABILITY_CONVERSATION_SURFACE_V1,
   CAPABILITY_DASHBOARD_PROJECTION_V1, CAPABILITY_MISSIONS_PROJECTION_V1,
   CAPABILITY_SESSION_COMPOSER_SURFACE_V1, CAPABILITY_SESSION_DETAIL_SURFACE_V1,
-  SERVER_COMPATIBILITY,
 };
 
 use crate::runtime::session_registry::SessionRegistry;
@@ -18,21 +17,11 @@ fn capabilities() -> Vec<String> {
   ]
 }
 
-fn legacy_compatibility_status() -> CompatibilityStatus {
-  CompatibilityStatus {
-    compatible: true,
-    server_compatibility: SERVER_COMPATIBILITY.to_string(),
-    reason: None,
-    message: None,
-  }
-}
-
 pub(crate) fn server_hello_message() -> ServerMessage {
   ServerMessage::Hello {
     hello: ServerHello {
       server_version: VERSION.to_string(),
       minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
-      compatibility: Some(legacy_compatibility_status()),
       capabilities: capabilities(),
     },
   }
@@ -42,7 +31,6 @@ pub(crate) fn server_meta(state: &SessionRegistry) -> ServerMeta {
   ServerMeta {
     server_version: VERSION.to_string(),
     minimum_client_version: MINIMUM_CLIENT_VERSION.to_string(),
-    compatibility: Some(legacy_compatibility_status()),
     capabilities: capabilities(),
     server_instance_id: Some(state.server_instance_id()),
     is_primary: state.is_primary(),

@@ -305,9 +305,8 @@ final class SessionDetailViewModel {
   func takeOverSession() async {
     guard let payload = try? await session.api.takeoverSession(
       model: nil,
-      approvalPolicy: nil,
       approvalPolicyDetails: nil,
-      sandboxMode: nil,
+      sandboxPolicyDetails: nil,
       permissionMode: nil,
       collaborationMode: nil,
       multiAgent: nil,

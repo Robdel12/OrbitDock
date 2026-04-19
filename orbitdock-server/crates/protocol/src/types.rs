@@ -138,7 +138,7 @@ pub enum CodexApprovalPolicy {
 }
 
 impl CodexApprovalPolicy {
-  pub fn legacy_summary(&self) -> String {
+  pub fn summary_text(&self) -> String {
     match self {
       Self::Mode(mode) => mode.as_str().to_string(),
       Self::Granular { .. } => "reject".to_string(),
@@ -178,9 +178,7 @@ impl CodexApprovalPolicy {
   pub fn storage_text(&self) -> String {
     match self {
       Self::Mode(mode) => mode.as_str().to_string(),
-      Self::Granular { .. } => {
-        serde_json::to_string(self).unwrap_or_else(|_| self.legacy_summary())
-      }
+      Self::Granular { .. } => serde_json::to_string(self).unwrap_or_else(|_| self.summary_text()),
     }
   }
 }
@@ -213,7 +211,7 @@ pub struct CodexSandboxPolicy {
 }
 
 impl CodexSandboxPolicy {
-  pub fn legacy_summary(&self) -> String {
+  pub fn summary_text(&self) -> String {
     if self.network_access {
       match self.mode {
         CodexSandboxMode::DangerFullAccess => "danger-full-access".to_string(),
@@ -274,7 +272,7 @@ impl CodexSandboxPolicy {
   }
 
   pub fn storage_text(&self) -> String {
-    self.legacy_summary()
+    self.summary_text()
   }
 }
 
@@ -325,8 +323,6 @@ pub enum SessionLifecycleState {
 pub enum SteerOutcome {
   /// The steer was accepted by the active turn.
   Accepted,
-  /// No active turn was running; fell back to starting a new turn.
-  FellBackToNewTurn,
 }
 
 /// Work status - what the agent is currently doing
@@ -428,7 +424,7 @@ pub struct TokenUsage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TokenUsageSnapshotKind {
-  /// Snapshot semantics are unknown (legacy callers).
+  /// Snapshot semantics are unknown.
   #[default]
   Unknown,
   /// Snapshot represents current turn/context occupancy, not lifetime totals.
@@ -436,7 +432,7 @@ pub enum TokenUsageSnapshotKind {
   /// Snapshot represents lifetime cumulative totals.
   LifetimeTotals,
   /// Snapshot mixes semantics (e.g. context input + cumulative output).
-  MixedLegacy,
+  Mixed,
   /// Snapshot was emitted after a compaction reset event.
   CompactionReset,
 }
@@ -571,8 +567,7 @@ pub struct ApprovalPreview {
   pub compact: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub decision_scope: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub risk_level: Option<ApprovalRiskLevel>,
+  pub risk_level: ApprovalRiskLevel,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub risk_findings: Vec<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1132,6 +1127,9 @@ pub struct SessionState {
   /// Server-computed: true when the session accepts steer requests.
   #[serde(default)]
   pub steerable: bool,
+  /// Server-computed: true when a direct connector is currently attached.
+  #[serde(default)]
+  pub connector_attached: bool,
   /// Server-computed: true when an active turn can be interrupted.
   #[serde(default)]
   pub can_interrupt: bool,
@@ -1561,11 +1559,6 @@ pub struct StateChanges {
 }
 
 /// Explicit session-scoped Codex overrides layered on top of resolved Codex config.
-///
-/// The canonical values are the structured provider-native policy objects. We
-/// still accept legacy summary strings during deserialization so older
-/// persisted sessions resume cleanly, but we do not persist those lossy
-/// summaries back out as source-of-truth override fields.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct CodexSessionOverrides {
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1597,29 +1590,26 @@ impl CodexSessionOverrides {
     self
       .approval_policy_details
       .as_ref()
-      .map(CodexApprovalPolicy::legacy_summary)
+      .map(CodexApprovalPolicy::summary_text)
   }
 
   pub fn sandbox_mode_summary(&self) -> Option<String> {
     self
       .sandbox_policy_details
       .as_ref()
-      .map(CodexSandboxPolicy::legacy_summary)
+      .map(CodexSandboxPolicy::summary_text)
   }
 }
 
 #[derive(Debug, Deserialize)]
-struct CodexSessionOverridesCompat {
+#[serde(deny_unknown_fields)]
+struct CodexSessionOverridesWire {
   #[serde(default)]
   model: Option<String>,
   #[serde(default)]
   model_provider: Option<String>,
   #[serde(default)]
-  approval_policy: Option<String>,
-  #[serde(default)]
   approval_policy_details: Option<CodexApprovalPolicy>,
-  #[serde(default)]
-  sandbox_mode: Option<String>,
   #[serde(default)]
   sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default)]
@@ -1643,29 +1633,19 @@ impl<'de> Deserialize<'de> for CodexSessionOverrides {
   where
     D: Deserializer<'de>,
   {
-    let compat = CodexSessionOverridesCompat::deserialize(deserializer)?;
+    let wire = CodexSessionOverridesWire::deserialize(deserializer)?;
     Ok(Self {
-      model: compat.model,
-      model_provider: compat.model_provider,
-      approval_policy_details: compat.approval_policy_details.or_else(|| {
-        compat
-          .approval_policy
-          .as_deref()
-          .and_then(CodexApprovalPolicy::from_storage_text)
-      }),
-      sandbox_policy_details: compat.sandbox_policy_details.or_else(|| {
-        compat
-          .sandbox_mode
-          .as_deref()
-          .and_then(CodexSandboxPolicy::from_storage_text)
-      }),
-      approvals_reviewer: compat.approvals_reviewer,
-      collaboration_mode: compat.collaboration_mode,
-      multi_agent: compat.multi_agent,
-      personality: compat.personality,
-      service_tier: compat.service_tier,
-      developer_instructions: compat.developer_instructions,
-      effort: compat.effort,
+      model: wire.model,
+      model_provider: wire.model_provider,
+      approval_policy_details: wire.approval_policy_details,
+      sandbox_policy_details: wire.sandbox_policy_details,
+      approvals_reviewer: wire.approvals_reviewer,
+      collaboration_mode: wire.collaboration_mode,
+      multi_agent: wire.multi_agent,
+      personality: wire.personality,
+      service_tier: wire.service_tier,
+      developer_instructions: wire.developer_instructions,
+      effort: wire.effort,
     })
   }
 }
@@ -1960,22 +1940,10 @@ pub enum SessionSurface {
   Capabilities,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CompatibilityStatus {
-  pub compatible: bool,
-  pub server_compatibility: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub reason: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub message: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerHello {
   pub server_version: String,
   pub minimum_client_version: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub compatibility: Option<CompatibilityStatus>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub capabilities: Vec<String>,
 }
@@ -1984,8 +1952,6 @@ pub struct ServerHello {
 pub struct ServerMeta {
   pub server_version: String,
   pub minimum_client_version: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub compatibility: Option<CompatibilityStatus>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub capabilities: Vec<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2425,8 +2391,6 @@ pub struct MissionSummary {
   pub enabled: bool,
   pub paused: bool,
   pub tracker_kind: String,
-  /// Primary provider (backward compat — same as primary_provider).
-  pub provider: Provider,
   pub provider_strategy: String,
   pub primary_provider: Provider,
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -2754,11 +2718,11 @@ mod tests {
       CodexApprovalPolicy::from_storage_text(&stored).expect("restore approval policy");
 
     assert_eq!(restored, policy);
-    assert_eq!(policy.legacy_summary(), "reject");
+    assert_eq!(policy.summary_text(), "reject");
   }
 
   #[test]
-  fn codex_approval_policy_supports_legacy_reject_string() {
+  fn codex_approval_policy_supports_granular_reject_summary() {
     let restored = CodexApprovalPolicy::from_storage_text("reject").expect("restore reject policy");
 
     assert_eq!(
@@ -2776,20 +2740,15 @@ mod tests {
   }
 
   #[test]
-  fn codex_session_overrides_deserialize_legacy_policy_strings_into_details() {
-    let restored: CodexSessionOverrides = serde_json::from_str(
+  fn codex_session_overrides_reject_policy_summaries() {
+    let result = serde_json::from_str::<CodexSessionOverrides>(
       r#"{
         "approval_policy":"never",
         "sandbox_mode":"external-sandbox-network"
       }"#,
-    )
-    .expect("restore codex overrides");
-
-    assert_eq!(restored.approval_policy_summary().as_deref(), Some("never"));
-    assert_eq!(
-      restored.sandbox_mode_summary().as_deref(),
-      Some("external-sandbox-network")
     );
+
+    assert!(result.is_err());
   }
 
   #[test]

@@ -38,9 +38,7 @@ enum ControlDeckSnapshotMapper {
       acceptsUserInput: session.acceptsUserInput,
       steerable: session.steerable,
       canInterrupt: session.canInterrupt ?? false,
-      // Detail owns session shell truth. A resumable or ended lifecycle means
-      // the direct connector is no longer attached enough for interactive work.
-      connectorAttached: session.lifecycleState == .open,
+      connectorAttached: session.connectorAttached ?? false,
       projectPath: session.projectPath,
       currentCwd: session.currentCwd,
       gitBranch: session.gitBranch,
@@ -234,7 +232,7 @@ enum ControlDeckSnapshotMapper {
     snapshotKind: ServerTokenUsageSnapshotKind
   ) -> UInt64 {
     switch snapshotKind {
-      case .mixedLegacy:
+      case .mixed:
         saturatingAdd(usage.inputTokens, usage.cachedTokens)
       case .compactionReset:
         0
@@ -321,7 +319,7 @@ enum ControlDeckSnapshotMapper {
       case .unknown: .unknown
       case .contextTurn: .contextTurn
       case .lifetimeTotals: .lifetimeTotals
-      case .mixedLegacy: .mixedLegacy
+      case .mixed: .mixed
       case .compactionReset: .compactionReset
     }
   }

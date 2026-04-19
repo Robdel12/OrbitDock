@@ -50,7 +50,7 @@ pub(crate) fn transcript_usage_update(
 
   let snapshot_kind = match provider {
     Provider::Codex => TokenUsageSnapshotKind::ContextTurn,
-    Provider::Claude => TokenUsageSnapshotKind::MixedLegacy,
+    Provider::Claude => TokenUsageSnapshotKind::Mixed,
   };
 
   Some(TranscriptUsageUpdate {

@@ -82,7 +82,7 @@ fn sample_preview() -> ApprovalPreview {
     }],
     compact: Some("git push".into()),
     decision_scope: Some("session".into()),
-    risk_level: Some(ApprovalRiskLevel::Normal),
+    risk_level: ApprovalRiskLevel::Normal,
     risk_findings: vec!["touches remote".into()],
     manifest: Some("manifest".into()),
   }

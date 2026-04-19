@@ -11,9 +11,8 @@ extension SessionInteractionModel {
     netLog(.info, cat: .store, "Session interaction config update requested", sid: session.sessionId, data: requestData)
     do {
       let updated = try await session.api.updateSessionConfig(
-        approvalPolicy: request.approvalPolicy,
         approvalPolicyDetails: request.approvalPolicyDetails,
-        sandboxMode: request.sandboxMode,
+        sandboxPolicyDetails: request.sandboxPolicyDetails,
         approvalsReviewer: request.approvalsReviewer,
         permissionMode: request.permissionMode,
         collaborationMode: request.collaborationMode,
@@ -74,8 +73,7 @@ extension SessionInteractionModel {
 
   func updateApprovalPolicy(_ policy: String) async {
     await applyConfigUpdate { request in
-      request.approvalPolicy = policy
-      request.approvalPolicyDetails = ServerCodexApprovalPolicy.fromLegacySummary(policy)
+      request.approvalPolicyDetails = ServerCodexApprovalPolicy.fromSummaryText(policy)
     }
   }
 
@@ -87,7 +85,6 @@ extension SessionInteractionModel {
 
   func updateSandboxPolicy(_ policy: ServerCodexSandboxPolicy) async {
     await applyConfigUpdate { request in
-      request.sandboxMode = policy.legacySummary
       request.sandboxPolicyDetails = policy
     }
   }
@@ -103,9 +100,7 @@ extension SessionInteractionModel {
       return
     }
     await applyConfigUpdate { request in
-      request.approvalPolicy = option.approvalPolicy
       request.approvalPolicyDetails = option.approvalPolicyDetails
-      request.sandboxMode = option.sandboxMode
       request.sandboxPolicyDetails = option.sandboxPolicyDetails
     }
   }

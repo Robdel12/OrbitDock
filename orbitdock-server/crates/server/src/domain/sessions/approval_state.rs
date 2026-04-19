@@ -595,7 +595,7 @@ impl fmt::Display for PendingApprovalMutation {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use orbitdock_protocol::ApprovalPreviewType;
+  use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel};
   use serde_json::json;
 
   struct ApprovalRequestFixture<'a> {
@@ -688,7 +688,7 @@ mod tests {
         shell_segments: vec![],
         compact: None,
         decision_scope: None,
-        risk_level: None,
+        risk_level: ApprovalRiskLevel::Normal,
         risk_findings: vec![],
         manifest: None,
       }),

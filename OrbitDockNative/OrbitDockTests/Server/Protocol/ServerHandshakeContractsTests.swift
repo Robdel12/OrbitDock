@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct ServerHandshakeContractsTests {
-  @Test func transportRequestUsesLegacyServerHeaders() {
+  @Test func transportRequestUsesCurrentServerHeaders() {
     let request = try? HTTPRequestBuilder(
       baseURL: URL(string: "http://127.0.0.1:4000")!,
       authToken: nil
@@ -33,13 +33,14 @@ struct ServerHandshakeContractsTests {
     #expect(hello.capabilities == ["dashboard_projection_v1"])
   }
 
-  @Test func serverMetaDecodesWhenLegacyPayloadOmitsPrimaryClaims() throws {
+  @Test func serverMetaRequiresCurrentPayloadFields() throws {
     let json = """
       {
         "server_version": "0.8.0",
         "minimum_client_version": "0.7.0",
         "capabilities": ["dashboard_projection_v1"],
         "is_primary": true,
+        "client_primary_claims": [],
         "update_status": {
           "update_available": true,
           "latest_version": "v0.8.0",

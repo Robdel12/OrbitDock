@@ -10,7 +10,7 @@ struct ServerTokenUsageSemanticsTests {
       "type":"tokens_updated",
       "session_id":"session-1",
       "usage":{"input_tokens":1200,"output_tokens":340,"cached_tokens":200,"context_window":8000},
-      "snapshot_kind":"mixed_legacy"
+      "snapshot_kind":"mixed"
     }
     """#
 
@@ -19,7 +19,7 @@ struct ServerTokenUsageSemanticsTests {
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         #expect(sessionId == "session-1")
         #expect(usage.inputTokens == 1_200)
-        #expect(snapshotKind == .mixedLegacy)
+        #expect(snapshotKind == .mixed)
       default:
         Issue.record("Expected tokens_updated")
     }
@@ -78,7 +78,7 @@ struct ServerTokenUsageSemanticsTests {
     #expect(codexContextTurn.effectiveContextInputTokens == 2_400)
     #expect(Int(codexContextTurn.contextFillPercent) == 30)
 
-    let claudeMixedLegacy = Session(
+    let claudeMixed = Session(
       id: "claude-mixed",
       projectPath: "/tmp/project",
       status: .active,
@@ -88,10 +88,10 @@ struct ServerTokenUsageSemanticsTests {
       outputTokens: 100,
       cachedTokens: 600,
       contextWindow: 8_000,
-      tokenUsageSnapshotKind: .mixedLegacy
+      tokenUsageSnapshotKind: .mixed
     )
-    #expect(claudeMixedLegacy.effectiveContextInputTokens == 3_000)
-    #expect(Int(claudeMixedLegacy.contextFillPercent) == 37)
+    #expect(claudeMixed.effectiveContextInputTokens == 3_000)
+    #expect(Int(claudeMixed.contextFillPercent) == 37)
 
     let claudeUnknown = Session(
       id: "claude-unknown",

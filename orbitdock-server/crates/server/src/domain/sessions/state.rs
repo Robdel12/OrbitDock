@@ -145,7 +145,6 @@ impl SessionCoreState {
       && self.control_mode == SessionControlMode::Direct
       && self.lifecycle_state == SessionLifecycleState::Open
       && self.work_status == WorkStatus::Working
-      && self.current_turn_id.is_some()
   }
 
   pub fn restore(data: SessionRestoreData) -> Self {
@@ -374,6 +373,7 @@ impl SessionCoreState {
       lifecycle_state: self.lifecycle_state,
       accepts_user_input,
       pending_approval: self.pending_approval.clone(),
+      connector_attached: false,
       can_interrupt: self.can_interrupt(),
       permission_mode: self.permission_mode.clone(),
       collaboration_mode: self.config.collaboration_mode.clone(),
@@ -650,7 +650,7 @@ impl SessionCoreState {
         .config
         .sandbox_policy_details
         .as_ref()
-        .map(orbitdock_protocol::CodexSandboxPolicy::legacy_summary);
+        .map(orbitdock_protocol::CodexSandboxPolicy::summary_text);
     }
   }
 
@@ -985,7 +985,7 @@ impl SessionCoreState {
       self.config.sandbox_policy_details = sandbox_policy_details.clone();
       self.config.sandbox_mode = sandbox_policy_details
         .as_ref()
-        .map(orbitdock_protocol::CodexSandboxPolicy::legacy_summary);
+        .map(orbitdock_protocol::CodexSandboxPolicy::summary_text);
     }
     if let Some(ref permission_mode) = changes.permission_mode {
       self.permission_mode = permission_mode.clone();

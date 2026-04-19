@@ -254,7 +254,6 @@ struct Session: Identifiable, Hashable, Sendable {
     }
   }
 
-  /// Custom initializer with backward compatibility for legacy code using contextLabel
   nonisolated init(
     id: String,
     endpointId: UUID? = nil,
@@ -267,7 +266,6 @@ struct Session: Identifiable, Hashable, Sendable {
     summary: String? = nil,
     customName: String? = nil,
     firstPrompt: String? = nil,
-    contextLabel: String? = nil, // Legacy parameter, mapped to customName
     transcriptPath: String? = nil,
     status: SessionStatus,
     workStatus: WorkStatus,
@@ -317,8 +315,6 @@ struct Session: Identifiable, Hashable, Sendable {
     self.branch = branch
     self.model = model
     self.summary = summary
-    // Don't use contextLabel as customName fallback - it's just source metadata (e.g., "codex_cli_rs")
-    // Let displayName fall through to firstPrompt or projectName instead
     self.customName = customName
     self.firstPrompt = firstPrompt
     self.transcriptPath = transcriptPath
@@ -419,12 +415,6 @@ struct Session: Identifiable, Hashable, Sendable {
   /// Path used for project grouping — worktree sessions group with their parent repo.
   var groupingPath: String {
     SessionSemantics.groupingPath(repositoryRoot: repositoryRoot, projectPath: projectPath)
-  }
-
-  /// For backward compatibility
-  var contextLabel: String? {
-    get { customName }
-    set { customName = newValue }
   }
 
   var isActive: Bool {

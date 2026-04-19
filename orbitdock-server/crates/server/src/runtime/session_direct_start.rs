@@ -11,7 +11,7 @@ use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
   activate_direct_session_runtime, claim_codex_thread_for_direct_session,
 };
-use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
+use orbitdock_connector_codex::{CodexConfigOverrides, CodexRuntimeOverrides};
 use orbitdock_protocol::Provider;
 
 pub(crate) struct StartDirectCodexRequest<'a> {
@@ -87,7 +87,7 @@ pub(crate) async fn start_direct_codex_session(
           model_provider,
           config_profile,
         },
-        control_plane: CodexControlPlane {
+        runtime_overrides: CodexRuntimeOverrides {
           approvals_reviewer: None,
           collaboration_mode,
           multi_agent,
@@ -118,7 +118,7 @@ pub(crate) async fn start_direct_codex_session(
     &persist_tx,
     &session_id,
     &thread_id,
-    "legacy_codex_thread_row_cleanup",
+    "direct_codex_thread_claim",
   )
   .await;
 

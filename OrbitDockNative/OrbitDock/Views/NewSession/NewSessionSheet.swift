@@ -424,7 +424,6 @@ struct NewSessionSheet: View {
       codexServiceTier: $model.codexServiceTier,
       codexInstructions: $model.codexInstructions,
       hasSelectedPath: !model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-      codexCatalogRequiresProjectPath: codexConfigState.catalogRequiresProjectPath,
       codexCatalog: codexConfigState.catalog,
       codexCatalogLoading: codexConfigState.catalogLoading,
       codexCatalogError: codexConfigState.catalogError,
@@ -501,7 +500,6 @@ extension NewSessionSheet {
     var catalogError: String?
     var catalogLoading = false
     var catalogRequestID = 0
-    var catalogRequiresProjectPath = false
     var scopedModels: [ServerCodexModelOption]?
     var scopedModelsLoading = false
     var scopedModelsError: String?

@@ -8,7 +8,6 @@ struct MissionSummary: Codable, Identifiable, Equatable {
   let enabled: Bool
   let paused: Bool
   let trackerKind: String
-  let provider: String
   let providerStrategy: String
   let primaryProvider: String
   let secondaryProvider: String?
@@ -29,7 +28,6 @@ struct MissionSummary: Codable, Identifiable, Equatable {
     case enabled
     case paused
     case trackerKind = "tracker_kind"
-    case provider
     case providerStrategy = "provider_strategy"
     case primaryProvider = "primary_provider"
     case secondaryProvider = "secondary_provider"

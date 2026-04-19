@@ -78,8 +78,8 @@ struct CodexApprovalPolicyDraft: Equatable, Sendable {
   var requestPermissions: Bool
   var mcpElicitations: Bool
 
-  init(policy: ServerCodexApprovalPolicy?, fallbackPolicy: String?) {
-    let resolved = ServerCodexApprovalPolicy.resolved(details: policy, fallbackPolicy: fallbackPolicy)
+  init(policy: ServerCodexApprovalPolicy?) {
+    let resolved = ServerCodexApprovalPolicy.resolved(details: policy)
     switch resolved {
       case let .mode(mode):
         style = .preset
@@ -154,8 +154,8 @@ extension ServerCodexApprovalMode {
     .never,
   ]
 
-  nonisolated init?(legacySummary: String) {
-    switch legacySummary {
+  nonisolated init?(summaryText: String) {
+    switch summaryText {
       case "untrusted":
         self = .untrusted
       case "on-failure", "on_failure":
@@ -169,7 +169,7 @@ extension ServerCodexApprovalMode {
     }
   }
 
-  nonisolated var legacySummary: String {
+  nonisolated var summaryText: String {
     switch self {
       case .untrusted: "untrusted"
       case .onFailure: "on-failure"
@@ -229,26 +229,19 @@ extension ServerCodexGranularApprovalPolicy {
 }
 
 extension ServerCodexApprovalPolicy {
-  nonisolated static func resolved(
-    details: ServerCodexApprovalPolicy?,
-    fallbackPolicy: String?
-  ) -> ServerCodexApprovalPolicy? {
-    if let details {
-      return details
-    }
-    guard let fallbackPolicy else { return nil }
-    return fromLegacySummary(fallbackPolicy)
+  nonisolated static func resolved(details: ServerCodexApprovalPolicy?) -> ServerCodexApprovalPolicy? {
+    details
   }
 
-  nonisolated static func fromLegacySummary(_ value: String) -> ServerCodexApprovalPolicy? {
-    guard let mode = ServerCodexApprovalMode(legacySummary: value) else { return nil }
+  nonisolated static func fromSummaryText(_ value: String) -> ServerCodexApprovalPolicy? {
+    guard let mode = ServerCodexApprovalMode(summaryText: value) else { return nil }
     return .mode(mode)
   }
 
-  nonisolated var legacySummary: String {
+  nonisolated var summaryText: String {
     switch self {
       case let .mode(mode):
-        mode.legacySummary
+        mode.summaryText
       case .granular:
         "granular"
     }
@@ -320,6 +313,6 @@ extension ServerCodexSandboxPolicy {
 
 extension AutonomyLevel {
   var approvalPolicyDetails: ServerCodexApprovalPolicy? {
-    approvalPolicy.flatMap(ServerCodexApprovalPolicy.fromLegacySummary)
+    approvalPolicy.flatMap(ServerCodexApprovalPolicy.fromSummaryText)
   }
 }

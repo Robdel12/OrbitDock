@@ -18,7 +18,6 @@ struct MissionModelTests {
       "enabled": true,
       "paused": false,
       "tracker_kind": "linear",
-      "provider": "claude",
       "provider_strategy": "primary_only",
       "primary_provider": "claude",
       "secondary_provider": "codex",
@@ -40,7 +39,6 @@ struct MissionModelTests {
     #expect(summary.enabled == true)
     #expect(summary.paused == false)
     #expect(summary.trackerKind == "linear")
-    #expect(summary.provider == "claude")
     #expect(summary.providerStrategy == "primary_only")
     #expect(summary.primaryProvider == "claude")
     #expect(summary.secondaryProvider == "codex")
@@ -63,7 +61,6 @@ struct MissionModelTests {
       "enabled": false,
       "paused": true,
       "tracker_kind": "linear",
-      "provider": "claude",
       "provider_strategy": "primary_only",
       "primary_provider": "claude",
       "active_count": 0,

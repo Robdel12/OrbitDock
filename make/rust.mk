@@ -20,10 +20,10 @@ rust-env:
 	@echo "RUSTC_WRAPPER=$$RUSTC_WRAPPER"
 	@echo "CARGO_BUILD_RUSTC_WRAPPER=$$CARGO_BUILD_RUSTC_WRAPPER"
 	@echo "SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)"
-	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
-		echo "LEGACY_TARGET_DIR=$(RUST_LEGACY_TARGET_DIR) (present)"; \
+	@if [[ -d "$(RUST_WORKSPACE_TARGET_DIR)" ]]; then \
+		echo "RUST_WORKSPACE_TARGET_DIR=$(RUST_WORKSPACE_TARGET_DIR) (present)"; \
 	else \
-		echo "LEGACY_TARGET_DIR=<none>"; \
+		echo "RUST_WORKSPACE_TARGET_DIR=<none>"; \
 	fi
 	@echo "Using Rust env: $(RUST_ENV)"
 
@@ -83,10 +83,10 @@ rust-size:
 		echo "sccache dir size:"; \
 		du -sh "$(SCCACHE_DIR)"; \
 	fi
-	@if [[ -d "$(RUST_LEGACY_TARGET_DIR)" ]]; then \
+	@if [[ -d "$(RUST_WORKSPACE_TARGET_DIR)" ]]; then \
 		echo ""; \
-		echo "legacy target dir size:"; \
-		du -sh "$(RUST_LEGACY_TARGET_DIR)"; \
+		echo "workspace target dir size:"; \
+		du -sh "$(RUST_WORKSPACE_TARGET_DIR)"; \
 	fi
 
 rust-sccache-zero:

@@ -137,7 +137,7 @@ Side panel for direct sessions with multiple tabs:
 
 ## Usage Monitoring
 
-- **Control-plane routed usage** — Usage requests run through the endpoint selected as control plane on this device
+- **Primary-endpoint usage** — Usage requests run through the endpoint selected as primary on this device
 - **Claude rate limits** — 5-hour and 7-day window tracking via OAuth API
 - **Codex rate limits** — Primary and secondary rate windows
 - **Visible error states** — Usage cards stay visible and show auth/transport errors instead of disappearing

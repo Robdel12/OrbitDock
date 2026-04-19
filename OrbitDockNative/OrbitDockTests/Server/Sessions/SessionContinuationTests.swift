@@ -23,7 +23,7 @@ struct SessionContinuationTests {
     #expect(prompt.contains("Then continue the work in this session"))
   }
 
-  @Test func supportRequiresLocalServerAndRestrictsLegacyFallbackToSameEndpoint() {
+  @Test func supportRequiresLocalServerAndMatchingInstanceId() {
     let sourceEndpointId = UUID()
     let otherEndpointId = UUID()
     let continuation = SessionContinuation(
@@ -34,12 +34,13 @@ struct SessionContinuationTests {
       projectPath: "/tmp/orbitdock",
       model: "openai/gpt-5.3-codex",
       hasGitRepository: false,
-      sourceServerInstanceId: nil,
+      sourceServerInstanceId: "server-a",
       sourceIsRemoteConnection: false
     )
 
-    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil))
-    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil) == false)
-    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: true, selectedServerInstanceId: nil) == false)
+    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false, selectedServerInstanceId: "server-a"))
+    #expect(continuation.isSupported(on: otherEndpointId, isRemoteConnection: false, selectedServerInstanceId: "server-a"))
+    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: false, selectedServerInstanceId: nil) == false)
+    #expect(continuation.isSupported(on: sourceEndpointId, isRemoteConnection: true, selectedServerInstanceId: "server-a") == false)
   }
 }

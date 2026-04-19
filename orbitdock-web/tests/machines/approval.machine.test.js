@@ -66,11 +66,12 @@ describe('approval workflow', () => {
     actor.stop()
   })
 
-  it('handles legacy messages without approval_version', () => {
+  it('ignores approval requests without an authoritative version', () => {
     const actor = startActor()
 
     actor.send({ type: 'APPROVAL_REQUESTED', request: { id: 'req-1', type: 'exec' }, approval_version: null })
-    assert.strictEqual(snap(actor).value, 'pending')
+    assert.strictEqual(snap(actor).value, 'idle')
+    assert.strictEqual(snap(actor).context.request, null)
 
     actor.stop()
   })

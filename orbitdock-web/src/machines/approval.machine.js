@@ -23,7 +23,7 @@ const approvalMachine = setup({
     }),
   },
   guards: {
-    isNewerVersion: ({ context, event }) => !event.approval_version || event.approval_version > context.approvalVersion,
+    isNewerVersion: ({ context, event }) => event.approval_version > context.approvalVersion,
   },
 }).createMachine({
   id: 'approval',

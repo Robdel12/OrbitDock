@@ -61,15 +61,6 @@ extension NewSessionConfigurationCard {
         )
       }
 
-      if provider == .codex, !hasSelectedPath, codexCatalogRequiresProjectPath {
-        codexLaunchHintCard(
-          title: "Older server needs a folder",
-          detail: "Restart the server to enable global profile browsing.",
-          tint: .feedbackCaution,
-          icon: "arrow.triangle.2.circlepath"
-        )
-      }
-
       if let codexCatalogError, !codexCatalogError.isEmpty {
         Text(codexCatalogError)
           .font(.system(size: TypeScale.caption))

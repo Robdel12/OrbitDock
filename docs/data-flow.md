@@ -283,6 +283,7 @@ The server owns durable session truth such as:
 
 - `control_mode`
 - `lifecycle_state`
+- `connector_attached`
 - `accepts_user_input`
 - `steerable`
 - `can_interrupt`

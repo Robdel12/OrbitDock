@@ -15,7 +15,7 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::config::ResumeConnectorWithToolsConfig;
-use crate::{CodexConfigOverrides, CodexConnector, CodexControlPlane, UpdateConfigOptions};
+use crate::{CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides, UpdateConfigOptions};
 
 /// Groups the parameters common to all Codex session constructors.
 #[derive(Debug, Clone)]
@@ -26,7 +26,7 @@ pub struct CodexSessionConfig<'a> {
   pub sandbox_mode: Option<&'a str>,
   pub sandbox_policy_details: Option<orbitdock_protocol::CodexSandboxPolicy>,
   pub config_overrides: CodexConfigOverrides,
-  pub control_plane: CodexControlPlane,
+  pub runtime_overrides: CodexRuntimeOverrides,
   pub dynamic_tools_json: Vec<serde_json::Value>,
 }
 
@@ -102,21 +102,21 @@ pub enum CodexAction {
     cwds: Vec<String>,
     force_remote_sync: bool,
     config_overrides: CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     reply_tx: oneshot::Sender<Result<PluginListResponse, ConnectorError>>,
   },
   InstallPlugin {
     cwd: String,
     params: PluginInstallParams,
     config_overrides: CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     reply_tx: oneshot::Sender<Result<PluginInstallResponse, ConnectorError>>,
   },
   UninstallPlugin {
     cwd: String,
     params: PluginUninstallParams,
     config_overrides: CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     reply_tx: oneshot::Sender<Result<PluginUninstallResponse, ConnectorError>>,
   },
   ApproveExec {
@@ -369,21 +369,21 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: None,
         config_overrides,
-        control_plane: CodexControlPlane::default(),
+        runtime_overrides: CodexRuntimeOverrides::default(),
         dynamic_tools_json: Vec::new(),
       },
     )
     .await
   }
 
-  /// Create a new Codex session with explicit control-plane settings.
-  pub async fn new_with_control_plane(
+  /// Create a new Codex session with explicit runtime overrides.
+  pub async fn new_with_runtime_overrides(
     session_id: String,
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
@@ -394,22 +394,22 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: None,
         config_overrides: CodexConfigOverrides::default(),
-        control_plane,
+        runtime_overrides,
         dynamic_tools_json: Vec::new(),
       },
     )
     .await
   }
 
-  /// Create a new Codex session with explicit config overrides and control-plane settings.
-  pub async fn new_with_config_overrides_and_control_plane(
+  /// Create a new Codex session with explicit config and runtime overrides.
+  pub async fn new_with_config_overrides_and_runtime_overrides(
     session_id: String,
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     config_overrides: CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
@@ -420,26 +420,26 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: None,
         config_overrides,
-        control_plane,
+        runtime_overrides,
         dynamic_tools_json: Vec::new(),
       },
     )
     .await
   }
 
-  /// Create a new Codex session with control-plane settings and dynamic tools.
+  /// Create a new Codex session with runtime overrides and dynamic tools.
   ///
   /// Accepts `Vec<serde_json::Value>` for cross-crate flexibility — converts to
   /// `DynamicToolSpec` internally.
   #[allow(clippy::too_many_arguments)]
-  pub async fn new_with_control_plane_and_tools(
+  pub async fn new_with_runtime_overrides_and_tools(
     session_id: String,
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&orbitdock_protocol::CodexSandboxPolicy>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     dynamic_tools_json: Vec<serde_json::Value>,
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
@@ -451,7 +451,7 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: sandbox_policy_details.cloned(),
         config_overrides: CodexConfigOverrides::default(),
-        control_plane,
+        runtime_overrides,
         dynamic_tools_json,
       },
     )
@@ -465,14 +465,14 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     let dynamic_tools = parse_dynamic_tools(config.dynamic_tools_json);
 
-    let connector = CodexConnector::new_with_config_overrides_control_plane_and_tools(
+    let connector = CodexConnector::new_with_config_overrides_runtime_overrides_and_tools(
       config.cwd,
       config.model,
       config.approval_policy,
       config.sandbox_mode,
       config.sandbox_policy_details.as_ref(),
       &config.config_overrides,
-      config.control_plane,
+      config.runtime_overrides,
       dynamic_tools,
     )
     .await?;
@@ -521,22 +521,22 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: None,
         config_overrides,
-        control_plane: CodexControlPlane::default(),
+        runtime_overrides: CodexRuntimeOverrides::default(),
         dynamic_tools_json: Vec::new(),
       },
     )
     .await
   }
 
-  /// Resume an existing Codex session with explicit control-plane settings.
-  pub async fn resume_with_control_plane(
+  /// Resume an existing Codex session with explicit runtime overrides.
+  pub async fn resume_with_runtime_overrides(
     session_id: String,
     cwd: &str,
     thread_id: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     Self::resume_with_config(
       session_id,
@@ -548,7 +548,7 @@ impl CodexSession {
         sandbox_mode,
         sandbox_policy_details: None,
         config_overrides: CodexConfigOverrides::default(),
-        control_plane,
+        runtime_overrides,
         dynamic_tools_json: Vec::new(),
       },
     )
@@ -562,7 +562,7 @@ impl CodexSession {
     config: CodexSessionConfig<'_>,
   ) -> Result<Self, ConnectorError> {
     let dynamic_tools = parse_dynamic_tools(config.dynamic_tools_json);
-    let connector = CodexConnector::resume_with_config_overrides_control_plane_and_tools(
+    let connector = CodexConnector::resume_with_config_overrides_runtime_overrides_and_tools(
       ResumeConnectorWithToolsConfig {
         cwd: config.cwd,
         thread_id,
@@ -571,7 +571,7 @@ impl CodexSession {
         sandbox_mode: config.sandbox_mode,
         sandbox_policy_details: config.sandbox_policy_details.as_ref(),
         config_overrides: &config.config_overrides,
-        control_plane: config.control_plane,
+        runtime_overrides: config.runtime_overrides,
         dynamic_tools,
       },
     )
@@ -627,7 +627,7 @@ impl CodexSession {
         cwds,
         force_remote_sync,
         config_overrides,
-        control_plane,
+        runtime_overrides,
         reply_tx,
       } => {
         let result = connector
@@ -636,7 +636,7 @@ impl CodexSession {
             cwds,
             force_remote_sync,
             &config_overrides,
-            &control_plane,
+            &runtime_overrides,
           )
           .await;
         let _ = reply_tx.send(result);
@@ -645,11 +645,11 @@ impl CodexSession {
         cwd,
         params,
         config_overrides,
-        control_plane,
+        runtime_overrides,
         reply_tx,
       } => {
         let result = connector
-          .install_plugin(&cwd, params, &config_overrides, &control_plane)
+          .install_plugin(&cwd, params, &config_overrides, &runtime_overrides)
           .await;
         let _ = reply_tx.send(result);
       }
@@ -657,11 +657,11 @@ impl CodexSession {
         cwd,
         params,
         config_overrides,
-        control_plane,
+        runtime_overrides,
         reply_tx,
       } => {
         let result = connector
-          .uninstall_plugin(&cwd, params, &config_overrides, &control_plane)
+          .uninstall_plugin(&cwd, params, &config_overrides, &runtime_overrides)
           .await;
         let _ = reply_tx.send(result);
       }

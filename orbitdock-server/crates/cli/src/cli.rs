@@ -12,10 +12,6 @@ pub struct BinaryCli {
   #[arg(long, global = true, env = "ORBITDOCK_DATA_DIR")]
   pub data_dir: Option<std::path::PathBuf>,
 
-  /// Bind address (top-level, for backward compat — prefer `start --bind`)
-  #[arg(long, env = "ORBITDOCK_BIND_ADDR")]
-  pub bind: Option<std::net::SocketAddr>,
-
   /// Server URL for client commands (default: http://127.0.0.1:4000)
   #[arg(long, short = 's', global = true, env = "ORBITDOCK_URL")]
   pub server: Option<String>,
@@ -196,10 +192,6 @@ pub enum BinaryCommand {
     #[arg(value_enum)]
     path: Option<SetupPath>,
   },
-
-  /// Deprecated: use `orbitdock setup server` instead
-  #[command(hide = true)]
-  RemoteSetup,
 
   /// Expose the server via Cloudflare Tunnel
   Tunnel {

@@ -600,14 +600,8 @@ struct PermissionInlinePanel: View {
       sandboxMode,
       sandboxPolicyDetails
     ) = state.permissionRules {
-      let resolvedPolicy = ServerCodexApprovalPolicy.resolved(
-        details: approvalPolicyDetails,
-        fallbackPolicy: approvalPolicy
-      )
-      let resolvedSandbox = ServerCodexSandboxPolicy.resolved(
-        details: sandboxPolicyDetails,
-        fallbackMode: sandboxMode
-      )
+      let resolvedPolicy = ServerCodexApprovalPolicy.resolved(details: approvalPolicyDetails)
+      let resolvedSandbox = ServerCodexSandboxPolicy.resolved(details: sandboxPolicyDetails)
 
       VStack(alignment: .leading, spacing: Spacing.xs) {
         codexAutoReviewCard(codexAutoReviewSnapshot)
@@ -635,7 +629,7 @@ struct PermissionInlinePanel: View {
 
         Spacer()
 
-        Text(policy.legacySummary)
+        Text(policy.summaryText)
           .font(.system(size: TypeScale.mini, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color.textQuaternary)
           .padding(.horizontal, Spacing.sm_)

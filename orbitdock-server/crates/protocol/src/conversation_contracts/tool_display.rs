@@ -1566,7 +1566,6 @@ fn extract_plan_explanation(kind: ToolKind, input: Option<&serde_json::Value>) -
 }
 
 /// Classify a tool name into (ToolFamily, ToolKind).
-/// Shared logic so both the connector and the legacy-unwrap path use the same mapping.
 pub fn classify_tool_name(name: &str) -> (ToolFamily, ToolKind) {
   match name {
     "Bash" | "bash" => (ToolFamily::Shell, ToolKind::Bash),
@@ -1608,8 +1607,8 @@ mod tests {
   #[test]
   fn codex_edit_diff_payload_produces_lightweight_preview() {
     let input_json = serde_json::json!({
-        "path": "/tmp/SessionStore+Events.swift",
-        "diff": "--- /tmp/SessionStore+Events.swift\n+++ /tmp/SessionStore+Events.swift\n@@ -10,2 +10,3 @@\n let keep = true\n+let preview = true\n let done = true"
+        "path": "/tmp/SessionRuntime+Events.swift",
+        "diff": "--- /tmp/SessionRuntime+Events.swift\n+++ /tmp/SessionRuntime+Events.swift\n@@ -10,2 +10,3 @@\n let keep = true\n+let preview = true\n let done = true"
     });
     let display = compute_tool_display(ToolDisplayInput {
       kind: ToolKind::Edit,

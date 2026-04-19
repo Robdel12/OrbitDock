@@ -64,7 +64,7 @@ const filesToAttachments = async (files) =>
 // ── Contenteditable helpers ──────────────────────────────────────────────────
 
 // Insert plain text into a contenteditable element while preserving undo history.
-// execCommand is deprecated but there is no standard replacement for contenteditable
+// execCommand is obsolete, but there is no standard replacement for contenteditable
 // insertText that preserves the browser undo stack.
 const insertTextAtCursor = (text) => {
   document.execCommand('insertText', false, text)

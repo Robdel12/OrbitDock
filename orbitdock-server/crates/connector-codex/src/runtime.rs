@@ -43,83 +43,32 @@ pub(super) struct StreamingMessage {
   pub(super) message_id: String,
   pub(super) content: String,
   pub(super) last_broadcast: std::time::Instant,
-  /// True if started by AgentMessageContentDelta (newer path).
-  /// When set, AgentMessageDelta events are skipped to avoid doubling.
-  pub(super) from_content_delta: bool,
-}
-
-/// Determines which reasoning event stream is active for the current turn.
-///
-/// codex-protocol can emit both modern and legacy reasoning events for compatibility.
-/// We process only one stream per turn to avoid duplicated timeline rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum ReasoningStreamMode {
-  #[default]
-  Unknown,
-  Modern,
-  Legacy,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct ReasoningEventTracker {
-  pub(super) summary_mode: ReasoningStreamMode,
-  pub(super) raw_mode: ReasoningStreamMode,
+  pub(super) summary_seen: bool,
+  pub(super) raw_seen: bool,
 }
 
 impl ReasoningEventTracker {
   pub(super) fn reset_for_turn(&mut self) {
-    self.summary_mode = ReasoningStreamMode::Unknown;
-    self.raw_mode = ReasoningStreamMode::Unknown;
+    self.summary_seen = false;
+    self.raw_seen = false;
   }
 
   pub(super) fn should_process_modern_summary(&mut self) -> bool {
-    match self.summary_mode {
-      ReasoningStreamMode::Unknown => {
-        self.summary_mode = ReasoningStreamMode::Modern;
-        true
-      }
-      ReasoningStreamMode::Modern => true,
-      ReasoningStreamMode::Legacy => false,
-    }
-  }
-
-  pub(super) fn should_process_legacy_summary(&mut self) -> bool {
-    match self.summary_mode {
-      ReasoningStreamMode::Unknown => {
-        self.summary_mode = ReasoningStreamMode::Legacy;
-        true
-      }
-      ReasoningStreamMode::Legacy => true,
-      ReasoningStreamMode::Modern => false,
-    }
+    self.summary_seen = true;
+    true
   }
 
   pub(super) fn mark_modern_summary_seen(&mut self) {
-    if self.summary_mode == ReasoningStreamMode::Unknown {
-      self.summary_mode = ReasoningStreamMode::Modern;
-    }
+    self.summary_seen = true;
   }
 
   pub(super) fn should_process_modern_raw(&mut self) -> bool {
-    match self.raw_mode {
-      ReasoningStreamMode::Unknown => {
-        self.raw_mode = ReasoningStreamMode::Modern;
-        true
-      }
-      ReasoningStreamMode::Modern => true,
-      ReasoningStreamMode::Legacy => false,
-    }
-  }
-
-  pub(super) fn should_process_legacy_raw(&mut self) -> bool {
-    match self.raw_mode {
-      ReasoningStreamMode::Unknown => {
-        self.raw_mode = ReasoningStreamMode::Legacy;
-        true
-      }
-      ReasoningStreamMode::Legacy => true,
-      ReasoningStreamMode::Modern => false,
-    }
+    self.raw_seen = true;
+    true
   }
 }
 

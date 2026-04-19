@@ -136,7 +136,6 @@ struct MessageRowView: View {
     switch deliveryStatus {
       case .pending: return "Pending Steer"
       case .accepted, nil: return "Steer"
-      case .fellBackToNewTurn: return "Steer Sent As New Turn"
     }
   }
 

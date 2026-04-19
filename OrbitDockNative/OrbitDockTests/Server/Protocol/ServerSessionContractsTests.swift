@@ -249,6 +249,7 @@ struct ServerSessionContractsTests {
       """
       {
         "rows": [],
+        "total_row_count": 0,
         "total_message_count": 9,
         "has_more_before": false,
         "forked_from_session_id": "root-session"
@@ -258,7 +259,7 @@ struct ServerSessionContractsTests {
 
     let bootstrap = try JSONDecoder().decode(ServerConversationBootstrap.self, from: data)
 
-    #expect(bootstrap.totalRowCount == 9)
+    #expect(bootstrap.totalRowCount == 0)
     #expect(bootstrap.forkedFromSessionId == "root-session")
   }
 }

@@ -118,7 +118,6 @@ pub async fn create_mission(
     enabled: true,
     paused: false,
     tracker_kind: req.tracker_kind,
-    provider: primary_provider,
     provider_strategy: "single".to_string(),
     primary_provider,
     secondary_provider: None,

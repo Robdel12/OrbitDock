@@ -83,7 +83,7 @@ const InlinePreview = ({ display }) => {
     )
   }
 
-  // Fallback: plain output preview
+  // Generic output preview
   if (display.output_preview) {
     return <div class={styles.outputPreview}>{display.output_preview}</div>
   }

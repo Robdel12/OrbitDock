@@ -460,9 +460,6 @@ pub async fn handle_session_command(
 
       let next_status = match outcome {
         orbitdock_protocol::SteerOutcome::Accepted => MessageDeliveryStatus::Accepted,
-        orbitdock_protocol::SteerOutcome::FellBackToNewTurn => {
-          MessageDeliveryStatus::FellBackToNewTurn
-        }
       };
 
       let mut should_upsert = false;
@@ -1206,7 +1203,7 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn update_steer_outcome_invalidates_detail_surface() {
+  async fn update_steer_outcome_marks_pending_steer_accepted_and_invalidates_detail_surface() {
     let (persist_tx, mut persist_rx) = mpsc::channel(8);
     let mut handle = SessionHandle::new(
       "session-1".to_string(),
@@ -1235,7 +1232,7 @@ mod tests {
     handle_session_command(
       SessionCommand::UpdateSteerOutcome {
         message_id: "steer-1".to_string(),
-        outcome: SteerOutcome::FellBackToNewTurn,
+        outcome: SteerOutcome::Accepted,
       },
       &mut handle,
       &persist_tx,
@@ -1251,7 +1248,7 @@ mod tests {
     };
     assert_eq!(
       message.delivery_status,
-      Some(MessageDeliveryStatus::FellBackToNewTurn)
+      Some(MessageDeliveryStatus::Accepted)
     );
 
     let mut saw_row_update = false;

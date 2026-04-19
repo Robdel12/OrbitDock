@@ -475,7 +475,6 @@ const SessionHeader = ({
   }
   const closeSubPopover = () => setSubPopover('none')
 
-  // Derive layout mode from reviewOpen for backwards compatibility
   const currentLayout = layoutMode || (reviewOpen ? LAYOUT_SPLIT : LAYOUT_CONVERSATION)
 
   const handleLayoutSelect = (mode) => {

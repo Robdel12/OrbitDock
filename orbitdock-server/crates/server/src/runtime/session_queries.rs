@@ -642,23 +642,89 @@ pub(crate) async fn load_full_session_state(
   }
 }
 
-/// Hydrate ephemeral runtime state from the live session actor.
-/// The DB may lag (batched writes) so the actor is the real-time source of truth
-/// for pending approvals, git branch, cwd, and token usage.
+/// Load the light, client-facing session metadata projection.
+///
+/// This is the safe API boundary for endpoints that need session metadata but
+/// not conversation rows or diff payloads. It keeps the transport payload cheap
+/// and applies the same live affordance hydration as detail snapshots.
+pub(crate) async fn load_light_session_state(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<SessionState, SessionLoadError> {
+  match load_full_session_state(state, session_id, false, false).await {
+    Ok(session) => Ok(session),
+    Err(SessionLoadError::NotFound) => {
+      let Some(actor) = state.get_session(session_id) else {
+        return Err(SessionLoadError::NotFound);
+      };
+
+      let mut session = actor
+        .retained_state()
+        .await
+        .map_err(SessionLoadError::Runtime)?;
+      strip_diff_payloads(&mut session);
+      session.rows.clear();
+      session.total_row_count = 0;
+      session.has_more_before = false;
+      session.oldest_sequence = None;
+      session.newest_sequence = None;
+      hydrate_ephemeral_state(&mut session, state, session_id).await;
+      hydrate_subagents(&mut session, session_id).await;
+      Ok(session)
+    }
+    Err(error) => Err(error),
+  }
+}
+
+/// Hydrate runtime state from the live session actor.
+/// The DB may lag batched writes, so the actor is the real-time source of truth
+/// for control affordances and other active-session fields.
 async fn hydrate_ephemeral_state(
   session: &mut SessionState,
   registry: &Arc<SessionRegistry>,
   session_id: &str,
 ) {
   if let Some(actor) = registry.get_session(session_id) {
-    session.revision = Some(actor.snapshot().revision);
     if let Ok(live) = actor.retained_state().await {
+      let connector_attached = direct_connector_attached(registry, session_id, live.provider);
+
+      session.revision = live.revision;
+      session.status = live.status;
+      session.work_status = live.work_status;
+      session.control_mode = live.control_mode;
+      session.lifecycle_state = live.lifecycle_state;
+      session.connector_attached = connector_attached;
+      session.accepts_user_input = live.accepts_user_input && connector_attached;
+      session.steerable = live.steerable && connector_attached;
+      session.can_interrupt = live.can_interrupt && connector_attached;
       session.pending_approval = live.pending_approval;
+      session.permission_mode = live.permission_mode;
+      session.pending_tool_name = live.pending_tool_name;
+      session.pending_tool_input = live.pending_tool_input;
+      session.pending_question = live.pending_question;
+      session.pending_approval_id = live.pending_approval_id;
+      session.approval_version = live.approval_version;
+      session.current_turn_id = live.current_turn_id;
       session.git_branch = live.git_branch;
       session.current_cwd = live.current_cwd;
       session.token_usage = live.token_usage;
       session.token_usage_snapshot_kind = live.token_usage_snapshot_kind;
     }
+  }
+}
+
+fn direct_connector_attached(
+  registry: &Arc<SessionRegistry>,
+  session_id: &str,
+  provider: Provider,
+) -> bool {
+  match provider {
+    Provider::Codex => registry
+      .get_codex_action_tx(session_id)
+      .is_some_and(|tx| !tx.is_closed()),
+    Provider::Claude => registry
+      .get_claude_action_tx(session_id)
+      .is_some_and(|tx| !tx.is_closed()),
   }
 }
 
@@ -686,5 +752,117 @@ async fn hydrate_subagents(state: &mut SessionState, session_id: &str) {
           "Failed to load session subagents"
       );
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::domain::sessions::session::SessionHandle;
+  use crate::support::test_support::ensure_server_test_data_dir;
+  use orbitdock_protocol::{CodexIntegrationMode, Provider, StateChanges};
+  use tokio::sync::mpsc;
+
+  #[tokio::test]
+  async fn hydration_overlays_live_interrupt_affordance_for_detail_snapshots() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+
+    let mut live_session = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-live".to_string(),
+    );
+    live_session.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    live_session.apply_changes(&StateChanges {
+      work_status: Some(WorkStatus::Working),
+      steerable: Some(true),
+      ..Default::default()
+    });
+    live_session.refresh_snapshot();
+
+    let mut stale_snapshot = live_session.retained_state();
+    stale_snapshot.accepts_user_input = false;
+    stale_snapshot.steerable = false;
+    stale_snapshot.connector_attached = false;
+    stale_snapshot.can_interrupt = false;
+
+    registry.add_session(live_session);
+    let (action_tx, _action_rx) = mpsc::channel(8);
+    registry.set_codex_action_tx("session-1", action_tx);
+    hydrate_ephemeral_state(&mut stale_snapshot, &registry, "session-1").await;
+
+    assert_eq!(stale_snapshot.work_status, WorkStatus::Working);
+    assert!(stale_snapshot.connector_attached);
+    assert!(stale_snapshot.accepts_user_input);
+    assert!(stale_snapshot.steerable);
+    assert!(stale_snapshot.can_interrupt);
+  }
+
+  #[tokio::test]
+  async fn hydration_disables_direct_input_affordances_without_live_connector() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+
+    let mut live_session = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-live".to_string(),
+    );
+    live_session.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    live_session.apply_changes(&StateChanges {
+      work_status: Some(WorkStatus::Working),
+      steerable: Some(true),
+      ..Default::default()
+    });
+    live_session.refresh_snapshot();
+
+    let mut snapshot = live_session.retained_state();
+    registry.add_session(live_session);
+    hydrate_ephemeral_state(&mut snapshot, &registry, "session-1").await;
+
+    assert_eq!(snapshot.work_status, WorkStatus::Working);
+    assert!(!snapshot.connector_attached);
+    assert!(!snapshot.accepts_user_input);
+    assert!(!snapshot.steerable);
+    assert!(!snapshot.can_interrupt);
+  }
+
+  #[tokio::test]
+  async fn light_session_state_falls_back_to_live_actor_without_heavy_payloads() {
+    ensure_server_test_data_dir();
+    let (persist_tx, _persist_rx) = mpsc::channel(8);
+    let registry = Arc::new(SessionRegistry::new_with_primary(persist_tx, true));
+
+    let mut live_session = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-live".to_string(),
+    );
+    live_session.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    live_session.apply_changes(&StateChanges {
+      work_status: Some(WorkStatus::Working),
+      steerable: Some(true),
+      current_diff: Some(Some("diff --git a/heavy b/heavy".to_string())),
+      ..Default::default()
+    });
+    live_session.refresh_snapshot();
+
+    registry.add_session(live_session);
+    let (action_tx, _action_rx) = mpsc::channel(8);
+    registry.set_codex_action_tx("session-1", action_tx);
+
+    let session = load_light_session_state(&registry, "session-1")
+      .await
+      .expect("live runtime session should be returned");
+
+    assert_eq!(session.work_status, WorkStatus::Working);
+    assert!(session.connector_attached);
+    assert!(session.can_interrupt);
+    assert!(session.current_diff.is_none());
+    assert!(session.turn_diffs.is_empty());
+    assert!(session.rows.is_empty());
   }
 }

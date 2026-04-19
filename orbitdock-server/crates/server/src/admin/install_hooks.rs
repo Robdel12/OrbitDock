@@ -481,7 +481,7 @@ mod tests {
   }
 
   #[test]
-  fn merge_orbitdock_hooks_replaces_legacy_entry_without_duplication() {
+  fn merge_orbitdock_hooks_replaces_existing_entry_without_duplication() {
     let existing = serde_json::json!({
         "hooks": {
             "Notification": {

@@ -190,7 +190,6 @@ pub(crate) fn summary_from_row(
     enabled: row.enabled,
     paused: row.paused,
     tracker_kind: row.tracker_kind.clone(),
-    provider: primary_provider,
     provider_strategy: strategy,
     primary_provider,
     secondary_provider: secondary,

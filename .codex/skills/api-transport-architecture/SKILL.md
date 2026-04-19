@@ -21,6 +21,7 @@ Use this skill when touching any of these areas:
 - The client renders server state and derives presentation only.
 
 Reserve `control plane` for runtime endpoint selection, primary-claim routing, and sync topology only.
+Do not create UI-facing endpoints like `/api/control-plane`; model those as normal REST resources such as sessions, conversations, capabilities, dashboard, missions, or library.
 Do not use `control plane` as the name of a UI-facing HTTP surface when the surface is really a compact sessions summary.
 
 If a payload is large, expensive to build, expensive to decode, or likely to be needed only on demand, it belongs on HTTP.
@@ -91,6 +92,7 @@ Be suspicious of any WS message that contains:
 Do not introduce:
 
 - dual bootstrap paths for the same surface
+- UI component names leaking into API or transport names
 - large snapshot payloads over WS for normal bootstrap
 - client-side business-state inference
 - god-object stores that recompute every screen from one broad state blob

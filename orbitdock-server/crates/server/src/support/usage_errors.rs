@@ -1,8 +1,8 @@
 use orbitdock_protocol::UsageErrorInfo;
 
-pub(crate) fn not_control_plane_endpoint_error() -> UsageErrorInfo {
+pub(crate) fn not_primary_usage_endpoint_error() -> UsageErrorInfo {
   UsageErrorInfo {
-    code: "not_control_plane_endpoint".to_string(),
-    message: "This endpoint is not primary for control-plane usage reads.".to_string(),
+    code: "not_primary_usage_endpoint".to_string(),
+    message: "Usage reads must run through the primary endpoint.".to_string(),
   }
 }

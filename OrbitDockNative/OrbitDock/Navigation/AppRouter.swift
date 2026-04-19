@@ -84,10 +84,7 @@ struct SessionContinuation: Hashable, Sendable {
       return sourceId == selectedId
     }
 
-    // Legacy fallback for older servers that do not report instance IDs yet.
-    // Only allow continuation on the same selected endpoint so we do not offer
-    // cross-endpoint continuation before server metadata has loaded.
-    return self.endpointId == endpointId
+    return false
   }
 
   func bootstrapPrompt() -> String {
@@ -132,7 +129,6 @@ final class AppRouter {
   var showNewSessionSheet = false
   var newSessionProvider: SessionProvider = .claude
   var newSessionContinuation: SessionContinuation?
-  /// Derived from `workspaceSelection` for backward compatibility.
   var route: AppRoute {
     switch workspaceSelection {
       case .overview: .dashboard(.missionControl)

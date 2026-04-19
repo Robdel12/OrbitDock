@@ -24,7 +24,7 @@ use super::config::{
 };
 use super::policy_bridge::{parse_approval_policy_with_details, parse_sandbox_policy_with_details};
 use super::{
-  CodexConfigOverrides, CodexConnector, CodexControlPlane, SteerOutcome, UpdateConfigOptions,
+  CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides, SteerOutcome, UpdateConfigOptions,
 };
 use crate::session::{CodexExecApproval, CodexPatchApproval};
 use orbitdock_connector_core::ConnectorError;
@@ -48,10 +48,18 @@ impl CodexConnector {
     &self,
     cwd: &str,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<codex_core::config::Config, ConnectorError> {
-    let mut config =
-      Self::build_config(cwd, None, None, None, None, config_overrides, control_plane).await?;
+    let mut config = Self::build_config(
+      cwd,
+      None,
+      None,
+      None,
+      None,
+      config_overrides,
+      runtime_overrides,
+    )
+    .await?;
     Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
     Ok(config)
   }
@@ -96,7 +104,7 @@ impl CodexConnector {
       sandbox_mode,
       None,
       &CodexConfigOverrides::default(),
-      &CodexControlPlane::default(),
+      &CodexRuntimeOverrides::default(),
     )
     .await?;
     Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
@@ -118,7 +126,7 @@ impl CodexConnector {
     )?;
     connector
       .apply_post_start_overrides(
-        CodexControlPlane::default(),
+        CodexRuntimeOverrides::default(),
         configured_model,
         None,
         sandbox_mode,
@@ -267,19 +275,9 @@ impl CodexConnector {
 
     match self.thread.steer_input(items, None).await {
       Ok(_turn_id) => Ok(SteerOutcome::Accepted),
-      Err(SteerInputError::NoActiveTurn(items)) => {
-        self
-          .thread
-          .submit(Op::UserInput {
-            items,
-            final_output_json_schema: None,
-          })
-          .await
-          .map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to send fallback message: {}", e))
-          })?;
-        Ok(SteerOutcome::FellBackToNewTurn)
-      }
+      Err(SteerInputError::NoActiveTurn(_items)) => Err(ConnectorError::ProviderError(
+        "No active turn to steer".into(),
+      )),
       Err(SteerInputError::EmptyInput) => {
         Err(ConnectorError::ProviderError("Empty steer input".into()))
       }
@@ -313,12 +311,12 @@ impl CodexConnector {
     cwds: Vec<String>,
     force_remote_sync: bool,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginListResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
     let session_source = self.thread_manager.session_source();
     let mut config = self
-      .build_plugin_config(cwd, config_overrides, control_plane)
+      .build_plugin_config(cwd, config_overrides, runtime_overrides)
       .await?;
     let mut remote_sync_error = None;
 
@@ -331,7 +329,7 @@ impl CodexConnector {
         remote_sync_error = Some(err.to_string());
       }
       config = self
-        .build_plugin_config(cwd, config_overrides, control_plane)
+        .build_plugin_config(cwd, config_overrides, runtime_overrides)
         .await?;
     }
 
@@ -402,7 +400,7 @@ impl CodexConnector {
     cwd: &str,
     params: PluginInstallParams,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginInstallResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
     let marketplace_path = params.marketplace_path.clone();
@@ -419,7 +417,7 @@ impl CodexConnector {
 
     let outcome = if params.force_remote_sync {
       let config = self
-        .build_plugin_config(&config_cwd, config_overrides, control_plane)
+        .build_plugin_config(&config_cwd, config_overrides, runtime_overrides)
         .await?;
       let auth = self.plugin_auth().await;
       plugins_manager
@@ -443,13 +441,13 @@ impl CodexConnector {
     cwd: &str,
     params: PluginUninstallParams,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginUninstallResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
 
     if params.force_remote_sync {
       let config = self
-        .build_plugin_config(cwd, config_overrides, control_plane)
+        .build_plugin_config(cwd, config_overrides, runtime_overrides)
         .await?;
       let auth = self.plugin_auth().await;
       plugins_manager

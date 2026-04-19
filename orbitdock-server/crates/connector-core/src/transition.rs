@@ -1171,7 +1171,7 @@ pub fn transition(
       snapshot_kind,
     } => {
       match snapshot_kind {
-        TokenUsageSnapshotKind::MixedLegacy => {
+        TokenUsageSnapshotKind::Mixed => {
           // input/cached are per-call context values — keep as-is for context
           // fill display (input+cached / context_window). Only output accumulates
           // because the connector sends per-call output tokens.
@@ -2110,7 +2110,7 @@ fn compose_approval_preview(
     shell_segments,
     compact,
     decision_scope: Some(decision_scope),
-    risk_level: Some(ctx.risk_assessment.level),
+    risk_level: ctx.risk_assessment.level,
     risk_findings: ctx.risk_assessment.findings.clone(),
     manifest: Some(manifest),
   }
@@ -3077,7 +3077,7 @@ mod tests {
             preview.decision_scope.as_deref(),
             Some("approve/deny applies to all command segments in this request.")
           );
-          assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::High));
+          assert_eq!(preview.risk_level, ApprovalRiskLevel::High);
           assert!(preview
             .risk_findings
             .iter()
@@ -3145,7 +3145,7 @@ mod tests {
             Some("||")
           );
           assert_eq!(preview.compact.as_deref(), Some("echo one +1 segment"));
-          assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::Normal));
+          assert_eq!(preview.risk_level, ApprovalRiskLevel::Normal);
           assert!(preview.risk_findings.is_empty());
           assert!(preview
             .manifest
@@ -3378,7 +3378,7 @@ mod tests {
       preview.decision_scope.as_deref(),
       Some("approve/deny applies to this full tool action.")
     );
-    assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::Low));
+    assert_eq!(preview.risk_level, ApprovalRiskLevel::Low);
     assert!(preview.risk_findings.is_empty());
     assert!(preview
       .manifest

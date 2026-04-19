@@ -5,7 +5,7 @@ pub(super) fn snapshot_kind_to_str(kind: TokenUsageSnapshotKind) -> &'static str
     TokenUsageSnapshotKind::Unknown => "unknown",
     TokenUsageSnapshotKind::ContextTurn => "context_turn",
     TokenUsageSnapshotKind::LifetimeTotals => "lifetime_totals",
-    TokenUsageSnapshotKind::MixedLegacy => "mixed_legacy",
+    TokenUsageSnapshotKind::Mixed => "mixed",
     TokenUsageSnapshotKind::CompactionReset => "compaction_reset",
   }
 }
@@ -46,7 +46,7 @@ pub(crate) fn normalize_usage_for_ledger(
       context_input_tokens: current.input_tokens,
       context_window: current.context_window,
     },
-    TokenUsageSnapshotKind::MixedLegacy => NormalizedUsageLedgerEntry {
+    TokenUsageSnapshotKind::Mixed => NormalizedUsageLedgerEntry {
       billable_input_tokens: current.input_tokens,
       billable_output_tokens: current.output_tokens,
       cache_read_tokens: current.cached_tokens,
@@ -77,7 +77,7 @@ pub(crate) fn snapshot_kind_from_str(kind: Option<&str>) -> TokenUsageSnapshotKi
   match kind {
     Some("context_turn") => TokenUsageSnapshotKind::ContextTurn,
     Some("lifetime_totals") => TokenUsageSnapshotKind::LifetimeTotals,
-    Some("mixed_legacy") => TokenUsageSnapshotKind::MixedLegacy,
+    Some("mixed") => TokenUsageSnapshotKind::Mixed,
     Some("compaction_reset") => TokenUsageSnapshotKind::CompactionReset,
     _ => TokenUsageSnapshotKind::Unknown,
   }
@@ -195,7 +195,7 @@ pub(super) fn upsert_usage_session_state(
       context_cached = usage_cached;
       context_window = usage_window;
     }
-    TokenUsageSnapshotKind::MixedLegacy => {
+    TokenUsageSnapshotKind::Mixed => {
       // Context values are per-call (for context fill display).
       context_input = usage_input;
       context_cached = usage_cached;

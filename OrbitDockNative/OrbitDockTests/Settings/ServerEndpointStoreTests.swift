@@ -336,7 +336,6 @@ struct ServerEndpointStoreTests {
     let trackingCloudSync = InMemoryCloudSync()
     let trackingStore = ServerEndpointStore(
       defaults: context.defaults,
-      endpointsKey: context.endpointsKey,
       endpointLocalPrefsKey: context.localPrefsKey,
       cloudSyncStore: ServerEndpointCloudSyncStore(
         load: { trackingCloudSync.endpoints },
@@ -389,12 +388,10 @@ struct ServerEndpointStoreTests {
     store: ServerEndpointStore,
     defaults: UserDefaults,
     suiteName: String,
-    endpointsKey: String,
     localPrefsKey: String,
     cloudSync: InMemoryCloudSync
   ) {
     let suiteName = "ServerEndpointStoreTests.\(UUID().uuidString)"
-    let endpointsKey = "endpoints.\(UUID().uuidString)"
     let localPrefsKey = "local-prefs.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
@@ -402,7 +399,6 @@ struct ServerEndpointStoreTests {
 
     let store = ServerEndpointStore(
       defaults: defaults,
-      endpointsKey: endpointsKey,
       endpointLocalPrefsKey: localPrefsKey,
       cloudSyncStore: ServerEndpointCloudSyncStore(
         load: { cloudSync.endpoints },
@@ -411,6 +407,6 @@ struct ServerEndpointStoreTests {
       defaultPort: 4_000
     )
 
-    return (store, defaults, suiteName, endpointsKey, localPrefsKey, cloudSync)
+    return (store, defaults, suiteName, localPrefsKey, cloudSync)
   }
 }

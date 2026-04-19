@@ -5,7 +5,7 @@ use codex_app_server_protocol::{ConfigLayer, ConfigLayerMetadata, ConfigLayerSou
 use codex_core::config::Config as CoreConfig;
 use orbitdock_connector_codex::{
   config_loader_sandbox_mode, requested_sandbox_policy_details, CodexConfigOverrides,
-  CodexConnector, CodexControlPlane,
+  CodexConnector, CodexRuntimeOverrides,
 };
 use orbitdock_protocol::{
   CodexApprovalMode, CodexApprovalPolicy, CodexApprovalsReviewer, CodexGranularApprovalPolicy,
@@ -51,7 +51,7 @@ pub(crate) async fn build_effective_codex_config(
       .or(selection.overrides.model_provider.clone()),
     config_profile: selection.config_profile.clone(),
   };
-  let control_plane = CodexControlPlane {
+  let runtime_overrides = CodexRuntimeOverrides {
     approvals_reviewer: selection
       .overrides
       .approvals_reviewer
@@ -70,7 +70,7 @@ pub(crate) async fn build_effective_codex_config(
     selection.overrides.sandbox_mode_summary().as_deref(),
     selection.overrides.sandbox_policy_details.as_ref(),
     &config_overrides,
-    &control_plane,
+    &runtime_overrides,
     false,
   )
   .await
@@ -119,8 +119,7 @@ pub fn source_kind_name(source: &ConfigLayerSource) -> String {
     ConfigLayerSource::User { .. } => "user",
     ConfigLayerSource::Project { .. } => "project",
     ConfigLayerSource::SessionFlags => "session_flags",
-    ConfigLayerSource::LegacyManagedConfigTomlFromFile { .. } => "legacy_managed_file",
-    ConfigLayerSource::LegacyManagedConfigTomlFromMdm => "legacy_managed_mdm",
+    _ => "managed",
   }
   .to_string()
 }
@@ -135,10 +134,7 @@ pub fn source_path(source: &ConfigLayerSource) -> Option<String> {
       Some(dot_codex_folder.as_path().display().to_string())
     }
     ConfigLayerSource::SessionFlags => None,
-    ConfigLayerSource::LegacyManagedConfigTomlFromFile { file } => {
-      Some(file.as_path().display().to_string())
-    }
-    ConfigLayerSource::LegacyManagedConfigTomlFromMdm => None,
+    _ => None,
   }
 }
 
@@ -164,7 +160,7 @@ fn effective_settings(
   });
   let effective_sandbox_mode = explicit_sandbox_policy
     .as_ref()
-    .map(CodexSandboxPolicy::legacy_summary)
+    .map(CodexSandboxPolicy::summary_text)
     .or_else(|| {
       config_loader_sandbox_mode(
         selection.overrides.sandbox_mode_summary().as_deref(),

@@ -12,12 +12,10 @@ import Security
 ///
 /// This separation prevents iOS/macOS from fighting over enabled state.
 struct ServerEndpointStore {
-  static let endpointsStorageKey = "orbitdock.server.endpoints"
   static let endpointLocalPrefsStorageKey = "orbitdock.server.endpoint-local-prefs"
   static let lastCloudHashKey = "orbitdock.server.endpoints-cloud-hash"
 
   private let defaults: UserDefaults
-  private let endpointsKey: String
   private let endpointLocalPrefsKey: String
   private let lastCloudHashKeyName: String
   private let defaultPort: Int
@@ -28,14 +26,12 @@ struct ServerEndpointStore {
 
   init(
     defaults: UserDefaults = .standard,
-    endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
     endpointLocalPrefsKey: String = ServerEndpointStore.endpointLocalPrefsStorageKey,
     lastCloudHashKey: String = ServerEndpointStore.lastCloudHashKey,
     cloudSyncStore: ServerEndpointCloudSyncStore = .live(),
     defaultPort: Int = ServerEndpointSettings.defaultPort
   ) {
     self.defaults = defaults
-    self.endpointsKey = endpointsKey
     self.endpointLocalPrefsKey = endpointLocalPrefsKey
     self.lastCloudHashKeyName = lastCloudHashKey
     self.cloudSyncStore = cloudSyncStore
@@ -69,22 +65,7 @@ struct ServerEndpointStore {
       )
     }
 
-    // Fall back to legacy UserDefaults migration
-    if let legacyEndpoints = migrateFromLegacyDefaults() {
-      save(legacyEndpoints)
-      defaults.removeObject(forKey: endpointsKey)
-      Self.logger.info("Migrated \(legacyEndpoints.count) endpoints from legacy UserDefaults")
-      return normalizedEndpoints(legacyEndpoints)
-    }
-
     return []
-  }
-
-  private func migrateFromLegacyDefaults() -> [ServerEndpoint]? {
-    guard let data = defaults.data(forKey: endpointsKey), !data.isEmpty else {
-      return nil
-    }
-    return try? decoder.decode([ServerEndpoint].self, from: data)
   }
 
   func defaultEndpoint() -> ServerEndpoint {
@@ -502,29 +483,14 @@ private struct ServerEndpointCloudSyncKeychain {
   private let decoder = JSONDecoder()
   private let serviceName = "com.orbitdock.server-endpoints-sync"
   private let accountNameV2 = "endpoints-json-v2"
-  private let accountNameV1 = "endpoints-json-v1"
-  private let legacyTokenServiceName = "com.orbitdock.server-endpoint-token"
 
   func load() -> [ServerEndpointCloudRecord]? {
-    // Try v2 first
     if let v2Data = loadFromKeychain(accountName: accountNameV2),
        let records = try? decoder.decode([ServerEndpointCloudRecord].self, from: v2Data)
     {
       return records
     }
-
-    // Fall back to v1 migration
-    guard let v1Data = loadFromKeychain(accountName: accountNameV1) else {
-      return nil
-    }
-
-    let migrated = migrateV1ToV2(v1Data)
-    if !migrated.isEmpty {
-      save(migrated)
-      deleteFromKeychain(accountName: accountNameV1)
-      Self.logger.info("Migrated \(migrated.count) endpoints from v1 to v2")
-    }
-    return migrated
+    return nil
   }
 
   func save(_ endpoints: [ServerEndpointCloudRecord]) {
@@ -551,45 +517,6 @@ private struct ServerEndpointCloudSyncKeychain {
     if addStatus != errSecSuccess {
       Self.logger.error("Synced endpoints write failed: \(Int(addStatus))")
     }
-  }
-
-  // MARK: - Migration
-
-  private func migrateV1ToV2(_ v1Data: Data) -> [ServerEndpointCloudRecord] {
-    guard let v1Records = try? decoder.decode([LegacyV1CloudRecord].self, from: v1Data) else {
-      return []
-    }
-
-    return v1Records.map { v1 in
-      let token = loadLegacyToken(forEndpointID: v1.id.uuidString)
-      return ServerEndpointCloudRecord(
-        id: v1.id,
-        name: v1.name,
-        wsURL: v1.wsURL,
-        authToken: token,
-        serverInstanceId: nil,
-        modifiedAt: Date()
-      )
-    }
-  }
-
-  private func loadLegacyToken(forEndpointID endpointID: String) -> String? {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: legacyTokenServiceName,
-      kSecAttrAccount as String: endpointID,
-      kSecUseDataProtectionKeychain as String: true,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-      kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-    ]
-
-    var result: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-    guard status == errSecSuccess, let data = result as? Data else {
-      return nil
-    }
-    return String(data: data, encoding: .utf8)
   }
 
   // MARK: - Keychain Helpers
@@ -626,27 +553,5 @@ private struct ServerEndpointCloudSyncKeychain {
       kSecUseDataProtectionKeychain as String: true,
       kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
     ]
-  }
-}
-
-/// Legacy v1 cloud record format (had isEnabled/isDefault, no authToken/modifiedAt)
-private struct LegacyV1CloudRecord: Codable {
-  var id: UUID
-  var name: String
-  var wsURL: URL
-  var isEnabled: Bool
-  var isDefault: Bool
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(UUID.self, forKey: .id)
-    name = try container.decode(String.self, forKey: .name)
-    wsURL = try container.decode(URL.self, forKey: .wsURL)
-    isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
-    isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
-  }
-
-  private enum CodingKeys: String, CodingKey {
-    case id, name, wsURL, isEnabled, isDefault
   }
 }

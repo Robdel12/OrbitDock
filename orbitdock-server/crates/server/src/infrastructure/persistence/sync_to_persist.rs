@@ -287,7 +287,7 @@ impl From<SyncCommand> for PersistCommand {
       | SyncCommand::RolloutToolIncrement { .. }
       | SyncCommand::UpsertRolloutCheckpoint { .. }
       | SyncCommand::DeleteRolloutCheckpoint { .. } => {
-        unreachable!("legacy rollout sync commands should not be emitted after rollout cleanup")
+        unreachable!("rollout sync commands should not be emitted after rollout cleanup")
       }
       SyncCommand::CodexPromptIncrement { id, first_prompt } => {
         PersistCommand::CodexPromptIncrement { id, first_prompt }

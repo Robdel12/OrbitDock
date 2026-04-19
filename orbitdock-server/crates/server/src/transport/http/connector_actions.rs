@@ -14,7 +14,7 @@ use crate::runtime::session_commands::{SessionCommand, SubscribeResult};
 use crate::runtime::session_registry::SessionRegistry;
 
 use super::errors::{
-  bad_request, gateway_timeout, internal, not_found, service_unavailable, unprocessable,
+  bad_request, conflict, gateway_timeout, internal, not_found, service_unavailable, unprocessable,
   ApiErrorResponse, ApiInnerResult,
 };
 
@@ -45,6 +45,13 @@ pub(crate) fn messaging_dispatch_error_response(
         ),
       )
     }
+    crate::runtime::message_dispatch::DispatchMessageError::NotSteerable => conflict(
+      "not_steerable",
+      format!(
+        "Session {} does not have an active steerable turn",
+        session_id
+      ),
+    ),
   }
 }
 

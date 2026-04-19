@@ -388,8 +388,7 @@ WebSocket is reserved for:
 - command/actions (create/send/approve/interrupt/etc.)
 - realtime events (`session_delta`, `conversation_rows_changed`, `approval_requested`, ...)
 
-Read/list utility requests now live on HTTP. Legacy WS request/response variants return
-`error.code = "http_only_endpoint"`.
+Read/list utility requests live on HTTP. WebSocket is for subscriptions, correlated actions, and realtime deltas.
 
 ### Handshake
 
@@ -523,7 +522,7 @@ SQLite with WAL mode. Writes are batched through an async channel — actors sen
 
 Migrations are handled by `refinery`. SQL files live in `migrations/`, use the `VNNN__description.sql` naming convention, get embedded at compile time, and run at startup.
 
-Fresh databases track migration state in `refinery_schema_history`. If you're upgrading from the older custom runner, the server imports legacy `schema_versions` rows the first time it starts on the new build.
+Fresh databases track migration state in `refinery_schema_history`.
 
 ## Logging
 

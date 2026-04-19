@@ -22,10 +22,10 @@ use crate::runtime::session_runtime_helpers::{
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
 
-fn codex_control_plane_from_summary(
+fn codex_runtime_overrides_from_summary(
   summary: &orbitdock_protocol::SessionSummary,
-) -> orbitdock_connector_codex::CodexControlPlane {
-  orbitdock_connector_codex::CodexControlPlane {
+) -> orbitdock_connector_codex::CodexRuntimeOverrides {
+  orbitdock_connector_codex::CodexRuntimeOverrides {
     approvals_reviewer: summary
       .codex_config_overrides
       .as_ref()
@@ -288,7 +288,7 @@ async fn complete_codex_takeover(
     codex_config_source: None,
     codex_config_overrides: None,
   });
-  let control_plane = codex_control_plane_from_summary(&handle.summary());
+  let runtime_overrides = codex_runtime_overrides_from_summary(&handle.summary());
 
   let thread_id = state.codex_thread_for_session(&session_id);
   let session_id = session_id.to_string();
@@ -313,7 +313,7 @@ async fn complete_codex_takeover(
           sandbox_mode: sandbox.as_deref(),
           sandbox_policy_details: sandbox_policy_details.clone(),
           config_overrides: orbitdock_connector_codex::CodexConfigOverrides::default(),
-          control_plane: control_plane.clone(),
+          runtime_overrides: runtime_overrides.clone(),
           dynamic_tools_json: dynamic_tools_json.clone(),
         },
       )
@@ -321,28 +321,28 @@ async fn complete_codex_takeover(
       {
         Ok(codex) => Ok(codex),
         Err(_) => {
-          CodexSession::new_with_control_plane_and_tools(
+          CodexSession::new_with_runtime_overrides_and_tools(
             task_session_id.clone(),
             &project_path,
             model.as_deref(),
             approval.as_deref(),
             sandbox.as_deref(),
             sandbox_policy_details.as_ref(),
-            control_plane.clone(),
+            runtime_overrides.clone(),
             dynamic_tools_json.clone(),
           )
           .await
         }
       }
     } else {
-      CodexSession::new_with_control_plane_and_tools(
+      CodexSession::new_with_runtime_overrides_and_tools(
         task_session_id.clone(),
         &project_path,
         model.as_deref(),
         approval.as_deref(),
         sandbox.as_deref(),
         sandbox_policy_details.as_ref(),
-        control_plane.clone(),
+        runtime_overrides.clone(),
         dynamic_tools_json.clone(),
       )
       .await
@@ -623,7 +623,7 @@ mod tests {
     TokenUsageSnapshotKind, WorkStatus,
   };
 
-  use super::codex_control_plane_from_summary;
+  use super::codex_runtime_overrides_from_summary;
 
   #[test]
   fn codex_takeover_preserves_approvals_reviewer_from_overrides() {
@@ -696,16 +696,16 @@ mod tests {
       issue_identifier: None,
     };
 
-    let control_plane = codex_control_plane_from_summary(&summary);
+    let runtime_overrides = codex_runtime_overrides_from_summary(&summary);
 
     assert_eq!(
-      control_plane.approvals_reviewer.as_deref(),
+      runtime_overrides.approvals_reviewer.as_deref(),
       Some("guardian_subagent")
     );
     assert_eq!(
-      control_plane.collaboration_mode.as_deref(),
+      runtime_overrides.collaboration_mode.as_deref(),
       Some("delegate")
     );
-    assert_eq!(control_plane.multi_agent, Some(true));
+    assert_eq!(runtime_overrides.multi_agent, Some(true));
   }
 }

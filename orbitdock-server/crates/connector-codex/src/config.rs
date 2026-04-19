@@ -21,7 +21,7 @@ use codex_protocol::protocol::{Op, SessionSource};
 use tracing::warn;
 
 use super::policy_bridge::parse_sandbox_policy_with_details;
-use super::{CodexConfigOverrides, CodexConnector, CodexControlPlane};
+use super::{CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides};
 use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
 
@@ -88,7 +88,7 @@ pub struct ResumeConnectorWithToolsConfig<'a> {
   pub sandbox_mode: Option<&'a str>,
   pub sandbox_policy_details: Option<&'a CodexSandboxPolicy>,
   pub config_overrides: &'a CodexConfigOverrides,
-  pub control_plane: CodexControlPlane,
+  pub runtime_overrides: CodexRuntimeOverrides,
   pub dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
 }
 
@@ -99,14 +99,14 @@ impl CodexConnector {
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
   ) -> Result<Self, ConnectorError> {
-    Self::new_with_config_overrides_and_control_plane(
+    Self::new_with_config_overrides_and_runtime_overrides(
       cwd,
       model,
       approval_policy,
       sandbox_mode,
       None,
       &CodexConfigOverrides::default(),
-      CodexControlPlane::default(),
+      CodexRuntimeOverrides::default(),
     )
     .await
   }
@@ -118,90 +118,90 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::new_with_config_overrides_and_control_plane(
+    Self::new_with_config_overrides_and_runtime_overrides(
       cwd,
       model,
       approval_policy,
       sandbox_mode,
       None,
       config_overrides,
-      CodexControlPlane::default(),
+      CodexRuntimeOverrides::default(),
     )
     .await
   }
 
-  pub async fn new_with_control_plane(
+  pub async fn new_with_runtime_overrides(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::new_with_config_overrides_and_control_plane(
+    Self::new_with_config_overrides_and_runtime_overrides(
       cwd,
       model,
       approval_policy,
       sandbox_mode,
       None,
       &CodexConfigOverrides::default(),
-      control_plane,
+      runtime_overrides,
     )
     .await
   }
 
-  pub async fn new_with_config_overrides_and_control_plane(
+  pub async fn new_with_config_overrides_and_runtime_overrides(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::new_with_config_overrides_control_plane_and_tools(
+    Self::new_with_config_overrides_runtime_overrides_and_tools(
       cwd,
       model,
       approval_policy,
       sandbox_mode,
       sandbox_policy_details,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       Vec::new(),
     )
     .await
   }
 
-  pub async fn new_with_control_plane_and_tools(
+  pub async fn new_with_runtime_overrides_and_tools(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
   ) -> Result<Self, ConnectorError> {
-    Self::new_with_config_overrides_control_plane_and_tools(
+    Self::new_with_config_overrides_runtime_overrides_and_tools(
       cwd,
       model,
       approval_policy,
       sandbox_mode,
       sandbox_policy_details,
       &CodexConfigOverrides::default(),
-      control_plane,
+      runtime_overrides,
       dynamic_tools,
     )
     .await
   }
 
   #[allow(clippy::too_many_arguments)]
-  pub async fn new_with_config_overrides_control_plane_and_tools(
+  pub async fn new_with_config_overrides_runtime_overrides_and_tools(
     cwd: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
   ) -> Result<Self, ConnectorError> {
     let codex_home = find_codex_home()
@@ -220,7 +220,7 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details,
       config_overrides,
-      &control_plane,
+      &runtime_overrides,
     )
     .await?;
 
@@ -241,7 +241,7 @@ impl CodexConnector {
     let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
     connector
       .apply_post_start_overrides(
-        control_plane,
+        runtime_overrides,
         configured_model,
         None,
         sandbox_mode,
@@ -259,7 +259,7 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
@@ -267,7 +267,7 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details: None,
       config_overrides: &default_overrides,
-      control_plane: CodexControlPlane::default(),
+      runtime_overrides: CodexRuntimeOverrides::default(),
       dynamic_tools: Vec::new(),
     })
     .await
@@ -281,7 +281,7 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
@@ -289,22 +289,22 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details: None,
       config_overrides,
-      control_plane: CodexControlPlane::default(),
+      runtime_overrides: CodexRuntimeOverrides::default(),
       dynamic_tools: Vec::new(),
     })
     .await
   }
 
-  pub async fn resume_with_control_plane(
+  pub async fn resume_with_runtime_overrides(
     cwd: &str,
     thread_id: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
@@ -312,22 +312,22 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details: None,
       config_overrides: &default_overrides,
-      control_plane,
+      runtime_overrides,
       dynamic_tools: Vec::new(),
     })
     .await
   }
 
-  pub async fn resume_with_config_overrides_and_control_plane(
+  pub async fn resume_with_config_overrides_and_runtime_overrides(
     cwd: &str,
     thread_id: &str,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_control_plane_and_tools(ResumeConnectorWithToolsConfig {
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
       cwd,
       thread_id,
       model,
@@ -335,13 +335,13 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details: None,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       dynamic_tools: Vec::new(),
     })
     .await
   }
 
-  pub async fn resume_with_config_overrides_control_plane_and_tools(
+  pub async fn resume_with_config_overrides_runtime_overrides_and_tools(
     params: ResumeConnectorWithToolsConfig<'_>,
   ) -> Result<Self, ConnectorError> {
     let ResumeConnectorWithToolsConfig {
@@ -352,7 +352,7 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       dynamic_tools,
     } = params;
 
@@ -381,7 +381,7 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details,
       config_overrides,
-      &control_plane,
+      &runtime_overrides,
     )
     .await?;
 
@@ -423,7 +423,7 @@ impl CodexConnector {
     let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
     connector
       .apply_post_start_overrides(
-        control_plane,
+        runtime_overrides,
         configured_model,
         None,
         sandbox_mode,
@@ -440,7 +440,7 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<Config, ConnectorError> {
     Self::build_config_with_runtime_defaults(
       cwd,
@@ -449,7 +449,7 @@ impl CodexConnector {
       sandbox_mode,
       sandbox_policy_details,
       config_overrides,
-      control_plane,
+      runtime_overrides,
       true,
     )
     .await
@@ -463,7 +463,7 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
     config_overrides: &CodexConfigOverrides,
-    control_plane: &CodexControlPlane,
+    runtime_overrides: &CodexRuntimeOverrides,
     apply_runtime_defaults: bool,
   ) -> Result<Config, ConnectorError> {
     let mut cli_overrides = Vec::new();
@@ -487,14 +487,14 @@ impl CodexConnector {
       cli_overrides.push(("sandbox_mode".to_string(), toml::Value::String(sandbox)));
     }
 
-    if let Some(effort) = control_plane.effort.as_deref() {
+    if let Some(effort) = runtime_overrides.effort.as_deref() {
       cli_overrides.push((
         "model_reasoning_effort".to_string(),
         toml::Value::String(effort.to_string()),
       ));
     }
 
-    if let Some(reviewer) = control_plane.approvals_reviewer.as_deref() {
+    if let Some(reviewer) = runtime_overrides.approvals_reviewer.as_deref() {
       cli_overrides.push((
         "approvals_reviewer".to_string(),
         toml::Value::String(reviewer.to_string()),
@@ -526,7 +526,7 @@ impl CodexConnector {
       ));
     }
 
-    if let Some(multi_agent) = control_plane.multi_agent {
+    if let Some(multi_agent) = runtime_overrides.multi_agent {
       cli_overrides.push((
         "features.multi_agent".to_string(),
         toml::Value::Boolean(multi_agent),
@@ -537,10 +537,10 @@ impl CodexConnector {
       cwd: Some(std::path::PathBuf::from(cwd)),
       model: model.map(str::to_string),
       model_provider: config_overrides.model_provider.clone(),
-      service_tier: parse_service_tier_override(control_plane.service_tier.as_deref()),
+      service_tier: parse_service_tier_override(runtime_overrides.service_tier.as_deref()),
       config_profile: config_overrides.config_profile.clone(),
-      developer_instructions: control_plane.developer_instructions.clone(),
-      personality: parse_personality(control_plane.personality.as_deref()),
+      developer_instructions: runtime_overrides.developer_instructions.clone(),
+      personality: parse_personality(runtime_overrides.personality.as_deref()),
       codex_linux_sandbox_exe: None,
       ..Default::default()
     };
@@ -586,13 +586,13 @@ impl CodexConnector {
 
   pub(crate) async fn apply_post_start_overrides(
     &self,
-    control_plane: CodexControlPlane,
+    runtime_overrides: CodexRuntimeOverrides,
     configured_model: Option<String>,
     configured_effort: Option<ReasoningEffort>,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
   ) -> Result<(), ConnectorError> {
-    let requested_effort = control_plane
+    let requested_effort = runtime_overrides
       .effort
       .as_deref()
       .and_then(parse_reasoning_effort_value);
@@ -604,21 +604,22 @@ impl CodexConnector {
       })?;
     let collaboration_mode = collaboration_mode_for_update(
       self.thread_manager.as_ref(),
-      control_plane.collaboration_mode.as_deref(),
+      runtime_overrides.collaboration_mode.as_deref(),
       None,
       configured_model.unwrap_or_else(|| "gpt-5-codex".to_string()),
       requested_effort.or(configured_effort),
-      control_plane.developer_instructions.as_deref(),
+      runtime_overrides.developer_instructions.as_deref(),
     );
-    let service_tier = parse_service_tier_override(control_plane.service_tier.as_deref());
-    let personality = parse_personality(control_plane.personality.as_deref());
-    let approvals_reviewer = parse_approvals_reviewer(control_plane.approvals_reviewer.as_deref());
+    let service_tier = parse_service_tier_override(runtime_overrides.service_tier.as_deref());
+    let personality = parse_personality(runtime_overrides.personality.as_deref());
+    let approvals_reviewer =
+      parse_approvals_reviewer(runtime_overrides.approvals_reviewer.as_deref());
 
     if collaboration_mode.is_none()
       && approvals_reviewer.is_none()
       && service_tier.is_none()
       && personality.is_none()
-      && control_plane.multi_agent.is_none()
+      && runtime_overrides.multi_agent.is_none()
       && requested_effort.is_none()
       && sandbox_policy.is_none()
     {
@@ -642,10 +643,7 @@ impl CodexConnector {
       })
       .await
       .map_err(|e| {
-        ConnectorError::ProviderError(format!(
-          "Failed to apply Codex control plane settings: {}",
-          e
-        ))
+        ConnectorError::ProviderError(format!("Failed to apply Codex runtime overrides: {}", e))
       })?;
 
     Ok(())
@@ -1074,7 +1072,7 @@ pub(crate) fn collaboration_mode_for_update(
     return explicit_mode.flatten();
   }
 
-  let shim_mode = permission_mode.and_then(parse_mode_kind).map(|mode| {
+  let permission_mode_selection = permission_mode.and_then(parse_mode_kind).map(|mode| {
     collaboration_mode_from_name_or_mode(
       thread_manager.list_collaboration_modes(),
       mode_kind_name(mode),
@@ -1084,8 +1082,8 @@ pub(crate) fn collaboration_mode_for_update(
     )
   });
 
-  if shim_mode.is_some() {
-    return shim_mode.flatten();
+  if permission_mode_selection.is_some() {
+    return permission_mode_selection.flatten();
   }
 
   developer_instructions.map(|instructions| CollaborationMode {

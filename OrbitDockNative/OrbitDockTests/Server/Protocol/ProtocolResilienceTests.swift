@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct ProtocolResilienceTests {
-  // MARK: - Part 1: Unknown Type Resilience
+  // MARK: - Part 1: Protocol Boundaries
 
   @Test func unknownMessageTypeDecodesWithoutThrowing() throws {
     let json = Data("""
@@ -46,7 +46,7 @@ struct ProtocolResilienceTests {
     #expect(changes.acceptsUserInput == true)
   }
 
-  @Test func unknownRowTypeDecodesGracefully() throws {
+  @Test func unknownRowTypeFailsDecode() {
     let json = Data("""
     {
       "session_id": "s-1",
@@ -59,13 +59,8 @@ struct ProtocolResilienceTests {
     }
     """.utf8)
 
-    let entry = try JSONDecoder().decode(ServerConversationRowEntry.self, from: json)
-
-    #expect(entry.sequence == 42)
-    // Unknown row types become system rows
-    guard case .system = entry.row else {
-      Issue.record("Expected .system fallback for unknown row type, got \(entry.row)")
-      return
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ServerConversationRowEntry.self, from: json)
     }
   }
 
@@ -379,36 +374,7 @@ struct ProtocolResilienceTests {
     #expect(w == ["/out"])
   }
 
-  @Test func legacyPermissionDictTransformsToDescriptors() {
-    let legacy: [String: Any] = [
-      "network": ["enabled": true],
-      "file_system": ["read": ["/src"], "write": ["/out"]],
-      "macos": [
-        "macos_preferences": "read_write",
-        "macos_accessibility": true,
-      ] as [String: Any],
-    ]
-
-    let result = ServerPermissionDescriptorLegacy.parse(legacy)
-
-    #expect(result.count == 4)
-
-    let hasNetwork = result.contains { if case .network = $0 { true } else { false } }
-    let hasFs = result.contains { if case .filesystem = $0 { true } else { false } }
-    let hasPrefs = result.contains {
-      if case let .macOs(e, _) = $0 { e == "preferences" } else { false }
-    }
-    let hasAccess = result.contains {
-      if case let .macOs(e, _) = $0 { e == "accessibility" } else { false }
-    }
-
-    #expect(hasNetwork)
-    #expect(hasFs)
-    #expect(hasPrefs)
-    #expect(hasAccess)
-  }
-
-  @Test func approvalRequestDecodesLegacyPermissionDict() throws {
+  @Test func approvalRequestRejectsUntypedPermissionDict() {
     let json = Data("""
     {
       "id": "req-1",
@@ -421,10 +387,9 @@ struct ProtocolResilienceTests {
     }
     """.utf8)
 
-    let request = try JSONDecoder().decode(ServerApprovalRequest.self, from: json)
-
-    #expect(request.requestedPermissions != nil)
-    #expect(request.requestedPermissions?.count == 2)
+    #expect(throws: DecodingError.self) {
+      _ = try JSONDecoder().decode(ServerApprovalRequest.self, from: json)
+    }
   }
 
   @Test func approvalRequestDecodesTypedPermissionArray() throws {

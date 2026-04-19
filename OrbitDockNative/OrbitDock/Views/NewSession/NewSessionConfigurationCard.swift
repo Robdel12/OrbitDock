@@ -29,7 +29,6 @@ struct NewSessionConfigurationCard: View {
   @Binding var codexServiceTier: CodexServiceTierPreset
   @Binding var codexInstructions: String
   let hasSelectedPath: Bool
-  let codexCatalogRequiresProjectPath: Bool
   let codexCatalog: SessionsClient.CodexConfigCatalogResponse?
   let codexCatalogLoading: Bool
   let codexCatalogError: String?

@@ -19,9 +19,9 @@ use crate::runtime::session_fork_targets::{
   create_fork_target_worktree, resolve_existing_fork_worktree_path,
 };
 use crate::runtime::session_registry::SessionRegistry;
-use orbitdock_protocol::Provider;
-use orbitdock_protocol::ServerMessage;
-use orbitdock_protocol::SessionSummary;
+use orbitdock_protocol::{
+  CodexApprovalPolicy, CodexSandboxPolicy, Provider, ServerMessage, SessionSummary,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct ForkSessionRequest {
@@ -30,9 +30,9 @@ pub struct ForkSessionRequest {
   #[serde(default)]
   pub model: Option<String>,
   #[serde(default)]
-  pub approval_policy: Option<String>,
+  pub approval_policy_details: Option<CodexApprovalPolicy>,
   #[serde(default)]
-  pub sandbox_mode: Option<String>,
+  pub sandbox_policy_details: Option<CodexSandboxPolicy>,
   #[serde(default)]
   pub cwd: Option<String>,
   #[serde(default)]
@@ -62,8 +62,14 @@ pub async fn fork_session(
 
   let fork_plan = plan_fork_config(ForkConfigInputs {
     requested_model: body.model.clone(),
-    requested_approval_policy: body.approval_policy.clone(),
-    requested_sandbox_mode: body.sandbox_mode.clone(),
+    requested_approval_policy: body
+      .approval_policy_details
+      .as_ref()
+      .map(CodexApprovalPolicy::summary_text),
+    requested_sandbox_mode: body
+      .sandbox_policy_details
+      .as_ref()
+      .map(CodexSandboxPolicy::summary_text),
     requested_cwd: body.cwd.clone(),
     source_cwd: Some(source_snapshot.project_path.clone()),
     source_model: source_snapshot.model.clone(),
@@ -219,8 +225,8 @@ pub async fn fork_session_to_worktree(
     Json(ForkSessionRequest {
       nth_user_message: body.nth_user_message,
       model: None,
-      approval_policy: None,
-      sandbox_mode: None,
+      approval_policy_details: None,
+      sandbox_policy_details: None,
       cwd: Some(worktree_summary.worktree_path.clone()),
       permission_mode: None,
       allowed_tools: Vec::new(),
@@ -275,8 +281,8 @@ pub async fn fork_session_to_existing_worktree(
     Json(ForkSessionRequest {
       nth_user_message: body.nth_user_message,
       model: None,
-      approval_policy: None,
-      sandbox_mode: None,
+      approval_policy_details: None,
+      sandbox_policy_details: None,
       cwd: Some(target_worktree_path),
       permission_mode: None,
       allowed_tools: Vec::new(),

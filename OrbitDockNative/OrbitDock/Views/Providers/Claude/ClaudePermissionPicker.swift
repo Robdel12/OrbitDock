@@ -80,8 +80,7 @@ enum ClaudePermissionMode: String, Codable, CaseIterable, Identifiable {
     Self.allCases.firstIndex(of: self) ?? 0
   }
 
-  /// Parse a raw string from the server, mapping unknown values (including
-  /// the legacy "auto") to `.default`.
+  /// Parse a raw string from the server, mapping unknown values to `.default`.
   init(fromServer raw: String?) {
     let normalized = raw?
       .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,7 +89,7 @@ enum ClaudePermissionMode: String, Codable, CaseIterable, Identifiable {
       .lowercased()
 
     switch normalized {
-      case nil, "", "default", "auto":
+      case nil, "", "default":
         self = .default
       case "plan":
         self = .plan

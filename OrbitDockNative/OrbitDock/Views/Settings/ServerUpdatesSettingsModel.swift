@@ -63,7 +63,6 @@ final class ServerUpdatesSettingsModel {
     case idle
     case loading
     case supported
-    case legacy
     case disconnected
     case failed
   }
@@ -313,10 +312,10 @@ final class ServerUpdatesSettingsModel {
           clearUpgradeTracking(for: endpointId)
           let health = try? await runtime.clients.updates.fetchHealth()
           state.currentVersion = health?.version
-          state.support = .legacy
+          state.support = .failed
           state.updateStatus = nil
-          state.infoMessage =
-            "This server predates OrbitDock's in-app update controls. Run orbitdock upgrade --yes --restart on the machine that hosts the server."
+          state.errorMessage =
+            "This server does not expose OrbitDock's update API. Rebuild/restart the server, then reconnect."
 
         default:
           clearUpgradeTracking(for: endpointId)

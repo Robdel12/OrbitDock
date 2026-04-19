@@ -144,9 +144,7 @@ struct NewSessionRequestPlannerTests {
       configProfile,
       modelProvider,
       model,
-      approvalPolicy,
       approvalPolicyDetails,
-      sandboxMode,
       sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
@@ -158,9 +156,7 @@ struct NewSessionRequestPlannerTests {
       #expect(configProfile == nil)
       #expect(modelProvider == "openai")
       #expect(model == "gpt-5-codex")
-      #expect(approvalPolicy == "on-request")
       #expect(approvalPolicyDetails == ServerCodexApprovalPolicy.mode(.onRequest))
-      #expect(sandboxMode == "danger-full-access")
       #expect(sandboxPolicyDetails != nil)
       #expect(collaborationMode == "plan")
       #expect(multiAgent == true)
@@ -210,9 +206,7 @@ struct NewSessionRequestPlannerTests {
       configProfile,
       modelProvider,
       model,
-      approvalPolicy,
       approvalPolicyDetails,
-      sandboxMode,
       sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
@@ -224,9 +218,7 @@ struct NewSessionRequestPlannerTests {
       #expect(configProfile == "qwen")
       #expect(modelProvider == nil)
       #expect(model == nil)
-      #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
-      #expect(sandboxMode == nil)
       #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
@@ -377,9 +369,7 @@ struct NewSessionRequestPlannerTests {
       configProfile,
       modelProvider,
       model,
-      approvalPolicy,
       approvalPolicyDetails,
-      sandboxMode,
       sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
@@ -391,9 +381,7 @@ struct NewSessionRequestPlannerTests {
       #expect(configProfile == nil)
       #expect(modelProvider == nil)
       #expect(model == nil)
-      #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
-      #expect(sandboxMode == nil)
       #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)
@@ -443,9 +431,7 @@ struct NewSessionRequestPlannerTests {
       configProfile,
       modelProvider,
       model,
-      approvalPolicy,
       approvalPolicyDetails,
-      sandboxMode,
       sandboxPolicyDetails,
       collaborationMode,
       multiAgent,
@@ -457,9 +443,7 @@ struct NewSessionRequestPlannerTests {
       #expect(configProfile == "qwen")
       #expect(modelProvider == nil)
       #expect(model == nil)
-      #expect(approvalPolicy == nil)
       #expect(approvalPolicyDetails == nil)
-      #expect(sandboxMode == nil)
       #expect(sandboxPolicyDetails == nil)
       #expect(collaborationMode == nil)
       #expect(multiAgent == nil)

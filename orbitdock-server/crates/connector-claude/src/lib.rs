@@ -1945,7 +1945,7 @@ impl ClaudeConnector {
 
     // Process tool_use blocks first (creates Tool rows)
     for block in tool_use_blocks {
-      // Extract tool name — check multiple field names for SDK compatibility
+      // Extract tool name across the shapes the Claude SDK may emit.
       let tool_name = block
         .get("name")
         .or_else(|| block.get("tool_name"))
@@ -2220,7 +2220,7 @@ impl ClaudeConnector {
       };
       events.push(state_output(ConnectorStateEvent::TokensUpdated {
         usage: live_usage,
-        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
+        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::Mixed,
       }));
     }
 

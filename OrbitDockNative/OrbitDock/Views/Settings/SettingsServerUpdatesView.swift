@@ -98,8 +98,8 @@ struct ServerUpdatesSettingsView: View {
       if let infoMessage = state.infoMessage {
         messageBanner(
           infoMessage,
-          color: state.support == .legacy ? Color.statusQuestion : Color.feedbackPositive,
-          icon: state.support == .legacy ? "wrench.and.screwdriver.fill" : "info.circle.fill"
+          color: Color.feedbackPositive,
+          icon: "info.circle.fill"
         )
       }
 
@@ -187,8 +187,6 @@ struct ServerUpdatesSettingsView: View {
         Color.statusQuestion
       case .supported:
         Color.feedbackPositive
-      case .legacy:
-        Color.statusQuestion
       case .disconnected, .failed:
         Color.statusPermission
     }

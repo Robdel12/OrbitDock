@@ -1,11 +1,11 @@
 use std::{path::PathBuf, sync::Arc};
 
 use axum::{http::StatusCode, Json};
-use orbitdock_connector_codex::{CodexConfigOverrides, CodexControlPlane};
+use orbitdock_connector_codex::{CodexConfigOverrides, CodexRuntimeOverrides};
 
 use crate::{
   infrastructure::persistence::load_capabilities_from_transcript_path,
-  runtime::{session_queries::load_full_session_state, session_registry::SessionRegistry},
+  runtime::{session_queries::load_light_session_state, session_registry::SessionRegistry},
   support::session_paths::claude_transcript_path_from_cwd,
   transport::http::{AcceptedResponse, ApiErrorResponse},
 };
@@ -21,13 +21,7 @@ pub async fn load_session_state(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<orbitdock_protocol::SessionState, (StatusCode, Json<ApiErrorResponse>)> {
-  if let Some(actor) = state.get_session(session_id) {
-    if let Ok(snapshot) = actor.retained_state().await {
-      return Ok(snapshot);
-    }
-  }
-
-  load_full_session_state(state, session_id, false, false)
+  load_light_session_state(state, session_id)
     .await
     .map_err(|_| crate::transport::http::connector_actions::session_not_found_error(session_id))
 }
@@ -51,7 +45,7 @@ pub async fn load_claude_skill_names(
 
 pub fn codex_plugin_context(
   session: &orbitdock_protocol::SessionState,
-) -> (String, CodexConfigOverrides, CodexControlPlane) {
+) -> (String, CodexConfigOverrides, CodexRuntimeOverrides) {
   let cwd = session
     .current_cwd
     .clone()
@@ -64,7 +58,7 @@ pub fn codex_plugin_context(
       model_provider: overrides.model_provider,
       config_profile: None,
     },
-    CodexControlPlane {
+    CodexRuntimeOverrides {
       approvals_reviewer: overrides
         .approvals_reviewer
         .map(|value| value.as_str().to_string()),

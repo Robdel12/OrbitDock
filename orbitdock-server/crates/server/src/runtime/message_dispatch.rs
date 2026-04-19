@@ -7,7 +7,10 @@ use tracing::debug;
 
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::PermissionGrantScope;
-use orbitdock_protocol::{ImageInput, MentionInput, Provider, SkillInput, WorkStatus};
+use orbitdock_protocol::{
+  ImageInput, MentionInput, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
+  SkillInput, WorkStatus,
+};
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
@@ -26,6 +29,7 @@ use crate::support::normalization::{
 pub(crate) enum DispatchMessageError {
   SessionNotFound,
   ConnectorUnavailable,
+  NotSteerable,
 }
 
 pub(crate) struct AnswerQuestionResult {
@@ -246,6 +250,16 @@ pub(crate) async fn dispatch_steer_turn(
     return Err(DispatchMessageError::ConnectorUnavailable);
   }
 
+  let snapshot = actor.snapshot();
+  if snapshot.status != SessionStatus::Active
+    || snapshot.control_mode != SessionControlMode::Direct
+    || snapshot.lifecycle_state != SessionLifecycleState::Open
+    || snapshot.work_status != WorkStatus::Working
+    || !snapshot.steerable
+  {
+    return Err(DispatchMessageError::NotSteerable);
+  }
+
   let ts_millis = SystemTime::now()
     .duration_since(UNIX_EPOCH)
     .unwrap_or_default()
@@ -264,6 +278,47 @@ pub(crate) async fn dispatch_steer_turn(
     Some(MessageDeliveryStatus::Pending),
   );
 
+  if let Some(tx) = codex_tx {
+    if tx
+      .send(CodexAction::SteerTurn {
+        content: content.clone(),
+        message_id: message_id.clone(),
+        images: connector_images.clone(),
+        mentions: mentions.clone(),
+      })
+      .await
+      .is_err()
+    {
+      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+        state,
+        &session_id,
+        Provider::Codex,
+      )
+      .await;
+      state.remove_codex_action_tx(&session_id);
+      return Err(DispatchMessageError::ConnectorUnavailable);
+    }
+  } else if let Some(tx) = claude_tx {
+    if tx
+      .send(ClaudeAction::SteerTurn {
+        content: content.clone(),
+        message_id: message_id.clone(),
+        images: connector_images,
+      })
+      .await
+      .is_err()
+    {
+      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
+        state,
+        &session_id,
+        Provider::Claude,
+      )
+      .await;
+      state.remove_claude_action_tx(&session_id);
+      return Err(DispatchMessageError::ConnectorUnavailable);
+    }
+  }
+
   let (reply_tx, reply_rx) = oneshot::channel();
   actor
     .send(SessionCommand::AddRowAndBroadcastAndReply {
@@ -274,25 +329,6 @@ pub(crate) async fn dispatch_steer_turn(
   let steer_entry = reply_rx
     .await
     .map_err(|_| DispatchMessageError::ConnectorUnavailable)?;
-
-  if let Some(tx) = codex_tx {
-    let _ = tx
-      .send(CodexAction::SteerTurn {
-        content,
-        message_id,
-        images: connector_images,
-        mentions,
-      })
-      .await;
-  } else if let Some(tx) = claude_tx {
-    let _ = tx
-      .send(ClaudeAction::SteerTurn {
-        content,
-        message_id,
-        images: connector_images,
-      })
-      .await;
-  }
 
   Ok(steer_entry)
 }
@@ -644,6 +680,46 @@ mod tests {
     assert_eq!(snapshot.message_count, 0);
     assert_eq!(snapshot.first_prompt.as_deref(), None);
     assert!(state.get_codex_action_tx(session_id).is_none());
+  }
+
+  #[tokio::test]
+  async fn steer_rejects_idle_sessions_without_creating_a_fallback_row() {
+    let state = new_test_session_registry(true);
+    let session_id = "session-idle-steer";
+    let mut handle = SessionHandle::new(
+      session_id.to_string(),
+      Provider::Codex,
+      "/tmp/orbitdock-test".to_string(),
+    );
+    handle.apply_changes(&StateChanges {
+      status: Some(SessionStatus::Active),
+      work_status: Some(WorkStatus::Waiting),
+      lifecycle_state: Some(SessionLifecycleState::Open),
+      codex_integration_mode: Some(Some(CodexIntegrationMode::Direct)),
+      steerable: Some(false),
+      ..Default::default()
+    });
+    state.add_session(handle);
+
+    let (action_tx, mut action_rx) = mpsc::channel(1);
+    state.set_codex_action_tx(session_id, action_tx);
+
+    let result = dispatch_steer_turn(
+      &state,
+      session_id.to_string(),
+      "this should be a new turn".to_string(),
+      vec![],
+      vec![],
+      "steer-1".to_string(),
+    )
+    .await;
+
+    assert!(matches!(result, Err(DispatchMessageError::NotSteerable)));
+    assert!(action_rx.try_recv().is_err());
+
+    let actor = state.get_session(session_id).expect("session actor");
+    let snapshot = actor.snapshot();
+    assert_eq!(snapshot.message_count, 0);
   }
 
   #[tokio::test]

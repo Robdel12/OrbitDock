@@ -163,29 +163,15 @@ struct ClaudeResumeParams {
 }
 
 fn codex_resume_selection(request: &CodexResumeRequest) -> CodexConfigSelection {
-  let inferred_config_mode = request.codex_config_mode.unwrap_or({
-    if request
-      .codex_config_profile
-      .as_deref()
-      .is_some_and(|value| !value.trim().is_empty())
-    {
-      CodexConfigMode::Profile
-    } else if request
-      .codex_model_provider
-      .as_deref()
-      .is_some_and(|value| !value.trim().is_empty())
-    {
-      CodexConfigMode::Custom
-    } else {
-      CodexConfigMode::Inherit
-    }
-  });
+  let config_mode = request
+    .codex_config_mode
+    .unwrap_or(CodexConfigMode::Inherit);
 
   CodexConfigSelection {
     config_source: request
       .codex_config_source
       .unwrap_or(CodexConfigSource::User),
-    config_mode: inferred_config_mode,
+    config_mode,
     config_profile: request.codex_config_profile.clone(),
     model_provider: request.codex_model_provider.clone(),
     overrides: request
@@ -440,7 +426,7 @@ async fn spawn_codex_resume(
     let mut connector_task = tokio::spawn(async move {
       let dynamic_tools_json =
         crate::domain::codex_tools::default_codex_dynamic_tools_json(include_mission_tools);
-      let control_plane = orbitdock_connector_codex::CodexControlPlane {
+      let runtime_overrides = orbitdock_connector_codex::CodexRuntimeOverrides {
         approvals_reviewer: normalized_selection
           .overrides
           .approvals_reviewer
@@ -452,7 +438,7 @@ async fn spawn_codex_resume(
         developer_instructions: effective_developer_instructions.clone(),
         effort: effective_effort.clone(),
       };
-      let build_session_config = |cp: orbitdock_connector_codex::CodexControlPlane| {
+      let build_session_config = |overrides: orbitdock_connector_codex::CodexRuntimeOverrides| {
         orbitdock_connector_codex::session::CodexSessionConfig {
           cwd: &project_path,
           model: effective_model.as_deref(),
@@ -463,7 +449,7 @@ async fn spawn_codex_resume(
             model_provider: effective_model_provider.clone(),
             config_profile: effective_config_profile.clone(),
           },
-          control_plane: cp,
+          runtime_overrides: overrides,
           dynamic_tools_json: dynamic_tools_json.clone(),
         }
       };
@@ -472,18 +458,19 @@ async fn spawn_codex_resume(
         match CodexSession::resume_with_config(
           task_session_id.clone(),
           thread_id,
-          build_session_config(control_plane.clone()),
+          build_session_config(runtime_overrides.clone()),
         )
         .await
         {
           Ok(session) => Ok(session),
           Err(_) => {
-            CodexSession::new_with_config(task_session_id, build_session_config(control_plane))
+            CodexSession::new_with_config(task_session_id, build_session_config(runtime_overrides))
               .await
           }
         }
       } else {
-        CodexSession::new_with_config(task_session_id, build_session_config(control_plane)).await
+        CodexSession::new_with_config(task_session_id, build_session_config(runtime_overrides))
+          .await
       }
     });
 
@@ -634,43 +621,6 @@ mod tests {
     let request = codex_resume_request(
       Some("qwen/qwen3-coder-next"),
       Some(CodexConfigMode::Custom),
-      None,
-      Some("openrouter"),
-    );
-    let selection = codex_resume_selection(&request);
-
-    assert_eq!(selection.config_mode, CodexConfigMode::Custom);
-    assert_eq!(
-      selection.overrides.model.as_deref(),
-      Some("qwen/qwen3-coder-next")
-    );
-    assert_eq!(
-      selection.overrides.model_provider.as_deref(),
-      Some("openrouter")
-    );
-  }
-
-  #[test]
-  fn codex_resume_selection_infers_profile_mode_for_legacy_rows() {
-    let request = codex_resume_request(
-      Some("qwen/qwen3-coder-next"),
-      None,
-      Some("qwen"),
-      Some("openrouter"),
-    );
-    let selection = codex_resume_selection(&request);
-
-    assert_eq!(selection.config_mode, CodexConfigMode::Profile);
-    assert_eq!(selection.config_profile.as_deref(), Some("qwen"));
-    assert_eq!(selection.overrides.model, None);
-    assert_eq!(selection.overrides.model_provider, None);
-  }
-
-  #[test]
-  fn codex_resume_selection_infers_custom_mode_for_legacy_provider_rows() {
-    let request = codex_resume_request(
-      Some("qwen/qwen3-coder-next"),
-      None,
       None,
       Some("openrouter"),
     );

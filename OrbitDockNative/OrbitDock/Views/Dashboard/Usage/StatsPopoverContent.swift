@@ -255,12 +255,6 @@ struct StatusBarStats {
     guard let summary else {
       return (today: fallbackToday, allTime: fallbackAllTime)
     }
-    // Defensive fallback: if the summary endpoint resolves to an empty dataset
-    // while the dashboard already has session-backed stats, prefer the
-    // dashboard projection so the header/popover does not collapse to zeros.
-    if summary.allTime.sessionCount == 0, fallbackAllTime.sessionCount > 0 {
-      return (today: fallbackToday, allTime: fallbackAllTime)
-    }
     return (
       today: from(summary.today),
       allTime: from(summary.allTime)
@@ -293,6 +287,7 @@ struct StatusBarStats {
       let sessionCost = resolvedCost(for: session, costCalculator: costCalculator)
       totalCost += sessionCost
       guard let model = normalizeModelName(session.model) else { continue }
+      guard sessionCost > 0 else { continue }
       costByModel[model, default: 0] += sessionCost
     }
 
@@ -324,12 +319,7 @@ struct StatusBarStats {
         cacheReadTokens: session.cachedTokens
       )
     }
-    // Legacy fallback: treat totalTokens as input (pre-breakdown servers).
-    return costCalculator.calculateCost(
-      model: session.model,
-      inputTokens: session.totalTokens,
-      outputTokens: 0
-    )
+    return 0
   }
 
   private static func normalizeModelName(_ model: String?) -> String? {

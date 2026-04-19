@@ -58,7 +58,6 @@ struct MissionControlViewModelTests {
       enabled: true,
       paused: false,
       trackerKind: "linear",
-      provider: "claude",
       providerStrategy: "single",
       primaryProvider: "claude",
       secondaryProvider: nil,

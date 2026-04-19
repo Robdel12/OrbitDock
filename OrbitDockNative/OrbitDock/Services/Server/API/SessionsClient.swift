@@ -36,9 +36,7 @@ struct SessionsClient: Sendable {
     let cwd: String
     var model: String?
     var modelProvider: String?
-    var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
-    var sandboxMode: String?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var permissionMode: String?
     var collaborationMode: String?
@@ -78,9 +76,7 @@ struct SessionsClient: Sendable {
     var codexConfigProfile: String?
     var model: String?
     var modelProvider: String?
-    var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
-    var sandboxMode: String?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var collaborationMode: String?
     var multiAgent: Bool?
@@ -422,9 +418,7 @@ struct SessionsClient: Sendable {
 
   struct TakeoverRequest: Encodable {
     var model: String?
-    var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
-    var sandboxMode: String?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var permissionMode: String?
     var collaborationMode: String?
@@ -449,9 +443,7 @@ struct SessionsClient: Sendable {
   }
 
   struct UpdateSessionConfigRequest: Encodable {
-    var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
-    var sandboxMode: String?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var approvalsReviewer: ServerCodexApprovalsReviewer?
     var permissionMode: String?
@@ -489,9 +481,7 @@ struct SessionsClient: Sendable {
   struct ForkRequest: Encodable {
     var nthUserMessage: UInt32?
     var model: String?
-    var approvalPolicy: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
-    var sandboxMode: String?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
     var cwd: String?
     var permissionMode: String?

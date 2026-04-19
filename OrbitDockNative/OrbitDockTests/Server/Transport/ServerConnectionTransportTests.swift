@@ -22,7 +22,7 @@ struct ServerConnectionTransportTests {
     #expect(await transport.lastExecutedURL() == request)
   }
 
-  @Test func acceptsLegacyServerInfoAsInitialHandshake() async throws {
+  @Test func rejectsServerInfoAsInitialHandshake() async throws {
     let transport = TransportSpy(
       response: HTTPResponse(
         statusCode: 200,
@@ -42,8 +42,11 @@ struct ServerConnectionTransportTests {
     connection.connect(to: url)
     await drainMainActorTasks()
 
-    #expect(connection.connectionStatus == .connected)
-    #expect(connection.requiresManualReconnect == false)
+    if case .failed = connection.connectionStatus {
+      #expect(connection.requiresManualReconnect)
+    } else {
+      Issue.record("Expected invalid initial server_info frame to fail the handshake")
+    }
 
     connection.disconnect()
   }

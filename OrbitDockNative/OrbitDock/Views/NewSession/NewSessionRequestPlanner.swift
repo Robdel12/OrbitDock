@@ -39,9 +39,7 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
     configProfile: String?,
     modelProvider: String?,
     model: String?,
-    approvalPolicy: String?,
     approvalPolicyDetails: ServerCodexApprovalPolicy?,
-    sandboxMode: String?,
     sandboxPolicyDetails: ServerCodexSandboxPolicy?,
     collaborationMode: String?,
     multiAgent: Bool?,
@@ -64,28 +62,24 @@ enum NewSessionRequestTemplate: Equatable, Sendable {
           allowBypassPermissions: allowBypassPermissions ? true : nil
         )
       case let .codex(
-      configMode,
-      configProfile,
-      modelProvider,
-      model,
-      approvalPolicy,
-      approvalPolicyDetails,
-      sandboxMode,
-      sandboxPolicyDetails,
-      collaborationMode,
-      multiAgent,
-      personality,
-      serviceTier,
-      developerInstructions
-    ):
+        configMode,
+        configProfile,
+        modelProvider,
+        model,
+        approvalPolicyDetails,
+        sandboxPolicyDetails,
+        collaborationMode,
+        multiAgent,
+        personality,
+        serviceTier,
+        developerInstructions
+      ):
         SessionsClient.CreateSessionRequest(
           provider: "codex",
           cwd: cwd,
           model: model,
           modelProvider: modelProvider,
-          approvalPolicy: approvalPolicy,
           approvalPolicyDetails: approvalPolicyDetails,
-          sandboxMode: sandboxMode,
           sandboxPolicyDetails: sandboxPolicyDetails,
           collaborationMode: collaborationMode,
           multiAgent: multiAgent,
@@ -182,9 +176,7 @@ enum NewSessionRequestPlanner {
           configProfile: normalizedProfile,
           modelProvider: shouldApplyOverrides ? normalizedModelProvider : nil,
           model: shouldApplyOverrides ? normalizedModel : nil,
-          approvalPolicy: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicy : nil,
           approvalPolicyDetails: shouldApplyOverrides ? configuration.codexAutonomy.approvalPolicyDetails : nil,
-          sandboxMode: shouldApplyOverrides ? configuration.codexAutonomy.sandboxMode : nil,
           sandboxPolicyDetails: shouldApplyOverrides ? configuration.codexAutonomy.sandboxPolicyDetails : nil,
           collaborationMode: shouldApplyOverrides
             ? normalizeOptionalText(configuration.codexCollaborationMode)

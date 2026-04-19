@@ -192,8 +192,8 @@ struct DemoModeExperience {
       projectName: "nebula-api",
       branch: "chore/bay-cleanup",
       model: "gpt-5-mini",
-      summary: "Clean up deprecated docking bay allocation logic",
-      firstPrompt: "Remove the legacy bay allocation system and migrate callers to the new slot-based API.",
+      summary: "Clean up obsolete docking bay allocation logic",
+      firstPrompt: "Remove the old bay allocation system and migrate callers to the new slot-based API.",
       status: .ended,
       workStatus: .ended,
       startedAt: now.addingTimeInterval(-14_400),
@@ -210,7 +210,7 @@ struct DemoModeExperience {
     dockingBay.lifecycleState = .ended
     dockingBay.acceptsUserInput = false
     dockingBay.repositoryRoot = "/Users/pilot/nebula-api"
-    dockingBay.lastMessage = "All done. Removed 847 lines of legacy code, migrated 12 callers, and tests pass."
+    dockingBay.lastMessage = "All done. Removed 847 lines of old allocation code, migrated 12 callers, and tests pass."
 
     // Session 5: Comms Array — Qwen via OpenRouter, question status
     var commsArray = Session(
@@ -442,7 +442,7 @@ struct DemoModeExperience {
         cachedTokens: 0,
         displayTitle: "Docking Bay Cleanup",
         displayTitleSortKey: "docking bay cleanup",
-        displaySearchText: "docking bay cleanup legacy migration nebula-api",
+        displaySearchText: "docking bay cleanup allocator migration nebula-api",
         contextLine: "Removed 847 lines, migrated 12 callers",
         listStatus: .ended,
         summaryRevision: 0,
@@ -912,7 +912,7 @@ struct DemoModeExperience {
         turnId: "turn-1",
         row: .user(ServerConversationMessageRow(
           id: "db-user-1",
-          content: "Remove the legacy bay allocation system and migrate callers to the new slot-based API. The old code is in `src/docking/legacy_allocator.rs`.",
+          content: "Remove the old bay allocation system and migrate callers to the new slot-based API. The outdated code is in `src/docking/old_allocator.rs`.",
           turnId: "turn-1",
           timestamp: iso8601(now.addingTimeInterval(-14_400)),
           isStreaming: false,
@@ -926,7 +926,7 @@ struct DemoModeExperience {
         turnId: "turn-1",
         row: .assistant(ServerConversationMessageRow(
           id: "db-asst-1",
-          content: "I'll map all callers of the legacy allocator, migrate them to the slot-based API, then remove the old module. Let me find every call site first.",
+          content: "I'll map all callers of the old allocator, migrate them to the slot-based API, then remove the outdated module. Let me find every call site first.",
           turnId: "turn-1",
           timestamp: iso8601(now.addingTimeInterval(-14_360)),
           isStreaming: false,
@@ -941,11 +941,11 @@ struct DemoModeExperience {
         row: .shellCommand(ServerConversationShellCommandRow(
           id: "db-shell-1",
           kind: .bash,
-          title: "Find legacy allocator callers",
+          title: "Find old allocator callers",
           summary: "Found 12 call sites across 6 modules",
-          command: "rg \"legacy_allocator\\|LegacyBayAlloc\" src/ --stats",
+          command: "rg \"old_allocator\\|DockingBayAlloc\" src/ --stats",
           args: [],
-          stdout: "12 matches\n6 files contained matches\n847 lines in legacy_allocator.rs",
+          stdout: "12 matches\n6 files contained matches\n847 lines in old_allocator.rs",
           stderr: nil,
           exitCode: 0,
           durationSeconds: 0.03,
@@ -959,7 +959,7 @@ struct DemoModeExperience {
         turnId: "turn-2",
         row: .assistant(ServerConversationMessageRow(
           id: "db-asst-2",
-          content: "All done. Removed 847 lines of legacy code, migrated 12 callers to the slot-based API, and all tests pass. The new API is cleaner — callers just request a `DockingSlot` and the allocator handles bay assignment internally.",
+          content: "All done. Removed 847 lines of old allocation code, migrated 12 callers to the slot-based API, and all tests pass. The new API is cleaner — callers just request a `DockingSlot` and the allocator handles bay assignment internally.",
           turnId: "turn-2",
           timestamp: iso8601(now.addingTimeInterval(-10_800)),
           isStreaming: false,

@@ -1,7 +1,7 @@
 use super::{row_created_output, row_updated_output, ConnectorOutputs};
-use crate::runtime::{row_entry, thinking_row_entry, ReasoningEventTracker};
+use crate::runtime::row_entry;
 use crate::workers::iso_now;
-use codex_protocol::protocol::{AgentMessageEvent, AgentReasoningEvent, UserMessageEvent};
+use codex_protocol::protocol::{AgentMessageEvent, UserMessageEvent};
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, MemoryCitation, MemoryCitationEntry, MessageRowContent,
 };
@@ -78,23 +78,4 @@ pub(crate) async fn handle_agent_message(
     }));
     vec![row_created_output(entry)]
   }
-}
-
-pub(crate) async fn handle_agent_reasoning(
-  event_id: &str,
-  event: AgentReasoningEvent,
-  reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-  msg_counter: &AtomicU64,
-) -> ConnectorOutputs {
-  let should_process = {
-    let mut tracker = reasoning_tracker.lock().await;
-    tracker.should_process_legacy_summary()
-  };
-  if !should_process {
-    return vec![];
-  }
-
-  let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-  let entry = thinking_row_entry(format!("thinking-{}-{}", event_id, seq), event.text);
-  vec![row_created_output(entry)]
 }

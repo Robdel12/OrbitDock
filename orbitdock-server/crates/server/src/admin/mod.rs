@@ -6,7 +6,6 @@ mod init;
 mod install_hooks;
 mod install_service;
 mod pair;
-mod remote_setup;
 mod setup;
 mod status;
 mod tunnel;
@@ -26,7 +25,6 @@ pub use install_service::{
   install_background_service, install_background_service_with_options, ServiceOptions,
 };
 pub use pair::print_pairing_details;
-pub use remote_setup::guide_remote_setup;
 pub use setup::{run_setup_wizard, SetupOptions, SetupPath};
 pub use status::{
   issue_auth_token, print_auth_tokens, print_generated_auth_token, print_local_token,

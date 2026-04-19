@@ -525,10 +525,8 @@ enum ApprovalCardModelBuilder {
       )
     }
 
-    let resolvedApprovalTypeForRisk = activePendingApproval?.type ?? approvalType
     let risk = ApprovalRisk.fromServer(
-      level: activePendingApproval?.preview?.riskLevel,
-      approvalType: resolvedApprovalTypeForRisk
+      level: activePendingApproval?.preview?.riskLevel
     )
     let riskFindings = activePendingApproval?.preview?.riskFindings ?? []
 

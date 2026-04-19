@@ -1248,7 +1248,7 @@ struct ToolCardView: View {
     }
   }
 
-  // ── Fallback (no REST content) ───────────────────────────────────────────
+  // ── Compact Display Body ─────────────────────────────────────────────────
 
   private var fallbackBody: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {

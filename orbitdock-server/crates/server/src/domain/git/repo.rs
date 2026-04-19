@@ -45,7 +45,7 @@ pub struct GitInfo {
   pub is_worktree: bool,
 }
 
-/// Resolve just the git branch from a working directory (legacy helper).
+/// Resolve just the git branch from a working directory.
 pub async fn resolve_git_branch(path: &str) -> Option<String> {
   run_git(&["rev-parse", "--abbrev-ref", "HEAD"], path).await
 }

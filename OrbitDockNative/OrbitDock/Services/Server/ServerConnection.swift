@@ -724,7 +724,7 @@ final class ServerConnection {
         case 404:
           return DisconnectDiagnosis(
             message:
-              "The server is reachable but `/api/server/meta` is unavailable. This server build may be too old for this app.",
+              "The server is reachable but `/api/server/meta` is unavailable. Update the server build, then reconnect.",
             shouldReconnect: false,
             retryHint: nil
           )
@@ -733,7 +733,7 @@ final class ServerConnection {
           let apiError = decodeAPIError(from: response.body)
           let detail = apiError?.error ?? "status \(response.statusCode)"
           return DisconnectDiagnosis(
-            message: "Server rejected the compatibility probe: \(detail)",
+            message: "Server rejected the handshake probe: \(detail)",
             shouldReconnect: true,
             retryHint: nil
           )
@@ -868,10 +868,7 @@ final class ServerConnection {
       case .hello:
         return true
       case .serverInfo:
-        // Legacy servers may still send `server_info` before their realtime
-        // updates begin. Accept it as the handshake frame so older servers
-        // can still connect.
-        return true
+        fallthrough
       default:
         failHandshake(
           ServerRequestError.invalidResponse,

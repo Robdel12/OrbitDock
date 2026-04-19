@@ -13,9 +13,10 @@ The goal is not just "make the tests pass." The goal is to make the server own d
 
 Before changing code, read only the docs that match the task:
 
-- `docs/repo-workflow.md` for where the code belongs and which `make rust-*` commands to use
-- `docs/engineering-guardrails.md` for server-authoritative rules and typed-boundary expectations
-- `docs/database-and-persistence.md` when schema, restore, hydration, or conversation rows are involved
+- `docs/GETTING_STARTED.md` for setup, build commands, and the `make rust-*` workflow
+- `docs/ARCHITECTURE.md` for server-authoritative state, typed-boundary expectations, and client/server guardrails
+- `docs/OPERATIONS.md` when schema, persistence, restore, deployment, or database troubleshooting are involved
+- `docs/data-flow.md` when HTTP, WebSocket, session surfaces, or conversation rows are involved
 
 If tests are part of the task, also use `testing-philosophy`.
 

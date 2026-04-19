@@ -1014,7 +1014,7 @@ mod tests {
       usage_update: Some(
         crate::runtime::transcript_sync_policy::TranscriptUsageUpdate {
           usage: next_usage.clone(),
-          snapshot_kind: TokenUsageSnapshotKind::MixedLegacy,
+          snapshot_kind: TokenUsageSnapshotKind::Mixed,
         },
       ),
       message_sync_decision: TranscriptMessageSyncDecision::AppendNewMessages,

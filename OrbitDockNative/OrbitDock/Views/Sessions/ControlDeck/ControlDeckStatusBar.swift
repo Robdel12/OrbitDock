@@ -1,5 +1,29 @@
 import SwiftUI
 
+enum ControlDeckSendClusterAction: Hashable {
+  case interrupt
+  case resume
+  case send
+}
+
+enum ControlDeckSendClusterPlanner {
+  static func actions(
+    canInterruptSession: Bool,
+    canSubmit: Bool,
+    canResume: Bool
+  ) -> [ControlDeckSendClusterAction] {
+    if canInterruptSession {
+      return canSubmit ? [.interrupt, .send] : [.interrupt]
+    }
+
+    if canResume {
+      return [.resume]
+    }
+
+    return [.send]
+  }
+}
+
 struct ControlDeckStatusBar: View {
   let modules: [ControlDeckStatusModuleItem]
   var onModuleAction: ((ControlDeckStatusModule, String) -> Void)?
@@ -101,72 +125,95 @@ struct ControlDeckStatusBar: View {
 
   private var sendCluster: some View {
     HStack(spacing: isCompact ? Spacing.xs : Spacing.sm_) {
-      sendButton
+      ForEach(sendClusterActions, id: \.self) { action in
+        sendClusterButton(action)
+      }
     }
   }
 
+  private var sendClusterActions: [ControlDeckSendClusterAction] {
+    ControlDeckSendClusterPlanner.actions(
+      canInterruptSession: canInterruptSession,
+      canSubmit: canSubmit,
+      canResume: canResume
+    )
+  }
+
   @ViewBuilder
-  private var sendButton: some View {
-    if canInterruptSession, !canSubmit {
-      Button(action: { onInterrupt?() }) {
-        Image(systemName: "stop.fill")
-          .font(.system(size: TypeScale.caption, weight: .bold))
-          .frame(width: sendButtonSize, height: sendButtonSize)
-          .foregroundStyle(Color.statusError)
-          .background(Color.statusError.opacity(OpacityTier.light), in: Circle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Stop")
-    } else if canResume {
-      Button(action: { onResume?() }) {
-        HStack(spacing: Spacing.xxs) {
-          if isResuming {
-            ProgressView()
-              .controlSize(.mini)
-              .tint(Color.feedbackWarning)
-          } else {
-            Image(systemName: "play.fill")
-              .font(.system(size: TypeScale.caption, weight: .bold))
-          }
-          Text("Resume")
-            .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
-            .lineLimit(1)
-        }
-        .foregroundStyle(Color.feedbackWarning)
-        .padding(.horizontal, Spacing.sm)
-        .frame(height: sendButtonSize)
-        .background(
-          Capsule()
-            .fill(Color.feedbackWarning.opacity(OpacityTier.light))
-            .overlay(
-              Capsule()
-                .strokeBorder(Color.feedbackWarning.opacity(0.25), lineWidth: 1)
-            )
-        )
-      }
-      .buttonStyle(.plain)
-      .disabled(isResuming)
-      .accessibilityLabel("Resume")
-    } else {
-      Button(action: { onSubmit?() }) {
-        Group {
-          if isSubmitting {
-            ProgressView()
-              .controlSize(.mini)
-              .tint(.white)
-          } else {
-            Image(systemName: "arrow.up")
-              .font(.system(size: TypeScale.caption, weight: .bold))
-              .foregroundStyle(canSubmit ? Color.backgroundPrimary : Color.textQuaternary)
-          }
-        }
-        .frame(width: sendButtonSize, height: sendButtonSize)
-        .background(canSubmit ? resolvedSendTint : Color.backgroundTertiary, in: Circle())
-      }
-      .buttonStyle(.plain)
-      .disabled(!canSubmit || isSubmitting)
-      .accessibilityLabel("Send")
+  private func sendClusterButton(_ action: ControlDeckSendClusterAction) -> some View {
+    switch action {
+      case .interrupt:
+        interruptButton
+      case .resume:
+        resumeButton
+      case .send:
+        sendButton
     }
+  }
+
+  private var interruptButton: some View {
+    Button(action: { onInterrupt?() }) {
+      Image(systemName: "stop.fill")
+        .font(.system(size: TypeScale.caption, weight: .bold))
+        .frame(width: sendButtonSize, height: sendButtonSize)
+        .foregroundStyle(Color.statusError)
+        .background(Color.statusError.opacity(OpacityTier.light), in: Circle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel("Stop")
+  }
+
+  private var resumeButton: some View {
+    Button(action: { onResume?() }) {
+      HStack(spacing: Spacing.xxs) {
+        if isResuming {
+          ProgressView()
+            .controlSize(.mini)
+            .tint(Color.feedbackWarning)
+        } else {
+          Image(systemName: "play.fill")
+            .font(.system(size: TypeScale.caption, weight: .bold))
+        }
+        Text("Resume")
+          .font(.system(size: TypeScale.mini, weight: .semibold, design: .rounded))
+          .lineLimit(1)
+      }
+      .foregroundStyle(Color.feedbackWarning)
+      .padding(.horizontal, Spacing.sm)
+      .frame(height: sendButtonSize)
+      .background(
+        Capsule()
+          .fill(Color.feedbackWarning.opacity(OpacityTier.light))
+          .overlay(
+            Capsule()
+              .strokeBorder(Color.feedbackWarning.opacity(0.25), lineWidth: 1)
+          )
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(isResuming)
+    .accessibilityLabel("Resume")
+  }
+
+  private var sendButton: some View {
+    Button(action: { onSubmit?() }) {
+      Group {
+        if isSubmitting {
+          ProgressView()
+            .controlSize(.mini)
+            .tint(.white)
+        } else {
+          Image(systemName: "arrow.up")
+            .font(.system(size: TypeScale.caption, weight: .bold))
+            .foregroundStyle(canSubmit ? Color.backgroundPrimary : Color.textQuaternary)
+        }
+      }
+      .frame(width: sendButtonSize, height: sendButtonSize)
+      .background(canSubmit ? resolvedSendTint : Color.backgroundTertiary, in: Circle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!canSubmit || isSubmitting)
+    .accessibilityLabel("Send")
   }
 
   private var resolvedSendTint: Color {

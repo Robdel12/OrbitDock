@@ -98,9 +98,10 @@ Top-level fields:
 Important control-deck fields:
 
 - `work_status` — display status only; do not use it as a proxy for individual actions.
-- `accepts_user_input` — true when a direct/open session accepts a new user turn.
-- `steerable` — true when the current turn accepts steering feedback.
-- `can_interrupt` — true only when the server knows an active turn can be interrupted.
+- `connector_attached` — true when the live connector action channel is attached.
+- `accepts_user_input` — true when a direct/open session can receive a new user turn through the attached connector.
+- `steerable` — true when the current turn can receive steering feedback through the attached connector.
+- `can_interrupt` — true only when the server knows an active turn can be interrupted through the attached connector.
 - `current_turn_id` — current active turn identity, when one exists.
 
 ### `MissionDetailResponse`

@@ -162,8 +162,8 @@ struct OrbitDockWindowRoot: View {
                 provider: "codex",
                 cwd: path,
                 model: defaultModel,
-                approvalPolicy: "on-request",
-                sandboxMode: "workspace-write"
+                approvalPolicyDetails: .mode(.onRequest),
+                sandboxPolicyDetails: ServerCodexSandboxPolicy(mode: .workspaceWrite, networkAccess: false)
               )
             )
           }

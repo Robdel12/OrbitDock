@@ -990,7 +990,7 @@ fn request_user_input_emits_question_row_and_submission_request() {
         "question": "Which path should we take?",
         "options": [
           { "label": "Typed", "description": "Keep reducer-safe outputs only." },
-          { "label": "Mixed", "description": "Keep the legacy mixed event path." }
+          { "label": "Mixed", "description": "Keep the mixed event path." }
         ]
       }
     ]

@@ -173,10 +173,9 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     work_status,
     control_mode,
     lifecycle_state: restored.lifecycle_state,
-    accepts_user_input: restored.lifecycle_state == orbitdock_protocol::SessionLifecycleState::Open
-      && control_mode == orbitdock_protocol::SessionControlMode::Direct
-      && status == SessionStatus::Active,
-    steerable: work_status == WorkStatus::Working,
+    accepts_user_input: false,
+    steerable: false,
+    connector_attached: false,
     can_interrupt: false,
     rows: restored.rows,
     total_row_count,

@@ -54,7 +54,7 @@ struct StatusBarStatsTests {
     #expect(stats.costByModel.isEmpty)
   }
 
-  @Test func fromFallsBackToEstimatedCostWhenRootCostIsMissing() {
+  @Test func fromDoesNotEstimateCostFromTotalTokensOnly() {
     let sessions = [
       makeSession(
         id: "gpt-1",
@@ -70,9 +70,8 @@ struct StatusBarStatsTests {
     )
 
     #expect(stats.tokens == 1_000_000)
-    #expect(stats.cost > 0)
-    #expect(stats.costByModel.map(\.model) == ["GPT-5"])
-    #expect(stats.costByModel.first?.cost == stats.cost)
+    #expect(stats.cost == 0)
+    #expect(stats.costByModel.isEmpty)
   }
 
   @Test func fromUsesGranularTokenBreakdownForCost() {
@@ -110,9 +109,7 @@ struct StatusBarStatsTests {
     #expect(abs(stats.cost - expectedCost) < 0.001)
   }
 
-  @Test func fromFallsBackToLegacyWhenNoBreakdown() {
-    // When input/output are both 0 (legacy server), falls back to
-    // treating totalTokens as input.
+  @Test func fromDoesNotEstimateCostWithoutTokenBreakdown() {
     let sessions = [
       makeSession(
         id: "claude-1",
@@ -130,9 +127,7 @@ struct StatusBarStatsTests {
       costCalculator: costCalculator
     )
 
-    // Legacy fallback: all tokens treated as input at $3/M
-    let expectedCost = Double(1_000_000) / 1_000_000 * 3.0
-    #expect(abs(stats.cost - expectedCost) < 0.001)
+    #expect(stats.cost == 0)
   }
 
   @Test func resolvePrefersAuthoritativeSummaryWhenAvailable() {

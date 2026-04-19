@@ -22,9 +22,7 @@ extension NewSessionSheet {
       codexConfigProfile: normalizedCodexProfile,
       model: shouldApplyOverrides ? model.codexModel : nil,
       modelProvider: shouldApplyOverrides ? normalizedCodexModelProvider : nil,
-      approvalPolicy: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicy : nil,
       approvalPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.approvalPolicyDetails : nil,
-      sandboxMode: shouldApplyOverrides ? model.selectedAutonomy.sandboxMode : nil,
       sandboxPolicyDetails: shouldApplyOverrides ? model.selectedAutonomy.sandboxPolicyDetails : nil,
       collaborationMode: shouldApplyOverrides ? model.codexCollaborationMode.rawValue : nil,
       multiAgent: shouldApplyOverrides ? model.codexMultiAgentEnabled : nil,
@@ -87,14 +85,12 @@ extension NewSessionSheet {
       codexConfigState.catalog = nil
       codexConfigState.catalogError = nil
       codexConfigState.catalogLoading = false
-      codexConfigState.catalogRequiresProjectPath = false
       return
     }
 
     let cwd = model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines)
     codexConfigState.catalogLoading = true
     codexConfigState.catalogError = nil
-    codexConfigState.catalogRequiresProjectPath = false
     codexConfigState.catalogRequestID += 1
     let requestID = codexConfigState.catalogRequestID
 
@@ -110,7 +106,6 @@ extension NewSessionSheet {
           else { return }
           codexConfigState.catalog = response
           codexConfigState.catalogLoading = false
-          codexConfigState.catalogRequiresProjectPath = false
           if model.codexConfigMode == .profile,
              model.codexConfigProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           {
@@ -129,18 +124,11 @@ extension NewSessionSheet {
                 model.selectedPath.trimmingCharacters(in: .whitespacesAndNewlines) == cwd
           else { return }
           codexConfigState.catalog = nil
-          codexConfigState.catalogRequiresProjectPath = isLegacyCodexCatalogProjectRequirement(error: error, cwd: cwd)
-          codexConfigState.catalogError = codexConfigState.catalogRequiresProjectPath ? nil : error.localizedDescription
+          codexConfigState.catalogError = error.localizedDescription
           codexConfigState.catalogLoading = false
         }
       }
     }
-  }
-
-  func isLegacyCodexCatalogProjectRequirement(error: Error, cwd: String) -> Bool {
-    guard cwd.isEmpty else { return false }
-    guard let requestError = error as? ServerRequestError else { return false }
-    return requestError.statusCode == 400
   }
 
   func refreshScopedCodexModelsIfNeeded(force _: Bool = false) {

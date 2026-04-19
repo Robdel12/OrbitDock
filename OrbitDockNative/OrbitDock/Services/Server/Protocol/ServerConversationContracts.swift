@@ -57,18 +57,18 @@ private enum ConversationPayloadBudget {
 
 // MARK: - Conversation Rows
 
-enum ServerConversationRowType: Codable, Equatable {
+enum ServerConversationRowType: String, Codable, Equatable {
   case user
   case steer
   case assistant
   case thinking
   case context
   case notice
-  case shellCommand
-  case commandExecution
+  case shellCommand = "shell_command"
+  case commandExecution = "command_execution"
   case task
   case tool
-  case activityGroup
+  case activityGroup = "activity_group"
   case question
   case approval
   case worker
@@ -76,59 +76,6 @@ enum ServerConversationRowType: Codable, Equatable {
   case hook
   case handoff
   case system
-  case unknown
-
-  init(from decoder: Decoder) throws {
-    let value = try decoder.singleValueContainer().decode(String.self)
-    switch value {
-      case "user": self = .user
-      case "steer": self = .steer
-      case "assistant": self = .assistant
-      case "thinking": self = .thinking
-      case "context": self = .context
-      case "notice": self = .notice
-      case "shell_command": self = .shellCommand
-      case "command_execution": self = .commandExecution
-      case "task": self = .task
-      case "tool": self = .tool
-      case "activity_group": self = .activityGroup
-      case "question": self = .question
-      case "approval": self = .approval
-      case "worker": self = .worker
-      case "plan": self = .plan
-      case "hook": self = .hook
-      case "handoff": self = .handoff
-      case "system": self = .system
-      default:
-        netLog(.error, cat: .ws, "Unknown conversation row type: \(value)")
-        self = .unknown
-    }
-  }
-
-  func encode(to encoder: Encoder) throws {
-    var container = encoder.singleValueContainer()
-    switch self {
-      case .user: try container.encode("user")
-      case .steer: try container.encode("steer")
-      case .assistant: try container.encode("assistant")
-      case .thinking: try container.encode("thinking")
-      case .context: try container.encode("context")
-      case .notice: try container.encode("notice")
-      case .shellCommand: try container.encode("shell_command")
-      case .commandExecution: try container.encode("command_execution")
-      case .task: try container.encode("task")
-      case .tool: try container.encode("tool")
-      case .activityGroup: try container.encode("activity_group")
-      case .question: try container.encode("question")
-      case .approval: try container.encode("approval")
-      case .worker: try container.encode("worker")
-      case .plan: try container.encode("plan")
-      case .hook: try container.encode("hook")
-      case .handoff: try container.encode("handoff")
-      case .system: try container.encode("system")
-      case .unknown: try container.encode("unknown")
-    }
-  }
 }
 
 enum ServerConversationContextKind: String, Codable {
@@ -264,7 +211,6 @@ enum ServerConversationToolStatus: String, Codable {
 enum ServerConversationMessageDeliveryStatus: String, Codable {
   case pending
   case accepted
-  case fellBackToNewTurn = "fell_back_to_new_turn"
 }
 
 enum ServerConversationActivityGroupKind: String, Codable {
@@ -1005,18 +951,6 @@ enum ServerConversationRow: Codable {
         self = try .handoff(ServerConversationHandoffRow(from: decoder))
       case .system:
         self = try .system(ServerConversationMessageRow(from: decoder))
-      case .unknown:
-        // Decode minimal system row for unknown types — id may be present or synthesized
-        let fallbackIdentifier = (try? container.decode(String.self, forKey: .rowType)) ?? UUID().uuidString
-        self = .system(ServerConversationMessageRow(
-          id: "unknown-\(fallbackIdentifier)",
-          content: "",
-          turnId: nil,
-          timestamp: nil,
-          isStreaming: false,
-          images: nil,
-          memoryCitation: nil
-        ))
     }
   }
 
@@ -1213,7 +1147,6 @@ struct ServerConversationBootstrap: Decodable {
     case replayCursor = "replay_cursor"
     case rows
     case totalRowCount = "total_row_count"
-    case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
     case forkedFromSessionId = "forked_from_session_id"
     case oldestSequence = "oldest_sequence"
@@ -1224,9 +1157,7 @@ struct ServerConversationBootstrap: Decodable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
     replayCursor = try container.decodeIfPresent(UInt64.self, forKey: .replayCursor) ?? 0
-    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
-    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
-    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
+    totalRowCount = try container.decode(UInt64.self, forKey: .totalRowCount)
     hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
     forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
     oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
@@ -1244,7 +1175,6 @@ struct ServerConversationHistoryPage: Codable {
   enum CodingKeys: String, CodingKey {
     case rows
     case totalRowCount = "total_row_count"
-    case totalMessageCount = "total_message_count"
     case hasMoreBefore = "has_more_before"
     case oldestSequence = "oldest_sequence"
     case newestSequence = "newest_sequence"
@@ -1267,9 +1197,7 @@ struct ServerConversationHistoryPage: Codable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     rows = try container.decodeIfPresent([ServerConversationRowEntry].self, forKey: .rows) ?? []
-    let directTotalRowCount = try container.decodeIfPresent(UInt64.self, forKey: .totalRowCount)
-    let legacyTotalMessageCount = try container.decodeIfPresent(UInt64.self, forKey: .totalMessageCount)
-    totalRowCount = directTotalRowCount ?? legacyTotalMessageCount ?? UInt64(rows.count)
+    totalRowCount = try container.decode(UInt64.self, forKey: .totalRowCount)
     hasMoreBefore = try container.decodeIfPresent(Bool.self, forKey: .hasMoreBefore) ?? false
     oldestSequence = try container.decodeIfPresent(UInt64.self, forKey: .oldestSequence)
     newestSequence = try container.decodeIfPresent(UInt64.self, forKey: .newestSequence)
@@ -1346,17 +1274,6 @@ struct ServerToolDisplay: Codable {
     case outputDisplay = "output_display"
     case diffDisplay = "diff_display"
     case planExplanation = "plan_explanation"
-  }
-
-  /// Minimal placeholder for legacy conversion paths where server-computed display is unavailable.
-  static func placeholder(summary: String, toolType: String) -> ServerToolDisplay {
-    ServerToolDisplay(
-      summary: summary, subtitle: nil, rightMeta: nil, subtitleAbsorbsMeta: false,
-      glyphSymbol: "gearshape", glyphColor: "secondaryLabel", language: nil,
-      diffPreview: nil, outputPreview: nil, liveOutputPreview: nil, todoItems: [],
-      toolType: toolType, summaryFont: "system", displayTier: "standard",
-      inputDisplay: nil, outputDisplay: nil, diffDisplay: nil, planExplanation: nil
-    )
   }
 
   init(

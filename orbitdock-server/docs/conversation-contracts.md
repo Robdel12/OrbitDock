@@ -129,7 +129,7 @@ Structured shell execution row for Codex command runtime events. This is separat
 }
 ```
 
-`terminal_snapshot` is optional for backward compatibility. When present, it carries:
+`terminal_snapshot` carries:
 
 - typed fields: `command`, `cwd`, `output`
 - presentation fields: `transcript` for expanded terminal rendering and `title` for the terminal header/path label

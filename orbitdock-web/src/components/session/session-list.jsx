@@ -86,16 +86,13 @@ const OrbitalRing = () => (
 // Session list — zone-based layout
 // ---------------------------------------------------------------------------
 
-const SessionList = ({ groups, onSelect }) => {
-  // groups is still passed for backwards compat, but we re-triage into zones
-  const allSessions = useMemo(() => groups.flatMap((g) => g.sessions), [groups])
-
+const SessionList = ({ sessions, onSelect }) => {
   const zones = useMemo(() => {
     const attention = []
     const working = []
     const ready = []
 
-    for (const session of allSessions) {
+    for (const session of sessions) {
       const zone = classifyZone(session)
       if (zone === 'attention') attention.push(session)
       else if (zone === 'working') working.push(session)
@@ -114,9 +111,9 @@ const SessionList = ({ groups, onSelect }) => {
     ready.sort(byActivity)
 
     return { attention, working, ready }
-  }, [allSessions])
+  }, [sessions])
 
-  if (allSessions.length === 0) {
+  if (sessions.length === 0) {
     return (
       <div class={styles.empty}>
         <div class={styles.emptyIcon}>

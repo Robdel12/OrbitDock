@@ -42,20 +42,6 @@ const isSearchRow = (row) => {
 
 const previewKind = (row) => row.preview?.kind || (isSearchRow(row) ? 'search_matches' : null)
 
-const legacyPreviewLines = (row) => {
-  const text = row.aggregated_output || row.live_output_preview
-  if (!text) return null
-
-  const lines = text
-    .trim()
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(-2)
-
-  return lines.length > 0 ? lines : null
-}
-
 const supportingText = (row) => {
   const actions = row.command_actions || []
 
@@ -84,7 +70,7 @@ const supportingText = (row) => {
 }
 
 const collapsedPreview = (row) => {
-  return row.preview?.lines || legacyPreviewLines(row)
+  return row.preview?.lines || null
 }
 
 const metaText = (row) => {

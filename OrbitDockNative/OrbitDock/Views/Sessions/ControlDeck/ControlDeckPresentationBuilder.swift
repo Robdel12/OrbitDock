@@ -17,7 +17,7 @@ enum ControlDeckPresentationBuilder {
       lifecycleLabel: lifecycleLabel(state.lifecycle),
       lifecycleTint: lifecycleTint(state.lifecycle),
       acceptsUserInput: state.acceptsUserInput,
-      canInterrupt: state.canInterrupt,
+      canInterrupt: state.canInterrupt && state.connectorAttached,
       canResume: canResume(state: state),
       supportsImages: snapshot.capabilities.supportsImages,
       headerSubtitle: headerSubtitle(state: state, activityStatus: activityStatus, isLoading: isLoading),
@@ -39,8 +39,8 @@ enum ControlDeckPresentationBuilder {
     if state.lifecycle == .ended { return .disabled }
     // Only show approval mode if connector is attached — otherwise user needs to resume first
     if hasPendingApproval, state.connectorAttached { return .approval }
-    if state.steerable { return .steer }
-    if state.acceptsUserInput { return .compose }
+    if state.steerable, state.connectorAttached { return .steer }
+    if state.acceptsUserInput, state.connectorAttached { return .compose }
     return .disabled
   }
 
@@ -90,7 +90,7 @@ enum ControlDeckPresentationBuilder {
     // Keep resume visible for detached-open sessions that have not yet restored
     // connector ownership, but do not show resume for normal attached working
     // sessions that are already actively processing.
-    return state.lifecycle == .open && !state.acceptsUserInput && !state.connectorAttached
+    return state.lifecycle == .open && !state.connectorAttached
   }
 
   private static func sendTint(for mode: ControlDeckMode) -> String {
@@ -233,8 +233,7 @@ enum ControlDeckPresentationBuilder {
           selectedValue: state.config.approvalPolicy,
           reviewerValue: state.config.approvalsReviewer?.rawValue,
           sandboxPolicyDetails: ServerCodexSandboxPolicy.resolved(
-            details: state.config.sandboxPolicyDetails,
-            fallbackMode: state.config.sandboxMode
+            details: state.config.sandboxPolicyDetails
           ),
           interaction: .picker(options: pickerOptions(from: capabilities.approvalModeOptions))
         )
@@ -381,23 +380,15 @@ enum ControlDeckPresentationBuilder {
     sandboxPolicyDetails: ServerCodexSandboxPolicy?,
     options: [ControlDeckAutoReviewOption]
   ) -> ControlDeckAutoReviewOption? {
-    let resolvedApproval = ServerCodexApprovalPolicy.resolved(
-      details: approvalPolicyDetails,
-      fallbackPolicy: approvalPolicy
-    )
-    let resolvedSandbox = ServerCodexSandboxPolicy.resolved(
-      details: sandboxPolicyDetails,
-      fallbackMode: sandboxMode
-    )
+    let resolvedApproval = ServerCodexApprovalPolicy.resolved(details: approvalPolicyDetails)
+    let resolvedSandbox = ServerCodexSandboxPolicy.resolved(details: sandboxPolicyDetails)
 
     return options.first { option in
       let optionApproval = ServerCodexApprovalPolicy.resolved(
-        details: option.approvalPolicyDetails,
-        fallbackPolicy: option.approvalPolicy
+        details: option.approvalPolicyDetails
       )
       let optionSandbox = ServerCodexSandboxPolicy.resolved(
-        details: option.sandboxPolicyDetails,
-        fallbackMode: option.sandboxMode
+        details: option.sandboxPolicyDetails
       )
       return optionApproval == resolvedApproval && optionSandbox == resolvedSandbox
     }

@@ -161,7 +161,7 @@ mod tests {
   }
 
   #[test]
-  fn approval_policy_details_are_preferred_over_legacy_string() {
+  fn approval_policy_details_are_preferred_over_summary_string() {
     let details =
       orbitdock_protocol::CodexApprovalPolicy::Mode(orbitdock_protocol::CodexApprovalMode::Never);
     let parsed = parse_approval_policy_with_details(Some("on-request"), Some(&details))
@@ -170,7 +170,7 @@ mod tests {
   }
 
   #[test]
-  fn sandbox_policy_details_are_preferred_over_legacy_string() {
+  fn sandbox_policy_details_are_preferred_over_summary_string() {
     let details = orbitdock_protocol::CodexSandboxPolicy {
       mode: orbitdock_protocol::CodexSandboxMode::ReadOnly,
       network_access: true,

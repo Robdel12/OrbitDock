@@ -1669,17 +1669,6 @@ fn normalized_rollout_agent_label(
     .or_else(|| Some(id.to_string()))
 }
 
-pub fn load_legacy_persisted_state(path: &Path) -> PersistedState {
-  let Ok(data) = fs::read(path) else {
-    return PersistedState::default();
-  };
-  serde_json::from_slice(&data).unwrap_or_default()
-}
-
-pub fn load_legacy_rollout_checkpoints(path: &Path) -> HashMap<String, PersistedFileState> {
-  load_legacy_persisted_state(path).files
-}
-
 pub fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
   let mut result = Vec::new();
   let mut stack = vec![root.to_path_buf()];

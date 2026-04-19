@@ -30,24 +30,19 @@ enum ApprovalRisk {
   }
 
   static func fromServer(
-    level: ServerApprovalRiskLevel?,
-    approvalType: ServerApprovalType?
+    level: ServerApprovalRiskLevel?
   ) -> ApprovalRisk {
-    if let level {
-      switch level {
-        case .low:
-          return .low
-        case .normal:
-          return .normal
-        case .high:
-          return .high
-      }
+    guard let level else {
+      return .normal
     }
 
-    // Minimal fallback for older servers that do not send risk_level yet.
-    if approvalType == .question {
-      return .low
+    switch level {
+      case .low:
+        return .low
+      case .normal:
+        return .normal
+      case .high:
+        return .high
     }
-    return .normal
   }
 }

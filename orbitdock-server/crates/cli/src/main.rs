@@ -135,9 +135,6 @@ fn main() -> anyhow::Result<()> {
         restart: *restart,
       });
     }
-    Some(Command::RemoteSetup) => {
-      return orbitdock_server::admin::guide_remote_setup(&data_dir);
-    }
     None => {
       use clap::CommandFactory;
       Cli::command().print_help()?;
@@ -206,7 +203,7 @@ fn main() -> anyhow::Result<()> {
       workspace_provider,
     ),
     _ => (
-      cli.bind.unwrap_or_else(|| "0.0.0.0:4000".parse().unwrap()),
+      "0.0.0.0:4000".parse().unwrap(),
       None,
       false,
       true,
