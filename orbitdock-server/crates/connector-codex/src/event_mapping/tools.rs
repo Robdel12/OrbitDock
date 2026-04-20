@@ -995,6 +995,7 @@ mod tests {
     DynamicToolCallResponseEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
     ExecCommandOutputDeltaEvent, ExecCommandSource, ExecCommandStatus, ExecOutputStream,
   };
+  use codex_utils_absolute_path::AbsolutePathBuf;
   use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
   use orbitdock_protocol::conversation_contracts::ConversationRow;
   use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
@@ -1005,6 +1006,10 @@ mod tests {
 
   fn shared_output_buffers() -> SharedOutputBuffers {
     Arc::new(tokio::sync::Mutex::new(HashMap::new()))
+  }
+
+  fn absolute_test_path(path: &str) -> AbsolutePathBuf {
+    AbsolutePathBuf::from_absolute_path(path).expect("absolute test path")
   }
 
   fn shared_env_tracker() -> SharedEnvironmentTracker {
@@ -1041,7 +1046,7 @@ mod tests {
         process_id: Some("pty-1".to_string()),
         turn_id: "turn-1".to_string(),
         command: vec!["sed".to_string(), "-n".to_string(), "1,40p".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Read {
           cmd: "sed -n 1,40p src/main.rs".to_string(),
           name: "main.rs".to_string(),
@@ -1087,7 +1092,7 @@ mod tests {
         process_id: Some("pty-2".to_string()),
         turn_id: "turn-2".to_string(),
         command: vec!["rg".to_string(), "needle".to_string(), "src".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Search {
           cmd: "rg needle src".to_string(),
           query: Some("needle".to_string()),
@@ -1117,7 +1122,7 @@ mod tests {
         process_id: Some("pty-2".to_string()),
         turn_id: "turn-2".to_string(),
         command: vec!["rg".to_string(), "needle".to_string(), "src".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Search {
           cmd: "rg needle src".to_string(),
           query: Some("needle".to_string()),
@@ -1180,7 +1185,7 @@ mod tests {
         process_id: Some("pty-2b".to_string()),
         turn_id: "turn-2b".to_string(),
         command: vec!["cargo".to_string(), "test".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "cargo test".to_string(),
         }],
@@ -1209,7 +1214,7 @@ mod tests {
         process_id: Some("pty-2b".to_string()),
         turn_id: "turn-2b".to_string(),
         command: vec!["cargo".to_string(), "test".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "cargo test".to_string(),
         }],
@@ -1268,7 +1273,7 @@ mod tests {
           "-c".to_string(),
           "print('done')".to_string(),
         ],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "python -c print('done')".to_string(),
         }],
@@ -1330,7 +1335,7 @@ mod tests {
           "-rf".to_string(),
           "/tmp/project".to_string(),
         ],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "rm -rf /tmp/project".to_string(),
         }],
@@ -1377,7 +1382,7 @@ mod tests {
         process_id: Some("pty-stdin-1".to_string()),
         turn_id: "turn-stdin-1".to_string(),
         command: vec!["python".to_string(), "-i".to_string()],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "python -i".to_string(),
         }],
@@ -1476,7 +1481,7 @@ mod tests {
           "-lc".to_string(),
           "swiftc -print-target-info".to_string(),
         ],
-        cwd: PathBuf::from("/tmp/project"),
+        cwd: absolute_test_path("/tmp/project"),
         parsed_cmd: vec![ParsedCommand::Unknown {
           cmd: "/bin/zsh -lc swiftc -print-target-info".to_string(),
         }],

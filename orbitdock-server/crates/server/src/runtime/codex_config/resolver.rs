@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use codex_app_server_protocol::{ConfigLayer, ConfigLayerMetadata, ConfigLayerSource};
 use codex_core::config::Config as CoreConfig;
+use codex_protocol::config_types::ApprovalsReviewer;
 use orbitdock_connector_codex::{
   config_loader_sandbox_mode, requested_sandbox_policy_details, CodexConfigOverrides,
   CodexConnector, CodexRuntimeOverrides,
@@ -393,14 +394,10 @@ fn runtime_override_layer(selection: &CodexConfigSelection) -> Option<CodexInspe
   })
 }
 
-fn core_approvals_reviewer_to_protocol(
-  reviewer: codex_core::config::ApprovalsReviewer,
-) -> CodexApprovalsReviewer {
+fn core_approvals_reviewer_to_protocol(reviewer: ApprovalsReviewer) -> CodexApprovalsReviewer {
   match reviewer {
-    codex_core::config::ApprovalsReviewer::User => CodexApprovalsReviewer::User,
-    codex_core::config::ApprovalsReviewer::GuardianSubagent => {
-      CodexApprovalsReviewer::GuardianSubagent
-    }
+    ApprovalsReviewer::User => CodexApprovalsReviewer::User,
+    ApprovalsReviewer::GuardianSubagent => CodexApprovalsReviewer::GuardianSubagent,
   }
 }
 

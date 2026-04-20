@@ -2,15 +2,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
-use codex_core::auth::AuthCredentialsStoreMode;
-use codex_core::auth::AuthManager;
-use codex_core::auth::AuthMode;
-use codex_core::auth::CodexAuth;
-use codex_core::auth::CLIENT_ID;
+use codex_app_server_protocol::AuthMode;
 use codex_core::config::find_codex_home;
 use codex_login::run_login_server;
+use codex_login::AuthCredentialsStoreMode;
+use codex_login::AuthManager;
+use codex_login::CodexAuth;
 use codex_login::ServerOptions as LoginServerOptions;
 use codex_login::ShutdownHandle;
+use codex_login::CLIENT_ID;
 use orbitdock_protocol::CodexAccount;
 use orbitdock_protocol::CodexAccountStatus;
 use orbitdock_protocol::CodexAuthMode;
@@ -57,7 +57,7 @@ impl CodexAuthService {
         let credentials_store_mode = AuthCredentialsStoreMode::File;
         Self {
           state: StdMutex::new(ServiceState::Deferred {
-            codex_home,
+            codex_home: codex_home.to_path_buf(),
             credentials_store_mode,
           }),
           list_tx,

@@ -1,9 +1,10 @@
 use super::config::{
-  apply_orbitdock_external_model_defaults, apply_orbitdock_provider_defaults,
-  collaboration_mode_from_name_or_mode, collaboration_mode_from_permission_mode,
-  ensure_apply_patch_feature_for_custom_models, model_rejects_reasoning_summary, parse_personality,
-  parse_reasoning_summary, parse_service_tier_override, reasoning_summary_for_model,
-  should_disable_reasoning_summary, should_enable_apply_patch_for_custom_models,
+  apply_orbitdock_embedded_runtime_defaults, apply_orbitdock_external_model_defaults,
+  apply_orbitdock_provider_defaults, collaboration_mode_from_name_or_mode,
+  collaboration_mode_from_permission_mode, ensure_apply_patch_feature_for_custom_models,
+  model_rejects_reasoning_summary, parse_personality, parse_reasoning_summary,
+  parse_service_tier_override, reasoning_summary_for_model, should_disable_reasoning_summary,
+  should_enable_apply_patch_for_custom_models,
 };
 use super::event_mapping::{guardian, messages, runtime_signals, streaming};
 use super::runtime::StreamingMessage;
@@ -14,7 +15,7 @@ use super::timeline::{
 use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_subagent};
 use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
 use codex_core::config::Config as CoreConfig;
-use codex_core::{ModelProviderInfo, WireApi};
+use codex_models_manager::{ModelProviderInfo, WireApi};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
 use codex_protocol::models::{FunctionCallOutputPayload, ResponseItem};
 use codex_protocol::openai_models::{ApplyPatchToolType, ReasoningEffort};
@@ -25,15 +26,19 @@ use codex_protocol::protocol::{
   HookStartedEvent, RawResponseItemEvent, RealtimeHandoffRequested, RealtimeTranscriptEntry,
   RequestUserInputEvent, StreamErrorEvent, WarningEvent,
 };
+use codex_utils_absolute_path::AbsolutePathBuf;
 use orbitdock_connector_core::{
   ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
 };
 use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::domain_events::{AgentType, ToolKind, ToolStatus};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
+
+fn absolute_test_path(path: &str) -> AbsolutePathBuf {
+  AbsolutePathBuf::from_absolute_path(path).expect("absolute test path")
+}
 
 fn created_row(
   output: &ConnectorOutput,
@@ -229,6 +234,7 @@ fn orbitdock_provider_defaults_add_openrouter_attribution_headers() {
       env_key: Some("OPENROUTER_API_KEY".to_string()),
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: None,
@@ -272,6 +278,7 @@ fn orbitdock_provider_defaults_preserve_existing_openrouter_headers() {
       env_key: Some("OPENROUTER_API_KEY".to_string()),
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: Some(HashMap::from([
@@ -313,6 +320,32 @@ fn orbitdock_provider_defaults_preserve_existing_openrouter_headers() {
 }
 
 #[test]
+fn embedded_runtime_defaults_disable_codex_app_connectors() {
+  let mut config = config_with_provider(
+    "openai",
+    ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
+  );
+  let _ = config.features.enable(codex_features::Feature::Apps);
+
+  apply_orbitdock_embedded_runtime_defaults(&mut config, false);
+
+  assert!(!config.features.enabled(codex_features::Feature::Apps));
+}
+
+#[test]
+fn embedded_runtime_defaults_preserve_explicit_app_connector_opt_in() {
+  let mut config = config_with_provider(
+    "openai",
+    ModelProviderInfo::create_openai_provider(Some("https://api.openai.com/v1".to_string())),
+  );
+  let _ = config.features.enable(codex_features::Feature::Apps);
+
+  apply_orbitdock_embedded_runtime_defaults(&mut config, true);
+
+  assert!(config.features.enabled(codex_features::Feature::Apps));
+}
+
+#[test]
 fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
   let mut config = config_with_provider(
     "openrouter",
@@ -322,6 +355,7 @@ fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
       env_key: Some("OPENROUTER_API_KEY".to_string()),
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: None,
@@ -384,6 +418,7 @@ fn external_model_defaults_merge_into_existing_catalog_model() {
       env_key: None,
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: None,
@@ -468,6 +503,7 @@ fn custom_provider_should_enable_apply_patch_override() {
       env_key: Some("OPENROUTER_API_KEY".to_string()),
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: None,
@@ -502,6 +538,7 @@ fn custom_provider_force_enables_apply_patch_feature() {
       env_key: Some("OPENROUTER_API_KEY".to_string()),
       env_key_instructions: None,
       experimental_bearer_token: None,
+      auth: None,
       wire_api: WireApi::Responses,
       query_params: None,
       http_headers: None,
@@ -691,7 +728,7 @@ fn hook_helpers_emit_readable_timeline_text() {
     handler_type: HookHandlerType::Command,
     execution_mode: HookExecutionMode::Sync,
     scope: HookScope::Turn,
-    source_path: PathBuf::from("/tmp/stop-hook.sh"),
+    source_path: absolute_test_path("/tmp/stop-hook.sh"),
     display_order: 0,
     status: HookRunStatus::Completed,
     status_message: Some("Cleared temporary state".to_string()),
@@ -847,7 +884,7 @@ fn hook_helpers_render_user_prompt_submit_label() {
     handler_type: HookHandlerType::Command,
     execution_mode: HookExecutionMode::Sync,
     scope: HookScope::Turn,
-    source_path: PathBuf::from("/tmp/prompt-submit-hook.sh"),
+    source_path: absolute_test_path("/tmp/prompt-submit-hook.sh"),
     display_order: 0,
     status: HookRunStatus::Completed,
     status_message: None,
@@ -877,7 +914,7 @@ fn suppresses_non_error_hook_started_rows() {
       handler_type: HookHandlerType::Command,
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Turn,
-      source_path: PathBuf::from("/tmp/hooks.json"),
+      source_path: absolute_test_path("/tmp/hooks.json"),
       display_order: 0,
       status: HookRunStatus::Running,
       status_message: None,
@@ -901,7 +938,7 @@ fn suppresses_non_error_hook_completed_rows() {
       handler_type: HookHandlerType::Command,
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Thread,
-      source_path: PathBuf::from("/tmp/hooks.json"),
+      source_path: absolute_test_path("/tmp/hooks.json"),
       display_order: 0,
       status: HookRunStatus::Completed,
       status_message: None,
@@ -925,7 +962,7 @@ fn surfaces_failed_hook_completed_rows() {
       handler_type: HookHandlerType::Command,
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Thread,
-      source_path: PathBuf::from("/tmp/hooks.json"),
+      source_path: absolute_test_path("/tmp/hooks.json"),
       display_order: 0,
       status: HookRunStatus::Failed,
       status_message: Some("Broken config".to_string()),
@@ -1034,7 +1071,7 @@ fn hook_helpers_flag_failed_runs_as_errors() {
     handler_type: HookHandlerType::Agent,
     execution_mode: HookExecutionMode::Async,
     scope: HookScope::Thread,
-    source_path: PathBuf::from("/tmp/session-start.prompt"),
+    source_path: absolute_test_path("/tmp/session-start.prompt"),
     display_order: 1,
     status: HookRunStatus::Failed,
     status_message: None,
@@ -1298,12 +1335,18 @@ fn handle_guardian_assessment_creates_guardian_tool_row_while_running() {
   let events =
     guardian::handle_guardian_assessment(codex_protocol::approvals::GuardianAssessmentEvent {
       id: "guardian-1".to_string(),
+      target_item_id: None,
       turn_id: "turn-1".to_string(),
       status: codex_protocol::approvals::GuardianAssessmentStatus::InProgress,
-      action: Some(serde_json::json!({ "command": "rm -rf /tmp/cache" })),
-      risk_score: Some(87),
+      action: codex_protocol::approvals::GuardianAssessmentAction::Command {
+        source: codex_protocol::approvals::GuardianCommandSource::Shell,
+        command: "rm -rf /tmp/cache".to_string(),
+        cwd: absolute_test_path("/tmp"),
+      },
       risk_level: Some(codex_protocol::approvals::GuardianRiskLevel::High),
+      user_authorization: None,
       rationale: Some("Deletes a broad path".to_string()),
+      decision_source: None,
     });
 
   let row = created_row(&events[0]);
@@ -1332,12 +1375,18 @@ fn handle_guardian_assessment_updates_guardian_tool_row_when_terminal() {
   let events =
     guardian::handle_guardian_assessment(codex_protocol::approvals::GuardianAssessmentEvent {
       id: "guardian-1".to_string(),
+      target_item_id: None,
       turn_id: "turn-1".to_string(),
       status: codex_protocol::approvals::GuardianAssessmentStatus::Denied,
-      action: Some(serde_json::json!({ "command": "rm -rf /tmp/cache" })),
-      risk_score: Some(87),
+      action: codex_protocol::approvals::GuardianAssessmentAction::Command {
+        source: codex_protocol::approvals::GuardianCommandSource::Shell,
+        command: "rm -rf /tmp/cache".to_string(),
+        cwd: absolute_test_path("/tmp"),
+      },
       risk_level: Some(codex_protocol::approvals::GuardianRiskLevel::High),
+      user_authorization: None,
       rationale: Some("Deletes a broad path".to_string()),
+      decision_source: None,
     });
 
   let (row_id, row) = updated_row(&events[0]);

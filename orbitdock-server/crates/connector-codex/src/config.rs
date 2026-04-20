@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use codex_core::models_manager::manager::RefreshStrategy;
-use codex_core::{AuthManager, ModelProviderInfo, ThreadManager};
+use codex_core::ThreadManager;
 use codex_exec_server::EnvironmentManager;
 use codex_features::Feature;
+use codex_login::{AuthCredentialsStoreMode, AuthManager};
+use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
+use codex_models_manager::manager::RefreshStrategy;
+use codex_models_manager::ModelProviderInfo;
 use codex_protocol::config_types::{
   ApprovalsReviewer, CollaborationMode, CollaborationModeMask, ModeKind, Personality,
   ReasoningSummary, ServiceTier, Settings,
@@ -32,6 +33,7 @@ const REASONING_SUMMARY_NONE: &str = "none";
 const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
 const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
+const ENV_CODEX_ENABLE_APP_CONNECTORS: &str = "ORBITDOCK_CODEX_ENABLE_APP_CONNECTORS";
 const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 const ORBITDOCK_OPENROUTER_SITE_URL: &str = "https://orbitdock.dev";
 const ORBITDOCK_OPENROUTER_TITLE: &str = "OrbitDock";
@@ -208,7 +210,7 @@ impl CodexConnector {
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
 
     let auth_manager = Arc::new(AuthManager::new(
-      codex_home.clone(),
+      codex_home.clone().to_path_buf(),
       true,
       ORBITDOCK_CODEX_AUTH_STORE_MODE,
     ));
@@ -230,6 +232,7 @@ impl CodexConnector {
       SessionSource::Mcp,
       CollaborationModesConfig::default(),
       Arc::new(EnvironmentManager::new(None)),
+      None,
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
     let configured_model = config.model.clone();
@@ -238,7 +241,7 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
 
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
+    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf())?;
     connector
       .apply_post_start_overrides(
         runtime_overrides,
@@ -369,7 +372,7 @@ impl CodexConnector {
       })?;
 
     let auth_manager = Arc::new(AuthManager::new(
-      codex_home.clone(),
+      codex_home.clone().to_path_buf(),
       true,
       ORBITDOCK_CODEX_AUTH_STORE_MODE,
     ));
@@ -391,20 +394,25 @@ impl CodexConnector {
       SessionSource::Mcp,
       CollaborationModesConfig::default(),
       Arc::new(EnvironmentManager::new(None)),
+      None,
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
     let configured_model = config.model.clone();
     if !dynamic_tools.is_empty() {
       match codex_protocol::ThreadId::try_from(thread_id) {
         Ok(resume_thread_id) => {
-          let state_db = codex_core::state_db::get_state_db(&config).await;
-          codex_core::state_db::persist_dynamic_tools(
-            state_db.as_deref(),
-            resume_thread_id,
-            Some(dynamic_tools.as_slice()),
-            "connector_resume_with_tools",
-          )
-          .await;
+          if let Some(state_db) = codex_core::get_state_db(&config).await {
+            if let Err(err) = state_db
+              .persist_dynamic_tools(resume_thread_id, Some(dynamic_tools.as_slice()))
+              .await
+            {
+              warn!(
+                thread_id = %thread_id,
+                error = %err,
+                "Failed to persist Codex dynamic tools for resumed thread"
+              );
+            }
+          }
         }
         Err(err) => {
           warn!(
@@ -420,7 +428,7 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to resume thread: {}", e)))?;
 
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home)?;
+    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf())?;
     connector
       .apply_post_start_overrides(
         runtime_overrides,
@@ -567,6 +575,10 @@ impl CodexConnector {
     );
     apply_orbitdock_provider_defaults(&mut config);
     apply_orbitdock_external_model_defaults(&mut config);
+    apply_orbitdock_embedded_runtime_defaults(
+      &mut config,
+      parse_bool_env(ENV_CODEX_ENABLE_APP_CONNECTORS).unwrap_or(false),
+    );
     let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);
     let _ = (cwd, forced_apply_patch_feature);
 
@@ -662,7 +674,7 @@ pub async fn discover_models_for_context(
   let codex_home = find_codex_home()
     .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
   let auth_manager = Arc::new(AuthManager::new(
-    codex_home.clone(),
+    codex_home.to_path_buf(),
     true,
     ORBITDOCK_CODEX_AUTH_STORE_MODE,
   ));
@@ -691,6 +703,7 @@ pub async fn discover_models_for_context(
     SessionSource::Mcp,
     CollaborationModesConfig::default(),
     Arc::new(EnvironmentManager::new(None)),
+    None,
   ));
 
   let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
@@ -748,6 +761,17 @@ fn parse_reasoning_effort_value(value: &str) -> Option<ReasoningEffort> {
     "xhigh" => Some(ReasoningEffort::XHigh),
     _ => None,
   }
+}
+
+pub(crate) fn apply_orbitdock_embedded_runtime_defaults(
+  config: &mut Config,
+  app_connectors_enabled: bool,
+) {
+  if app_connectors_enabled {
+    return;
+  }
+
+  let _ = config.features.disable(Feature::Apps);
 }
 
 pub(crate) fn apply_orbitdock_provider_defaults(config: &mut Config) {
@@ -889,6 +913,7 @@ fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelIn
     visibility: ModelVisibility::None,
     supported_in_api: true,
     priority: 99,
+    additional_speed_tiers: Vec::new(),
     availability_nux: None,
     upgrade: None,
     base_instructions: ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS.to_string(),
@@ -1036,7 +1061,7 @@ pub(crate) async fn model_supports_reasoning_summaries(
 
   thread_manager
     .get_models_manager()
-    .get_model_info(model, config)
+    .get_model_info(model, &config.to_models_manager_config())
     .await
     .supports_reasoning_summaries
 }

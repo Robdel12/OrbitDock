@@ -959,7 +959,7 @@ mod tests {
     assert_eq!(snapshot.provider, Provider::Codex);
     assert_eq!(snapshot.control_mode, SessionControlMode::Passive);
     // When the tool has a pending question, work_status should be Question (not Working)
-    // so the dashboard and control deck surface it as needing user attention.
+    // so session surfaces show it as needing user attention.
     assert_eq!(snapshot.work_status, WorkStatus::Question);
     assert_eq!(snapshot.pending_tool_name.as_deref(), Some("Bash"));
     assert_eq!(

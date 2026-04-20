@@ -315,7 +315,7 @@ pub fn start_event_loop(
   let id = handle.id().to_string();
   handle.refresh_snapshot();
 
-  let actor_handle = SessionActorHandle::new(id.clone(), command_tx, snapshot);
+  let actor_handle = SessionActorHandle::new(id.clone(), command_tx.clone(), snapshot);
 
   let mut output_rx = session.connector.take_output_rx().unwrap();
   let session_id = session.session_id.clone();
@@ -490,55 +490,30 @@ pub fn start_event_loop(
                               images,
                               mentions,
                           } => {
-                              match session.connector.steer_turn(&content, &images, &mentions).await {
-                                  Ok(outcome) => {
-                                      handle_session_command(
-                                          SessionCommand::UpdateSteerOutcome {
-                                              message_id: message_id.clone(),
-                                              outcome,
-                                          },
-                                          &mut session_handle,
-                                          &persist,
-                                      ).await;
-                                      session_handle.broadcast(
-                                          orbitdock_protocol::ServerMessage::SteerOutcome {
-                                              session_id: session_id.clone(),
-                                              message_id,
-                                              outcome,
-                                          },
-                                      );
-                                  }
-                                  Err(e) => {
-                                      let should_detach =
-                                          should_detach_direct_connector_after_send_error(&e.to_string());
-                                      if should_detach {
-                                          warn!(
-                                              component = "codex_connector",
-                                              event = "codex.connector.detached_after_fatal_send_error",
-                                              session_id = %session_id,
-                                              error = %e,
-                                              "Detaching direct connector after fatal steer error"
-                                          );
-                                      } else {
+                              let connector = session.connector.clone();
+                              let command_tx = command_tx.clone();
+                              let steer_session_id = session_id.clone();
+                              tokio::spawn(async move {
+                                  match connector.steer_turn(&content, &images, &mentions).await {
+                                      Ok(outcome) => {
+                                          let _ = command_tx
+                                              .send(SessionCommand::UpdateSteerOutcome {
+                                                  message_id,
+                                                  outcome,
+                                              })
+                                              .await;
+                                      }
+                                      Err(e) => {
                                           error!(
                                               component = "codex_connector",
                                               event = "codex.steer.failed",
-                                              session_id = %session_id,
+                                              session_id = %steer_session_id,
                                               error = %e,
                                               "Steer turn failed"
                                           );
                                       }
-                                      emit_connector_error(
-                                          &session_id,
-                                          format!("Steer failed: {e}"),
-                                          &mut session_handle,
-                                          &persist,
-                                      ).await;
-                                      if should_detach {
-                                          return ConnectorLoopControl::Break;
-                                      }
                                   }
-                              }
+                              });
                           }
                           CodexAction::Interrupt => {
                               match session.connector.interrupt().await {

@@ -13,41 +13,39 @@ pub(crate) fn handle_guardian_assessment(
     event.status,
     codex_protocol::approvals::GuardianAssessmentStatus::InProgress
   );
-  let status = match event.status {
-    codex_protocol::approvals::GuardianAssessmentStatus::InProgress => ToolStatus::Running,
-    codex_protocol::approvals::GuardianAssessmentStatus::Approved => ToolStatus::Completed,
-    codex_protocol::approvals::GuardianAssessmentStatus::Denied => ToolStatus::Failed,
-    codex_protocol::approvals::GuardianAssessmentStatus::Aborted => ToolStatus::Cancelled,
+  let (status, status_label) = match event.status {
+    codex_protocol::approvals::GuardianAssessmentStatus::InProgress => {
+      (ToolStatus::Running, "reviewing")
+    }
+    codex_protocol::approvals::GuardianAssessmentStatus::Approved => {
+      (ToolStatus::Completed, "approved")
+    }
+    codex_protocol::approvals::GuardianAssessmentStatus::Denied => (ToolStatus::Failed, "denied"),
+    codex_protocol::approvals::GuardianAssessmentStatus::TimedOut => {
+      (ToolStatus::Failed, "timed out")
+    }
+    codex_protocol::approvals::GuardianAssessmentStatus::Aborted => {
+      (ToolStatus::Cancelled, "aborted")
+    }
   };
 
   let risk_level_str = event.risk_level.map(|risk| match risk {
     codex_protocol::approvals::GuardianRiskLevel::Low => "low".to_string(),
     codex_protocol::approvals::GuardianRiskLevel::Medium => "medium".to_string(),
     codex_protocol::approvals::GuardianRiskLevel::High => "high".to_string(),
+    codex_protocol::approvals::GuardianRiskLevel::Critical => "critical".to_string(),
   });
 
   let subtitle = risk_level_str.as_ref().map(|level| format!("{level} risk"));
 
-  let summary = event.rationale.clone().or_else(|| {
-    event
-      .risk_score
-      .map(|score| format!("Guardian risk score: {score}/100"))
-  });
-
-  let status_label = match event.status {
-    codex_protocol::approvals::GuardianAssessmentStatus::InProgress => "reviewing",
-    codex_protocol::approvals::GuardianAssessmentStatus::Approved => "approved",
-    codex_protocol::approvals::GuardianAssessmentStatus::Denied => "denied",
-    codex_protocol::approvals::GuardianAssessmentStatus::Aborted => "aborted",
-  }
-  .to_string();
+  let rationale = event.rationale.clone();
 
   let payload = GuardianAssessmentPayload {
-    action: event.action.clone(),
+    action: serde_json::to_value(&event.action).ok(),
     risk_level: risk_level_str,
-    risk_score: event.risk_score.map(u32::from),
-    rationale: event.rationale.clone(),
-    status_label: Some(status_label),
+    risk_score: None,
+    rationale: rationale.clone(),
+    status_label: Some(status_label.to_string()),
   };
 
   let row = ToolRow {
@@ -58,7 +56,7 @@ pub(crate) fn handle_guardian_assessment(
     status,
     title: "Guardian review".to_string(),
     subtitle,
-    summary: summary.clone(),
+    summary: rationale,
     preview: None,
     started_at: None,
     ended_at: (!matches!(status, ToolStatus::Running)).then(crate::workers::iso_now),

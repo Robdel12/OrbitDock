@@ -2,8 +2,8 @@ use super::{row_created_output, state_output, ConnectorOutputs};
 use crate::runtime::row_entry;
 use crate::workers::iso_now;
 use codex_protocol::protocol::{
-  GetHistoryEntryResponseEvent, ListCustomPromptsResponseEvent, ListSkillsResponseEvent,
-  McpListToolsResponseEvent, McpStartupCompleteEvent, McpStartupUpdateEvent,
+  GetHistoryEntryResponseEvent, ListSkillsResponseEvent, McpListToolsResponseEvent,
+  McpStartupCompleteEvent, McpStartupUpdateEvent,
 };
 use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
@@ -48,43 +48,6 @@ pub(crate) fn handle_list_skills_response(event: ListSkillsResponseEvent) -> Con
     skills,
     errors: Vec::new(),
   })]
-}
-
-pub(crate) fn handle_list_custom_prompts_response(
-  event_id: &str,
-  event: ListCustomPromptsResponseEvent,
-  msg_counter: &AtomicU64,
-) -> ConnectorOutputs {
-  let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-  let mut lines = vec![format!(
-    "Custom prompts available: {}",
-    event.custom_prompts.len()
-  )];
-  for prompt in event.custom_prompts.iter().take(20) {
-    let mut line = format!("/prompts:{}", prompt.name);
-    if let Some(description) = &prompt.description {
-      let trimmed = description.trim();
-      if !trimmed.is_empty() {
-        line.push_str(&format!(" - {}", trimmed));
-      }
-    }
-    lines.push(line);
-  }
-  if event.custom_prompts.len() > 20 {
-    lines.push(format!("... {} more", event.custom_prompts.len() - 20));
-  }
-
-  let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
-    id: format!("custom-prompts-{}-{}", event_id, seq),
-    content: lines.join("\n"),
-    turn_id: None,
-    timestamp: Some(iso_now()),
-    is_streaming: false,
-    images: vec![],
-    memory_citation: None,
-    delivery_status: None,
-  }));
-  vec![row_created_output(entry)]
 }
 
 pub(crate) fn handle_get_history_entry_response(

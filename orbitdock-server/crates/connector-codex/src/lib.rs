@@ -49,6 +49,20 @@ pub struct CodexConnector {
   current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
 }
 
+impl Clone for CodexConnector {
+  fn clone(&self) -> Self {
+    Self {
+      thread: Arc::clone(&self.thread),
+      thread_manager: Arc::clone(&self.thread_manager),
+      codex_home: self.codex_home.clone(),
+      output_rx: None,
+      thread_id: self.thread_id.clone(),
+      current_model: Arc::clone(&self.current_model),
+      current_reasoning_effort: Arc::clone(&self.current_reasoning_effort),
+    }
+  }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodexRuntimeOverrides {
   pub approvals_reviewer: Option<String>,
@@ -352,10 +366,6 @@ impl CodexConnector {
 
       EventMsg::ListSkillsResponse(e) => {
         event_mapping::capabilities::handle_list_skills_response(e)
-      }
-
-      EventMsg::ListCustomPromptsResponse(e) => {
-        event_mapping::capabilities::handle_list_custom_prompts_response(&event.id, e, msg_counter)
       }
 
       EventMsg::GetHistoryEntryResponse(e) => {

@@ -1107,7 +1107,11 @@ impl RolloutFileProcessor {
         codex_protocol::protocol::RealtimeEvent::SessionUpdated { .. }
         | codex_protocol::protocol::RealtimeEvent::InputAudioSpeechStarted(_)
         | codex_protocol::protocol::RealtimeEvent::InputTranscriptDelta(_)
+        | codex_protocol::protocol::RealtimeEvent::InputTranscriptDone(_)
         | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDelta(_)
+        | codex_protocol::protocol::RealtimeEvent::OutputTranscriptDone(_)
+        | codex_protocol::protocol::RealtimeEvent::ResponseCreated(_)
+        | codex_protocol::protocol::RealtimeEvent::ResponseDone(_)
         | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
         | codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_)
         | codex_protocol::protocol::RealtimeEvent::ResponseCancelled(_)

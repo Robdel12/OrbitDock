@@ -8,8 +8,8 @@ use codex_app_server_protocol::{
   PluginMarketplaceEntry, PluginSource, PluginSummary, PluginUninstallParams,
   PluginUninstallResponse,
 };
-use codex_core::auth::{AuthCredentialsStoreMode, AuthManager};
 use codex_core::SteerInputError;
+use codex_login::{AuthCredentialsStoreMode, AuthManager, CodexAuth};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{McpServerRefreshConfig, Op, ReviewDecision};
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
@@ -64,7 +64,7 @@ impl CodexConnector {
     Ok(config)
   }
 
-  async fn plugin_auth(&self) -> Option<codex_core::auth::CodexAuth> {
+  async fn plugin_auth(&self) -> Option<CodexAuth> {
     let auth_manager = AuthManager::new(
       self.codex_home.clone(),
       true,
@@ -223,6 +223,7 @@ impl CodexConnector {
     let op = Op::UserInput {
       items,
       final_output_json_schema: None,
+      responsesapi_client_metadata: None,
     };
 
     self
@@ -273,7 +274,7 @@ impl CodexConnector {
       });
     }
 
-    match self.thread.steer_input(items, None).await {
+    match self.thread.steer_input(items, None, None).await {
       Ok(_turn_id) => Ok(SteerOutcome::Accepted),
       Err(SteerInputError::NoActiveTurn(_items)) => Err(ConnectorError::ProviderError(
         "No active turn to steer".into(),

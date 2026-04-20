@@ -348,19 +348,12 @@ pub fn start_event_loop(
                                   Ok(()) => {
                                       handle_session_command(
                                           SessionCommand::UpdateSteerOutcome {
-                                              message_id: message_id.clone(),
+                                              message_id: message_id.to_string(),
                                               outcome: orbitdock_protocol::SteerOutcome::Accepted,
                                           },
                                           &mut session_handle,
                                           &persist,
                                       ).await;
-                                      session_handle.broadcast(
-                                          ServerMessage::SteerOutcome {
-                                              session_id: session_id.clone(),
-                                              message_id: message_id.clone(),
-                                              outcome: orbitdock_protocol::SteerOutcome::Accepted,
-                                          },
-                                      );
                                   }
                                   Err(e) => {
                                       let should_detach =
