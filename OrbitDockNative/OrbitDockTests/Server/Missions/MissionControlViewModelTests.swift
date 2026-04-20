@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 struct MissionControlViewModelTests {
-  @Test func activationLoadsMissionDetail() async throws {
+  @Test func activationLoadsMissionDetail() async {
     let fixture = MissionDetailLoaderFixture(
       responses: [.detail(name: "Loaded Mission")]
     )
@@ -22,15 +22,15 @@ struct MissionControlViewModelTests {
     #expect(viewModel.isLoading == false)
   }
 
-  @Test func missionHeartbeatUpdatesTimingWithoutReplacingDetailState() async throws {
-    let endpoint = ServerEndpoint(
+  @Test func missionHeartbeatUpdatesTimingWithoutReplacingDetailState() throws {
+    let endpoint = try ServerEndpoint(
       id: UUID(),
       name: "Primary",
-      wsURL: URL(string: "ws://127.0.0.1:3000/ws")!
+      wsURL: #require(URL(string: "ws://127.0.0.1:3000/ws"))
     )
     let connection = ServerConnection(authToken: nil)
-    let clients = ServerClients(
-      serverURL: URL(string: "http://127.0.0.1:3000")!,
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://127.0.0.1:3000")),
       authToken: nil,
       dataLoader: { _ in
         throw URLError(.badServerResponse)
@@ -78,8 +78,7 @@ struct MissionControlViewModelTests {
       cleanupPrompt: nil,
       settings: nil,
       missionFileExists: true,
-      missionFilePath: nil,
-      workflowMigrationAvailable: false
+      missionFilePath: nil
     )
     viewModel.applyDetail(initialDetail)
     viewModel.isLoading = false
@@ -100,14 +99,14 @@ struct MissionControlViewModelTests {
   }
 
   @Test func missionDetailRefreshesOnlyOnMissionScopedInvalidation() async throws {
-    let endpoint = ServerEndpoint(
+    let endpoint = try ServerEndpoint(
       id: UUID(),
       name: "Primary",
-      wsURL: URL(string: "ws://127.0.0.1:3000/ws")!
+      wsURL: #require(URL(string: "ws://127.0.0.1:3000/ws"))
     )
     let connection = ServerConnection(authToken: nil)
-    let clients = ServerClients(
-      serverURL: URL(string: "http://127.0.0.1:3000")!,
+    let clients = try ServerClients(
+      serverURL: #require(URL(string: "http://127.0.0.1:3000")),
       authToken: nil,
       dataLoader: { _ in
         throw URLError(.badServerResponse)
@@ -143,7 +142,7 @@ struct MissionControlViewModelTests {
     #expect(viewModel.error != nil)
   }
 
-  @Test func repeatedMissionInvalidationsCoalesceIntoOneFollowupRefresh() async throws {
+  @Test func repeatedMissionInvalidationsCoalesceIntoOneFollowupRefresh() async {
     let fixture = MissionDetailLoaderFixture(
       pauseFirstRequest: true,
       responses: [
@@ -175,7 +174,7 @@ struct MissionControlViewModelTests {
     #expect(viewModel.summary?.name == "Updated Mission")
   }
 
-  @Test func transitionIssueUsesMissionClientAndAppliesReturnedDetail() async throws {
+  @Test func transitionIssueUsesMissionClientAndAppliesReturnedDetail() async {
     let fixture = MissionDetailLoaderFixture(
       responses: [
         .transition(name: "Transitioned Mission"),
@@ -204,7 +203,7 @@ struct MissionControlViewModelTests {
     #expect(viewModel.error == nil)
   }
 
-  @Test func presentingWorktreeCleanupLoadsSheetState() async throws {
+  @Test func presentingWorktreeCleanupLoadsSheetState() async {
     let fixture = MissionDetailLoaderFixture(
       responses: [.worktrees]
     )
@@ -362,8 +361,7 @@ private actor MissionDetailLoaderFixture {
         "cleanup_prompt": null,
         "settings": null,
         "mission_file_exists": true,
-        "mission_file_path": "MISSION.md",
-        "workflow_migration_available": false
+        "mission_file_path": "MISSION.md"
       }
       """.utf8
     )

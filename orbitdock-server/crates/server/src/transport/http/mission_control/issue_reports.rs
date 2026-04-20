@@ -50,7 +50,7 @@ pub async fn set_issue_pr_url(
   registry.publish_mission_invalidation(&mission_id);
 
   Ok(Json(
-    load_detail_response(&registry, &mission_id, None, false).await?,
+    load_detail_response(&registry, &mission_id, None).await?,
   ))
 }
 
@@ -217,15 +217,8 @@ pub async fn transition_mission_issue(
   let mid4 = mission_id.clone();
   let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid4)).await?;
   let orchestrator_running = registry.is_orchestrator_running();
-  let response = build_detail_response(
-    &registry,
-    &mission,
-    issue_rows,
-    orchestrator_running,
-    None,
-    false,
-  )
-  .await;
+  let response =
+    build_detail_response(&registry, &mission, issue_rows, orchestrator_running, None).await;
   Ok(Json(response))
 }
 
@@ -360,9 +353,7 @@ pub async fn report_issue_blocked(
       "Agent reported issue blocked"
   );
 
-  Ok(Json(
-    load_detail_response(&registry, &mid, None, false).await?,
-  ))
+  Ok(Json(load_detail_response(&registry, &mid, None).await?))
 }
 
 /// POST /api/missions/:mission_id/issues/:issue_id/complete
@@ -479,7 +470,5 @@ pub async fn report_issue_completed(
       "Agent reported issue completed"
   );
 
-  Ok(Json(
-    load_detail_response(&registry, &mid, None, false).await?,
-  ))
+  Ok(Json(load_detail_response(&registry, &mid, None).await?))
 }

@@ -9,7 +9,6 @@ final class MissionControlViewModel {
   var settings: MissionSettings?
   var missionFileExists = true
   var missionFilePath: String?
-  var workflowMigrationAvailable = false
   var isLoading = true
   var error: String?
   var showDeleteConfirmation = false
@@ -31,6 +30,7 @@ final class MissionControlViewModel {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter
   }()
+
   @ObservationIgnored private static let serverDateFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
@@ -106,7 +106,6 @@ final class MissionControlViewModel {
     settings = response.settings
     missionFileExists = response.missionFileExists
     missionFilePath = response.missionFilePath
-    workflowMigrationAvailable = response.workflowMigrationAvailable
     error = nil
   }
 

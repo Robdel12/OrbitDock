@@ -7,7 +7,6 @@ struct MissionOverviewTab: View {
   let issues: [MissionIssueItem]
   let missionId: String
   let missionFileExists: Bool
-  let workflowMigrationAvailable: Bool
   let missionsClient: MissionsClient?
   let isCompact: Bool
   let endpointId: UUID
@@ -105,7 +104,6 @@ struct MissionOverviewTab: View {
         mission: mission,
         missionId: missionId,
         missionFileExists: missionFileExists,
-        workflowMigrationAvailable: workflowMigrationAvailable,
         settings: settings,
         missionsClient: missionsClient,
         onApplyDetail: onApplyDetail,

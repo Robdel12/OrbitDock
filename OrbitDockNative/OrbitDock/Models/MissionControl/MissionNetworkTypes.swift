@@ -27,14 +27,12 @@ struct MissionDetailResponse: Codable {
   let settings: MissionSettings?
   let missionFileExists: Bool
   let missionFilePath: String?
-  let workflowMigrationAvailable: Bool
 
   enum CodingKeys: String, CodingKey {
     case summary, issues, settings
     case cleanupPrompt = "cleanup_prompt"
     case missionFileExists = "mission_file_exists"
     case missionFilePath = "mission_file_path"
-    case workflowMigrationAvailable = "workflow_migration_available"
   }
 }
 

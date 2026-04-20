@@ -16,9 +16,7 @@ pub(crate) use common::{
 };
 pub use crud::{create_mission, delete_mission, get_mission, list_missions, update_mission};
 pub use defaults::{get_mission_defaults, update_mission_defaults};
-pub use files::{
-  get_default_template, migrate_workflow_to_mission, scaffold_mission_file, update_mission_settings,
-};
+pub use files::{get_default_template, scaffold_mission_file, update_mission_settings};
 pub use issue_reports::{
   list_mission_worktrees, report_issue_blocked, report_issue_completed, set_issue_pr_url,
   transition_mission_issue,
@@ -46,7 +44,6 @@ pub struct MissionDetailResponse {
   pub settings: Option<MissionSettingsResponse>,
   pub mission_file_exists: bool,
   pub mission_file_path: Option<String>,
-  pub workflow_migration_available: bool,
 }
 
 #[derive(Serialize)]

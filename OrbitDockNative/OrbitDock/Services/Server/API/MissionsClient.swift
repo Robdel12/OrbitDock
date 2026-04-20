@@ -64,13 +64,6 @@ struct MissionsClient: Sendable {
     )
   }
 
-  func migrateWorkflow(_ id: String) async throws -> MissionDetailResponse {
-    try await http.post(
-      "/api/missions/\(requestBuilder.encodePathComponent(id))/migrate-workflow",
-      body: EmptyBody()
-    )
-  }
-
   func startOrchestrator(_ id: String) async throws {
     let _: MissionOkResponse = try await http.post(
       "/api/missions/\(requestBuilder.encodePathComponent(id))/start-orchestrator",

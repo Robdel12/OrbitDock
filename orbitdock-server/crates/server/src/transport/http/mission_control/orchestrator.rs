@@ -186,7 +186,6 @@ pub async fn dispatch_mission_issue(
     issue_rows,
     orchestrator_running,
     None,
-    false,
   )
   .await;
   Ok(Json(response))

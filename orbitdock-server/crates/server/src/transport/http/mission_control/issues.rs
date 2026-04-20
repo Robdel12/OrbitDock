@@ -115,14 +115,6 @@ pub async fn retry_mission_issue(
   let orchestrator_running = registry.is_orchestrator_running();
 
   Ok(Json(
-    build_detail_response(
-      &registry,
-      &mission,
-      issue_rows,
-      orchestrator_running,
-      None,
-      false,
-    )
-    .await,
+    build_detail_response(&registry, &mission, issue_rows, orchestrator_running, None).await,
   ))
 }

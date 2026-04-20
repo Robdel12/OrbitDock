@@ -6,7 +6,6 @@ struct MissionSetupCard: View {
   let missionFileName: String
   let missionsClient: MissionsClient?
   let onApplyDetail: (MissionDetailResponse) -> Void
-  let onRefresh: () async -> Void
 
   @State private var isScaffolding = false
   @State private var scaffoldError: String?
@@ -139,7 +138,7 @@ struct MissionSetupCard: View {
   private var actionsSection: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       Button {
-        Task { await scaffoldWorkflow() }
+        Task { await scaffoldMission() }
       } label: {
         HStack(spacing: Spacing.sm) {
           if isScaffolding {
@@ -180,7 +179,7 @@ struct MissionSetupCard: View {
 
   // MARK: - Networking
 
-  private func scaffoldWorkflow() async {
+  private func scaffoldMission() async {
     guard let missionsClient else { return }
 
     isScaffolding = true

@@ -102,8 +102,7 @@ struct MissionModelTests {
         "lingering_worktree_count": 3
       },
       "settings": null,
-      "mission_file_exists": true,
-      "workflow_migration_available": false
+      "mission_file_exists": true
     }
     """.data(using: .utf8)!
 

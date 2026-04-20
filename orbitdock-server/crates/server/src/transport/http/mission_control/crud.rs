@@ -155,15 +155,7 @@ pub async fn get_mission(
 
   let orchestrator_running = registry.is_orchestrator_running();
   Ok(Json(
-    build_detail_response(
-      &registry,
-      &mission,
-      issue_rows,
-      orchestrator_running,
-      None,
-      true,
-    )
-    .await,
+    build_detail_response(&registry, &mission, issue_rows, orchestrator_running, None).await,
   ))
 }
 
@@ -208,7 +200,6 @@ pub async fn update_mission(
       issue_rows,
       orchestrator_running,
       None,
-      false,
     )
     .await,
   ))

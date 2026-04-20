@@ -1,10 +1,7 @@
-use std::{path::Path as StdPath, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
-  domain::mission_control::{
-    compute_orchestrator_status,
-    config::{try_parse_symphony_workflow, MissionConfig},
-  },
+  domain::mission_control::{compute_orchestrator_status, config::MissionConfig},
   infrastructure::persistence::{
     load_mission_by_id, load_mission_issues, MissionIssueRow, MissionRow, PersistCommand,
   },
@@ -33,7 +30,6 @@ pub(crate) async fn build_detail_response(
   issue_rows: Vec<MissionIssueRow>,
   orchestrator_running: bool,
   settings_override: Option<MissionSettingsResponse>,
-  check_workflow_migration: bool,
 ) -> MissionDetailResponse {
   let summary = mission_row_to_summary_with_issues(mission, &issue_rows, orchestrator_running);
   let cleanup_prompt = build_cleanup_prompt(registry, &mission.id).await;
@@ -51,18 +47,6 @@ pub(crate) async fn build_detail_response(
     (build_settings_response(mission), exists)
   };
 
-  let workflow_migration_available = if check_workflow_migration && !mission_file_exists {
-    if let Ok(content) =
-      tokio::fs::read_to_string(StdPath::new(&mission.repo_root).join("WORKFLOW.md")).await
-    {
-      try_parse_symphony_workflow(&content).is_some()
-    } else {
-      false
-    }
-  } else {
-    false
-  };
-
   MissionDetailResponse {
     summary,
     issues,
@@ -70,7 +54,6 @@ pub(crate) async fn build_detail_response(
     settings,
     mission_file_exists,
     mission_file_path: mission.mission_file_path.clone(),
-    workflow_migration_available,
   }
 }
 
@@ -78,7 +61,6 @@ pub(crate) async fn load_detail_response(
   registry: &Arc<SessionRegistry>,
   mission_id: &str,
   settings_override: Option<MissionSettingsResponse>,
-  check_workflow_migration: bool,
 ) -> Result<MissionDetailResponse, ApiError> {
   let mission_id = mission_id.to_string();
   let mission_lookup_id = mission_id.clone();
@@ -101,7 +83,6 @@ pub(crate) async fn load_detail_response(
       issue_rows,
       orchestrator_running,
       settings_override,
-      check_workflow_migration,
     )
     .await,
   )

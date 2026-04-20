@@ -141,7 +141,6 @@ struct MissionShowView: View {
                 issues: viewModel.issues,
                 missionId: missionId,
                 missionFileExists: viewModel.missionFileExists,
-                workflowMigrationAvailable: viewModel.workflowMigrationAvailable,
                 missionsClient: viewModel.missionsClient,
                 isCompact: isCompact,
                 endpointId: endpointId,

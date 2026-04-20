@@ -1,15 +1,13 @@
 #[path = "config_model.rs"]
 mod config_model;
-mod migration;
 mod parser;
 mod scaffold;
 mod serializer;
 
 pub use self::config_model::*;
-pub use self::migration::{migrate_workflow_content, try_parse_symphony_workflow};
 pub use self::parser::parse_mission_file;
 pub use self::scaffold::generate_scaffold;
-pub use self::serializer::{serialize_mission_file, serialize_mission_file_preserving};
+pub use self::serializer::serialize_mission_file_preserving;
 
 // ── Public API ───────────────────────────────────────────────────────
 
@@ -22,6 +20,7 @@ pub struct MissionDefinition {
 
 #[cfg(test)]
 mod tests {
+  use super::serializer::serialize_mission_file;
   use super::*;
   use orbitdock_protocol::WorkspaceProviderKind;
 
@@ -205,42 +204,6 @@ You are working on issue {{ issue.identifier }}: {{ issue.title }}
     let result = serialize_mission_file_preserving(&config, "Hello", None).unwrap();
     assert!(result.contains("tracker:"));
     assert!(result.contains("Hello"));
-  }
-
-  #[test]
-  fn symphony_migration_extracts_settings() {
-    let content = r#"---
-tracker:
-  kind: linear
-  project_slug: my-project
-  active_states:
-    - Todo
-    - "In Progress"
-polling:
-  interval_ms: 15000
-agent:
-  max_concurrent_agents: 10
-codex:
-  command: codex --model gpt-5
----
-Some prompt body
-"#;
-    let config = try_parse_symphony_workflow(content).unwrap();
-    assert_eq!(config.tracker, "linear");
-    assert_eq!(
-      config.trigger.filters.project.as_deref(),
-      Some("my-project")
-    );
-    assert_eq!(config.trigger.filters.states, vec!["Todo", "In Progress"]);
-    assert_eq!(config.trigger.interval, 15);
-    assert_eq!(config.provider.max_concurrent, 10);
-    assert_eq!(config.provider.primary, "codex");
-  }
-
-  #[test]
-  fn symphony_migration_rejects_unrelated_yaml() {
-    let content = "---\nname: Not a Symphony workflow\n---\nHello";
-    assert!(try_parse_symphony_workflow(content).is_none());
   }
 
   #[test]

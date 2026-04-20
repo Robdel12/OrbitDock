@@ -1,4 +1,4 @@
-use std::{path::Path as StdPath, sync::Arc};
+use std::sync::Arc;
 
 use axum::{
   extract::{Path, State},
@@ -8,14 +8,13 @@ use serde::Serialize;
 use tracing::info;
 
 use crate::domain::mission_control::config::{
-  generate_scaffold, migrate_workflow_content, parse_mission_file, MissionConfig,
-  MissionConfigUpdate,
+  generate_scaffold, parse_mission_file, MissionConfig, MissionConfigUpdate,
 };
 use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand};
 use crate::runtime::session_registry::SessionRegistry;
 
-use super::super::errors::{bad_request, conflict, internal, not_found, ApiResult};
+use super::super::errors::{conflict, internal, not_found, ApiResult};
 use super::{
   build_detail_response, db_read, flush_persistence, MissionDetailResponse,
   MissionSettingsResponse, UpdateMissionSettingsRequest,
@@ -126,93 +125,6 @@ pub async fn scaffold_mission_file(
     issue_rows,
     orchestrator_running,
     Some(settings),
-    false,
-  )
-  .await;
-  Ok(Json(response))
-}
-
-/// POST /api/missions/:id/migrate-workflow
-///
-/// Reads an existing WORKFLOW.md (Symphony format), extracts settings,
-/// and writes a MISSION.md with the converted config.
-pub async fn migrate_workflow_to_mission(
-  State(registry): State<Arc<SessionRegistry>>,
-  Path(mission_id): Path<String>,
-) -> ApiResult<MissionDetailResponse> {
-  let mid = mission_id.clone();
-  let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
-    .await?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
-
-  let mission_path = mission.resolved_mission_path();
-  if tokio::fs::metadata(&mission_path).await.is_ok() {
-    return Err(conflict(
-      "mission_file_exists",
-      "MISSION.md already exists in this repository",
-    ));
-  }
-
-  let workflow_path = StdPath::new(&mission.repo_root).join("WORKFLOW.md");
-  let workflow_content = tokio::fs::read_to_string(&workflow_path)
-    .await
-    .map_err(|_| not_found("no_workflow", "No WORKFLOW.md found to migrate"))?;
-
-  let (file_content, config, prompt_template) =
-    migrate_workflow_content(&workflow_content, &mission.provider)
-      .map_err(|error| bad_request("no_symphony_config", format!("{error}")))?;
-
-  tokio::fs::write(&mission_path, &file_content)
-    .await
-    .map_err(|error| {
-      internal(
-        "write_error",
-        format!("Failed to write MISSION.md: {error}"),
-      )
-    })?;
-
-  let config_json = serde_json::to_string(&config).unwrap_or_default();
-  let _ = registry
-    .persist()
-    .send(PersistCommand::MissionUpdate {
-      id: mission_id.clone(),
-      name: None,
-      enabled: None,
-      paused: None,
-      tracker_kind: None,
-      config_json: Some(config_json),
-      prompt_template: Some(prompt_template.clone()),
-      parse_error: Some(None),
-      mission_file_path: None,
-    })
-    .await;
-  flush_persistence(&registry).await?;
-
-  info!(
-    component = "mission_control",
-    event = "workflow.migrated",
-    mission_id = %mission_id,
-    "Migrated WORKFLOW.md -> MISSION.md"
-  );
-
-  let mid2 = mission_id.clone();
-  let persisted_mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
-    .await?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
-  let mid3 = mission_id.clone();
-  let issue_rows = db_read(&registry, move |conn| load_mission_issues(conn, &mid3)).await?;
-  let orchestrator_running = registry.is_orchestrator_running();
-  let settings = MissionSettingsResponse {
-    config,
-    prompt_template,
-  };
-  let response = build_detail_response(
-    &registry,
-    &persisted_mission,
-    issue_rows,
-    orchestrator_running,
-    Some(settings),
-    false,
   )
   .await;
   Ok(Json(response))
@@ -346,7 +258,6 @@ pub async fn update_mission_settings(
     issue_rows,
     orchestrator_running,
     Some(settings),
-    false,
   )
   .await;
   Ok(Json(response))
