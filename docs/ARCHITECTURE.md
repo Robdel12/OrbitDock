@@ -59,7 +59,6 @@ Examples:
 - mission control
 - session detail
 - conversation
-- control deck
 - review canvas
 - skills
 - MCP servers
@@ -94,7 +93,7 @@ Each feature view model owns only the state needed to render its surface.
 Good:
 
 - `ConversationViewModel` owns conversation rows and presentation state
-- `ControlDeckViewModel` owns local control state composed from session detail, conversation mutations, and workflow requests
+- `SessionInteractionModel` maps selected-session detail snapshots and mutation responses into composer presentation state
 - `ReviewCanvasViewModel` owns review snapshot and review-specific UI state
 
 Bad:
@@ -110,6 +109,8 @@ The session runtime exists to do transport work:
 - `ServerSessionContext` scopes endpoint + session identity
 - `ServerSessionAPI` handles HTTP bootstrap and mutations
 - `ServerSessionTransport` handles async streams, replay, and reconnect recovery
+
+Selected-session boot order lives in [data-flow.md](data-flow.md). The short version: conversation HTTP bootstrap records the replay cursor before realtime subscription, and the control deck stays composer UI only.
 
 That runtime does not:
 
@@ -201,7 +202,7 @@ This is the intended ownership model.
 | Mission detail | mission control scene/view model | `GET /api/missions/{id}` | mission-specific invalidation or heartbeat |
 | Session detail shell | session detail scene/view model | selected-session detail snapshot | detail-specific invalidation |
 | Conversation | conversation view model | conversation bootstrap + pagination | conversation row deltas + explicit conversation resync |
-| Control deck UI | control-deck view model | session detail + conversation/workflow endpoints | detail-specific invalidation |
+| Composer UI | session interaction model owned by the session detail scene | selected-session detail snapshot + mutation responses | parent session detail invalidation |
 | Review canvas | review view model | review/diff snapshot | review-specific invalidation |
 | Skills | skills view model | skills snapshot | skills-specific invalidation |
 | MCP servers | MCP view model | MCP snapshot | MCP-specific invalidation |
@@ -315,6 +316,20 @@ That gives us:
 
 Connectors and handlers must not mutate session state directly. They feed inputs into the actor, and the actor runs the transition.
 
+### Compile-Time Mutation Fence
+
+In-memory session state is allowed only as an actor-owned projection of durable server truth.
+
+That projection has one write boundary:
+
+- `SessionCoreState` fields stay private
+- runtime, HTTP, WebSocket, connector, and native-facing code cannot assign session fields directly
+- non-durable affordances are derived while building snapshots or deltas, not stored as parallel mutable truth
+- transport code must never "repair" business state before sending it
+- mutable infrastructure caches and registries are allowed only for resource ownership, never as alternate business truth
+
+If a future change needs to mutate session memory, it should fail to compile until the mutation is expressed as an actor command or domain transition. That compiler failure is intentional. It is the guardrail that keeps OrbitDock from drifting back into random in-memory state patches.
+
 ## Server Rule
 
 Every durable session mutation must go through the transition system.
@@ -341,6 +356,8 @@ Do not reintroduce:
 - split persist and broadcast paths
 - connector-owned direct state mutation
 - caller-side duplicate persistence after a handler already owns the update
+- transport-layer state normalization
+- duplicated mutable affordance flags that can drift from the primary state
 
 ## Part 3: Cross-Layer Guardrails
 

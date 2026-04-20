@@ -41,6 +41,10 @@ For Swift app work, prefer the newer plugin skills and MCP tools over ad hoc she
 - prefer the `mcp__xcodebuildmcp__*` tool family for simulator control, screenshots, UI snapshots, log capture, and Xcode-backed build/test actions
 - use shell `xcodebuild` or `swift build` as a fallback when the MCP/plugin path does not cover the task cleanly
 
+## Native Data Flow Rules
+
+Selected-session boot order is defined in [docs/data-flow.md](docs/data-flow.md). The control deck is composer UI only; it must not own session bootstrap, WebSocket subscription, or business-state truth.
+
 ## State Mutation Rules
 
 **Functional. Pure. Immutable. Single mutation path.**

@@ -29,7 +29,7 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
     .run(conn)
     .context("run refinery migrations")?;
 
-  ensure_session_control_plane_columns(conn)?;
+  ensure_session_runtime_columns(conn)?;
 
   let applied = report.applied_migrations();
   let has_v042_after = refinery_history_has_version(conn, 42)?;
@@ -85,7 +85,7 @@ fn should_run_post_v042_vacuum(
   (!had_v042_before && has_v042_after) || dropped_ad_hoc_columns
 }
 
-fn ensure_session_control_plane_columns(conn: &Connection) -> anyhow::Result<()> {
+fn ensure_session_runtime_columns(conn: &Connection) -> anyhow::Result<()> {
   if !table_exists(conn, "sessions")? {
     return Ok(());
   }

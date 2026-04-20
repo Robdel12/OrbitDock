@@ -81,7 +81,7 @@ pub enum BinaryCommand {
     #[arg(long, env = "ORBITDOCK_NO_WEB", default_value_t = false)]
     no_web: bool,
 
-    /// Run as a managed workspace that syncs local persistence to an upstream control plane.
+    /// Run as a managed workspace that syncs local persistence upstream.
     #[arg(long, default_value_t = false)]
     managed: bool,
 
@@ -89,7 +89,7 @@ pub enum BinaryCommand {
     #[arg(long, env = "ORBITDOCK_WORKSPACE_ID")]
     workspace_id: Option<String>,
 
-    /// Upstream control-plane URL for sync replication.
+    /// Upstream sync URL for persistence replication.
     #[arg(long, env = "ORBITDOCK_SYNC_URL")]
     sync_url: Option<String>,
 
@@ -1392,7 +1392,7 @@ mod tests {
       "--workspace-id",
       "workspace-1",
       "--sync-url",
-      "https://control-plane.example",
+      "https://sync.example",
       "--sync-token",
       "sync-token-1",
       "--workspace-provider",
@@ -1411,7 +1411,7 @@ mod tests {
       }) => {
         assert!(managed);
         assert_eq!(workspace_id.as_deref(), Some("workspace-1"));
-        assert_eq!(sync_url.as_deref(), Some("https://control-plane.example"));
+        assert_eq!(sync_url.as_deref(), Some("https://sync.example"));
         assert_eq!(sync_token.as_deref(), Some("sync-token-1"));
         assert_eq!(workspace_provider, Some(WorkspaceProviderKind::Local));
       }

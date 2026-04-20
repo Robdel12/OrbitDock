@@ -136,6 +136,8 @@ make lint         # Lint Swift + Rust
 
 **Surface ownership** — Give each rendered surface one owner, one HTTP bootstrap path, and one realtime follow-up path. `ServerSessionContext` is a scoped dependency bag, while `ServerSessionAPI` and `ServerSessionTransport` stay transport-only.
 
+**Selected-session realtime** — The conversation route must bootstrap conversation rows over HTTP, record the replay cursor, and subscribe to conversation/detail surfaces before slower selected-session detail/support refreshes such as capabilities, skills, review, or project-file support data. This prevents first-message/resume gaps where live deltas arrive before the route is subscribed.
+
 **State scoping** — Keep state endpoint-scoped and session-scoped where appropriate. Cache by scoped identity and always guard async callbacks with a current scoped-id check before applying results.
 
 **SwiftUI structure** — Prefer small dedicated subviews over giant computed `some View` helpers, keep the view tree structurally stable, and move non-trivial actions or async work out of `body`.
@@ -168,6 +170,8 @@ make lint         # Lint Swift + Rust
 2. Update the Rust persistence path if the new schema needs new reads or writes
 3. Update protocol types if the new field needs to reach the app
 4. Run `make rust-test`
+
+Do not edit existing migration files, comments included; add a new migration instead because `refinery` validates migration checksums.
 
 ## Important File Locations
 

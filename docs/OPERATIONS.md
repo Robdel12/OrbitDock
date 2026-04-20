@@ -192,6 +192,8 @@ When adding a migration:
 3. Update protocol types if the new field needs to reach the app
 4. Run `make rust-test`
 
+Do not edit existing migration files, comments included; add a new migration instead because `refinery` validates migration checksums.
+
 Migrations run automatically on server startup.
 
 ### Conversation Row Persistence

@@ -21,6 +21,8 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
+use anyhow::Context;
+
 use crate::domain::sessions::session::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -80,7 +82,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     let mut conn = rusqlite::Connection::open(&db_path)
       .map_err(|e| anyhow::anyhow!("open db for migrations: {e}"))?;
     crate::infrastructure::migration_runner::run_migrations(&mut conn)
-      .map_err(|e| anyhow::anyhow!("database migration failed: {e}"))?;
+      .context("database migration failed")?;
   }
 
   let active_db_tokens = crate::infrastructure::auth_tokens::active_token_count().unwrap_or(0);

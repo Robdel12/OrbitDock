@@ -21,7 +21,7 @@ Use this skill when touching any of these areas:
 - The client renders server state and derives presentation only.
 
 Reserve `control plane` for runtime endpoint selection, primary-claim routing, and sync topology only.
-Do not create UI-facing endpoints like `/api/control-plane`; model those as normal REST resources such as sessions, conversations, capabilities, dashboard, missions, or library.
+Do not create UI-facing umbrella endpoints named after app components; model those as normal REST resources such as sessions, conversations, capabilities, dashboard, missions, or library.
 Do not use `control plane` as the name of a UI-facing HTTP surface when the surface is really a compact sessions summary.
 
 If a payload is large, expensive to build, expensive to decode, or likely to be needed only on demand, it belongs on HTTP.
@@ -42,6 +42,10 @@ Design for hundreds of concurrent agents without stressing the UI thread, server
 - The client must not infer business truth from connector internals, channel presence, or transcript heuristics.
 - Persist lifecycle or control changes through explicit domain transitions.
 - SQLite is the durable source of truth for server-owned state.
+- In-memory session state is actor-owned only; runtime, HTTP, WebSocket, connector, and client-facing code must not patch business fields directly.
+- Derived affordances such as `accepts_user_input`, `steerable`, and `can_interrupt` are projected from primary server state, not stored as independently mutable truth.
+- WebSocket transport forwards actor-produced deltas; it must not normalize or repair business state before delivery.
+- Mutable caches, registries, and locks may own resources, but they must not become alternate business-state stores.
 
 ## Surface Rules
 
@@ -61,6 +65,8 @@ For each surface:
 2. store the returned revision
 3. subscribe to WS with `since_revision`
 4. if replay gaps, refetch only that HTTP surface
+
+For the selected-session conversation route, follow the canonical order in `docs/data-flow.md`: HTTP conversation bootstrap, record replay cursor, subscribe immediately, then run slower support refreshes. The control deck stays composer UI only.
 
 ## Mutation Rules
 
@@ -95,6 +101,10 @@ Do not introduce:
 - UI component names leaking into API or transport names
 - large snapshot payloads over WS for normal bootstrap
 - client-side business-state inference
+- transport-side business-state normalization
+- selected-session subscription blocked behind selected-session detail/support refresh
+- duplicated mutable affordance flags that drift from primary state
+- direct in-memory session mutations outside the session actor/domain transition boundary
 - god-object stores that recompute every screen from one broad state blob
 - “accept first, fail later” mutation flows that create ghost state
 - dead compatibility branches with `allow(...)` suppressions instead of deleting obsolete code
@@ -105,6 +115,8 @@ Do not introduce:
 - Is HTTP the only bootstrap/heavy-read path here?
 - Is WS carrying only light realtime/replay/refetch-hint behavior?
 - Is the server, not the client, deciding business state?
+- Does any in-memory mutation go through the actor/domain boundary, with private fields preventing side writes?
+- Are derived affordances emitted from snapshots/deltas instead of stored and mutated separately?
 - Is the change surface-local instead of globally invalidating unrelated views?
 - If replay gaps happen, does the client refetch the exact HTTP surface?
 - If a mutation succeeds, is the response applied immediately?

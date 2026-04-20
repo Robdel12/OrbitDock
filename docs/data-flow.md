@@ -30,7 +30,7 @@ Examples:
 - missions
 - session detail
 - conversation
-- control deck UI
+- composer UI
 - review canvas
 - skills
 - MCP servers
@@ -51,6 +51,8 @@ HTTP is authoritative for:
 
 HTTP is the only normal bootstrap path.
 
+HTTP handlers may validate requests and return authoritative snapshots, but they do not own session mutation logic. A handler that needs to change session business state sends a command to the session actor and returns the actor/domain result.
+
 ### WebSocket
 
 WebSocket is authoritative for:
@@ -61,6 +63,8 @@ WebSocket is authoritative for:
 - explicit refetch or resync hints
 
 WebSocket should not become a second bootstrap channel for large surface snapshots.
+
+WebSocket transport is not a business-state repair layer. It forwards actor-produced deltas, replay events, heartbeats, and refetch hints. If a websocket sender needs to invent or normalize a business field before delivery, that field belongs in the domain snapshot/delta builder instead.
 
 ## Client Ownership Model
 
@@ -180,13 +184,15 @@ Library is a cold surface. It should not be eagerly loaded just because dashboar
 ### Conversation
 
 - HTTP bootstrap: `GET /api/sessions/{id}/conversation?limit=...`
-- HTTP pagination: `GET /api/sessions/{id}/messages?before_sequence=...&limit=...`
+- HTTP pagination: `GET /api/sessions/{id}/conversation/messages?before_sequence=...&limit=...`
 - WS follow-up: conversation row replay, row deltas, or explicit conversation resync
 - Owner: conversation view model
 
 ### Other Session Surfaces
 
-This includes control deck, review canvas, skills, and MCP servers.
+This includes the composer UI, review canvas, skills, and MCP servers.
+
+The control deck is the current SwiftUI composer component name. It is not an API surface and must not appear in endpoint names, route contracts, or transport ownership.
 
 - HTTP: surface-specific authoritative snapshot
 - WS follow-up: surface-specific invalidation or replay hint
@@ -218,16 +224,21 @@ Library should not be treated like an always-hot global cache.
 
 1. The session detail scene resolves the real `ServerEndpointRuntime`.
 2. The scene decides which surfaces are visible.
-3. Each visible surface owner performs exactly one HTTP bootstrap.
-4. Each surface owner subscribes to its own follow-up stream from the returned revision.
+3. The conversation owner performs the conversation HTTP bootstrap.
+4. The session transport records the returned replay cursor/revision.
+5. The selected-session route subscribes to conversation/detail follow-up immediately.
+6. Slower selected-session detail/support refreshes, such as capabilities, skills, review, and project-file support data, run after realtime is attached.
 
 If one intentional selected-session bootstrap hydrates multiple closely related surfaces, that is fine.
+
+Do not block conversation/detail subscription behind selected-session detail/support refresh. The first message after opening or resuming a session can otherwise race ahead of the subscription, which makes the server stream correctly while the client appears stale until route re-entry.
 
 What is not fine:
 
 - conversation bootstrapping itself one way
 - session detail bootstrapping it another way
 - a shared session observer bootstrapping it a third way
+- a control deck UI component owning selected-session bootstrap or WebSocket subscription
 
 ## Mutation Rules
 
@@ -297,6 +308,21 @@ The client may derive presentation from those fields, but it must not infer them
 
 If the client needs a durable fact, add it to the server contract.
 
+## Server Mutation Boundary
+
+The Rust server may carry in-memory session state for live actors, but that memory is not an open cache. It is an actor-owned projection with one mutation door.
+
+Rules:
+
+- `SessionCoreState` fields stay private.
+- Runtime, HTTP, WebSocket, connector, and persistence code cannot assign session fields directly.
+- Durable changes enter through domain transitions or session actor commands.
+- Derived affordances such as `accepts_user_input`, `steerable`, and `can_interrupt` are projected from primary state instead of being independently stored.
+- Transport code must not patch, infer, or normalize business truth.
+- Mutable maps, locks, and caches are acceptable for resource ownership only. They must not become hidden business-state stores.
+
+This is deliberately enforced at build time. If someone tries to mutate session memory from the wrong layer, the app should fail to compile rather than quietly reintroduce drift.
+
 ## Anti-Patterns
 
 Do not introduce:
@@ -308,6 +334,8 @@ Do not introduce:
 - a god-object session store
 - send flows that wait for websocket before showing the accepted response
 - replay recovery that rebuilds unrelated UI
+- transport-side normalization of business fields
+- duplicated mutable flags for state that can be derived from authoritative fields
 
 ## Practical Summary
 

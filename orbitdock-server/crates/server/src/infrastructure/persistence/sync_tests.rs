@@ -485,7 +485,7 @@ fn non_syncable_commands_are_filtered_out() {
   for persist in sample_non_syncable_persist_commands() {
     assert!(
       Option::<SyncCommand>::from(&persist).is_none(),
-      "control-plane config and mission admin commands should not sync"
+      "local config and mission admin commands should not sync"
     );
   }
 }

@@ -86,7 +86,19 @@ Prefer a small number of obvious transition points over many helper methods that
 
 If a fix requires "remember to call this helper everywhere," stop and redesign.
 
+For OrbitDock session memory, the build should enforce this boundary:
+
+- keep `SessionCoreState` fields private
+- expose reads through snapshots/accessors
+- expose writes through domain methods, actor commands, or transition inputs only
+- never let transport, HTTP handlers, connectors, or registry code assign business fields directly
+- derive affordance fields from primary state instead of storing mutable duplicates
+
+If someone tries to mutate session memory outside that boundary, it should fail at compile time. Do not replace that compiler failure with a helper in the wrong layer.
+
 ### 5. Keep persistence and protocol honest
+
+Existing migration files are immutable history. Do not edit them, comments included; add a new migration instead because `refinery` validates file checksums.
 
 When durable truth changes:
 
@@ -136,6 +148,9 @@ Do not silence Clippy design feedback with `#[allow(clippy::...)]` unless explic
 - Keep typed protocol boundaries. Do not replace real schemas with bags of fields.
 - SQLite ownership stays in the Rust server.
 - Conversation rows must stay on the single-writer persistence path.
+- Actor-owned in-memory session state is a projection, not a second source of truth.
+- WebSocket transport must not normalize or repair business state; snapshots and deltas come from the actor/domain boundary.
+- Mutable maps, locks, and caches are resource ownership tools only. Do not use them as hidden business-state stores.
 
 ## Smells That Mean “Refactor, Don’t Patch”
 
@@ -144,6 +159,8 @@ Read `references/design-smells.md` when the change feels deceptively small or "j
 Common smell:
 
 - the old code keeps compiling after a semantic change because two concepts still share one variant or one payload type
+- a transport or HTTP layer "fixes" a field before sending it instead of moving the derivation into the domain projection
+- a new public field or setter appears on session state to get a quick UI fix through
 
 That is not safety. That is hidden coupling.
 
