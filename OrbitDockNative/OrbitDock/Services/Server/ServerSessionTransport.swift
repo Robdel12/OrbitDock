@@ -38,7 +38,11 @@ final class ServerSessionTransport {
     self.endpointRuntime = endpointRuntime
   }
 
-  func stopProcessingEvents() {}
+  func stopProcessingEvents() {
+    unsubscribe()
+    eventContinuations.values.forEach { $0.finish() }
+    eventContinuations.removeAll()
+  }
 
   func events() -> (stream: AsyncStream<Event>, id: UUID) {
     let id = UUID()
@@ -59,11 +63,7 @@ final class ServerSessionTransport {
 
   func recordRevision(_ revision: UInt64?) {
     guard let revision else { return }
-    if let lastRevision {
-      self.lastRevision = max(lastRevision, revision)
-    } else {
-      self.lastRevision = revision
-    }
+    lastRevision = max(lastRevision ?? revision, revision)
   }
 
   func subscribe(surfaces: SessionSurfaceSet) {
@@ -113,10 +113,6 @@ final class ServerSessionTransport {
       lastRevision = nil
       endpointRuntime.removeSession(sessionId)
     }
-  }
-
-  func isSubscribed() -> Bool {
-    !subscribedSurfaces.isEmpty
   }
 
   func handleEvent(_ event: ServerEvent) {
@@ -181,6 +177,7 @@ final class ServerSessionTransport {
     guard !targets.isEmpty else { return }
     notifyEvent(.invalidated(targets))
   }
+
   private var subscribedSurfaces: SessionSurfaceSet {
     Set(surfaceSubscriptionCounts.keys)
   }

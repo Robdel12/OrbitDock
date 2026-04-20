@@ -382,8 +382,7 @@ struct ServerClientsTests {
       "cleanup_prompt": null,
       "settings": null,
       "mission_file_exists": true,
-      "mission_file_path": null,
-      "workflow_migration_available": false
+      "mission_file_path": null
     }
     """
   }

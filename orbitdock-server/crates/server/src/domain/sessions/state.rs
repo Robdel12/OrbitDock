@@ -11,8 +11,8 @@ use super::facets::{
 };
 use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInput};
 use super::session::{
-  accepts_user_input_from_parts, control_mode_from_parts, SessionConfigPatch, SessionRestoreData,
-  SessionSnapshot,
+  accepts_user_input_from_parts, control_mode_from_parts, steerable_from_parts, SessionConfigPatch,
+  SessionRestoreData, SessionSnapshot,
 };
 use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
@@ -40,47 +40,46 @@ fn latest_transcript_synced_row_id(rows: &[ConversationRowEntry]) -> Option<Stri
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct SessionCoreState {
-  pub identity: SessionIdentity,
-  pub config: SessionConfig,
-  pub display: SessionDisplay,
-  pub environment: SessionEnvironment,
-  pub timestamps: SessionTimestamps,
-  pub codex_integration_mode: Option<CodexIntegrationMode>,
-  pub claude_integration_mode: Option<ClaudeIntegrationMode>,
-  pub control_mode: SessionControlMode,
-  pub status: SessionStatus,
-  pub work_status: WorkStatus,
-  pub lifecycle_state: SessionLifecycleState,
-  pub steerable: bool,
-  pub last_tool: Option<String>,
-  pub rows: Vec<ConversationRowEntry>,
-  pub total_row_count: u64,
-  pub token_usage: TokenUsage,
-  pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
-  pub tool_count: u64,
-  pub current_diff: Option<Arc<str>>,
-  pub current_plan: Option<Arc<str>>,
-  pub current_turn_id: Option<String>,
-  pub turn_count: u64,
-  pub turn_diffs: Vec<TurnDiff>,
-  pub forked_from_session_id: Option<String>,
-  pub terminal_session_id: Option<String>,
-  pub terminal_app: Option<String>,
-  pub subagents: Vec<SubagentInfo>,
-  pub pending_approval: Option<ApprovalRequest>,
-  pub permission_mode: Option<String>,
-  pub pending_tool_name: Option<String>,
-  pub pending_tool_input: Option<String>,
-  pub pending_question: Option<String>,
-  pub pending_approval_id: Option<String>,
-  pub pending_approvals: VecDeque<PendingApprovalEntry>,
-  pub approval_version: u64,
-  pub unread_count: u64,
-  pub mission_id: Option<String>,
-  pub issue_identifier: Option<String>,
-  pub allow_bypass_permissions: bool,
-  pub newest_synced_row_id: Option<String>,
+pub(super) struct SessionCoreState {
+  identity: SessionIdentity,
+  config: SessionConfig,
+  display: SessionDisplay,
+  environment: SessionEnvironment,
+  timestamps: SessionTimestamps,
+  codex_integration_mode: Option<CodexIntegrationMode>,
+  claude_integration_mode: Option<ClaudeIntegrationMode>,
+  control_mode: SessionControlMode,
+  status: SessionStatus,
+  work_status: WorkStatus,
+  lifecycle_state: SessionLifecycleState,
+  last_tool: Option<String>,
+  rows: Vec<ConversationRowEntry>,
+  total_row_count: u64,
+  token_usage: TokenUsage,
+  token_usage_snapshot_kind: TokenUsageSnapshotKind,
+  tool_count: u64,
+  current_diff: Option<Arc<str>>,
+  current_plan: Option<Arc<str>>,
+  current_turn_id: Option<String>,
+  turn_count: u64,
+  turn_diffs: Vec<TurnDiff>,
+  forked_from_session_id: Option<String>,
+  terminal_session_id: Option<String>,
+  terminal_app: Option<String>,
+  subagents: Vec<SubagentInfo>,
+  pending_approval: Option<ApprovalRequest>,
+  permission_mode: Option<String>,
+  pending_tool_name: Option<String>,
+  pending_tool_input: Option<String>,
+  pending_question: Option<String>,
+  pending_approval_id: Option<String>,
+  pending_approvals: VecDeque<PendingApprovalEntry>,
+  approval_version: u64,
+  unread_count: u64,
+  mission_id: Option<String>,
+  issue_identifier: Option<String>,
+  allow_bypass_permissions: bool,
+  newest_synced_row_id: Option<String>,
 }
 
 impl SessionCoreState {
@@ -108,7 +107,6 @@ impl SessionCoreState {
       status: SessionStatus::Active,
       work_status: WorkStatus::Waiting,
       lifecycle_state: SessionLifecycleState::Open,
-      steerable: false,
       last_tool: None,
       rows: Vec::new(),
       total_row_count: 0,
@@ -141,10 +139,113 @@ impl SessionCoreState {
   }
 
   fn can_interrupt(&self) -> bool {
-    self.status == SessionStatus::Active
-      && self.control_mode == SessionControlMode::Direct
-      && self.lifecycle_state == SessionLifecycleState::Open
-      && self.work_status == WorkStatus::Working
+    self.is_steerable()
+  }
+
+  fn is_steerable(&self) -> bool {
+    steerable_from_parts(
+      self.status,
+      self.work_status,
+      self.control_mode,
+      self.lifecycle_state,
+    )
+  }
+
+  pub fn id(&self) -> &str {
+    &self.identity.id
+  }
+
+  pub fn provider(&self) -> orbitdock_protocol::Provider {
+    self.identity.provider
+  }
+
+  pub fn config(&self) -> &SessionConfig {
+    &self.config
+  }
+
+  pub fn subagents(&self) -> &[SubagentInfo] {
+    &self.subagents
+  }
+
+  pub fn rows(&self) -> &[ConversationRowEntry] {
+    &self.rows
+  }
+
+  pub fn first_prompt(&self) -> Option<&str> {
+    self.display.first_prompt.as_deref()
+  }
+
+  pub fn transcript_path(&self) -> Option<&str> {
+    self.identity.transcript_path.as_deref()
+  }
+
+  pub fn message_count(&self) -> usize {
+    self.total_row_count as usize
+  }
+
+  pub fn newest_synced_row_id(&self) -> Option<&str> {
+    self.newest_synced_row_id.as_deref()
+  }
+
+  pub fn repository_root(&self) -> Option<&str> {
+    self.environment.repository_root.as_deref()
+  }
+
+  pub fn is_worktree(&self) -> bool {
+    self.environment.is_worktree
+  }
+
+  pub fn worktree_id(&self) -> Option<&str> {
+    self.environment.worktree_id.as_deref()
+  }
+
+  pub fn work_status(&self) -> WorkStatus {
+    self.work_status
+  }
+
+  pub fn last_tool(&self) -> Option<&str> {
+    self.last_tool.as_deref()
+  }
+
+  pub fn unread_count(&self) -> u64 {
+    self.unread_count
+  }
+
+  pub fn total_row_count(&self) -> u64 {
+    self.total_row_count
+  }
+
+  pub fn approval_version(&self) -> u64 {
+    self.approval_version
+  }
+
+  pub fn increment_tool_count(&mut self) {
+    self.tool_count += 1;
+  }
+
+  #[cfg(test)]
+  pub fn pending_approval_count(&self) -> usize {
+    self.pending_approvals.len()
+  }
+
+  #[cfg(test)]
+  pub fn pending_approval_id(&self) -> Option<&str> {
+    self.pending_approval_id.as_deref()
+  }
+
+  #[cfg(test)]
+  pub fn pending_tool_input(&self) -> Option<&str> {
+    self.pending_tool_input.as_deref()
+  }
+
+  #[cfg(test)]
+  pub fn last_activity_at(&self) -> Option<&str> {
+    self.timestamps.last_activity_at.as_deref()
+  }
+
+  #[cfg(test)]
+  pub fn last_progress_at(&self) -> Option<&str> {
+    self.timestamps.last_progress_at.as_deref()
   }
 
   pub fn restore(data: SessionRestoreData) -> Self {
@@ -187,7 +288,6 @@ impl SessionCoreState {
       status,
       work_status,
       lifecycle_state,
-      steerable: work_status == WorkStatus::Working,
       last_tool: None,
       rows,
       total_row_count: 0,
@@ -288,7 +388,7 @@ impl SessionCoreState {
       control_mode: self.control_mode,
       lifecycle_state: self.lifecycle_state,
       accepts_user_input,
-      steerable: self.steerable,
+      steerable: self.is_steerable(),
       token_usage: self.token_usage.clone(),
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
       has_pending_approval: self.pending_approval.is_some()
@@ -428,7 +528,7 @@ impl SessionCoreState {
       unread_count: self.unread_count,
       mission_id: self.mission_id.clone(),
       issue_identifier: self.issue_identifier.clone(),
-      steerable: self.steerable,
+      steerable: self.is_steerable(),
       allow_bypass_permissions: self.allow_bypass_permissions,
       rows: vec![],
       total_row_count: 0,
@@ -449,7 +549,7 @@ impl SessionCoreState {
       work_status: self.work_status,
       control_mode: self.control_mode,
       lifecycle_state: self.lifecycle_state,
-      steerable: self.steerable,
+      steerable: self.is_steerable(),
       codex_integration_mode: self.codex_integration_mode,
       claude_integration_mode: self.claude_integration_mode,
       pending_approval: self.pending_approval.as_ref(),
@@ -946,9 +1046,6 @@ impl SessionCoreState {
     if let Some(lifecycle_state) = changes.lifecycle_state {
       self.lifecycle_state = lifecycle_state;
     }
-    if let Some(steerable) = changes.steerable {
-      self.steerable = steerable;
-    }
     if let Some(ref pending_approval) = changes.pending_approval {
       if let Some(approval) = pending_approval.as_ref() {
         self.queue_pending_approval(
@@ -1304,5 +1401,27 @@ mod tests {
       state.newest_synced_row_id.as_deref(),
       Some("row-transcript-1")
     );
+  }
+
+  #[test]
+  fn work_status_is_authoritative_for_steerable_state() {
+    let mut state = SessionCoreState::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+
+    state.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    state.set_work_status(WorkStatus::Working);
+    assert!(state.retained_state(0).steerable);
+
+    state.apply_changes(&StateChanges {
+      work_status: Some(WorkStatus::Waiting),
+      steerable: Some(true),
+      ..Default::default()
+    });
+
+    assert_eq!(state.work_status, WorkStatus::Waiting);
+    assert!(!state.retained_state(0).steerable);
   }
 }

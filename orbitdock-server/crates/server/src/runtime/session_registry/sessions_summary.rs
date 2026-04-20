@@ -12,11 +12,11 @@ const SESSIONS_SUMMARY_RECENT_LIMIT: usize = 5;
 
 impl SessionRegistry {
   pub fn current_sessions_summary_revision(&self) -> u64 {
-    self.control_plane_revision.load(Ordering::Relaxed)
+    self.sessions_summary_revision.load(Ordering::Relaxed)
   }
 
-  pub fn control_plane_revision_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
-    self.control_plane_revision.clone()
+  pub fn sessions_summary_revision_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
+    self.sessions_summary_revision.clone()
   }
 
   pub async fn current_sessions_summary_snapshot(
@@ -83,7 +83,10 @@ impl SessionRegistry {
   }
 
   pub fn publish_sessions_summary_invalidation(&self) {
-    let revision = self.control_plane_revision.fetch_add(1, Ordering::Relaxed) + 1;
+    let revision = self
+      .sessions_summary_revision
+      .fetch_add(1, Ordering::Relaxed)
+      + 1;
     let _ = self
       .list_tx
       .send(ServerMessage::SessionsSummaryInvalidated { revision });

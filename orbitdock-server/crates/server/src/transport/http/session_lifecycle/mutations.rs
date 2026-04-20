@@ -8,14 +8,14 @@ use axum::{
 use serde::Deserialize;
 
 use super::super::errors::ApiErrorResponse;
-use super::super::AcceptedResponse;
+use super::super::{session_load_error, AcceptedResponse};
 use super::common::{accepted_response, flush_persistence, map_session_mutation_error};
 use crate::runtime::session_mutations::{
   end_session as end_runtime_session, rename_session as rename_runtime_session,
   set_summary as set_runtime_summary, update_session_config as update_runtime_session_config,
   SessionConfigUpdate,
 };
-use crate::runtime::session_queries::{load_full_session_state, SessionLoadError};
+use crate::runtime::session_queries::load_full_session_state;
 use crate::runtime::session_registry::SessionRegistry;
 use orbitdock_protocol::{
   CodexApprovalPolicy, CodexApprovalsReviewer, CodexConfigMode, CodexSandboxPolicy,
@@ -101,7 +101,7 @@ pub async fn rename_session(
     .await
     .map_err(map_session_mutation_error)?;
 
-  Ok(accepted_response(&state, &session_id).await)
+  accepted_response(&state, &session_id).await
 }
 
 pub async fn set_summary(
@@ -113,7 +113,7 @@ pub async fn set_summary(
     .await
     .map_err(map_session_mutation_error)?;
 
-  Ok(accepted_response(&state, &session_id).await)
+  accepted_response(&state, &session_id).await
 }
 
 pub async fn update_session_config(
@@ -132,27 +132,7 @@ pub async fn update_session_config(
       revision: session.revision.unwrap_or_default(),
       session,
     })),
-    Err(SessionLoadError::NotFound) => Err((
-      StatusCode::NOT_FOUND,
-      Json(ApiErrorResponse {
-        code: "not_found",
-        error: format!("Session {} not found", session_id),
-      }),
-    )),
-    Err(SessionLoadError::Db(err)) => Err((
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(ApiErrorResponse {
-        code: "db_error",
-        error: err,
-      }),
-    )),
-    Err(SessionLoadError::Runtime(err)) => Err((
-      StatusCode::SERVICE_UNAVAILABLE,
-      Json(ApiErrorResponse {
-        code: "runtime_error",
-        error: err,
-      }),
-    )),
+    Err(error) => Err(session_load_error(&session_id, error)),
   }
 }
 
@@ -162,5 +142,5 @@ pub async fn end_session(
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   end_runtime_session(&state, &session_id).await;
 
-  Ok(accepted_response(&state, &session_id).await)
+  accepted_response(&state, &session_id).await
 }

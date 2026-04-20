@@ -62,6 +62,52 @@ struct ServerSessionSurfaceBindingTests {
     #expect(viewModel.conversationViewModel.rowEntries.map(\.id) == ["send-row-1"])
   }
 
+  @Test func sessionDetailSubscribesAfterConversationBootstrapBeforeDetailRefreshCompletes() async throws {
+    let fixture = InitialSessionLifecycleFixture()
+    let connection = EndpointRuntimeConnectionSpy()
+    let baseURL = try #require(URL(string: "http://127.0.0.1:4000"))
+    let clients = ServerClients(
+      serverURL: baseURL,
+      authToken: nil,
+      dataLoader: { request in try await fixture.loader(request) }
+    )
+    let endpointId = UUID()
+    let runtime = ServerEndpointRuntime(
+      clients: clients,
+      connection: connection,
+      endpointId: endpointId
+    )
+    let session = runtime.session("session-1")
+    let viewModel = SessionDetailViewModel(
+      sessionId: "session-1",
+      endpointId: endpointId,
+      session: session
+    )
+
+    let lifecycle = Task {
+      await viewModel.runLifecycle(
+        bindingIdentity: "\(endpointId.uuidString):session-1:\(ObjectIdentifier(session))",
+        sessionId: "session-1",
+        endpointId: endpointId,
+        session: session,
+        modelPricingService: ModelPricingService(),
+        terminalRegistry: TerminalSessionRegistry(),
+        showWorkerPanel: false,
+        chatViewMode: .focused
+      )
+    }
+
+    await fixture.waitForDetailRequest()
+
+    let subscribedSurfaces = Set(connection.subscribeCalls.map(\.surface))
+    #expect(subscribedSurfaces == [.conversation, .detail])
+    #expect(connection.subscribeCalls.allSatisfy { $0.sinceRevision == 1 })
+
+    await fixture.releaseDetailRequest()
+    lifecycle.cancel()
+    _ = await lifecycle.result
+  }
+
   @Test func reviewRefreshIgnoresStaleDiffPayloadAfterSessionRebind() async throws {
     let fixture = ReviewSurfaceSwitchFixture()
     let runtime = try makeRuntime(loader: { request in try await fixture.loader(request) })
@@ -278,6 +324,106 @@ struct ServerSessionSurfaceBindingTests {
         of: "\"project_name\": \"OrbitDock\"",
         with: "\"project_name\": \"\(projectName)\""
       )
+  }
+}
+
+actor InitialSessionLifecycleFixture {
+  private var detailStarted = false
+  private var detailReleased = false
+  private var detailStartWaiters: [CheckedContinuation<Void, Never>] = []
+  private var detailReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func loader(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    let path = request.url?.path ?? ""
+    guard let url = request.url else { throw URLError(.badURL) }
+
+    if path.hasSuffix("/conversation") {
+      return ServerSessionSurfaceBindingTests.makeHTTPResponse(
+        for: url,
+        json: Self.conversationBootstrapJSON
+      )
+    }
+
+    if path.hasSuffix("/detail") {
+      detailStarted = true
+      resume(waiters: &detailStartWaiters)
+      if !detailReleased {
+        await withCheckedContinuation { continuation in
+          detailReleaseWaiters.append(continuation)
+        }
+      }
+      return ServerSessionSurfaceBindingTests.makeHTTPResponse(
+        for: url,
+        json: ServerSessionSurfaceBindingTests.detailSnapshotJSON(
+          sessionId: "session-1",
+          revision: 2,
+          projectName: "OrbitDock"
+        )
+      )
+    }
+
+    throw URLError(.badURL)
+  }
+
+  func waitForDetailRequest() async {
+    guard !detailStarted else { return }
+    await withCheckedContinuation { continuation in
+      detailStartWaiters.append(continuation)
+    }
+  }
+
+  func releaseDetailRequest() {
+    detailReleased = true
+    resume(waiters: &detailReleaseWaiters)
+  }
+
+  private func resume(waiters: inout [CheckedContinuation<Void, Never>]) {
+    for waiter in waiters {
+      waiter.resume()
+    }
+    waiters.removeAll()
+  }
+
+  private nonisolated static var conversationBootstrapJSON: String {
+    #"""
+    {
+      "session": {
+        "id": "session-1",
+        "provider": "claude",
+        "project_path": "/tmp/project",
+        "project_name": "OrbitDock",
+        "status": "active",
+        "work_status": "waiting",
+        "control_mode": "direct",
+        "lifecycle_state": "open",
+        "accepts_user_input": true,
+        "steerable": false,
+        "rows": [],
+        "total_row_count": 0,
+        "has_more_before": false,
+        "token_usage": {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cached_tokens": 0,
+          "context_window": 0
+        },
+        "token_usage_snapshot_kind": "unknown",
+        "allow_bypass_permissions": false,
+        "turn_count": 0,
+        "turn_diffs": [],
+        "subagents": [],
+        "is_worktree": false,
+        "unread_count": 0,
+        "claude_integration_mode": "direct",
+        "revision": 1
+      },
+      "forked_from_session_id": null,
+      "replay_cursor": 1,
+      "total_row_count": 0,
+      "has_more_before": false,
+      "rows": []
+    }
+    """#
   }
 }
 

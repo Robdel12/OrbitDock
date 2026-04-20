@@ -728,7 +728,6 @@ fn conversation_snapshot_from_session(session: &SessionState) -> Option<Conversa
   }
 
   Some(ConversationSnapshotPage {
-    revision: session.revision.unwrap_or_default(),
     replay_cursor: session.revision.unwrap_or_default(),
     session_id: session.id.clone(),
     rows: session.rows.iter().map(|row| row.to_summary()).collect(),
@@ -998,8 +997,8 @@ async fn send_message(
     return EXIT_SERVER_ERROR;
   }
 
-  let conversation_revision = match fetch_conversation_snapshot(config, session_id, 50).await {
-    Ok(snapshot) => snapshot.revision,
+  let replay_cursor = match fetch_conversation_snapshot(config, session_id, 50).await {
+    Ok(snapshot) => snapshot.replay_cursor,
     Err(err) => {
       output.print_error(&err);
       return EXIT_SERVER_ERROR;
@@ -1010,7 +1009,7 @@ async fn send_message(
     &mut ws,
     session_id,
     SessionSurface::Conversation,
-    Some(conversation_revision),
+    Some(replay_cursor),
   )
   .await
   {
@@ -1646,7 +1645,7 @@ async fn watch(
     .subscribe_session_surface(
       session_id,
       SessionSurface::Conversation,
-      Some(conversation.revision),
+      Some(conversation.replay_cursor),
     )
     .await
   {

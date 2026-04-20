@@ -5,8 +5,9 @@ use orbitdock_protocol::{
 };
 
 use crate::{
-  runtime::session_queries::SessionLoadError, support::session_time::parse_unix_z,
-  transport::http::ApiErrorResponse,
+  runtime::session_queries::SessionLoadError,
+  support::session_time::parse_unix_z,
+  transport::http::{session_load_error, ApiErrorResponse},
 };
 
 use super::{
@@ -30,29 +31,7 @@ pub fn map_session_load_error(
   session_id: &str,
   error: SessionLoadError,
 ) -> (StatusCode, Json<ApiErrorResponse>) {
-  match error {
-    SessionLoadError::NotFound => (
-      StatusCode::NOT_FOUND,
-      Json(ApiErrorResponse {
-        code: "not_found",
-        error: format!("Session {} not found", session_id),
-      }),
-    ),
-    SessionLoadError::Db(err) => (
-      StatusCode::INTERNAL_SERVER_ERROR,
-      Json(ApiErrorResponse {
-        code: "db_error",
-        error: err,
-      }),
-    ),
-    SessionLoadError::Runtime(err) => (
-      StatusCode::SERVICE_UNAVAILABLE,
-      Json(ApiErrorResponse {
-        code: "runtime_error",
-        error: err,
-      }),
-    ),
-  }
+  session_load_error(session_id, error)
 }
 
 pub fn row_matches_search(

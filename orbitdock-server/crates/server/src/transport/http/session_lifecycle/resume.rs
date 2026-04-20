@@ -61,7 +61,7 @@ pub async fn resume_session(
           return Ok(Json(ResumeSessionResponse {
             session_id: session_id.clone(),
             session: summary,
-            session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
+            session_detail_snapshot: Some(load_session_detail_snapshot(&state, &session_id).await?),
           }));
         }
 
@@ -102,7 +102,7 @@ pub async fn resume_session(
   Ok(Json(ResumeSessionResponse {
     session_id: session_id.clone(),
     session: summary,
-    session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
+    session_detail_snapshot: Some(load_session_detail_snapshot(&state, &session_id).await?),
   }))
 }
 

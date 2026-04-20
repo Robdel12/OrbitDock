@@ -14,7 +14,7 @@ use orbitdock_protocol::{
 use crate::{
   runtime::{
     session_queries::{
-      load_conversation_bootstrap, load_conversation_page, load_full_session_state,
+      load_conversation_bootstrap, load_conversation_page, load_persisted_session_state,
     },
     session_registry::SessionRegistry,
   },
@@ -41,7 +41,6 @@ pub async fn get_conversation_snapshot(
         .map(|entry| entry.to_transport_summary())
         .collect();
       Ok(Json(ConversationSnapshotPage {
-        revision: bootstrap.session.revision.unwrap_or_default(),
         replay_cursor: bootstrap.session.revision.unwrap_or_default(),
         session_id,
         rows,
@@ -96,9 +95,9 @@ pub async fn mark_session_read(
 pub async fn search_conversation_rows(
   Path(session_id): Path<String>,
   Query(query): Query<ConversationSearchQuery>,
-  State(state): State<Arc<SessionRegistry>>,
+  State(_state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<RowPageSummary> {
-  let rows = load_full_session_state(&state, &session_id, true, false)
+  let rows = load_persisted_session_state(&session_id, true, false)
     .await
     .map_err(|error| map_session_load_error(&session_id, error))?
     .rows;
@@ -124,9 +123,9 @@ pub async fn search_conversation_rows(
 
 pub async fn get_session_stats(
   Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
+  State(_state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<SessionStatsResponse> {
-  let session = load_full_session_state(&state, &session_id, true, false)
+  let session = load_persisted_session_state(&session_id, true, false)
     .await
     .map_err(|error| map_session_load_error(&session_id, error))?;
   let rows = session.rows.clone();

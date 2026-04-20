@@ -3,11 +3,13 @@ use std::sync::Arc;
 use axum::{http::StatusCode, Json};
 use orbitdock_protocol::SessionDetailSnapshot;
 
-use super::super::errors::{conflict, internal, unprocessable, ApiErrorResponse};
+use super::super::errors::{
+  conflict, internal, session_load_error, unprocessable, ApiErrorResponse,
+};
 use super::super::AcceptedResponse;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_mutations::SessionMutationError;
-use crate::runtime::session_queries::{load_full_session_state, SessionLoadError};
+use crate::runtime::session_queries::load_full_session_state;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_resume::ResumeSessionError;
 use crate::runtime::session_takeover::TakeoverSessionError;
@@ -85,25 +87,23 @@ pub(super) async fn flush_persistence(state: &Arc<SessionRegistry>) {
 pub(super) async fn load_session_detail_snapshot(
   state: &Arc<SessionRegistry>,
   session_id: &str,
-) -> Option<SessionDetailSnapshot> {
+) -> Result<SessionDetailSnapshot, (StatusCode, Json<ApiErrorResponse>)> {
   match load_full_session_state(state, session_id, false, false).await {
-    Ok(session) => Some(SessionDetailSnapshot {
+    Ok(session) => Ok(SessionDetailSnapshot {
       revision: session.revision.unwrap_or_default(),
       session,
     }),
-    Err(SessionLoadError::NotFound | SessionLoadError::Db(_) | SessionLoadError::Runtime(_)) => {
-      None
-    }
+    Err(error) => Err(session_load_error(session_id, error)),
   }
 }
 
 pub(super) async fn accepted_response(
   state: &Arc<SessionRegistry>,
   session_id: &str,
-) -> Json<AcceptedResponse> {
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   flush_persistence(state).await;
-  Json(AcceptedResponse {
+  Ok(Json(AcceptedResponse {
     accepted: true,
-    session_detail_snapshot: load_session_detail_snapshot(state, session_id).await,
-  })
+    session_detail_snapshot: Some(load_session_detail_snapshot(state, session_id).await?),
+  }))
 }

@@ -103,11 +103,11 @@ pub(crate) async fn handle(
       let handle = spawn_filtered_broadcast_forwarder(rx, client_tx.clone(), None, |msg| {
         matches!(msg, ServerMessage::SessionsSummaryInvalidated { .. })
       });
-      subscriptions.replace_control_plane_forwarder(handle);
+      subscriptions.replace_sessions_summary_forwarder(handle);
     }
 
     ClientMessage::UnsubscribeSessionsSummary => {
-      subscriptions.remove_control_plane_forwarder();
+      subscriptions.remove_sessions_summary_forwarder();
     }
 
     ClientMessage::SubscribeActiveSessions { since_revision } => {

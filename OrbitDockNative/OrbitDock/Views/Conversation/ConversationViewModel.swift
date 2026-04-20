@@ -25,9 +25,7 @@ final class ConversationViewModel {
   @ObservationIgnored var isLoadingOlder = false
   @ObservationIgnored let refreshRunner = CoalescedRefreshRunner()
   @ObservationIgnored var isRefreshInFlight = false
-  @ObservationIgnored var buffersRowDeltasDuringRefresh = false
   @ObservationIgnored var pendingForceHTTPResync = false
-  @ObservationIgnored var bufferedRowDeltas: [ServerSessionTransport.ConversationRowDelta] = []
   @ObservationIgnored var pendingForcedResyncRevision: UInt64?
   @ObservationIgnored var lastCompletedForcedResyncRevision: UInt64?
   @ObservationIgnored var lastCompletedUnversionedForcedResyncCursor: UInt64?

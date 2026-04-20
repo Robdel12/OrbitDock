@@ -19,10 +19,8 @@ extension ConversationViewModel {
       totalRowCount = 0
       isLoadingOlder = false
       forkOrigin = nil
-      bufferedRowDeltas.removeAll()
       refreshRunner.cancel()
       isRefreshInFlight = false
-      buffersRowDeltasDuringRefresh = false
       pendingForceHTTPResync = false
       pendingForcedResyncRevision = nil
       lastCompletedForcedResyncRevision = nil

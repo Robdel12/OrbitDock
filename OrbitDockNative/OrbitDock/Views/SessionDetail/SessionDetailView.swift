@@ -17,6 +17,8 @@ struct SessionDetailView: View {
 
   @State var viewModel: SessionDetailViewModel
   @State var isDirectControlDeckFocused = false
+  @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
+  @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
 
   init(sessionId: String, endpointId: UUID, session: ServerSessionContext) {
     self.sessionId = sessionId
@@ -35,8 +37,6 @@ struct SessionDetailView: View {
     session
   }
 
-  @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
-  @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
   var bindingIdentity: String {
     "\(endpointId.uuidString):\(sessionId):\(ObjectIdentifier(session))"
   }

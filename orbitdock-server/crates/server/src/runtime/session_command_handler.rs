@@ -17,14 +17,14 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use orbitdock_protocol::{
-  CodexIntegrationMode, Provider, ServerMessage, SessionStatus, SessionSurface, StateChanges,
-  WorkStatus,
+  CodexIntegrationMode, Provider, ServerMessage, SessionState, SessionStatus, SessionSurface,
+  StateChanges, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
-use crate::domain::sessions::session::SessionHandle;
+use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
@@ -85,21 +85,74 @@ async fn apply_delta_and_broadcast(
   changes: StateChanges,
   persist_op: Option<PersistOp>,
 ) {
-  let mut changes = changes;
-  // Derive steerable from work_status so clients never compute it locally.
-  if let Some(ws) = changes.work_status {
-    changes.steerable = Some(ws == WorkStatus::Working);
-  }
-
   let session_id = handle.id().to_string();
   handle.apply_changes(&changes);
   if let Some(op) = persist_op {
     execute_persist_op(op, persist_tx).await;
   }
+  let mut changes = changes;
+  include_derived_affordances_for_state_delta(&mut changes, handle);
   handle.broadcast(ServerMessage::SessionDelta {
     session_id,
     changes: Box::new(changes),
   });
+}
+
+fn include_derived_affordances_for_state_delta(changes: &mut StateChanges, handle: &SessionHandle) {
+  if changes.status.is_none()
+    && changes.work_status.is_none()
+    && changes.control_mode.is_none()
+    && changes.lifecycle_state.is_none()
+  {
+    return;
+  }
+
+  let snapshot = handle.to_snapshot();
+  let retained = handle.retained_state();
+  changes.steerable = Some(snapshot.steerable);
+  changes.accepts_user_input = Some(retained.accepts_user_input);
+}
+
+fn include_snapshot_delta_changes(
+  changes: &mut StateChanges,
+  previous_transport: &SessionSnapshot,
+  previous_state: &SessionState,
+  current_transport: &SessionSnapshot,
+  current_state: &SessionState,
+) -> bool {
+  let mut changed = false;
+
+  if current_transport.status != previous_transport.status {
+    changes.status = Some(current_transport.status);
+    changed = true;
+  }
+  if current_transport.work_status != previous_transport.work_status {
+    changes.work_status = Some(current_transport.work_status);
+    changes.steerable = Some(current_transport.steerable);
+    changed = true;
+  }
+  if current_transport.control_mode != previous_transport.control_mode {
+    changes.control_mode = Some(current_transport.control_mode);
+    changed = true;
+  }
+  if current_transport.lifecycle_state != previous_transport.lifecycle_state {
+    changes.lifecycle_state = Some(current_transport.lifecycle_state);
+    changed = true;
+  }
+  if current_state.accepts_user_input != previous_state.accepts_user_input {
+    changes.accepts_user_input = Some(current_state.accepts_user_input);
+    changed = true;
+  }
+  if current_transport.steerable != previous_transport.steerable {
+    changes.steerable = Some(current_transport.steerable);
+    changed = true;
+  }
+  if current_state.current_turn_id != previous_state.current_turn_id {
+    changes.current_turn_id = Some(current_state.current_turn_id.clone());
+    changed = true;
+  }
+
+  changed
 }
 
 async fn persist_and_broadcast_mark_read(
@@ -127,7 +180,6 @@ async fn persist_and_broadcast_mark_read(
   };
   if handle.work_status() == WorkStatus::Reply {
     changes.work_status = Some(WorkStatus::Waiting);
-    changes.steerable = Some(false);
     handle.set_work_status(WorkStatus::Waiting);
     let _ = persist_tx
       .send(PersistCommand::SessionUpdate {
@@ -473,6 +525,11 @@ pub async fn handle_session_command(
       }
 
       persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
+      handle.broadcast(ServerMessage::SteerOutcome {
+        session_id: handle.id().to_string(),
+        message_id,
+        outcome,
+      });
       handle.broadcast_surface_invalidations(&[SessionSurface::Detail]);
     }
     SessionCommand::RecordQuestionAnswer { answer_text } => {
@@ -544,14 +601,15 @@ pub async fn handle_session_command(
           })
           .await;
 
+        let changes = StateChanges {
+          work_status: Some(work_status),
+          pending_approval: Some(next_pending_approval.clone()),
+          approval_version: Some(approval_version),
+          ..Default::default()
+        };
         handle.broadcast(ServerMessage::SessionDelta {
           session_id,
-          changes: Box::new(StateChanges {
-            work_status: Some(work_status),
-            pending_approval: Some(next_pending_approval.clone()),
-            approval_version: Some(approval_version),
-            ..Default::default()
-          }),
+          changes: Box::new(changes),
         });
       }
 
@@ -642,6 +700,8 @@ pub(crate) async fn dispatch_transition_input(
   };
 
   let now = chrono_now();
+  let previous_transport_snapshot = handle.to_snapshot();
+  let previous_snapshot = handle.retained_state();
   let state = handle.extract_state();
   let (new_state, effects) = transition::transition(state, input, &now);
   tracing::debug!(
@@ -656,7 +716,7 @@ pub(crate) async fn dispatch_transition_input(
   // Update last_message from the latest completed user/assistant row.
   // In-progress assistant streaming deltas are intentionally ignored.
   let mut unread_count_delta: Option<u64> = None;
-  let previous_last_message = handle.to_snapshot().last_message.clone();
+  let previous_last_message = previous_transport_snapshot.last_message.clone();
   if let Some(snippet) = latest_completed_conversation_row(handle.rows())
     .filter(|snippet| previous_last_message.as_deref() != Some(snippet.as_str()))
   {
@@ -744,6 +804,9 @@ pub(crate) async fn dispatch_transition_input(
       }
     }
     inject_approval_version(&mut msg, handle.approval_version());
+    if let ServerMessage::SessionDelta { changes, .. } = &mut msg {
+      include_derived_affordances_for_state_delta(changes, handle);
+    }
     let should_emit = match &msg {
       ServerMessage::ConversationRowsChanged { upserted, .. } => {
         handle.should_emit_streaming_row_update(upserted)
@@ -793,14 +856,27 @@ pub(crate) async fn dispatch_transition_input(
     }
   }
 
-  if let Some(changes) = transition_delta(
+  let mut transition_changes = transition_delta(
     previous_last_message.as_deref(),
     handle.rows(),
     unread_count_delta,
-  ) {
+  )
+  .unwrap_or_default();
+  let mut has_transition_changes =
+    transition_changes.last_message.is_some() || transition_changes.unread_count.is_some();
+  let current_transport_snapshot = handle.to_snapshot();
+  let current_snapshot = handle.retained_state();
+  has_transition_changes |= include_snapshot_delta_changes(
+    &mut transition_changes,
+    &previous_transport_snapshot,
+    &previous_snapshot,
+    &current_transport_snapshot,
+    &current_snapshot,
+  );
+  if has_transition_changes {
     handle.broadcast(ServerMessage::SessionDelta {
       session_id: handle.id().to_string(),
-      changes: Box::new(changes),
+      changes: Box::new(transition_changes),
     });
     did_broadcast = true;
   }
@@ -989,6 +1065,48 @@ mod tests {
       }
       other => panic!("expected HookSessionId runtime directive, got {other:?}"),
     }
+  }
+
+  #[tokio::test]
+  async fn turn_completed_derives_non_steerable_snapshot_and_delta() {
+    let (persist_tx, mut persist_rx) = mpsc::channel(8);
+    let mut handle = SessionHandle::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+    handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+    handle.set_status(SessionStatus::Active);
+    handle.set_work_status(WorkStatus::Working);
+
+    let mut rx = handle.subscribe();
+
+    dispatch_connector_event(
+      "session-1",
+      ConnectorStateEvent::TurnCompleted,
+      &mut handle,
+      &persist_tx,
+    )
+    .await;
+
+    let Some(PersistCommand::SessionUpdate {
+      work_status: Some(WorkStatus::Waiting),
+      ..
+    }) = persist_rx.recv().await
+    else {
+      panic!("expected waiting SessionUpdate");
+    };
+
+    let snapshot = handle.to_snapshot();
+    assert_eq!(snapshot.work_status, WorkStatus::Waiting);
+    assert!(!snapshot.steerable);
+
+    let msg = rx.recv().await.expect("expected session delta");
+    let ServerMessage::SessionDelta { changes, .. } = msg else {
+      panic!("expected session delta, got {msg:?}");
+    };
+    assert_eq!(changes.work_status, Some(WorkStatus::Waiting));
+    assert_eq!(changes.steerable, Some(false));
   }
 
   #[test]
@@ -1253,10 +1371,18 @@ mod tests {
 
     let mut saw_row_update = false;
     let mut saw_detail_invalidation = false;
+    let mut saw_steer_outcome = false;
     while let Ok(message) = rx.try_recv() {
       match message {
         ServerMessage::ConversationRowsChanged { upserted, .. } => {
           saw_row_update = upserted.iter().any(|entry| entry.id() == "steer-1");
+        }
+        ServerMessage::SteerOutcome {
+          message_id,
+          outcome,
+          ..
+        } => {
+          saw_steer_outcome = message_id == "steer-1" && outcome == SteerOutcome::Accepted;
         }
         ServerMessage::SessionSurfaceInvalidated {
           surface: SessionSurface::Detail,
@@ -1269,6 +1395,7 @@ mod tests {
     }
 
     assert!(saw_row_update);
+    assert!(saw_steer_outcome);
     assert!(saw_detail_invalidation);
   }
 

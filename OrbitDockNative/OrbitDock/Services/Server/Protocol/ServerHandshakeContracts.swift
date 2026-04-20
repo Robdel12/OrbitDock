@@ -64,7 +64,8 @@ struct ServerMetaResponse: Codable, Sendable {
     capabilities = try container.decode([String].self, forKey: .capabilities)
     serverInstanceId = try container.decodeIfPresent(String.self, forKey: .serverInstanceId)
     isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
-    clientPrimaryClaims = try container.decode([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims)
+    clientPrimaryClaims =
+      try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
     updateStatus = try container.decodeIfPresent(ServerUpdateStatus.self, forKey: .updateStatus)
   }
 }

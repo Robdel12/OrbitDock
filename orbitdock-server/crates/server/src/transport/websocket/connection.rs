@@ -31,7 +31,7 @@ static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
 pub(crate) struct ConnectionSubscriptions {
-  control_plane_forwarder: Option<JoinHandle<()>>,
+  sessions_summary_forwarder: Option<JoinHandle<()>>,
   dashboard_forwarder: Option<JoinHandle<()>>,
   library_forwarder: Option<JoinHandle<()>>,
   missions_forwarder: Option<JoinHandle<()>>,
@@ -40,14 +40,14 @@ pub(crate) struct ConnectionSubscriptions {
 }
 
 impl ConnectionSubscriptions {
-  pub(crate) fn replace_control_plane_forwarder(&mut self, handle: JoinHandle<()>) {
-    if let Some(existing) = self.control_plane_forwarder.replace(handle) {
+  pub(crate) fn replace_sessions_summary_forwarder(&mut self, handle: JoinHandle<()>) {
+    if let Some(existing) = self.sessions_summary_forwarder.replace(handle) {
       existing.abort();
     }
   }
 
-  pub(crate) fn remove_control_plane_forwarder(&mut self) {
-    if let Some(existing) = self.control_plane_forwarder.take() {
+  pub(crate) fn remove_sessions_summary_forwarder(&mut self) {
+    if let Some(existing) = self.sessions_summary_forwarder.take() {
       existing.abort();
     }
   }
@@ -132,7 +132,7 @@ impl ConnectionSubscriptions {
   }
 
   pub(crate) fn abort_all(&mut self) {
-    if let Some(existing) = self.control_plane_forwarder.take() {
+    if let Some(existing) = self.sessions_summary_forwarder.take() {
       existing.abort();
     }
     if let Some(existing) = self.dashboard_forwarder.take() {
@@ -280,7 +280,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
   let mut subscriptions = ConnectionSubscriptions::default();
 
   send_json(&outbound_tx, server_hello_message()).await;
-  // Announce server role immediately so clients can derive control-plane routing.
+  // Announce server role immediately so clients can route through the right server.
   send_json(&outbound_tx, server_info_message(&state)).await;
 
   // Handle incoming messages

@@ -112,7 +112,7 @@ pub(crate) async fn takeover_passive_session(
     .await
     .map_err(|_| TakeoverSessionError::TakeHandleFailed)?;
   handle.set_list_tx(state.list_tx());
-  handle.set_control_plane_revision_counter(state.control_plane_revision_counter());
+  handle.set_sessions_summary_revision_counter(state.sessions_summary_revision_counter());
   handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
   handle.set_library_revision_counter(state.library_revision_counter());
 

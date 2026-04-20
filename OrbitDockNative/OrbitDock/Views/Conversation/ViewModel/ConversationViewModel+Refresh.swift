@@ -11,10 +11,6 @@ extension ConversationViewModel {
   }
 
   func handleConversationRowDelta(_ delta: ServerSessionTransport.ConversationRowDelta) {
-    if buffersRowDeltasDuringRefresh {
-      bufferedRowDeltas.append(delta)
-      return
-    }
     applyDelta(delta)
   }
 
@@ -86,10 +82,8 @@ extension ConversationViewModel {
     let needsInitialBootstrap = !conversationLoaded && rowEntries.isEmpty
     if needsInitialBootstrap || shouldForceHTTPResync {
       isRefreshInFlight = true
-      buffersRowDeltasDuringRefresh = needsInitialBootstrap
       defer {
         isRefreshInFlight = false
-        buffersRowDeltasDuringRefresh = false
       }
       do {
         let bootstrap = try await session.api.fetchConversationBootstrap(
@@ -142,18 +136,6 @@ extension ConversationViewModel {
           )
         }
       }
-      drainBufferedRowDeltas()
-    } else {
-      drainBufferedRowDeltas()
-    }
-  }
-
-  func drainBufferedRowDeltas() {
-    guard !bufferedRowDeltas.isEmpty else { return }
-    let deltas = bufferedRowDeltas
-    bufferedRowDeltas.removeAll(keepingCapacity: true)
-    for delta in deltas {
-      applyDelta(delta)
     }
   }
 

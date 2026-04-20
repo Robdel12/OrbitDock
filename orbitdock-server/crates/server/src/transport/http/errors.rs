@@ -1,6 +1,8 @@
 use axum::{http::StatusCode, Json};
 use serde::Serialize;
 
+use crate::runtime::session_queries::SessionLoadError;
+
 #[derive(Debug, Serialize)]
 pub(crate) struct ApiErrorResponse {
   pub(crate) code: &'static str,
@@ -51,6 +53,14 @@ pub(crate) fn unprocessable(code: &'static str, error: impl Into<String>) -> Api
 
 pub(crate) fn gateway_timeout(code: &'static str, error: impl Into<String>) -> ApiError {
   api_error(StatusCode::GATEWAY_TIMEOUT, code, error)
+}
+
+pub(crate) fn session_load_error(session_id: &str, error: SessionLoadError) -> ApiError {
+  match error {
+    SessionLoadError::NotFound => not_found("not_found", format!("Session {session_id} not found")),
+    SessionLoadError::Db(error) => internal("db_error", error),
+    SessionLoadError::Runtime(error) => service_unavailable("runtime_error", error),
+  }
 }
 
 pub(crate) fn revision_now() -> u64 {

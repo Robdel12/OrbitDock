@@ -113,8 +113,16 @@ extension ControlDeckScreen {
         interaction.lastError = nil
         composer.clearDraft(for: sessionId)
       } catch {
-        interaction.lastError = String(describing: error)
+        let message = error.localizedDescription
+        interaction.lastError = message
         await interaction.refresh()
+        if interaction.currentSessionId == sessionId {
+          interaction.lastError = message
+        }
+        netLog(.error, cat: .store, "ControlDeck submit failed", sid: sessionId, data: [
+          "action": String(describing: submissionAction),
+          "error": message,
+        ])
       }
     }
   }

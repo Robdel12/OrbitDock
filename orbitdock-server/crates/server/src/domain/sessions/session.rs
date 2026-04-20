@@ -67,6 +67,16 @@ pub(crate) fn accepts_user_input_from_parts(
     && lifecycle_state == SessionLifecycleState::Open
 }
 
+pub(crate) fn steerable_from_parts(
+  status: SessionStatus,
+  work_status: WorkStatus,
+  control_mode: SessionControlMode,
+  lifecycle_state: SessionLifecycleState,
+) -> bool {
+  accepts_user_input_from_parts(status, control_mode, lifecycle_state)
+    && work_status == WorkStatus::Working
+}
+
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
 /// the actor.
@@ -169,8 +179,8 @@ pub struct SessionHandle {
   broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
   /// Optional sender for list-level broadcasts (dashboard sidebar updates)
   list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
-  /// Shared control-plane revision counter owned by the session registry.
-  control_plane_revision: Option<Arc<AtomicU64>>,
+  /// Shared sessions-summary revision counter owned by the session registry.
+  sessions_summary_revision: Option<Arc<AtomicU64>>,
   /// Shared dashboard revision counter owned by the session registry.
   dashboard_revision: Option<Arc<AtomicU64>>,
   /// Shared library revision counter owned by the session registry.
@@ -258,7 +268,7 @@ impl SessionHandle {
       state,
       broadcast_tx,
       list_tx: None,
-      control_plane_revision: None,
+      sessions_summary_revision: None,
       dashboard_revision: None,
       library_revision: None,
       revision: 0,
@@ -277,7 +287,7 @@ impl SessionHandle {
       state,
       broadcast_tx,
       list_tx: None,
-      control_plane_revision: None,
+      sessions_summary_revision: None,
       dashboard_revision: None,
       library_revision: None,
       revision: 0,
@@ -292,8 +302,8 @@ impl SessionHandle {
     self.list_tx = Some(tx);
   }
 
-  pub fn set_control_plane_revision_counter(&mut self, revision: Arc<AtomicU64>) {
-    self.control_plane_revision = Some(revision);
+  pub fn set_sessions_summary_revision_counter(&mut self, revision: Arc<AtomicU64>) {
+    self.sessions_summary_revision = Some(revision);
   }
 
   pub fn set_dashboard_revision_counter(&mut self, revision: Arc<AtomicU64>) {
@@ -306,23 +316,23 @@ impl SessionHandle {
 
   /// Get session ID
   pub fn id(&self) -> &str {
-    &self.state.identity.id
+    self.state.id()
   }
 
   /// Get provider
   pub fn provider(&self) -> Provider {
-    self.state.identity.provider
+    self.state.provider()
   }
 
   /// Increment the in-memory tool count (called alongside persist command).
   pub fn increment_tool_count(&mut self) {
-    self.state.tool_count += 1;
+    self.state.increment_tool_count();
   }
 
   /// Get a reference to the grouped config.
   #[allow(dead_code)]
   pub fn config(&self) -> &SessionConfig {
-    &self.state.config
+    self.state.config()
   }
 
   /// Get a summary of this session
@@ -338,7 +348,7 @@ impl SessionHandle {
   /// Get subagents
   #[allow(dead_code)]
   pub fn subagents(&self) -> &[SubagentInfo] {
-    &self.state.subagents
+    self.state.subagents()
   }
 
   /// Set subagents list
@@ -400,7 +410,7 @@ impl SessionHandle {
 
   /// Get rows
   pub fn rows(&self) -> &[ConversationRowEntry] {
-    &self.state.rows
+    self.state.rows()
   }
 
   /// Update a row's sequence to the DB-assigned value (single source of truth).
@@ -416,7 +426,7 @@ impl SessionHandle {
   /// Get first prompt
   #[allow(dead_code)]
   pub fn first_prompt(&self) -> Option<&str> {
-    self.state.display.first_prompt.as_deref()
+    self.state.first_prompt()
   }
 
   /// Set codex integration mode
@@ -453,17 +463,17 @@ impl SessionHandle {
 
   #[allow(dead_code)]
   pub fn transcript_path(&self) -> Option<&str> {
-    self.state.identity.transcript_path.as_deref()
+    self.state.transcript_path()
   }
 
   pub fn message_count(&self) -> usize {
-    self.state.total_row_count as usize
+    self.state.message_count()
   }
 
   /// Get the newest synced row ID (for transcript sync comparison).
   #[allow(dead_code)]
   pub fn newest_synced_row_id(&self) -> Option<&str> {
-    self.state.newest_synced_row_id.as_deref()
+    self.state.newest_synced_row_id()
   }
 
   /// Update the newest synced row ID after a successful transcript sync.
@@ -527,17 +537,17 @@ impl SessionHandle {
 
   #[allow(dead_code)] // Used in Phase 6+
   pub fn repository_root(&self) -> Option<&str> {
-    self.state.environment.repository_root.as_deref()
+    self.state.repository_root()
   }
 
   #[allow(dead_code)] // Used in Phase 6+
   pub fn is_worktree(&self) -> bool {
-    self.state.environment.is_worktree
+    self.state.is_worktree()
   }
 
   #[allow(dead_code)] // Used in Phase 6+
   pub fn worktree_id(&self) -> Option<&str> {
-    self.state.environment.worktree_id.as_deref()
+    self.state.worktree_id()
   }
 
   /// Set status
@@ -565,7 +575,7 @@ impl SessionHandle {
 
   /// Get work status
   pub fn work_status(&self) -> WorkStatus {
-    self.state.work_status
+    self.state.work_status()
   }
 
   /// Set last tool name
@@ -576,7 +586,7 @@ impl SessionHandle {
 
   /// Get last tool name
   pub fn last_tool(&self) -> Option<&str> {
-    self.state.last_tool.as_deref()
+    self.state.last_tool()
   }
 
   /// Update token usage
@@ -625,12 +635,12 @@ impl SessionHandle {
 
   /// Get current unread count
   pub fn unread_count(&self) -> u64 {
-    self.state.unread_count
+    self.state.unread_count()
   }
 
   /// Total row count across all retained + evicted rows.
   pub fn total_row_count(&self) -> u64 {
-    self.state.total_row_count
+    self.state.total_row_count()
   }
 
   /// Mark the last `num_turns` worth of rows with the given status.
@@ -712,7 +722,7 @@ impl SessionHandle {
 
   /// Get the current approval version.
   pub fn approval_version(&self) -> u64 {
-    self.state.approval_version
+    self.state.approval_version()
   }
 
   #[cfg(test)]
@@ -780,18 +790,18 @@ impl SessionHandle {
   pub fn emit_dashboard_update(&self) {
     if let (
       Some(ref list_tx),
-      Some(ref control_plane_revision),
+      Some(ref sessions_summary_revision),
       Some(ref dashboard_revision),
       Some(ref library_revision),
     ) = (
       &self.list_tx,
-      &self.control_plane_revision,
+      &self.sessions_summary_revision,
       &self.dashboard_revision,
       &self.library_revision,
     ) {
-      let control_plane_revision = control_plane_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let sessions_summary_revision = sessions_summary_revision.fetch_add(1, Ordering::Relaxed) + 1;
       let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
-        revision: control_plane_revision,
+        revision: sessions_summary_revision,
       });
       let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
       let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
@@ -815,7 +825,7 @@ impl SessionHandle {
 
     self.push_event_log_message(&msg, rev);
     let _ = self.broadcast_tx.send(msg.clone());
-    let session_id = self.state.identity.id.clone();
+    let session_id = self.state.id().to_string();
     for surface in invalidated_surfaces(&msg) {
       let invalidation = ServerMessage::SessionSurfaceInvalidated {
         session_id: session_id.clone(),
@@ -841,7 +851,7 @@ impl SessionHandle {
 
     self.revision += 1;
     let rev = self.revision;
-    let session_id = self.state.identity.id.clone();
+    let session_id = self.state.id().to_string();
 
     for surface in surfaces {
       let invalidation = ServerMessage::SessionSurfaceInvalidated {
@@ -869,18 +879,18 @@ impl SessionHandle {
   fn emit_dashboard_removed(&self) {
     if let (
       Some(ref list_tx),
-      Some(ref control_plane_revision),
+      Some(ref sessions_summary_revision),
       Some(ref dashboard_revision),
       Some(ref library_revision),
     ) = (
       &self.list_tx,
-      &self.control_plane_revision,
+      &self.sessions_summary_revision,
       &self.dashboard_revision,
       &self.library_revision,
     ) {
-      let control_plane_revision = control_plane_revision.fetch_add(1, Ordering::Relaxed) + 1;
+      let sessions_summary_revision = sessions_summary_revision.fetch_add(1, Ordering::Relaxed) + 1;
       let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
-        revision: control_plane_revision,
+        revision: sessions_summary_revision,
       });
       let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
       let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
@@ -1012,12 +1022,12 @@ mod tests {
   #[test]
   fn broadcast_always_emits_active_sessions_invalidation() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
-    let control_plane_revision = Arc::new(AtomicU64::new(0));
+    let sessions_summary_revision = Arc::new(AtomicU64::new(0));
     let dashboard_revision = Arc::new(AtomicU64::new(0));
     let library_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
-    session.set_control_plane_revision_counter(control_plane_revision);
+    session.set_sessions_summary_revision_counter(sessions_summary_revision);
     session.set_dashboard_revision_counter(dashboard_revision);
     session.set_library_revision_counter(library_revision);
 
@@ -1032,7 +1042,7 @@ mod tests {
 
     let msg = list_rx
       .try_recv()
-      .expect("control-plane invalidation should be emitted");
+      .expect("sessions-summary invalidation should be emitted");
     assert!(matches!(
       msg,
       ServerMessage::SessionsSummaryInvalidated { revision: 1 }
@@ -1058,12 +1068,12 @@ mod tests {
   #[test]
   fn broadcast_emits_dashboard_update_for_non_delta_messages() {
     let (list_tx, mut list_rx) = tokio::sync::broadcast::channel(8);
-    let control_plane_revision = Arc::new(AtomicU64::new(0));
+    let sessions_summary_revision = Arc::new(AtomicU64::new(0));
     let dashboard_revision = Arc::new(AtomicU64::new(0));
     let library_revision = Arc::new(AtomicU64::new(0));
     let mut session = session_handle(Provider::Codex);
     session.set_list_tx(list_tx);
-    session.set_control_plane_revision_counter(control_plane_revision);
+    session.set_sessions_summary_revision_counter(sessions_summary_revision);
     session.set_dashboard_revision_counter(dashboard_revision);
     session.set_library_revision_counter(library_revision);
 
@@ -1077,7 +1087,7 @@ mod tests {
 
     let msg = list_rx
       .try_recv()
-      .expect("control-plane invalidation should be emitted for any message type");
+      .expect("sessions-summary invalidation should be emitted for any message type");
     assert!(matches!(
       msg,
       ServerMessage::SessionsSummaryInvalidated { revision: 1 }
@@ -1206,7 +1216,7 @@ mod tests {
     let mut session = pending_approval_session();
     let request = ApprovalRequest {
       id: "approval-1".to_string(),
-      session_id: session.state.identity.id.clone(),
+      session_id: session.id().to_string(),
       approval_type: ApprovalType::Exec,
       tool_name: Some("Bash".to_string()),
       tool_input: Some("{\"command\":\"ls\"}".to_string()),
@@ -1238,11 +1248,8 @@ mod tests {
     session.promote_queue_front();
 
     assert_eq!(session.approval_version(), version_after_first);
-    assert_eq!(session.state.pending_approvals.len(), 1);
-    assert_eq!(
-      session.state.pending_approval_id.as_deref(),
-      Some("approval-1")
-    );
+    assert_eq!(session.state.pending_approval_count(), 1);
+    assert_eq!(session.state.pending_approval_id(), Some("approval-1"));
   }
 
   #[test]
@@ -1341,7 +1348,7 @@ mod tests {
   #[test]
   fn changed_pending_approval_updates_version_in_place() {
     let mut session = pending_approval_session();
-    let sid = session.state.identity.id.clone();
+    let sid = session.id().to_string();
     let make_request = |input: &str| ApprovalRequest {
       id: "approval-1".to_string(),
       session_id: sid.clone(),
@@ -1383,9 +1390,9 @@ mod tests {
     session.promote_queue_front();
 
     assert_eq!(session.approval_version(), 2);
-    assert_eq!(session.state.pending_approvals.len(), 1);
+    assert_eq!(session.state.pending_approval_count(), 1);
     assert_eq!(
-      session.state.pending_tool_input.as_deref(),
+      session.state.pending_tool_input(),
       Some("{\"command\":\"pwd\"}")
     );
   }
@@ -1433,14 +1440,14 @@ mod tests {
     });
 
     assert_eq!(session.approval_version(), version_after_first);
-    assert_eq!(session.state.pending_approvals.len(), 1);
+    assert_eq!(session.state.pending_approval_count(), 1);
   }
 
   #[test]
   fn metadata_setters_do_not_mutate_activity_timestamps() {
     let mut session = pending_approval_session();
-    let original_last_activity_at = session.state.timestamps.last_activity_at.clone();
-    let original_last_progress_at = session.state.timestamps.last_progress_at.clone();
+    let original_last_activity_at = session.state.last_activity_at().map(str::to_string);
+    let original_last_progress_at = session.state.last_progress_at().map(str::to_string);
 
     session.set_custom_name(Some("Renamed".to_string()));
     session.set_status(SessionStatus::Active);
@@ -1448,12 +1455,12 @@ mod tests {
     session.set_last_tool(Some("Read".to_string()));
 
     assert_eq!(
-      session.state.timestamps.last_activity_at,
-      original_last_activity_at
+      session.state.last_activity_at(),
+      original_last_activity_at.as_deref()
     );
     assert_eq!(
-      session.state.timestamps.last_progress_at,
-      original_last_progress_at
+      session.state.last_progress_at(),
+      original_last_progress_at.as_deref()
     );
   }
 
@@ -1464,21 +1471,21 @@ mod tests {
 
     session.add_row(row);
 
-    assert!(parse_unix_z(session.state.timestamps.last_activity_at.as_deref()).is_some());
-    assert!(parse_unix_z(session.state.timestamps.last_progress_at.as_deref()).is_some());
+    assert!(parse_unix_z(session.state.last_activity_at()).is_some());
+    assert!(parse_unix_z(session.state.last_progress_at()).is_some());
   }
 
   #[test]
   fn user_rows_update_activity_without_advancing_progress() {
     let mut session = pending_approval_session();
-    let original_last_progress_at = session.state.timestamps.last_progress_at.clone();
+    let original_last_progress_at = session.state.last_progress_at().map(str::to_string);
 
     session.add_row(user_entry("session-1", "user-1", "hello"));
 
-    assert!(parse_unix_z(session.state.timestamps.last_activity_at.as_deref()).is_some());
+    assert!(parse_unix_z(session.state.last_activity_at()).is_some());
     assert_eq!(
-      session.state.timestamps.last_progress_at,
-      original_last_progress_at
+      session.state.last_progress_at(),
+      original_last_progress_at.as_deref()
     );
   }
 

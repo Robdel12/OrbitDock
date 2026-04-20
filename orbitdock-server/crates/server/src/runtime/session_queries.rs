@@ -9,6 +9,7 @@ use orbitdock_protocol::{
 use tracing::warn;
 
 use crate::domain::sessions::conversation::{ConversationBootstrap, ConversationPage};
+use crate::domain::sessions::session::steerable_from_parts;
 use crate::infrastructure::persistence::{
   load_message_page_for_session, load_session_by_id, load_session_metadata_by_id,
   load_subagents_for_session, snapshot_kind_from_str,
@@ -378,7 +379,12 @@ fn session_summary_from_projection(projection: &PersistedDashboardProjection) ->
     accepts_user_input: projection.status == SessionStatus::Active
       && projection.control_mode == SessionControlMode::Direct
       && projection.lifecycle_state == SessionLifecycleState::Open,
-    steerable: projection.work_status == WorkStatus::Working,
+    steerable: steerable_from_parts(
+      projection.status,
+      projection.work_status,
+      projection.control_mode,
+      projection.lifecycle_state,
+    ),
     token_usage: projection.token_usage.clone(),
     token_usage_snapshot_kind: projection.token_usage_snapshot_kind,
     has_pending_approval: projection.pending_approval_id.is_some(),
@@ -612,6 +618,35 @@ pub(crate) async fn load_full_session_state(
   include_messages: bool,
   include_diffs: bool,
 ) -> Result<SessionState, SessionLoadError> {
+  match load_persisted_session_state(session_id, include_messages, include_diffs).await {
+    Ok(mut snapshot) => {
+      hydrate_ephemeral_state(&mut snapshot, state, session_id).await;
+      hydrate_subagents(&mut snapshot, session_id).await;
+      Ok(snapshot)
+    }
+    Err(SessionLoadError::NotFound) => {
+      let Some(actor) = state.get_session(session_id) else {
+        return Err(SessionLoadError::NotFound);
+      };
+
+      let mut snapshot = actor
+        .retained_state()
+        .await
+        .map_err(SessionLoadError::Runtime)?;
+      trim_session_payload(&mut snapshot, include_messages, include_diffs);
+      hydrate_ephemeral_state(&mut snapshot, state, session_id).await;
+      hydrate_subagents(&mut snapshot, session_id).await;
+      Ok(snapshot)
+    }
+    Err(err) => Err(err),
+  }
+}
+
+pub(crate) async fn load_persisted_session_state(
+  session_id: &str,
+  include_messages: bool,
+  include_diffs: bool,
+) -> Result<SessionState, SessionLoadError> {
   let restored_result = if include_messages {
     load_session_by_id(session_id).await
   } else {
@@ -625,16 +660,7 @@ pub(crate) async fn load_full_session_state(
       }
 
       let mut snapshot = restored_session_to_state(restored);
-      if !include_diffs {
-        strip_diff_payloads(&mut snapshot);
-      }
-      if !include_messages {
-        snapshot.rows.clear();
-        snapshot.oldest_sequence = None;
-        snapshot.newest_sequence = None;
-      }
-      hydrate_ephemeral_state(&mut snapshot, state, session_id).await;
-      hydrate_subagents(&mut snapshot, session_id).await;
+      trim_session_payload(&mut snapshot, include_messages, include_diffs);
       Ok(snapshot)
     }
     Ok(None) => Err(SessionLoadError::NotFound),
@@ -662,17 +688,25 @@ pub(crate) async fn load_light_session_state(
         .retained_state()
         .await
         .map_err(SessionLoadError::Runtime)?;
-      strip_diff_payloads(&mut session);
-      session.rows.clear();
+      trim_session_payload(&mut session, false, false);
       session.total_row_count = 0;
       session.has_more_before = false;
-      session.oldest_sequence = None;
-      session.newest_sequence = None;
       hydrate_ephemeral_state(&mut session, state, session_id).await;
       hydrate_subagents(&mut session, session_id).await;
       Ok(session)
     }
     Err(error) => Err(error),
+  }
+}
+
+fn trim_session_payload(session: &mut SessionState, include_messages: bool, include_diffs: bool) {
+  if !include_diffs {
+    strip_diff_payloads(session);
+  }
+  if !include_messages {
+    session.rows.clear();
+    session.oldest_sequence = None;
+    session.newest_sequence = None;
   }
 }
 

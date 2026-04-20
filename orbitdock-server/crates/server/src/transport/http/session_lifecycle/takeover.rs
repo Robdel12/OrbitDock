@@ -77,6 +77,6 @@ pub async fn takeover_session(
   Ok(Json(TakeoverSessionResponse {
     session_id: session_id.clone(),
     accepted: true,
-    session_detail_snapshot: load_session_detail_snapshot(&state, &session_id).await,
+    session_detail_snapshot: Some(load_session_detail_snapshot(&state, &session_id).await?),
   }))
 }

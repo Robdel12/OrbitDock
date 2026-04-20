@@ -44,7 +44,7 @@ pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_c
 pub(crate) use connector_actions::{
   dispatch_error_response, messaging_dispatch_error_response, session_not_found_error,
 };
-pub(crate) use errors::{revision_now, ApiErrorResponse, ApiResult};
+pub(crate) use errors::{revision_now, session_load_error, ApiErrorResponse, ApiResult};
 pub use files::{
   browse_directory, git_init_endpoint, list_recent_projects, list_subagent_messages_endpoint,
   list_subagent_tools_endpoint,
@@ -54,8 +54,8 @@ pub use mission_control::{
   delete_linear_key, delete_mission, delete_mission_tracker_key, dispatch_mission_issue,
   get_default_template, get_mission, get_mission_defaults, get_mission_tracker_key,
   get_tracker_keys, list_mission_issues, list_mission_worktrees, list_missions,
-  migrate_workflow_to_mission, report_issue_blocked, report_issue_completed, retry_mission_issue,
-  scaffold_mission_file, set_github_key, set_issue_pr_url, set_linear_key, set_mission_tracker_key,
+  report_issue_blocked, report_issue_completed, retry_mission_issue, scaffold_mission_file,
+  set_github_key, set_issue_pr_url, set_linear_key, set_mission_tracker_key,
   start_mission_orchestrator_endpoint, transition_mission_issue, trigger_mission_poll,
   update_mission, update_mission_defaults, update_mission_settings,
 };

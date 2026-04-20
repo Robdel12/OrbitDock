@@ -148,7 +148,7 @@ pub struct SessionRegistry {
   /// Primary claim and WebSocket connection state.
   connections: ConnectionState,
 
-  control_plane_revision: Arc<AtomicU64>,
+  sessions_summary_revision: Arc<AtomicU64>,
   dashboard_revision: Arc<AtomicU64>,
   library_revision: Arc<AtomicU64>,
   /// Cached dashboard snapshot with the revision it was computed at.
@@ -232,7 +232,7 @@ impl SessionRegistry {
       terminal_service: Arc::new(TerminalService::new()),
       tool_pty_service: Arc::new(ToolPtyService::new()),
       connections: ConnectionState::new(is_primary),
-      control_plane_revision: Arc::new(AtomicU64::new(0)),
+      sessions_summary_revision: Arc::new(AtomicU64::new(0)),
       dashboard_revision: Arc::new(AtomicU64::new(0)),
       library_revision: Arc::new(AtomicU64::new(0)),
       dashboard_cache: ArcSwap::from_pointee((

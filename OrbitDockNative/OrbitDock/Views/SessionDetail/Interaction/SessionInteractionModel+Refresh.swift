@@ -54,7 +54,6 @@ extension SessionInteractionModel {
       return
     }
     currentSession?.transport.recordRevision(payload.revision)
-    lastError = nil
     netLog(
       .info,
       cat: .store,
@@ -63,6 +62,7 @@ extension SessionInteractionModel {
       data: snapshotLogData(snapshot: payload, source: source)
     )
     snapshot = ControlDeckSnapshotMapper.map(payload, codexModels: currentSession?.codexModels ?? [])
+    lastError = nil
     rebuildPresentation()
     logSessionStateIfChanged(source: "applyDetail(\(source))")
     if propagateToBindingOwner {
@@ -136,7 +136,6 @@ extension SessionInteractionModel {
     guard let binding = currentBindingContext else { return }
 
     isLoading = true
-    lastError = nil
     defer {
       if isCurrent(binding) {
         isLoading = false
@@ -154,7 +153,9 @@ extension SessionInteractionModel {
         serverSnapshot,
         source: "refresh"
       )
-      await loadSupportData(for: serverSnapshot.session, binding: binding)
+      if detailSnapshotSink == nil {
+        await loadSupportData(for: serverSnapshot.session, binding: binding)
+      }
       guard isCurrent(binding) else { return }
       netLog(.debug, cat: .store, "Session interaction refresh finished", sid: sessionId)
     } catch {

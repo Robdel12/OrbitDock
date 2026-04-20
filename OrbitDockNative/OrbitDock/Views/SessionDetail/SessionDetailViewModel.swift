@@ -215,8 +215,7 @@ final class SessionDetailViewModel {
       modelPricingService: modelPricingService,
       chatViewMode: chatViewMode
     )
-    await bootstrapVisibleSurfaces()
-    reconcileSessionSubscription(bindingIdentity: bindingIdentity)
+    await bootstrapRouteAndSubscribeRealtime(bindingIdentity: bindingIdentity)
     restoreExistingTerminalIfNeeded(from: terminalRegistry)
 
     if showWorkerPanel {
@@ -229,9 +228,12 @@ final class SessionDetailViewModel {
     }
   }
 
-  private func bootstrapVisibleSurfaces() async {
-    await refresh()
+  private func bootstrapRouteAndSubscribeRealtime(bindingIdentity: String) async {
+    // Order matters: conversation HTTP bootstrap records the replay cursor,
+    // then the route subscribes before slower selected-session support refreshes.
     await conversationViewModel.refresh()
+    reconcileSessionSubscription(bindingIdentity: bindingIdentity)
+    await refresh()
   }
 
   private func handleSessionEvent(_ event: ServerSessionTransport.Event) {

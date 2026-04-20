@@ -13,7 +13,7 @@ use orbitdock_protocol::{CodexConfigMode, CodexConfigSource, Provider};
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
-use super::session::SessionSnapshot;
+use super::session::{steerable_from_parts, SessionSnapshot};
 
 /// Inputs needed to rebuild a restored session snapshot from persisted state.
 #[derive(Debug, Clone, Copy)]
@@ -73,7 +73,12 @@ pub fn build_restored_session_snapshot(input: SessionRestoreSnapshotInput<'_>) -
     work_status: input.work_status,
     control_mode: input.control_mode,
     lifecycle_state: input.lifecycle_state,
-    steerable: input.work_status == WorkStatus::Working,
+    steerable: steerable_from_parts(
+      input.status,
+      input.work_status,
+      input.control_mode,
+      input.lifecycle_state,
+    ),
     project_path: input.identity.project_path.clone(),
     project_name: input.identity.project_name.clone(),
     transcript_path: input.identity.transcript_path.clone(),
