@@ -49,25 +49,6 @@ final class WorktreeService {
     removeWorktreeFromCache(worktreeId: worktreeId)
   }
 
-  func refreshWorktreesForActiveSessions() {
-    // TODO: Pass repo roots from the calling view model instead of reading from a shared object
-    let roots = Set<String>()
-    for repoRoot in roots {
-      Task {
-        do {
-          _ = try await listWorktrees(repoRoot: repoRoot)
-        } catch {
-          netLog(
-            .error,
-            cat: .store,
-            "List worktrees failed",
-            data: ["repoRoot": repoRoot, "error": error.localizedDescription]
-          )
-        }
-      }
-    }
-  }
-
   private func removeWorktreeFromCache(worktreeId: String) {
     let repoRoots = Array(endpointStore.worktreesByRepo.keys)
     for repoRoot in repoRoots {
