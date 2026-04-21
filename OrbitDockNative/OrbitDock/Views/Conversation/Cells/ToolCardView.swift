@@ -129,14 +129,20 @@ struct ToolCardView: View {
   }
 
   private var summary: String {
-    if isFileChangeCard, let fileName = compactFileName {
-      return fileName
-    }
-
-    return rawSummary
+    rawSummary
   }
 
   var body: some View {
+    // File changes get a code-review-first layout — diff is the content
+    if isFileChangeCard {
+      fileChangeBody
+    } else {
+      standardToolBody
+    }
+  }
+
+  /// Standard tool card layout (non-file-change tools)
+  private var standardToolBody: some View {
     VStack(alignment: .leading, spacing: 0) {
       compactRow
 
@@ -152,10 +158,329 @@ struct ToolCardView: View {
     .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
     .overlay { cardBorderOverlay }
     .themeShadow(isCompactLayout ? Shadow.lg : Shadow.md)
-    //  horizontal padding handled by TimelineRowContent
     .padding(.vertical, isCompactLayout ? Spacing.sm_ : Spacing.xs)
     .overlay { toolPtySubscriptionBridge }
     .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  /// File change layout — code-review-first, diff is the content
+  private var fileChangeBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      fileChangeHeader
+
+      fileChangeDiffContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .overlay { toolPtySubscriptionBridge }
+    .contentShape(Rectangle())
+  }
+
+  /// Minimal header for file changes — filename + stats, tappable to expand
+  private var fileChangeHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // File icon
+      Image(systemName: glyphSymbol)
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(chromeTint.opacity(0.8))
+
+      // Filename (truncated path)
+      Text(compactFileName ?? "File")
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      // Diff stats
+      if let preview = display?.diffPreview, preview.additions > 0 || preview.deletions > 0 {
+        HStack(spacing: Spacing.xs) {
+          if preview.additions > 0 {
+            Text("+\(preview.additions)")
+              .foregroundStyle(Color.diffAddedAccent)
+          }
+          if preview.deletions > 0 {
+            Text("-\(preview.deletions)")
+              .foregroundStyle(Color.diffRemovedAccent)
+          }
+        }
+        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+      }
+
+      // Status for running/failed only
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(chromeTint)
+      } else if isFailed {
+        Image(systemName: "xmark.circle.fill")
+          .font(.system(size: IconScale.sm))
+          .foregroundStyle(Color.feedbackNegative)
+      }
+
+      // Expand chevron
+      Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(0.5))
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  /// Diff content — shows inline preview or full diff based on size
+  @ViewBuilder
+  private var fileChangeDiffContent: some View {
+    let diffLines = fetchedContent?.diffDisplay ?? display?.diffDisplay ?? []
+    let previewLines = display?.diffPreview?.previewLines ?? []
+    let totalChanges = (display?.diffPreview?.additions ?? 0) + (display?.diffPreview?.deletions ?? 0)
+
+    if isExpanded {
+      // Full expanded diff — same style, just scrollable
+      if !diffLines.isEmpty {
+        expandedDiffView(lines: diffLines)
+      } else if let content = fetchedContent, let lines = content.diffDisplay, !lines.isEmpty {
+        expandedDiffView(lines: lines)
+      } else if isLoadingContent {
+        loadingState
+      } else {
+        // Fallback to legacy expanded view if no diff lines
+        if let content = fetchedContent {
+          expandedBody(content)
+        }
+      }
+    } else if !diffLines.isEmpty {
+      // Show inline diff from fetched content
+      inlineDiffView(lines: diffLines, showFull: false)
+    } else if !previewLines.isEmpty {
+      // Show preview lines with expand option
+      inlinePreviewDiff(lines: previewLines, totalChanges: Int(totalChanges))
+    } else if let snippet = display?.diffPreview?.snippetText, !snippet.isEmpty {
+      // Minimal snippet preview
+      singleLineDiffPreview(snippet: snippet, isAddition: display?.diffPreview?.isAddition ?? true)
+    } else if isLoadingContent {
+      loadingState
+    }
+  }
+
+  private var loadingState: some View {
+    HStack {
+      ProgressView().controlSize(.small)
+      Text("Loading diff…")
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textTertiary)
+    }
+    .padding(Spacing.md)
+  }
+
+  /// Full expanded diff — scrollable, same visual style as preview
+  private func expandedDiffView(lines: [ServerDiffLine]) -> some View {
+    let maxHeight: CGFloat = isCompactLayout ? 400 : 500
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+          diffLineRow(line)
+        }
+      }
+    }
+    .frame(maxHeight: maxHeight)
+  }
+
+  /// Inline diff view — shows actual diff lines, smartly picking the first meaningful hunk
+  private func inlineDiffView(lines: [ServerDiffLine], showFull: Bool) -> some View {
+    // For preview, find the first hunk with changes and show context around it
+    let displayLines: [ServerDiffLine]
+    let hasMore: Bool
+
+    if showFull {
+      displayLines = lines
+      hasMore = false
+    } else {
+      // Find first change and show context around it
+      let previewLines = smartPreviewLines(from: lines, maxLines: isCompactLayout ? 8 : 10)
+      displayLines = previewLines
+      hasMore = lines.count > previewLines.count
+    }
+
+    return VStack(alignment: .leading, spacing: 0) {
+      // Show context line header if available
+      if !showFull, let contextLine = display?.diffPreview?.contextLine, !contextLine.isEmpty {
+        HStack(spacing: Spacing.xs) {
+          Text("@")
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.accent.opacity(0.6))
+          Text(contextLine)
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.accent.opacity(0.05))
+      }
+
+      ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
+        diffLineRow(line)
+      }
+
+      if hasMore {
+        expandPrompt(remaining: lines.count - displayLines.count)
+      }
+    }
+  }
+
+  /// Smart preview: find first hunk with actual changes and include surrounding context
+  private func smartPreviewLines(from lines: [ServerDiffLine], maxLines: Int) -> [ServerDiffLine] {
+    // Find the index of the first actual change (not context)
+    guard let firstChangeIndex = lines.firstIndex(where: { $0.type != .context }) else {
+      // No changes? Just show first few lines
+      return Array(lines.prefix(maxLines))
+    }
+
+    // Start a few lines before the first change for context
+    let contextBefore = 2
+    let startIndex = max(0, firstChangeIndex - contextBefore)
+
+    // Take maxLines from that point
+    let endIndex = min(lines.count, startIndex + maxLines)
+
+    return Array(lines[startIndex..<endIndex])
+  }
+
+  /// Single diff line row
+  private func diffLineRow(_ line: ServerDiffLine) -> some View {
+    let bgColor: Color = switch line.type {
+      case .addition: Color.diffAddedBg
+      case .deletion: Color.diffRemovedBg
+      case .context: Color.clear
+    }
+
+    let textColor: Color = switch line.type {
+      case .addition: Color.diffAddedAccent
+      case .deletion: Color.diffRemovedAccent
+      case .context: Color.textTertiary
+    }
+
+    let prefix: String = switch line.type {
+      case .addition: "+"
+      case .deletion: "-"
+      case .context: " "
+    }
+
+    return HStack(alignment: .top, spacing: 0) {
+      // Line number gutter (optional on mobile)
+      if !isCompactLayout, let lineNum = line.newLine ?? line.oldLine {
+        Text("\(lineNum)")
+          .font(.system(size: TypeScale.mini, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+          .frame(width: 32, alignment: .trailing)
+          .padding(.trailing, Spacing.xs)
+      }
+
+      // Prefix (+/-/ )
+      Text(prefix)
+        .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
+        .foregroundStyle(textColor)
+        .frame(width: 14, alignment: .leading)
+
+      // Code content
+      Text(line.content)
+        .font(.system(size: TypeScale.code, design: .monospaced))
+        .foregroundStyle(line.type == .context ? Color.textTertiary : Color.textSecondary)
+        .lineLimit(1)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 2)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(bgColor)
+  }
+
+  /// Preview diff from previewLines (fallback when full diff not available)
+  private func inlinePreviewDiff(lines: [String], totalChanges: Int) -> some View {
+    let isAddition = display?.diffPreview?.isAddition ?? true
+    let maxPreviewLines = isCompactLayout ? 6 : 8
+
+    return VStack(alignment: .leading, spacing: 0) {
+      // Show context line header if available
+      if let contextLine = display?.diffPreview?.contextLine, !contextLine.isEmpty {
+        HStack(spacing: Spacing.xs) {
+          Text("@")
+            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.accent.opacity(0.6))
+          Text(contextLine)
+            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.accent.opacity(0.05))
+      }
+
+      ForEach(Array(lines.prefix(maxPreviewLines).enumerated()), id: \.offset) { _, line in
+        HStack(alignment: .top, spacing: 0) {
+          Text(isAddition ? "+" : "-")
+            .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
+            .foregroundStyle(isAddition ? Color.diffAddedAccent : Color.diffRemovedAccent)
+            .frame(width: 14, alignment: .leading)
+
+          Text(line)
+            .font(.system(size: TypeScale.code, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+        }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isAddition ? Color.diffAddedBg : Color.diffRemovedBg)
+      }
+
+      if lines.count > maxPreviewLines || totalChanges > maxPreviewLines {
+        expandPrompt(remaining: max(totalChanges - maxPreviewLines, lines.count - maxPreviewLines))
+      }
+    }
+  }
+
+  /// Single line snippet preview
+  private func singleLineDiffPreview(snippet: String, isAddition: Bool) -> some View {
+    HStack(alignment: .top, spacing: 0) {
+      Text(isAddition ? "+" : "-")
+        .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
+        .foregroundStyle(isAddition ? Color.diffAddedAccent : Color.diffRemovedAccent)
+        .frame(width: 14, alignment: .leading)
+
+      Text(snippet)
+        .font(.system(size: TypeScale.code, design: .monospaced))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(2)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(isAddition ? Color.diffAddedBg : Color.diffRemovedBg)
+    .onTapGesture { onToggle?() }
+  }
+
+  /// "See more" prompt
+  private func expandPrompt(remaining: Int) -> some View {
+    HStack {
+      Spacer()
+      Text("▼ \(remaining) more lines")
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.accent)
+      Spacer()
+    }
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundTertiary.opacity(0.3))
     .onTapGesture { onToggle?() }
   }
 
@@ -335,7 +660,8 @@ struct ToolCardView: View {
     if toolType == "edit" || toolType == "write", let preview = display?.diffPreview,
        preview.additions > 0 || preview.deletions > 0
     {
-      HStack(spacing: Spacing.xxs) {
+      // Prominent diff stats for file changes — key visual identifier
+      HStack(spacing: Spacing.xs) {
         if preview.additions > 0 {
           Text("+\(preview.additions)")
             .foregroundStyle(Color.diffAddedAccent)
@@ -345,13 +671,13 @@ struct ToolCardView: View {
             .foregroundStyle(Color.diffRemovedAccent)
         }
       }
-      .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-      .padding(.horizontal, Spacing.sm_)
-      .padding(.vertical, Spacing.xxs)
+      .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
       .background(
         Capsule()
-          .fill(Color.backgroundCode.opacity(0.9))
-          .overlay(Capsule().strokeBorder(Color.white.opacity(0.04), lineWidth: 1))
+          .fill(Color.backgroundCode.opacity(0.95))
+          .overlay(Capsule().strokeBorder(Color.white.opacity(0.06), lineWidth: 1))
       )
     } else if let rightMeta, !rightMeta.isEmpty {
       Text(rightMeta)

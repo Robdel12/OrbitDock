@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_mission_issues_orchestration
 CREATE INDEX IF NOT EXISTS idx_sessions_mission_id
   ON sessions(mission_id);
 
--- 5. Drop duplicate old indexes on messages that slow inserts and waste space.
+-- 5. Drop duplicate legacy indexes on messages that slow inserts and waste space.
 --    idx_messages_session (session_id) already covers single-column lookups.
 --    idx_messages_session_seq (session_id, sequence) already covers compound lookups.
 DROP INDEX IF EXISTS index_messages_on_session_id;
