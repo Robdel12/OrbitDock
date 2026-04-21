@@ -18,7 +18,7 @@ struct MessageImageFullscreen: View {
       Color.black.ignoresSafeArea()
 
       if let platformImage = loadedImages[currentImage.id] {
-        platformImageView(platformImage)
+        Image(platformImage: platformImage)
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -99,11 +99,4 @@ struct MessageImageFullscreen: View {
     }
   }
 
-  private func platformImageView(_ image: PlatformImage) -> Image {
-    #if os(macOS)
-      Image(nsImage: image)
-    #else
-      Image(uiImage: image)
-    #endif
-  }
 }

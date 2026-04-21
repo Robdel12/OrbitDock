@@ -1,55 +1,56 @@
 import SwiftUI
 
-#if os(macOS)
-  struct ZoomableImagePreview: View {
-    let image: Image
-    let title: String
-    let onDismiss: () -> Void
+struct ZoomableImagePreview: View {
+  let image: Image?
+  let title: String
+  let onDismiss: () -> Void
 
-    @State private var scale: CGFloat = 1.0
-    @State private var lastScale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
+  @State private var scale: CGFloat = 1.0
+  @State private var lastScale: CGFloat = 1.0
+  @State private var offset: CGSize = .zero
+  @State private var lastOffset: CGSize = .zero
 
-    var body: some View {
-      VStack(spacing: 0) {
-        toolbar
-        zoomableContent
-      }
-      .background(Color.black)
+  var body: some View {
+    VStack(spacing: 0) {
+      toolbar
+      zoomableContent
     }
+    .background(Color.black)
+  }
 
-    private var toolbar: some View {
-      HStack {
-        Text(title)
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(.white)
+  private var toolbar: some View {
+    HStack {
+      Text(title)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(.white)
 
-        Spacer()
+      Spacer()
 
-        HStack(spacing: Spacing.sm) {
-          Button { withAnimation(Motion.standard) { resetZoom() } } label: {
-            Image(systemName: "arrow.counterclockwise")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(.white.opacity(0.7))
-          }
-          .buttonStyle(.plain)
-          .disabled(scale == 1.0 && offset == .zero)
-
-          Text("\(Int(scale * 100))%")
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.5))
-
-          Button("Done") { onDismiss() }
-            .keyboardShortcut(.cancelAction)
+      HStack(spacing: Spacing.sm) {
+        Button { withAnimation(Motion.standard) { resetZoom() } } label: {
+          Image(systemName: "arrow.counterclockwise")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(.white.opacity(0.7))
         }
-      }
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
-      .background(.black)
-    }
+        .buttonStyle(.plain)
+        .disabled(image == nil || (scale == 1.0 && offset == .zero))
 
-    private var zoomableContent: some View {
+        Text("\(Int(scale * 100))%")
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(.white.opacity(0.5))
+
+        Button("Done") { onDismiss() }
+          .keyboardShortcut(.cancelAction)
+      }
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(.black)
+  }
+
+  @ViewBuilder
+  private var zoomableContent: some View {
+    if let image {
       GeometryReader { geo in
         image
           .resizable()
@@ -72,41 +73,56 @@ import SwiftUI
             }
           }
       }
-    }
-
-    private var magnification: some Gesture {
-      MagnifyGesture()
-        .onChanged { value in
-          let newScale = lastScale * value.magnification
-          scale = max(0.5, min(newScale, 8.0))
-        }
-        .onEnded { _ in
-          lastScale = scale
-          if scale < 1.0 {
-            withAnimation(Motion.standard) { resetZoom() }
-          }
-        }
-    }
-
-    private var drag: some Gesture {
-      DragGesture()
-        .onChanged { value in
-          guard scale > 1.0 else { return }
-          offset = CGSize(
-            width: lastOffset.width + value.translation.width,
-            height: lastOffset.height + value.translation.height
-          )
-        }
-        .onEnded { _ in
-          lastOffset = offset
-        }
-    }
-
-    private func resetZoom() {
-      scale = 1.0
-      lastScale = 1.0
-      offset = .zero
-      lastOffset = .zero
+    } else {
+      unavailablePreview
     }
   }
-#endif
+
+  private var unavailablePreview: some View {
+    VStack(spacing: Spacing.sm) {
+      Image(systemName: "photo")
+        .font(.system(size: 28, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.7))
+
+      Text("Unable to preview image")
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.82))
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var magnification: some Gesture {
+    MagnifyGesture()
+      .onChanged { value in
+        let newScale = lastScale * value.magnification
+        scale = max(0.5, min(newScale, 8.0))
+      }
+      .onEnded { _ in
+        lastScale = scale
+        if scale < 1.0 {
+          withAnimation(Motion.standard) { resetZoom() }
+        }
+      }
+  }
+
+  private var drag: some Gesture {
+    DragGesture()
+      .onChanged { value in
+        guard scale > 1.0 else { return }
+        offset = CGSize(
+          width: lastOffset.width + value.translation.width,
+          height: lastOffset.height + value.translation.height
+        )
+      }
+      .onEnded { _ in
+        lastOffset = offset
+      }
+  }
+
+  private func resetZoom() {
+    scale = 1.0
+    lastScale = 1.0
+    offset = .zero
+    lastOffset = .zero
+  }
+}

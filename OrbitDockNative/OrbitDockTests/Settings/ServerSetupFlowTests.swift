@@ -12,27 +12,32 @@ struct ServerSetupPlannerTests {
     #expect(!ServerSetupViewPlanner.isLoopbackHost("orbitdock.example.com"))
   }
 
-  @Test func buildEndpointHandlesLoopbackForCurrentPlatform() throws {
+  @Test func buildEndpointAllowsLoopbackWhenCapabilityAllowsIt() throws {
     let result = ServerSetupViewPlanner.buildEndpoint(
       host: "127.0.0.1",
       authToken: "tok_test",
       existingEndpoints: [],
       defaultPort: 4_000,
-      buildURL: { URL(string: "ws://\($0)") }
+      buildURL: { URL(string: "ws://\($0)") },
+      capabilities: capabilities(canUseLoopbackDevelopmentHost: true)
     )
 
-    #if os(iOS)
-      #if targetEnvironment(simulator)
-        let endpoints = try result.get()
-        #expect(endpoints.count == 1)
-        #expect(endpoints[0].name == "Loopback Server")
-      #else
-        #expect(result == .failure(.loopbackNotReachableFromIOS))
-      #endif
-    #else
-      let endpoints = try result.get()
-      #expect(endpoints.count == 1)
-    #endif
+    let endpoints = try result.get()
+    #expect(endpoints.count == 1)
+    #expect(endpoints[0].name == "Loopback Server")
+  }
+
+  @Test func buildEndpointRejectsLoopbackWhenCapabilityRejectsIt() {
+    let result = ServerSetupViewPlanner.buildEndpoint(
+      host: "127.0.0.1",
+      authToken: "tok_test",
+      existingEndpoints: [],
+      defaultPort: 4_000,
+      buildURL: { URL(string: "ws://\($0)") },
+      capabilities: capabilities(canUseLoopbackDevelopmentHost: false)
+    )
+
+    #expect(result == .failure(.loopbackNotReachableFromIOS))
   }
 
   @Test func buildEndpointNamesLoopbackServersClearly() throws {
@@ -60,6 +65,16 @@ struct ServerSetupPlannerTests {
     )
 
     #expect(result == .failure(ServerSetupConnectError.missingToken))
+  }
+
+  private func capabilities(canUseLoopbackDevelopmentHost: Bool) -> PlatformCapabilities {
+    PlatformCapabilities(
+      canRevealInFileBrowser: true,
+      canPlaySystemSounds: true,
+      canAccessPasteboard: true,
+      canOpenExternalURLs: true,
+      canUseLoopbackDevelopmentHost: canUseLoopbackDevelopmentHost
+    )
   }
 }
 

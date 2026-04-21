@@ -168,9 +168,7 @@ struct RenameSessionSheet: View {
       }
       .background(Color.backgroundSecondary)
       .navigationTitle("Rename Session")
-      #if os(iOS)
-      .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformInlineNavigationTitle()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") {
@@ -188,9 +186,6 @@ struct RenameSessionSheet: View {
         }
       }
     }
-    #if os(iOS)
-    .presentationDetents([.height(360), .medium])
-    .presentationDragIndicator(.visible)
-    #endif
+    .platformSheetChrome(detents: [.height(360), .medium])
   }
 }

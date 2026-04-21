@@ -81,10 +81,7 @@ struct RemoteProjectPicker: View {
     }
     .sheet(item: $pathPreview) { item in
       pathPreviewSheet(item)
-      #if os(iOS)
-        .presentationDetents([.height(320), .medium])
-        .presentationDragIndicator(.visible)
-      #endif
+        .platformProjectPreviewSheetChrome()
     }
   }
 

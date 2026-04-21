@@ -75,12 +75,7 @@ struct SwiftUICodeBlockView: View {
         .foregroundStyle(Color.textTertiary)
 
       Button(copyLabel) {
-        #if os(macOS)
-          NSPasteboard.general.clearContents()
-          NSPasteboard.general.setString(code, forType: .string)
-        #else
-          UIPasteboard.general.string = code
-        #endif
+        Platform.services.copyToClipboard(code)
         copyLabel = "Copied"
       }
       .buttonStyle(.plain)

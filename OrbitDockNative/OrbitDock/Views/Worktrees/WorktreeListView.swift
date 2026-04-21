@@ -64,10 +64,7 @@ struct WorktreeListView: View {
           viewModel.createWorktree(branchName: branchName, baseBranch: baseBranch)
         }
       )
-      #if os(iOS)
-      .presentationDetents([.height(380), .medium])
-      .presentationDragIndicator(.visible)
-      #endif
+      .platformSheetChrome(detents: [.height(380), .medium])
     }
     .sheet(item: $viewModel.worktreeForCleanup) { wt in
       CompleteWorktreeSheet(
@@ -78,10 +75,7 @@ struct WorktreeListView: View {
           viewModel.confirmCleanup(for: wt, request: request)
         }
       )
-      #if os(iOS)
-      .presentationDetents([.height(480), .large])
-      .presentationDragIndicator(.visible)
-      #endif
+      .platformSheetChrome(detents: [.height(480), .large])
     }
     .onChange(of: endpointStore.lastServerError?.message) { _, _ in
       viewModel.handleRemoveError(endpointStore.lastServerError)
@@ -212,9 +206,7 @@ struct WorktreeListView: View {
         }
         .background(Color.backgroundSecondary)
         .navigationTitle("Worktrees")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .platformInlineNavigationTitle()
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
             Button("Done") {
@@ -226,10 +218,7 @@ struct WorktreeListView: View {
           compactActionBar
         }
       }
-      #if os(iOS)
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
-    #endif
+      .platformSheetChrome()
     }
 
   private var compactProjectHeader: some View {

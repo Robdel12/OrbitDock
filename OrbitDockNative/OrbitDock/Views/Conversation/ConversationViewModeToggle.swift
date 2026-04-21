@@ -92,9 +92,7 @@ struct ConversationViewModeToggle: View {
     }
     .buttonStyle(.plain)
     .accessibilityLabel("\(modeTitle(mode)) view")
-    #if os(macOS)
-      .help(mode.label)
-    #endif
+    .help(mode.label)
   }
 
   private func modeTitle(_ mode: ChatViewMode) -> String {

@@ -223,10 +223,8 @@ struct ServerSetupView: View {
         TextField("10.0.0.5:4000 or https://host.example", text: $host)
           .textFieldStyle(.plain)
           .font(.system(size: TypeScale.body, design: .monospaced))
-        #if os(iOS)
-          .textInputAutocapitalization(.never)
-          .keyboardType(.URL)
-        #endif
+          .platformTextInputAutocapitalization(.never)
+          .platformURLKeyboard()
           .autocorrectionDisabled()
           .foregroundStyle(Color.textPrimary)
       }
@@ -238,9 +236,7 @@ struct ServerSetupView: View {
         SecureField("Paste auth token", text: $authToken)
           .textFieldStyle(.plain)
           .font(.system(size: TypeScale.body, design: .monospaced))
-        #if os(iOS)
-          .textInputAutocapitalization(.never)
-        #endif
+          .platformTextInputAutocapitalization(.never)
           .autocorrectionDisabled()
           .foregroundStyle(Color.textPrimary)
       }

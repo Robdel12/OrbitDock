@@ -5,11 +5,7 @@ import Observation
 @Observable
 final class ConversationTimelineViewModel {
   private let fetchedRowContentLimit = 24
-  #if os(iOS)
-    private let fetchedRowContentTotalCostLimit = 1_500_000
-  #else
-    private let fetchedRowContentTotalCostLimit = 4_000_000
-  #endif
+  private let fetchedRowContentTotalCostLimit = 1_500_000
   private var currentSessionId: String?
   private var currentViewMode: ChatViewMode = .focused
   private var projection = TimelineDataSource.Projection.make(entries: [], viewMode: .focused)

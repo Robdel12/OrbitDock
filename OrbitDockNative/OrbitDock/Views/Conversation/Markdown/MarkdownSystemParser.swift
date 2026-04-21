@@ -30,13 +30,8 @@ enum MarkdownSystemParser {
 
   private static let cache = OSAllocatedUnfairLock(initialState: CacheState())
 
-  #if os(iOS)
-    private nonisolated static let maxCacheSize = 160
-    private nonisolated static let maxCacheableMarkdownCharacters = 3_000
-  #else
-    private nonisolated static let maxCacheSize = 500
-    private nonisolated static let maxCacheableMarkdownCharacters = 8_000
-  #endif
+  private nonisolated static let maxCacheSize = 160
+  private nonisolated static let maxCacheableMarkdownCharacters = 3_000
   private nonisolated static let evictionBatchSize = 64
 
   /// Two-space gap between list marker and content (inlined from deleted MarkdownTypography).

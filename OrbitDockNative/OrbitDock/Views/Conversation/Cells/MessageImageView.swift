@@ -50,7 +50,7 @@ struct MessageImageView: View {
 
     Group {
       if let platformImage = loadedImages[image.id] {
-        platformImageView(platformImage)
+        Image(platformImage: platformImage)
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxHeight: maxHeight)
@@ -79,14 +79,6 @@ struct MessageImageView: View {
     }
     let aspect = CGFloat(h) / CGFloat(w)
     return min(maxHeight, maxWidth * aspect)
-  }
-
-  private func platformImageView(_ image: PlatformImage) -> Image {
-    #if os(macOS)
-      Image(nsImage: image)
-    #else
-      Image(uiImage: image)
-    #endif
   }
 
   private func loadAll() async {

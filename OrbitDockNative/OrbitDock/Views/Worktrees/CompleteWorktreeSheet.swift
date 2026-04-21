@@ -253,9 +253,7 @@ struct CompleteWorktreeSheet: View {
       }
       .background(Color.backgroundSecondary)
       .navigationTitle("Complete Worktree")
-      #if os(iOS)
-      .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformInlineNavigationTitle()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") {
@@ -271,9 +269,6 @@ struct CompleteWorktreeSheet: View {
         }
       }
     }
-    #if os(iOS)
-    .presentationDetents([.height(480), .large])
-    .presentationDragIndicator(.visible)
-    #endif
+    .platformSheetChrome(detents: [.height(480), .large])
   }
 }

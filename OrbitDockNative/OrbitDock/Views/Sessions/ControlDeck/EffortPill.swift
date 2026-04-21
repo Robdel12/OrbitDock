@@ -144,11 +144,7 @@ struct EffortPill: View {
         }
         .padding(Spacing.lg)
       }
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-        .navigationTitle("Reasoning Effort")
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformSheetNavigationTitle("Reasoning Effort")
         .ifMacOS { $0.frame(width: 320) }
         .background(Color.backgroundSecondary)
     }

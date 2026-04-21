@@ -222,11 +222,7 @@ struct CodexApprovalPill: View {
         }
         .padding(compactLayout ? Spacing.md : Spacing.lg)
       }
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-        .navigationTitle("Codex Policy")
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformSheetNavigationTitle("Codex Policy")
         .ifMacOS { $0.frame(width: 300) }
       .background(Color.backgroundSecondary)
     }

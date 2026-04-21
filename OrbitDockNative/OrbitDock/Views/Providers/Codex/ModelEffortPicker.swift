@@ -126,11 +126,7 @@ struct ModelEffortPopover: View {
 
       effortSection
     }
-    #if os(iOS)
-    .frame(maxWidth: .infinity)
-    .navigationTitle("Model + Effort")
-    .navigationBarTitleDisplayMode(.inline)
-    #endif
+    .platformSheetNavigationTitle("Model + Effort")
     .ifMacOS { $0.frame(width: 356) }
     .background(Color.backgroundSecondary)
     .animation(Motion.standard, value: showModelPicker)

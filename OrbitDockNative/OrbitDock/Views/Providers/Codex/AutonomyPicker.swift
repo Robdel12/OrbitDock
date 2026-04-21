@@ -455,11 +455,7 @@ struct AutonomyPopover: View {
       }
     }
     .scrollBounceBehavior(.basedOnSize)
-    #if os(iOS)
-      .frame(maxWidth: .infinity)
-      .navigationTitle("Autonomy Level")
-      .navigationBarTitleDisplayMode(.inline)
-    #endif
+    .platformSheetNavigationTitle("Autonomy Level")
       .ifMacOS { $0.frame(width: 340) }
       .background(Color.backgroundSecondary)
       .onAppear {

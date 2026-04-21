@@ -147,9 +147,7 @@ struct CreateWorktreeSheet: View {
       }
       .background(Color.backgroundSecondary)
       .navigationTitle("New Worktree")
-      #if os(iOS)
-      .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformInlineNavigationTitle()
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") {
@@ -165,10 +163,7 @@ struct CreateWorktreeSheet: View {
         }
       }
     }
-    #if os(iOS)
-    .presentationDetents([.height(420), .medium])
-    .presentationDragIndicator(.visible)
-    #endif
+    .platformSheetChrome(detents: [.height(420), .medium])
   }
 
   private var compactProjectHeader: some View {

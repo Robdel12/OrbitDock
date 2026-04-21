@@ -21,22 +21,14 @@ enum ServerSetupConnectError: Error, Equatable {
 }
 
 enum ServerSetupViewPlanner {
-  static func supportsLoopbackDevelopmentHost() -> Bool {
-    #if os(macOS)
-      true
-    #elseif os(iOS)
-      #if targetEnvironment(simulator)
-        true
-      #else
-        false
-      #endif
-    #else
-      false
-    #endif
+  static func supportsLoopbackDevelopmentHost(
+    capabilities: PlatformCapabilities = .current
+  ) -> Bool {
+    capabilities.canUseLoopbackDevelopmentHost
   }
 
-  static func defaultHost() -> String {
-    if supportsLoopbackDevelopmentHost() {
+  static func defaultHost(capabilities: PlatformCapabilities = .current) -> String {
+    if supportsLoopbackDevelopmentHost(capabilities: capabilities) {
       "127.0.0.1"
     } else {
       ""
@@ -48,14 +40,15 @@ enum ServerSetupViewPlanner {
     authToken: String,
     existingEndpoints: [ServerEndpoint],
     defaultPort: Int,
-    buildURL: (String) -> URL?
+    buildURL: (String) -> URL?,
+    capabilities: PlatformCapabilities = .current
   ) -> Result<[ServerEndpoint], ServerSetupConnectError> {
     let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmedHost.isEmpty else {
       return .failure(.missingHost)
     }
 
-    if isLoopbackHost(trimmedHost) && !supportsLoopbackDevelopmentHost() {
+    if isLoopbackHost(trimmedHost) && !supportsLoopbackDevelopmentHost(capabilities: capabilities) {
       return .failure(.loopbackNotReachableFromIOS)
     }
 

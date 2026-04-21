@@ -58,8 +58,7 @@ struct SidebarSessionRow: View {
         }
       }
     }
-    #if os(iOS)
-    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+    .platformTrailingSwipeActions(allowsFullSwipe: false) {
       if session.canEnd {
         Button(role: .destructive) {
           Task { await endSession() }
@@ -68,10 +67,7 @@ struct SidebarSessionRow: View {
         }
       }
     }
-    #endif
-    #if os(macOS)
-      .onHover { isHovered = $0 }
-    #endif
+    .platformHover($isHovered)
   }
 
   // MARK: - Title Line

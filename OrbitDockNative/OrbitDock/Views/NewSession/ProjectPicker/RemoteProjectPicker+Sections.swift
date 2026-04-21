@@ -331,11 +331,9 @@ extension RemoteProjectPicker {
           Color.backgroundSecondary.opacity(OpacityTier.subtle),
           in: RoundedRectangle(cornerRadius: Radius.md)
         )
-      #if os(iOS)
         .autocorrectionDisabled()
-        .textInputAutocapitalization(.never)
-        .keyboardType(.URL)
-      #endif
+        .platformTextInputAutocapitalization(.never)
+        .platformURLKeyboard()
 
       Button {
         let trimmed = manualPathText.trimmingCharacters(in: .whitespacesAndNewlines)

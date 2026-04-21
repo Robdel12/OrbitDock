@@ -384,11 +384,7 @@ struct CodexModePill: View {
         }
       }
       .padding(Spacing.lg)
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-        .navigationTitle("Collaboration")
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformSheetNavigationTitle("Collaboration")
       .ifMacOS { $0.frame(width: 280) }
       .background(Color.backgroundSecondary)
     }

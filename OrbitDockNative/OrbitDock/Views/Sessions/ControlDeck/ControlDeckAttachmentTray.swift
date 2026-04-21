@@ -1,9 +1,4 @@
 import SwiftUI
-#if os(macOS)
-  import AppKit
-#else
-  import UIKit
-#endif
 
 struct ControlDeckAttachmentTray: View {
   let attachments: [ControlDeckAttachmentItem]
@@ -27,77 +22,25 @@ struct ControlDeckAttachmentTray: View {
       }
     }
     .scrollIndicators(.hidden)
-    #if os(iOS)
-      .fullScreenCover(item: $previewItem) { item in
-        imagePreviewOverlay(item)
-      }
-    #else
-      .sheet(item: $previewItem) { item in
-        imagePreviewSheet(item)
-      }
-    #endif
+    .platformImagePreview(item: $previewItem) { item in
+      imagePreview(item)
+    }
   }
 
-  // MARK: - Image Preview (iOS — full screen)
+  // MARK: - Image Preview
 
-  #if os(iOS)
-    @ViewBuilder
-    private func imagePreviewOverlay(_ item: ControlDeckAttachmentItem) -> some View {
-      if case let .image(img) = item.kind {
-        ZStack {
-          Color.black.ignoresSafeArea()
-
-          if let image = platformImage(from: previewData(for: img), maxDimension: Self.previewMaxDimension) {
-            image
-              .resizable()
-              .aspectRatio(contentMode: .fit)
-              .padding(Spacing.md)
-          } else {
-            VStack(spacing: Spacing.sm) {
-              Image(systemName: "photo")
-                .font(.system(size: 28, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.7))
-
-              Text("Unable to preview image")
-                .font(.system(size: TypeScale.body, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-            }
-          }
-        }
-        .overlay(alignment: .topTrailing) {
-          Button { previewItem = nil } label: {
-            Image(systemName: "xmark.circle.fill")
-              .font(.system(size: 28))
-              .foregroundStyle(.white.opacity(0.8))
-              .padding(Spacing.lg)
-          }
-        }
-        .overlay(alignment: .bottom) {
-          Text(img.displayName)
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(.white.opacity(0.7))
-            .padding(.bottom, Spacing.xl)
-        }
-        .statusBarHidden()
+  @ViewBuilder
+  private func imagePreview(_ item: ControlDeckAttachmentItem) -> some View {
+    if case let .image(img) = item.kind {
+      ZoomableImagePreview(
+        image: platformImage(from: previewData(for: img), maxDimension: Self.previewMaxDimension),
+        title: img.displayName
+      ) {
+        previewItem = nil
       }
+      .frame(minWidth: 480, idealWidth: 720, minHeight: 420, idealHeight: 560)
     }
-  #endif
-
-  // MARK: - Image Preview (macOS — sheet)
-
-  #if os(macOS)
-    @ViewBuilder
-    private func imagePreviewSheet(_ item: ControlDeckAttachmentItem) -> some View {
-      if case let .image(img) = item.kind,
-         let image = platformImage(from: previewData(for: img), maxDimension: Self.previewMaxDimension)
-      {
-        ZoomableImagePreview(image: image, title: img.displayName) {
-          previewItem = nil
-        }
-        .frame(minWidth: 480, idealWidth: 720, minHeight: 420, idealHeight: 560)
-      }
-    }
-  #endif
+  }
 
   private func chipView(_ item: ControlDeckAttachmentItem) -> some View {
     HStack(spacing: Spacing.xs) {
@@ -142,21 +85,12 @@ struct ControlDeckAttachmentTray: View {
     }
   }
 
+  @MainActor
   private func platformImage(from data: Data?, maxDimension: CGFloat) -> Image? {
     guard let data else { return nil }
-    #if os(macOS)
-      if let image = ImageDecoding.downsampledImage(fromData: data, maxDimension: maxDimension) {
-        return Image(nsImage: image)
-      }
-      guard let fallback = NSImage(data: data) else { return nil }
-      return Image(nsImage: fallback)
-    #else
-      if let image = ImageDecoding.downsampledImage(fromData: data, maxDimension: maxDimension) {
-        return Image(uiImage: image)
-      }
-      guard let fallback = UIImage(data: data) else { return nil }
-      return Image(uiImage: fallback)
-    #endif
+    let decoded = ImageDecoding.downsampledImage(fromData: data, maxDimension: maxDimension)
+      ?? PlatformImage.decoded(from: data)
+    return decoded.map(Image.init(platformImage:))
   }
 
   private func thumbnailData(for image: ControlDeckImageDraft) -> Data? {

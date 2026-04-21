@@ -87,9 +87,7 @@ struct LibraryFilterSheet: View {
       }
       .padding(Spacing.lg)
       .navigationTitle("Filters")
-      #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformInlineNavigationTitle()
         .toolbar {
           ToolbarItem(placement: .confirmationAction) {
             Button("Done") { dismiss() }

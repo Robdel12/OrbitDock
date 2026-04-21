@@ -116,8 +116,7 @@ struct LibraryView: View {
         providerScopedSessionCount: archiveState.providerScopedSessions.count,
         onReset: resetFilters
       )
-      .presentationDetents([.height(320), .medium])
-      .presentationDragIndicator(.visible)
+      .platformSheetChrome(detents: [.height(320), .medium])
     }
   }
 

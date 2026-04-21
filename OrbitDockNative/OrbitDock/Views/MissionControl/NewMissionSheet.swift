@@ -183,19 +183,11 @@ struct NewMissionSheet: View {
   }
 
   private var directorySection: some View {
-    #if os(iOS)
-      RemoteProjectPicker(
-        selectedPath: $selectedPath,
-        selectedPathIsGit: $selectedPathIsGit,
-        endpointId: resolvedEndpointId
-      )
-    #else
-      ProjectPicker(
-        selectedPath: $selectedPath,
-        selectedPathIsGit: $selectedPathIsGit,
-        endpointId: resolvedEndpointId
-      )
-    #endif
+    ProjectDirectoryPicker(
+      selectedPath: $selectedPath,
+      selectedPathIsGit: $selectedPathIsGit,
+      endpointId: resolvedEndpointId
+    )
   }
 
   private var providerSection: some View {

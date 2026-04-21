@@ -119,11 +119,7 @@ struct CodexAutoReviewPill: View {
         }
         .padding(Spacing.lg)
       }
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-        .navigationTitle("Auto Review")
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformSheetNavigationTitle("Auto Review")
         .ifMacOS { $0.frame(width: 340) }
         .background(Color.backgroundSecondary)
     }

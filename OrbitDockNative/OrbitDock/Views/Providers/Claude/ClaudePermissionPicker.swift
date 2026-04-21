@@ -272,11 +272,7 @@ struct ClaudePermissionPopover: View {
       }
       .padding(.vertical, Spacing.xs)
     }
-    #if os(iOS)
-    .frame(maxWidth: .infinity)
-    .navigationTitle("Permission Mode")
-    .navigationBarTitleDisplayMode(.inline)
-    #endif
+    .platformSheetNavigationTitle("Permission Mode")
     .ifMacOS { $0.frame(width: 340) }
     .background(Color.backgroundSecondary)
     .onAppear {

@@ -18,9 +18,6 @@ struct ServerSettingsSheet: View {
 
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  #endif
 
   @State private var endpoints: [ServerEndpoint]
   @State private var showEditor = false
@@ -105,9 +102,7 @@ struct ServerSettingsSheet: View {
           NavigationStack {
             content
               .navigationTitle("Servers")
-            #if os(iOS)
-              .navigationBarTitleDisplayMode(.inline)
-            #endif
+              .platformInlineNavigationTitle()
               .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                   Button("Done") {
@@ -542,9 +537,7 @@ struct ServerSettingsSheet: View {
       }
       .background(Color.backgroundPrimary)
       .navigationTitle(editingEndpointId == nil ? "Add Endpoint" : "Edit Endpoint")
-      #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformInlineNavigationTitle()
         .toolbar {
           ToolbarItem(placement: .cancellationAction) {
             Button("Cancel") {
@@ -581,9 +574,7 @@ struct ServerSettingsSheet: View {
         .textFieldStyle(.plain)
         .font(.system(size: TypeScale.body, design: monospaced ? .monospaced : .default))
         .foregroundStyle(Color.textPrimary)
-      #if os(iOS)
-        .textInputAutocapitalization(monospaced ? .never : .words)
-      #endif
+        .platformTextInputAutocapitalization(monospaced ? .never : .words)
         .autocorrectionDisabled()
     }
     .padding(.horizontal, Spacing.lg)
@@ -605,9 +596,7 @@ struct ServerSettingsSheet: View {
         .textFieldStyle(.plain)
         .font(.system(size: TypeScale.body, design: .monospaced))
         .foregroundStyle(Color.textPrimary)
-      #if os(iOS)
-        .textInputAutocapitalization(.never)
-      #endif
+        .platformTextInputAutocapitalization(.never)
         .autocorrectionDisabled()
     }
     .padding(.horizontal, Spacing.lg)
@@ -881,8 +870,7 @@ private struct SheetPresentationModifier: ViewModifier {
   func body(content: Content) -> some View {
     if isPresentedAsSheet {
       content
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .platformSheetChrome()
     } else {
       content
     }

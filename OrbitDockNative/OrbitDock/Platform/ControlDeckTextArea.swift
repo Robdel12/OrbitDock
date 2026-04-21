@@ -2,7 +2,7 @@
 //  ControlDeckTextArea.swift
 //  OrbitDock
 //
-//  Cross-platform multiline Control Deck input backed by UITextView/NSTextView.
+//  Platform-backed multiline Control Deck input backed by UITextView/NSTextView.
 //
 
 import SwiftUI

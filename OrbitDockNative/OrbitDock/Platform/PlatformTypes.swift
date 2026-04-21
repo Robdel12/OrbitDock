@@ -1,11 +1,3 @@
-//
-//  PlatformTypes.swift
-//  OrbitDock
-//
-//  Cross-platform type aliases and helpers for AppKit/UIKit.
-//  Allows NativeMarkdown views and cell models to compile on both platforms.
-//
-
 import SwiftUI
 
 #if os(macOS)
@@ -24,11 +16,32 @@ import SwiftUI
   typealias PlatformImage = UIImage
 #endif
 
+// MARK: - Platform Image Helpers
+
+extension Image {
+  init(platformImage: PlatformImage) {
+    #if os(macOS)
+      self.init(nsImage: platformImage)
+    #else
+      self.init(uiImage: platformImage)
+    #endif
+  }
+}
+
+extension PlatformImage {
+  static func decoded(from data: Data) -> PlatformImage? {
+    #if os(macOS)
+      NSImage(data: data)
+    #else
+      UIImage(data: data)
+    #endif
+  }
+}
+
 // MARK: - PlatformColor Helpers
 
 extension PlatformColor {
   /// Cross-platform RGBA color constructor.
-  /// Maps to `NSColor(calibratedRed:...)` on macOS, `UIColor(red:...)` on iOS.
   static func calibrated(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) -> PlatformColor {
     #if os(macOS)
       NSColor(calibratedRed: red, green: green, blue: blue, alpha: alpha)
@@ -38,7 +51,6 @@ extension PlatformColor {
   }
 
   /// Cross-platform secondary label color.
-  /// macOS: `NSColor.secondaryLabelColor`; iOS: `UIColor.secondaryLabel`.
   static var secondaryLabelCompat: PlatformColor {
     #if os(macOS)
       NSColor.secondaryLabelColor
@@ -52,7 +64,6 @@ extension PlatformColor {
 
 extension PlatformFont {
   /// Create an italic variant of this font, preserving weight.
-  /// macOS uses `.italic` symbolic trait; iOS uses `.traitItalic`.
   func withItalic() -> PlatformFont {
     #if os(macOS)
       let descriptor = fontDescriptor.withSymbolicTraits(.italic)
@@ -78,7 +89,6 @@ extension PlatformFont {
     #endif
   }
 
-  // Create a font with a specific design (e.g. `.serif`), if available.
   #if os(macOS)
     func withDesign(_ design: NSFontDescriptor.SystemDesign) -> PlatformFont? {
       guard let descriptor = fontDescriptor.withDesign(design) else { return nil }

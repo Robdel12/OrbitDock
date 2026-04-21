@@ -1,9 +1,5 @@
 import SwiftUI
 
-#if os(iOS)
-  import UIKit
-#endif
-
 enum DashboardLayoutMode {
   case phoneCompact
   case pad
@@ -17,41 +13,31 @@ enum DashboardLayoutMode {
     horizontalSizeClass: UserInterfaceSizeClass?,
     containerWidth: CGFloat? = nil
   ) -> DashboardLayoutMode {
-    #if os(iOS)
-      let width = containerWidth ?? UIScreen.main.bounds.width
+    if horizontalSizeClass == .compact {
+      return .phoneCompact
+    }
 
-      if horizontalSizeClass == .compact || width < compactWidthThreshold {
-        return .phoneCompact
-      }
+    guard let width = containerWidth else {
+      return horizontalSizeClass == nil ? .desktop : .pad
+    }
 
-      if UIDevice.current.userInterfaceIdiom == .pad {
-        return width >= desktopWidthThreshold ? .desktop : .pad
-      }
+    if width < compactWidthThreshold {
+      return .phoneCompact
+    }
 
-      return width >= desktopWidthThreshold ? .desktop : .pad
-    #else
-      _ = containerWidth
-      _ = horizontalSizeClass
-      return .desktop
-    #endif
+    return width >= desktopWidthThreshold ? .desktop : .pad
   }
 
   static func shouldShowMissionControlSidebar(
     horizontalSizeClass: UserInterfaceSizeClass?,
     containerWidth: CGFloat
   ) -> Bool {
-    #if os(iOS)
-      let layoutMode = current(
-        horizontalSizeClass: horizontalSizeClass,
-        containerWidth: containerWidth
-      )
-      guard layoutMode != .phoneCompact else { return false }
-      return containerWidth >= missionControlSidebarThreshold
-    #else
-      _ = horizontalSizeClass
-      _ = containerWidth
-      return true
-    #endif
+    let layoutMode = current(
+      horizontalSizeClass: horizontalSizeClass,
+      containerWidth: containerWidth
+    )
+    guard layoutMode != .phoneCompact else { return false }
+    return containerWidth >= missionControlSidebarThreshold
   }
 
   var isPhoneCompact: Bool {

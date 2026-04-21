@@ -8,6 +8,11 @@
 
 import SwiftUI
 
+enum PlatformTextInputAutocapitalization {
+  case never
+  case words
+}
+
 // MARK: - Platform Hover
 
 extension View {
@@ -50,6 +55,19 @@ extension View {
       popover(isPresented: isPresented, arrowEdge: arrowEdge, content: content)
     #endif
   }
+
+  /// Full-screen image preview on touch platforms, sheet preview elsewhere.
+  @ViewBuilder
+  func platformImagePreview<Item: Identifiable, Content: View>(
+    item: Binding<Item?>,
+    @ViewBuilder content: @escaping (Item) -> Content
+  ) -> some View {
+    #if os(iOS)
+      fullScreenCover(item: item, content: content)
+    #else
+      sheet(item: item, content: content)
+    #endif
+  }
 }
 
 // MARK: - Platform Cursor
@@ -65,6 +83,98 @@ extension View {
           NSCursor.pop()
         }
       }
+    #else
+      self
+    #endif
+  }
+}
+
+// MARK: - Platform Gestures
+
+extension View {
+  /// Trailing swipe actions on touch platforms; identity elsewhere.
+  @ViewBuilder
+  func platformTrailingSwipeActions<Actions: View>(
+    allowsFullSwipe: Bool = false,
+    @ViewBuilder actions: () -> Actions
+  ) -> some View {
+    #if os(iOS)
+      swipeActions(edge: .trailing, allowsFullSwipe: allowsFullSwipe) {
+        actions()
+      }
+    #else
+      self
+    #endif
+  }
+}
+
+// MARK: - Platform Sheet Chrome
+
+extension View {
+  /// Standard OrbitDock sheet treatment on iOS; identity on macOS.
+  @ViewBuilder
+  func platformSheetChrome(detents: Set<PresentationDetent> = [.medium, .large]) -> some View {
+    #if os(iOS)
+      presentationDetents(detents)
+        .presentationDragIndicator(.visible)
+    #else
+      self
+    #endif
+  }
+
+  /// Compact path-preview sheet treatment on iOS; identity on macOS.
+  @ViewBuilder
+  func platformProjectPreviewSheetChrome() -> some View {
+    #if os(iOS)
+      presentationDetents([.height(320), .medium])
+        .presentationDragIndicator(.visible)
+    #else
+      self
+    #endif
+  }
+
+  /// Inline navigation titles where the platform supports that presentation mode.
+  @ViewBuilder
+  func platformInlineNavigationTitle() -> some View {
+    #if os(iOS)
+      navigationBarTitleDisplayMode(.inline)
+    #else
+      self
+    #endif
+  }
+
+  /// Sheet content title treatment for compact navigation stacks.
+  @ViewBuilder
+  func platformSheetNavigationTitle(_ title: String) -> some View {
+    #if os(iOS)
+      frame(maxWidth: .infinity)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    #else
+      self
+    #endif
+  }
+
+  /// Text-input capitalization exists for touch keyboard entry; identity elsewhere.
+  @ViewBuilder
+  func platformTextInputAutocapitalization(_ autocapitalization: PlatformTextInputAutocapitalization) -> some View {
+    #if os(iOS)
+      switch autocapitalization {
+        case .never:
+          textInputAutocapitalization(.never)
+        case .words:
+          textInputAutocapitalization(.words)
+      }
+    #else
+      self
+    #endif
+  }
+
+  /// URL keyboard treatment on iOS; identity on macOS.
+  @ViewBuilder
+  func platformURLKeyboard() -> some View {
+    #if os(iOS)
+      keyboardType(.URL)
     #else
       self
     #endif

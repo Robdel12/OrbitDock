@@ -162,13 +162,8 @@ private enum MarkdownRenderSegmentCache {
 
   private static let cache: NSCache<NSString, Box> = {
     let cache = NSCache<NSString, Box>()
-    #if os(iOS)
-      cache.countLimit = 24
-      cache.totalCostLimit = 3_000_000
-    #else
-      cache.countLimit = 96
-      cache.totalCostLimit = 8_000_000
-    #endif
+    cache.countLimit = 48
+    cache.totalCostLimit = 3_000_000
     return cache
   }()
 

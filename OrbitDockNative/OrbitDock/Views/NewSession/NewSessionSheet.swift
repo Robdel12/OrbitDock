@@ -382,21 +382,12 @@ struct NewSessionSheet: View {
   }
 
   private var directorySection: some View {
-    #if os(iOS)
-      RemoteProjectPicker(
-        selectedPath: $model.selectedPath,
-        selectedPathIsGit: $model.selectedPathIsGit,
-        endpointId: model.selectedEndpointId
-      )
-    #else
-      ProjectPicker(
-        selectedPath: $model.selectedPath,
-        selectedPathIsGit: $model.selectedPathIsGit,
-        endpointId: model.selectedEndpointId,
-
-        style: .embedded
-      )
-    #endif
+    ProjectDirectoryPicker(
+      selectedPath: $model.selectedPath,
+      selectedPathIsGit: $model.selectedPathIsGit,
+      endpointId: model.selectedEndpointId,
+      style: .embedded
+    )
   }
 
   // MARK: - Configuration Card

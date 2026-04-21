@@ -104,11 +104,7 @@ struct ModelPill: View {
         }
         .padding(Spacing.lg)
       }
-      #if os(iOS)
-        .frame(maxWidth: .infinity)
-        .navigationTitle("Model")
-        .navigationBarTitleDisplayMode(.inline)
-      #endif
+      .platformSheetNavigationTitle("Model")
         .ifMacOS { $0.frame(width: 320) }
         .background(Color.backgroundSecondary)
     }
