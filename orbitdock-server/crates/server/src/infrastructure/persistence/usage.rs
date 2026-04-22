@@ -305,10 +305,10 @@ pub(super) fn upsert_usage_turn_snapshot(
     .query_row(
       "SELECT input_tokens
              FROM usage_turns
-             WHERE session_id = ?1 AND turn_id != ?2
+             WHERE session_id = ?1 AND turn_seq < ?2
              ORDER BY turn_seq DESC, rowid DESC
              LIMIT 1",
-      params![session_id, turn_id],
+      params![session_id, *turn_seq as i64],
       |row| row.get(0),
     )
     .optional()?
@@ -356,48 +356,18 @@ pub(super) fn upsert_usage_turn_snapshot(
   Ok(())
 }
 
-pub(super) fn upsert_usage_ledger_entry(
+#[derive(Debug)]
+struct StoredTurnUsageSnapshot {
+  turn_id: String,
+  turn_seq: u64,
+  usage: TokenUsage,
+  snapshot_kind: TokenUsageSnapshotKind,
+}
+
+pub(super) fn recompute_usage_ledger_for_session(
   conn: &Connection,
-  row: &TurnSnapshotRow<'_>,
+  session_id: &str,
 ) -> Result<(), rusqlite::Error> {
-  let TurnSnapshotRow {
-    session_id,
-    turn_id,
-    turn_seq,
-    input_tokens,
-    output_tokens,
-    cached_tokens,
-    context_window,
-    snapshot_kind,
-  } = row;
-
-  let current = TokenUsage {
-    input_tokens: *input_tokens,
-    output_tokens: *output_tokens,
-    cached_tokens: *cached_tokens,
-    context_window: *context_window,
-  };
-
-  let previous = conn
-    .query_row(
-      "SELECT input_tokens, output_tokens, cached_tokens, context_window
-       FROM usage_turns
-       WHERE session_id = ?1 AND turn_id != ?2
-       ORDER BY turn_seq DESC, rowid DESC
-       LIMIT 1",
-      params![session_id, turn_id],
-      |row| {
-        Ok(TokenUsage {
-          input_tokens: row.get::<_, i64>(0)?.max(0) as u64,
-          output_tokens: row.get::<_, i64>(1)?.max(0) as u64,
-          cached_tokens: row.get::<_, i64>(2)?.max(0) as u64,
-          context_window: row.get::<_, i64>(3)?.max(0) as u64,
-        })
-      },
-    )
-    .optional()?;
-
-  let normalized = normalize_usage_for_ledger(previous.as_ref(), &current, *snapshot_kind);
   let (provider, model, session_started_at): (String, Option<String>, Option<String>) = conn
     .query_row(
       "SELECT COALESCE(provider, 'claude'), model, started_at
@@ -407,17 +377,56 @@ pub(super) fn upsert_usage_ledger_entry(
       |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
 
-  let estimated_cost_usd = estimate_cost_usd(
-    provider.as_str(),
-    model.as_deref(),
-    normalized.billable_input_tokens,
-    normalized.billable_output_tokens,
-    normalized.cache_read_tokens,
-    normalized.cache_write_tokens,
-  );
+  let turns = conn
+    .prepare(
+      "SELECT turn_id, turn_seq, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind
+       FROM usage_turns
+       WHERE session_id = ?1
+       ORDER BY turn_seq ASC, rowid ASC",
+    )?
+    .query_map(params![session_id], |row| {
+      let snapshot_kind: String = row.get(6)?;
+      Ok(StoredTurnUsageSnapshot {
+        turn_id: row.get(0)?,
+        turn_seq: row.get::<_, i64>(1)?.max(0) as u64,
+        usage: TokenUsage {
+          input_tokens: row.get::<_, i64>(2)?.max(0) as u64,
+          output_tokens: row.get::<_, i64>(3)?.max(0) as u64,
+          cached_tokens: row.get::<_, i64>(4)?.max(0) as u64,
+          context_window: row.get::<_, i64>(5)?.max(0) as u64,
+        },
+        snapshot_kind: snapshot_kind_from_str(Some(snapshot_kind.as_str())),
+      })
+    })?
+    .collect::<Result<Vec<_>, _>>()?;
 
   conn.execute(
-    "INSERT INTO usage_ledger_entries (
+    "DELETE FROM usage_ledger_entries
+     WHERE session_id = ?1
+       AND NOT EXISTS (
+         SELECT 1
+         FROM usage_turns ut
+         WHERE ut.session_id = usage_ledger_entries.session_id
+           AND ut.turn_id = usage_ledger_entries.turn_id
+       )",
+    params![session_id],
+  )?;
+
+  let mut previous_usage: Option<TokenUsage> = None;
+  for turn in turns {
+    let normalized =
+      normalize_usage_for_ledger(previous_usage.as_ref(), &turn.usage, turn.snapshot_kind);
+    let estimated_cost_usd = estimate_cost_usd(
+      provider.as_str(),
+      model.as_deref(),
+      normalized.billable_input_tokens,
+      normalized.billable_output_tokens,
+      normalized.cache_read_tokens,
+      normalized.cache_write_tokens,
+    );
+
+    conn.execute(
+      "INSERT INTO usage_ledger_entries (
         session_id,
         turn_id,
         turn_seq,
@@ -439,7 +448,7 @@ pub(super) fn upsert_usage_ledger_entry(
         provider = excluded.provider,
         model = excluded.model,
         session_started_at = excluded.session_started_at,
-        observed_at = excluded.observed_at,
+        observed_at = COALESCE(usage_ledger_entries.observed_at, excluded.observed_at),
         snapshot_kind = excluded.snapshot_kind,
         billable_input_tokens = excluded.billable_input_tokens,
         billable_output_tokens = excluded.billable_output_tokens,
@@ -448,24 +457,26 @@ pub(super) fn upsert_usage_ledger_entry(
         context_input_tokens = excluded.context_input_tokens,
         context_window = excluded.context_window,
         estimated_cost_usd = excluded.estimated_cost_usd",
-    params![
-      session_id,
-      turn_id,
-      *turn_seq as i64,
-      provider,
-      model,
-      session_started_at,
-      chrono_now(),
-      snapshot_kind_to_str(*snapshot_kind),
-      normalized.billable_input_tokens as i64,
-      normalized.billable_output_tokens as i64,
-      normalized.cache_read_tokens as i64,
-      normalized.cache_write_tokens as i64,
-      normalized.context_input_tokens as i64,
-      normalized.context_window as i64,
-      estimated_cost_usd,
-    ],
-  )?;
+      params![
+        session_id,
+        &turn.turn_id,
+        turn.turn_seq as i64,
+        &provider,
+        &model,
+        &session_started_at,
+        chrono_now(),
+        snapshot_kind_to_str(turn.snapshot_kind),
+        normalized.billable_input_tokens as i64,
+        normalized.billable_output_tokens as i64,
+        normalized.cache_read_tokens as i64,
+        normalized.cache_write_tokens as i64,
+        normalized.context_input_tokens as i64,
+        normalized.context_window as i64,
+        estimated_cost_usd,
+      ],
+    )?;
+    previous_usage = Some(turn.usage);
+  }
 
   Ok(())
 }
@@ -491,6 +502,117 @@ pub(crate) fn estimate_cost_usd(
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  fn create_usage_ledger_test_schema(conn: &Connection) {
+    conn
+      .execute_batch(
+        "CREATE TABLE sessions (
+           id TEXT PRIMARY KEY,
+           provider TEXT,
+           model TEXT,
+           started_at TEXT
+         );
+         CREATE TABLE usage_turns (
+           session_id TEXT NOT NULL,
+           turn_id TEXT NOT NULL,
+           turn_seq INTEGER NOT NULL,
+           snapshot_kind TEXT NOT NULL,
+           input_tokens INTEGER NOT NULL DEFAULT 0,
+           output_tokens INTEGER NOT NULL DEFAULT 0,
+           cached_tokens INTEGER NOT NULL DEFAULT 0,
+           context_window INTEGER NOT NULL DEFAULT 0,
+           input_delta_tokens INTEGER NOT NULL DEFAULT 0,
+           created_at TEXT NOT NULL,
+           PRIMARY KEY (session_id, turn_id)
+         );
+         CREATE TABLE usage_ledger_entries (
+           session_id TEXT NOT NULL,
+           turn_id TEXT NOT NULL,
+           turn_seq INTEGER NOT NULL DEFAULT 0,
+           provider TEXT NOT NULL,
+           model TEXT,
+           session_started_at TEXT,
+           observed_at TEXT NOT NULL,
+           snapshot_kind TEXT NOT NULL,
+           billable_input_tokens INTEGER NOT NULL DEFAULT 0,
+           billable_output_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+           context_input_tokens INTEGER NOT NULL DEFAULT 0,
+           context_window INTEGER NOT NULL DEFAULT 0,
+           estimated_cost_usd REAL NOT NULL DEFAULT 0,
+           PRIMARY KEY (session_id, turn_id)
+         );",
+      )
+      .expect("create usage schema");
+  }
+
+  fn insert_usage_turn(
+    conn: &Connection,
+    turn_id: &str,
+    turn_seq: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_tokens: u64,
+  ) {
+    let row = TurnSnapshotRow {
+      session_id: "session-1",
+      turn_id,
+      turn_seq,
+      input_tokens,
+      output_tokens,
+      cached_tokens,
+      context_window: 200_000,
+      snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+    };
+    upsert_usage_turn_snapshot(conn, &row).expect("upsert usage turn");
+    recompute_usage_ledger_for_session(conn, "session-1").expect("recompute usage ledger");
+  }
+
+  #[test]
+  fn ledger_recompute_handles_out_of_order_lifetime_turns() {
+    let conn = Connection::open_in_memory().expect("open sqlite");
+    create_usage_ledger_test_schema(&conn);
+    conn
+      .execute(
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        params!["session-1", "codex", "gpt-5.4", "2026-04-22T00:00:00Z"],
+      )
+      .expect("insert session");
+
+    insert_usage_turn(&conn, "turn-1", 1, 100, 10, 50);
+    insert_usage_turn(&conn, "turn-3", 3, 300, 30, 150);
+    insert_usage_turn(&conn, "turn-2", 2, 180, 18, 90);
+
+    let rows = conn
+      .prepare(
+        "SELECT turn_id, billable_input_tokens, billable_output_tokens, cache_read_tokens
+         FROM usage_ledger_entries
+         WHERE session_id = 'session-1'
+         ORDER BY turn_seq",
+      )
+      .and_then(|mut stmt| {
+        let rows = stmt.query_map([], |row| {
+          Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+          ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+      })
+      .expect("read ledger rows");
+
+    assert_eq!(
+      rows,
+      vec![
+        ("turn-1".to_string(), 100, 10, 50),
+        ("turn-2".to_string(), 80, 8, 40),
+        ("turn-3".to_string(), 120, 12, 60),
+      ]
+    );
+  }
 
   #[test]
   fn context_turn_normalization_uses_deltas_for_input_and_cache() {

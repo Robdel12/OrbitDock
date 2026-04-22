@@ -218,6 +218,7 @@ pub struct SessionRestoreData {
   pub rows: Vec<ConversationRowEntry>,
   pub current_diff: Option<String>,
   pub current_plan: Option<String>,
+  pub turn_count: u64,
   pub turn_diffs: Vec<TurnDiff>,
   pub pending_tool_name: Option<String>,
   pub pending_tool_input: Option<String>,

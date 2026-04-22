@@ -600,7 +600,7 @@ pub(super) fn persist_turn_diff_insert(
     snapshot_kind,
   };
   super::upsert_usage_turn_snapshot(conn, &snapshot)?;
-  super::upsert_usage_ledger_entry(conn, &snapshot)?;
+  super::recompute_usage_ledger_for_session(conn, &session_id)?;
   Ok(())
 }
 

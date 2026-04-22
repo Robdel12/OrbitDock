@@ -7,9 +7,10 @@ use rusqlite::{params, Connection};
 use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
 
 use super::{
-  chrono_now, control_mode_to_integration_mode, infer_codex_config_mode, parse_control_mode,
-  parse_lifecycle_state, resolve_custom_name_from_first_prompt, snapshot_kind_from_str,
-  ActiveSessionRow, RestoredSession, StoredCodexConfigRow,
+  chrono_now, control_mode_to_integration_mode, infer_codex_config_mode,
+  load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state,
+  resolve_custom_name_from_first_prompt, snapshot_kind_from_str, ActiveSessionRow, RestoredSession,
+  StoredCodexConfigRow,
 };
 use super::{
   extract_summary_from_transcript, load_latest_completed_conversation_message_from_db,
@@ -444,6 +445,7 @@ async fn load_sessions_for_startup_with_db_path(
           rows.collect::<Result<Vec<_>, _>>()
         })
         .unwrap_or_default();
+      let turn_count = load_latest_usage_turn_seq(&conn, &id).max(turn_diffs.len() as u64);
 
       let (git_branch, git_sha, current_cwd): (Option<String>, Option<String>, Option<String>) =
         conn
@@ -657,6 +659,7 @@ async fn load_sessions_for_startup_with_db_path(
         forked_from_session_id,
         current_diff,
         current_plan,
+        turn_count,
         turn_diffs,
         git_branch,
         git_sha,

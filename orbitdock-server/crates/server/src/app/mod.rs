@@ -241,6 +241,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
           forked_from_session_id,
           current_diff,
           current_plan,
+          turn_count,
           turn_diffs: restored_turn_diffs,
           git_branch,
           git_sha,
@@ -353,6 +354,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             rows,
             current_diff,
             current_plan,
+            turn_count,
             turn_diffs: restored_turn_diffs
               .into_iter()
               .map(

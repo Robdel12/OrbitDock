@@ -156,7 +156,7 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
       },
     )
     .collect();
-  let turn_count = turn_diffs.len() as u64;
+  let turn_count = restored.turn_count.max(turn_diffs.len() as u64);
 
   SessionState {
     id: restored.id,
@@ -250,6 +250,7 @@ pub(crate) fn restored_session_to_handle(
   let mission_id = restored.mission_id.clone();
   let issue_identifier = restored.issue_identifier.clone();
   let allow_bypass = restored.allow_bypass_permissions;
+  let turn_count = restored.turn_count.max(restored.turn_diffs.len() as u64);
   let approval_policy_details = restored
     .codex_config_overrides
     .as_ref()
@@ -329,6 +330,7 @@ pub(crate) fn restored_session_to_handle(
     rows: restored.rows,
     current_diff: restored.current_diff,
     current_plan: restored.current_plan,
+    turn_count,
     turn_diffs: restored
       .turn_diffs
       .into_iter()
@@ -534,6 +536,26 @@ mod tests {
     assert_eq!(state.turn_diffs.len(), 2);
   }
 
+  #[test]
+  fn restored_state_preserves_usage_only_turn_count() {
+    let mut restored = fixture_restored_session();
+    restored.turn_count = 7;
+    restored.turn_diffs = vec![(
+      "turn-1".to_string(),
+      "diff 1".to_string(),
+      1,
+      2,
+      3,
+      4,
+      TokenUsageSnapshotKind::LifetimeTotals,
+    )];
+
+    let state = restored_session_to_state(restored);
+
+    assert_eq!(state.turn_count, 7);
+    assert_eq!(state.turn_diffs.len(), 1);
+  }
+
   fn fixture_restored_session() -> RestoredSession {
     RestoredSession {
       id: "session-1".to_string(),
@@ -581,6 +603,7 @@ mod tests {
       forked_from_session_id: None,
       current_diff: None,
       current_plan: None,
+      turn_count: 0,
       turn_diffs: Vec::new(),
       git_branch: None,
       git_sha: None,

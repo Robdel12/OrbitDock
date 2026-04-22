@@ -2,7 +2,7 @@ mod ownership_reads;
 mod session_hydration;
 mod startup_recovery;
 
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
@@ -128,6 +128,7 @@ pub struct RestoredSession {
   pub forked_from_session_id: Option<String>,
   pub current_diff: Option<String>,
   pub current_plan: Option<String>,
+  pub turn_count: u64,
   pub turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)>,
   pub git_branch: Option<String>,
   pub git_sha: Option<String>,
@@ -211,6 +212,21 @@ pub(super) fn control_mode_to_integration_mode(
       None,
     ),
   }
+}
+
+pub(super) fn load_latest_usage_turn_seq(conn: &Connection, session_id: &str) -> u64 {
+  // `turn_count` seeds the next `turn-N` id, so restore from the latest
+  // persisted sequence instead of counting rows and risking id reuse.
+  conn
+    .query_row(
+      "SELECT COALESCE(MAX(turn_seq), 0)
+       FROM usage_turns
+       WHERE session_id = ?1",
+      params![session_id],
+      |row| row.get::<_, i64>(0),
+    )
+    .unwrap_or(0)
+    .max(0) as u64
 }
 
 pub(super) use super::chrono_now;

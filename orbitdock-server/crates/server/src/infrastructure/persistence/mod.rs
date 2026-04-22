@@ -80,7 +80,7 @@ pub(crate) use transcripts::{
 };
 pub(crate) use usage::snapshot_kind_from_str;
 use usage::{
-  persist_usage_event, upsert_usage_ledger_entry, upsert_usage_session_state,
+  persist_usage_event, recompute_usage_ledger_for_session, upsert_usage_session_state,
   upsert_usage_turn_snapshot, TurnSnapshotRow,
 };
 pub(crate) use workspace_sync::{
