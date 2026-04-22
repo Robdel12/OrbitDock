@@ -1,0 +1,215 @@
+---
+title: Self-Hosted AI Agent Management | OrbitDock
+description: Self-hosted AI agent orchestration. Your infrastructure, your data, no telemetry. Manage Claude Code and Codex on your own servers.
+ogTitle: Self-Hosted AI Agent Management | OrbitDock
+ogDescription: Your AI agents, your infrastructure. Self-hosted, open source, no telemetry.
+---
+
+    <!-- ======== HERO — Trust focused ======== -->
+    <section class="hero hero-compact">
+      <div class="hero-content">
+        <div class="hero-badge" style="background:rgba(89,209,140,0.06);border-color:rgba(89,209,140,0.15);color:var(--feedback-positive)">
+          <span class="pulse-dot" style="background:var(--feedback-positive)"></span>
+          Open Source
+        </div>
+        <h1>Your agents.<br><span class="gradient" style="background:linear-gradient(135deg,var(--feedback-positive) 0%,var(--accent) 100%);-webkit-background-clip:text;background-clip:text">Your servers.</span></h1>
+        <p class="hero-sub">
+          No cloud. No telemetry. No third-party accounts. OrbitDock runs entirely on your infrastructure.
+        </p>
+      </div>
+    </section>
+
+    <!-- ======== COMPARISON — Lead with this ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section section-centered reveal">
+      <h2 class="section-title">The difference</h2>
+
+      <div class="hud-panel hud-green" style="max-width:600px;margin:var(--space-2xl) auto 0">
+        <div class="comparison-table">
+          <div class="comparison-row header">
+            <div class="comparison-cell"></div>
+            <div class="comparison-cell">OrbitDock</div>
+            <div class="comparison-cell">Cloud Tools</div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Data location</div>
+            <div class="comparison-cell"><span class="comparison-check">Your servers</span></div>
+            <div class="comparison-cell"><span class="comparison-x">Their servers</span></div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Telemetry</div>
+            <div class="comparison-cell"><span class="comparison-check">None</span></div>
+            <div class="comparison-cell"><span class="comparison-x">Yes</span></div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Account required</div>
+            <div class="comparison-cell"><span class="comparison-check">No</span></div>
+            <div class="comparison-cell"><span class="comparison-x">Yes</span></div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Pricing</div>
+            <div class="comparison-cell"><span class="comparison-check">Free forever</span></div>
+            <div class="comparison-cell"><span class="comparison-x">Per-seat</span></div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Source code</div>
+            <div class="comparison-cell"><span class="comparison-check">MIT license</span></div>
+            <div class="comparison-cell"><span class="comparison-x">Proprietary</span></div>
+          </div>
+          <div class="comparison-row">
+            <div class="comparison-cell">Works offline</div>
+            <div class="comparison-cell"><span class="comparison-check">Yes</span></div>
+            <div class="comparison-cell"><span class="comparison-x">No</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== ARCHITECTURE ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section section-centered reveal">
+      <div class="section-label" style="color:var(--feedback-positive)">Architecture</div>
+      <h2 class="section-title">How it works</h2>
+      <p class="section-sub">
+        Your phone talks to your server. Your server talks to your agents. Nothing leaves your network.
+      </p>
+
+      <div class="hud-panel architecture-diagram">
+        <div class="arch-row">
+          <div class="arch-node">
+            <div class="arch-icon">📱</div>
+            <div class="arch-label">Your iPhone</div>
+          </div>
+          <div class="arch-node">
+            <div class="arch-icon">💻</div>
+            <div class="arch-label">Your Mac</div>
+          </div>
+        </div>
+
+        <div class="arch-arrow down">↓</div>
+
+        <div class="arch-row">
+          <div class="arch-node highlight">
+            <div class="arch-icon">🛰️</div>
+            <div class="arch-label">OrbitDock Server<br><span style="color:var(--feedback-positive)">(your hardware)</span></div>
+          </div>
+        </div>
+
+        <div class="arch-arrow down">↓</div>
+
+        <div class="arch-row">
+          <div class="arch-node">
+            <div class="arch-icon">🤖</div>
+            <div class="arch-label">Claude Code</div>
+          </div>
+          <div class="arch-node">
+            <div class="arch-icon">🤖</div>
+            <div class="arch-label">Codex CLI</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== DEPLOYMENT OPTIONS ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label" style="color:var(--feedback-positive)">Deployment</div>
+      <h2 class="section-title">Run it anywhere</h2>
+
+      <div class="feature-stack" style="max-width:700px">
+        <div class="hud-panel hud-green feature-row">
+          <div class="feature-row-content">
+            <h3>Local machine</h3>
+            <p>MacBook, Linux workstation. Server runs locally, app in your dock. Simplest setup.</p>
+          </div>
+        </div>
+
+        <div class="hud-panel feature-row">
+          <div class="feature-row-content">
+            <h3>Home server</h3>
+            <p>Raspberry Pi, NUC, old laptop. Always-on, low-power. Access from anywhere via Tailscale or WireGuard.</p>
+          </div>
+        </div>
+
+        <div class="hud-panel hud-purple feature-row">
+          <div class="feature-row-content">
+            <h3>Private cloud</h3>
+            <p>Your VPS, your EC2, your Kubernetes cluster. Full control over the environment.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== QUOTE ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section section-centered reveal">
+      <div class="quote-block">
+        <p class="quote-text">I don't want my code conversations going through someone else's servers. OrbitDock means I own the whole stack.</p>
+      </div>
+    </section>
+
+    <!-- ======== WHAT YOU GET ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label" style="color:var(--feedback-positive)">Features</div>
+      <h2 class="section-title">Full-featured, fully yours</h2>
+      <p class="section-sub">
+        Self-hosted doesn't mean stripped down. You get everything.
+      </p>
+
+      <div class="bento" style="max-width:800px">
+        <div class="hud-panel bento-card">
+          <h3>Multi-provider</h3>
+          <p>Claude Code, Codex, OpenRouter. Same dashboard.</p>
+        </div>
+
+        <div class="hud-panel hud-purple bento-card">
+          <h3>Native apps</h3>
+          <p>macOS and iOS. Swift, not Electron. Real apps.</p>
+        </div>
+
+        <div class="hud-panel hud-green bento-card">
+          <h3>Mobile control</h3>
+          <p>Approve from your phone. Push notifications.</p>
+        </div>
+
+        <div class="hud-panel bento-card">
+          <h3>Multi-server</h3>
+          <p>Connect multiple machines. One dashboard.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== INSTALL ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--feedback-positive)"></span></div>
+
+    <section class="section section-centered reveal">
+      <h2 class="section-title">Get started</h2>
+
+      <div class="install-terminal">
+        <div class="terminal" style="border-color:rgba(89,209,140,0.15)">
+          <div class="terminal-header">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+          </div>
+          <div class="terminal-body">
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cmd">curl -fsSL</span> <span class="flag">https://orbitdock.app/install.sh</span> <span class="cmd">| bash</span></div>
+            <div class="cmd-line"><span class="prompt">$</span> <span class="cmd">orbitdock setup</span></div>
+            <div class="cmd-line"></div>
+            <div class="cmd-line"><span class="prompt">[</span><span style="color:var(--feedback-positive)">OK</span><span class="prompt">]</span> <span class="cmd">Server running on localhost:8080</span></div>
+            <div class="cmd-line"><span class="prompt">[</span><span style="color:var(--feedback-positive)">OK</span><span class="prompt">]</span> <span class="cmd">No telemetry enabled</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-actions" style="margin-top:var(--space-2xl)">
+        <a href="https://testflight.apple.com/join/w4jThqxE" class="btn btn-primary" style="background:var(--feedback-positive)">Join the Beta</a>
+        <a href="https://github.com/Robdel12/OrbitDock" class="btn btn-secondary">View Source</a>
+      </div>
+    </section>

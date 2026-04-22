@@ -1,0 +1,158 @@
+---
+title: Mission Control - Autonomous AI Agent Orchestration | OrbitDock
+description: Autonomous AI agent orchestration. Point OrbitDock at your Linear or GitHub backlog, and agents dispatch, work, and open PRs automatically.
+ogTitle: Mission Control - Autonomous AI Agent Orchestration
+ogDescription: Point it at your backlog. Watch it work. Autonomous dispatch, self-healing agents, full visibility.
+---
+
+    <!-- ======== HERO — Stats focused ======== -->
+    <section class="hero hero-compact">
+      <div class="hero-content">
+        <div class="hero-badge" style="background:rgba(242,140,107,0.06);border-color:rgba(242,140,107,0.15);color:var(--status-permission)">
+          <span class="pulse-dot" style="background:var(--status-working)"></span>
+          Autonomous Mode
+        </div>
+        <h1>Your backlog is working<br><span class="gradient" style="background:linear-gradient(135deg,var(--status-permission) 0%,var(--feedback-caution) 50%,var(--feedback-positive) 100%);-webkit-background-clip:text;background-clip:text">while you sleep</span></h1>
+        <p class="hero-sub">
+          Connect Linear or GitHub. OrbitDock dispatches agents, handles failures, and opens PRs. You review when you wake up.
+        </p>
+      </div>
+    </section>
+
+    <!-- ======== LIVE STATS ======== -->
+    <section class="section section-centered reveal" style="padding-top:20px">
+      <div class="stats-row reveal-stagger">
+        <div class="hud-panel stat-card">
+          <div class="stat-value" style="color:var(--status-working)">3</div>
+          <div class="stat-label">Running</div>
+        </div>
+        <div class="hud-panel hud-orange stat-card">
+          <div class="stat-value" style="color:var(--text-tertiary)">12</div>
+          <div class="stat-label">Queued</div>
+        </div>
+        <div class="hud-panel hud-green stat-card">
+          <div class="stat-value" style="color:var(--feedback-positive)">47</div>
+          <div class="stat-label">Completed</div>
+        </div>
+        <div class="hud-panel stat-card">
+          <div class="stat-value" style="color:var(--feedback-negative)">2</div>
+          <div class="stat-label">Blocked</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== THE LOOP ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--status-permission)"></span></div>
+
+    <section class="section section-centered reveal">
+      <div class="section-label" style="color:var(--status-permission)">The Loop</div>
+      <h2 class="section-title">How it works</h2>
+
+      <div class="workflow-steps">
+        <div class="workflow-step">
+          <div class="workflow-number">1</div>
+          <div class="workflow-content">
+            <h3>Poll your tracker</h3>
+            <p>OrbitDock watches Linear or GitHub for issues matching your criteria. New issue? It goes in the queue.</p>
+          </div>
+        </div>
+
+        <div class="workflow-step">
+          <div class="workflow-number">2</div>
+          <div class="workflow-content">
+            <h3>Dispatch an agent</h3>
+            <p>Pick the right provider (Claude or Codex), create a worktree, render the prompt, start the session. All automatic.</p>
+          </div>
+        </div>
+
+        <div class="workflow-step">
+          <div class="workflow-number">3</div>
+          <div class="workflow-content">
+            <h3>Handle failures</h3>
+            <p>Agent stalled? Kill it, retry with fresh context. Rate limited? Exponential backoff. Real blocker? Flag it for human review.</p>
+          </div>
+        </div>
+
+        <div class="workflow-step">
+          <div class="workflow-number">4</div>
+          <div class="workflow-content">
+            <h3>Open the PR</h3>
+            <p>Work done? Agent opens a PR, links the issue, moves it through your workflow. You review when you're ready.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== CONFIG ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--status-permission)"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label" style="color:var(--status-permission)">Configuration</div>
+      <h2 class="section-title">One file. Full control.</h2>
+      <p class="section-sub">
+        Define your mission in MISSION.md. Everything else is automatic.
+      </p>
+
+      <div class="hud-panel hud-orange" style="max-width:600px">
+        <div class="terminal" style="margin:0;border:none;background:transparent">
+          <div class="terminal-body" style="padding:var(--space-lg)">
+            <div class="cmd-line"><span class="comment"># MISSION.md</span></div>
+            <div class="cmd-line"><span class="flag">tracker:</span> <span class="cmd">linear</span></div>
+            <div class="cmd-line"><span class="flag">project:</span> <span class="cmd">BACKLOG</span></div>
+            <div class="cmd-line"><span class="flag">labels:</span> <span class="cmd">[agent-ready]</span></div>
+            <div class="cmd-line"></div>
+            <div class="cmd-line"><span class="flag">strategy:</span> <span class="cmd">priority</span> <span class="comment"># Claude first, Codex overflow</span></div>
+            <div class="cmd-line"><span class="flag">max_concurrent:</span> <span class="cmd">3</span></div>
+            <div class="cmd-line"></div>
+            <div class="cmd-line"><span class="flag">stall_timeout:</span> <span class="cmd">600s</span></div>
+            <div class="cmd-line"><span class="flag">max_retries:</span> <span class="cmd">3</span></div>
+            <div class="cmd-line"><span class="flag">on_complete:</span> <span class="cmd">open_pr</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== NOT JUST FIRE AND FORGET ======== -->
+    <div class="section-divider" aria-hidden="true"><span class="marker" style="background:var(--status-permission)"></span></div>
+
+    <section class="section reveal">
+      <div class="section-label" style="color:var(--status-permission)">Full Visibility</div>
+      <h2 class="section-title">Autopilot, not black box</h2>
+      <p class="section-sub">
+        Agents work autonomously, but you see everything. Jump into any session and steer it like a conversation.
+      </p>
+
+      <div class="bento" style="max-width:800px">
+        <div class="hud-panel bento-card">
+          <h3>Live session view</h3>
+          <p>Watch agents work in real-time. See what they're reading, what they're writing, what they're thinking.</p>
+        </div>
+
+        <div class="hud-panel hud-purple bento-card">
+          <h3>Jump in anytime</h3>
+          <p>Agent going the wrong direction? Take over. Send a message, redirect, or just watch. It's your call.</p>
+        </div>
+
+        <div class="hud-panel hud-green bento-card">
+          <h3>Blocker alerts</h3>
+          <p>When an agent hits something it can't solve, you get notified. Push notification, tap, unblock, done.</p>
+        </div>
+
+        <div class="hud-panel bento-card">
+          <h3>Mobile control</h3>
+          <p>Check mission status from your phone. Review PRs, unblock agents, pause the queue. Full control from anywhere.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======== CTA ======== -->
+    <section class="cta-banner reveal">
+      <h2>Let the agents work your backlog.</h2>
+      <p style="color:var(--text-secondary);max-width:400px;margin:0 auto var(--space-2xl)">
+        Free, open source, self-hosted. Point it at Linear or GitHub and watch it go.
+      </p>
+      <div class="hero-actions">
+        <a href="https://testflight.apple.com/join/w4jThqxE" class="btn btn-primary" style="background:var(--status-permission)">Join the Beta</a>
+        <a href="/" class="btn btn-secondary">Learn More</a>
+      </div>
+    </section>
