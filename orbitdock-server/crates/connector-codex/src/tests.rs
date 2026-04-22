@@ -759,7 +759,7 @@ fn runtime_warning_preserves_other_warnings() {
 }
 
 #[test]
-fn runtime_warning_maps_trimmed_skills_warning_to_notice() {
+fn runtime_warning_suppresses_trimmed_skills_warning() {
   let msg_counter = AtomicU64::new(0);
   let events = super::event_mapping::runtime_signals::handle_warning(
     "event-1",
@@ -769,18 +769,7 @@ fn runtime_warning_maps_trimmed_skills_warning_to_notice() {
     &msg_counter,
   );
 
-  assert_eq!(events.len(), 1);
-  let ConversationRow::Notice(notice) = created_row(&events[0]) else {
-    panic!("expected skills warning notice row");
-  };
-  assert_eq!(
-    notice.title,
-    "Some skills are outside the model-visible list"
-  );
-  assert_eq!(
-    notice.summary.as_deref(),
-    Some("Mention a skill by name or path if Codex needs it.")
-  );
+  assert!(events.is_empty());
 }
 
 #[test]
