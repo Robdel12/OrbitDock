@@ -13,6 +13,7 @@ struct MessageImageView: View {
   let maxWidth: CGFloat
 
   @State private var loadedImages: [String: PlatformImage] = [:]
+  @State private var failedImageIDs: Set<String> = []
   @State private var fullscreenIndex: Int?
 
   var body: some View {
@@ -40,8 +41,8 @@ struct MessageImageView: View {
     }
   }
 
-  private var imageIDs: String {
-    images.map(\.id).joined(separator: ",")
+  private var imageIDs: [String] {
+    images.map(\.id)
   }
 
   @ViewBuilder
@@ -54,6 +55,8 @@ struct MessageImageView: View {
           .resizable()
           .aspectRatio(contentMode: .fit)
           .frame(maxHeight: maxHeight)
+      } else if failedImageIDs.contains(image.id) {
+        imageUnavailableView(height: thumbnailPlaceholderHeight(image, maxHeight: maxHeight))
       } else {
         RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
           .fill(Color.backgroundTertiary.opacity(0.5))
@@ -70,7 +73,24 @@ struct MessageImageView: View {
         .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
     )
     .contentShape(Rectangle())
-    .onTapGesture { fullscreenIndex = index }
+    .onTapGesture {
+      guard loadedImages[image.id] != nil else { return }
+      fullscreenIndex = index
+    }
+  }
+
+  private func imageUnavailableView(height: CGFloat) -> some View {
+    VStack(spacing: Spacing.xs) {
+      Image(systemName: "photo.badge.exclamationmark")
+        .font(.system(size: IconScale.lg, weight: .semibold))
+        .foregroundStyle(Color.textQuaternary)
+      Text("Image unavailable")
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+    }
+    .frame(maxWidth: .infinity)
+    .frame(height: height)
+    .background(Color.backgroundTertiary.opacity(0.5))
   }
 
   private func thumbnailPlaceholderHeight(_ image: MessageImage, maxHeight: CGFloat) -> CGFloat {
@@ -84,9 +104,10 @@ struct MessageImageView: View {
   private func loadAll() async {
     let validIDs = Set(images.map(\.id))
     loadedImages = loadedImages.filter { validIDs.contains($0.key) }
+    failedImageIDs = failedImageIDs.filter { validIDs.contains($0) }
 
     await withTaskGroup(of: (String, PlatformImage?).self) { group in
-      for image in images where loadedImages[image.id] == nil {
+      for image in images where loadedImages[image.id] == nil && !failedImageIDs.contains(image.id) {
         group.addTask {
           let loaded = await imageLoader.load(image)
           return (image.id, loaded)
@@ -95,6 +116,9 @@ struct MessageImageView: View {
       for await (id, image) in group {
         if let image {
           loadedImages[id] = image
+          failedImageIDs.remove(id)
+        } else {
+          failedImageIDs.insert(id)
         }
       }
     }

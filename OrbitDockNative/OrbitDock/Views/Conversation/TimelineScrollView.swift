@@ -437,6 +437,20 @@ private struct TimelineRowHost: View {
     expandableId.map { viewModel.isExpanded($0) } ?? false
   }
 
+  private var shouldPrefetchContent: Bool {
+    guard case let .tool(toolRow) = entry.row else { return false }
+    guard toolRow.status == .completed else { return false }
+    return toolRow.kind == .viewImage
+      || toolRow.kind == .imageGeneration
+      || toolRow.toolDisplay.toolType == "image"
+  }
+
+  private var contentFetchTaskKey: String {
+    guard let fetchId else { return "none" }
+    let revision = viewModel.contentRevision(for: fetchId)
+    return "\(fetchId):\(isExpanded):\(shouldPrefetchContent):\(revision)"
+  }
+
   private var isUndone: Bool {
     entry.turnStatus == .undone || entry.turnStatus == .rolledBack
   }
@@ -461,8 +475,8 @@ private struct TimelineRowHost: View {
         UndoneRowBadge(status: entry.turnStatus)
       }
     }
-    .task(id: isExpanded) {
-      guard isExpanded, let fetchId else { return }
+    .task(id: contentFetchTaskKey) {
+      guard let fetchId, isExpanded || shouldPrefetchContent else { return }
       viewModel.fetchContentIfNeeded(rowId: fetchId, sessionId: sessionId, clients: clients)
       if case let .activityGroup(group) = entry.row {
         for child in group.children where viewModel.isExpanded(child.id) {

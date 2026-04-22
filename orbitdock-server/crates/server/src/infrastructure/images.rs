@@ -129,6 +129,14 @@ pub fn read_attachment_bytes(
   Ok((bytes, mime_type))
 }
 
+pub fn materialize_artifact_path(session_id: &str, path: &Path) -> Result<ImageInput, String> {
+  let bytes = fs::read(path).map_err(|error| format!("read artifact image: {error}"))?;
+  let mime_type = mime_type_for_path(path).unwrap_or("image/png");
+  let display_name = path.file_name().and_then(|name| name.to_str());
+
+  store_uploaded_attachment(session_id, &bytes, mime_type, display_name, None, None)
+}
+
 fn materialize_image_for_message(session_id: &str, image: &ImageInput) -> ImageInput {
   match image.input_type.as_str() {
     "attachment" => enrich_attachment_metadata(session_id, image),

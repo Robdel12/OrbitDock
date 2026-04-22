@@ -8,16 +8,6 @@ import ImageIO
 #endif
 
 enum ImageDecoding {
-  static func downsampledImage(fromFile path: String, maxDimension: CGFloat) -> PlatformImage? {
-    guard maxDimension > 0 else { return nil }
-    let url = URL(fileURLWithPath: path)
-    let sourceOptions: [CFString: Any] = [
-      kCGImageSourceShouldCache: false,
-    ]
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else { return nil }
-    return downsampledImage(fromSource: source, maxDimension: maxDimension)
-  }
-
   static func downsampledImage(fromData data: Data, maxDimension: CGFloat) -> PlatformImage? {
     guard maxDimension > 0, !data.isEmpty else { return nil }
     let sourceOptions: [CFString: Any] = [

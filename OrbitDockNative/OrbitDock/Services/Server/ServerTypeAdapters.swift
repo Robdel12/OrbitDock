@@ -83,7 +83,7 @@ extension ServerImageInput {
       case "url":
         messageImageFromDataURI(self, imageId: imageId)
       case "path":
-        messageImageFromPath(self, imageId: imageId)
+        nil
       case "attachment":
         messageImageFromAttachment(
           self,
@@ -97,32 +97,16 @@ extension ServerImageInput {
   }
 }
 
-private func messageImageFromPath(_ input: ServerImageInput, imageId: String) -> MessageImage? {
-  let path = input.value
-  let url = URL(fileURLWithPath: path)
-  let byteCount = input.byteCount
-    ?? ((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0)
-  let mimeType = input.mimeType ?? mimeTypeForExtension(url.pathExtension)
-  return MessageImage(
-    id: imageId,
-    source: .filePath(path),
-    mimeType: mimeType,
-    byteCount: byteCount,
-    pixelWidth: input.pixelWidth,
-    pixelHeight: input.pixelHeight
-  )
-}
-
 private func messageImageFromDataURI(_ input: ServerImageInput, imageId: String) -> MessageImage? {
   let uri = input.value
   guard uri.hasPrefix("data:") else { return nil }
-  let withoutScheme = String(uri.dropFirst(5))
-  guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return nil }
-  let meta = String(withoutScheme[withoutScheme.startIndex ..< commaIndex])
+  let payload = String(uri.dropFirst("data:".count))
+  guard let commaIndex = payload.firstIndex(of: ",") else { return nil }
+  let meta = String(payload[..<commaIndex])
   guard meta.hasSuffix(";base64") else { return nil }
   let mimeType = String(meta.dropLast(7))
   // Estimate decoded size from base64 length (3 bytes per 4 chars)
-  let base64Len = withoutScheme.distance(from: withoutScheme.index(after: commaIndex), to: withoutScheme.endIndex)
+  let base64Len = payload.distance(from: payload.index(after: commaIndex), to: payload.endIndex)
   let byteCount = input.byteCount ?? (base64Len * 3 / 4)
   return MessageImage(
     id: imageId,

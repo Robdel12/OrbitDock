@@ -57,8 +57,8 @@ final class ImageLoader: Sendable {
 
   private func resolve(_ image: MessageImage) async -> PlatformImage? {
     switch image.source {
-      case let .filePath(path):
-        loadFromFile(path)
+      case .filePath:
+        nil
       case let .dataURI(uri):
         decodeDataURI(uri)
       case let .inlineData(data):
@@ -66,17 +66,6 @@ final class ImageLoader: Sendable {
       case let .serverAttachment(ref):
         await downloadAttachment(ref)
     }
-  }
-
-  private func loadFromFile(_ path: String) -> PlatformImage? {
-    if let downsampled = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.maxDecodeDimension) {
-      return downsampled
-    }
-    #if os(macOS)
-      return NSImage(contentsOfFile: path)
-    #else
-      return UIImage(contentsOfFile: path)
-    #endif
   }
 
   private func decodeDataURI(_ uri: String) -> PlatformImage? {

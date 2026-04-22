@@ -14,7 +14,6 @@ struct ImageExpandedView: View {
   let imageLoader: ImageLoader?
   let sessionId: String
   let endpointId: UUID?
-  private static let inlineMaxDimension: CGFloat = 2_048
   private static let remotePreviewMaxWidth: CGFloat = 560
 
   private var messageImages: [MessageImage] {
@@ -23,17 +22,11 @@ struct ImageExpandedView: View {
     }
   }
 
-  private var fallbackFilePath: String? {
-    guard messageImages.isEmpty, toolKind == .viewImage else { return nil }
-    return content.inputDisplay
-  }
-
-  private var firstLocalImagePath: String? {
-    content.images.first { $0.inputType == "path" }?.value
-  }
-
   private var displayPath: String? {
-    fallbackFilePath ?? firstLocalImagePath
+    if toolKind == .viewImage, messageImages.isEmpty {
+      return content.inputDisplay
+    }
+    return content.images.first { $0.inputType == "path" }?.value
   }
 
   private var promptText: String? {
@@ -56,8 +49,6 @@ struct ImageExpandedView: View {
         return nil
     }
   }
-
-  // imageDimensions computed inline in inlineImage to avoid double disk I/O
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -99,7 +90,7 @@ struct ImageExpandedView: View {
       if let imageLoader, !messageImages.isEmpty {
         MessageImageView(images: messageImages, imageLoader: imageLoader, maxWidth: Self.remotePreviewMaxWidth)
       } else if let path = displayPath {
-        inlineImage(path: path)
+        imageFallback(path: path)
       }
 
       if let output = content.outputDisplay, !output.isEmpty,
@@ -124,55 +115,6 @@ struct ImageExpandedView: View {
         }
       }
     }
-  }
-
-  @ViewBuilder
-  private func inlineImage(path: String) -> some View {
-    #if os(macOS)
-      let imageMaxHeight: CGFloat = 400
-      if let image = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.inlineMaxDimension)
-        ?? NSImage(contentsOfFile: path)
-      {
-        let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text(dims)
-            .font(.system(size: TypeScale.mini, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.backgroundSecondary, in: Capsule())
-          Image(nsImage: image)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(maxHeight: imageMaxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-        }
-      } else {
-        imageFallback(path: path)
-      }
-    #else
-      let imageMaxHeight: CGFloat = 280
-      if let image = ImageDecoding.downsampledImage(fromFile: path, maxDimension: Self.inlineMaxDimension)
-        ?? UIImage(contentsOfFile: path)
-      {
-        let dims = "\(Int(image.size.width))\u{00D7}\(Int(image.size.height))"
-        VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text(dims)
-            .font(.system(size: TypeScale.mini, weight: .semibold))
-            .foregroundStyle(Color.textQuaternary)
-            .padding(.horizontal, Spacing.sm_)
-            .padding(.vertical, Spacing.xxs)
-            .background(Color.backgroundSecondary, in: Capsule())
-          Image(uiImage: image)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(maxHeight: imageMaxHeight)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.sm))
-        }
-      } else {
-        imageFallback(path: path)
-      }
-    #endif
   }
 
   private func imageFallback(path: String) -> some View {

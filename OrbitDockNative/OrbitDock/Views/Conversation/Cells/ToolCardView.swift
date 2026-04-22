@@ -1308,7 +1308,11 @@ struct ToolCardView: View {
   private var imageCardBody: some View {
     VStack(alignment: .leading, spacing: 0) {
       imageCardHeader
-      imageCardContent
+      if isExpanded {
+        expandedSection
+      } else {
+        imageCardContent
+      }
     }
     .background(Color.backgroundCode.opacity(0.95))
     .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
@@ -1318,7 +1322,6 @@ struct ToolCardView: View {
     }
     .padding(.vertical, Spacing.xs)
     .contentShape(Rectangle())
-    .onTapGesture { onToggle?() }
   }
 
   private var imageCardHeader: some View {
@@ -1334,24 +1337,90 @@ struct ToolCardView: View {
 
       Spacer(minLength: Spacing.sm)
 
-      statusIndicator(tint: Color.toolRead)
+      statusIndicator(tint: glyphColor)
       expandChevron
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.sm_)
     .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
   }
 
   @ViewBuilder
   private var imageCardContent: some View {
-    if let subtitle = rawSubtitle, !subtitle.isEmpty {
-      Text(subtitle)
+    if let content = fetchedContent, !content.images.isEmpty {
+      imageArtifactPreview(content)
+    } else if isLoadingContent {
+      loadingIndicator
+    } else if let subtitle = rawSubtitle, !subtitle.isEmpty {
+      imagePathLine(subtitle, icon: "photo")
+    }
+  }
+
+  private func imageArtifactPreview(_ content: ServerRowContent) -> some View {
+    let imageCount = content.images.count
+    let messageImages = content.images.enumerated().compactMap { index, image in
+      image.toMessageImage(index: index, endpointId: endpointId, sessionId: sessionId)
+    }
+
+    return VStack(alignment: .leading, spacing: Spacing.sm) {
+      if let imageLoader = clients?.imageLoader, !messageImages.isEmpty {
+        MessageImageView(
+          images: messageImages,
+          imageLoader: imageLoader,
+          maxWidth: isCompactLayout ? 300 : 420
+        )
+      }
+
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: imageCount == 1 ? "photo" : "photo.stack")
+          .font(.system(size: IconScale.sm, weight: .semibold))
+          .foregroundStyle(glyphColor.opacity(0.85))
+
+        Text(imageArtifactLabel(for: content))
+          .font(.system(size: TypeScale.caption, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+
+        Spacer(minLength: Spacing.sm)
+
+        if imageCount > 1 {
+          Text("\(imageCount) images")
+            .font(.system(size: TypeScale.mini, weight: .semibold))
+            .foregroundStyle(glyphColor.opacity(0.85))
+        }
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private func imageArtifactLabel(for content: ServerRowContent) -> String {
+    if let displayName = content.images.first?.displayName, !displayName.isEmpty {
+      return displayName
+    }
+    if let value = content.images.first?.value, !value.isEmpty {
+      return URL(fileURLWithPath: value).lastPathComponent
+    }
+    return rawSubtitle ?? "Generated image"
+  }
+
+  private func imagePathLine(_ text: String, icon: String) -> some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: icon)
+        .font(.system(size: IconScale.sm, weight: .semibold))
+        .foregroundStyle(glyphColor.opacity(0.75))
+
+      Text(text)
         .font(.system(size: TypeScale.caption, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.sm)
+        .truncationMode(.middle)
     }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm)
   }
 
   // MARK: - Plan Card Layout

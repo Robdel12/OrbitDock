@@ -17,6 +17,7 @@ final class ConversationTimelineViewModel {
   private var fetchedRowContentCostByRowID: [String: Int] = [:]
   private var fetchedRowContentTotalCost = 0
   private var fetchedRowContentOrder: [String] = []
+  private var rowContentRevisionByRowID: [String: Int] = [:]
   private var rowContentFetchInFlight: Set<String> = []
 
   var displayedEntryCount: Int {
@@ -49,12 +50,17 @@ final class ConversationTimelineViewModel {
       viewMode != currentViewMode
         || presentation.structureRevision != lastStructureRevision
         || (projection.count == 0) != presentation.entries.isEmpty
+    let contentChanged = presentation.contentRevision != lastContentRevision
 
     currentViewMode = viewMode
 
+    if contentChanged {
+      invalidateCachedContent(for: presentation.changedEntries)
+    }
+
     if shouldRebuild {
       projection = TimelineDataSource.Projection.make(entries: presentation.entries, viewMode: viewMode)
-    } else if presentation.contentRevision != lastContentRevision {
+    } else if contentChanged {
       projection.applyContentUpdates(changedEntries: presentation.changedEntries)
     }
 
@@ -74,6 +80,10 @@ final class ConversationTimelineViewModel {
 
   func isFetching(_ rowId: String) -> Bool {
     rowContentFetchInFlight.contains(rowId)
+  }
+
+  func contentRevision(for rowId: String) -> Int {
+    rowContentRevisionByRowID[rowId] ?? 0
   }
 
   @discardableResult
@@ -113,6 +123,7 @@ final class ConversationTimelineViewModel {
     fetchedRowContentCostByRowID.removeAll()
     fetchedRowContentTotalCost = 0
     fetchedRowContentOrder.removeAll()
+    rowContentRevisionByRowID.removeAll()
     rowContentFetchInFlight.removeAll()
     lastStructureRevision = 0
     lastContentRevision = 0
@@ -146,8 +157,17 @@ final class ConversationTimelineViewModel {
     for rowId in staleContentRowIDs {
       removeCachedContent(for: rowId)
     }
+    rowContentRevisionByRowID = rowContentRevisionByRowID.filter { validRowIDs.contains($0.key) }
     fetchedRowContentOrder = fetchedRowContentOrder.filter { validRowIDs.contains($0) }
     rowContentFetchInFlight = rowContentFetchInFlight.filter { validRowIDs.contains($0) }
+  }
+
+  private func invalidateCachedContent(for entries: [ServerConversationRowEntry]) {
+    guard !entries.isEmpty else { return }
+    for entry in entries {
+      removeCachedContent(for: entry.id)
+      rowContentRevisionByRowID[entry.id, default: 0] += 1
+    }
   }
 
   private func removeCachedContent(for rowId: String) {

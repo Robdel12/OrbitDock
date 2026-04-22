@@ -75,6 +75,35 @@ struct ConversationTimelineViewModelTests {
     #expect(tool.toolDisplay.summary == "Read updated")
   }
 
+  @Test func contentOnlyUpdatesInvalidateFetchedContentRevision() {
+    let viewModel = ConversationTimelineViewModel()
+    viewModel.bind(sessionId: "session-1")
+
+    viewModel.apply(
+      presentation: ConversationTimelinePresentation(
+        entries: [makeToolEntry(id: "tool-1", sequence: 1, summary: "Generating image")],
+        contentRevision: 1,
+        structureRevision: 1,
+        changedEntries: []
+      ),
+      viewMode: .verbose
+    )
+
+    #expect(viewModel.contentRevision(for: "tool-1") == 0)
+
+    viewModel.apply(
+      presentation: ConversationTimelinePresentation(
+        entries: [makeToolEntry(id: "tool-1", sequence: 1, summary: "Image ready")],
+        contentRevision: 2,
+        structureRevision: 1,
+        changedEntries: [makeToolEntry(id: "tool-1", sequence: 1, summary: "Image ready")]
+      ),
+      viewMode: .verbose
+    )
+
+    #expect(viewModel.contentRevision(for: "tool-1") == 1)
+  }
+
   @Test func bindingNewSessionClearsDurableTimelineState() {
     let viewModel = ConversationTimelineViewModel()
     viewModel.bind(sessionId: "session-1")
