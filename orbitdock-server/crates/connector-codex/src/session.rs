@@ -100,7 +100,6 @@ pub enum CodexAction {
   ListPlugins {
     cwd: String,
     cwds: Vec<String>,
-    force_remote_sync: bool,
     config_overrides: CodexConfigOverrides,
     runtime_overrides: CodexRuntimeOverrides,
     reply_tx: oneshot::Sender<Result<PluginListResponse, ConnectorError>>,
@@ -210,29 +209,22 @@ impl std::fmt::Debug for CodexAction {
         .field("cwds", cwds)
         .field("force_reload", force_reload)
         .finish(),
-      Self::ListPlugins {
-        cwd,
-        cwds,
-        force_remote_sync,
-        ..
-      } => f
+      Self::ListPlugins { cwd, cwds, .. } => f
         .debug_struct("ListPlugins")
         .field("cwd", cwd)
         .field("cwds", cwds)
-        .field("force_remote_sync", force_remote_sync)
         .finish(),
       Self::InstallPlugin { cwd, params, .. } => f
         .debug_struct("InstallPlugin")
         .field("cwd", cwd)
         .field("marketplace_path", &params.marketplace_path)
+        .field("remote_marketplace_name", &params.remote_marketplace_name)
         .field("plugin_name", &params.plugin_name)
-        .field("force_remote_sync", &params.force_remote_sync)
         .finish(),
       Self::UninstallPlugin { cwd, params, .. } => f
         .debug_struct("UninstallPlugin")
         .field("cwd", cwd)
         .field("plugin_id", &params.plugin_id)
-        .field("force_remote_sync", &params.force_remote_sync)
         .finish(),
       Self::ApproveExec {
         request_id,
@@ -625,19 +617,12 @@ impl CodexSession {
       CodexAction::ListPlugins {
         cwd,
         cwds,
-        force_remote_sync,
         config_overrides,
         runtime_overrides,
         reply_tx,
       } => {
         let result = connector
-          .list_plugins(
-            &cwd,
-            cwds,
-            force_remote_sync,
-            &config_overrides,
-            &runtime_overrides,
-          )
+          .list_plugins(&cwd, cwds, &config_overrides, &runtime_overrides)
           .await;
         let _ = reply_tx.send(result);
       }

@@ -35,7 +35,6 @@ pub async fn list_plugins_endpoint(
     CodexAction::ListPlugins {
       cwd,
       cwds: query.cwd,
-      force_remote_sync: query.force_remote_sync.unwrap_or(false),
       config_overrides,
       runtime_overrides,
       reply_tx,

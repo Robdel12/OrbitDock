@@ -62,6 +62,20 @@ struct QuickSwitcherActionPlannerTests {
     #expect(plan == .copyResumeCommand("claude --resume current"))
   }
 
+  @Test func commandPlanUsesCodexResumeCommandForCodexSessions() throws {
+    let current = makeSession(id: "current", provider: .codex)
+    let command = try #require(QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "copy" })
+
+    let plan = QuickSwitcherActionPlanner.commandPlan(
+      command: command,
+      currentSession: current,
+      explicitTargetSession: nil,
+      fallbackVisibleSession: nil
+    )
+
+    #expect(plan == .copyResumeCommand("codex resume current"))
+  }
+
   @Test func selectionPlanReturnsCommandPlanForSelectedCommand() throws {
     let current = makeSession(id: "current")
     let command = try #require(QuickSwitcherCommandCatalog.sessionCommands().first { $0.id == "finder" })
@@ -114,18 +128,19 @@ struct QuickSwitcherActionPlannerTests {
     )
   }
 
-  private func makeSession(id: String) -> RootSessionNode {
-    var session = Session(
+  private func makeSession(id: String, provider: Provider = .claude) -> RootSessionNode {
+    let session = Session(
       id: id,
+      endpointId: UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"),
+      endpointName: "Primary",
+      endpointConnectionStatus: .connected,
       projectPath: "/tmp/\(id)",
       status: .active,
       workStatus: .waiting,
       totalTokens: 0,
-      totalCostUSD: 0
+      totalCostUSD: 0,
+      provider: provider
     )
-    session.endpointId = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA")
-    session.endpointName = "Primary"
-    session.endpointConnectionStatus = .connected
     return makeRootSessionNode(from: session)
   }
 }

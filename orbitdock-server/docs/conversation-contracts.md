@@ -79,6 +79,19 @@ The primary row type for tool executions. Carries typed invocation and result pa
   "subtitle": "git status",
   "summary": "Ran git status in /tmp/repo",
   "duration_ms": 1200,
+  "shell_execution": {
+    "command": "git status",
+    "cwd": "/tmp/repo",
+    "actions": [
+      { "type": "unknown", "command": "git status" }
+    ],
+    "live_output_preview": "On branch main\nnothing to commit",
+    "preview": {
+      "kind": "status",
+      "lines": ["nothing to commit"]
+    },
+    "exit_code": 0
+  },
   "invocation": {
     "Shell": {
       "command": "git status",
@@ -100,21 +113,21 @@ The primary row type for tool executions. Carries typed invocation and result pa
 }
 ```
 
-### Command Execution Row
+### Shell Execution Payload
 
-Structured shell execution row for Codex command runtime events. This is separate from generic tool rows and carries shell-specific fields used by clients for transcript rendering.
+Provider-agnostic shell details live on `ToolRow.shell_execution` / `ToolRowSummary.shell_execution` when `family == "shell"` and `kind == "bash"`. This is the canonical shape for Claude Bash tool calls, Codex shell runs, and any future provider shell runtime.
+
+Timeline transport summaries keep this payload light: `aggregated_output` and `terminal_snapshot` are omitted from WS/HTTP timeline rows, `live_output_preview` is bounded, and full output is fetched through row content (`GET /api/sessions/{session_id}/rows/{row_id}/content`). Persisted rows may still contain the heavy fields.
 
 ```json
 {
-  "row_type": "command_execution",
-  "id": "call_abc123",
-  "status": "completed",
   "command": "git -C /repo status --short",
   "cwd": "/Users/you/repo",
   "process_id": "96556",
-  "command_actions": [
+  "actions": [
     { "type": "unknown", "command": "git -C /repo status --short" }
   ],
+  "live_output_preview": "M src/main.rs\n",
   "aggregated_output": "M src/main.rs\n",
   "terminal_snapshot": {
     "command": "git -C /repo status --short",
@@ -123,9 +136,11 @@ Structured shell execution row for Codex command runtime events. This is separat
     "transcript": "\u001b[38;5;84m➜\u001b[0m \u001b[38;5;81m.../you/repo\u001b[0m $ git -C /repo status --short\nM src/main.rs\n\u001b[38;5;84m➜\u001b[0m \u001b[38;5;81m.../you/repo\u001b[0m $ ",
     "title": ".../you/repo"
   },
-  "exit_code": 0,
-  "duration_ms": 42,
-  "render_hints": { "can_expand": true }
+  "preview": {
+    "kind": "file_list",
+    "lines": ["M src/main.rs"]
+  },
+  "exit_code": 0
 }
 ```
 
@@ -467,7 +482,7 @@ Both Claude and Codex events normalize into the same row types:
 | assistant text | agentMessage | `assistant` |
 | user message | userMessage | `user` |
 | thinking block | reasoning | `thinking` |
-| Bash tool_use | commandExecution | `tool` (shell/bash) |
+| Bash tool_use | shell run | `tool` (shell/bash) |
 | Read/Edit/Write | fileChange | `tool` (file_read/file_change) |
 | Glob/Grep | - | `tool` (search) |
 | WebSearch/WebFetch | webSearch | `tool` (web) |

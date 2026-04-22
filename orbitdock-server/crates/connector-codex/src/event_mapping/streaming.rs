@@ -173,6 +173,7 @@ pub(crate) fn handle_entered_review_mode(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -213,6 +214,7 @@ pub(crate) fn handle_exited_review_mode(
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -243,6 +245,7 @@ pub(crate) async fn handle_item_started(
         result: None,
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       }))]
     }
     _ => vec![],
@@ -326,6 +329,7 @@ pub(crate) async fn handle_item_completed(
         })),
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       });
       vec![row_updated_output(item.id, entry)]
     }
@@ -371,6 +375,7 @@ pub(crate) async fn handle_raw_response_item(
         result: None,
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       };
 
       raw_tool_calls.lock().await.insert(
@@ -413,6 +418,7 @@ pub(crate) async fn handle_raw_response_item(
         })),
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       };
 
       vec![row_updated_output(call_id, tool_row_entry(row))]
@@ -444,6 +450,7 @@ pub(crate) async fn handle_raw_response_item(
         result: None,
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       };
 
       raw_tool_calls.lock().await.insert(
@@ -493,6 +500,7 @@ pub(crate) async fn handle_raw_response_item(
         })),
         render_hints: Default::default(),
         tool_display: None,
+        shell_execution: None,
       };
 
       vec![row_updated_output(call_id, tool_row_entry(row))]

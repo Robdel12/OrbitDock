@@ -38,6 +38,13 @@ enum Provider: String, CaseIterable, Identifiable, Sendable {
     }
   }
 
+  func resumeCommand(sessionId: String) -> String {
+    switch self {
+      case .claude: "claude --resume \(sessionId)"
+      case .codex: "codex resume \(sessionId)"
+    }
+  }
+
   /// Color at different utilization thresholds
   func color(for utilization: Double) -> Color {
     if utilization >= 90 { return .statusError }

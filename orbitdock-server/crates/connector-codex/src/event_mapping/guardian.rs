@@ -54,7 +54,7 @@ pub(crate) fn handle_guardian_assessment(
     family: ToolFamily::Approval,
     kind: ToolKind::GuardianAssessment,
     status,
-    title: "Guardian review".to_string(),
+    title: "Auto-review".to_string(),
     subtitle,
     summary: rationale,
     preview: None,
@@ -70,6 +70,7 @@ pub(crate) fn handle_guardian_assessment(
     ),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   };
 
   let row_id = row.id.clone();

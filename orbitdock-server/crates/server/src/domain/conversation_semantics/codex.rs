@@ -140,6 +140,7 @@ pub(crate) fn materialize_provider_event(event: ProviderEventEnvelope) -> Vec<Co
           .to_string(),
         ),
         source_path: None,
+        source: None,
         summary: hook.summary,
         output: hook.output,
         duration_ms: None,

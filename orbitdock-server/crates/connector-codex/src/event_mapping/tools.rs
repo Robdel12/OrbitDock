@@ -1,9 +1,8 @@
 use super::{
-  row_created_output, row_updated_output, runtime_output, state_output, tool_row_entry,
-  transport_output, ConnectorOutputs, SharedEnvironmentTracker, SharedOutputBuffers,
-  SharedPatchContexts,
+  row_created_output, row_updated_output, runtime_output, shell_execution_payload, state_output,
+  tool_row_entry, transport_output, ConnectorOutputs, SharedEnvironmentTracker,
+  SharedOutputBuffers, SharedPatchContexts,
 };
-use crate::runtime::row_entry;
 use crate::timeline::dynamic_tool_output_to_text;
 use crate::workers::iso_now;
 use codex_protocol::dynamic_tools::DynamicToolCallRequest;
@@ -11,20 +10,19 @@ use codex_protocol::parse_command::ParsedCommand;
 use codex_protocol::protocol::DynamicToolCallResponseEvent;
 use codex_protocol::protocol::{
   ExecCommandBeginEvent, ExecCommandEndEvent, ExecCommandOutputDeltaEvent, FileChange,
-  McpToolCallBeginEvent, McpToolCallEndEvent, PatchApplyBeginEvent, PatchApplyEndEvent,
-  TerminalInteractionEvent, ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
+  ImageGenerationBeginEvent, ImageGenerationEndEvent, McpToolCallBeginEvent, McpToolCallEndEvent,
+  PatchApplyBeginEvent, PatchApplyEndEvent, PatchApplyUpdatedEvent, TerminalInteractionEvent,
+  ViewImageToolCallEvent, WebSearchBeginEvent, WebSearchEndEvent,
 };
 use orbitdock_connector_core::{
   ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
 };
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
-use orbitdock_protocol::conversation_contracts::{
-  command_execution_terminal_snapshot, compute_command_execution_preview, CommandExecutionAction,
-  CommandExecutionRow, CommandExecutionStatus, ConversationRow, ConversationRowEntry, ToolRow,
-};
+use orbitdock_protocol::conversation_contracts::{ShellAction, ToolRow};
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::Provider;
 use serde_json::{json, Value};
+use std::sync::Arc;
 use std::time::Instant;
 
 const OUTPUT_STREAM_THROTTLE_MS: u128 = 120;
@@ -71,22 +69,18 @@ fn terminal_exec_output(event: &ExecCommandEndEvent, streamed_output: String) ->
   }
 }
 
-fn command_execution_status(event: &ExecCommandEndEvent) -> CommandExecutionStatus {
+fn tool_status_from_exec_end(event: &ExecCommandEndEvent) -> ToolStatus {
   match event.status {
-    codex_protocol::protocol::ExecCommandStatus::Declined => CommandExecutionStatus::Declined,
-    codex_protocol::protocol::ExecCommandStatus::Failed => CommandExecutionStatus::Failed,
+    codex_protocol::protocol::ExecCommandStatus::Declined => ToolStatus::Cancelled,
+    codex_protocol::protocol::ExecCommandStatus::Failed => ToolStatus::Failed,
     codex_protocol::protocol::ExecCommandStatus::Completed => {
       if event.exit_code == 0 {
-        CommandExecutionStatus::Completed
+        ToolStatus::Completed
       } else {
-        CommandExecutionStatus::Failed
+        ToolStatus::Failed
       }
     }
   }
-}
-
-fn command_execution_row_entry(row: CommandExecutionRow) -> ConversationRowEntry {
-  row_entry(ConversationRow::CommandExecution(row))
 }
 
 fn expandable_command_render_hints() -> RenderHints {
@@ -99,25 +93,82 @@ fn expandable_command_render_hints() -> RenderHints {
   }
 }
 
-fn command_actions_from_parsed(parsed_cmd: &[ParsedCommand]) -> Vec<CommandExecutionAction> {
+fn expandable_image_render_hints() -> RenderHints {
+  RenderHints {
+    can_expand: true,
+    default_expanded: false,
+    emphasized: false,
+    monospace_summary: false,
+    accent_tone: Some("accent".to_string()),
+  }
+}
+
+fn image_generation_status(status: &str) -> ToolStatus {
+  match status {
+    "completed" | "succeeded" | "success" => ToolStatus::Completed,
+    "failed" | "error" => ToolStatus::Failed,
+    "cancelled" | "canceled" => ToolStatus::Cancelled,
+    "queued" | "pending" => ToolStatus::Pending,
+    _ => ToolStatus::Running,
+  }
+}
+
+fn image_generation_saved_path(event: &ImageGenerationEndEvent) -> Option<String> {
+  event
+    .saved_path
+    .as_ref()
+    .map(|path| path.to_string_lossy().to_string())
+    .filter(|path| !path.is_empty())
+}
+
+fn image_generation_summary(status: ToolStatus, saved_path: Option<&str>) -> String {
+  match (status, saved_path) {
+    (ToolStatus::Completed, Some(_)) => "Generated image".to_string(),
+    (ToolStatus::Completed, None) => "Generated image metadata".to_string(),
+    (ToolStatus::Failed, _) => "Image generation failed".to_string(),
+    (ToolStatus::Cancelled, _) => "Image generation cancelled".to_string(),
+    _ => "Generating image".to_string(),
+  }
+}
+
+fn image_generation_output(status: ToolStatus, saved_path: Option<&str>) -> String {
+  match (status, saved_path) {
+    (ToolStatus::Completed, Some(path)) => format!("Saved generated image to {path}"),
+    (ToolStatus::Completed, None) => {
+      "Image generation completed, but Codex did not provide a saved image path.".to_string()
+    }
+    (ToolStatus::Failed, _) => "Image generation failed.".to_string(),
+    (ToolStatus::Cancelled, _) => "Image generation was cancelled.".to_string(),
+    _ => "Image generation is still running.".to_string(),
+  }
+}
+
+fn image_generation_revised_prompt(event: &ImageGenerationEndEvent) -> Option<&str> {
+  event
+    .revised_prompt
+    .as_deref()
+    .filter(|value| !value.is_empty())
+}
+
+fn shell_actions_from_parsed(parsed_cmd: &[ParsedCommand]) -> Vec<ShellAction> {
   parsed_cmd
     .iter()
     .map(|command| match command {
-      ParsedCommand::Read { cmd, name, path } => CommandExecutionAction::Read {
+      ParsedCommand::Read { cmd, name, path } => ShellAction::Read {
         command: cmd.clone(),
         name: name.clone(),
         path: path.display().to_string(),
       },
-      ParsedCommand::ListFiles { cmd, path } => CommandExecutionAction::ListFiles {
+      ParsedCommand::ListFiles { cmd, path } => ShellAction::ListFiles {
         command: cmd.clone(),
         path: path.clone(),
       },
-      ParsedCommand::Search { cmd, query, path } => CommandExecutionAction::Search {
+      ParsedCommand::Search { cmd, query, path } => ShellAction::Search {
         command: cmd.clone(),
         query: query.clone(),
         path: path.clone(),
       },
-      ParsedCommand::Unknown { cmd } => CommandExecutionAction::Unknown {
+      ParsedCommand::Unknown { cmd } => ShellAction::Unknown {
         command: cmd.clone(),
       },
     })
@@ -221,12 +272,75 @@ fn display_command_from_exec_tokens(command: &[String]) -> String {
   command.join(" ")
 }
 
-fn command_preview(
-  actions: &[CommandExecutionAction],
-  live_output_preview: Option<&str>,
-  aggregated_output: Option<&str>,
-) -> Option<orbitdock_protocol::conversation_contracts::CommandExecutionPreview> {
-  compute_command_execution_preview(actions, aggregated_output.or(live_output_preview))
+fn summarize_shell_output(output: &str) -> String {
+  const MAX_SUMMARY_CHARS: usize = 100;
+  if output.chars().count() <= MAX_SUMMARY_CHARS {
+    return output.to_string();
+  }
+
+  let truncated: String = output.chars().take(MAX_SUMMARY_CHARS).collect();
+  format!("{truncated}...")
+}
+
+fn patch_apply_context_from_changes(
+  changes: &std::collections::HashMap<std::path::PathBuf, FileChange>,
+) -> (Vec<String>, Value) {
+  let mut changes = changes.iter().collect::<Vec<_>>();
+  changes.sort_by(|(left, _), (right, _)| left.cmp(right));
+
+  let files = changes
+    .iter()
+    .map(|(path, _)| path.display().to_string())
+    .collect::<Vec<_>>();
+  let unified_diff = changes
+    .iter()
+    .map(|(path, change)| file_change_unified_diff(path, change))
+    .collect::<Vec<_>>()
+    .join("\n\n");
+
+  let first_file = files.first().cloned().unwrap_or_default();
+  (
+    files,
+    json!({
+      "path": first_file,
+      "diff": unified_diff,
+    }),
+  )
+}
+
+fn file_change_unified_diff(path: &std::path::Path, change: &FileChange) -> String {
+  match change {
+    FileChange::Add { content } => {
+      format!(
+        "--- /dev/null\n+++ {}\n{}",
+        path.display(),
+        content
+          .lines()
+          .map(|line| format!("+{}", line))
+          .collect::<Vec<_>>()
+          .join("\n")
+      )
+    }
+    FileChange::Delete { content } => {
+      format!(
+        "--- {}\n+++ /dev/null\n{}",
+        path.display(),
+        content
+          .lines()
+          .map(|line| format!("-{}", line))
+          .collect::<Vec<_>>()
+          .join("\n")
+      )
+    }
+    FileChange::Update { unified_diff, .. } => {
+      format!(
+        "--- {}\n+++ {}\n{}",
+        path.display(),
+        path.display(),
+        unified_diff
+      )
+    }
+  }
 }
 
 fn dynamic_tool_identity_from_name(
@@ -364,10 +478,11 @@ pub(crate) async fn handle_exec_command_begin(
   event: ExecCommandBeginEvent,
   output_buffers: &SharedOutputBuffers,
   env_tracker: &SharedEnvironmentTracker,
+  current_cwd: &Arc<tokio::sync::Mutex<String>>,
 ) -> ConnectorOutputs {
   let command_str = display_command_from_exec_tokens(&event.command);
   let cwd = event.cwd.display().to_string();
-  let command_actions = command_actions_from_parsed(&event.parsed_cmd);
+  let shell_actions = shell_actions_from_parsed(&event.parsed_cmd);
 
   {
     let mut buffers = output_buffers.lock().await;
@@ -377,13 +492,17 @@ pub(crate) async fn handle_exec_command_begin(
         command: command_str.clone(),
         cwd: cwd.clone(),
         process_id: event.process_id.clone(),
-        command_actions: command_actions.clone(),
+        command_actions: shell_actions.clone(),
         ..Default::default()
       },
     );
   }
 
   let new_cwd = event.cwd.to_string_lossy().to_string();
+  {
+    let mut cwd = current_cwd.lock().await;
+    *cwd = new_cwd.clone();
+  }
   let git_info = codex_git_utils::collect_git_info(&event.cwd).await;
   let (new_branch, new_sha) = match git_info {
     Some(info) => (info.branch, info.commit_hash.map(|s| s.0)),
@@ -408,30 +527,42 @@ pub(crate) async fn handle_exec_command_begin(
     }
   }
 
-  let terminal_snapshot = command_execution_terminal_snapshot(&command_str, &cwd, None);
-
-  // Emit ToolPtyCreated for live PTY streaming support
+  // Emit ToolPtyCreated so the UI can attach live PTY streaming immediately.
   connector_events.push(transport_output(ConnectorTransportEffect::ToolPtyCreated {
     tool_id: event.call_id.clone(),
   }));
 
-  connector_events.push(row_created_output(command_execution_row_entry(
-    CommandExecutionRow {
-      id: event.call_id.clone(),
-      status: CommandExecutionStatus::InProgress,
-      command: command_str,
+  connector_events.push(row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id.clone(),
+    provider: Provider::Codex,
+    family: ToolFamily::Shell,
+    kind: ToolKind::Bash,
+    status: ToolStatus::Running,
+    title: command_str.clone(),
+    subtitle: Some(cwd.clone()),
+    summary: None,
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+      "command": command_str.clone(),
+      "cwd": cwd.clone(),
+    }),
+    result: None,
+    render_hints: expandable_command_render_hints(),
+    tool_display: None,
+    shell_execution: Some(shell_execution_payload(
+      command_str,
       cwd,
-      process_id: event.process_id,
-      command_actions,
-      live_output_preview: None,
-      aggregated_output: None,
-      terminal_snapshot,
-      preview: None,
-      exit_code: None,
-      duration_ms: None,
-      render_hints: expandable_command_render_hints(),
-    },
-  )));
+      event.process_id,
+      shell_actions,
+      None,
+      None,
+      None,
+    )),
+  })));
 
   connector_events
 }
@@ -452,7 +583,7 @@ pub(crate) async fn handle_exec_command_output_delta(
 
   // Text-based row updates are throttled for UI performance
   let chunk_str = String::from_utf8_lossy(&event.chunk).to_string();
-  let next_row = {
+  let (should_broadcast, shell_payload) = {
     let mut buffers = output_buffers.lock().await;
     if let Some(buffer) = buffers.get_mut(&event.call_id) {
       buffer.append(&chunk_str);
@@ -461,32 +592,49 @@ pub(crate) async fn handle_exec_command_output_delta(
         return events;
       }
       buffer.last_broadcast = now;
-      CommandExecutionRow {
-        id: event.call_id.clone(),
-        status: CommandExecutionStatus::InProgress,
-        command: buffer.command.clone(),
-        cwd: buffer.cwd.clone(),
-        process_id: buffer.process_id.clone(),
-        command_actions: buffer.command_actions.clone(),
-        live_output_preview: buffer.preview(),
-        aggregated_output: None,
-        terminal_snapshot: command_execution_terminal_snapshot(
-          &buffer.command,
-          &buffer.cwd,
-          buffer.preview().as_deref(),
+      let live_preview = buffer.preview();
+      let has_preview = live_preview.is_some();
+      (
+        has_preview,
+        shell_execution_payload(
+          buffer.command.clone(),
+          buffer.cwd.clone(),
+          buffer.process_id.clone(),
+          buffer.command_actions.clone(),
+          live_preview.clone(),
+          None,
+          None,
         ),
-        preview: command_preview(&buffer.command_actions, buffer.preview().as_deref(), None),
-        exit_code: None,
-        duration_ms: None,
-        render_hints: expandable_command_render_hints(),
-      }
+      )
     } else {
       return events;
     }
   };
 
-  if next_row.live_output_preview.is_some() {
-    let entry = command_execution_row_entry(next_row);
+  if should_broadcast {
+    let entry = tool_row_entry(ToolRow {
+      id: event.call_id.clone(),
+      provider: Provider::Codex,
+      family: ToolFamily::Shell,
+      kind: ToolKind::Bash,
+      status: ToolStatus::Running,
+      title: shell_payload.command.clone(),
+      subtitle: Some(shell_payload.cwd.clone()),
+      summary: None,
+      preview: None,
+      started_at: None,
+      ended_at: None,
+      duration_ms: None,
+      grouping_key: None,
+      invocation: json!({
+        "command": shell_payload.command.clone(),
+        "cwd": shell_payload.cwd.clone(),
+      }),
+      result: None,
+      render_hints: expandable_command_render_hints(),
+      tool_display: None,
+      shell_execution: Some(shell_payload),
+    });
     events.push(row_updated_output(event.call_id, entry));
   }
 
@@ -506,29 +654,50 @@ pub(crate) async fn handle_exec_command_end(
   };
 
   let duration_ms = Some(event.duration.as_millis() as u64);
-  let status = command_execution_status(&event);
-  let command_actions = command_actions_from_parsed(&event.parsed_cmd);
+  let status = tool_status_from_exec_end(&event);
+  let shell_actions = shell_actions_from_parsed(&event.parsed_cmd);
   let command = display_command_from_exec_tokens(&event.command);
   let cwd = event.cwd.display().to_string();
   let aggregated_output = terminal_exec_output(&event, streamed_output);
-  let terminal_snapshot =
-    command_execution_terminal_snapshot(&command, &cwd, aggregated_output.as_deref());
-  let preview = command_preview(&command_actions, None, aggregated_output.as_deref());
 
-  let entry = command_execution_row_entry(CommandExecutionRow {
+  let entry = tool_row_entry(ToolRow {
     id: event.call_id.clone(),
+    provider: Provider::Codex,
+    family: ToolFamily::Shell,
+    kind: ToolKind::Bash,
     status,
-    command: command.clone(),
-    cwd: cwd.clone(),
-    process_id: event.process_id,
-    command_actions,
-    live_output_preview: None,
-    aggregated_output,
-    terminal_snapshot,
-    preview,
-    exit_code: Some(event.exit_code),
+    title: command.clone(),
+    subtitle: Some(cwd.clone()),
+    summary: aggregated_output
+      .as_ref()
+      .map(|output| summarize_shell_output(output)),
+    preview: None,
+    started_at: None,
+    ended_at: Some(iso_now()),
     duration_ms,
+    grouping_key: None,
+    invocation: json!({
+      "command": command.clone(),
+      "cwd": cwd.clone(),
+    }),
+    result: aggregated_output.as_ref().map(|output| {
+      json!({
+        "tool_name": "Bash",
+        "output": output,
+        "exit_code": event.exit_code,
+      })
+    }),
     render_hints: expandable_command_render_hints(),
+    tool_display: None,
+    shell_execution: Some(shell_execution_payload(
+      command,
+      cwd,
+      event.process_id,
+      shell_actions,
+      None,
+      aggregated_output,
+      Some(event.exit_code),
+    )),
   });
 
   vec![
@@ -544,57 +713,9 @@ pub(crate) async fn handle_patch_apply_begin(
   event: PatchApplyBeginEvent,
   patch_contexts: &SharedPatchContexts,
 ) -> ConnectorOutputs {
-  let files: Vec<String> = event
-    .changes
-    .keys()
-    .map(|path| path.display().to_string())
-    .collect();
+  let (files, invocation) = patch_apply_context_from_changes(&event.changes);
   let first_file = files.first().cloned().unwrap_or_default();
 
-  let unified_diff = event
-    .changes
-    .iter()
-    .map(|(path, change)| match change {
-      FileChange::Add { content } => {
-        format!(
-          "--- /dev/null\n+++ {}\n{}",
-          path.display(),
-          content
-            .lines()
-            .map(|line| format!("+{}", line))
-            .collect::<Vec<_>>()
-            .join("\n")
-        )
-      }
-      FileChange::Delete { content } => {
-        format!(
-          "--- {}\n+++ /dev/null\n{}",
-          path.display(),
-          content
-            .lines()
-            .map(|line| format!("-{}", line))
-            .collect::<Vec<_>>()
-            .join("\n")
-        )
-      }
-      FileChange::Update { unified_diff, .. } => {
-        format!(
-          "--- {}\n+++ {}\n{}",
-          path.display(),
-          path.display(),
-          unified_diff
-        )
-      }
-    })
-    .collect::<Vec<_>>()
-    .join("\n\n");
-
-  let invocation = json!({
-      "path": first_file,
-      "diff": unified_diff,
-  });
-
-  // Store for the end handler to merge
   {
     let mut contexts = patch_contexts.lock().await;
     contexts.insert(event.call_id.clone(), invocation.clone());
@@ -618,7 +739,45 @@ pub(crate) async fn handle_patch_apply_begin(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
+}
+
+pub(crate) async fn handle_patch_apply_updated(
+  event: PatchApplyUpdatedEvent,
+  patch_contexts: &SharedPatchContexts,
+) -> ConnectorOutputs {
+  let (files, invocation) = patch_apply_context_from_changes(&event.changes);
+  let first_file = files.first().cloned().unwrap_or_default();
+
+  {
+    let mut contexts = patch_contexts.lock().await;
+    contexts.insert(event.call_id.clone(), invocation.clone());
+  }
+
+  vec![row_updated_output(
+    event.call_id.clone(),
+    tool_row_entry(ToolRow {
+      id: event.call_id,
+      provider: Provider::Codex,
+      family: ToolFamily::FileChange,
+      kind: ToolKind::Edit,
+      status: ToolStatus::Running,
+      title: first_file,
+      subtitle: Some(files.join(", ")),
+      summary: Some("Patch updated".to_string()),
+      preview: None,
+      started_at: None,
+      ended_at: None,
+      duration_ms: None,
+      grouping_key: None,
+      invocation,
+      result: None,
+      render_hints: Default::default(),
+      tool_display: None,
+      shell_execution: None,
+    }),
+  )]
 }
 
 pub(crate) async fn handle_patch_apply_end(
@@ -690,6 +849,7 @@ pub(crate) async fn handle_patch_apply_end(
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
   vec![row_updated_output(event.call_id, entry)]
 }
@@ -698,6 +858,18 @@ pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> Connec
   let server = event.invocation.server.clone();
   let tool = event.invocation.tool.clone();
   let call_id = event.call_id.clone();
+  let mut invocation = json!({
+      "server": server,
+      "tool_name": tool,
+      "input": event
+          .invocation
+          .arguments
+          .as_ref()
+          .and_then(|args| serde_json::to_value(args).ok()),
+  });
+  if let Some(resource_uri) = event.mcp_app_resource_uri {
+    invocation["mcp_app_resource_uri"] = json!(resource_uri);
+  }
 
   vec![row_created_output(tool_row_entry(ToolRow {
     id: call_id,
@@ -713,18 +885,11 @@ pub(crate) fn handle_mcp_tool_call_begin(event: McpToolCallBeginEvent) -> Connec
     ended_at: None,
     duration_ms: None,
     grouping_key: None,
-    invocation: json!({
-        "server": server,
-        "tool_name": tool,
-        "input": event
-            .invocation
-            .arguments
-            .as_ref()
-            .and_then(|args| serde_json::to_value(args).ok()),
-    }),
+    invocation,
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -739,6 +904,22 @@ pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> ConnectorO
   } else {
     ToolStatus::Completed
   };
+  let server = event.invocation.server.clone();
+  let tool = event.invocation.tool.clone();
+  let resource_uri = event.mcp_app_resource_uri.clone();
+  let mut invocation = json!({
+      "server": server,
+      "tool_name": tool,
+      "output": output_value.clone(),
+  });
+  let mut result = json!({
+      "tool_name": event.invocation.tool,
+      "raw_output": output_value,
+  });
+  if let Some(resource_uri) = resource_uri {
+    invocation["mcp_app_resource_uri"] = json!(resource_uri);
+    result["mcp_app_resource_uri"] = json!(resource_uri);
+  }
 
   let entry = tool_row_entry(ToolRow {
     id: event.call_id.clone(),
@@ -754,17 +935,11 @@ pub(crate) fn handle_mcp_tool_call_end(event: McpToolCallEndEvent) -> ConnectorO
     ended_at: Some(iso_now()),
     duration_ms: Some(event.duration.as_millis() as u64),
     grouping_key: None,
-    invocation: json!({
-        "server": event.invocation.server,
-        "tool_name": event.invocation.tool,
-        "output": output_value.clone(),
-    }),
-    result: Some(json!({
-        "tool_name": event.invocation.tool,
-        "raw_output": output_value,
-    })),
+    invocation,
+    result: Some(result),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
   vec![row_updated_output(event.call_id, entry)]
 }
@@ -791,6 +966,7 @@ pub(crate) fn handle_web_search_begin(event: WebSearchBeginEvent) -> ConnectorOu
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -822,6 +998,7 @@ pub(crate) fn handle_web_search_end(event: WebSearchEndEvent) -> ConnectorOutput
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
   vec![row_updated_output(event.call_id, entry)]
 }
@@ -849,9 +1026,88 @@ pub(crate) fn handle_view_image_tool_call(event: ViewImageToolCallEvent) -> Conn
         "image_paths": [event.path.to_string_lossy().to_string()],
         "caption": "Image loaded",
     })),
-    render_hints: Default::default(),
+    render_hints: expandable_image_render_hints(),
     tool_display: None,
+    shell_execution: None,
   }))]
+}
+
+pub(crate) fn handle_image_generation_begin(event: ImageGenerationBeginEvent) -> ConnectorOutputs {
+  vec![row_created_output(tool_row_entry(ToolRow {
+    id: event.call_id,
+    provider: Provider::Codex,
+    family: ToolFamily::Image,
+    kind: ToolKind::ImageGeneration,
+    status: ToolStatus::Running,
+    title: "Image generation".to_string(),
+    subtitle: None,
+    summary: Some("Generating image".to_string()),
+    preview: None,
+    started_at: Some(iso_now()),
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+        "tool_name": "image_generation",
+        "status": "in_progress",
+    }),
+    result: None,
+    render_hints: expandable_image_render_hints(),
+    tool_display: None,
+    shell_execution: None,
+  }))]
+}
+
+pub(crate) fn handle_image_generation_end(event: ImageGenerationEndEvent) -> ConnectorOutputs {
+  let status = image_generation_status(event.status.as_str());
+  let saved_path = image_generation_saved_path(&event);
+  let image_paths: Vec<String> = saved_path.iter().cloned().collect();
+  let summary = image_generation_summary(status, saved_path.as_deref());
+  let output = image_generation_output(status, saved_path.as_deref());
+  let revised_prompt = image_generation_revised_prompt(&event);
+
+  let mut invocation = json!({
+      "tool_name": "image_generation",
+      "status": event.status.as_str(),
+      "image_paths": image_paths.clone(),
+  });
+  if let Some(revised_prompt) = revised_prompt {
+    invocation["revised_prompt"] = json!(revised_prompt);
+  }
+
+  let mut result = json!({
+      "tool_name": "image_generation",
+      "status": event.status.as_str(),
+      "image_paths": image_paths,
+      "output": output,
+  });
+  if let Some(revised_prompt) = revised_prompt {
+    result["revised_prompt"] = json!(revised_prompt);
+  }
+
+  vec![row_updated_output(
+    event.call_id.clone(),
+    tool_row_entry(ToolRow {
+      id: event.call_id,
+      provider: Provider::Codex,
+      family: ToolFamily::Image,
+      kind: ToolKind::ImageGeneration,
+      status,
+      title: "Image generation".to_string(),
+      subtitle: saved_path.clone(),
+      summary: Some(summary),
+      preview: None,
+      started_at: None,
+      ended_at: Some(iso_now()),
+      duration_ms: None,
+      grouping_key: None,
+      invocation,
+      result: Some(result),
+      render_hints: expandable_image_render_hints(),
+      tool_display: None,
+      shell_execution: None,
+    }),
+  )]
 }
 
 pub(crate) fn handle_dynamic_tool_call_request(event: DynamicToolCallRequest) -> ConnectorOutputs {
@@ -885,6 +1141,7 @@ pub(crate) fn handle_dynamic_tool_call_request(event: DynamicToolCallRequest) ->
       result: None,
       render_hints: Default::default(),
       tool_display: None,
+      shell_execution: None,
     })),
     runtime_output(ConnectorRuntimeDirective::DynamicToolCallRequested {
       call_id,
@@ -941,6 +1198,7 @@ pub(crate) fn handle_dynamic_tool_call_response(
     result: Some(result),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
   vec![row_updated_output(event.call_id, entry)]
 }
@@ -949,35 +1207,61 @@ pub(crate) async fn handle_terminal_interaction(
   event: TerminalInteractionEvent,
   output_buffers: &SharedOutputBuffers,
 ) -> ConnectorOutputs {
-  let snippet = format!("\n[stdin] {}\n", event.stdin);
-  let next_row = {
+  let snippet = terminal_stdin_echo(&event.stdin);
+  let shell_payload = {
     let mut buffers = output_buffers.lock().await;
-    let entry = buffers.entry(event.call_id.clone()).or_default();
-    entry.append(&snippet);
-    entry.last_broadcast = Instant::now();
-    CommandExecutionRow {
-      id: event.call_id.clone(),
-      status: CommandExecutionStatus::InProgress,
-      command: entry.command.clone(),
-      cwd: entry.cwd.clone(),
-      process_id: entry.process_id.clone(),
-      command_actions: entry.command_actions.clone(),
-      live_output_preview: entry.preview(),
-      aggregated_output: None,
-      terminal_snapshot: command_execution_terminal_snapshot(
-        &entry.command,
-        &entry.cwd,
-        entry.preview().as_deref(),
-      ),
-      preview: command_preview(&entry.command_actions, entry.preview().as_deref(), None),
-      exit_code: None,
-      duration_ms: None,
-      render_hints: expandable_command_render_hints(),
+    let Some(buffer) = buffers.get_mut(&event.call_id) else {
+      return Vec::new();
+    };
+    if buffer.command.trim().is_empty() || buffer.cwd.trim().is_empty() {
+      return Vec::new();
     }
+    buffer.append(&snippet);
+    buffer.last_broadcast = Instant::now();
+    let live_preview = buffer.preview();
+    shell_execution_payload(
+      buffer.command.clone(),
+      buffer.cwd.clone(),
+      buffer.process_id.clone(),
+      buffer.command_actions.clone(),
+      live_preview.clone(),
+      None,
+      None,
+    )
   };
 
-  let entry = command_execution_row_entry(next_row);
+  let entry = tool_row_entry(ToolRow {
+    id: event.call_id.clone(),
+    provider: Provider::Codex,
+    family: ToolFamily::Shell,
+    kind: ToolKind::Bash,
+    status: ToolStatus::Running,
+    title: shell_payload.command.clone(),
+    subtitle: Some(shell_payload.cwd.clone()),
+    summary: None,
+    preview: None,
+    started_at: None,
+    ended_at: None,
+    duration_ms: None,
+    grouping_key: None,
+    invocation: json!({
+      "command": shell_payload.command.clone(),
+      "cwd": shell_payload.cwd.clone(),
+    }),
+    result: None,
+    render_hints: expandable_command_render_hints(),
+    tool_display: None,
+    shell_execution: Some(shell_payload),
+  });
   vec![row_updated_output(event.call_id, entry)]
+}
+
+fn terminal_stdin_echo(stdin: &str) -> String {
+  if stdin.ends_with('\n') {
+    stdin.to_string()
+  } else {
+    format!("{stdin}\n")
+  }
 }
 
 #[cfg(test)]
@@ -985,15 +1269,18 @@ mod tests {
   use super::{
     display_command_from_exec_tokens, handle_dynamic_tool_call_request,
     handle_dynamic_tool_call_response, handle_exec_command_begin, handle_exec_command_end,
-    handle_exec_command_output_delta, handle_terminal_interaction,
+    handle_exec_command_output_delta, handle_image_generation_begin, handle_image_generation_end,
+    handle_patch_apply_end, handle_patch_apply_updated, handle_terminal_interaction,
   };
-  use crate::event_mapping::{SharedEnvironmentTracker, SharedOutputBuffers};
+  use crate::event_mapping::{SharedEnvironmentTracker, SharedOutputBuffers, SharedPatchContexts};
   use crate::runtime::EnvironmentTracker;
   use codex_protocol::dynamic_tools::{DynamicToolCallOutputContentItem, DynamicToolCallRequest};
   use codex_protocol::parse_command::ParsedCommand;
   use codex_protocol::protocol::{
     DynamicToolCallResponseEvent, ExecCommandBeginEvent, ExecCommandEndEvent,
     ExecCommandOutputDeltaEvent, ExecCommandSource, ExecCommandStatus, ExecOutputStream,
+    FileChange, ImageGenerationBeginEvent, ImageGenerationEndEvent, PatchApplyEndEvent,
+    PatchApplyStatus, PatchApplyUpdatedEvent,
   };
   use codex_utils_absolute_path::AbsolutePathBuf;
   use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent};
@@ -1020,6 +1307,14 @@ mod tests {
     }))
   }
 
+  fn shared_current_cwd(path: &str) -> Arc<tokio::sync::Mutex<String>> {
+    Arc::new(tokio::sync::Mutex::new(path.to_string()))
+  }
+
+  fn shared_patch_contexts() -> SharedPatchContexts {
+    Arc::new(tokio::sync::Mutex::new(HashMap::new()))
+  }
+
   fn created_entry(
     output: ConnectorOutput,
   ) -> Option<orbitdock_protocol::conversation_contracts::ConversationRowEntry> {
@@ -1038,8 +1333,124 @@ mod tests {
     }
   }
 
+  #[test]
+  fn image_generation_begin_creates_running_image_row() {
+    let events = handle_image_generation_begin(ImageGenerationBeginEvent {
+      call_id: "ig-1".to_string(),
+    });
+
+    let created = events.into_iter().find_map(created_entry);
+    let entry = created.expect("tool row created");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+
+    assert_eq!(tool.family, ToolFamily::Image);
+    assert_eq!(tool.kind, ToolKind::ImageGeneration);
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(tool.invocation["status"], "in_progress");
+    let display = tool.tool_display.expect("image generation display");
+    assert_eq!(display.glyph_symbol, "sparkles");
+    assert_eq!(display.tool_type, "image");
+  }
+
+  #[test]
+  fn image_generation_end_updates_row_without_base64_payload() {
+    let events = handle_image_generation_end(ImageGenerationEndEvent {
+      call_id: "ig-1".to_string(),
+      status: "completed".to_string(),
+      revised_prompt: Some("A tiny mission control dashboard".to_string()),
+      result: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB".to_string(),
+      saved_path: Some(absolute_test_path("/tmp/generated/ig-1.png")),
+    });
+
+    let updated = events.into_iter().find_map(updated_entry);
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+
+    assert_eq!(tool.family, ToolFamily::Image);
+    assert_eq!(tool.kind, ToolKind::ImageGeneration);
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.subtitle.as_deref(), Some("/tmp/generated/ig-1.png"));
+
+    let result = tool.result.expect("tool result");
+    assert_eq!(result["image_paths"][0], "/tmp/generated/ig-1.png");
+    assert_eq!(result["revised_prompt"], "A tiny mission control dashboard");
+    assert!(result.get("result").is_none());
+
+    let display = tool.tool_display.expect("tool display");
+    assert_eq!(display.glyph_symbol, "sparkles");
+    assert_eq!(
+      display.output_preview.as_deref(),
+      Some("Saved generated image to /tmp/generated/ig-1.png")
+    );
+  }
+
   #[tokio::test]
-  async fn exec_command_begin_creates_command_execution_row() {
+  async fn patch_apply_updated_refreshes_running_diff_for_final_row() {
+    let patch_contexts = shared_patch_contexts();
+    let mut changes = HashMap::new();
+    changes.insert(
+      PathBuf::from("src/main.rs"),
+      FileChange::Update {
+        unified_diff: "@@ -1 +1 @@\n-old\n+new".to_string(),
+        move_path: None,
+      },
+    );
+
+    let events = handle_patch_apply_updated(
+      PatchApplyUpdatedEvent {
+        call_id: "patch-1".to_string(),
+        changes,
+      },
+      &patch_contexts,
+    )
+    .await;
+
+    let updated = events.into_iter().find_map(updated_entry);
+    let entry = updated.expect("tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected tool row");
+    };
+    assert_eq!(tool.status, ToolStatus::Running);
+    assert_eq!(tool.invocation["path"], "src/main.rs");
+    assert!(tool.invocation["diff"]
+      .as_str()
+      .expect("diff")
+      .contains("+new"));
+
+    let final_events = handle_patch_apply_end(
+      PatchApplyEndEvent {
+        call_id: "patch-1".to_string(),
+        turn_id: String::new(),
+        stdout: String::new(),
+        stderr: String::new(),
+        success: true,
+        changes: HashMap::new(),
+        status: PatchApplyStatus::Completed,
+      },
+      &patch_contexts,
+    )
+    .await;
+
+    let final_entry = final_events.into_iter().find_map(updated_entry);
+    let entry = final_entry.expect("final tool row updated");
+    let ConversationRow::Tool(tool) = entry.row else {
+      panic!("expected final tool row");
+    };
+    assert_eq!(tool.status, ToolStatus::Completed);
+    assert_eq!(tool.invocation["path"], "src/main.rs");
+    assert!(tool.invocation["diff"]
+      .as_str()
+      .expect("final diff")
+      .contains("+new"));
+  }
+
+  #[tokio::test]
+  async fn exec_command_begin_creates_tool_row_with_shell_execution() {
+    let current_cwd = shared_current_cwd("/tmp/old-project");
     let events = handle_exec_command_begin(
       ExecCommandBeginEvent {
         call_id: "cmd-1".to_string(),
@@ -1057,34 +1468,37 @@ mod tests {
       },
       &shared_output_buffers(),
       &shared_env_tracker(),
+      &current_cwd,
     )
     .await;
 
     let created = events.into_iter().find_map(created_entry);
 
-    let entry = created.expect("command execution row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let entry = created.expect("tool row with shell_execution");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
-    assert_eq!(row.command, "sed -n 1,40p");
-    assert_eq!(row.cwd, "/tmp/project");
-    assert_eq!(row.process_id.as_deref(), Some("pty-1"));
-    assert_eq!(
-      row.status,
-      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::InProgress
-    );
-    assert_eq!(row.command_actions.len(), 1);
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(row.family, ToolFamily::Shell);
+    assert_eq!(row.kind, ToolKind::Bash);
+    assert_eq!(row.status, ToolStatus::Running);
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
+    assert_eq!(shell.command, "sed -n 1,40p");
+    assert_eq!(shell.cwd, "/tmp/project");
+    assert_eq!(shell.process_id.as_deref(), Some("pty-1"));
+    assert_eq!(shell.actions.len(), 1);
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "sed -n 1,40p");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert!(snapshot.output.is_none());
+    assert_eq!(current_cwd.lock().await.as_str(), "/tmp/project");
   }
 
   #[tokio::test]
-  async fn exec_command_end_updates_command_execution_row_with_output() {
+  async fn exec_command_end_updates_tool_row_with_shell_output() {
     let output_buffers = shared_output_buffers();
     let env_tracker = shared_env_tracker();
+    let current_cwd = shared_current_cwd("/tmp/project");
 
     handle_exec_command_begin(
       ExecCommandBeginEvent {
@@ -1103,6 +1517,7 @@ mod tests {
       },
       &output_buffers,
       &env_tracker,
+      &current_cwd,
     )
     .await;
 
@@ -1145,22 +1560,20 @@ mod tests {
     let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
+    assert_eq!(row.status, ToolStatus::Completed);
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
     assert_eq!(
-      row.status,
-      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
-    );
-    assert_eq!(
-      row
+      shell
         .aggregated_output
         .as_deref()
         .map(|value| value.trim_end_matches('\n')),
       Some("src/lib.rs:needle")
     );
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "rg needle src");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert_eq!(
@@ -1170,7 +1583,7 @@ mod tests {
         .map(|value| value.trim_end_matches('\n')),
       Some("src/lib.rs:needle")
     );
-    assert_eq!(row.exit_code, Some(0));
+    assert_eq!(shell.exit_code, Some(0));
     assert_eq!(row.duration_ms, Some(42));
   }
 
@@ -1178,6 +1591,7 @@ mod tests {
   async fn exec_command_end_prefers_richer_stream_output_when_terminal_payload_is_short() {
     let output_buffers = shared_output_buffers();
     let env_tracker = shared_env_tracker();
+    let current_cwd = shared_current_cwd("/tmp/project");
 
     handle_exec_command_begin(
       ExecCommandBeginEvent {
@@ -1194,6 +1608,7 @@ mod tests {
       },
       &output_buffers,
       &env_tracker,
+      &current_cwd,
     )
     .await;
 
@@ -1235,19 +1650,20 @@ mod tests {
     let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
     let expected_streamed = streamed.trim_end_matches('\n');
     assert_eq!(
-      row
+      shell
         .aggregated_output
         .as_deref()
         .map(|value| value.trim_end_matches('\n')),
       Some(expected_streamed)
     );
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "cargo test");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert_eq!(
@@ -1294,22 +1710,20 @@ mod tests {
     let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
     assert_eq!(
-      row
+      shell
         .aggregated_output
         .as_deref()
         .map(|value| value.trim_end_matches('\n')),
       Some("done")
     );
-    assert_eq!(
-      row.status,
-      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Completed
-    );
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    assert_eq!(row.status, ToolStatus::Completed);
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "python -c print('done')");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert_eq!(
@@ -1356,25 +1770,27 @@ mod tests {
     let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
+    assert_eq!(row.status, ToolStatus::Cancelled);
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
     assert_eq!(
-      row.status,
-      orbitdock_protocol::conversation_contracts::CommandExecutionStatus::Declined
+      shell.aggregated_output.as_deref(),
+      Some("permission denied")
     );
-    assert_eq!(row.aggregated_output.as_deref(), Some("permission denied"));
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "rm -rf /tmp/project");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert_eq!(snapshot.output.as_deref(), Some("permission denied"));
   }
 
   #[tokio::test]
-  async fn terminal_interaction_updates_command_execution_snapshot_with_stdin() {
+  async fn terminal_interaction_updates_shell_execution_snapshot_with_stdin() {
     let output_buffers = shared_output_buffers();
     let env_tracker = shared_env_tracker();
+    let current_cwd = shared_current_cwd("/tmp/project");
 
     handle_exec_command_begin(
       ExecCommandBeginEvent {
@@ -1391,6 +1807,7 @@ mod tests {
       },
       &output_buffers,
       &env_tracker,
+      &current_cwd,
     )
     .await;
 
@@ -1407,19 +1824,36 @@ mod tests {
     let updated = events.into_iter().find_map(updated_entry);
 
     let entry = updated.expect("updated row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
 
-    let snapshot = row.terminal_snapshot.as_ref().expect("terminal snapshot");
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
+    let snapshot = shell.terminal_snapshot.as_ref().expect("terminal snapshot");
     assert_eq!(snapshot.command, "python -i");
     assert_eq!(snapshot.cwd, "/tmp/project");
     assert!(snapshot
       .output
       .as_deref()
       .expect("snapshot output")
-      .contains("[stdin] print('hello')"));
-    assert!(snapshot.transcript().contains("[stdin] print('hello')"));
+      .contains("print('hello')"));
+    assert!(!snapshot.transcript().contains("[stdin]"));
+    assert!(snapshot.transcript().contains("print('hello')"));
+  }
+
+  #[tokio::test]
+  async fn terminal_interaction_without_exec_buffer_does_not_create_empty_shell_row() {
+    let events = handle_terminal_interaction(
+      codex_protocol::protocol::TerminalInteractionEvent {
+        call_id: "missing-buffer".to_string(),
+        process_id: "pty-missing".to_string(),
+        stdin: "print('hello')".to_string(),
+      },
+      &shared_output_buffers(),
+    )
+    .await;
+
+    assert!(events.is_empty());
   }
 
   #[test]
@@ -1471,6 +1905,7 @@ mod tests {
 
   #[tokio::test]
   async fn exec_command_begin_strips_shell_launcher_in_row_command() {
+    let current_cwd = shared_current_cwd("/tmp/project");
     let events = handle_exec_command_begin(
       ExecCommandBeginEvent {
         call_id: "cmd-shell-wrap-1".to_string(),
@@ -1490,16 +1925,27 @@ mod tests {
       },
       &shared_output_buffers(),
       &shared_env_tracker(),
+      &current_cwd,
     )
     .await;
 
     let created = events.into_iter().find_map(created_entry);
 
-    let entry = created.expect("command execution row");
-    let ConversationRow::CommandExecution(row) = entry.row else {
-      panic!("expected command execution row");
+    let entry = created.expect("tool row");
+    let ConversationRow::Tool(row) = entry.row else {
+      panic!("expected tool row");
     };
-    assert_eq!(row.command, "swiftc -print-target-info");
+    let shell = row.shell_execution.as_ref().expect("shell_execution");
+    assert_eq!(shell.command, "swiftc -print-target-info");
+  }
+
+  #[test]
+  fn shell_output_summary_truncates_unicode_on_char_boundary() {
+    let output = "é".repeat(120);
+    let summary = super::summarize_shell_output(&output);
+
+    assert_eq!(summary.chars().count(), 103);
+    assert!(summary.ends_with("..."));
   }
 
   #[test]

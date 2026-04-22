@@ -110,16 +110,6 @@ struct SettingsView: View {
     }
   }
 
-  private var paneSelection: Binding<SettingsPane?> {
-    Binding(
-      get: { selectedPane },
-      set: { newValue in
-        guard let newValue else { return }
-        selectedPane = newValue
-      }
-    )
-  }
-
   var body: some View {
     Group {
       #if os(macOS)
@@ -129,15 +119,7 @@ struct SettingsView: View {
       #endif
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .background(
-      ZStack {
-        Color.backgroundPrimary
-        Rectangle()
-          .fill(Color.backgroundSecondary.opacity(0.32))
-          .frame(height: 148)
-          .frame(maxHeight: .infinity, alignment: .top)
-      }
-    )
+    .background(Color.backgroundPrimary)
     .animation(Motion.standard, value: selectedPane)
     .onChange(of: appRuntime.requestedSettingsPane) { _, newPane in
       if selectedPane != newPane {
@@ -149,43 +131,44 @@ struct SettingsView: View {
   private var splitLayout: some View {
     NavigationSplitView {
       sidebar
+        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
     } detail: {
       detailPane
     }
-    .navigationSplitViewStyle(.balanced)
+    .navigationSplitViewStyle(.prominentDetail)
   }
 
   private var sidebar: some View {
-    VStack(alignment: .leading, spacing: Spacing.lg) {
+    VStack(alignment: .leading, spacing: 0) {
       sidebarHeader
+        .padding(.horizontal, Spacing.lg)
+        .padding(.top, Spacing.lg)
+        .padding(.bottom, Spacing.md)
 
-      List(selection: paneSelection) {
-        ForEach(SettingsPane.allCases) { pane in
-          SettingsSidebarButton(
-            title: pane.title,
-            subtitle: pane.subtitle,
-            icon: pane.icon,
-            isSelected: selectedPane == pane
-          ) {
-            selectedPane = pane
+      ScrollView {
+        VStack(spacing: Spacing.xs) {
+          ForEach(SettingsPane.allCases) { pane in
+            SettingsSidebarButton(
+              title: pane.title,
+              subtitle: pane.subtitle,
+              icon: pane.icon,
+              isSelected: selectedPane == pane
+            ) {
+              selectedPane = pane
+            }
           }
-          .tag(Optional(pane))
-          .listRowInsets(EdgeInsets(top: Spacing.xxs, leading: 0, bottom: Spacing.xxs, trailing: 0))
-          .listRowSeparator(.hidden)
-          .listRowBackground(Color.clear)
         }
+        .padding(.horizontal, Spacing.md)
       }
-      .listStyle(.sidebar)
-      .scrollContentBackground(.hidden)
-      .background(Color.clear)
 
-      Spacer()
+      Spacer(minLength: Spacing.md)
 
       endpointHealthCard
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.lg)
     }
-    .padding(Spacing.section)
     .frame(maxHeight: .infinity, alignment: .topLeading)
-    .background(Color.backgroundSecondary.opacity(0.8))
+    .background(Color.backgroundSecondary)
   }
 
   private var sidebarHeader: some View {
@@ -226,85 +209,68 @@ struct SettingsView: View {
     )
   }
 
-  private var compactLayout: some View {
-    VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.md_) {
-        Text("Preferences")
-          .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.textPrimary)
-        Spacer()
-        Button("Done") {
-          router.goBack(source: .unspecified)
-        }
-        .font(.system(size: TypeScale.body, weight: .semibold))
-        .foregroundStyle(Color.accent)
-      }
-      .padding(.horizontal, Spacing.section)
-      .padding(.top, Spacing.lg)
-      .padding(.bottom, Spacing.md)
-
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: Spacing.sm) {
+  #if os(iOS)
+    private var compactLayout: some View {
+      NavigationStack {
+        List {
           ForEach(SettingsPane.allCases) { pane in
-            Button {
-              selectedPane = pane
-            } label: {
-              HStack(spacing: Spacing.sm_) {
+            NavigationLink(value: pane) {
+              Label {
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                  Text(pane.title)
+                    .font(.system(size: TypeScale.body, weight: .medium))
+                    .foregroundStyle(Color.textPrimary)
+                  Text(pane.subtitle)
+                    .font(.system(size: TypeScale.meta))
+                    .foregroundStyle(Color.textTertiary)
+                    .lineLimit(1)
+                }
+              } icon: {
                 Image(systemName: pane.icon)
-                  .font(.system(size: TypeScale.micro, weight: .semibold))
-                Text(pane.title)
-                  .font(.system(size: TypeScale.meta, weight: .semibold))
+                  .font(.system(size: TypeScale.body, weight: .semibold))
+                  .foregroundStyle(Color.accent)
               }
-              .foregroundStyle(selectedPane == pane ? Color.accent : Color.textSecondary)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-              .background(
-                Capsule(style: .continuous)
-                  .fill(selectedPane == pane ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
-              )
-              .overlay(
-                Capsule(style: .continuous)
-                  .strokeBorder(selectedPane == pane ? Color.surfaceBorder : Color.clear, lineWidth: 1)
-              )
             }
-            .buttonStyle(.plain)
+            .listRowBackground(Color.backgroundSecondary)
           }
         }
-        .padding(.horizontal, Spacing.section)
-      }
-      .padding(.bottom, Spacing.md)
-
-      Divider()
-        .foregroundStyle(Color.panelBorder)
-
-      Group {
-        switch selectedPane {
-          case .workspace:
-            GeneralSettingsView()
-          case .integrations:
-            SetupSettingsView(endpointStore: runtimeRegistry.activeEndpointStore)
-          case .missionControl:
-            MissionControlDefaultsView()
-          case .servers:
-            ServersSettingsView()
-          case .notifications:
-            NotificationSettingsView()
-          case .diagnostics:
-            DiagnosticsSettingsView()
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color.backgroundPrimary)
+        .navigationTitle("Preferences")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+              router.goBack(source: .unspecified)
+            }
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.accent)
+          }
+        }
+        .navigationDestination(for: SettingsPane.self) { pane in
+          compactDetailView(for: pane)
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-  }
+
+    @ViewBuilder
+    private func compactDetailView(for pane: SettingsPane) -> some View {
+      settingsContent(for: pane)
+      .navigationTitle(pane.title)
+      .navigationBarTitleDisplayMode(.inline)
+      .background(Color.backgroundPrimary)
+    }
+  #endif
 
   private var detailPane: some View {
     VStack(spacing: 0) {
-      HStack(alignment: .firstTextBaseline, spacing: Spacing.md_) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
         Text(selectedPane.title)
-          .font(.system(size: TypeScale.chatHeading2, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.headline, weight: .bold, design: .rounded))
           .foregroundStyle(Color.textPrimary)
         Text(selectedPane.subtitle)
-          .font(.system(size: TypeScale.caption))
+          .font(.system(size: TypeScale.meta))
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
         Spacer()
@@ -313,31 +279,39 @@ struct SettingsView: View {
         }
         .font(.system(size: TypeScale.body, weight: .semibold))
         .foregroundStyle(Color.accent)
+        .buttonStyle(.plain)
       }
-      .padding(.horizontal, Spacing.xl)
-      .padding(.top, Spacing.section)
-      .padding(.bottom, Spacing.lg)
+      .padding(.horizontal, Spacing.section)
+      .padding(.vertical, Spacing.md)
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      Group {
-        switch selectedPane {
-          case .workspace:
-            GeneralSettingsView()
-          case .integrations:
-            SetupSettingsView(endpointStore: runtimeRegistry.activeEndpointStore)
-          case .missionControl:
-            MissionControlDefaultsView()
-          case .servers:
-            ServersSettingsView()
-          case .notifications:
-            NotificationSettingsView()
-          case .diagnostics:
-            DiagnosticsSettingsView()
-        }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      settingsContent
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+  }
+
+  @ViewBuilder
+  private var settingsContent: some View {
+    settingsContent(for: selectedPane)
+  }
+
+  @ViewBuilder
+  private func settingsContent(for pane: SettingsPane) -> some View {
+    switch pane {
+      case .workspace:
+        GeneralSettingsView()
+      case .integrations:
+        SetupSettingsView(endpointStore: runtimeRegistry.activeEndpointStore)
+      case .missionControl:
+        MissionControlDefaultsView()
+      case .servers:
+        ServersSettingsView()
+      case .notifications:
+        NotificationSettingsView()
+      case .diagnostics:
+        DiagnosticsSettingsView()
     }
   }
 }

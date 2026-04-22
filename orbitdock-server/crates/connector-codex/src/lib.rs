@@ -45,6 +45,7 @@ pub struct CodexConnector {
   codex_home: PathBuf,
   output_rx: Option<mpsc::Receiver<ConnectorOutput>>,
   thread_id: String,
+  current_cwd: Arc<tokio::sync::Mutex<String>>,
   current_model: Arc<tokio::sync::Mutex<Option<String>>>,
   current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
 }
@@ -57,6 +58,7 @@ impl Clone for CodexConnector {
       codex_home: self.codex_home.clone(),
       output_rx: None,
       thread_id: self.thread_id.clone(),
+      current_cwd: Arc::clone(&self.current_cwd),
       current_model: Arc::clone(&self.current_model),
       current_reasoning_effort: Arc::clone(&self.current_reasoning_effort),
     }
@@ -112,6 +114,7 @@ impl CodexConnector {
       reasoning_tracker,
       current_model,
       current_reasoning_effort,
+      current_cwd,
       patch_contexts,
     } = state;
 
@@ -137,6 +140,7 @@ impl CodexConnector {
         event_mapping::lifecycle::handle_session_configured(
           e,
           env_tracker,
+          current_cwd,
           current_model,
           current_reasoning_effort,
         )
@@ -152,7 +156,8 @@ impl CodexConnector {
       EventMsg::GuardianAssessment(e) => event_mapping::guardian::handle_guardian_assessment(e),
 
       EventMsg::ExecCommandBegin(e) => {
-        event_mapping::tools::handle_exec_command_begin(e, output_buffers, env_tracker).await
+        event_mapping::tools::handle_exec_command_begin(e, output_buffers, env_tracker, current_cwd)
+          .await
       }
 
       EventMsg::ExecCommandOutputDelta(e) => {
@@ -165,6 +170,10 @@ impl CodexConnector {
 
       EventMsg::PatchApplyBegin(e) => {
         event_mapping::tools::handle_patch_apply_begin(e, patch_contexts).await
+      }
+
+      EventMsg::PatchApplyUpdated(e) => {
+        event_mapping::tools::handle_patch_apply_updated(e, patch_contexts).await
       }
 
       EventMsg::PatchApplyEnd(e) => {
@@ -180,6 +189,10 @@ impl CodexConnector {
       EventMsg::WebSearchEnd(e) => event_mapping::tools::handle_web_search_end(e),
 
       EventMsg::ViewImageToolCall(e) => event_mapping::tools::handle_view_image_tool_call(e),
+
+      EventMsg::ImageGenerationBegin(e) => event_mapping::tools::handle_image_generation_begin(e),
+
+      EventMsg::ImageGenerationEnd(e) => event_mapping::tools::handle_image_generation_end(e),
 
       EventMsg::DynamicToolCallRequest(e) => {
         event_mapping::tools::handle_dynamic_tool_call_request(e)

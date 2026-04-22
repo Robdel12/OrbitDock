@@ -6,6 +6,7 @@ struct SidebarSessionRow: View {
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(DashboardDataService.self) private var dashboardDataService
+  @Environment(PinnedSessionsService.self) private var pinnedService
   @Environment(\.rootSessionActions) private var rootSessionActions
   @State private var isHovered = false
   @State private var isEnding = false
@@ -47,6 +48,10 @@ struct SidebarSessionRow: View {
     )
     .contentShape(Rectangle())
     .contextMenu {
+      DashboardSessionContextActions.pinActions(for: session, pinnedService: pinnedService)
+
+      Divider()
+
       DashboardSessionContextActions.conversationBaseActions(for: session)
 
       if session.canEnd {

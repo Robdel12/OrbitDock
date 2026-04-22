@@ -112,9 +112,6 @@ pub(crate) fn remap_rows_for_fork(
         ConversationRow::Worker(row) => {
           row.id = new_id;
         }
-        ConversationRow::CommandExecution(row) => {
-          row.id = new_id;
-        }
       }
       entry.session_id = new_session_id.to_string();
       entry

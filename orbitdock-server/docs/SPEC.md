@@ -151,7 +151,8 @@ All message rows share the same shape:
 ```
 
 - `is_streaming` — `true` while the assistant is still generating. Content updates arrive via `conversation_rows_changed`.
-- `images` — optional array of image attachments on user messages.
+- `images` — optional array of image references on message rows. Codex image inputs may include `detail`
+  (`auto`, `low`, `high`, or `original`) when replayed from provider history.
 
 ### Tool Row
 
@@ -172,9 +173,19 @@ The workhorse row type. Represents any tool execution.
   "turn_id": "turn-3",
   "invocation": { "Shell": { "command": "git status", "cwd": "/tmp/repo" } },
   "result": { "Shell": { "command": "git status", "output": "On branch main\n...", "exit_code": 0 } },
+  "shell_execution": {
+    "command": "git status",
+    "cwd": "/tmp/repo",
+    "actions": [{ "type": "unknown", "command": "git status" }],
+    "live_output_preview": "On branch main\n...",
+    "preview": { "kind": "status", "lines": ["nothing to commit"] },
+    "exit_code": 0
+  },
   "render_hints": { "can_expand": true, "default_expanded": false, "monospace_summary": true }
 }
 ```
+
+`shell_execution` is the canonical provider-agnostic payload for Bash/shell tools. Full output and terminal snapshots are persisted for row-content fetches, while timeline summaries send only bounded preview fields.
 
 **Tool families** determine icon, color, and grouping:
 
@@ -638,7 +649,7 @@ If the server cannot replay from the requested revision, the client should refet
 
 ### 7.4 Usage
 
-- `GET /api/usage/codex` — current Codex token usage
+- `GET /api/usage/codex` — current Codex token usage and optional rate-limit reason
 - `GET /api/usage/claude` — current Claude token usage
 
 ## 8. Capabilities
@@ -653,9 +664,9 @@ Skills are reusable prompt extensions available to sessions.
 
 Plugins replace the old remote-skill browse/download flow for Codex-backed sessions.
 
-- `GET /api/sessions/{id}/plugins` — list plugin marketplaces (query: `cwd[]`, `force_remote_sync`)
-- `POST /api/sessions/{id}/plugins/install` — install a plugin (`marketplacePath`, `pluginName`, `forceRemoteSync`)
-- `POST /api/sessions/{id}/plugins/uninstall` — uninstall a plugin (`pluginId`, `forceRemoteSync`)
+- `GET /api/sessions/{id}/plugins` — list plugin marketplaces (query: `cwd[]`)
+- `POST /api/sessions/{id}/plugins/install` — install a plugin (`marketplacePath`, `pluginName`)
+- `POST /api/sessions/{id}/plugins/uninstall` — uninstall a plugin (`pluginId`)
 
 ### 8.3 MCP (Model Context Protocol)
 
@@ -690,7 +701,7 @@ Both Claude and Codex events normalize into the same row types. Clients should n
 | assistant text | agentMessage | `assistant` |
 | user message | userMessage | `user` |
 | thinking block | reasoning | `thinking` |
-| Bash tool_use | commandExecution | `tool` (shell/bash) |
+| Bash tool_use | shell run | `tool` (shell/bash) |
 | Read/Edit/Write | fileChange | `tool` (file_read/file_change) |
 | Glob/Grep | — | `tool` (search) |
 | WebSearch/WebFetch | webSearch | `tool` (web) |

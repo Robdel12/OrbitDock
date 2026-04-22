@@ -350,7 +350,7 @@ struct QuickSwitcher: View {
         performCommandPlan(.renameSession(session))
       },
       onCopyResume: {
-        performCommandPlan(.copyResumeCommand("claude --resume \(session.sessionId)"))
+        performCommandPlan(.copyResumeCommand(session.provider.resumeCommand(sessionId: session.sessionId)))
       },
       onClose: session.showsInMissionControl ? {
         performCommandPlan(.closeSession(session))

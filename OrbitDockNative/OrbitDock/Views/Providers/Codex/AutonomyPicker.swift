@@ -93,7 +93,7 @@ enum AutonomyLevel: String, Codable, CaseIterable, Identifiable {
     switch self {
       case .locked: "Safe Reads"
       case .guarded: "Sandbox First"
-      case .autonomous, .open: "Auto Review"
+      case .autonomous, .open: "Auto-review"
       case .fullAuto: "No Prompts"
       case .unrestricted: "Unrestricted"
     }
@@ -184,7 +184,7 @@ enum AutonomyLevel: String, Codable, CaseIterable, Identifiable {
         ]
       case .open:
         [
-          "Auto review is still active in this mode",
+          "Auto-review is still active in this mode",
           "Because sandboxing is off, the model's risk judgment matters more",
         ]
       case .fullAuto:

@@ -35,8 +35,6 @@ struct ActivityGroupRowView: View {
     switch latestChild {
       case let .tool(tool):
         return ToolCardView.resolveColor(tool.toolDisplay.glyphColor)
-      case let .commandExecution(commandExecution):
-        return commandExecutionTint(commandExecution)
     }
   }
 
@@ -68,11 +66,7 @@ struct ActivityGroupRowView: View {
         .frame(width: 12)
 
       if isExpanded {
-        toolTypeDots
-
-        Text(groupSummaryText)
-          .font(.system(size: TypeScale.caption))
-          .foregroundStyle(Color.textTertiary)
+        activitySummaries
       } else {
         latestChildPreview
       }
@@ -91,21 +85,149 @@ struct ActivityGroupRowView: View {
     )
   }
 
-  // MARK: - Tool Type Dots
+  // MARK: - Smart Activity Summaries
 
-  private var toolTypeDots: some View {
-    HStack(spacing: 3) {
-      ForEach(Array(group.children.prefix(8).enumerated()), id: \.offset) { _, child in
-        Circle()
-          .fill(childTint(child))
-          .frame(width: 6, height: 6)
-      }
-      if group.childCount > 8 {
-        Text("…")
-          .font(.system(size: 8))
-          .foregroundStyle(Color.textQuaternary)
+  /// Aggregated summaries by tool family
+  private var activitySummaries: some View {
+    let summaries = computeActivitySummaries()
+
+    return HStack(spacing: Spacing.md) {
+      ForEach(summaries, id: \.label) { summary in
+        HStack(spacing: Spacing.xs) {
+          Image(systemName: summary.icon)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(summary.color.opacity(0.7))
+
+          Text(summary.label)
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+
+          if let detail = summary.detail {
+            Text(detail)
+              .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+              .foregroundStyle(summary.color)
+          }
+        }
       }
     }
+  }
+
+  private struct ActivitySummary {
+    let icon: String
+    let label: String
+    let detail: String?
+    let color: Color
+  }
+
+  private func computeActivitySummaries() -> [ActivitySummary] {
+    var summaries: [ActivitySummary] = []
+
+    // Aggregate file changes
+    var editCount = 0
+    var totalAdditions: UInt32 = 0
+    var totalDeletions: UInt32 = 0
+
+    // Aggregate search results
+    var searchCount = 0
+    var totalMatches = 0
+
+    // Track bash commands
+    var bashCommands: [(command: String, passed: Bool)] = []
+
+    for child in group.children {
+      let tool = child.tool
+      let toolType = tool.toolDisplay.toolType
+      switch toolType {
+        case "edit", "write":
+          editCount += 1
+          if let preview = tool.toolDisplay.diffPreview {
+            totalAdditions += preview.additions
+            totalDeletions += preview.deletions
+          }
+
+        case "grep", "glob", "toolSearch":
+          searchCount += 1
+          if let meta = tool.toolDisplay.rightMeta {
+            // Parse "12 results" to get the number
+            let digits = meta.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            if let count = Int(digits) {
+              totalMatches += count
+            }
+          }
+
+        case "bash":
+          let command = extractBashCommand(from: tool)
+          let passed = tool.status == .completed
+          bashCommands.append((command, passed))
+
+        default:
+          break
+      }
+    }
+
+    // Build summaries (most impactful first)
+
+    // File edits with diff stats
+    if editCount > 0 {
+      let fileWord = editCount == 1 ? "file" : "files"
+      var detail: String?
+      if totalAdditions > 0 || totalDeletions > 0 {
+        var parts: [String] = []
+        if totalAdditions > 0 { parts.append("+\(totalAdditions)") }
+        if totalDeletions > 0 { parts.append("-\(totalDeletions)") }
+        detail = parts.joined(separator: "/")
+      }
+      summaries.append(ActivitySummary(
+        icon: "pencil.line",
+        label: "\(editCount) \(fileWord)",
+        detail: detail,
+        color: Color.toolWrite
+      ))
+    }
+
+    // Bash with outcome
+    if !bashCommands.isEmpty {
+      if bashCommands.count == 1 {
+        let cmd = bashCommands[0]
+        let shortCmd = cmd.command.count > 20 ? String(cmd.command.prefix(18)) + "…" : cmd.command
+        summaries.append(ActivitySummary(
+          icon: "terminal",
+          label: shortCmd,
+          detail: cmd.passed ? "✓" : "✗",
+          color: cmd.passed ? Color.feedbackPositive : Color.feedbackNegative
+        ))
+      } else {
+        let passed = bashCommands.filter(\.passed).count
+        let failed = bashCommands.count - passed
+        var detail = "\(passed) passed"
+        if failed > 0 { detail += ", \(failed) failed" }
+        summaries.append(ActivitySummary(
+          icon: "terminal",
+          label: "\(bashCommands.count) commands",
+          detail: nil,
+          color: failed > 0 ? Color.feedbackNegative : Color.feedbackPositive
+        ))
+      }
+    }
+
+    // Search results
+    if searchCount > 0 {
+      summaries.append(ActivitySummary(
+        icon: "magnifyingglass",
+        label: totalMatches > 0 ? "\(totalMatches) matches" : "\(searchCount) searches",
+        detail: nil,
+        color: Color.toolSearch
+      ))
+    }
+
+    // Limit to 3 summaries max
+    return Array(summaries.prefix(3))
+  }
+
+  private func extractBashCommand(from tool: ServerConversationToolRow) -> String {
+    let input = tool.shellExecution?.command ?? tool.toolDisplay.inputDisplay ?? tool.toolDisplay.summary
+    let cleaned = input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input
+    return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private var latestChildPreview: some View {
@@ -204,8 +326,6 @@ struct ActivityGroupRowView: View {
       case let .tool(tool):
         let text = tool.toolDisplay.summary.isEmpty ? tool.title : tool.toolDisplay.summary
         return text.isEmpty ? displayTypeLabel(for: tool.toolDisplay.toolType) : text
-      case let .commandExecution(commandExecution):
-        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Run command"
     }
   }
 
@@ -219,16 +339,6 @@ struct ActivityGroupRowView: View {
           return meta
         }
         return displayTypeLabel(for: tool.toolDisplay.toolType)
-      case let .commandExecution(commandExecution):
-        if let command = commandExecutionPrimaryCommand(commandExecution) {
-          return command
-        }
-        if let previewLine = commandExecution.preview?.lines.first?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !previewLine.isEmpty
-        {
-          return previewLine
-        }
-        return ToolCardStyle.shortenPath(commandExecution.cwd)
     }
   }
 
@@ -246,14 +356,6 @@ struct ActivityGroupRowView: View {
           isLoadingContent: isChildLoading?(tool.id) ?? false,
           onToggle: { onToggle?(tool.id) }
         )
-      case let .commandExecution(commandExecution):
-        CommandExecutionRowView(
-          row: commandExecution,
-          isExpanded: isItemExpanded?(commandExecution.id) ?? false,
-          fetchedContent: contentForChild?(commandExecution.id),
-          isLoadingContent: isChildLoading?(commandExecution.id) ?? false,
-          onToggle: { onToggle?(commandExecution.id) }
-        )
     }
   }
 
@@ -261,8 +363,6 @@ struct ActivityGroupRowView: View {
     switch child {
       case let .tool(tool):
         return ToolCardView.resolveColor(tool.toolDisplay.glyphColor)
-      case let .commandExecution(commandExecution):
-        return commandExecutionTint(commandExecution)
     }
   }
 
@@ -270,8 +370,6 @@ struct ActivityGroupRowView: View {
     switch child {
       case let .tool(tool):
         return tool.toolDisplay.glyphSymbol
-      case let .commandExecution(commandExecution):
-        return commandExecutionGlyph(commandExecution)
     }
   }
 
@@ -279,8 +377,6 @@ struct ActivityGroupRowView: View {
     switch child {
       case let .tool(tool):
         return displayTypeLabel(for: tool.toolDisplay.toolType)
-      case let .commandExecution(commandExecution):
-        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Command"
     }
   }
 
@@ -290,66 +386,24 @@ struct ActivityGroupRowView: View {
       case "toolSearch": return "Tool Search"
       case "webSearch": return "Web Search"
       case "webFetch": return "Web Fetch"
-      case "guardianAssessment": return "Guardian Review"
+      case "guardianAssessment": return "Auto-review"
       case "compactContext": return "Compact Context"
       default: return toolType.capitalized
     }
-  }
-
-  private func commandExecutionActionTypesMatch(
-    _ row: ServerConversationCommandExecutionRow,
-    _ types: [ServerConversationCommandActionType]
-  ) -> Bool {
-    row.commandActions.allSatisfy { types.contains($0.type) }
-  }
-
-  private func commandExecutionTint(_ row: ServerConversationCommandExecutionRow) -> Color {
-    if commandExecutionActionTypesMatch(row, [.read]) {
-      return .toolRead
-    }
-    if commandExecutionActionTypesMatch(row, [.search, .listFiles]) {
-      return .toolSearch
-    }
-    return .toolBash
-  }
-
-  private func commandExecutionGlyph(_ row: ServerConversationCommandExecutionRow) -> String {
-    if commandExecutionActionTypesMatch(row, [.read]) {
-      return "doc.text.fill"
-    }
-    if commandExecutionActionTypesMatch(row, [.search]) {
-      return "magnifyingglass"
-    }
-    if commandExecutionActionTypesMatch(row, [.listFiles]) {
-      return "folder.fill"
-    }
-    return "terminal"
-  }
-
-  private func commandExecutionActionTitle(_ action: ServerConversationCommandAction) -> String {
-    switch action.type {
-      case .read:
-        return "Read"
-      case .search:
-        return "Search"
-      case .listFiles:
-        return "List files"
-      case .unknown:
-        return "Run command"
-    }
-  }
-
-  private func commandExecutionPrimaryCommand(_ row: ServerConversationCommandExecutionRow) -> String? {
-    guard !row.commandActions.isEmpty else { return nil }
-    guard !commandExecutionActionTypesMatch(row, [.read, .search, .listFiles]) else { return nil }
-    let command = row.command.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !command.isEmpty else { return nil }
-    return command
   }
 
   private func nonEmpty(_ text: String?) -> String? {
     guard let text else { return nil }
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+}
+
+private extension ServerConversationActivityGroupChild {
+  var tool: ServerConversationToolRow {
+    switch self {
+      case let .tool(tool):
+        tool
+    }
   }
 }

@@ -1,23 +1,27 @@
 import SwiftUI
 
-/// Full terminal view with chrome (traffic lights, title bar) and the
-/// Core Text-based terminal renderer.
+/// Ghostty-backed terminal view with chrome (traffic lights, title bar).
 struct TerminalContainerView: View {
   let session: TerminalSessionController
   var shouldAutoFocusOnFirstAttachment: Bool = true
   var captureScrollWithoutFocus: Bool = true
+  var cursorBlinkEnabled: Bool = true
+  var allowsInput: Bool = true
   var titleOverride: String?
+  var showsTitleBar: Bool = true
 
   var body: some View {
     VStack(spacing: 0) {
-      // Terminal title bar with traffic lights.
-      terminalTitleBar
+      if showsTitleBar {
+        terminalTitleBar
+      }
 
-      // The actual terminal renderer.
       TerminalView(
         session: session,
         shouldAutoFocusOnFirstAttachment: shouldAutoFocusOnFirstAttachment,
-        captureScrollWithoutFocus: captureScrollWithoutFocus
+        captureScrollWithoutFocus: captureScrollWithoutFocus,
+        cursorBlinkEnabled: cursorBlinkEnabled,
+        allowsInput: allowsInput
       )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -28,16 +32,12 @@ struct TerminalContainerView: View {
   private var terminalTitleBar: some View {
     HStack(spacing: 0) {
       #if os(macOS)
-        HStack(spacing: Spacing.xs) {
-          Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
-          Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
-          Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
-        }
+        trafficLights
       #endif
 
       Spacer()
 
-      Text(titleOverride ?? session.title)
+      Text(titleText)
         .font(.system(size: TypeScale.caption, design: .monospaced))
         .foregroundStyle(Color.textQuaternary)
         .lineLimit(1)
@@ -45,16 +45,33 @@ struct TerminalContainerView: View {
       Spacer()
 
       #if os(macOS)
-        // Balance spacer for traffic light dots.
-        HStack(spacing: Spacing.xs) {
-          Circle().fill(Color.clear).frame(width: 6, height: 6)
-          Circle().fill(Color.clear).frame(width: 6, height: 6)
-          Circle().fill(Color.clear).frame(width: 6, height: 6)
-        }
+        trafficLightSpacer
       #endif
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.xs)
     .background(Color.backgroundCode.opacity(0.8))
   }
+
+  private var titleText: String {
+    titleOverride ?? session.title
+  }
+
+  #if os(macOS)
+    private var trafficLights: some View {
+      HStack(spacing: Spacing.xs) {
+        Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
+        Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
+        Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
+      }
+    }
+
+    private var trafficLightSpacer: some View {
+      HStack(spacing: Spacing.xs) {
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
+        Circle().fill(Color.clear).frame(width: 6, height: 6)
+      }
+    }
+  #endif
 }

@@ -65,7 +65,6 @@ enum ServerConversationRowType: String, Codable, Equatable {
   case context
   case notice
   case shellCommand = "shell_command"
-  case commandExecution = "command_execution"
   case task
   case tool
   case activityGroup = "activity_group"
@@ -119,20 +118,6 @@ enum ServerConversationTaskStatus: String, Codable {
   case running
   case completed
   case failed
-}
-
-enum ServerConversationCommandExecutionStatus: String, Codable {
-  case inProgress = "in_progress"
-  case completed
-  case failed
-  case declined
-}
-
-enum ServerConversationCommandActionType: String, Codable {
-  case read
-  case listFiles = "list_files"
-  case search
-  case unknown
 }
 
 enum ServerConversationToolFamily: String, Codable {
@@ -206,6 +191,139 @@ enum ServerConversationToolStatus: String, Codable {
   case cancelled
   case blocked
   case needsInput = "needs_input"
+}
+
+enum ServerShellActionType: String, Codable {
+  case read
+  case listFiles = "list_files"
+  case search
+  case unknown
+}
+
+struct ServerShellAction: Codable, Equatable {
+  let type: ServerShellActionType
+  let command: String
+  let name: String?
+  let path: String?
+  let query: String?
+}
+
+enum ServerShellPreviewKind: String, Codable {
+  case excerpt
+  case searchMatches = "search_matches"
+  case fileList = "file_list"
+  case diff
+  case status
+}
+
+struct ServerShellPreview: Codable, Equatable {
+  let kind: ServerShellPreviewKind
+  let lines: [String]
+  let overflowCount: UInt32?
+
+  enum CodingKeys: String, CodingKey {
+    case kind
+    case lines
+    case overflowCount = "overflow_count"
+  }
+}
+
+struct ServerShellTerminalSnapshot: Codable, Equatable {
+  let command: String
+  let cwd: String
+  let output: String?
+  let transcript: String
+  let title: String
+}
+
+struct ServerShellExecutionPayload: Codable, Equatable {
+  let command: String
+  let cwd: String
+  let processId: String?
+  let actions: [ServerShellAction]
+  let liveOutputPreview: String?
+  let aggregatedOutput: String?
+  let terminalSnapshot: ServerShellTerminalSnapshot?
+  let preview: ServerShellPreview?
+  let exitCode: Int?
+
+  enum CodingKeys: String, CodingKey {
+    case command
+    case cwd
+    case processId = "process_id"
+    case actions
+    case liveOutputPreview = "live_output_preview"
+    case aggregatedOutput = "aggregated_output"
+    case terminalSnapshot = "terminal_snapshot"
+    case preview
+    case exitCode = "exit_code"
+  }
+
+  init(
+    command: String,
+    cwd: String,
+    processId: String? = nil,
+    actions: [ServerShellAction] = [],
+    liveOutputPreview: String? = nil,
+    aggregatedOutput: String? = nil,
+    terminalSnapshot: ServerShellTerminalSnapshot? = nil,
+    preview: ServerShellPreview? = nil,
+    exitCode: Int? = nil
+  ) {
+    self.command = command
+    self.cwd = cwd
+    self.processId = processId
+    self.actions = actions
+    self.liveOutputPreview = liveOutputPreview
+    self.aggregatedOutput = aggregatedOutput
+    self.terminalSnapshot = terminalSnapshot
+    self.preview = preview
+    self.exitCode = exitCode
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    command = try container.decode(String.self, forKey: .command)
+    cwd = try container.decode(String.self, forKey: .cwd)
+    processId = try container.decodeIfPresent(String.self, forKey: .processId)
+    actions = try container.decodeIfPresent([ServerShellAction].self, forKey: .actions) ?? []
+
+    let decodedLiveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
+    let decodedAggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
+    liveOutputPreview = ConversationPayloadBudget.clippedText(
+      decodedLiveOutputPreview ?? decodedAggregatedOutput,
+      maxCharacters: ConversationPayloadBudget.maxInlinePreviewCharacters
+    )
+    aggregatedOutput = nil
+    terminalSnapshot = nil
+    preview = Self.boundedPreview(try container.decodeIfPresent(ServerShellPreview.self, forKey: .preview))
+    exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+  }
+
+  private static func boundedPreview(_ preview: ServerShellPreview?) -> ServerShellPreview? {
+    guard let preview else { return nil }
+
+    let boundedLines = ConversationPayloadBudget.clippedLines(
+      preview.lines,
+      maxLines: ConversationPayloadBudget.maxCommandPreviewLines,
+      maxLineCharacters: ConversationPayloadBudget.maxPreviewLineCharacters
+    )
+
+    let droppedLineCount = max(preview.lines.count - boundedLines.count, 0)
+    let overflowCount: UInt32?
+    if droppedLineCount > 0 {
+      let baseOverflow = Int(preview.overflowCount ?? 0)
+      overflowCount = UInt32(min(baseOverflow + droppedLineCount, Int(UInt32.max)))
+    } else {
+      overflowCount = preview.overflowCount
+    }
+
+    return ServerShellPreview(
+      kind: preview.kind,
+      lines: boundedLines,
+      overflowCount: overflowCount
+    )
+  }
 }
 
 enum ServerConversationMessageDeliveryStatus: String, Codable {
@@ -333,6 +451,7 @@ struct ServerConversationToolRow: Codable {
   let groupingKey: String?
   let renderHints: ServerConversationRenderHints
   let toolDisplay: ServerToolDisplay
+  let shellExecution: ServerShellExecutionPayload?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -350,6 +469,43 @@ struct ServerConversationToolRow: Codable {
     case groupingKey = "grouping_key"
     case renderHints = "render_hints"
     case toolDisplay = "tool_display"
+    case shellExecution = "shell_execution"
+  }
+
+  init(
+    id: String,
+    provider: ServerProvider,
+    family: ServerConversationToolFamily,
+    kind: ServerConversationToolKind,
+    status: ServerConversationToolStatus,
+    title: String,
+    subtitle: String?,
+    summary: String?,
+    preview: ServerToolPreviewPayload?,
+    startedAt: String?,
+    endedAt: String?,
+    durationMs: UInt64?,
+    groupingKey: String?,
+    renderHints: ServerConversationRenderHints,
+    toolDisplay: ServerToolDisplay,
+    shellExecution: ServerShellExecutionPayload? = nil
+  ) {
+    self.id = id
+    self.provider = provider
+    self.family = family
+    self.kind = kind
+    self.status = status
+    self.title = title
+    self.subtitle = subtitle
+    self.summary = summary
+    self.preview = preview
+    self.startedAt = startedAt
+    self.endedAt = endedAt
+    self.durationMs = durationMs
+    self.groupingKey = groupingKey
+    self.renderHints = renderHints
+    self.toolDisplay = toolDisplay
+    self.shellExecution = shellExecution
   }
 }
 
@@ -431,32 +587,22 @@ struct ServerConversationActivityGroupRow: Codable {
 
 enum ServerConversationActivityGroupChild: Codable, Identifiable {
   case tool(ServerConversationToolRow)
-  case commandExecution(ServerConversationCommandExecutionRow)
 
   var id: String {
     switch self {
       case let .tool(tool):
         tool.id
-      case let .commandExecution(commandExecution):
-        commandExecution.id
     }
   }
 
   init(from decoder: Decoder) throws {
-    if let tool = try? ServerConversationToolRow(from: decoder) {
-      self = .tool(tool)
-      return
-    }
-
-    self = try .commandExecution(ServerConversationCommandExecutionRow(from: decoder))
+    self = try .tool(ServerConversationToolRow(from: decoder))
   }
 
   func encode(to encoder: Encoder) throws {
     switch self {
       case let .tool(tool):
         try tool.encode(to: encoder)
-      case let .commandExecution(commandExecution):
-        try commandExecution.encode(to: encoder)
     }
   }
 }
@@ -738,129 +884,6 @@ struct ServerConversationShellCommandRow: Codable {
   }
 }
 
-struct ServerConversationCommandAction: Codable, Equatable {
-  let type: ServerConversationCommandActionType
-  let command: String
-  let name: String?
-  let path: String?
-  let query: String?
-}
-
-enum ServerConversationCommandExecutionPreviewKind: String, Codable {
-  case excerpt
-  case searchMatches = "search_matches"
-  case fileList = "file_list"
-  case diff
-  case status
-}
-
-struct ServerConversationCommandExecutionPreview: Codable, Equatable {
-  let kind: ServerConversationCommandExecutionPreviewKind
-  let lines: [String]
-  let overflowCount: UInt32?
-
-  enum CodingKeys: String, CodingKey {
-    case kind
-    case lines
-    case overflowCount = "overflow_count"
-  }
-}
-
-struct ServerConversationCommandExecutionTerminalSnapshot: Codable, Equatable {
-  let command: String?
-  let cwd: String?
-  let output: String?
-  let transcript: String?
-  let title: String?
-}
-
-struct ServerConversationCommandExecutionRow: Codable {
-  let id: String
-  let status: ServerConversationCommandExecutionStatus
-  let command: String
-  let cwd: String
-  let processId: String?
-  let commandActions: [ServerConversationCommandAction]
-  let liveOutputPreview: String?
-  let aggregatedOutput: String?
-  let preview: ServerConversationCommandExecutionPreview?
-  let terminalSnapshot: ServerConversationCommandExecutionTerminalSnapshot?
-  let exitCode: Int?
-  let durationMs: UInt64?
-  let renderHints: ServerConversationRenderHints
-
-  enum CodingKeys: String, CodingKey {
-    case id
-    case status
-    case command
-    case cwd
-    case processId = "process_id"
-    case commandActions = "command_actions"
-    case liveOutputPreview = "live_output_preview"
-    case aggregatedOutput = "aggregated_output"
-    case preview
-    case terminalSnapshot = "terminal_snapshot"
-    case exitCode = "exit_code"
-    case durationMs = "duration_ms"
-    case renderHints = "render_hints"
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    id = try container.decode(String.self, forKey: .id)
-    status = try container.decode(ServerConversationCommandExecutionStatus.self, forKey: .status)
-    command = try container.decode(String.self, forKey: .command)
-    cwd = try container.decode(String.self, forKey: .cwd)
-    processId = try container.decodeIfPresent(String.self, forKey: .processId)
-    commandActions =
-      try container.decodeIfPresent([ServerConversationCommandAction].self, forKey: .commandActions)
-      ?? []
-    let decodedLiveOutputPreview = try container.decodeIfPresent(String.self, forKey: .liveOutputPreview)
-    let decodedAggregatedOutput = try container.decodeIfPresent(String.self, forKey: .aggregatedOutput)
-    let decodedPreview =
-      try container.decodeIfPresent(ServerConversationCommandExecutionPreview.self, forKey: .preview)
-    liveOutputPreview = ConversationPayloadBudget.clippedText(
-      decodedLiveOutputPreview ?? decodedAggregatedOutput,
-      maxCharacters: ConversationPayloadBudget.maxInlinePreviewCharacters
-    )
-    aggregatedOutput = nil
-    preview = Self.boundedPreview(decodedPreview)
-    terminalSnapshot = nil
-    exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
-    durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
-    renderHints =
-      try container.decodeIfPresent(ServerConversationRenderHints.self, forKey: .renderHints)
-      ?? ServerConversationRenderHints()
-  }
-
-  private static func boundedPreview(
-    _ preview: ServerConversationCommandExecutionPreview?
-  ) -> ServerConversationCommandExecutionPreview? {
-    guard let preview else { return nil }
-
-    let boundedLines = ConversationPayloadBudget.clippedLines(
-      preview.lines,
-      maxLines: ConversationPayloadBudget.maxCommandPreviewLines,
-      maxLineCharacters: ConversationPayloadBudget.maxPreviewLineCharacters
-    )
-
-    let droppedLineCount = max(preview.lines.count - boundedLines.count, 0)
-    let overflowCount: UInt32?
-    if droppedLineCount > 0 {
-      let baseOverflow = Int(preview.overflowCount ?? 0)
-      overflowCount = UInt32(min(baseOverflow + droppedLineCount, Int(UInt32.max)))
-    } else {
-      overflowCount = preview.overflowCount
-    }
-
-    return ServerConversationCommandExecutionPreview(
-      kind: preview.kind,
-      lines: boundedLines,
-      overflowCount: overflowCount
-    )
-  }
-}
-
 struct ServerConversationTaskRow: Codable {
   let id: String
   let kind: ServerConversationTaskKind
@@ -895,7 +918,6 @@ enum ServerConversationRow: Codable {
   case context(ServerConversationContextRow)
   case notice(ServerConversationNoticeRow)
   case shellCommand(ServerConversationShellCommandRow)
-  case commandExecution(ServerConversationCommandExecutionRow)
   case task(ServerConversationTaskRow)
   case tool(ServerConversationToolRow)
   case activityGroup(ServerConversationActivityGroupRow)
@@ -929,8 +951,6 @@ enum ServerConversationRow: Codable {
         self = try .notice(ServerConversationNoticeRow(from: decoder))
       case .shellCommand:
         self = try .shellCommand(ServerConversationShellCommandRow(from: decoder))
-      case .commandExecution:
-        self = try .commandExecution(ServerConversationCommandExecutionRow(from: decoder))
       case .task:
         self = try .task(ServerConversationTaskRow(from: decoder))
       case .tool:
@@ -969,8 +989,6 @@ enum ServerConversationRow: Codable {
       case let .notice(row):
         try row.encode(to: encoder)
       case let .shellCommand(row):
-        try row.encode(to: encoder)
-      case let .commandExecution(row):
         try row.encode(to: encoder)
       case let .task(row):
         try row.encode(to: encoder)
@@ -1054,8 +1072,6 @@ struct ServerConversationRowEntry: Codable, Identifiable {
         notice.id
       case let .shellCommand(shellCommand):
         shellCommand.id
-      case let .commandExecution(commandExecution):
-        commandExecution.id
       case let .task(task):
         task.id
       case let .tool(tool):

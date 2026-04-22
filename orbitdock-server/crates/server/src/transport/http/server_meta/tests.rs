@@ -78,7 +78,10 @@ fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
          id TEXT PRIMARY KEY,
          provider TEXT,
          model TEXT,
-         started_at TEXT
+         started_at TEXT,
+         control_mode TEXT,
+         codex_integration_mode TEXT,
+         claude_integration_mode TEXT
        );
        CREATE TABLE usage_ledger_entries (
          session_id TEXT NOT NULL,
@@ -97,8 +100,22 @@ fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
 
   conn
     .execute(
-      "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
-      rusqlite::params!["session-1", "codex", "gpt-5.4", "2026-03-28T23:55:00Z"],
+      "INSERT INTO sessions (
+         id,
+         provider,
+         model,
+         started_at,
+         control_mode,
+         codex_integration_mode
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![
+        "session-1",
+        "codex",
+        "gpt-5.4",
+        "2026-03-28T23:55:00Z",
+        "direct",
+        "direct",
+      ],
     )
     .expect("insert session");
   conn
@@ -171,6 +188,164 @@ fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
   assert_eq!(summary.today.total_cost_usd, 1.0_f64);
   assert_eq!(summary.all_time.input_tokens, 320);
   assert_eq!(summary.all_time.output_tokens, 110);
+
+  drop(conn);
+  let _ = std::fs::remove_file(db_path);
+}
+
+#[test]
+fn usage_summary_only_counts_direct_sessions() {
+  let db_path = std::env::temp_dir().join(format!(
+    "orbitdock-direct-usage-summary-{}-{}.db",
+    std::process::id(),
+    std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .expect("unix epoch")
+      .as_nanos()
+  ));
+  let conn = Connection::open(&db_path).expect("open sqlite db");
+
+  conn
+    .execute_batch(
+      "CREATE TABLE sessions (
+         id TEXT PRIMARY KEY,
+         provider TEXT,
+         model TEXT,
+         started_at TEXT,
+         control_mode TEXT,
+         codex_integration_mode TEXT,
+         claude_integration_mode TEXT
+       );
+       CREATE TABLE usage_ledger_entries (
+         session_id TEXT NOT NULL,
+         turn_id TEXT NOT NULL,
+         model TEXT,
+         session_started_at TEXT,
+         observed_at TEXT NOT NULL,
+         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
+         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
+         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+         estimated_cost_usd REAL NOT NULL DEFAULT 0,
+         PRIMARY KEY (session_id, turn_id)
+       );",
+    )
+    .expect("create schema");
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+         id,
+         provider,
+         model,
+         started_at,
+         control_mode,
+         codex_integration_mode
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![
+        "direct-session",
+        "codex",
+        "gpt-5.4",
+        "2026-03-29T00:01:00Z",
+        "direct",
+        "direct",
+      ],
+    )
+    .expect("insert direct session");
+  conn
+    .execute(
+      "INSERT INTO sessions (
+         id,
+         provider,
+         model,
+         started_at,
+         control_mode,
+         codex_integration_mode
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      rusqlite::params![
+        "passive-session",
+        "codex",
+        "gpt-5.4",
+        "2026-03-29T00:02:00Z",
+        "passive",
+        "passive",
+      ],
+    )
+    .expect("insert passive session");
+
+  conn
+    .execute(
+      "INSERT INTO usage_ledger_entries (
+         session_id,
+         turn_id,
+         model,
+         session_started_at,
+         observed_at,
+         billable_input_tokens,
+         billable_output_tokens,
+         cache_read_tokens,
+         estimated_cost_usd
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      rusqlite::params![
+        "direct-session",
+        "turn-1",
+        "gpt-5.4",
+        "2026-03-29T00:01:00Z",
+        "2026-03-29T00:03:00Z",
+        10_i64,
+        5_i64,
+        3_i64,
+        0.25_f64,
+      ],
+    )
+    .expect("insert direct ledger entry");
+  conn
+    .execute(
+      "INSERT INTO usage_ledger_entries (
+         session_id,
+         turn_id,
+         model,
+         session_started_at,
+         observed_at,
+         billable_input_tokens,
+         billable_output_tokens,
+         cache_read_tokens,
+         estimated_cost_usd
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+      rusqlite::params![
+        "passive-session",
+        "turn-1",
+        "gpt-5.4",
+        "2026-03-29T00:02:00Z",
+        "2026-03-29T00:04:00Z",
+        999_i64,
+        999_i64,
+        999_i64,
+        99.0_f64,
+      ],
+    )
+    .expect("insert passive ledger entry");
+
+  let summary = load_usage_summary(
+    &db_path,
+    Some(
+      chrono::DateTime::parse_from_rfc3339("2026-03-29T00:00:00Z")
+        .expect("parse boundary")
+        .timestamp() as u64,
+    ),
+  )
+  .expect("load usage summary");
+
+  assert_eq!(summary.today.session_count, 1);
+  assert_eq!(summary.today.input_tokens, 10);
+  assert_eq!(summary.today.output_tokens, 5);
+  assert_eq!(summary.today.cached_tokens, 3);
+  assert_eq!(summary.today.total_tokens, 15);
+  assert_eq!(summary.today.total_cost_usd, 0.25_f64);
+  assert_eq!(summary.all_time.session_count, 1);
+  assert_eq!(summary.all_time.input_tokens, 10);
+  assert_eq!(summary.all_time.output_tokens, 5);
+  assert_eq!(summary.all_time.cached_tokens, 3);
+  assert_eq!(summary.all_time.total_cost_usd, 0.25_f64);
 
   drop(conn);
   let _ = std::fs::remove_file(db_path);

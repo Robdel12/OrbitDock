@@ -7,7 +7,8 @@ enum DashboardPresentationBuilder {
     sort: ActiveSessionSort,
     providerFilter: ActiveSessionProviderFilter,
     projectFilter: String?,
-    projectOrder: [String]
+    projectOrder: [String],
+    pinnedRefs: [SessionRef] = []
   ) -> DashboardPresentation {
     let filtered = filterAndSort(
       snapshot.conversations,
@@ -25,14 +26,24 @@ enum DashboardPresentationBuilder {
       projectFilter: nil
     )
 
+    // Extract pinned conversations in pin order, excluding from regular groups
+    let pinnedSet = Set(pinnedRefs)
+    let pinnedLookup = Dictionary(
+      sidebar.map { ($0.sessionRef, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    let pinnedConversations = pinnedRefs.compactMap { pinnedLookup[$0] }
+    let unpinnedSidebar = sidebar.filter { !pinnedSet.contains($0.sessionRef) }
+
     let groups = buildGroups(from: filtered, customOrder: projectOrder)
-    let sidebarGroups = buildGroups(from: sidebar, customOrder: projectOrder)
+    let sidebarGroups = buildGroups(from: unpinnedSidebar, customOrder: projectOrder)
 
     return DashboardPresentation(
       groups: groups,
       sidebarGroups: sidebarGroups,
       filteredConversations: filtered,
-      sidebarConversations: sidebar
+      sidebarConversations: sidebar,
+      pinnedConversations: pinnedConversations
     )
   }
 

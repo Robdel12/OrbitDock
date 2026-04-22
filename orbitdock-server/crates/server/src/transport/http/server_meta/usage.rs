@@ -17,6 +17,13 @@ use super::{
 };
 use crate::transport::http::errors::{internal, ApiResult};
 
+const DIRECT_SESSION_PREDICATE: &str = "
+COALESCE(s.control_mode, CASE
+  WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
+  WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
+  ELSE 'passive'
+END) = 'direct'";
+
 pub async fn fetch_codex_usage(
   State(state): State<Arc<SessionRegistry>>,
 ) -> Json<CodexUsageResponse> {
@@ -86,7 +93,9 @@ pub(super) fn load_usage_summary(
   )?;
 
   let sessions: Vec<SessionSummaryRow> = conn
-    .prepare("SELECT id, started_at FROM sessions")?
+    .prepare(&format!(
+      "SELECT s.id, s.started_at FROM sessions s WHERE {DIRECT_SESSION_PREDICATE}"
+    ))?
     .query_map([], |row| {
       let session_id: String = row.get(0)?;
       let started_at: Option<String> = row.get(1)?;
@@ -137,10 +146,19 @@ pub(super) fn load_usage_summary(
 
 fn load_usage_ledger_rows(conn: &Connection) -> anyhow::Result<Vec<UsageLedgerRow>> {
   conn
-    .prepare(
-      "SELECT session_id, model, observed_at, billable_input_tokens, billable_output_tokens, cache_read_tokens, estimated_cost_usd
-       FROM usage_ledger_entries",
-    )?
+    .prepare(&format!(
+      "SELECT
+         ule.session_id,
+         ule.model,
+         ule.observed_at,
+         ule.billable_input_tokens,
+         ule.billable_output_tokens,
+         ule.cache_read_tokens,
+         ule.estimated_cost_usd
+       FROM usage_ledger_entries ule
+       JOIN sessions s ON s.id = ule.session_id
+       WHERE {DIRECT_SESSION_PREDICATE}"
+    ))?
     .query_map([], |row| {
       let session_id: String = row.get(0)?;
       let observed_at: Option<String> = row.get(2)?;

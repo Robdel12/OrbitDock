@@ -133,6 +133,10 @@ pub struct TransitionState {
   pub turn_input_tokens: u64,
   pub turn_output_tokens: u64,
   pub turn_cached_tokens: u64,
+  /// Provider-normalized turn-final usage snapshot, when the connector can
+  /// supply one that is more authoritative than live display snapshots.
+  pub turn_usage_snapshot: Option<TokenUsage>,
+  pub turn_usage_snapshot_kind: Option<TokenUsageSnapshotKind>,
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +178,10 @@ pub enum Input {
     network_protocol: Option<String>,
   },
   TokensUpdated {
+    usage: TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+  },
+  TurnUsageUpdated {
     usage: TokenUsage,
     snapshot_kind: TokenUsageSnapshotKind,
   },
@@ -315,6 +323,13 @@ impl From<ConnectorStateEvent> for Input {
         usage,
         snapshot_kind,
       } => Input::TokensUpdated {
+        usage,
+        snapshot_kind,
+      },
+      ConnectorStateEvent::TurnUsageUpdated {
+        usage,
+        snapshot_kind,
+      } => Input::TurnUsageUpdated {
         usage,
         snapshot_kind,
       },
@@ -638,6 +653,8 @@ pub fn transition(
       state.turn_input_tokens = 0;
       state.turn_output_tokens = 0;
       state.turn_cached_tokens = 0;
+      state.turn_usage_snapshot = None;
+      state.turn_usage_snapshot_kind = None;
 
       effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
         id: sid.clone(),
@@ -664,20 +681,25 @@ pub fn transition(
       if let Some(turn_id) = state.current_turn_id.as_ref() {
         let diff = state.current_diff.clone();
 
-        // Use per-turn accumulators for the ledger entry (not lifetime token_usage).
-        let turn_usage = TokenUsage {
+        // Use provider-finalized turn usage when available. Otherwise fall back
+        // to accumulated per-call usage for providers that only expose mixed
+        // live snapshots.
+        let turn_usage = state.turn_usage_snapshot.clone().unwrap_or(TokenUsage {
           input_tokens: state.turn_input_tokens,
           output_tokens: state.turn_output_tokens,
           cached_tokens: state.turn_cached_tokens,
           context_window: state.token_usage.context_window,
-        };
+        });
+        let turn_snapshot_kind = state
+          .turn_usage_snapshot_kind
+          .unwrap_or(state.token_usage_snapshot_kind);
 
         if let Some(ref d) = diff {
           let snapshot = TurnDiff {
             turn_id: turn_id.clone(),
             diff: d.clone(),
             token_usage: Some(turn_usage.clone()),
-            snapshot_kind: Some(state.token_usage_snapshot_kind),
+            snapshot_kind: Some(turn_snapshot_kind),
           };
           state.turn_diffs.push(snapshot);
         }
@@ -691,7 +713,7 @@ pub fn transition(
           output_tokens: turn_usage.output_tokens,
           cached_tokens: turn_usage.cached_tokens,
           context_window: turn_usage.context_window,
-          snapshot_kind: state.token_usage_snapshot_kind,
+          snapshot_kind: turn_snapshot_kind,
         })));
 
         if let Some(ref d) = diff {
@@ -703,7 +725,7 @@ pub fn transition(
             output_tokens: Some(turn_usage.output_tokens),
             cached_tokens: Some(turn_usage.cached_tokens),
             context_window: Some(turn_usage.context_window),
-            snapshot_kind: state.token_usage_snapshot_kind,
+            snapshot_kind: turn_snapshot_kind,
           })));
         }
       }
@@ -712,6 +734,8 @@ pub fn transition(
       state.turn_input_tokens = 0;
       state.turn_output_tokens = 0;
       state.turn_cached_tokens = 0;
+      state.turn_usage_snapshot = None;
+      state.turn_usage_snapshot_kind = None;
 
       // Clear current_diff now that it has been archived into turn_diffs
       state.current_diff = None;
@@ -771,6 +795,11 @@ pub fn transition(
         state.last_activity_at = Some(now.to_string());
         state.last_progress_at = Some(now.to_string());
         state.current_turn_id = None;
+        state.turn_input_tokens = 0;
+        state.turn_output_tokens = 0;
+        state.turn_cached_tokens = 0;
+        state.turn_usage_snapshot = None;
+        state.turn_usage_snapshot_kind = None;
 
         effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
           id: sid.clone(),
@@ -1203,6 +1232,14 @@ pub fn transition(
         usage: state.token_usage.clone(),
         snapshot_kind,
       })));
+    }
+
+    Input::TurnUsageUpdated {
+      usage,
+      snapshot_kind,
+    } => {
+      state.turn_usage_snapshot = Some(usage);
+      state.turn_usage_snapshot_kind = Some(snapshot_kind);
     }
 
     Input::DiffUpdated(diff) => {
@@ -2878,6 +2915,8 @@ mod tests {
       turn_input_tokens: 0,
       turn_output_tokens: 0,
       turn_cached_tokens: 0,
+      turn_usage_snapshot: None,
+      turn_usage_snapshot_kind: None,
     }
   }
 
@@ -2945,6 +2984,7 @@ mod tests {
         result: None,
         render_hints: RenderHints::default(),
         tool_display: None,
+        shell_execution: None,
       }),
     }
   }
@@ -3606,6 +3646,7 @@ mod tests {
         result: None,
         render_hints: RenderHints::default(),
         tool_display: None,
+        shell_execution: None,
       }),
     };
     state.rows.push(existing.clone());
@@ -3637,6 +3678,7 @@ mod tests {
           "summary": "{\"ok\":true}"
         })),
         render_hints: RenderHints::default(),
+        shell_execution: None,
         tool_display: None,
       }),
     };
@@ -3859,6 +3901,86 @@ mod tests {
                 }
             )
     ));
+  }
+
+  #[test]
+  fn turn_usage_updated_sets_accounting_snapshot_without_live_effects() {
+    let state = test_state();
+    let usage = TokenUsage {
+      input_tokens: 1_000,
+      output_tokens: 200,
+      cached_tokens: 300,
+      context_window: 200_000,
+    };
+
+    let (new_state, effects) = transition(
+      state,
+      Input::TurnUsageUpdated {
+        usage,
+        snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+      },
+      NOW,
+    );
+
+    assert!(effects.is_empty());
+    assert_eq!(
+      new_state
+        .turn_usage_snapshot
+        .as_ref()
+        .map(|u| u.input_tokens),
+      Some(1_000)
+    );
+    assert_eq!(
+      new_state.turn_usage_snapshot_kind,
+      Some(TokenUsageSnapshotKind::LifetimeTotals)
+    );
+    assert_eq!(new_state.token_usage.input_tokens, 0);
+  }
+
+  #[test]
+  fn turn_completed_prefers_provider_accounting_snapshot() {
+    let mut state = test_state();
+    state.phase = WorkPhase::Working;
+    state.current_turn_id = Some("turn-1".to_string());
+    state.turn_count = 1;
+    state.token_usage = TokenUsage {
+      input_tokens: 200,
+      output_tokens: 10,
+      cached_tokens: 20,
+      context_window: 200_000,
+    };
+    state.turn_usage_snapshot = Some(TokenUsage {
+      input_tokens: 1_000,
+      output_tokens: 200,
+      cached_tokens: 300,
+      context_window: 200_000,
+    });
+    state.turn_usage_snapshot_kind = Some(TokenUsageSnapshotKind::LifetimeTotals);
+
+    let (_, effects) = transition(state, Input::TurnCompleted, NOW);
+    let persisted = effects.iter().find_map(|effect| match effect {
+      Effect::Persist(op) => match op.as_ref() {
+        PersistOp::TurnDiffInsert {
+          input_tokens,
+          output_tokens,
+          cached_tokens,
+          snapshot_kind,
+          ..
+        } => Some((
+          *input_tokens,
+          *output_tokens,
+          *cached_tokens,
+          *snapshot_kind,
+        )),
+        _ => None,
+      },
+      _ => None,
+    });
+
+    assert_eq!(
+      persisted,
+      Some((1_000, 200, 300, TokenUsageSnapshotKind::LifetimeTotals))
+    );
   }
 
   #[test]

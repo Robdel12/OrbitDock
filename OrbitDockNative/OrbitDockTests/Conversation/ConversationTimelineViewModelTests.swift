@@ -121,19 +121,36 @@ struct ConversationTimelineViewModelTests {
     #expect(viewModel.renderWindowRequiredToReveal(rowId: "tool-3") == 2)
   }
 
-  @Test func focusedModePreservesFailedCommandExecutionStatusInsideArchivedGroups() throws {
+  @Test func focusedModePreservesFailedShellToolStatusInsideArchivedGroups() throws {
     let viewModel = ConversationTimelineViewModel()
     viewModel.bind(sessionId: "session-1")
 
     viewModel.apply(
       presentation: ConversationTimelinePresentation(
         entries: [
-          makeCommandExecutionEntry(
-            id: "command-1",
+          makeToolEntry(
+            id: "tool-1",
             sequence: 1,
             status: .failed,
-            command: "cat missing.txt",
-            output: "No such file or directory"
+            summary: "cat missing.txt",
+            family: .shell,
+            kind: .bash,
+            toolType: "bash",
+            shellExecution: ServerShellExecutionPayload(
+              command: "cat missing.txt",
+              cwd: "/tmp",
+              actions: [
+                ServerShellAction(
+                  type: .unknown,
+                  command: "cat missing.txt",
+                  name: nil,
+                  path: nil,
+                  query: nil
+                )
+              ],
+              liveOutputPreview: "No such file or directory",
+              exitCode: 1
+            )
           ),
           makeToolEntry(id: "tool-2", sequence: 2, summary: "Read"),
         ],
@@ -238,7 +255,12 @@ struct ConversationTimelineViewModelTests {
   private func makeToolEntry(
     id: String,
     sequence: UInt64,
-    summary: String
+    status: ServerConversationToolStatus = .completed,
+    summary: String,
+    family: ServerConversationToolFamily = .agent,
+    kind: ServerConversationToolKind = .taskOutput,
+    toolType: String = "task",
+    shellExecution: ServerShellExecutionPayload? = nil
   ) -> ServerConversationRowEntry {
     ServerConversationRowEntry(
       sessionId: "session-1",
@@ -248,9 +270,9 @@ struct ConversationTimelineViewModelTests {
       row: .tool(ServerConversationToolRow(
         id: id,
         provider: .codex,
-        family: .agent,
-        kind: .taskOutput,
-        status: .completed,
+        family: family,
+        kind: kind,
+        status: status,
         title: summary,
         subtitle: nil,
         summary: summary,
@@ -272,74 +294,16 @@ struct ConversationTimelineViewModelTests {
           outputPreview: nil,
           liveOutputPreview: nil,
           todoItems: [],
-          toolType: "task",
+          toolType: toolType,
           summaryFont: "system",
           displayTier: "standard",
           inputDisplay: nil,
           outputDisplay: nil,
           diffDisplay: nil,
           planExplanation: nil
-        )
+        ),
+        shellExecution: shellExecution
       ))
     )
-  }
-
-  private func makeCommandExecutionEntry(
-    id: String,
-    sequence: UInt64,
-    status: ServerConversationCommandExecutionStatus,
-    command: String,
-    output: String?
-  ) -> ServerConversationRowEntry {
-    let decoder = JSONDecoder()
-    let payload = """
-    {
-      "id": "\(id)",
-      "status": "\(status.rawValue)",
-      "command": "\(command)",
-      "cwd": "/tmp",
-      "process_id": null,
-      "command_actions": [
-        {
-          "type": "unknown",
-          "command": "\(command)",
-          "name": null,
-          "path": null,
-          "query": null
-        }
-      ],
-      "live_output_preview": null,
-      "aggregated_output": \(jsonString(output)),
-      "preview": null,
-      "exit_code": 1,
-      "duration_ms": 42,
-      "render_hints": {
-        "can_expand": false,
-        "default_expanded": false,
-        "emphasized": false,
-        "monospace_summary": false,
-        "accent_tone": null
-      }
-    }
-    """
-
-    let row = try! decoder.decode(
-      ServerConversationCommandExecutionRow.self,
-      from: Data(payload.utf8)
-    )
-
-    return ServerConversationRowEntry(
-      sessionId: "session-1",
-      sequence: sequence,
-      turnId: nil,
-      turnStatus: .active,
-      row: .commandExecution(row)
-    )
-  }
-
-  private func jsonString(_ value: String?) -> String {
-    guard let value else { return "null" }
-    let encoded = try! JSONEncoder().encode(value)
-    return String(decoding: encoded, as: UTF8.self)
   }
 }

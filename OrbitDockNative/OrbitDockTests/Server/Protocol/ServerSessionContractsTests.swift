@@ -244,6 +244,74 @@ struct ServerSessionContractsTests {
     #expect(shellRow.command == "git status")
   }
 
+  @Test func toolRowDecodesShellExecutionSnakeCasePayload() throws {
+    let data = Data(
+      """
+      {
+        "session_id": "session-shell",
+        "sequence": 12,
+        "row": {
+          "row_type": "tool",
+          "id": "tool-shell-1",
+          "provider": "codex",
+          "family": "shell",
+          "kind": "bash",
+          "status": "completed",
+          "title": "npm test",
+          "subtitle": "/tmp/project",
+          "summary": "done",
+          "duration_ms": 42,
+          "render_hints": {
+            "can_expand": true,
+            "default_expanded": false,
+            "emphasized": false,
+            "monospace_summary": true
+          },
+          "tool_display": {
+            "summary": "npm test",
+            "subtitle": "/tmp/project",
+            "glyph_symbol": "terminal",
+            "glyph_color": "green",
+            "tool_type": "bash"
+          },
+          "shell_execution": {
+            "command": "npm test",
+            "cwd": "/tmp/project",
+            "process_id": "pty-1",
+            "actions": [
+              { "type": "unknown", "command": "npm test" }
+            ],
+            "live_output_preview": "running",
+            "aggregated_output": "done",
+            "preview": {
+              "kind": "status",
+              "lines": ["done"],
+              "overflow_count": 1
+            },
+            "exit_code": 0
+          }
+        }
+      }
+      """.utf8
+    )
+
+    let entry = try JSONDecoder().decode(ServerConversationRowEntry.self, from: data)
+
+    guard case let .tool(tool) = entry.row else {
+      Issue.record("Expected tool row")
+      return
+    }
+
+    let shell = try #require(tool.shellExecution)
+    #expect(shell.command == "npm test")
+    #expect(shell.cwd == "/tmp/project")
+    #expect(shell.processId == "pty-1")
+    #expect(shell.liveOutputPreview == "running")
+    #expect(shell.aggregatedOutput == nil)
+    #expect(shell.preview?.overflowCount == 1)
+    #expect(shell.exitCode == 0)
+  }
+
   @Test func conversationBootstrapDecodesStringApprovalPolicyDetails() throws {
     let data = Data(
       """

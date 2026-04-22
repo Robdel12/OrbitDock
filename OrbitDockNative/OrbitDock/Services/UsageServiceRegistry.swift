@@ -11,6 +11,7 @@ final class UsageServiceRegistry {
   private(set) var summaryTodayStartUnix: UInt64?
   private(set) var claudeWindows: [RateLimitWindow] = []
   private(set) var codexWindows: [RateLimitWindow] = []
+  private(set) var codexRateLimitReachedType: ServerCodexRateLimitReachedType?
   private(set) var summaryLoading = false
   private(set) var claudeLoading = false
   private(set) var codexLoading = false
@@ -151,13 +152,17 @@ final class UsageServiceRegistry {
       let response = try await clients.usage.fetchCodexUsage()
       if let usage = response.usage {
         codexWindows = codexUsageToWindows(usage)
+        codexRateLimitReachedType = usage.rateLimitReachedType
         codexError = nil
       } else if let errorInfo = response.errorInfo {
+        codexRateLimitReachedType = nil
         codexError = UsageFetchError(message: errorInfo.message)
       } else {
+        codexRateLimitReachedType = nil
         codexError = nil
       }
     } catch {
+      codexRateLimitReachedType = nil
       codexError = UsageFetchError(message: error.localizedDescription)
     }
     codexLoading = false

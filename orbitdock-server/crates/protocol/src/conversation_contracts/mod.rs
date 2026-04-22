@@ -15,15 +15,14 @@ pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowS
 pub use approvals::{ApprovalRow, QuestionRow};
 pub use render_hints::{ConversationDisplayMode, RenderHints};
 pub use rows::{
-  command_execution_terminal_snapshot, command_execution_terminal_transcript,
-  compute_command_execution_preview, extract_row_content_str, extract_row_content_str_summary,
-  AssistantRow, CommandExecutionAction, CommandExecutionPreview, CommandExecutionPreviewKind,
-  CommandExecutionRow, CommandExecutionStatus, CommandExecutionTerminalSnapshot, ContextRow,
-  ContextRowKind, ConversationRow, ConversationRowEntry, ConversationRowPage,
-  ConversationRowSummary, HandoffRow, HookRow, MemoryCitation, MemoryCitationEntry,
-  MessageRowContent, NoticeRow, NoticeRowKind, NoticeRowSeverity, PlanRow, RowEntrySummary,
-  RowPageSummary, ShellCommandRow, ShellCommandRowKind, SystemRow, TaskRow, TaskRowKind,
-  TaskRowStatus, ThinkingRow, ToolRow, ToolRowSummary, TurnStatus, UserRow,
+  compute_shell_preview, extract_row_content_str, extract_row_content_str_summary,
+  shell_terminal_snapshot, shell_terminal_transcript, AssistantRow, ContextRow, ContextRowKind,
+  ConversationRow, ConversationRowEntry, ConversationRowPage, ConversationRowSummary, HandoffRow,
+  HookRow, MemoryCitation, MemoryCitationEntry, MessageRowContent, NoticeRow, NoticeRowKind,
+  NoticeRowSeverity, PlanRow, RowEntrySummary, RowPageSummary, ShellAction, ShellCommandRow,
+  ShellCommandRowKind, ShellExecutionPayload, ShellPreview, ShellPreviewKind,
+  ShellTerminalSnapshot, SystemRow, TaskRow, TaskRowKind, TaskRowStatus, ThinkingRow, ToolRow,
+  ToolRowSummary, TurnStatus, UserRow,
 };
 pub use tool_display::{
   classify_tool_name, compute_diff_display, compute_expanded_output, compute_input_display,

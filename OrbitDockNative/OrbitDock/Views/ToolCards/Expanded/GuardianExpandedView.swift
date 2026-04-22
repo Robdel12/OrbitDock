@@ -2,7 +2,7 @@
 //  GuardianExpandedView.swift
 //  OrbitDock
 //
-//  Guardian assessment expanded view — shows verdict, risk level, and rationale
+//  Auto-review assessment expanded view — shows verdict, risk level, and rationale
 //  as a structured review card rather than raw JSON.
 //
 

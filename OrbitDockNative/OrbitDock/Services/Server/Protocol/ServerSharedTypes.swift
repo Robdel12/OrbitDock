@@ -54,6 +54,7 @@ struct ServerImageInput: Codable {
   let displayName: String?
   let pixelWidth: Int?
   let pixelHeight: Int?
+  let detail: String?
 
   enum CodingKeys: String, CodingKey {
     case inputType = "input_type"
@@ -63,6 +64,7 @@ struct ServerImageInput: Codable {
     case displayName = "display_name"
     case pixelWidth = "pixel_width"
     case pixelHeight = "pixel_height"
+    case detail
   }
 
   init(
@@ -72,7 +74,8 @@ struct ServerImageInput: Codable {
     byteCount: Int? = nil,
     displayName: String? = nil,
     pixelWidth: Int? = nil,
-    pixelHeight: Int? = nil
+    pixelHeight: Int? = nil,
+    detail: String? = nil
   ) {
     self.inputType = inputType
     self.value = value
@@ -81,6 +84,7 @@ struct ServerImageInput: Codable {
     self.displayName = displayName
     self.pixelWidth = pixelWidth
     self.pixelHeight = pixelHeight
+    self.detail = detail
   }
 }
 

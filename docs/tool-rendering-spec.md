@@ -6,11 +6,11 @@ Both providers (Claude and Codex) normalize to this shared protocol via `ToolFam
 
 ## Wire Contract
 
-Tool rows on the wire use `ToolRowSummary` — **no raw invocation/result payloads**. The server computes a `ToolDisplay` struct with all rendering metadata (summary, subtitle, glyph, output preview, diff preview, display tier, tool type). The client renders from `ToolDisplay` directly with zero tool-specific branching for compact cards.
+Tool rows on the wire use `ToolRowSummary` — **no raw invocation/result payloads**. The server computes a `ToolDisplay` struct with all rendering metadata (summary, subtitle, glyph, output preview, diff preview, display tier, tool type). Shell tools may also include a bounded `shell_execution` preview payload for provider-agnostic terminal rendering.
 
-Expanded view content is fetched on demand via REST `GET /rows/{id}/content` → `ServerRowContent { inputDisplay, outputDisplay, diffDisplay: [DiffLine]?, language, startLine: u32? }`.
+Expanded view content is fetched on demand via REST `GET /rows/{id}/content` → `ServerRowContent { inputDisplay, outputDisplay, images: [ImageInput], diffDisplay: [DiffLine]?, language, startLine: u32? }`.
 
-The "Invocation Payload" and "Result Payload" tables below describe the **server-internal** data shapes used to compute `ToolDisplay`. They are not sent on the wire.
+The "Invocation Payload" and "Result Payload" tables below describe the **server-internal** data shapes used to compute `ToolDisplay`. They are not sent on the wire. `ShellExecutionPayload` is the exception: timeline summaries may send preview-only shell fields, while expanded content fetches return the full output.
 
 ---
 
@@ -63,35 +63,37 @@ All tools progress through: `pending` → `running` → `completed` | `failed` |
 | Summary Font | Monospace |
 | Client View | `BashExpandedView` |
 
-**Invocation Payload** (`CommandExecutionPayload`):
+**Invocation Payload** (`ShellExecutionPayload` / shell invocation):
 | Field | Type | Description |
 |-------|------|-------------|
 | `command` | `String` | Shell command to execute |
 | `cwd` | `String?` | Working directory |
 | `input` | `String?` | Stdin input |
 
-**Result Payload** (`CommandExecutionPayload`):
+**Result Payload** (`ShellExecutionPayload`):
 | Field | Type | Description |
 |-------|------|-------------|
-| `output` | `String?` | Stdout/stderr combined |
-| `exit_code` | `i32?` | Process exit code (0 = success) |
+| `live_output_preview` | `String?` | Bounded live/summary output sent on timeline rows |
+| `aggregated_output` | `String?` | Full stdout/stderr combined, persisted and used by row-content fetches |
+| `terminal_snapshot` | `ShellTerminalSnapshot?` | Full terminal transcript and prompt metadata for expanded rendering |
+| `preview` | `ShellPreview?` | Computed collapsed-card preview lines |
+| `exit_code` | `i32?` | Process exit code when the provider supplies one |
 
 **Compact Card:**
-- `terminal` icon + command as monospace subtitle (truncated to ~80 chars) + duration badge
-- Running: pulsing green dot + last live output line
-- Failed: red `EXIT N` pill inline
+- Terminal chrome with cwd/title, status affordance, and expand control.
+- Pinned `$ command` row below chrome. The command wraps instead of truncating.
+- Ghostty-backed terminal preview below the pinned command when output exists.
 
 **Inline Preview:**
-- Running: `liveOutputStrip` — green dot + last output line, monospace
-- Completed: `outputPreviewStrip` — first line of output, monospace
-- Failed: last error line in `feedbackNegative` tint
+- Collapsed previews are render-only and do not capture conversation scrolling.
+- Live PTY bytes stream unthrottled to the terminal renderer.
+- Text row previews remain bounded/throttled for lightweight timeline updates.
 
 **Expanded View:**
-- Slim `TerminalChrome` (~18pt) with CWD in center (graceful nil)
-- `$ command` with bash syntax highlighting, continuous with chrome
-- "Output" section: label + line count badge + exit code pill. ANSI-parsed content. Truncate >50 lines with "Show all N lines" disclosure.
-- Failed: red exit code pill, red-tinted output bg
-- Running: pulsing left edge, ProgressView until output arrives
+- Same pinned `$ command` row remains visible above the terminal output.
+- Ghostty-backed terminal output scrolls vertically/horizontally as needed.
+- Tool-card terminals are read-only on macOS and iOS; dedicated terminals remain interactive.
+- Expanded content fetches use full persisted shell output instead of timeline preview truncation.
 
 ---
 
@@ -664,7 +666,7 @@ Additional fields from raw invocation JSON:
 | Field | Type | Description |
 |-------|------|-------------|
 | `prompt` | `String?` | Generation prompt |
-| `image_urls` | `Vec<String>` | Generated image URLs |
+| `image_paths` | `Vec<String>` | Generated image artifact paths |
 | `revised_prompt` | `String?` | Model-revised prompt |
 
 **Expanded View:**

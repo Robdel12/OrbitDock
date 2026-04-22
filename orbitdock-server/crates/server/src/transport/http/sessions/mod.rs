@@ -86,6 +86,8 @@ pub struct RowContentResponse {
   pub input_display: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub output_display: Option<String>,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub images: Vec<orbitdock_protocol::ImageInput>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub diff_display: Option<Vec<orbitdock_protocol::conversation_contracts::DiffLine>>,
   #[serde(skip_serializing_if = "Option::is_none")]

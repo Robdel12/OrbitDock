@@ -25,7 +25,9 @@ use orbitdock_protocol::{
   TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
-const RETAINED_FINALIZED_ROW_LIMIT: usize = 200;
+// Keep actor-retained timeline state small. Heavy row bodies remain persisted
+// and are fetched on demand through row-content HTTP endpoints.
+const RETAINED_FINALIZED_ROW_LIMIT: usize = 100;
 
 fn is_local_http_row_id(row_id: &str) -> bool {
   row_id.starts_with("user-http-") || row_id.starts_with("steer-http-")
@@ -63,6 +65,11 @@ pub(super) struct SessionCoreState {
   current_turn_id: Option<String>,
   turn_count: u64,
   turn_diffs: Vec<TurnDiff>,
+  turn_input_tokens: u64,
+  turn_output_tokens: u64,
+  turn_cached_tokens: u64,
+  turn_usage_snapshot: Option<TokenUsage>,
+  turn_usage_snapshot_kind: Option<TokenUsageSnapshotKind>,
   forked_from_session_id: Option<String>,
   terminal_session_id: Option<String>,
   terminal_app: Option<String>,
@@ -118,6 +125,11 @@ impl SessionCoreState {
       current_turn_id: None,
       turn_count: 0,
       turn_diffs: Vec::new(),
+      turn_input_tokens: 0,
+      turn_output_tokens: 0,
+      turn_cached_tokens: 0,
+      turn_usage_snapshot: None,
+      turn_usage_snapshot_kind: None,
       forked_from_session_id: None,
       terminal_session_id: None,
       terminal_app: None,
@@ -299,6 +311,11 @@ impl SessionCoreState {
       current_turn_id: None,
       turn_count: turn_diffs.len() as u64,
       turn_diffs,
+      turn_input_tokens: 0,
+      turn_output_tokens: 0,
+      turn_cached_tokens: 0,
+      turn_usage_snapshot: None,
+      turn_usage_snapshot_kind: None,
       forked_from_session_id: None,
       terminal_session_id,
       terminal_app,
@@ -1266,9 +1283,11 @@ impl SessionCoreState {
       summary: self.display.summary.clone(),
       effort: self.config.effort.clone(),
       first_prompt: self.display.first_prompt.clone(),
-      turn_input_tokens: 0,
-      turn_output_tokens: 0,
-      turn_cached_tokens: 0,
+      turn_input_tokens: self.turn_input_tokens,
+      turn_output_tokens: self.turn_output_tokens,
+      turn_cached_tokens: self.turn_cached_tokens,
+      turn_usage_snapshot: self.turn_usage_snapshot.clone(),
+      turn_usage_snapshot_kind: self.turn_usage_snapshot_kind,
     }
   }
 
@@ -1289,6 +1308,11 @@ impl SessionCoreState {
     self.current_turn_id = state.current_turn_id;
     self.turn_count = state.turn_count;
     self.turn_diffs = state.turn_diffs;
+    self.turn_input_tokens = state.turn_input_tokens;
+    self.turn_output_tokens = state.turn_output_tokens;
+    self.turn_cached_tokens = state.turn_cached_tokens;
+    self.turn_usage_snapshot = state.turn_usage_snapshot;
+    self.turn_usage_snapshot_kind = state.turn_usage_snapshot_kind;
     self.environment.git_branch = state.git_branch;
     self.environment.git_sha = state.git_sha;
     self.environment.current_cwd = state.current_cwd;
@@ -1423,5 +1447,21 @@ mod tests {
 
     assert_eq!(state.work_status, WorkStatus::Waiting);
     assert!(!state.retained_state(0).steerable);
+  }
+
+  #[test]
+  fn retained_rows_are_capped_to_keep_runtime_state_light() {
+    let mut state = SessionCoreState::new(
+      "session-1".to_string(),
+      Provider::Codex,
+      "/repo".to_string(),
+    );
+
+    for sequence in 0..(RETAINED_FINALIZED_ROW_LIMIT as u64 + 5) {
+      state.add_row(user_row(&format!("row-{sequence}"), sequence), true);
+    }
+
+    assert_eq!(state.rows().len(), RETAINED_FINALIZED_ROW_LIMIT);
+    assert_eq!(state.rows().first().map(|row| row.sequence), Some(5));
   }
 }

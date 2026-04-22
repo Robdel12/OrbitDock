@@ -20,14 +20,14 @@ enum CodexApprovalsReviewer: String, CaseIterable, Identifiable {
   var displayName: String {
     switch self {
       case .user: "You Review"
-      case .guardianSubagent: "Guardian Review"
+      case .guardianSubagent: "Auto-review"
     }
   }
 
   var compactStatusName: String {
     switch self {
       case .user: "You"
-      case .guardianSubagent: "Guardian"
+      case .guardianSubagent: "Auto-review"
     }
   }
 
@@ -50,7 +50,7 @@ enum CodexApprovalsReviewer: String, CaseIterable, Identifiable {
       case .user:
         "Approval requests come straight to you when Codex needs a review decision."
       case .guardianSubagent:
-        "Codex routes approval requests through the Guardian reviewer subagent first, so it can gather context and apply a risk-based decision before involving you."
+        "Codex can review approval requests first, gathering context and applying a risk-based decision before involving you."
     }
   }
 

@@ -1743,6 +1743,9 @@ pub struct ImageInput {
   pub pixel_width: Option<u32>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub pixel_height: Option<u32>,
+  /// Optional model image-detail hint: "auto", "low", "high", or "original".
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub detail: Option<String>,
 }
 
 /// File/resource mention attached to a message
@@ -2124,6 +2127,17 @@ pub struct CodexRateLimitWindow {
   pub resets_at_unix: f64,
 }
 
+/// Codex-specific reason the account is currently blocked by usage limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexRateLimitReachedType {
+  RateLimitReached,
+  WorkspaceOwnerCreditsDepleted,
+  WorkspaceMemberCreditsDepleted,
+  WorkspaceOwnerUsageLimitReached,
+  WorkspaceMemberUsageLimitReached,
+}
+
 /// Endpoint-scoped Codex usage snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexUsageSnapshot {
@@ -2131,6 +2145,8 @@ pub struct CodexUsageSnapshot {
   pub primary: Option<CodexRateLimitWindow>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub secondary: Option<CodexRateLimitWindow>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub rate_limit_reached_type: Option<CodexRateLimitReachedType>,
   pub fetched_at_unix: f64,
 }
 

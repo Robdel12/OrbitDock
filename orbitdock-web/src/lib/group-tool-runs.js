@@ -42,7 +42,7 @@ const groupToolRuns = (rows) => {
 
 /**
  * Build a human-readable summary of grouped activity names.
- * E.g. "Read file, Search files, Run command + 2 more"
+ * E.g. "Read, Search, Bash + 2 more"
  */
 const buildToolSummary = (buffer) => {
   const names = []
@@ -68,35 +68,14 @@ const buildToolSummary = (buffer) => {
 
 const isGroupableActivity = (entry) => {
   const rowType = entry.row?.row_type
-  return rowType === 'tool' || rowType === 'command_execution'
+  return rowType === 'tool'
 }
 
 const activitySummary = (entry) => {
   const row = entry.row
   if (!row) return null
 
-  if (row.row_type === 'tool') {
-    return row.tool_display?.summary || row.title || null
-  }
-
-  if (row.row_type !== 'command_execution') {
-    return null
-  }
-
-  const actions = row.command_actions || []
-  if (actions.length === 0) return 'Run command'
-
-  if (actions.every((action) => action.type === 'read')) {
-    return actions.length === 1 ? 'Read file' : `Read ${actions.length} files`
-  }
-  if (actions.every((action) => action.type === 'search')) {
-    return actions.length === 1 ? 'Search files' : 'Search across files'
-  }
-  if (actions.every((action) => action.type === 'list_files')) {
-    return 'List files'
-  }
-
-  return 'Run command'
+  return row.row_type === 'tool' ? row.tool_display?.summary || row.title || null : null
 }
 
 export { buildToolSummary, groupToolRuns }

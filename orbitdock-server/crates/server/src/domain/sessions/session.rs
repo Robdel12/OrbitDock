@@ -951,9 +951,10 @@ mod tests {
   use crate::support::session_time::parse_unix_z;
   use orbitdock_protocol::conversation_contracts::ConversationRow;
   use orbitdock_protocol::conversation_contracts::{
-    rows::MessageDeliveryStatus, CommandExecutionRow, CommandExecutionStatus,
-    CommandExecutionTerminalSnapshot, MessageRowContent,
+    rows::MessageDeliveryStatus, MessageRowContent, ShellExecutionPayload, ShellTerminalSnapshot,
+    ToolRow,
   };
+  use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
   use std::sync::atomic::AtomicU64;
   use std::sync::Arc;
 
@@ -984,7 +985,7 @@ mod tests {
     }
   }
 
-  fn command_entry_with_large_payload(
+  fn shell_tool_entry_with_large_payload(
     session_id: &str,
     row_id: &str,
     aggregated_output: String,
@@ -994,27 +995,45 @@ mod tests {
       sequence: 0,
       turn_id: None,
       turn_status: Default::default(),
-      row: ConversationRow::CommandExecution(CommandExecutionRow {
+      row: ConversationRow::Tool(ToolRow {
         id: row_id.to_string(),
-        status: CommandExecutionStatus::Completed,
-        command: "cat big.log".to_string(),
-        cwd: "/tmp".to_string(),
-        process_id: None,
-        command_actions: vec![],
-        live_output_preview: None,
-        aggregated_output: Some(aggregated_output),
-        terminal_snapshot: Some(CommandExecutionTerminalSnapshot {
-          command: "cat big.log".to_string(),
-          cwd: "/tmp".to_string(),
-          output: Some("payload".to_string()),
-          transcript: "payload".to_string(),
-          title: "/tmp".to_string(),
-        }),
+        provider: Provider::Codex,
+        family: ToolFamily::Shell,
+        kind: ToolKind::Bash,
+        status: ToolStatus::Completed,
+        title: "cat big.log".to_string(),
+        subtitle: Some("/tmp".to_string()),
+        summary: None,
         preview: None,
-        exit_code: Some(0),
+        started_at: None,
+        ended_at: None,
         duration_ms: Some(1),
+        grouping_key: None,
+        invocation: serde_json::json!({
+          "command": "cat big.log",
+          "cwd": "/tmp",
+        }),
+        result: None,
         render_hints:
           orbitdock_protocol::conversation_contracts::render_hints::RenderHints::default(),
+        tool_display: None,
+        shell_execution: Some(ShellExecutionPayload {
+          command: "cat big.log".to_string(),
+          cwd: "/tmp".to_string(),
+          process_id: None,
+          actions: vec![],
+          live_output_preview: None,
+          aggregated_output: Some(aggregated_output),
+          terminal_snapshot: Some(ShellTerminalSnapshot {
+            command: "cat big.log".to_string(),
+            cwd: "/tmp".to_string(),
+            output: Some("payload".to_string()),
+            transcript: "payload".to_string(),
+            title: "/tmp".to_string(),
+          }),
+          preview: None,
+          exit_code: Some(0),
+        }),
       }),
     }
   }
@@ -1113,7 +1132,7 @@ mod tests {
   #[test]
   fn conversation_event_log_omits_heavy_command_payloads() {
     let mut session = session_handle(Provider::Codex);
-    let row = command_entry_with_large_payload("session-1", "cmd-1", "x".repeat(25_000));
+    let row = shell_tool_entry_with_large_payload("session-1", "cmd-1", "x".repeat(25_000));
     let summary = row.to_summary();
 
     session.broadcast(ServerMessage::ConversationRowsChanged {
@@ -1125,6 +1144,7 @@ mod tests {
 
     let replay = session.replay_since(0).expect("replay");
     let payload = replay.first().expect("event payload");
+    // JSON uses snake_case: live_output_preview, aggregated_output, terminal_snapshot
     assert!(!payload.contains("\"aggregated_output\""));
     assert!(!payload.contains("\"terminal_snapshot\""));
     assert!(payload.contains("\"live_output_preview\""));

@@ -78,10 +78,15 @@ pub(crate) async fn handle_turn_aborted(
 pub(crate) async fn handle_session_configured(
   event: SessionConfiguredEvent,
   env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
+  current_cwd: &Arc<tokio::sync::Mutex<String>>,
   current_model: &Arc<tokio::sync::Mutex<Option<String>>>,
   current_reasoning_effort: &Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
 ) -> ConnectorOutputs {
   let cwd_str = event.cwd.to_string_lossy().to_string();
+  {
+    let mut cwd = current_cwd.lock().await;
+    *cwd = cwd_str.clone();
+  }
   {
     let mut model = current_model.lock().await;
     *model = Some(event.model.clone());

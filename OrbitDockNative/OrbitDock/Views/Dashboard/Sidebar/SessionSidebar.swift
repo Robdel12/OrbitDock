@@ -43,19 +43,24 @@ struct SessionSidebar: View {
   }
 
   var body: some View {
-    let snapshot = viewModel.snapshot
-    let projectGroups = snapshot?.visibleProjectGroups ?? []
+    let presentation = viewModel.presentation
+    let projectGroups = presentation?.sidebarGroups ?? []
+    let pinnedConversations = presentation?.pinnedConversations ?? []
 
     VStack(spacing: 0) {
       sidebarHeader
 
       ScrollView {
         LazyVStack(alignment: .leading, spacing: Spacing.sm_) {
-          ForEach(projectGroups) { group in
-            projectSection(group, snapshot: snapshot)
+          if !pinnedConversations.isEmpty {
+            pinnedSection(pinnedConversations)
           }
 
-          if projectGroups.isEmpty && !viewModel.isLoading {
+          ForEach(projectGroups) { group in
+            projectSection(group)
+          }
+
+          if projectGroups.isEmpty && pinnedConversations.isEmpty && !viewModel.isLoading {
             noSessionsPlaceholder
               .padding(.top, Spacing.xl)
           }
@@ -153,21 +158,48 @@ struct SessionSidebar: View {
     .buttonStyle(.plain)
   }
 
+  // MARK: - Pinned Section
+
+  @ViewBuilder
+  private func pinnedSection(_ conversations: [DashboardConversationRecord]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      SectorHeader(
+        title: "Pinned",
+        color: .accent,
+        count: conversations.count,
+        isCollapsed: nil
+      ) {}
+      .padding(.horizontal, Spacing.xs)
+
+      ForEach(conversations) { session in
+        let isSelected = router.workspaceSelection == .session(session.sessionRef)
+
+        Button {
+          withAnimation(Motion.hover) {
+            router.selectSession(session.sessionRef, source: .dashboardSidebar)
+          }
+        } label: {
+          SidebarSessionRow(session: session, isSelected: isSelected)
+            .frame(minHeight: layoutMode.isPhoneCompact ? 44 : 0)
+        }
+        .buttonStyle(.plain)
+      }
+    }
+  }
+
   // MARK: - Project Section
 
   @ViewBuilder
-  private func projectSection(
-    _ group: DashboardProjectGroup,
-    snapshot: DashboardSnapshot?
-  ) -> some View {
+  private func projectSection(_ group: ConversationProjectGroup) -> some View {
     let isExpanded = !collapsedProjects.contains(group.id)
     let hasAttention = group.attentionCount > 0
+    let totalCount = group.attentionCount + group.workingCount + group.readyCount
 
     VStack(alignment: .leading, spacing: 0) {
       SectorHeader(
         title: group.name,
         color: group.signalColor,
-        count: group.totalCount,
+        count: totalCount,
         isCollapsed: hasAttention ? nil : !isExpanded
       ) {
         guard !hasAttention else { return }
@@ -182,20 +214,18 @@ struct SessionSidebar: View {
       .padding(.horizontal, Spacing.xs)
 
       if isExpanded || hasAttention {
-        ForEach(snapshot?.sessionRefs(for: group) ?? [], id: \.self) { sessionRef in
-          if let session = snapshot?.conversationsBySessionRef[sessionRef] {
-            let isSelected = router.workspaceSelection == .session(session.sessionRef)
+        ForEach(group.sortedConversations) { session in
+          let isSelected = router.workspaceSelection == .session(session.sessionRef)
 
-            Button {
-              withAnimation(Motion.hover) {
-                router.selectSession(session.sessionRef, source: .dashboardSidebar)
-              }
-            } label: {
-              SidebarSessionRow(session: session, isSelected: isSelected)
-                .frame(minHeight: layoutMode.isPhoneCompact ? 44 : 0)
+          Button {
+            withAnimation(Motion.hover) {
+              router.selectSession(session.sessionRef, source: .dashboardSidebar)
             }
-            .buttonStyle(.plain)
+          } label: {
+            SidebarSessionRow(session: session, isSelected: isSelected)
+              .frame(minHeight: layoutMode.isPhoneCompact ? 44 : 0)
           }
+          .buttonStyle(.plain)
         }
       }
     }

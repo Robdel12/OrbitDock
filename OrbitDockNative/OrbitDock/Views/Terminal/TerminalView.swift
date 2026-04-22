@@ -9,35 +9,21 @@ import SwiftUI
     let session: TerminalSessionController
     var shouldAutoFocusOnFirstAttachment: Bool = true
     var captureScrollWithoutFocus: Bool = true
+    var cursorBlinkEnabled: Bool = true
+    var allowsInput: Bool = true
 
     func makeNSView(context: Context) -> TerminalNSView {
       let view = TerminalNSView()
-      view.sessionController = session
-      view.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
-      view.captureScrollWithoutFocus = captureScrollWithoutFocus
-      view.onResize = { [weak session] cols, rows in
-        guard let session else { return }
-        session.handleResize(
-          cols: cols,
-          rows: rows,
-          cellWidth: UInt32(view.cellWidth),
-          cellHeight: UInt32(view.cellHeight)
-        )
-      }
+      configure(view)
+      installResizeHandler(on: view)
       context.coordinator.terminalView = view
-
-      // Wire up: when PTY data arrives → trigger NSView redraw
-      session.onOutputReceived = { [weak view] in
-        view?.terminalDidUpdate()
-      }
+      installOutputHandler(on: view)
 
       return view
     }
 
     func updateNSView(_ nsView: TerminalNSView, context: Context) {
-      nsView.sessionController = session
-      nsView.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
-      nsView.captureScrollWithoutFocus = captureScrollWithoutFocus
+      configure(nsView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -47,18 +33,16 @@ import SwiftUI
     final class Coordinator {
       weak var terminalView: TerminalNSView?
     }
-  }
-#else
-  struct TerminalView: UIViewRepresentable {
-    let session: TerminalSessionController
-    var shouldAutoFocusOnFirstAttachment: Bool = true
-    var captureScrollWithoutFocus: Bool = true
 
-    func makeUIView(context: Context) -> TerminalUIView {
-      let view = TerminalUIView()
+    private func configure(_ view: TerminalNSView) {
       view.sessionController = session
       view.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
       view.captureScrollWithoutFocus = captureScrollWithoutFocus
+      view.cursorBlinkEnabled = cursorBlinkEnabled
+      view.allowsInput = allowsInput
+    }
+
+    private func installResizeHandler(on view: TerminalNSView) {
       view.onResize = { [weak session] cols, rows in
         guard let session else { return }
         session.handleResize(
@@ -68,19 +52,33 @@ import SwiftUI
           cellHeight: UInt32(view.cellHeight)
         )
       }
+    }
 
+    private func installOutputHandler(on view: TerminalNSView) {
       session.onOutputReceived = { [weak view] in
         view?.terminalDidUpdate()
       }
+    }
+  }
+#else
+  struct TerminalView: UIViewRepresentable {
+    let session: TerminalSessionController
+    var shouldAutoFocusOnFirstAttachment: Bool = true
+    var captureScrollWithoutFocus: Bool = true
+    var cursorBlinkEnabled: Bool = true
+    var allowsInput: Bool = true
 
+    func makeUIView(context: Context) -> TerminalUIView {
+      let view = TerminalUIView()
+      configure(view)
+      installResizeHandler(on: view)
       context.coordinator.terminalView = view
+      installOutputHandler(on: view)
       return view
     }
 
     func updateUIView(_ uiView: TerminalUIView, context: Context) {
-      uiView.sessionController = session
-      uiView.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
-      uiView.captureScrollWithoutFocus = captureScrollWithoutFocus
+      configure(uiView)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -89,6 +87,32 @@ import SwiftUI
 
     final class Coordinator {
       weak var terminalView: TerminalUIView?
+    }
+
+    private func configure(_ view: TerminalUIView) {
+      view.sessionController = session
+      view.shouldAutoFocusOnFirstAttachment = shouldAutoFocusOnFirstAttachment
+      view.captureScrollWithoutFocus = captureScrollWithoutFocus
+      view.cursorBlinkEnabled = cursorBlinkEnabled
+      view.allowsInput = allowsInput
+    }
+
+    private func installResizeHandler(on view: TerminalUIView) {
+      view.onResize = { [weak session] cols, rows in
+        guard let session else { return }
+        session.handleResize(
+          cols: cols,
+          rows: rows,
+          cellWidth: UInt32(view.cellWidth),
+          cellHeight: UInt32(view.cellHeight)
+        )
+      }
+    }
+
+    private func installOutputHandler(on view: TerminalUIView) {
+      session.onOutputReceived = { [weak view] in
+        view?.terminalDidUpdate()
+      }
     }
   }
 #endif

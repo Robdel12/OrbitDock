@@ -14,6 +14,7 @@ use super::timeline::{
 };
 use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_subagent};
 use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
+use super::CodexConnector;
 use codex_core::config::Config as CoreConfig;
 use codex_models_manager::{ModelProviderInfo, WireApi};
 use codex_protocol::config_types::{ModeKind, ReasoningSummary, ServiceTier};
@@ -23,8 +24,9 @@ use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::{
   AgentStatus, CodexErrorInfo, HookCompletedEvent, HookEventName, HookExecutionMode,
   HookHandlerType, HookOutputEntry, HookOutputEntryKind, HookRunStatus, HookRunSummary, HookScope,
-  HookStartedEvent, RawResponseItemEvent, RealtimeHandoffRequested, RealtimeTranscriptEntry,
-  RequestUserInputEvent, StreamErrorEvent, WarningEvent,
+  HookSource, HookStartedEvent, RawResponseItemEvent, RealtimeHandoffRequested,
+  RealtimeTranscriptEntry, RequestUserInputEvent, StreamErrorEvent, TokenCountEvent,
+  TokenUsage as CodexTokenUsage, TokenUsageInfo, WarningEvent,
 };
 use codex_utils_absolute_path::AbsolutePathBuf;
 use orbitdock_connector_core::{
@@ -32,12 +34,37 @@ use orbitdock_connector_core::{
 };
 use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::domain_events::{AgentType, ToolKind, ToolStatus};
+use orbitdock_protocol::TokenUsageSnapshotKind;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 fn absolute_test_path(path: &str) -> AbsolutePathBuf {
   AbsolutePathBuf::from_absolute_path(path).expect("absolute test path")
+}
+
+#[test]
+fn embedded_codex_runtime_paths_use_current_orbitdock_executable() {
+  let current_exe = CodexConnector::embedded_codex_self_exe().expect("current executable");
+  let runtime_paths =
+    CodexConnector::embedded_codex_runtime_paths().expect("embedded runtime paths");
+
+  assert_eq!(
+    runtime_paths.codex_self_exe.as_path(),
+    current_exe.as_path()
+  );
+}
+
+#[tokio::test]
+async fn embedded_environment_exposes_runtime_paths_for_sandboxed_filesystem() {
+  let manager = CodexConnector::embedded_environment_manager().expect("environment manager");
+  let environment = manager
+    .current()
+    .await
+    .expect("current environment")
+    .expect("local environment");
+
+  assert!(environment.local_runtime_paths().is_some());
 }
 
 fn created_row(
@@ -58,6 +85,60 @@ fn updated_row(
   match output.as_state_event() {
     Some(ConnectorStateEvent::ConversationRowUpdated { row_id, entry }) => (row_id, &entry.row),
     _ => panic!("expected row update event, got {output:?}"),
+  }
+}
+
+#[test]
+fn token_count_maps_last_usage_for_live_display_and_total_usage_for_accounting() {
+  let outputs = runtime_signals::handle_token_count(TokenCountEvent {
+    info: Some(TokenUsageInfo {
+      total_token_usage: CodexTokenUsage {
+        input_tokens: 1_000,
+        cached_input_tokens: 300,
+        output_tokens: 200,
+        total_tokens: 1_500,
+        ..CodexTokenUsage::default()
+      },
+      last_token_usage: CodexTokenUsage {
+        input_tokens: 42,
+        cached_input_tokens: 7,
+        output_tokens: 3,
+        total_tokens: 52,
+        ..CodexTokenUsage::default()
+      },
+      model_context_window: Some(128_000),
+    }),
+    rate_limits: None,
+  });
+
+  assert_eq!(outputs.len(), 2);
+
+  match outputs[0].as_state_event() {
+    Some(ConnectorStateEvent::TokensUpdated {
+      usage,
+      snapshot_kind,
+    }) => {
+      assert_eq!(*snapshot_kind, TokenUsageSnapshotKind::ContextTurn);
+      assert_eq!(usage.input_tokens, 42);
+      assert_eq!(usage.output_tokens, 3);
+      assert_eq!(usage.cached_tokens, 7);
+      assert_eq!(usage.context_window, 128_000);
+    }
+    other => panic!("expected live token update, got {other:?}"),
+  }
+
+  match outputs[1].as_state_event() {
+    Some(ConnectorStateEvent::TurnUsageUpdated {
+      usage,
+      snapshot_kind,
+    }) => {
+      assert_eq!(*snapshot_kind, TokenUsageSnapshotKind::LifetimeTotals);
+      assert_eq!(usage.input_tokens, 1_000);
+      assert_eq!(usage.output_tokens, 200);
+      assert_eq!(usage.cached_tokens, 300);
+      assert_eq!(usage.context_window, 128_000);
+    }
+    other => panic!("expected accounting token update, got {other:?}"),
   }
 }
 
@@ -627,8 +708,12 @@ fn openai_provider_does_not_force_enable_apply_patch_feature() {
 }
 
 fn config_with_provider(provider_id: &str, provider: ModelProviderInfo) -> CoreConfig {
-  let mut config =
-    CoreConfig::load_default_with_cli_overrides(Vec::new()).expect("default config should load");
+  let mut config = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .expect("tokio runtime should build")
+    .block_on(CoreConfig::load_default_with_cli_overrides(Vec::new()))
+    .expect("default config should load");
   config.model_provider_id = provider_id.to_string();
   config.model_provider = provider.clone();
   config
@@ -665,6 +750,37 @@ fn runtime_warning_preserves_other_warnings() {
   );
 
   assert_eq!(events.len(), 1);
+  let ConversationRow::Notice(notice) = created_row(&events[0]) else {
+    panic!("expected warning notice row");
+  };
+  assert_eq!(notice.title, "Codex warning");
+  assert_eq!(notice.summary.as_deref(), Some("Something else happened"));
+  assert_eq!(notice.body.as_deref(), Some("Something else happened"));
+}
+
+#[test]
+fn runtime_warning_maps_trimmed_skills_warning_to_notice() {
+  let msg_counter = AtomicU64::new(0);
+  let events = super::event_mapping::runtime_signals::handle_warning(
+    "event-1",
+    WarningEvent {
+      message: "Some enabled skills were not included in the model-visible skills list for this session. Mention a skill by name or path if you need it.".to_string(),
+    },
+    &msg_counter,
+  );
+
+  assert_eq!(events.len(), 1);
+  let ConversationRow::Notice(notice) = created_row(&events[0]) else {
+    panic!("expected skills warning notice row");
+  };
+  assert_eq!(
+    notice.title,
+    "Some skills are outside the model-visible list"
+  );
+  assert_eq!(
+    notice.summary.as_deref(),
+    Some("Mention a skill by name or path if Codex needs it.")
+  );
 }
 
 #[test]
@@ -729,6 +845,7 @@ fn hook_helpers_emit_readable_timeline_text() {
     execution_mode: HookExecutionMode::Sync,
     scope: HookScope::Turn,
     source_path: absolute_test_path("/tmp/stop-hook.sh"),
+    source: HookSource::Unknown,
     display_order: 0,
     status: HookRunStatus::Completed,
     status_message: Some("Cleared temporary state".to_string()),
@@ -885,6 +1002,7 @@ fn hook_helpers_render_user_prompt_submit_label() {
     execution_mode: HookExecutionMode::Sync,
     scope: HookScope::Turn,
     source_path: absolute_test_path("/tmp/prompt-submit-hook.sh"),
+    source: HookSource::Unknown,
     display_order: 0,
     status: HookRunStatus::Completed,
     status_message: None,
@@ -915,6 +1033,7 @@ fn suppresses_non_error_hook_started_rows() {
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Turn,
       source_path: absolute_test_path("/tmp/hooks.json"),
+      source: HookSource::Project,
       display_order: 0,
       status: HookRunStatus::Running,
       status_message: None,
@@ -939,6 +1058,7 @@ fn suppresses_non_error_hook_completed_rows() {
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Thread,
       source_path: absolute_test_path("/tmp/hooks.json"),
+      source: HookSource::Project,
       display_order: 0,
       status: HookRunStatus::Completed,
       status_message: None,
@@ -963,6 +1083,7 @@ fn surfaces_failed_hook_completed_rows() {
       execution_mode: HookExecutionMode::Sync,
       scope: HookScope::Thread,
       source_path: absolute_test_path("/tmp/hooks.json"),
+      source: HookSource::Project,
       display_order: 0,
       status: HookRunStatus::Failed,
       status_message: Some("Broken config".to_string()),
@@ -979,6 +1100,7 @@ fn surfaces_failed_hook_completed_rows() {
   };
   assert_eq!(hook.id, "hook-hook-error-complete");
   assert!(hook.title.contains("failed via hooks.json"));
+  assert_eq!(hook.payload.source.as_deref(), Some("project"));
 }
 
 #[test]
@@ -1072,6 +1194,7 @@ fn hook_helpers_flag_failed_runs_as_errors() {
     execution_mode: HookExecutionMode::Async,
     scope: HookScope::Thread,
     source_path: absolute_test_path("/tmp/session-start.prompt"),
+    source: HookSource::Unknown,
     display_order: 1,
     status: HookRunStatus::Failed,
     status_message: None,
@@ -1365,7 +1488,7 @@ fn handle_guardian_assessment_creates_guardian_tool_row_while_running() {
     orbitdock_protocol::domain_events::ToolStatus::Running
   );
   assert_eq!(tool.grouping_key.as_deref(), Some("turn-1"));
-  assert_eq!(tool.title, "Guardian review");
+  assert_eq!(tool.title, "Auto-review");
   assert_eq!(tool.subtitle.as_deref(), Some("high risk"));
   assert_eq!(tool.summary.as_deref(), Some("Deletes a broad path"));
 }
@@ -1406,7 +1529,7 @@ fn handle_guardian_assessment_updates_guardian_tool_row_when_terminal() {
     orbitdock_protocol::domain_events::ToolStatus::Failed
   );
   assert_eq!(tool.grouping_key.as_deref(), Some("turn-1"));
-  assert_eq!(tool.title, "Guardian review");
+  assert_eq!(tool.title, "Auto-review");
   assert_eq!(tool.subtitle.as_deref(), Some("high risk"));
   assert_eq!(tool.summary.as_deref(), Some("Deletes a broad path"));
 }

@@ -101,6 +101,7 @@ pub fn store_uploaded_attachment(
       .map(ToOwned::to_owned),
     pixel_width,
     pixel_height,
+    detail: None,
   })
 }
 
@@ -182,6 +183,7 @@ fn resolve_image_for_connector(session_id: &str, image: &ImageInput) -> ImageInp
           display_name: image.display_name.clone(),
           pixel_width: image.pixel_width,
           pixel_height: image.pixel_height,
+          detail: image.detail.clone(),
         }
       }
       Err(error) => {
@@ -214,6 +216,7 @@ fn managed_attachment_ref_from_path(session_id: &str, image: &ImageInput) -> Opt
     display_name: image.display_name.clone(),
     pixel_width: image.pixel_width,
     pixel_height: image.pixel_height,
+    detail: image.detail.clone(),
   })
 }
 
@@ -233,6 +236,7 @@ fn enrich_attachment_metadata(session_id: &str, image: &ImageInput) -> ImageInpu
     display_name: image.display_name.clone(),
     pixel_width: image.pixel_width,
     pixel_height: image.pixel_height,
+    detail: image.detail.clone(),
   }
 }
 

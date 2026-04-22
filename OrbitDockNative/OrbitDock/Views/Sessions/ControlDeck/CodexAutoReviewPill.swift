@@ -119,7 +119,7 @@ struct CodexAutoReviewPill: View {
         }
         .padding(Spacing.lg)
       }
-      .platformSheetNavigationTitle("Auto Review")
+      .platformSheetNavigationTitle("Auto-review")
         .ifMacOS { $0.frame(width: 340) }
         .background(Color.backgroundSecondary)
     }

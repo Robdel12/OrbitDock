@@ -14,6 +14,12 @@ struct BashExpandedView: View {
   var liveOutputPreview: String?
   /// Whether the tool is currently running (enables streaming mode).
   var isRunning: Bool = false
+  /// Normalized command from the provider-agnostic shell execution payload.
+  var commandOverride: String?
+  /// Working directory from the provider-agnostic shell execution payload.
+  var cwd: String?
+  /// Terminal title from the provider-agnostic shell execution payload.
+  var terminalTitle: String?
   /// Live PTY session for streaming raw terminal output.
   /// When provided, uses TerminalContainerView instead of transcript rendering.
   var toolPtySession: TerminalSessionController?
@@ -25,52 +31,28 @@ struct BashExpandedView: View {
   }
 
   private var commandText: String? {
-    guard let input = trimmedOrNil(content.inputDisplay) else {
-      return nil
-    }
-    return input.hasPrefix("$ ") ? String(input.dropFirst(2)) : input
+    normalizedCommand(commandOverride) ?? normalizedCommand(content.inputDisplay)
   }
 
-  /// Output using context-aware fallback:
-  /// - Running: prefer streaming `liveOutputPreview` (real-time updates)
-  /// - Complete: prefer `content.outputDisplay` (full untruncated output from REST)
   private var outputText: String? {
-    if isRunning {
-      // While running, streaming data is fresher
-      if let live = trimmedOrNil(liveOutputPreview) {
-        return live
-      }
-      return trimmedOrNil(content.outputDisplay)
-    } else {
-      // Once complete, REST fetch has full untruncated output
-      if let fetched = trimmedOrNil(content.outputDisplay) {
-        return fetched
-      }
-      return trimmedOrNil(liveOutputPreview)
-    }
+    isRunning
+      ? nonBlankOrNil(liveOutputPreview) ?? nonBlankOrNil(content.outputDisplay)
+      : nonBlankOrNil(content.outputDisplay) ?? nonBlankOrNil(liveOutputPreview)
   }
 
   private var transcript: String? {
     ShellTranscriptBuilder.makeSnapshot(
       command: commandText,
       output: outputText,
-      cwd: nil
+      cwd: cwd
     )
   }
 
   var body: some View {
     Group {
       if let session = toolPtySession {
-        // Live PTY mode: stream raw bytes to Ghostty
-        TerminalContainerView(
-          session: session,
-          shouldAutoFocusOnFirstAttachment: false,
-          captureScrollWithoutFocus: false,
-          titleOverride: title
-        )
-        .frame(maxHeight: outputViewportMaxHeight)
+        liveTerminalView(session: session)
       } else if let transcript {
-        // Transcript mode: render from text output
         TerminalTranscriptSurface(
           output: transcript,
           maxHeight: outputViewportMaxHeight
@@ -81,8 +63,24 @@ struct BashExpandedView: View {
     }
   }
 
+  @ViewBuilder
+  private func liveTerminalView(session: TerminalSessionController) -> some View {
+    TerminalContainerView(
+      session: session,
+      shouldAutoFocusOnFirstAttachment: false,
+      captureScrollWithoutFocus: true,
+      allowsInput: false,
+      titleOverride: title,
+      showsTitleBar: false
+    )
+    .frame(maxHeight: outputViewportMaxHeight)
+  }
+
   private var title: String {
-    commandText.map { "$ \($0)" } ?? "Terminal"
+    trimmedOrNil(terminalTitle)
+      ?? trimmedOrNil(cwd).map { ToolCardStyle.shortenPath($0) }
+      ?? commandText.map { "$ \($0)" }
+      ?? "Terminal"
   }
 
   private var emptyOutputState: some View {
@@ -107,5 +105,15 @@ struct BashExpandedView: View {
     guard let value else { return nil }
     let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+
+  private func normalizedCommand(_ value: String?) -> String? {
+    guard let command = trimmedOrNil(value) else { return nil }
+    return command.hasPrefix("$ ") ? String(command.dropFirst(2)) : command
+  }
+
+  private func nonBlankOrNil(_ value: String?) -> String? {
+    guard let value else { return nil }
+    return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
   }
 }

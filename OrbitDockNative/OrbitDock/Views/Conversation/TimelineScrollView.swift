@@ -415,8 +415,6 @@ private struct TimelineRowHost: View {
     switch entry.row {
       case let .tool(toolRow):
         toolRow.id
-      case let .commandExecution(commandExecution):
-        commandExecution.id
       case let .activityGroup(group):
         group.id
       default:
@@ -428,8 +426,6 @@ private struct TimelineRowHost: View {
     switch entry.row {
       case let .tool(toolRow):
         toolRow.id
-      case let .commandExecution(commandExecution):
-        commandExecution.id
       case let .activityGroup(group):
         group.id
       default:

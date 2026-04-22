@@ -94,8 +94,6 @@ pub struct SkillsQuery {
 pub struct PluginsQuery {
   #[serde(default)]
   pub cwd: Vec<String>,
-  #[serde(default)]
-  pub force_remote_sync: Option<bool>,
 }
 
 #[cfg(test)]

@@ -40,6 +40,20 @@
     var shouldAutoFocusOnFirstAttachment = false
     /// When false, pan scroll only applies while the terminal is focused.
     var captureScrollWithoutFocus = true
+    /// Read-only terminal surfaces render, scroll, and zoom, but never open the keyboard or send input.
+    var allowsInput = true {
+      didSet {
+        selectionLongPressGesture?.isEnabled = allowsInput
+        if !allowsInput, isFirstResponder {
+          resignFirstResponder()
+        }
+      }
+    }
+    var cursorBlinkEnabled = true {
+      didSet {
+        updateCursorBlinkTimer()
+      }
+    }
     private var hasAutoFocusedOnAttachment = false
 
     /// Modifier state toggled by the accessory bar (Ctrl, Alt).
@@ -53,6 +67,7 @@
     private var selectionStart: (col: Int, row: Int)?
     private var selectionEnd: (col: Int, row: Int)?
     private var isSelecting = false
+    private var selectionLongPressGesture: UILongPressGestureRecognizer?
 
     /// Cached haptic generators to avoid per-use allocation.
     private let selectionFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -88,7 +103,7 @@
       setupScrollGesture()
       setupZoomGestures()
       setupSelectionGesture()
-      startCursorBlink()
+      updateCursorBlinkTimer()
     }
 
     @available(*, unavailable)
@@ -103,11 +118,12 @@
     // MARK: - First Responder & Keyboard
 
     override var canBecomeFirstResponder: Bool {
-      true
+      allowsInput
     }
 
     @discardableResult
     func requestFocus() -> Bool {
+      guard allowsInput else { return false }
       guard window != nil else { return false }
       return becomeFirstResponder()
     }
@@ -123,7 +139,7 @@
     }
 
     override var inputAccessoryView: UIView? {
-      _accessoryBar
+      allowsInput ? _accessoryBar : nil
     }
 
     override func didMoveToWindow() {
@@ -142,6 +158,7 @@
     }
 
     func insertText(_ text: String) {
+      guard allowsInput else { return }
       guard sessionController != nil else { return }
       if selectionStart != nil { clearSelection() }
 
@@ -153,6 +170,7 @@
     }
 
     func deleteBackward() {
+      guard allowsInput else { return }
       guard sessionController != nil else { return }
       encodeAndSend(key: GHOSTTY_KEY_BACKSPACE, mods: consumePendingModifiers(), text: nil)
     }
@@ -175,6 +193,7 @@
 
     /// Send a special key event (Esc, Tab, arrows, etc.) from the accessory bar.
     func sendSpecialKey(_ key: GhosttyKey, text: String? = nil) {
+      guard allowsInput else { return }
       encodeAndSend(key: key, mods: consumePendingModifiers(), text: text)
     }
 
@@ -204,6 +223,10 @@
 
     /// On iOS, hardware keyboard input arrives via UIKeyCommand / pressesBegan.
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+      guard allowsInput else {
+        super.pressesBegan(presses, with: event)
+        return
+      }
       guard sessionController != nil else {
         super.pressesBegan(presses, with: event)
         return
@@ -219,7 +242,9 @@
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-      _ = requestFocus()
+      if allowsInput {
+        _ = requestFocus()
+      }
       super.touchesBegan(touches, with: event)
     }
 
@@ -368,13 +393,16 @@
     private func setupSelectionGesture() {
       let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPressSelection(_:)))
       longPress.minimumPressDuration = 0.3
+      longPress.isEnabled = allowsInput
       if let scrollPanGesture {
         scrollPanGesture.require(toFail: longPress)
       }
       addGestureRecognizer(longPress)
+      selectionLongPressGesture = longPress
     }
 
     @objc private func handleLongPressSelection(_ gesture: UILongPressGestureRecognizer) {
+      guard allowsInput else { return }
       let point = gesture.location(in: self)
       let cell = cellAt(point: point)
 
@@ -469,6 +497,7 @@
     }
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+      guard allowsInput else { return false }
       if action == #selector(copy(_:)) {
         return selectionStart != nil
       }
@@ -512,10 +541,25 @@
     // MARK: - Cursor Blink
 
     private func startCursorBlink() {
+      guard cursorBlinkTimer == nil else { return }
       cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
         guard let self else { return }
         self.cursorVisible.toggle()
         self.setNeedsDisplay()
+      }
+    }
+
+    private func stopCursorBlink() {
+      cursorBlinkTimer?.invalidate()
+      cursorBlinkTimer = nil
+      cursorVisible = true
+    }
+
+    private func updateCursorBlinkTimer() {
+      if cursorBlinkEnabled {
+        startCursorBlink()
+      } else {
+        stopCursorBlink()
       }
     }
 

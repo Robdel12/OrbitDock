@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::SystemTime;
 
-use codex_protocol::models::{ContentItem, ResponseItem};
+use crate::timeline::is_thread_start_skills_trimmed_warning;
+use codex_protocol::models::{ContentItem, ImageDetail, ResponseItem};
 use codex_protocol::protocol::{
   EventMsg, RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
 };
@@ -267,6 +268,7 @@ impl RolloutFileProcessor {
       RolloutItem::TurnContext(ctx) => self.parse_turn_context(ctx, path),
       RolloutItem::EventMsg(event) => self.parse_event_msg(event, path),
       RolloutItem::ResponseItem(item) => self.parse_response_item(item, path),
+      RolloutItem::SessionState(_) => vec![],
       RolloutItem::Compacted(_) => vec![],
     }
   }
@@ -508,7 +510,7 @@ impl RolloutFileProcessor {
           },
         ]
       }
-      EventMsg::PatchApplyBegin(_) => {
+      EventMsg::PatchApplyBegin(_) | EventMsg::PatchApplyUpdated(_) => {
         if self.saw_agent_event(path) {
           return vec![];
         }
@@ -1197,6 +1199,9 @@ impl RolloutFileProcessor {
         reason: "shutdown".to_string(),
       }],
       EventMsg::Warning(e) => {
+        if is_thread_start_skills_trimmed_warning(&e.message) {
+          return vec![];
+        }
         vec![RolloutEvent::AppendChatMessage {
           session_id,
           role: "assistant".to_string(),
@@ -1423,15 +1428,26 @@ fn extract_text_from_content(content: &[ContentItem]) -> Option<String> {
 fn extract_images_from_content(content: &[ContentItem]) -> Vec<ImageInput> {
   let mut images = Vec::new();
   for item in content {
-    if let ContentItem::InputImage { image_url } = item {
+    if let ContentItem::InputImage { image_url, detail } = item {
       images.push(ImageInput {
         input_type: "url".to_string(),
         value: image_url.clone(),
+        detail: detail.map(image_detail_value),
         ..Default::default()
       });
     }
   }
   images
+}
+
+fn image_detail_value(detail: ImageDetail) -> String {
+  match detail {
+    ImageDetail::Auto => "auto",
+    ImageDetail::Low => "low",
+    ImageDetail::High => "high",
+    ImageDetail::Original => "original",
+  }
+  .to_string()
 }
 
 fn tool_label(raw: Option<&str>) -> Option<String> {
@@ -1826,5 +1842,18 @@ mod tests {
     assert_eq!(state.session_id.as_deref(), Some("session-3"));
     assert_eq!(state.project_path.as_deref(), Some("/tmp/project"));
     assert_eq!(state.model_provider.as_deref(), Some("codex"));
+  }
+
+  #[test]
+  fn extract_images_from_content_preserves_image_detail() {
+    let images = extract_images_from_content(&[ContentItem::InputImage {
+      image_url: "data:image/png;base64,aGVsbG8=".to_string(),
+      detail: Some(ImageDetail::Original),
+    }]);
+
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].input_type, "url");
+    assert_eq!(images[0].value, "data:image/png;base64,aGVsbG8=");
+    assert_eq!(images[0].detail.as_deref(), Some("original"));
   }
 }

@@ -70,7 +70,7 @@ enum QuickSwitcherActionPlanner {
         return .openInFinder(path: targetSession.projectPath)
       case .copyResumeCommand:
         guard let targetSession else { return nil }
-        return .copyResumeCommand("claude --resume \(targetSession.sessionId)")
+        return .copyResumeCommand(targetSession.provider.resumeCommand(sessionId: targetSession.sessionId))
       case .closeSession:
         guard let targetSession else { return nil }
         return .closeSession(targetSession)

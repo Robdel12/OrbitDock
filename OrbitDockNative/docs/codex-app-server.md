@@ -78,7 +78,7 @@ After you start or resume a thread, keep reading stdout for notifications.
 - `agentMessage` - `{id, text}` containing the accumulated agent reply
 - `plan` - `{id, text}` containing proposed plan text in plan mode
 - `reasoning` - `{id, summary, content}` where summary holds streamed reasoning summaries
-- `commandExecution` - `{id, command, cwd, status, commandActions, aggregatedOutput?, exitCode?, durationMs?}`
+- shell execution - `{id, command, cwd, status, actions, output?, exitCode?, durationMs?}`
 - `fileChange` - `{id, changes, status}` describing proposed edits; **changes list `{path, kind, diff}`**
 - `mcpToolCall` - `{id, server, tool, status, arguments, result?, error?}`
 - `webSearch` - `{id, query, action?}` for web search requests
@@ -94,19 +94,19 @@ All items emit two shared lifecycle events:
 - `item/agentMessage/delta` - appends streamed text for the agent message
 - `item/plan/delta` - streams proposed plan text
 - `item/reasoning/summaryTextDelta` - streams readable reasoning summaries
-- `item/commandExecution/outputDelta` - streams stdout/stderr for a command
+- shell output delta - streams stdout/stderr for a command
 - `item/fileChange/outputDelta` - contains the tool call response of the underlying apply_patch tool call
 
 ## Approvals
 
-Depending on settings, command execution and file changes may require approval.
+Depending on settings, shell execution and file changes may require approval.
 
-### Command Execution Approvals
+### Shell Execution Approvals
 
-1. `item/started` shows the pending commandExecution item
-2. `item/commandExecution/requestApproval` includes itemId, threadId, turnId, optional reason or risk
+1. `item/started` shows the pending shell execution item
+2. The shell approval request includes itemId, threadId, turnId, optional reason or risk
 3. Client response accepts or declines
-4. `item/completed` returns the final commandExecution item
+4. `item/completed` returns the final shell execution item
 
 ### File Change Approvals
 

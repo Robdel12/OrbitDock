@@ -367,17 +367,18 @@ fn glyph_for_kind(kind: ToolKind, family: ToolFamily) -> (String, String) {
     | ToolKind::SendAgentInput
     | ToolKind::ResumeAgent
     | ToolKind::WaitAgent
-    | ToolKind::CloseAgent => ("bolt.fill".into(), "toolTask".into()),
+    | ToolKind::CloseAgent
+    | ToolKind::TaskOutput
+    | ToolKind::TaskStop => ("bolt.fill".into(), "toolTask".into()),
     ToolKind::AskUserQuestion => ("questionmark.bubble".into(), "toolQuestion".into()),
     ToolKind::GuardianAssessment => ("shield.lefthalf.filled".into(), "feedbackCaution".into()),
     ToolKind::EnterPlanMode | ToolKind::ExitPlanMode | ToolKind::UpdatePlan => {
       ("map".into(), "toolPlan".into())
     }
-    ToolKind::TodoWrite | ToolKind::TaskOutput | ToolKind::TaskStop => {
-      ("checklist".into(), "toolTodo".into())
-    }
+    ToolKind::TodoWrite => ("checklist".into(), "toolTodo".into()),
     ToolKind::CompactContext => ("arrow.triangle.2.circlepath".into(), "accent".into()),
-    ToolKind::ViewImage | ToolKind::ImageGeneration => ("photo".into(), "toolRead".into()),
+    ToolKind::ViewImage => ("photo".into(), "toolRead".into()),
+    ToolKind::ImageGeneration => ("sparkles".into(), "accent".into()),
     ToolKind::HookNotification => ("bolt.badge.clock".into(), "feedbackCaution".into()),
     ToolKind::HandoffRequested => ("arrow.triangle.branch".into(), "statusReply".into()),
     _ => match family {
@@ -432,7 +433,7 @@ fn display_name_for_kind(kind: ToolKind, family: ToolFamily, title: &str) -> Str
     }
     ToolKind::SpawnAgent => "Agent".into(),
     ToolKind::AskUserQuestion => "Question".into(),
-    ToolKind::GuardianAssessment => "Guardian Review".into(),
+    ToolKind::GuardianAssessment => "Auto-review".into(),
     ToolKind::EnterPlanMode => "Plan Mode".into(),
     ToolKind::ExitPlanMode => "Exit Plan".into(),
     ToolKind::TodoWrite => "Todo".into(),
@@ -469,7 +470,9 @@ fn tool_type_string(kind: ToolKind, family: ToolFamily) -> String {
     | ToolKind::SendAgentInput
     | ToolKind::ResumeAgent
     | ToolKind::WaitAgent
-    | ToolKind::CloseAgent => "task",
+    | ToolKind::CloseAgent
+    | ToolKind::TaskOutput
+    | ToolKind::TaskStop => "task",
     ToolKind::McpToolCall => "mcp",
     ToolKind::DynamicToolCall => "dynamicTool",
     ToolKind::ReadMcpResource | ToolKind::ListMcpResources => "mcp",
@@ -584,7 +587,7 @@ fn extract_subtitle_from_input(
         .and_then(|v| v.as_str())
         .map(String::from)
     }
-    ToolKind::ViewImage => file_name_from_input(input).or_else(|| {
+    ToolKind::ViewImage | ToolKind::ImageGeneration => file_name_from_input(input).or_else(|| {
       input
         .get("image_paths")
         .and_then(|v| v.as_array())
@@ -743,6 +746,7 @@ fn compute_output_preview(kind: ToolKind, result_output: Option<&str>) -> Option
       Some(truncate(first, 120))
     }
     ToolKind::WebSearch => compute_web_search_preview(output),
+    ToolKind::ImageGeneration => Some(truncate(output, 160)),
     ToolKind::McpToolCall | ToolKind::DynamicToolCall => compute_structured_preview(output),
     ToolKind::SpawnAgent
     | ToolKind::SendAgentInput
@@ -1021,6 +1025,18 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
     ToolKind::ViewImage => input
       .get("file_path")
       .and_then(|v| v.as_str())
+      .or_else(|| {
+        input
+          .get("image_paths")
+          .and_then(|v| v.as_array())
+          .and_then(|a| a.first())
+          .and_then(|v| v.as_str())
+      })
+      .map(String::from),
+    ToolKind::ImageGeneration => input
+      .get("prompt")
+      .and_then(|v| v.as_str())
+      .or_else(|| input.get("revised_prompt").and_then(|v| v.as_str()))
       .or_else(|| {
         input
           .get("image_paths")
@@ -1694,7 +1710,7 @@ mod tests {
       kind: ToolKind::GuardianAssessment,
       family: ToolFamily::Approval,
       status,
-      title: "Guardian review",
+      title: "Auto-review",
       subtitle: None,
       summary: None,
       duration_ms: None,
@@ -1706,7 +1722,7 @@ mod tests {
   #[test]
   fn guardian_card_identity() {
     let display = guardian_card(ToolStatus::Completed, None, None);
-    assert_eq!(display.summary, "Guardian Review");
+    assert_eq!(display.summary, "Auto-review");
     assert_eq!(display.tool_type, "guardianAssessment");
     assert_eq!(display.glyph_symbol, "shield.lefthalf.filled");
     assert_eq!(display.glyph_color, "feedbackCaution");

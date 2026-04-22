@@ -171,7 +171,7 @@ pub struct GroupingKey {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ToolInvocationPayload {
-  Shell(CommandExecutionPayload),
+  Shell(ShellToolPayload),
   FileRead(FileReadPayload),
   FileChange(FileChangePayload),
   Search(SearchInvocationPayload),
@@ -194,7 +194,7 @@ pub enum ToolInvocationPayload {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ToolResultPayload {
-  Shell(CommandExecutionPayload),
+  Shell(ShellToolPayload),
   FileRead(FileReadPayload),
   FileChange(FileChangePayload),
   Search(SearchResultPayload),
@@ -248,7 +248,7 @@ pub enum ToolPreviewPayload {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CommandExecutionPayload {
+pub struct ShellToolPayload {
   pub command: String,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cwd: Option<String>,
@@ -377,6 +377,8 @@ pub struct HookPayload {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub source_path: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub summary: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub output: Option<String>,
@@ -468,7 +470,7 @@ pub struct ImageGenerationPayload {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prompt: Option<String>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub image_urls: Vec<String>,
+  pub image_paths: Vec<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub revised_prompt: Option<String>,
 }

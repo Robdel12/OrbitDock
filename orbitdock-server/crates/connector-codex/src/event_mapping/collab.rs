@@ -46,6 +46,7 @@ pub(crate) fn handle_collab_agent_spawn_begin(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -94,6 +95,7 @@ pub(crate) fn handle_collab_agent_spawn_end(event: CollabAgentSpawnEndEvent) -> 
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
 
   let mut connector_events = vec![row_updated_output(event.call_id, entry)];
@@ -138,6 +140,7 @@ pub(crate) fn handle_collab_agent_interaction_begin(
       result: None,
       render_hints: Default::default(),
       tool_display: None,
+      shell_execution: None,
     })),
     state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_running_codex_subagent(
@@ -194,6 +197,7 @@ pub(crate) fn handle_collab_agent_interaction_end(
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
 
   let mut connector_events = vec![row_updated_output(event.call_id, entry)];
@@ -269,6 +273,7 @@ pub(crate) fn handle_collab_waiting_begin(event: CollabWaitingBeginEvent) -> Con
       result: None,
       render_hints: Default::default(),
       tool_display: None,
+      shell_execution: None,
     })),
     state_output(ConnectorStateEvent::SubagentsUpdated { subagents }),
   ]
@@ -347,6 +352,7 @@ pub(crate) fn handle_collab_waiting_end(event: CollabWaitingEndEvent) -> Connect
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
 
   let mut connector_events = vec![row_updated_output(event.call_id, entry)];
@@ -381,6 +387,7 @@ pub(crate) fn handle_collab_close_begin(event: CollabCloseBeginEvent) -> Connect
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   }))]
 }
 
@@ -426,6 +433,7 @@ pub(crate) fn handle_collab_close_end(event: CollabCloseEndEvent) -> ConnectorOu
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
 
   vec![
@@ -467,6 +475,7 @@ pub(crate) fn handle_collab_resume_begin(event: CollabResumeBeginEvent) -> Conne
       result: None,
       render_hints: Default::default(),
       tool_display: None,
+      shell_execution: None,
     })),
     state_output(ConnectorStateEvent::SubagentsUpdated {
       subagents: vec![build_running_codex_subagent(
@@ -522,6 +531,7 @@ pub(crate) fn handle_collab_resume_end(event: CollabResumeEndEvent) -> Connector
     })),
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   });
 
   vec![

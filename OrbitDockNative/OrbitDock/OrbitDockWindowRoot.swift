@@ -5,6 +5,7 @@ struct OrbitDockWindowRoot: View {
   @State private var router = AppRouter()
   @State private var dashboardDataService: DashboardDataService
   @State private var libraryDataService: LibraryDataService
+  @State private var pinnedSessionsService: PinnedSessionsService
   @State private var dashboardViewModel: DashboardViewModel
   @State private var terminalRegistry = TerminalSessionRegistry()
   @State private var externalNavWindowID = UUID()
@@ -19,9 +20,14 @@ struct OrbitDockWindowRoot: View {
     self.appRuntime = appRuntime
     let dashboardDataService = DashboardDataService()
     let libraryDataService = LibraryDataService()
+    let pinnedSessionsService = PinnedSessionsService()
     _dashboardDataService = State(initialValue: dashboardDataService)
     _libraryDataService = State(initialValue: libraryDataService)
-    _dashboardViewModel = State(initialValue: DashboardViewModel(dataService: dashboardDataService))
+    _pinnedSessionsService = State(initialValue: pinnedSessionsService)
+    _dashboardViewModel = State(initialValue: DashboardViewModel(
+      dataService: dashboardDataService,
+      pinnedService: pinnedSessionsService
+    ))
   }
 
   var body: some View {
@@ -51,6 +57,7 @@ struct OrbitDockWindowRoot: View {
     .environment(appRuntime.sessionsSummaryDataService)
     .environment(dashboardDataService)
     .environment(libraryDataService)
+    .environment(pinnedSessionsService)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
     .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)

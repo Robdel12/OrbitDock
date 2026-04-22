@@ -9,7 +9,11 @@ use codex_app_server_protocol::{
   PluginUninstallResponse,
 };
 use codex_core::SteerInputError;
-use codex_login::{AuthCredentialsStoreMode, AuthManager, CodexAuth};
+use codex_core_plugins::manifest::PluginManifestInterface;
+use codex_core_plugins::marketplace::{
+  MarketplaceError, MarketplacePluginAuthPolicy, MarketplacePluginInstallPolicy,
+  MarketplacePluginSource,
+};
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::{McpServerRefreshConfig, Op, ReviewDecision};
 use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
@@ -28,8 +32,6 @@ use super::{
 };
 use crate::session::{CodexExecApproval, CodexPatchApproval};
 use orbitdock_connector_core::ConnectorError;
-
-const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 
 fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
   Some(match value {
@@ -62,15 +64,6 @@ impl CodexConnector {
     .await?;
     Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
     Ok(config)
-  }
-
-  async fn plugin_auth(&self) -> Option<CodexAuth> {
-    let auth_manager = AuthManager::new(
-      self.codex_home.clone(),
-      true,
-      ORBITDOCK_CODEX_AUTH_STORE_MODE,
-    );
-    auth_manager.auth().await
   }
 
   fn clear_plugin_related_caches(&self) {
@@ -123,12 +116,14 @@ impl CodexConnector {
       new_thread,
       self.thread_manager.clone(),
       self.codex_home.clone(),
+      effective_cwd,
     )?;
     connector
       .apply_post_start_overrides(
         CodexRuntimeOverrides::default(),
         configured_model,
         None,
+        effective_cwd,
         sandbox_mode,
         None,
       )
@@ -310,29 +305,14 @@ impl CodexConnector {
     &self,
     cwd: &str,
     cwds: Vec<String>,
-    force_remote_sync: bool,
     config_overrides: &CodexConfigOverrides,
     runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginListResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
     let session_source = self.thread_manager.session_source();
-    let mut config = self
+    let config = self
       .build_plugin_config(cwd, config_overrides, runtime_overrides)
       .await?;
-    let mut remote_sync_error = None;
-
-    if force_remote_sync {
-      let auth = self.plugin_auth().await;
-      if let Err(err) = plugins_manager
-        .sync_plugins_from_remote(&config, auth.as_ref(), false)
-        .await
-      {
-        remote_sync_error = Some(err.to_string());
-      }
-      config = self
-        .build_plugin_config(cwd, config_overrides, runtime_overrides)
-        .await?;
-    }
 
     let roots: Vec<_> = cwds
       .into_iter()
@@ -365,7 +345,7 @@ impl CodexConnector {
 
           (!plugins.is_empty()).then_some(PluginMarketplaceEntry {
             name: marketplace.name,
-            path: marketplace.path,
+            path: Some(marketplace.path),
             interface: marketplace.interface.map(|interface| MarketplaceInterface {
               display_name: interface.display_name,
             }),
@@ -373,10 +353,10 @@ impl CodexConnector {
           })
         })
         .collect();
-      Ok::<
-        (Vec<PluginMarketplaceEntry>, Vec<MarketplaceLoadErrorInfo>),
-        codex_core::plugins::MarketplaceError,
-      >((marketplaces, marketplace_load_errors))
+      Ok::<(Vec<PluginMarketplaceEntry>, Vec<MarketplaceLoadErrorInfo>), MarketplaceError>((
+        marketplaces,
+        marketplace_load_errors,
+      ))
     })
     .await
     .map_err(|e| {
@@ -387,47 +367,32 @@ impl CodexConnector {
     })?;
 
     let (marketplaces, marketplace_load_errors) = marketplaces;
-
     Ok(PluginListResponse {
       marketplaces,
       marketplace_load_errors,
-      remote_sync_error,
       featured_plugin_ids: Vec::new(),
     })
   }
 
   pub async fn install_plugin(
     &self,
-    cwd: &str,
+    _cwd: &str,
     params: PluginInstallParams,
-    config_overrides: &CodexConfigOverrides,
-    runtime_overrides: &CodexRuntimeOverrides,
+    _config_overrides: &CodexConfigOverrides,
+    _runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginInstallResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
-    let marketplace_path = params.marketplace_path.clone();
-    let config_cwd = marketplace_path
-      .as_path()
-      .parent()
-      .and_then(Path::to_str)
-      .unwrap_or(cwd)
-      .to_string();
+    let marketplace_path =
+      require_local_marketplace_path(params.marketplace_path, params.remote_marketplace_name)?;
     let request = codex_core::plugins::PluginInstallRequest {
       plugin_name: params.plugin_name,
       marketplace_path,
     };
 
-    let outcome = if params.force_remote_sync {
-      let config = self
-        .build_plugin_config(&config_cwd, config_overrides, runtime_overrides)
-        .await?;
-      let auth = self.plugin_auth().await;
-      plugins_manager
-        .install_plugin_with_remote_sync(&config, auth.as_ref(), request)
-        .await
-    } else {
-      plugins_manager.install_plugin(request).await
-    }
-    .map_err(|e| ConnectorError::ProviderError(format!("Failed to install plugin: {}", e)))?;
+    let outcome = plugins_manager
+      .install_plugin(request)
+      .await
+      .map_err(|e| ConnectorError::ProviderError(format!("Failed to install plugin: {}", e)))?;
 
     self.clear_plugin_related_caches();
 
@@ -439,25 +404,17 @@ impl CodexConnector {
 
   pub async fn uninstall_plugin(
     &self,
-    cwd: &str,
+    _cwd: &str,
     params: PluginUninstallParams,
-    config_overrides: &CodexConfigOverrides,
-    runtime_overrides: &CodexRuntimeOverrides,
+    _config_overrides: &CodexConfigOverrides,
+    _runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginUninstallResponse, ConnectorError> {
     let plugins_manager = self.thread_manager.plugins_manager();
 
-    if params.force_remote_sync {
-      let config = self
-        .build_plugin_config(cwd, config_overrides, runtime_overrides)
-        .await?;
-      let auth = self.plugin_auth().await;
-      plugins_manager
-        .uninstall_plugin_with_remote_sync(&config, auth.as_ref(), params.plugin_id)
-        .await
-    } else {
-      plugins_manager.uninstall_plugin(params.plugin_id).await
-    }
-    .map_err(|e| ConnectorError::ProviderError(format!("Failed to uninstall plugin: {}", e)))?;
+    plugins_manager
+      .uninstall_plugin(params.plugin_id)
+      .await
+      .map_err(|e| ConnectorError::ProviderError(format!("Failed to uninstall plugin: {}", e)))?;
 
     self.clear_plugin_related_caches();
 
@@ -674,8 +631,12 @@ impl CodexConnector {
       current_effort,
       developer_instructions,
     );
+    let override_cwd = {
+      let cwd = self.current_cwd.lock().await;
+      cwd.trim().to_string()
+    };
     let op = Op::OverrideTurnContext {
-      cwd: None,
+      cwd: (!override_cwd.is_empty()).then(|| PathBuf::from(override_cwd.as_str())),
       approval_policy: policy,
       sandbox_policy: sandbox,
       windows_sandbox_level: None,
@@ -761,34 +722,37 @@ fn normalize_absolute_path(cwd: &str, value: &str) -> Result<AbsolutePathBuf, Co
     .map_err(|e| ConnectorError::ProviderError(format!("Invalid plugin cwd path `{value}`: {}", e)))
 }
 
-fn map_plugin_install_policy(
-  policy: codex_core::plugins::MarketplacePluginInstallPolicy,
-) -> PluginInstallPolicy {
-  match policy {
-    codex_core::plugins::MarketplacePluginInstallPolicy::NotAvailable => {
-      PluginInstallPolicy::NotAvailable
-    }
-    codex_core::plugins::MarketplacePluginInstallPolicy::Available => {
-      PluginInstallPolicy::Available
-    }
-    codex_core::plugins::MarketplacePluginInstallPolicy::InstalledByDefault => {
-      PluginInstallPolicy::InstalledByDefault
-    }
+fn require_local_marketplace_path(
+  marketplace_path: Option<AbsolutePathBuf>,
+  remote_marketplace_name: Option<String>,
+) -> Result<AbsolutePathBuf, ConnectorError> {
+  match (marketplace_path, remote_marketplace_name) {
+    (Some(marketplace_path), None) => Ok(marketplace_path),
+    (None, Some(remote_marketplace_name)) => Err(ConnectorError::ProviderError(format!(
+      "Remote plugin install is not supported yet for marketplace {remote_marketplace_name}"
+    ))),
+    (Some(_), Some(_)) | (None, None) => Err(ConnectorError::ProviderError(
+      "Plugin install requires exactly one of marketplacePath or remoteMarketplaceName".to_string(),
+    )),
   }
 }
 
-fn map_plugin_auth_policy(
-  policy: codex_core::plugins::MarketplacePluginAuthPolicy,
-) -> PluginAuthPolicy {
+fn map_plugin_install_policy(policy: MarketplacePluginInstallPolicy) -> PluginInstallPolicy {
   match policy {
-    codex_core::plugins::MarketplacePluginAuthPolicy::OnInstall => PluginAuthPolicy::OnInstall,
-    codex_core::plugins::MarketplacePluginAuthPolicy::OnUse => PluginAuthPolicy::OnUse,
+    MarketplacePluginInstallPolicy::NotAvailable => PluginInstallPolicy::NotAvailable,
+    MarketplacePluginInstallPolicy::Available => PluginInstallPolicy::Available,
+    MarketplacePluginInstallPolicy::InstalledByDefault => PluginInstallPolicy::InstalledByDefault,
   }
 }
 
-fn map_plugin_interface(
-  interface: codex_core::plugins::PluginManifestInterface,
-) -> PluginInterface {
+fn map_plugin_auth_policy(policy: MarketplacePluginAuthPolicy) -> PluginAuthPolicy {
+  match policy {
+    MarketplacePluginAuthPolicy::OnInstall => PluginAuthPolicy::OnInstall,
+    MarketplacePluginAuthPolicy::OnUse => PluginAuthPolicy::OnUse,
+  }
+}
+
+fn map_plugin_interface(interface: PluginManifestInterface) -> PluginInterface {
   PluginInterface {
     display_name: interface.display_name,
     short_description: interface.short_description,
@@ -802,14 +766,28 @@ fn map_plugin_interface(
     default_prompt: interface.default_prompt,
     brand_color: interface.brand_color,
     composer_icon: interface.composer_icon,
+    composer_icon_url: None,
     logo: interface.logo,
+    logo_url: None,
     screenshots: interface.screenshots,
+    screenshot_urls: Vec::new(),
   }
 }
 
-fn map_plugin_source(source: codex_core::plugins::MarketplacePluginSource) -> PluginSource {
+fn map_plugin_source(source: MarketplacePluginSource) -> PluginSource {
   match source {
-    codex_core::plugins::MarketplacePluginSource::Local { path } => PluginSource::Local { path },
+    MarketplacePluginSource::Local { path } => PluginSource::Local { path },
+    MarketplacePluginSource::Git {
+      url,
+      path,
+      ref_name,
+      sha,
+    } => PluginSource::Git {
+      url,
+      path,
+      ref_name,
+      sha,
+    },
   }
 }
 

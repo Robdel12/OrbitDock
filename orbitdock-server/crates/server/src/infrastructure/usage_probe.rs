@@ -4,7 +4,8 @@ use std::process::Stdio;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use orbitdock_protocol::{
-  ClaudeUsageSnapshot, ClaudeUsageWindow, CodexRateLimitWindow, CodexUsageSnapshot, UsageErrorInfo,
+  ClaudeUsageSnapshot, ClaudeUsageWindow, CodexRateLimitReachedType, CodexRateLimitWindow,
+  CodexUsageSnapshot, UsageErrorInfo,
 };
 #[cfg(target_os = "macos")]
 use ring::digest::{digest, SHA256};
@@ -192,6 +193,11 @@ pub async fn fetch_codex_usage() -> Result<CodexUsageSnapshot, UsageProbeError> 
     Ok(CodexUsageSnapshot {
       primary: parse_codex_limit(rate_limits.get("primary")),
       secondary: parse_codex_limit(rate_limits.get("secondary")),
+      rate_limit_reached_type: parse_codex_rate_limit_reached_type(
+        rate_limits
+          .get("rateLimitReachedType")
+          .or_else(|| rate_limits.get("rate_limit_reached_type")),
+      ),
       fetched_at_unix: unix_now(),
     })
   }
@@ -270,6 +276,35 @@ fn parse_codex_limit(value: Option<&Value>) -> Option<CodexRateLimitWindow> {
     window_duration_mins,
     resets_at_unix,
   })
+}
+
+fn parse_codex_rate_limit_reached_type(value: Option<&Value>) -> Option<CodexRateLimitReachedType> {
+  let value = value?;
+  let raw = value.as_str().or_else(|| {
+    value.as_object().and_then(|object| {
+      object
+        .get("type")
+        .or_else(|| object.get("kind"))
+        .and_then(Value::as_str)
+    })
+  })?;
+
+  match raw {
+    "rate_limit_reached" => Some(CodexRateLimitReachedType::RateLimitReached),
+    "workspace_owner_credits_depleted" => {
+      Some(CodexRateLimitReachedType::WorkspaceOwnerCreditsDepleted)
+    }
+    "workspace_member_credits_depleted" => {
+      Some(CodexRateLimitReachedType::WorkspaceMemberCreditsDepleted)
+    }
+    "workspace_owner_usage_limit_reached" => {
+      Some(CodexRateLimitReachedType::WorkspaceOwnerUsageLimitReached)
+    }
+    "workspace_member_usage_limit_reached" => {
+      Some(CodexRateLimitReachedType::WorkspaceMemberUsageLimitReached)
+    }
+    _ => None,
+  }
 }
 
 fn parse_claude_window(value: Option<&Value>) -> Option<ClaudeUsageWindow> {
@@ -694,4 +729,37 @@ fn truncate_for_error(value: &str, max_chars: usize) -> String {
 #[cfg(not(target_os = "macos"))]
 fn load_claude_credentials_from_keychain() -> Result<ClaudeCredentials, UsageProbeError> {
   Err(UsageProbeError::NoCredentials)
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serde_json::json;
+
+  #[test]
+  fn parses_codex_rate_limit_reached_type_from_app_server_shape() {
+    let value = json!("workspace_member_usage_limit_reached");
+
+    assert_eq!(
+      parse_codex_rate_limit_reached_type(Some(&value)),
+      Some(CodexRateLimitReachedType::WorkspaceMemberUsageLimitReached)
+    );
+  }
+
+  #[test]
+  fn parses_codex_rate_limit_reached_type_from_backend_shape() {
+    let value = json!({ "type": "workspace_owner_credits_depleted" });
+
+    assert_eq!(
+      parse_codex_rate_limit_reached_type(Some(&value)),
+      Some(CodexRateLimitReachedType::WorkspaceOwnerCreditsDepleted)
+    );
+  }
+
+  #[test]
+  fn ignores_unknown_codex_rate_limit_reached_type() {
+    let value = json!("something_new");
+
+    assert_eq!(parse_codex_rate_limit_reached_type(Some(&value)), None);
+  }
 }

@@ -3,8 +3,9 @@ use orbitdock_connector_core::{
   ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
 };
 use orbitdock_protocol::conversation_contracts::{
-  compute_tool_display, extract_compact_result_text, CommandExecutionAction, ConversationRow,
-  ConversationRowEntry, ToolDisplayInput, ToolRow,
+  compute_shell_preview, compute_tool_display, extract_compact_result_text,
+  shell_terminal_snapshot, ConversationRow, ConversationRowEntry, ShellAction,
+  ShellExecutionPayload, ToolDisplayInput, ToolRow,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,7 +30,7 @@ pub(super) struct OutputBufferState {
   pub(super) command: String,
   pub(super) cwd: String,
   pub(super) process_id: Option<String>,
-  pub(super) command_actions: Vec<CommandExecutionAction>,
+  pub(super) command_actions: Vec<ShellAction>,
   pub(super) full_output: String,
   pub(super) preview_output: String,
   pub(super) last_broadcast: Instant,
@@ -117,6 +118,34 @@ pub(super) fn with_tool_display(mut row: ToolRow) -> ToolRow {
 
 pub(super) fn tool_row_entry(row: ToolRow) -> ConversationRowEntry {
   crate::runtime::row_entry(ConversationRow::Tool(with_tool_display(row)))
+}
+
+pub(super) fn shell_execution_payload(
+  command: String,
+  cwd: String,
+  process_id: Option<String>,
+  actions: Vec<ShellAction>,
+  live_output_preview: Option<String>,
+  aggregated_output: Option<String>,
+  exit_code: Option<i32>,
+) -> ShellExecutionPayload {
+  let terminal_output = aggregated_output
+    .as_deref()
+    .or(live_output_preview.as_deref());
+  let preview = compute_shell_preview(&actions, terminal_output);
+  let terminal_snapshot = shell_terminal_snapshot(&command, &cwd, terminal_output);
+
+  ShellExecutionPayload {
+    command,
+    cwd,
+    process_id,
+    actions,
+    live_output_preview,
+    aggregated_output,
+    terminal_snapshot,
+    preview,
+    exit_code,
+  }
 }
 
 #[cfg(test)]

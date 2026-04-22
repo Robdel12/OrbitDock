@@ -5,7 +5,7 @@ enum DashboardSessionContextActions {
   static func rootSessionBaseActions(for session: RootSessionNode) -> some View {
     baseActions(
       projectPath: session.projectPath,
-      resumeCommand: "claude --resume \(session.id)"
+      resumeCommand: session.provider.resumeCommand(sessionId: session.sessionId)
     )
   }
 
@@ -13,8 +13,25 @@ enum DashboardSessionContextActions {
   static func conversationBaseActions(for session: DashboardConversationRecord) -> some View {
     baseActions(
       projectPath: session.projectPath,
-      resumeCommand: "claude --resume \(session.sessionId)"
+      resumeCommand: session.provider.resumeCommand(sessionId: session.sessionId)
     )
+  }
+
+  @ViewBuilder
+  static func pinActions(
+    for session: DashboardConversationRecord,
+    pinnedService: PinnedSessionsService
+  ) -> some View {
+    let isPinned = pinnedService.isPinned(session.sessionRef)
+
+    Button {
+      pinnedService.toggle(session.sessionRef)
+    } label: {
+      Label(
+        isPinned ? "Unpin" : "Pin",
+        systemImage: isPinned ? "pin.slash" : "pin"
+      )
+    }
   }
 
   @ViewBuilder

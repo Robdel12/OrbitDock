@@ -10,14 +10,40 @@ import SwiftUI
 
 struct ImageExpandedView: View {
   let content: ServerRowContent
+  let toolKind: ServerConversationToolKind
+  let imageLoader: ImageLoader?
+  let sessionId: String
+  let endpointId: UUID?
   private static let inlineMaxDimension: CGFloat = 2_048
+  private static let remotePreviewMaxWidth: CGFloat = 560
 
-  private var filePath: String? {
-    content.inputDisplay
+  private var messageImages: [MessageImage] {
+    content.images.enumerated().compactMap { index, image in
+      image.toMessageImage(index: index, endpointId: endpointId, sessionId: sessionId)
+    }
+  }
+
+  private var fallbackFilePath: String? {
+    guard messageImages.isEmpty, toolKind == .viewImage else { return nil }
+    return content.inputDisplay
+  }
+
+  private var firstLocalImagePath: String? {
+    content.images.first { $0.inputType == "path" }?.value
+  }
+
+  private var displayPath: String? {
+    fallbackFilePath ?? firstLocalImagePath
+  }
+
+  private var promptText: String? {
+    guard toolKind == .imageGeneration else { return nil }
+    let trimmed = content.inputDisplay?.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed?.isEmpty == false ? trimmed : nil
   }
 
   private var fileName: String? {
-    filePath?.components(separatedBy: "/").last
+    displayPath?.components(separatedBy: "/").last
   }
 
   private var formatBadge: String? {
@@ -35,8 +61,22 @@ struct ImageExpandedView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
-      // File path breadcrumb
-      if let path = filePath, !path.isEmpty {
+      if let prompt = promptText {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          Text("Revised Prompt")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+          Text(prompt)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.backgroundCode, in: RoundedRectangle(cornerRadius: Radius.sm))
+        }
+      }
+
+      if let path = displayPath, !path.isEmpty {
         HStack(spacing: Spacing.sm) {
           Image(systemName: "photo")
             .font(.system(size: IconScale.sm))
@@ -56,12 +96,12 @@ struct ImageExpandedView: View {
         }
       }
 
-      // Inline image
-      if let path = filePath {
+      if let imageLoader, !messageImages.isEmpty {
+        MessageImageView(images: messageImages, imageLoader: imageLoader, maxWidth: Self.remotePreviewMaxWidth)
+      } else if let path = displayPath {
         inlineImage(path: path)
       }
 
-      // Caption support — short, single-line output treated as caption
       if let output = content.outputDisplay, !output.isEmpty,
          !output.contains("\n"), output.count < 200
       {

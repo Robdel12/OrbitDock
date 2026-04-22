@@ -102,8 +102,10 @@ fn persist_claude_session(
 
 #[tokio::test]
 async fn list_skills_endpoint_dispatches_action_and_returns_payload() {
-  let state = new_test_state(true);
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
   let session_id = orbitdock_protocol::new_session_id();
+  persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
+  // Add to in-memory registry so we can get the actor handle
   state.add_session(SessionHandle::new(
     session_id.clone(),
     Provider::Codex,
@@ -251,20 +253,20 @@ async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
       CodexAction::ListPlugins {
         cwd,
         cwds,
-        force_remote_sync,
         reply_tx,
         ..
       } => {
         assert_eq!(cwd, "/tmp/orbitdock-api-test");
         assert_eq!(cwds, vec!["/tmp/orbitdock-api-test".to_string()]);
-        assert!(force_remote_sync);
         let response = PluginListResponse {
           marketplaces: vec![PluginMarketplaceEntry {
             name: "Curated".to_string(),
-            path: AbsolutePathBuf::try_from(PathBuf::from(
-              "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
-            ))
-            .expect("absolute marketplace path"),
+            path: Some(
+              AbsolutePathBuf::try_from(PathBuf::from(
+                "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
+              ))
+              .expect("absolute marketplace path"),
+            ),
             interface: None,
             plugins: vec![PluginSummary {
               id: "marketplace/deploy-checks".to_string(),
@@ -283,7 +285,6 @@ async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
             }],
           }],
           marketplace_load_errors: Vec::new(),
-          remote_sync_error: None,
           featured_plugin_ids: Vec::new(),
         };
         let _ = reply_tx.send(Ok(response));
@@ -297,7 +298,6 @@ async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
     State(state),
     Query(PluginsQuery {
       cwd: vec!["/tmp/orbitdock-api-test".to_string()],
-      force_remote_sync: Some(true),
     }),
   )
   .await;
@@ -343,11 +343,13 @@ async fn install_plugin_endpoint_dispatches_action_and_returns_payload() {
       } => {
         assert_eq!(cwd, "/tmp/orbitdock-api-test");
         assert_eq!(params.plugin_name, "deploy-checks");
-        assert!(params.force_remote_sync);
         assert_eq!(
-          params.marketplace_path.as_path(),
-          std::path::Path::new("/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml")
+          params.marketplace_path.as_ref().map(|path| path.as_path()),
+          Some(std::path::Path::new(
+            "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml"
+          ))
         );
+        assert!(params.remote_marketplace_name.is_none());
         let _ = reply_tx.send(Ok(codex_app_server_protocol::PluginInstallResponse {
           auth_policy: PluginAuthPolicy::OnInstall,
           apps_needing_auth: vec![],
@@ -361,12 +363,14 @@ async fn install_plugin_endpoint_dispatches_action_and_returns_payload() {
     Path(session_id),
     State(state),
     Json(codex_app_server_protocol::PluginInstallParams {
-      marketplace_path: AbsolutePathBuf::try_from(PathBuf::from(
-        "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
-      ))
-      .expect("absolute marketplace path"),
+      marketplace_path: Some(
+        AbsolutePathBuf::try_from(PathBuf::from(
+          "/tmp/orbitdock-api-test/.codex/plugins/marketplace.toml",
+        ))
+        .expect("absolute marketplace path"),
+      ),
+      remote_marketplace_name: None,
       plugin_name: "deploy-checks".to_string(),
-      force_remote_sync: true,
     }),
   )
   .await;
@@ -407,7 +411,6 @@ async fn uninstall_plugin_endpoint_dispatches_action_and_returns_payload() {
       } => {
         assert_eq!(cwd, "/tmp/orbitdock-api-test");
         assert_eq!(params.plugin_id, "marketplace/deploy-checks");
-        assert!(params.force_remote_sync);
         let _ = reply_tx.send(Ok(codex_app_server_protocol::PluginUninstallResponse {}));
       }
       other => panic!("expected UninstallPlugin action, got {:?}", other),
@@ -419,7 +422,6 @@ async fn uninstall_plugin_endpoint_dispatches_action_and_returns_payload() {
     State(state),
     Json(codex_app_server_protocol::PluginUninstallParams {
       plugin_id: "marketplace/deploy-checks".to_string(),
-      force_remote_sync: true,
     }),
   )
   .await;
@@ -562,8 +564,10 @@ async fn list_mcp_tools_endpoint_dispatches_action_and_returns_payload() {
 
 #[tokio::test]
 async fn list_skills_endpoint_returns_conflict_when_connector_missing() {
-  let state = new_test_state(true);
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
   let session_id = orbitdock_protocol::new_session_id();
+  // Persist session to DB and add to in-memory registry, but don't attach a connector
+  persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
   state.add_session(SessionHandle::new(
     session_id.clone(),
     Provider::Codex,

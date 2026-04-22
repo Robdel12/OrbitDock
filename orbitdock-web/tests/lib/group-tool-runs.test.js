@@ -12,16 +12,6 @@ const makeRow = (id, rowType = 'user', toolSummary = null) => ({
   },
 })
 
-const makeCommandExecutionRow = (id, commandActions = []) => ({
-  session_id: 'sess-1',
-  sequence: Number(id.replace(/\D/g, '')),
-  row: {
-    id,
-    row_type: 'command_execution',
-    command_actions: commandActions,
-  },
-})
-
 describe('groupToolRuns', () => {
   it('passes non-tool rows through unchanged', () => {
     const rows = [makeRow('1', 'user'), makeRow('2', 'assistant')]
@@ -71,18 +61,6 @@ describe('groupToolRuns', () => {
     assert.deepStrictEqual(groupToolRuns([]), [])
   })
 
-  it('groups command execution rows with tool rows into one activity group', () => {
-    const rows = [
-      makeRow('1', 'tool', 'Read'),
-      makeCommandExecutionRow('2', [{ type: 'search' }]),
-      makeRow('3', 'assistant'),
-    ]
-    const result = groupToolRuns(rows)
-    assert.strictEqual(result.length, 2)
-    assert.strictEqual(result[0].row.row_type, 'activity_group')
-    assert.strictEqual(result[0].row.tool_count, 2)
-    assert.strictEqual(result[0].row.title, 'Read, Search files')
-  })
 })
 
 describe('buildToolSummary', () => {
@@ -111,12 +89,4 @@ describe('buildToolSummary', () => {
     assert.strictEqual(buildToolSummary(buffer), '2 actions')
   })
 
-  it('summarizes command execution actions', () => {
-    const buffer = [
-      makeCommandExecutionRow('1', [{ type: 'read' }]),
-      makeCommandExecutionRow('2', [{ type: 'read' }, { type: 'read' }]),
-      makeCommandExecutionRow('3', [{ type: 'list_files' }]),
-    ]
-    assert.strictEqual(buildToolSummary(buffer), 'Read file, Read 2 files, List files')
-  })
 })

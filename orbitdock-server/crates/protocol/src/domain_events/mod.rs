@@ -21,11 +21,11 @@ pub use conversation::{
 };
 pub use lifecycle::{SessionLifecycleEvent, SessionLifecycleKind};
 pub use tooling::{
-  AgentType, CommandExecutionPayload, ConfigPayload, ContextCompactionPayload, FileChangePayload,
-  FileReadPayload, GenericInvocationPayload, GenericResultPayload, GroupingKey,
-  GuardianAssessmentPayload, HandoffPayload, HookOutputEntry, HookPayload, ImageGenerationPayload,
-  ImageViewPayload, McpToolPayload, PlanModePayload, PlanStepPayload, PlanStepStatus,
-  QuestionToolPayload, SearchInvocationPayload, SearchResultPayload, TodoItemPayload, TodoPayload,
+  AgentType, ConfigPayload, ContextCompactionPayload, FileChangePayload, FileReadPayload,
+  GenericInvocationPayload, GenericResultPayload, GroupingKey, GuardianAssessmentPayload,
+  HandoffPayload, HookOutputEntry, HookPayload, ImageGenerationPayload, ImageViewPayload,
+  McpToolPayload, PlanModePayload, PlanStepPayload, PlanStepStatus, QuestionToolPayload,
+  SearchInvocationPayload, SearchResultPayload, ShellToolPayload, TodoItemPayload, TodoPayload,
   ToolFamily, ToolInvocationPayload, ToolKind, ToolPreviewPayload, ToolResultPayload, ToolStatus,
   WebFetchPayload, WebSearchPayload, WorkerInvocationPayload, WorkerResultPayload,
 };

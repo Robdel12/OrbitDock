@@ -99,6 +99,7 @@ struct ServerHookPayload: Codable {
   let phase: String?
   let status: String?
   let sourcePath: String?
+  let source: String?
   let summary: String?
   let output: String?
   let durationMs: UInt64?
@@ -110,6 +111,7 @@ struct ServerHookPayload: Codable {
     case phase
     case status
     case sourcePath = "source_path"
+    case source
     case summary
     case output
     case durationMs = "duration_ms"
@@ -123,6 +125,7 @@ struct ServerHookPayload: Codable {
     phase = try container.decodeIfPresent(String.self, forKey: .phase)
     status = try container.decodeIfPresent(String.self, forKey: .status)
     sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
+    source = try container.decodeIfPresent(String.self, forKey: .source)
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
     output = try container.decodeIfPresent(String.self, forKey: .output)
     durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)

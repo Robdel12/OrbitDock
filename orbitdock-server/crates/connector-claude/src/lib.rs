@@ -28,7 +28,8 @@ use orbitdock_connector_core::{
 };
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  classify_tool_name, ConversationRow, ConversationRowEntry, MessageRowContent, ToolRow,
+  classify_tool_name, compute_shell_preview, shell_terminal_snapshot, ConversationRow,
+  ConversationRowEntry, MessageRowContent, ShellAction, ShellExecutionPayload, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use session::{
@@ -211,6 +212,7 @@ fn extract_image_input(block: &Value) -> Option<orbitdock_protocol::ImageInput> 
         display_name: None,
         pixel_width: None,
         pixel_height: None,
+        detail: None,
       })
     }
     "url" => {
@@ -223,6 +225,7 @@ fn extract_image_input(block: &Value) -> Option<orbitdock_protocol::ImageInput> 
         display_name: None,
         pixel_width: None,
         pixel_height: None,
+        detail: None,
       })
     }
     _ => None,
@@ -291,6 +294,74 @@ fn extract_result_summary(tool_name: &str, output: &str) -> Option<String> {
   }
 }
 
+fn shell_command_from_tool_row(row: &ToolRow) -> String {
+  row
+    .invocation
+    .get("command")
+    .and_then(Value::as_str)
+    .or_else(|| row.invocation.get("cmd").and_then(Value::as_str))
+    .or(row.subtitle.as_deref())
+    .unwrap_or(row.title.as_str())
+    .trim()
+    .to_string()
+}
+
+fn shell_execution_payload(
+  command: String,
+  cwd: String,
+  actions: Vec<ShellAction>,
+  output: Option<String>,
+  status: ToolStatus,
+) -> ShellExecutionPayload {
+  let live_output_preview = matches!(status, ToolStatus::Running)
+    .then(|| output.clone())
+    .flatten();
+  let aggregated_output = matches!(
+    status,
+    ToolStatus::Completed | ToolStatus::Failed | ToolStatus::Cancelled
+  )
+  .then(|| output.clone())
+  .flatten();
+  let terminal_output = aggregated_output
+    .as_deref()
+    .or(live_output_preview.as_deref());
+  let preview = compute_shell_preview(&actions, terminal_output);
+  let terminal_snapshot = shell_terminal_snapshot(&command, &cwd, terminal_output);
+
+  ShellExecutionPayload {
+    command,
+    cwd,
+    process_id: None,
+    actions,
+    live_output_preview,
+    aggregated_output,
+    terminal_snapshot,
+    preview,
+    exit_code: None,
+  }
+}
+
+fn refresh_shell_execution(row: &mut ToolRow, cwd: &str, output: Option<&str>) {
+  if row.kind != ToolKind::Bash {
+    return;
+  }
+
+  let command = shell_command_from_tool_row(row);
+  let output = output
+    .map(str::to_string)
+    .filter(|value| !value.trim().is_empty());
+  let actions = vec![ShellAction::Unknown {
+    command: command.clone(),
+  }];
+  row.shell_execution = Some(shell_execution_payload(
+    command,
+    cwd.to_string(),
+    actions,
+    output,
+    row.status,
+  ));
+}
+
 /// Compute render hints based on tool kind.
 fn tool_render_hints(kind: ToolKind) -> RenderHints {
   match kind {
@@ -354,6 +425,7 @@ fn make_tool_row(
     result: None,
     render_hints,
     tool_display,
+    shell_execution: None,
   }
 }
 
@@ -622,6 +694,7 @@ struct ClaudeEventLoopState {
   compacting_msg_id: Option<String>,
   /// Live ToolRow state so we can reconstruct full ConversationRowEntry on updates.
   tool_rows: HashMap<String, ToolRow>,
+  cwd: String,
   line_count: u64,
 }
 
@@ -632,6 +705,7 @@ impl ClaudeEventLoopState {
     pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
     stdin_tx: mpsc::Sender<String>,
     orbitdock_session_id: String,
+    cwd: String,
   ) -> Self {
     Self {
       session_id,
@@ -650,6 +724,7 @@ impl ClaudeEventLoopState {
       task_tool_use_map: HashMap::new(),
       compacting_msg_id: None,
       tool_rows: HashMap::new(),
+      cwd,
       line_count: 0,
     }
   }
@@ -844,6 +919,7 @@ impl ClaudeConnector {
       pending_approvals.clone(),
       stdin_tx.clone(),
       loop_session_id,
+      cwd.to_string(),
     );
 
     tokio::spawn(async move {
@@ -1978,14 +2054,15 @@ impl ClaudeConnector {
         )
       });
 
-      let tr = make_tool_row(
+      let mut tr = make_tool_row(
         message_id.clone(),
         tool_name,
         input_value,
         ToolStatus::Running,
       );
+      refresh_shell_execution(&mut tr, &state.cwd, None);
 
-      // Emit ToolPtyCreated for bash tools to enable live PTY streaming
+      // Emit ToolPtyCreated for shell tools so live PTY streaming attaches immediately.
       if tr.kind == ToolKind::Bash {
         events.push(transport_output(ConnectorTransportEffect::ToolPtyCreated {
           tool_id: message_id.clone(),
@@ -2083,6 +2160,7 @@ impl ClaudeConnector {
               "output": content.clone(),
               "summary": result_summary.as_deref().unwrap_or(""),
           }));
+          refresh_shell_execution(&mut tr, &state.cwd, Some(&content));
           // Recompute tool_display with result data
           let raw_input = if tr.invocation.is_object() {
             Some(&tr.invocation)
@@ -2105,7 +2183,7 @@ impl ClaudeConnector {
             ),
           );
 
-          // Emit PTY events for bash tools - feed the complete output then mark exited
+          // Emit PTY events for shell tools: feed the full output, then mark exited.
           if tr.kind == ToolKind::Bash && !content.is_empty() {
             events.push(transport_output(ConnectorTransportEffect::ToolPtyOutput {
               tool_id: row_id.clone(),
@@ -2141,6 +2219,7 @@ impl ClaudeConnector {
               "tool_name": "unknown",
               "output": content.clone(),
           }));
+          refresh_shell_execution(&mut tr, &state.cwd, Some(&content));
           events.push(state_output(ConnectorStateEvent::ConversationRowUpdated {
             row_id,
             entry: make_entry(session_id, ConversationRow::Tool(tr)),
@@ -3300,6 +3379,7 @@ mod tests {
       Arc::new(Mutex::new(HashMap::new())),
       stdin_tx,
       "test-session".to_string(),
+      "/tmp/orbitdock-claude-test".to_string(),
     )
   }
 

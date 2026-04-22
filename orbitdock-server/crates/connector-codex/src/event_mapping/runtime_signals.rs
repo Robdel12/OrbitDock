@@ -2,19 +2,21 @@ use super::{row_created_output, state_output, tool_row_entry, ConnectorOutputs};
 use crate::runtime::{apply_delta_thinking, row_entry};
 use crate::timeline::{
   hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
-  realtime_text_from_handoff_request, stream_error_should_surface_to_timeline,
+  is_thread_start_skills_trimmed_warning, realtime_text_from_handoff_request,
+  stream_error_should_surface_to_timeline,
 };
 use crate::workers::iso_now;
 use codex_protocol::plan_tool::UpdatePlanArgs;
 use codex_protocol::protocol::{
-  BackgroundEventEvent, DeprecationNoticeEvent, HookCompletedEvent, HookStartedEvent,
+  BackgroundEventEvent, DeprecationNoticeEvent, HookCompletedEvent, HookSource, HookStartedEvent,
   ModelRerouteEvent, PlanDeltaEvent, RealtimeConversationRealtimeEvent, StreamErrorEvent,
   ThreadNameUpdatedEvent, ThreadRolledBackEvent, TokenCountEvent, TurnDiffEvent,
   UndoCompletedEvent, UndoStartedEvent, WarningEvent,
 };
 use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::{
-  ConversationRow, HandoffRow, HookRow, MessageRowContent, ToolRow,
+  ConversationRow, HandoffRow, HookRow, MessageRowContent, NoticeRow, NoticeRowKind,
+  NoticeRowSeverity, RenderHints, ToolRow,
 };
 use orbitdock_protocol::domain_events::{
   HandoffPayload, HookPayload, PlanStepPayload, PlanStepStatus, ToolFamily, ToolKind, ToolStatus,
@@ -29,16 +31,30 @@ use tracing::warn;
 pub(crate) fn handle_token_count(event: TokenCountEvent) -> ConnectorOutputs {
   if let Some(info) = event.info {
     let last = &info.last_token_usage;
-    let usage = orbitdock_protocol::TokenUsage {
+    let context_window = info.model_context_window.unwrap_or(200_000).max(0) as u64;
+    let live_usage = orbitdock_protocol::TokenUsage {
       input_tokens: last.input_tokens.max(0) as u64,
       output_tokens: last.output_tokens.max(0) as u64,
       cached_tokens: last.cached_input_tokens.max(0) as u64,
-      context_window: info.model_context_window.unwrap_or(200_000).max(0) as u64,
+      context_window,
     };
-    vec![state_output(ConnectorStateEvent::TokensUpdated {
-      usage,
-      snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::ContextTurn,
-    })]
+    let total = &info.total_token_usage;
+    let accounting_usage = orbitdock_protocol::TokenUsage {
+      input_tokens: total.input_tokens.max(0) as u64,
+      output_tokens: total.output_tokens.max(0) as u64,
+      cached_tokens: total.cached_input_tokens.max(0) as u64,
+      context_window,
+    };
+    vec![
+      state_output(ConnectorStateEvent::TokensUpdated {
+        usage: live_usage,
+        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::ContextTurn,
+      }),
+      state_output(ConnectorStateEvent::TurnUsageUpdated {
+        usage: accounting_usage,
+        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::LifetimeTotals,
+      }),
+    ]
   } else {
     vec![]
   }
@@ -100,6 +116,7 @@ pub(crate) fn handle_plan_update(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   };
   vec![
     state_output(ConnectorStateEvent::PlanUpdated(plan)),
@@ -133,17 +150,47 @@ pub(crate) fn handle_warning(
     return vec![];
   }
   let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
-  let entry = row_entry(ConversationRow::Assistant(MessageRowContent {
-    id: format!("warning-{}-{}", event_id, seq),
-    content: event.message,
-    turn_id: None,
-    timestamp: Some(iso_now()),
-    is_streaming: false,
-    images: vec![],
-    memory_citation: None,
-    delivery_status: None,
-  }));
+  let entry = row_entry(ConversationRow::Notice(runtime_warning_notice_row(
+    event_id,
+    seq,
+    event.message,
+  )));
   vec![row_created_output(entry)]
+}
+
+fn runtime_warning_notice_row(event_id: &str, seq: u64, message: String) -> NoticeRow {
+  let (title, summary, severity) = runtime_warning_notice_copy(&message);
+  NoticeRow {
+    id: format!("warning-{}-{}", event_id, seq),
+    kind: NoticeRowKind::Generic,
+    severity,
+    title,
+    summary,
+    body: Some(message),
+    render_hints: RenderHints {
+      can_expand: true,
+      default_expanded: false,
+      emphasized: false,
+      monospace_summary: false,
+      accent_tone: Some("notice".to_string()),
+    },
+  }
+}
+
+fn runtime_warning_notice_copy(message: &str) -> (String, Option<String>, NoticeRowSeverity) {
+  if is_thread_start_skills_trimmed_warning(message) {
+    return (
+      "Some skills are outside the model-visible list".to_string(),
+      Some("Mention a skill by name or path if Codex needs it.".to_string()),
+      NoticeRowSeverity::Info,
+    );
+  }
+
+  (
+    "Codex warning".to_string(),
+    Some(message.to_string()),
+    NoticeRowSeverity::Warning,
+  )
 }
 
 pub(crate) fn is_suppressed_runtime_warning(message: &str) -> bool {
@@ -304,6 +351,7 @@ pub(crate) fn handle_hook_started(event: HookStartedEvent) -> ConnectorOutputs {
       phase: Some("started".to_string()),
       status: Some(format!("{:?}", event.run.status)),
       source_path: Some(event.run.source_path.display().to_string()),
+      source: Some(hook_source_value(event.run.source)),
       summary: None,
       output: None,
       duration_ms: None,
@@ -330,6 +378,7 @@ pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> ConnectorOutpu
       phase: Some("completed".to_string()),
       status: Some(format!("{:?}", event.run.status)),
       source_path: Some(event.run.source_path.display().to_string()),
+      source: Some(hook_source_value(event.run.source)),
       summary: hook_output_text(&event.run),
       output: hook_output_text(&event.run),
       duration_ms: event.run.duration_ms.and_then(|ms| u64::try_from(ms).ok()),
@@ -347,6 +396,20 @@ pub(crate) fn handle_hook_completed(event: HookCompletedEvent) -> ConnectorOutpu
     render_hints: Default::default(),
   }));
   vec![row_created_output(entry)]
+}
+
+fn hook_source_value(source: HookSource) -> String {
+  match source {
+    HookSource::System => "system",
+    HookSource::User => "user",
+    HookSource::Project => "project",
+    HookSource::Mdm => "mdm",
+    HookSource::SessionFlags => "session_flags",
+    HookSource::LegacyManagedConfigFile => "legacy_managed_config_file",
+    HookSource::LegacyManagedConfigMdm => "legacy_managed_config_mdm",
+    HookSource::Unknown => "unknown",
+  }
+  .to_string()
 }
 
 pub(crate) fn handle_thread_name_updated(event: ThreadNameUpdatedEvent) -> ConnectorOutputs {

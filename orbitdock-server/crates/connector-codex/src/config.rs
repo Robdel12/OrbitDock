@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::ThreadManager;
-use codex_exec_server::EnvironmentManager;
+use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
 use codex_features::Feature;
 use codex_login::{AuthCredentialsStoreMode, AuthManager};
 use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
@@ -82,6 +82,15 @@ pub fn config_loader_sandbox_mode(
     .map(ToOwned::to_owned)
 }
 
+fn override_cwd(cwd: &str) -> Option<std::path::PathBuf> {
+  let trimmed = cwd.trim();
+  if trimmed.is_empty() {
+    None
+  } else {
+    Some(std::path::PathBuf::from(trimmed))
+  }
+}
+
 pub struct ResumeConnectorWithToolsConfig<'a> {
   pub cwd: &'a str,
   pub thread_id: &'a str,
@@ -95,6 +104,30 @@ pub struct ResumeConnectorWithToolsConfig<'a> {
 }
 
 impl CodexConnector {
+  pub(crate) fn embedded_codex_self_exe() -> Result<std::path::PathBuf, ConnectorError> {
+    std::env::current_exe().map_err(|error| {
+      ConnectorError::ProviderError(format!(
+        "Failed to resolve OrbitDock executable for Codex helpers: {error}"
+      ))
+    })
+  }
+
+  pub(crate) fn embedded_codex_runtime_paths() -> Result<ExecServerRuntimePaths, ConnectorError> {
+    let codex_self_exe = Self::embedded_codex_self_exe()?;
+    ExecServerRuntimePaths::new(codex_self_exe, None).map_err(|error| {
+      ConnectorError::ProviderError(format!(
+        "Failed to configure Codex helper runtime paths: {error}"
+      ))
+    })
+  }
+
+  pub(crate) fn embedded_environment_manager() -> Result<EnvironmentManager, ConnectorError> {
+    Ok(EnvironmentManager::new_with_runtime_paths(
+      None,
+      Some(Self::embedded_codex_runtime_paths()?),
+    ))
+  }
+
   pub async fn new(
     cwd: &str,
     model: Option<&str>,
@@ -231,7 +264,7 @@ impl CodexConnector {
       auth_manager.clone(),
       SessionSource::Mcp,
       CollaborationModesConfig::default(),
-      Arc::new(EnvironmentManager::new(None)),
+      Arc::new(Self::embedded_environment_manager()?),
       None,
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
@@ -241,12 +274,13 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
 
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf())?;
+    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf(), cwd)?;
     connector
       .apply_post_start_overrides(
         runtime_overrides,
         configured_model,
         None,
+        cwd,
         sandbox_mode,
         sandbox_policy_details,
       )
@@ -393,7 +427,7 @@ impl CodexConnector {
       auth_manager.clone(),
       SessionSource::Mcp,
       CollaborationModesConfig::default(),
-      Arc::new(EnvironmentManager::new(None)),
+      Arc::new(Self::embedded_environment_manager()?),
       None,
     ));
     Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
@@ -428,12 +462,13 @@ impl CodexConnector {
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to resume thread: {}", e)))?;
 
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf())?;
+    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf(), cwd)?;
     connector
       .apply_post_start_overrides(
         runtime_overrides,
         configured_model,
         None,
+        cwd,
         sandbox_mode,
         sandbox_policy_details,
       )
@@ -541,6 +576,7 @@ impl CodexConnector {
       ));
     }
 
+    let embedded_codex_self_exe = Self::embedded_codex_self_exe()?;
     let build_harness_overrides = || ConfigOverrides {
       cwd: Some(std::path::PathBuf::from(cwd)),
       model: model.map(str::to_string),
@@ -549,6 +585,7 @@ impl CodexConnector {
       config_profile: config_overrides.config_profile.clone(),
       developer_instructions: runtime_overrides.developer_instructions.clone(),
       personality: parse_personality(runtime_overrides.personality.as_deref()),
+      codex_self_exe: Some(embedded_codex_self_exe.clone()),
       codex_linux_sandbox_exe: None,
       ..Default::default()
     };
@@ -601,6 +638,7 @@ impl CodexConnector {
     runtime_overrides: CodexRuntimeOverrides,
     configured_model: Option<String>,
     configured_effort: Option<ReasoningEffort>,
+    cwd: &str,
     sandbox_mode: Option<&str>,
     sandbox_policy_details: Option<&CodexSandboxPolicy>,
   ) -> Result<(), ConnectorError> {
@@ -641,7 +679,7 @@ impl CodexConnector {
     self
       .thread
       .submit(Op::OverrideTurnContext {
-        cwd: None,
+        cwd: override_cwd(cwd),
         approval_policy: None,
         sandbox_policy,
         windows_sandbox_level: None,
@@ -683,26 +721,32 @@ pub async fn discover_models_for_context(
     model_provider: model_provider.map(str::to_string),
     ..Default::default()
   };
-  let mut base_config =
-    Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), harness_overrides)
-      .await
-      .or_else(|err| {
-        warn!(
-          "Failed to load config for model discovery: {}. Falling back to defaults.",
-          err
-        );
-        Config::load_default_with_cli_overrides(Vec::new())
-      })
-      .map_err(|e| {
-        ConnectorError::ProviderError(format!("Failed to load config for model discovery: {}", e))
-      })?;
+  let mut base_config = match Config::load_with_cli_overrides_and_harness_overrides(
+    Vec::new(),
+    harness_overrides,
+  )
+  .await
+  {
+    Ok(config) => config,
+    Err(err) => {
+      warn!(
+        "Failed to load config for model discovery: {}. Falling back to defaults.",
+        err
+      );
+      Config::load_default_with_cli_overrides(Vec::new())
+        .await
+        .map_err(|e| {
+          ConnectorError::ProviderError(format!("Failed to load config for model discovery: {}", e))
+        })?
+    }
+  };
   apply_orbitdock_provider_defaults(&mut base_config);
   let thread_manager = Arc::new(ThreadManager::new(
     &base_config,
     auth_manager,
     SessionSource::Mcp,
     CollaborationModesConfig::default(),
-    Arc::new(EnvironmentManager::new(None)),
+    Arc::new(CodexConnector::embedded_environment_manager()?),
     None,
   ));
 
@@ -939,6 +983,7 @@ fn synthetic_external_model_info(model_slug: &str, provider_id: &str) -> ModelIn
     supports_parallel_tool_calls: false,
     supports_image_detail_original: false,
     context_window: Some(272_000),
+    max_context_window: Some(272_000),
     auto_compact_token_limit: None,
     effective_context_window_percent: 95,
     experimental_supported_tools: Vec::new(),
@@ -1260,7 +1305,7 @@ pub(crate) fn parse_service_tier_override(value: Option<&str>) -> Option<Option<
 
 #[cfg(test)]
 mod tests {
-  use super::{config_loader_sandbox_mode, requested_sandbox_policy_details};
+  use super::{config_loader_sandbox_mode, override_cwd, requested_sandbox_policy_details};
   use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
 
   #[test]
@@ -1309,5 +1354,16 @@ mod tests {
       requested_sandbox_policy_details(Some("workspace-write"), Some(&details)),
       Some(details)
     );
+  }
+
+  #[test]
+  fn override_cwd_uses_session_workspace_for_runtime_overrides() {
+    assert_eq!(
+      override_cwd(" /Users/robertdeluca/Developer/OrbitDock "),
+      Some(std::path::PathBuf::from(
+        "/Users/robertdeluca/Developer/OrbitDock"
+      ))
+    );
+    assert_eq!(override_cwd("  "), None);
   }
 }

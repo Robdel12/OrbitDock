@@ -13,6 +13,7 @@ struct UsageServiceRegistryTests {
     await service.refreshIfNeeded()
     await service.refreshIfNeeded()
 
+    #expect(service.codexRateLimitReachedType == .workspaceMemberUsageLimitReached)
     #expect(await fixture.requestPaths() == [
       "/api/usage/summary",
       "/api/usage/claude",
@@ -136,6 +137,7 @@ private actor UsageLoaderFixture {
                 "resets_at_unix": 1713203600
               },
               "secondary": null,
+              "rate_limit_reached_type": "workspace_member_usage_limit_reached",
               "fetched_at_unix": 1713200000
             },
             "error_info": null

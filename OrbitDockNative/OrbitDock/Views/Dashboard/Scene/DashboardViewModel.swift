@@ -7,6 +7,7 @@ final class DashboardViewModel {
   // MARK: - Data source
 
   let dataService: DashboardDataService
+  let pinnedService: PinnedSessionsService
 
   // MARK: - Local UI state
 
@@ -30,8 +31,9 @@ final class DashboardViewModel {
 
   // MARK: - Init
 
-  init(dataService: DashboardDataService) {
+  init(dataService: DashboardDataService, pinnedService: PinnedSessionsService) {
     self.dataService = dataService
+    self.pinnedService = pinnedService
   }
 
   // MARK: - Snapshot (reads from service — @Observable propagates automatically)
@@ -50,7 +52,8 @@ final class DashboardViewModel {
       sort: sort,
       providerFilter: providerFilter,
       projectFilter: projectFilter,
-      projectOrder: projectOrder
+      projectOrder: projectOrder,
+      pinnedRefs: pinnedService.pinnedRefs
     )
   }
 

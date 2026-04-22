@@ -70,6 +70,15 @@ pub enum ConnectorStateEvent {
     snapshot_kind: TokenUsageSnapshotKind,
   },
 
+  /// Provider-normalized usage snapshot to persist when the current turn completes.
+  ///
+  /// This is intentionally separate from `TokensUpdated`: live UI wants the provider's
+  /// current context snapshot, while accounting wants the durable turn-final facts.
+  TurnUsageUpdated {
+    usage: TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+  },
+
   /// Aggregated diff updated
   DiffUpdated(String),
 

@@ -37,6 +37,11 @@ final class ToolPtySessionManager {
     return session
   }
 
+  /// Return an existing terminal session without creating a blank renderer.
+  func existingSession(for toolId: String) -> TerminalSessionController? {
+    sessions[toolId]
+  }
+
   /// Check if a tool has an active session.
   func hasSession(for toolId: String) -> Bool {
     sessions[toolId] != nil

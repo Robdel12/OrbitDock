@@ -16,7 +16,7 @@ use tracing::{debug, info};
 
 /// Maximum size of the replay buffer per tool session.
 /// Late-joining clients receive this buffer on attach.
-const MAX_REPLAY_BUFFER_BYTES: usize = 64 * 1024; // 64KB
+const MAX_REPLAY_BUFFER_BYTES: usize = 1024 * 1024; // 1MB
 
 /// Broadcast channel capacity for output chunks.
 const OUTPUT_CHANNEL_CAPACITY: usize = 256;
@@ -37,9 +37,9 @@ struct ToolPtySession {
   #[allow(dead_code)] // Used for debugging and future session isolation
   session_id: String,
   event_tx: broadcast::Sender<ToolPtyEvent>,
-  /// Replay buffer for late-joining subscribers.
   replay_buffer: Vec<u8>,
   status: ToolPtyStatus,
+  pending_carriage_return: bool,
 }
 
 impl ToolPtySession {
@@ -50,21 +50,44 @@ impl ToolPtySession {
       event_tx,
       replay_buffer: Vec::new(),
       status: ToolPtyStatus::Running,
+      pending_carriage_return: false,
     }
   }
 
   fn append_output(&mut self, bytes: &[u8]) {
-    // Broadcast to active subscribers
-    let _ = self.event_tx.send(ToolPtyEvent::Output(bytes.to_vec()));
+    let bytes = normalize_virtual_pty_output(bytes, &mut self.pending_carriage_return);
+    let _ = self.event_tx.send(ToolPtyEvent::Output(bytes.clone()));
+    self.append_to_replay_buffer(&bytes);
+  }
 
-    // Append to replay buffer, trimming if necessary
+  fn append_to_replay_buffer(&mut self, bytes: &[u8]) {
     self.replay_buffer.extend_from_slice(bytes);
     if self.replay_buffer.len() > MAX_REPLAY_BUFFER_BYTES {
-      // Keep the last MAX_REPLAY_BUFFER_BYTES bytes
       let excess = self.replay_buffer.len() - MAX_REPLAY_BUFFER_BYTES;
       self.replay_buffer.drain(..excess);
     }
   }
+}
+
+fn normalize_virtual_pty_output(bytes: &[u8], pending_carriage_return: &mut bool) -> Vec<u8> {
+  let mut normalized = Vec::with_capacity(bytes.len());
+  for &byte in bytes {
+    match byte {
+      b'\n' if *pending_carriage_return => {
+        normalized.push(b'\n');
+        *pending_carriage_return = false;
+      }
+      b'\n' => {
+        normalized.extend_from_slice(b"\r\n");
+        *pending_carriage_return = false;
+      }
+      byte => {
+        normalized.push(byte);
+        *pending_carriage_return = byte == b'\r';
+      }
+    }
+  }
+  normalized
 }
 
 /// Service for managing virtual PTY sessions for tool output streaming.
@@ -248,7 +271,7 @@ mod tests {
     assert_eq!(chunk1, ToolPtyEvent::Output(b"hello ".to_vec()));
 
     let chunk2 = rx.recv().await.unwrap();
-    assert_eq!(chunk2, ToolPtyEvent::Output(b"world\n".to_vec()));
+    assert_eq!(chunk2, ToolPtyEvent::Output(b"world\r\n".to_vec()));
   }
 
   #[tokio::test]
@@ -262,8 +285,39 @@ mod tests {
 
     // Late subscriber
     let (replay, status, _rx) = service.subscribe("session-2", "tool-2").unwrap();
-    assert_eq!(replay, b"line 1\nline 2\n");
+    assert_eq!(replay, b"line 1\r\nline 2\r\n");
     assert_eq!(status, ToolPtyStatus::Running);
+  }
+
+  #[tokio::test]
+  async fn output_normalizes_bare_lf_without_breaking_crlf_across_chunks() {
+    let service = ToolPtyService::new();
+    let mut rx = service.create_for_tool("tool-lines".to_string(), "session-lines".to_string());
+
+    service.feed_output("tool-lines", b"one\n");
+    service.feed_output("tool-lines", b"two\r");
+    service.feed_output("tool-lines", b"\n");
+    service.feed_output("tool-lines", b"\rthree");
+
+    assert_eq!(
+      rx.recv().await.unwrap(),
+      ToolPtyEvent::Output(b"one\r\n".to_vec())
+    );
+    assert_eq!(
+      rx.recv().await.unwrap(),
+      ToolPtyEvent::Output(b"two\r".to_vec())
+    );
+    assert_eq!(
+      rx.recv().await.unwrap(),
+      ToolPtyEvent::Output(b"\n".to_vec())
+    );
+    assert_eq!(
+      rx.recv().await.unwrap(),
+      ToolPtyEvent::Output(b"\rthree".to_vec())
+    );
+
+    let replay = service.get_replay_buffer("tool-lines").unwrap();
+    assert_eq!(replay, b"one\r\ntwo\r\n\rthree");
   }
 
   #[test]

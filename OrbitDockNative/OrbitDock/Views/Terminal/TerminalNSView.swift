@@ -35,6 +35,13 @@
     var shouldAutoFocusOnFirstAttachment = false
     /// When false, wheel events are ignored unless this view is focused.
     var captureScrollWithoutFocus = true
+    /// Read-only terminal surfaces render and scroll, but never accept keyboard input.
+    var allowsInput = true
+    var cursorBlinkEnabled = true {
+      didSet {
+        updateCursorBlinkTimer()
+      }
+    }
     private var hasAutoFocusedOnAttachment = false
     /// Accumulates high-resolution wheel deltas so trackpad scroll isn't lost.
     private var scrollAccumulator: CGFloat = 0
@@ -62,7 +69,7 @@
       wantsLayer = true
       layer?.backgroundColor = NSColor(red: 0.04, green: 0.04, blue: 0.052, alpha: 1.0).cgColor
 
-      startCursorBlink()
+      updateCursorBlinkTimer()
     }
 
     @available(*, unavailable)
@@ -77,10 +84,11 @@
     // MARK: - First Responder (keyboard input)
 
     override var acceptsFirstResponder: Bool {
-      true
+      allowsInput
     }
 
     func requestFocus() {
+      guard allowsInput else { return }
       guard let window else { return }
       window.makeFirstResponder(self)
     }
@@ -129,10 +137,25 @@
     // MARK: - Cursor Blink
 
     private func startCursorBlink() {
+      guard cursorBlinkTimer == nil else { return }
       cursorBlinkTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
         guard let self else { return }
         self.cursorVisible.toggle()
         self.needsDisplay = true
+      }
+    }
+
+    private func stopCursorBlink() {
+      cursorBlinkTimer?.invalidate()
+      cursorBlinkTimer = nil
+      cursorVisible = true
+    }
+
+    private func updateCursorBlinkTimer() {
+      if cursorBlinkEnabled {
+        startCursorBlink()
+      } else {
+        stopCursorBlink()
       }
     }
 
@@ -307,6 +330,7 @@
     // MARK: - Keyboard Input
 
     override func keyDown(with event: NSEvent) {
+      guard allowsInput else { return }
       guard let controller = sessionController else { return }
 
       controller.keyEncoder.syncFromTerminal(controller.ghostty.terminal)
@@ -323,7 +347,9 @@
     }
 
     override func mouseDown(with event: NSEvent) {
-      requestFocus()
+      if allowsInput {
+        requestFocus()
+      }
       super.mouseDown(with: event)
     }
 

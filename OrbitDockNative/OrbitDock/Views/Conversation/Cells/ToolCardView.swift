@@ -40,6 +40,10 @@ struct ToolCardView: View {
     toolRow.toolDisplay
   }
 
+  private var shellExecution: ServerShellExecutionPayload? {
+    toolRow.shellExecution
+  }
+
   private var rawSummary: String {
     display?.summary ?? toolRow.summary ?? toolRow.title
   }
@@ -80,6 +84,66 @@ struct ToolCardView: View {
     toolType == "edit" || toolType == "write"
   }
 
+  private var isReadCard: Bool {
+    toolType == "read"
+  }
+
+  private var isBashCard: Bool {
+    toolType == "bash"
+  }
+
+  private var isSearchCard: Bool {
+    toolType == "grep" || toolType == "glob" || toolType == "toolSearch"
+  }
+
+  private var isWebSearchCard: Bool {
+    toolType == "webSearch" || toolType == "webFetch"
+  }
+
+  private var isTaskCard: Bool {
+    toolType == "task"
+  }
+
+  private var isQuestionCard: Bool {
+    toolType == "question"
+  }
+
+  private var isMcpCard: Bool {
+    toolType == "mcp" || toolType == "dynamicTool"
+  }
+
+  private var isGuardianCard: Bool {
+    toolType == "guardianAssessment"
+  }
+
+  private var isHandoffCard: Bool {
+    toolType == "handoff"
+  }
+
+  private var isImageCard: Bool {
+    toolType == "image"
+  }
+
+  private var isPlanCard: Bool {
+    toolType == "plan"
+  }
+
+  private var isTodoCard: Bool {
+    toolType == "todo"
+  }
+
+  private var isHookCard: Bool {
+    toolType == "hook"
+  }
+
+  private var isCompactContextCard: Bool {
+    toolType == "compactContext"
+  }
+
+  private var isConfigCard: Bool {
+    toolType == "config"
+  }
+
   private var usesCustomOutputPreview: Bool {
     [
       "read",
@@ -117,15 +181,19 @@ struct ToolCardView: View {
     runtime?.toolPtyManager
   }
 
+  /// PTY session for bash tools — available for both running and completed commands
+  /// if the session was established during execution.
   private var toolPtySession: TerminalSessionController? {
-    guard toolType == "bash", isRunning else {
-      return nil
-    }
-    return toolPtyManager?.session(for: toolRow.id)
+    guard toolType == "bash" else { return nil }
+    guard let manager = toolPtyManager else { return nil }
+    return manager.existingSession(for: toolRow.id)
   }
 
+  /// Subscribe to PTY for all running bash tools, not just expanded ones.
+  /// This ensures we capture full terminal history for Ghostty rendering
+  /// when the user eventually expands the card.
   private var shouldSubscribeToolPty: Bool {
-    toolType == "bash" && isExpanded && isRunning
+    toolType == "bash" && isRunning
   }
 
   private var summary: String {
@@ -133,9 +201,39 @@ struct ToolCardView: View {
   }
 
   var body: some View {
-    // File changes get a code-review-first layout — diff is the content
+    // Content-first layouts by tool family
     if isFileChangeCard {
       fileChangeBody
+    } else if isReadCard {
+      readCardBody
+    } else if isBashCard {
+      bashCardBody
+    } else if isSearchCard {
+      searchCardBody
+    } else if isWebSearchCard {
+      webSearchCardBody
+    } else if isQuestionCard {
+      questionCardBody
+    } else if isTaskCard {
+      taskCardBody
+    } else if isMcpCard {
+      mcpCardBody
+    } else if isGuardianCard {
+      guardianCardBody
+    } else if isHandoffCard {
+      handoffCardBody
+    } else if isImageCard {
+      imageCardBody
+    } else if isPlanCard {
+      planCardBody
+    } else if isTodoCard {
+      todoCardBody
+    } else if isHookCard {
+      hookCardBody
+    } else if isCompactContextCard {
+      compactContextCardBody
+    } else if isConfigCard {
+      configCardBody
     } else {
       standardToolBody
     }
@@ -182,15 +280,1249 @@ struct ToolCardView: View {
     .contentShape(Rectangle())
   }
 
+  // MARK: - Read Card Layout
+
+  /// Read card layout — file content is the content
+  private var readCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      readCardHeader
+
+      readCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .overlay { toolPtySubscriptionBridge }
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  /// Minimal header for read cards — filename + line count
+  private var readCardHeader: some View {
+    let lineCount = readContentLines.count
+
+    return HStack(spacing: Spacing.sm) {
+      // File icon — blue tint for read operations
+      Image(systemName: "doc.text")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.toolRead.opacity(0.8))
+
+      // Filename in mono
+      Text(compactFileName ?? "File")
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      // Line count badge
+      if lineCount > 0 {
+        Text("\(lineCount) lines")
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.toolRead)
+      }
+
+      statusIndicator(tint: Color.toolRead)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+    .contentShape(Rectangle())
+  }
+
+  /// Lines from the read content
+  private var readContentLines: [String] {
+    let output = fetchedContent?.outputDisplay ?? display?.outputPreview ?? ""
+    return output.components(separatedBy: "\n")
+  }
+
+  /// Read card content — shows file content preview or full
+  @ViewBuilder
+  private var readCardContent: some View {
+    let lines = readContentLines
+    let maxPreviewLines = isCompactLayout ? 10 : 12
+
+    if isExpanded {
+      // Full content in scrollable view
+      expandedReadContent(lines: lines)
+    } else if !lines.isEmpty && lines.first?.isEmpty == false {
+      // Preview first N lines
+      readContentPreview(lines: lines, maxLines: maxPreviewLines)
+    } else if isLoadingContent {
+      loadingState
+    }
+  }
+
+  /// Preview of file content with line numbers
+  private func readContentPreview(lines: [String], maxLines: Int) -> some View {
+    let displayLines = Array(lines.prefix(maxLines))
+    let hasMore = lines.count > maxLines
+    let startLine = fetchedContent?.startLine ?? 1
+
+    return VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(displayLines.enumerated()), id: \.offset) { index, line in
+        readCodeLine(line, lineNumber: startLine + index)
+      }
+
+      if hasMore {
+        expandPrompt(remaining: lines.count - maxLines)
+      }
+    }
+  }
+
+  /// Full scrollable read content
+  private func expandedReadContent(lines: [String]) -> some View {
+    let maxHeight: CGFloat = isCompactLayout ? 400 : 500
+    let startLine = fetchedContent?.startLine ?? 1
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+          readCodeLine(line, lineNumber: startLine + index)
+        }
+      }
+    }
+    .frame(maxHeight: maxHeight)
+  }
+
+  /// Single line of read content with line number
+  private func readCodeLine(_ content: String, lineNumber: Int) -> some View {
+    HStack(alignment: .top, spacing: 0) {
+      // Line number gutter
+      Text("\(lineNumber)")
+        .font(.system(size: TypeScale.mini, design: .monospaced))
+        .foregroundStyle(Color.toolRead.opacity(0.4))
+        .frame(width: 32, alignment: .trailing)
+        .padding(.trailing, Spacing.xs)
+
+      // Code content
+      Text(content.isEmpty ? " " : content)
+        .font(.system(size: TypeScale.code, design: .monospaced))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 2)
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  // MARK: - Bash Card Layout
+
+  /// Bash card layout — terminal command is the content
+  private var bashCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      bashCardHeader
+
+      bashCommandStrip
+
+      bashCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .overlay { toolPtySubscriptionBridge }
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  /// Terminal title bar for bash — cwd/title chrome, with command pinned below.
+  private var bashCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      #if os(macOS)
+        HStack(spacing: Spacing.xs) {
+          Circle().fill(Color(red: 1.0, green: 0.38, blue: 0.35)).frame(width: 6, height: 6)
+          Circle().fill(Color(red: 1.0, green: 0.74, blue: 0.2)).frame(width: 6, height: 6)
+          Circle().fill(Color(red: 0.3, green: 0.8, blue: 0.35)).frame(width: 6, height: 6)
+        }
+      #else
+        Image(systemName: "terminal")
+          .font(.system(size: IconScale.xs, weight: .semibold))
+          .foregroundStyle(Color.toolBash)
+      #endif
+
+      Spacer(minLength: Spacing.sm)
+
+      Text(bashTerminalTitle)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicatorWithSuccess(tint: Color.toolBash)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+    .contentShape(Rectangle())
+  }
+
+  /// Extract command from bash input
+  private var bashCommandText: String {
+    [
+      shellExecution?.command,
+      toolRow.title,
+      display?.inputDisplay,
+    ]
+    .compactMap(normalizedBashCommandCandidate)
+    .first ?? "Shell command"
+  }
+
+  private func normalizedBashCommandCandidate(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    let command = trimmed.hasPrefix("$ ")
+      ? String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+      : trimmed
+    let lower = command.lowercased()
+    guard !["$", "bash", "shell", "terminal"].contains(lower) else { return nil }
+    guard !lower.hasPrefix("bash completed") else { return nil }
+    guard !lower.hasPrefix("command completed") else { return nil }
+    return command
+  }
+
+  /// Bash card content — shows terminal output
+  @ViewBuilder
+  private var bashCardContent: some View {
+    if isExpanded {
+      // Full Ghostty terminal for expanded
+      if let content = fetchedContent {
+        bashExpandedView(content)
+      } else if isLoadingContent {
+        loadingState
+      } else {
+        bashExpandedFallback
+      }
+    } else {
+      // Compact output preview
+      bashOutputPreview
+    }
+  }
+
+  private func bashExpandedView(_ content: ServerRowContent) -> some View {
+    BashExpandedView(
+      content: content,
+      isFailed: isFailed,
+      liveOutputPreview: shellExecution?.liveOutputPreview ?? display?.liveOutputPreview,
+      isRunning: isRunning,
+      commandOverride: shellExecution?.command,
+      cwd: shellExecution?.cwd,
+      terminalTitle: shellExecution?.terminalSnapshot?.title,
+      toolPtySession: toolPtySession
+    )
+  }
+
+  private var bashCommandStrip: some View {
+    HStack(alignment: .firstTextBaseline, spacing: Spacing.sm_) {
+      Text("$")
+        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+        .foregroundStyle(Color.toolBash)
+
+      Text(bashCommandText)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textPrimary)
+        .fixedSize(horizontal: false, vertical: true)
+        .textSelection(.enabled)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm_)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.backgroundCode.opacity(0.98))
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.white.opacity(0.06))
+        .frame(height: 1)
+    }
+  }
+
+  @ViewBuilder
+  private var bashExpandedFallback: some View {
+    let transcript = bashPreviewTranscript(output: bashPreviewOutput)
+
+    bashTerminalSurface(
+      transcript: transcript,
+      maxHeight: isCompactLayout ? 360 : 500,
+      captureScrollWithoutFocus: true,
+      title: bashTerminalTitle
+    )
+  }
+
+  /// Preview of bash output — uses Ghostty for proper ANSI rendering
+  @ViewBuilder
+  private var bashOutputPreview: some View {
+    let transcript = bashPreviewTranscript(output: bashPreviewOutput)
+
+    if toolPtySession?.hasOutput == true || transcript != nil {
+      bashTerminalSurface(
+        transcript: transcript,
+        maxHeight: isCompactLayout ? 180 : 220,
+        captureScrollWithoutFocus: false,
+        cursorBlinkEnabled: isRunning,
+        minRows: isCompactLayout ? 5 : 6,
+        title: bashTerminalTitle
+      )
+    } else if isRunning {
+      HStack {
+        Circle()
+          .fill(Color.toolBash)
+          .frame(width: 6, height: 6)
+        Text("Running...")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  private var bashPreviewOutput: String? {
+    shellExecution?.liveOutputPreview
+      ?? display?.liveOutputPreview
+      ?? display?.outputPreview
+  }
+
+  private func bashPreviewTranscript(output: String?) -> String? {
+    if let snapshot = shellExecution?.terminalSnapshot?.transcript,
+       !snapshot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return snapshot
+    }
+
+    return ShellTranscriptBuilder.makeSnapshot(
+      command: bashCommandText,
+      output: output,
+      cwd: shellExecution?.cwd
+    )
+  }
+
+  @ViewBuilder
+  private func bashTerminalSurface(
+    transcript: String?,
+    maxHeight: CGFloat,
+    captureScrollWithoutFocus: Bool,
+    cursorBlinkEnabled: Bool = true,
+    minRows: Int = 6,
+    title: String
+  ) -> some View {
+    if let session = toolPtySession, session.hasOutput {
+      TerminalContainerView(
+        session: session,
+        shouldAutoFocusOnFirstAttachment: false,
+        captureScrollWithoutFocus: captureScrollWithoutFocus,
+        cursorBlinkEnabled: cursorBlinkEnabled,
+        allowsInput: false,
+        titleOverride: title,
+        showsTitleBar: false
+      )
+      .frame(maxHeight: maxHeight)
+    } else if let transcript {
+      TerminalTranscriptSurface(
+        output: transcript,
+        title: title,
+        maxHeight: maxHeight,
+        minRows: minRows,
+        showsTitleBar: false,
+        captureScrollWithoutFocus: captureScrollWithoutFocus
+      )
+    }
+  }
+
+  private var bashTerminalTitle: String {
+    if let title = shellExecution?.terminalSnapshot?.title {
+      return title
+    }
+    if let cwd = shellExecution?.cwd {
+      return ToolCardStyle.shortenPath(cwd)
+    }
+    return "Terminal"
+  }
+
+  // MARK: - Search Card Layout
+
+  /// Search card layout — pattern + results is the content
+  private var searchCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      searchCardHeader
+
+      searchCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .overlay { toolPtySubscriptionBridge }
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  /// Header for search cards — shows pattern + result count
+  private var searchCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Search icon — purple tint
+      Image(systemName: "magnifyingglass")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.toolSearch.opacity(0.8))
+
+      // Pattern in mono
+      Text(searchPattern)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      // Result count badge
+      if let count = searchResultCount, count > 0 {
+        Text("\(count) results")
+          .font(.system(size: TypeScale.meta, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.toolSearch)
+      }
+
+      statusIndicator(tint: Color.toolSearch)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+    .contentShape(Rectangle())
+  }
+
+  /// The search pattern from input
+  private var searchPattern: String {
+    // Prefer subtitle (which is the pattern) over summary
+    if let sub = rawSubtitle, !sub.isEmpty {
+      return sub
+    }
+    // Fall back to summary
+    return rawSummary
+  }
+
+  /// Number of results from rightMeta
+  private var searchResultCount: Int? {
+    guard let meta = rightMeta else { return nil }
+    // Parse "12 results" or similar
+    let digits = meta.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+    return Int(digits)
+  }
+
+  /// Search results lines
+  private var searchResultLines: [String] {
+    let output = fetchedContent?.outputDisplay ?? display?.outputPreview ?? ""
+    return output.components(separatedBy: "\n").filter { !$0.isEmpty }
+  }
+
+  /// Search card content — shows result list
+  @ViewBuilder
+  private var searchCardContent: some View {
+    let lines = searchResultLines
+
+    if isExpanded {
+      // Full results in scrollable view
+      expandedSearchResults(lines: lines)
+    } else if !lines.isEmpty {
+      // Preview first N results
+      searchResultsPreview(lines: lines)
+    } else if isRunning {
+      HStack {
+        Circle()
+          .fill(Color.toolSearch)
+          .frame(width: 6, height: 6)
+        Text("Searching...")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+    } else if isLoadingContent {
+      loadingState
+    }
+  }
+
+  /// Preview of search results
+  private func searchResultsPreview(lines: [String]) -> some View {
+    let maxPreviewLines = isCompactLayout ? 5 : 7
+    let displayLines = Array(lines.prefix(maxPreviewLines))
+    let hasMore = lines.count > maxPreviewLines
+
+    return VStack(alignment: .leading, spacing: 0) {
+      ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
+        searchResultLine(line)
+      }
+
+      if hasMore {
+        expandPrompt(remaining: lines.count - maxPreviewLines)
+      }
+    }
+  }
+
+  /// Full scrollable search results
+  private func expandedSearchResults(lines: [String]) -> some View {
+    let maxHeight: CGFloat = isCompactLayout ? 400 : 500
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+          searchResultLine(line)
+        }
+      }
+    }
+    .frame(maxHeight: maxHeight)
+  }
+
+  /// Single search result line — handles file paths and matches
+  private func searchResultLine(_ content: String) -> some View {
+    // Check if this line is a file path (for glob) or a match line (for grep)
+    let isFilePath = content.hasPrefix("/") || content.hasPrefix("./")
+    let trimmed = content.trimmingCharacters(in: .whitespaces)
+
+    return HStack(alignment: .top, spacing: 0) {
+      if isFilePath {
+        // File icon for paths
+        Image(systemName: "doc")
+          .font(.system(size: 9, weight: .medium))
+          .foregroundStyle(Color.toolSearch.opacity(0.5))
+          .frame(width: 14, alignment: .center)
+      } else {
+        // Dot for match lines
+        Circle()
+          .fill(Color.toolSearch.opacity(0.4))
+          .frame(width: 4, height: 4)
+          .frame(width: 14, alignment: .center)
+          .padding(.top, 6)
+      }
+
+      Text(trimmed)
+        .font(.system(size: TypeScale.code, design: .monospaced))
+        .foregroundStyle(isFilePath ? Color.textSecondary : Color.textTertiary)
+        .lineLimit(1)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 3)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(isFilePath ? Color.toolSearch.opacity(0.04) : Color.clear)
+  }
+
+  // MARK: - Web Search Card Layout
+
+  /// Web search card — query + result titles
+  private var webSearchCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      webSearchCardHeader
+      webSearchCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var webSearchCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Globe icon — teal/cyan for web
+      Image(systemName: "globe")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.toolWeb.opacity(0.8))
+
+      // Query in regular font (not mono — differentiates from code search)
+      Text(webSearchQuery)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicator(tint: Color.toolWeb)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+  }
+
+  private var webSearchQuery: String {
+    rawSubtitle ?? rawSummary
+  }
+
+  private var webSearchResults: [String] {
+    let output = display?.outputPreview ?? ""
+    return output.components(separatedBy: "\n").filter { !$0.isEmpty }
+  }
+
+  @ViewBuilder
+  private var webSearchCardContent: some View {
+    let results = webSearchResults
+
+    if isExpanded, let content = fetchedContent {
+      expandedWebSearchResults(content: content)
+    } else if !results.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(results.prefix(4).enumerated()), id: \.offset) { index, title in
+          HStack(spacing: Spacing.sm) {
+            Text("\(index + 1)")
+              .font(.system(size: TypeScale.mini, design: .monospaced))
+              .foregroundStyle(Color.toolWeb.opacity(0.5))
+              .frame(width: 16, alignment: .trailing)
+
+            Text(title)
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(1)
+          }
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, 4)
+        }
+
+        if results.count > 4 {
+          expandPrompt(remaining: results.count - 4)
+        }
+      }
+    } else if isRunning {
+      HStack {
+        Circle().fill(Color.toolWeb).frame(width: 6, height: 6)
+        Text("Searching...")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  private func expandedWebSearchResults(content: ServerRowContent) -> some View {
+    let output = content.outputDisplay ?? ""
+    let results = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(results.enumerated()), id: \.offset) { index, title in
+          HStack(spacing: Spacing.sm) {
+            Text("\(index + 1)")
+              .font(.system(size: TypeScale.mini, design: .monospaced))
+              .foregroundStyle(Color.toolWeb.opacity(0.5))
+              .frame(width: 16, alignment: .trailing)
+
+            Text(title)
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(2)
+          }
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, 4)
+        }
+      }
+    }
+    .frame(maxHeight: isCompactLayout ? 300 : 400)
+  }
+
+  // MARK: - Question Card Layout
+
+  /// Question card — prominent, demands user attention
+  private var questionCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      questionCardHeader
+      questionCardContent
+    }
+    .background(Color.accent.opacity(OpacityTier.subtle))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.accent.opacity(OpacityTier.medium), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var questionCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Question icon — larger for prominence
+      Image(systemName: "questionmark.circle.fill")
+        .font(.system(size: IconScale.lg, weight: .medium))
+        .foregroundStyle(Color.accent)
+
+      Text("Question")
+        .font(.system(size: TypeScale.subhead, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.textPrimary)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicator(tint: Color.accent)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var questionText: String {
+    display?.outputPreview ?? rawSummary
+  }
+
+  @ViewBuilder
+  private var questionCardContent: some View {
+    Text(questionText)
+      .font(.system(size: TypeScale.body))
+      .foregroundStyle(Color.textPrimary)
+      .padding(.horizontal, Spacing.md)
+      .padding(.bottom, Spacing.md)
+  }
+
+  // MARK: - Task Card Layout
+
+  /// Task/Agent card — mission status forward
+  private var taskCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      taskCardHeader
+      taskCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var taskCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Bolt icon — mission/task
+      Image(systemName: "bolt.fill")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.toolTask.opacity(0.8))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicatorWithSuccess(tint: Color.toolTask)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+  }
+
+  private var taskPreviewText: String? {
+    display?.outputPreview
+  }
+
+  @ViewBuilder
+  private var taskCardContent: some View {
+    if isExpanded, let content = fetchedContent {
+      expandedTaskContent(content: content)
+    } else if let preview = taskPreviewText, !preview.isEmpty {
+      let lines = preview.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.prefix(3).enumerated()), id: \.offset) { _, line in
+          Text(line)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 3)
+        }
+
+        if lines.count > 3 {
+          expandPrompt(remaining: lines.count - 3)
+        }
+      }
+    } else if isRunning {
+      HStack {
+        ProgressView().controlSize(.small)
+        Text("Task in progress...")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  private func expandedTaskContent(content: ServerRowContent) -> some View {
+    let output = content.outputDisplay ?? ""
+    let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+          Text(line)
+            .font(.system(size: TypeScale.caption))
+            .foregroundStyle(Color.textSecondary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 3)
+        }
+      }
+    }
+    .frame(maxHeight: isCompactLayout ? 300 : 400)
+  }
+
+  // MARK: - MCP Card Layout
+
+  /// MCP/Dynamic tool card — structured output
+  private var mcpCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      mcpCardHeader
+      mcpCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var mcpCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Puzzle piece — external integration
+      Image(systemName: "puzzlepiece.extension")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.toolMcp.opacity(0.8))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicatorWithSuccess(tint: Color.toolMcp)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+  }
+
+  private var mcpPreviewText: String? {
+    display?.outputPreview
+  }
+
+  @ViewBuilder
+  private var mcpCardContent: some View {
+    if isExpanded, let content = fetchedContent {
+      expandedMcpContent(content: content)
+    } else if let preview = mcpPreviewText, !preview.isEmpty {
+      let lines = preview.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.prefix(3).enumerated()), id: \.offset) { _, line in
+          mcpOutputLine(line)
+        }
+
+        if lines.count > 3 {
+          expandPrompt(remaining: lines.count - 3)
+        }
+      }
+    } else if isRunning {
+      HStack {
+        ProgressView().controlSize(.small)
+        Text("Running tool...")
+          .font(.system(size: TypeScale.caption))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  private func mcpOutputLine(_ line: String) -> some View {
+    // Parse "key: value" format
+    let parts = line.split(separator: ":", maxSplits: 1)
+    let hasKey = parts.count == 2
+
+    return HStack(alignment: .top, spacing: Spacing.xs) {
+      if hasKey {
+        Text(String(parts[0]))
+          .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.toolMcp.opacity(0.7))
+
+        Text(String(parts[1]).trimmingCharacters(in: .whitespaces))
+          .font(.system(size: TypeScale.caption, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+      } else {
+        Text(line)
+          .font(.system(size: TypeScale.caption, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 3)
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private func expandedMcpContent(content: ServerRowContent) -> some View {
+    let output = content.outputDisplay ?? ""
+    let lines = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+
+    return ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+          mcpOutputLine(line)
+        }
+      }
+    }
+    .frame(maxHeight: isCompactLayout ? 300 : 400)
+  }
+
+  // MARK: - Auto-review Assessment Card Layout
+
+  /// Auto-review/security review card — prominent, security-focused
+  private var guardianCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      guardianCardHeader
+      guardianCardContent
+    }
+    .background(Color.feedbackCaution.opacity(OpacityTier.subtle))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.feedbackCaution.opacity(OpacityTier.medium), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var guardianCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Shield icon — security-focused
+      Image(systemName: "shield.lefthalf.filled")
+        .font(.system(size: IconScale.lg, weight: .medium))
+        .foregroundStyle(Color.feedbackCaution)
+
+      Text("Security Review")
+        .font(.system(size: TypeScale.subhead, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.textPrimary)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicator(tint: Color.feedbackCaution)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var guardianPreviewText: String? {
+    display?.outputPreview
+  }
+
+  @ViewBuilder
+  private var guardianCardContent: some View {
+    if let preview = guardianPreviewText, !preview.isEmpty {
+      Text(preview)
+        .font(.system(size: TypeScale.body))
+        .foregroundStyle(Color.textSecondary)
+        .padding(.horizontal, Spacing.md)
+        .padding(.bottom, Spacing.md)
+    }
+  }
+
+  // MARK: - Handoff Card Layout
+
+  /// Handoff card — agent transfer
+  private var handoffCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      handoffCardHeader
+      handoffCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var handoffCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      // Branch arrow — transfer/handoff metaphor
+      Image(systemName: "arrow.triangle.branch")
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(Color.statusReply.opacity(0.8))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .semibold, design: .rounded))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicatorWithSuccess(tint: Color.statusReply)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+  }
+
+  @ViewBuilder
+  private var handoffCardContent: some View {
+    if let preview = display?.outputPreview, !preview.isEmpty {
+      Text(preview)
+        .font(.system(size: TypeScale.caption))
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  // MARK: - Image Card Layout
+
+  /// Image card — view/generate images
+  private var imageCardBody: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      imageCardHeader
+      imageCardContent
+    }
+    .background(Color.backgroundCode.opacity(0.95))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xs)
+    .contentShape(Rectangle())
+    .onTapGesture { onToggle?() }
+  }
+
+  private var imageCardHeader: some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: glyphSymbol)
+        .font(.system(size: IconScale.md, weight: .medium))
+        .foregroundStyle(glyphColor.opacity(0.8))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      statusIndicator(tint: Color.toolRead)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.sm_)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
+  }
+
+  @ViewBuilder
+  private var imageCardContent: some View {
+    if let subtitle = rawSubtitle, !subtitle.isEmpty {
+      Text(subtitle)
+        .font(.system(size: TypeScale.caption, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.sm)
+    }
+  }
+
+  // MARK: - Plan Card Layout
+
+  /// Plan card — minimal, mode entry/exit
+  private var planCardBody: some View {
+    HStack(spacing: Spacing.sm) {
+      // Map icon — very muted
+      Image(systemName: "map")
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(Color.toolPlan.opacity(0.5))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(Color.toolPlan)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.light))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+  }
+
+  // MARK: - Todo Card Layout
+
+  /// Todo card — minimal, task tracking
+  private var todoCardBody: some View {
+    HStack(spacing: Spacing.sm) {
+      // Checklist icon — very muted
+      Image(systemName: "checklist")
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(Color.toolTodo.opacity(0.5))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(Color.toolTodo)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.light))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+  }
+
+  // MARK: - Hook Card Layout
+
+  /// Hook notification card — system event from hooks
+  private var hookCardBody: some View {
+    HStack(spacing: Spacing.sm) {
+      // Bolt+clock icon — subtle warning
+      Image(systemName: "bolt.badge.clock")
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(Color.feedbackCaution.opacity(0.5))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(Color.feedbackCaution)
+      } else if isFailed {
+        Image(systemName: "exclamationmark.triangle.fill")
+          .font(.system(size: IconScale.xs))
+          .foregroundStyle(Color.feedbackNegative)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.feedbackCaution.opacity(OpacityTier.tint))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .strokeBorder(Color.feedbackCaution.opacity(OpacityTier.subtle), lineWidth: 1)
+    }
+    .padding(.vertical, Spacing.xxs)
+  }
+
+  // MARK: - Compact Context Card Layout
+
+  /// Compact context card — context window management
+  private var compactContextCardBody: some View {
+    HStack(spacing: Spacing.sm) {
+      // Circular arrows — system maintenance
+      Image(systemName: "arrow.triangle.2.circlepath")
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(Color.accent.opacity(0.4))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(Color.accent)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.light))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+  }
+
+  // MARK: - Config Card Layout
+
+  /// Config card — configuration changes, lowest priority
+  private var configCardBody: some View {
+    HStack(spacing: Spacing.sm) {
+      // Gear icon — very muted
+      Image(systemName: "gearshape")
+        .font(.system(size: IconScale.sm, weight: .medium))
+        .foregroundStyle(Color.textQuaternary.opacity(0.5))
+
+      Text(rawSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+
+      Spacer(minLength: Spacing.sm)
+
+      if isRunning {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(Color.textTertiary)
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
+    .background(Color.backgroundTertiary.opacity(OpacityTier.light))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    .padding(.vertical, Spacing.xxs)
+  }
+
+  // MARK: - File Change Card Layout
+
   /// Minimal header for file changes — filename + stats, tappable to expand
   private var fileChangeHeader: some View {
     HStack(spacing: Spacing.sm) {
       // File icon
       Image(systemName: glyphSymbol)
-        .font(.system(size: IconScale.sm, weight: .medium))
+        .font(.system(size: IconScale.md, weight: .medium))
         .foregroundStyle(chromeTint.opacity(0.8))
 
-      // Filename (truncated path)
+      // Filename in mono
       Text(compactFileName ?? "File")
         .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textSecondary)
@@ -210,28 +1542,15 @@ struct ToolCardView: View {
               .foregroundStyle(Color.diffRemovedAccent)
           }
         }
-        .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+        .font(.system(size: TypeScale.meta, weight: .bold, design: .monospaced))
       }
 
-      // Status for running/failed only
-      if isRunning {
-        ProgressView()
-          .controlSize(.mini)
-          .tint(chromeTint)
-      } else if isFailed {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: IconScale.sm))
-          .foregroundStyle(Color.feedbackNegative)
-      }
-
-      // Expand chevron
-      Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(Color.textQuaternary)
+      statusIndicator(tint: chromeTint)
+      expandChevron
     }
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, Spacing.sm_)
-    .background(Color.backgroundTertiary.opacity(0.5))
+    .background(Color.backgroundTertiary.opacity(OpacityTier.medium))
     .contentShape(Rectangle())
     .onTapGesture { onToggle?() }
   }
@@ -523,6 +1842,49 @@ struct ToolCardView: View {
     }
 
     return Color.white.opacity(isCompactLayout ? 0.075 : 0.055)
+  }
+
+  // MARK: - Unified Status Indicator
+
+  /// Unified status indicator for all card types
+  /// Shows: running spinner, failed X, or nothing (completion implied by presence)
+  @ViewBuilder
+  private func statusIndicator(tint: Color) -> some View {
+    if isRunning {
+      ProgressView()
+        .controlSize(.mini)
+        .tint(tint)
+    } else if isFailed {
+      Image(systemName: "xmark.circle.fill")
+        .font(.system(size: IconScale.sm))
+        .foregroundStyle(Color.feedbackNegative)
+    }
+    // No indicator for completed — implied by presence
+  }
+
+  /// Status indicator with success checkmark (for tools where completion matters)
+  @ViewBuilder
+  private func statusIndicatorWithSuccess(tint: Color) -> some View {
+    if isRunning {
+      ProgressView()
+        .controlSize(.mini)
+        .tint(tint)
+    } else if isFailed {
+      Image(systemName: "xmark.circle.fill")
+        .font(.system(size: IconScale.sm))
+        .foregroundStyle(Color.feedbackNegative)
+    } else if isSuccessful {
+      Image(systemName: "checkmark.circle.fill")
+        .font(.system(size: IconScale.sm))
+        .foregroundStyle(Color.feedbackPositive)
+    }
+  }
+
+  /// Expand/collapse chevron
+  private var expandChevron: some View {
+    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+      .font(.system(size: 10, weight: .semibold))
+      .foregroundStyle(Color.textQuaternary)
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -822,7 +2184,7 @@ struct ToolCardView: View {
     }
 
     // Live output for running bash (pulsing green dot)
-    if isRunning, let live = display?.liveOutputPreview, !live.isEmpty {
+    if isRunning, let live = shellExecution?.liveOutputPreview ?? display?.liveOutputPreview, !live.isEmpty {
       liveOutputStrip(live)
     }
 
@@ -1428,13 +2790,7 @@ struct ToolCardView: View {
     VStack(alignment: .leading, spacing: Spacing.md) {
       switch toolType {
         case "bash":
-          BashExpandedView(
-            content: content,
-            isFailed: isFailed,
-            liveOutputPreview: display?.liveOutputPreview,
-            isRunning: isRunning,
-            toolPtySession: toolPtySession
-          )
+          bashExpandedView(content)
         case "read":
           ReadExpandedView(content: content)
         case "edit":
@@ -1470,7 +2826,13 @@ struct ToolCardView: View {
         case "handoff":
           HandoffExpandedView(content: content, toolRow: toolRow)
         case "image":
-          ImageExpandedView(content: content)
+          ImageExpandedView(
+            content: content,
+            toolKind: toolRow.kind,
+            imageLoader: clients?.imageLoader,
+            sessionId: sessionId,
+            endpointId: endpointId
+          )
         case "compactContext":
           CompactContextExpandedView(content: content)
         case "config":

@@ -399,10 +399,13 @@ Returns:
   "image": {
     "input_type": "attachment",
     "value": "attachment-...",
-    "mime_type": "image/png"
+    "mime_type": "image/png",
+    "display_name": "diagram.png"
   }
 }
 ```
+
+`detail` may be present on image references restored from Codex history (`auto`, `low`, `high`, or `original`).
 
 ### `GET /api/sessions/{session_id}/conversation/attachments/images/{attachment_id}`
 
@@ -578,7 +581,6 @@ Returns:
 Query params:
 
 - repeatable `cwd`
-- `force_remote_sync`
 
 Returns plugin marketplace state for the session.
 
@@ -760,11 +762,13 @@ Sets the update channel and returns the same shape.
 
 ### `GET /api/usage/summary`
 
-Returns the combined usage summary snapshot.
+Returns the combined usage summary snapshot for direct OrbitDock sessions. Passive hook sessions
+are intentionally excluded so dashboard totals track sessions created and controlled by OrbitDock.
 
 ### `GET /api/usage/codex`
 
-Returns Codex-specific usage snapshot.
+Returns Codex-specific usage snapshot, including primary/secondary windows and the optional
+`rate_limit_reached_type` reason reported by Codex.
 
 ### `GET /api/usage/claude`
 

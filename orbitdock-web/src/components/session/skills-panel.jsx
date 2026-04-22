@@ -25,7 +25,6 @@ const normalizePluginCatalog = (data) => {
   if (marketplaces.length > 0) {
     return {
       marketplaces,
-      remoteSyncError: textOr(data?.remote_sync_error || data?.remoteSyncError),
     }
   }
 
@@ -41,13 +40,25 @@ const normalizePluginCatalog = (data) => {
           __key: 'plugins',
         },
       ],
-      remoteSyncError: textOr(data?.remote_sync_error || data?.remoteSyncError),
     }
   }
 
   return {
     marketplaces: [],
-    remoteSyncError: textOr(data?.remote_sync_error || data?.remoteSyncError),
+  }
+}
+
+const pluginSourceLabel = (source) => {
+  if (typeof source === 'string') return textOr(source)
+  switch (source?.type) {
+    case 'local':
+      return 'local'
+    case 'git':
+      return 'git'
+    case 'remote':
+      return 'remote'
+    default:
+      return ''
   }
 }
 
@@ -85,7 +96,7 @@ const pluginMatches = (plugin, marketplace, query) => {
     pluginDescription(plugin),
     plugin?.name,
     plugin?.id,
-    plugin?.source,
+    pluginSourceLabel(plugin?.source),
     plugin?.install_policy,
     plugin?.auth_policy,
     marketplaceDisplayName(marketplace),
@@ -136,6 +147,7 @@ const SkillRow = ({ skill, onToggle }) => {
           {skill.enabled ? 'enabled' : 'disabled'}
         </Badge>
         <button
+          type="button"
           class={`${styles.toggleSwitch} ${skill.enabled ? styles.toggleOn : ''}`}
           onClick={handleToggle}
           disabled={toggling}
@@ -155,6 +167,8 @@ const PluginCard = ({ plugin, marketplace, onAction, busy }) => {
   const capabilities = toArray(plugin?.interface?.capabilities)
   const isInstalled = Boolean(plugin?.installed)
   const isEnabled = Boolean(plugin?.enabled)
+  const canInstall = isInstalled || Boolean(marketplace?.path)
+  const sourceLabel = pluginSourceLabel(plugin?.source)
 
   return (
     <article class={styles.pluginCard} style={accent ? { '--plugin-accent': accent } : undefined}>
@@ -176,7 +190,7 @@ const PluginCard = ({ plugin, marketplace, onAction, busy }) => {
               {isEnabled ? 'enabled' : 'disabled'}
             </Badge>
           )}
-          {plugin?.source && <Badge variant="meta">{plugin.source}</Badge>}
+          {sourceLabel && <Badge variant="meta">{sourceLabel}</Badge>}
           {plugin?.install_policy && <Badge variant="meta">{plugin.install_policy}</Badge>}
           {plugin?.auth_policy && <Badge variant="meta">{plugin.auth_policy}</Badge>}
           {capabilities.length > 0 && <Badge variant="meta">{capabilities.length} capabilities</Badge>}
@@ -195,10 +209,10 @@ const PluginCard = ({ plugin, marketplace, onAction, busy }) => {
           size="sm"
           variant={isInstalled ? 'danger' : 'primary'}
           loading={busy}
-          disabled={busy}
+          disabled={busy || !canInstall}
           onClick={() => onAction(plugin, marketplace)}
         >
-          {isInstalled ? 'Uninstall' : 'Install'}
+          {isInstalled ? 'Uninstall' : canInstall ? 'Install' : 'Unavailable'}
         </Button>
       </div>
     </article>
@@ -213,7 +227,6 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
   const [marketplaces, setMarketplaces] = useState([])
   const [catalogLoading, setCatalogLoading] = useState(true)
   const [catalogError, setCatalogError] = useState(null)
-  const [remoteSyncError, setRemoteSyncError] = useState(null)
 
   const [search, setSearch] = useState('')
   const [actionError, setActionError] = useState(null)
@@ -254,11 +267,10 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
     const loadCatalog = async () => {
       try {
-        const data = await http.get(`/api/sessions/${sessionId}/plugins`, { force_remote_sync: true })
+        const data = await http.get(`/api/sessions/${sessionId}/plugins`)
         if (!cancelled) {
           const normalized = normalizePluginCatalog(data)
           setMarketplaces(normalized.marketplaces)
-          setRemoteSyncError(normalized.remoteSyncError)
         }
       } catch (err) {
         if (!cancelled) {
@@ -298,11 +310,10 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
 
   const refreshCatalog = async () => {
     try {
-      const data = await http.get(`/api/sessions/${sessionId}/plugins`, { force_remote_sync: true })
+      const data = await http.get(`/api/sessions/${sessionId}/plugins`)
       const normalized = normalizePluginCatalog(data)
       setCatalogError(null)
       setMarketplaces(normalized.marketplaces)
-      setRemoteSyncError(normalized.remoteSyncError)
     } catch (err) {
       setCatalogError(err.message)
       throw err
@@ -338,14 +349,16 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
     try {
       if (plugin.installed) {
         await http.post(`/api/sessions/${sessionId}/plugins/uninstall`, {
-          plugin_id: plugin.id || plugin.name,
-          force_remote_sync: true,
+          pluginId: plugin.id || plugin.name,
         })
       } else {
+        if (!marketplace?.path) {
+          throw new Error('This plugin is not installable from a local marketplace yet.')
+        }
         await http.post(`/api/sessions/${sessionId}/plugins/install`, {
-          marketplace_path: marketplace?.path || marketplace?.name || '',
-          plugin_name: plugin.name || plugin.id,
-          force_remote_sync: true,
+          marketplacePath: marketplace.path,
+          remoteMarketplaceName: null,
+          pluginName: plugin.name || plugin.id,
         })
       }
 
@@ -408,12 +421,12 @@ const SkillsPanel = ({ sessionId, liveSkills }) => {
         </div>
       )}
 
-      {(remoteSyncError || catalogError) && (
+      {catalogError && (
         <div class={styles.noticeState} role="status">
-          <Badge variant="status" color={catalogError ? 'feedback-negative' : 'feedback-warning'}>
-            {catalogError ? 'Catalog error' : 'Remote sync'}
+          <Badge variant="status" color="feedback-negative">
+            Catalog error
           </Badge>
-          <span>{catalogError || remoteSyncError}</span>
+          <span>{catalogError}</span>
         </div>
       )}
 

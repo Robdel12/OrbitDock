@@ -413,6 +413,7 @@ pub(crate) fn load_messages_from_transcript(
               })),
               render_hints: RenderHints::default(),
               tool_display: td,
+              shell_execution: None,
             }),
           });
           sequence += 1;
@@ -467,6 +468,7 @@ pub(crate) fn load_messages_from_transcript(
               result: None,
               render_hints: RenderHints::default(),
               tool_display: td,
+              shell_execution: None,
             }),
           });
           sequence += 1;

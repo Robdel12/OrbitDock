@@ -62,8 +62,38 @@ enum ShellTranscriptBuilder {
 
   private static func normalizeOutput(_ raw: String?) -> String? {
     guard let raw else { return nil }
-    guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-    return raw.trimmingCharacters(in: CharacterSet(charactersIn: "\n"))
+    let sanitized = stripStdinMarkers(raw)
+    guard !sanitized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+    return sanitized
+  }
+
+  private static func stripStdinMarkers(_ raw: String) -> String {
+    let hadTrailingNewline = raw.hasSuffix("\n")
+    var lines = raw
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+      .components(separatedBy: "\n")
+
+    if hadTrailingNewline {
+      lines.removeLast()
+    }
+
+    let cleaned = lines.compactMap { line -> String? in
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed == "[stdin]" {
+        return nil
+      }
+      if let range = line.range(of: "[stdin] ") {
+        let prefix = line[..<range.lowerBound]
+        let suffix = line[range.upperBound...]
+        if prefix.trimmingCharacters(in: .whitespaces).isEmpty {
+          return String(prefix + suffix)
+        }
+      }
+      return line
+    }.joined(separator: "\n")
+
+    return hadTrailingNewline ? cleaned + "\n" : cleaned
   }
 
   /// Soft-wrap long commands for readability in transcript snapshots.

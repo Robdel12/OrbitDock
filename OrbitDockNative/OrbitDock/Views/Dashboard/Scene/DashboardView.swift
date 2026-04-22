@@ -80,9 +80,11 @@ struct DashboardView: View {
   let router = AppRouter()
   let dataService = DashboardDataService()
   let libraryDataService = LibraryDataService()
-  DashboardView(viewModel: DashboardViewModel(dataService: dataService))
+  let pinnedService = PinnedSessionsService()
+  DashboardView(viewModel: DashboardViewModel(dataService: dataService, pinnedService: pinnedService))
     .frame(width: 900, height: 500)
     .environment(runtimeRegistry)
     .environment(router)
     .environment(libraryDataService)
+    .environment(pinnedService)
 }

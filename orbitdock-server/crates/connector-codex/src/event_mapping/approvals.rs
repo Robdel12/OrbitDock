@@ -193,6 +193,7 @@ pub(crate) fn handle_request_user_input(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   };
 
   vec![
@@ -286,6 +287,7 @@ pub(crate) fn handle_elicitation_request(
     result: None,
     render_hints: Default::default(),
     tool_display: None,
+    shell_execution: None,
   };
 
   let elicitation_message = (!request_message.is_empty()).then(|| request_message.to_string());

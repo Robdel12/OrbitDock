@@ -6,8 +6,8 @@ use axum::{
 };
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::conversation_contracts::{
-  CommandExecutionAction, CommandExecutionRow, CommandExecutionStatus, ConversationRow,
-  ConversationRowEntry, ToolRow,
+  shell_terminal_snapshot, ConversationRow, ConversationRowEntry, ShellAction,
+  ShellExecutionPayload, ToolRow,
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::{Provider, SessionControlMode};
@@ -21,7 +21,7 @@ use crate::{
 use super::{
   common::clamp_library_limit,
   conversation::{get_conversation_snapshot, get_session_stats, search_conversation_rows},
-  row_content::test_command_execution_row_content,
+  row_content::test_shell_execution_row_content,
   summary::{get_active_sessions_snapshot, get_archived_sessions_snapshot},
   ConversationPageQuery, ConversationSearchQuery, LibrarySnapshotQuery,
 };
@@ -110,11 +110,12 @@ fn test_tool_row(
       })),
       render_hints: RenderHints::default(),
       tool_display: None,
+      shell_execution: None,
     }),
   }
 }
 
-fn test_command_execution_row(
+fn test_shell_tool_row(
   session_id: &str,
   id: &str,
   sequence: u64,
@@ -125,24 +126,42 @@ fn test_command_execution_row(
     sequence,
     turn_id: Some("turn-1".to_string()),
     turn_status: Default::default(),
-    row: ConversationRow::CommandExecution(CommandExecutionRow {
+    row: ConversationRow::Tool(ToolRow {
       id: id.to_string(),
-      status: CommandExecutionStatus::Completed,
-      command: "sed -n '1,40p' docs/design-system.md".to_string(),
-      cwd: "/tmp/orbitdock-command-execution".to_string(),
-      process_id: Some("pty-42".to_string()),
-      command_actions: vec![CommandExecutionAction::Read {
-        command: "sed -n '1,40p' docs/design-system.md".to_string(),
-        name: "design-system.md".to_string(),
-        path: "docs/design-system.md".to_string(),
-      }],
-      live_output_preview: None,
-      aggregated_output: output.map(ToString::to_string),
-      terminal_snapshot: None,
+      provider: Provider::Codex,
+      family: ToolFamily::Shell,
+      kind: ToolKind::Bash,
+      status: ToolStatus::Completed,
+      title: "sed -n '1,40p' docs/design-system.md".to_string(),
+      subtitle: Some("/tmp/orbitdock-shell-execution".to_string()),
+      summary: None,
       preview: None,
-      exit_code: Some(0),
+      started_at: None,
+      ended_at: None,
       duration_ms: Some(18),
+      grouping_key: None,
+      invocation: serde_json::json!({
+        "command": "sed -n '1,40p' docs/design-system.md",
+        "cwd": "/tmp/orbitdock-shell-execution",
+      }),
+      result: None,
       render_hints: RenderHints::default(),
+      tool_display: None,
+      shell_execution: Some(ShellExecutionPayload {
+        command: "sed -n '1,40p' docs/design-system.md".to_string(),
+        cwd: "/tmp/orbitdock-shell-execution".to_string(),
+        process_id: Some("pty-42".to_string()),
+        actions: vec![ShellAction::Read {
+          command: "sed -n '1,40p' docs/design-system.md".to_string(),
+          name: "design-system.md".to_string(),
+          path: "docs/design-system.md".to_string(),
+        }],
+        live_output_preview: None,
+        aggregated_output: output.map(ToString::to_string),
+        terminal_snapshot: None,
+        preview: None,
+        exit_code: Some(0),
+      }),
     }),
   }
 }
@@ -456,13 +475,14 @@ async fn search_and_stats_return_not_found_for_runtime_only_sessions() {
 }
 
 #[tokio::test]
-async fn command_execution_row_content_returns_full_output() {
-  let entry = test_command_execution_row("session-1", "cmd-1", 1, Some("22pt Bold\n18pt Semibold"));
-  let ConversationRow::CommandExecution(row) = &entry.row else {
-    panic!("expected command execution row");
+async fn shell_execution_row_content_returns_full_output() {
+  let entry = test_shell_tool_row("session-1", "cmd-1", 1, Some("22pt Bold\n18pt Semibold"));
+  let ConversationRow::Tool(row) = &entry.row else {
+    panic!("expected tool row");
   };
+  let shell = row.shell_execution.as_ref().expect("shell_execution");
 
-  let response = test_command_execution_row_content("cmd-1".to_string(), row);
+  let response = test_shell_execution_row_content("cmd-1".to_string(), shell);
 
   assert_eq!(response.row_id, "cmd-1");
   assert_eq!(
@@ -474,4 +494,22 @@ async fn command_execution_row_content_returns_full_output() {
     Some("22pt Bold\n18pt Semibold")
   );
   assert!(response.diff_display.is_none());
+}
+
+#[tokio::test]
+async fn shell_execution_row_content_falls_back_to_terminal_snapshot_output() {
+  let entry = test_shell_tool_row("session-1", "cmd-1", 1, None);
+  let ConversationRow::Tool(row) = &entry.row else {
+    panic!("expected tool row");
+  };
+  let mut shell = row.shell_execution.clone().expect("shell_execution");
+  shell.terminal_snapshot = shell_terminal_snapshot(
+    "sed -n '1,40p' docs/design-system.md",
+    "/tmp/orbitdock-shell-execution",
+    Some("snapshot only\n"),
+  );
+
+  let response = test_shell_execution_row_content("cmd-1".to_string(), &shell);
+
+  assert_eq!(response.output_display.as_deref(), Some("snapshot only\n"));
 }

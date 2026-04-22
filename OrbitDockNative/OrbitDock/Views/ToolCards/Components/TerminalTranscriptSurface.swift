@@ -9,14 +9,17 @@ struct TerminalTranscriptSurface: View {
   var title: String?
   var maxHeight: CGFloat?
   var minRows: Int = 6
+  var maxScrollbackRows: Int = 10_000
+  var showsTitleBar: Bool = true
+  var captureScrollWithoutFocus: Bool = true
 
-  @State private var session = TerminalSessionController(terminalId: "tool-transcript-initial")
-  @State private var renderedSignature = ""
+  @State private var session: TerminalSessionController?
+  @State private var renderedFingerprint: RenderFingerprint?
   @State private var availableWidth: CGFloat = 0
 
   private let rowHeight: CGFloat = 17
   private let cellWidth: CGFloat = 8
-  private let titleBarHeight: CGFloat = 24
+  private let titleBarChromeHeight: CGFloat = 24
   private let minimumCols = 64
   private let maximumScrollableCols = 640
   private let horizontalInsets: CGFloat = 16
@@ -26,51 +29,65 @@ struct TerminalTranscriptSurface: View {
     let renderRows: Int
   }
 
+  private struct RenderFingerprint: Equatable {
+    let cols: Int
+    let rows: Int
+    let byteCount: Int
+    let hash: UInt64
+  }
+
   private var normalizedOutput: String {
-    let normalizedLF = output
-      .replacingOccurrences(of: "\r\n", with: "\n")
-      .replacingOccurrences(of: "\r", with: "\n")
-    // Terminals expect CRLF for deterministic line starts.
-    // Keep exact trailing newline semantics so the cursor lands correctly.
-    return normalizedLF.replacingOccurrences(of: "\n", with: "\r\n")
+    String(decoding: normalizedTerminalBytes(for: output), as: UTF8.self)
   }
 
   var body: some View {
     let transcript = normalizedOutput
+    let cleanTranscript = ANSIColorParser.stripANSI(transcript)
     let viewportWidth = max(availableWidth, 1)
     let viewportCols = estimatedCols(forWidth: viewportWidth)
-    let contentCols = estimatedContentCols(for: transcript, minimum: viewportCols)
+    let contentCols = estimatedContentCols(forCleanText: cleanTranscript, minimum: viewportCols)
     let contentWidth = resolvedContentWidth(for: viewportWidth, cols: contentCols)
-    let layoutState = renderState(for: transcript, cols: contentCols)
+    let layoutState = renderState(forCleanText: cleanTranscript, cols: contentCols)
 
     ScrollView(.horizontal, showsIndicators: true) {
-      TerminalContainerView(
-        session: session,
-        shouldAutoFocusOnFirstAttachment: false,
-        captureScrollWithoutFocus: false,
-        titleOverride: title
-      )
+      Group {
+        if let session {
+          TerminalContainerView(
+            session: session,
+            shouldAutoFocusOnFirstAttachment: false,
+            captureScrollWithoutFocus: captureScrollWithoutFocus,
+            cursorBlinkEnabled: false,
+            allowsInput: false,
+            titleOverride: title,
+            showsTitleBar: showsTitleBar
+          )
+        } else {
+          Color.clear
+        }
+      }
       .frame(width: contentWidth, height: layoutState.visibleHeight, alignment: .topLeading)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .frame(height: layoutState.visibleHeight, alignment: .topLeading)
     .background(widthProbe)
     .onAppear {
-      renderIfNeeded(cols: contentCols, rows: layoutState.renderRows, transcript: transcript)
+      renderTranscript(transcript, cleanTranscript: cleanTranscript, cols: contentCols)
     }
     .onChange(of: output) { _, _ in
-      let nextRenderState = renderState(for: transcript, cols: contentCols)
-      renderIfNeeded(cols: contentCols, rows: nextRenderState.renderRows, transcript: transcript)
+      renderTranscript(transcript, cleanTranscript: cleanTranscript, cols: contentCols)
     }
     .onChange(of: contentCols) { _, nextCols in
-      let nextRenderState = renderState(for: transcript, cols: nextCols)
-      renderIfNeeded(cols: nextCols, rows: nextRenderState.renderRows, transcript: transcript)
+      renderTranscript(transcript, cleanTranscript: cleanTranscript, cols: nextCols)
     }
     .accessibilityHidden(true)
   }
 
   private var minimumSurfaceHeight: CGFloat {
     titleBarHeight + rowHeight * CGFloat(max(1, minRows))
+  }
+
+  private var titleBarHeight: CGFloat {
+    showsTitleBar ? titleBarChromeHeight : 0
   }
 
   private func resolvedContentWidth(for viewportWidth: CGFloat, cols: Int) -> CGFloat {
@@ -93,9 +110,8 @@ struct TerminalTranscriptSurface: View {
     max(minimumCols, Int((width / cellWidth).rounded(.down)))
   }
 
-  private func estimatedRows(for text: String, cols: Int) -> Int {
-    let clean = ANSIColorParser.stripANSI(text)
-    let baseRows = clean
+  private func estimatedRows(forCleanText text: String, cols: Int) -> Int {
+    let baseRows = text
       .components(separatedBy: "\n")
       .reduce(0) { partial, line in
         let lineLength = max(1, line.count)
@@ -105,9 +121,8 @@ struct TerminalTranscriptSurface: View {
     return max(minRows, baseRows + 2)
   }
 
-  private func estimatedContentCols(for text: String, minimum: Int) -> Int {
-    let clean = ANSIColorParser.stripANSI(text)
-    let longestLine = clean
+  private func estimatedContentCols(forCleanText text: String, minimum: Int) -> Int {
+    let longestLine = text
       .components(separatedBy: "\n")
       .map(\.count)
       .max() ?? minimum
@@ -115,8 +130,8 @@ struct TerminalTranscriptSurface: View {
     return min(maximumScrollableCols, max(minimum, longestLine + 2))
   }
 
-  private func renderState(for transcript: String, cols: Int) -> RenderState {
-    let estimatedContentRows = estimatedRows(for: transcript, cols: cols)
+  private func renderState(forCleanText text: String, cols: Int) -> RenderState {
+    let estimatedContentRows = estimatedRows(forCleanText: text, cols: cols)
     let fullContainerHeight = fullHeight(forRows: estimatedContentRows)
     let visibleHeight = resolvedVisibleContainerHeight(fullHeight: fullContainerHeight)
     return RenderState(
@@ -146,25 +161,69 @@ struct TerminalTranscriptSurface: View {
   }
 
   private func renderIfNeeded(cols: Int, rows: Int, transcript: String) {
-    let signature = "\(cols):\(rows):\(transcript)"
-    guard renderedSignature != signature else { return }
-    renderedSignature = signature
+    let fingerprint = renderFingerprint(cols: cols, rows: rows, transcript: transcript)
+    guard renderedFingerprint != fingerprint else { return }
+    renderedFingerprint = fingerprint
 
+    session = makeSession(cols: cols, rows: rows, transcript: transcript)
+  }
+
+  private func renderTranscript(_ transcript: String, cleanTranscript: String, cols: Int) {
+    let renderRows = renderState(forCleanText: cleanTranscript, cols: cols).renderRows
+    renderIfNeeded(cols: cols, rows: renderRows, transcript: transcript)
+  }
+
+  private func makeSession(cols: Int, rows: Int, transcript: String) -> TerminalSessionController {
     let nextSession = TerminalSessionController(
       terminalId: "tool-transcript-\(UUID().uuidString)",
       cols: UInt16(max(1, min(cols, Int(UInt16.max)))),
-      rows: UInt16(max(1, min(rows, Int(UInt16.max))))
+      rows: UInt16(max(1, min(rows, Int(UInt16.max)))),
+      maxScrollback: max(0, maxScrollbackRows)
     )
     nextSession.sendToServer = { _ in }
     if !transcript.isEmpty {
       nextSession.feedOutput(Data(transcript.utf8))
     }
-    session = nextSession
+    return nextSession
+  }
+
+  private func renderFingerprint(cols: Int, rows: Int, transcript: String) -> RenderFingerprint {
+    var hash: UInt64 = 1_469_598_103_934_665_603
+    var byteCount = 0
+    for byte in transcript.utf8 {
+      hash ^= UInt64(byte)
+      hash &*= 1_099_511_628_211
+      byteCount += 1
+    }
+    return RenderFingerprint(cols: cols, rows: rows, byteCount: byteCount, hash: hash)
   }
 
   private func updateAvailableWidth(_ nextWidth: CGFloat) {
     let sanitized = max(1, nextWidth)
     guard abs(sanitized - availableWidth) > 0.5 else { return }
     availableWidth = sanitized
+  }
+
+  private func normalizedTerminalBytes(for text: String) -> [UInt8] {
+    var normalized: [UInt8] = []
+    normalized.reserveCapacity(text.utf8.count)
+    var lastByteWasCarriageReturn = false
+
+    for byte in text.utf8 {
+      if byte == 10 {
+        if lastByteWasCarriageReturn {
+          normalized.append(byte)
+        } else {
+          normalized.append(13)
+          normalized.append(10)
+        }
+        lastByteWasCarriageReturn = false
+      } else {
+        normalized.append(byte)
+        lastByteWasCarriageReturn = byte == 13
+      }
+    }
+
+    return normalized
   }
 }

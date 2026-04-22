@@ -161,6 +161,14 @@ mod tests {
   }
 
   #[test]
+  fn external_sandbox_mode_is_supported() {
+    let parsed = parse_sandbox_policy(Some("external-sandbox"))
+      .expect("parse external-sandbox")
+      .expect("sandbox policy");
+    assert!(matches!(parsed, SandboxPolicy::ExternalSandbox { .. }));
+  }
+
+  #[test]
   fn approval_policy_details_are_preferred_over_summary_string() {
     let details =
       orbitdock_protocol::CodexApprovalPolicy::Mode(orbitdock_protocol::CodexApprovalMode::Never);

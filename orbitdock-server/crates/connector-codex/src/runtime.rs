@@ -27,6 +27,7 @@ pub(super) struct EventLoopState {
   pub(super) reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
   pub(super) current_model: Arc<tokio::sync::Mutex<Option<String>>>,
   pub(super) current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
+  pub(super) current_cwd: Arc<tokio::sync::Mutex<String>>,
   pub(super) patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
 }
 
@@ -88,6 +89,7 @@ impl CodexConnector {
     new_thread: codex_core::NewThread,
     thread_manager: Arc<ThreadManager>,
     codex_home: PathBuf,
+    cwd: &str,
   ) -> Result<Self, ConnectorError> {
     let thread = new_thread.thread;
     let thread_id = new_thread.thread_id;
@@ -98,6 +100,7 @@ impl CodexConnector {
     let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
     let current_reasoning_effort =
       Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
+    let current_cwd = Arc::new(tokio::sync::Mutex::new(cwd.to_string()));
 
     let state = EventLoopState {
       output_buffers: Arc::new(tokio::sync::Mutex::new(
@@ -117,6 +120,7 @@ impl CodexConnector {
       reasoning_tracker: Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default())),
       current_model: current_model.clone(),
       current_reasoning_effort: current_reasoning_effort.clone(),
+      current_cwd: current_cwd.clone(),
       patch_contexts: Arc::new(tokio::sync::Mutex::new(
         HashMap::<String, serde_json::Value>::new(),
       )),
@@ -134,6 +138,7 @@ impl CodexConnector {
       codex_home,
       output_rx: Some(output_rx),
       thread_id: thread_id.to_string(),
+      current_cwd,
       current_model,
       current_reasoning_effort,
     })

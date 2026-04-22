@@ -14,6 +14,7 @@ extension ConversationViewModel {
       structureRevision = 0
       contentRevision = 0
       lastNewestSequence = 0
+      hasShownContent = false
       conversationLoaded = false
       hasMoreBefore = false
       totalRowCount = 0

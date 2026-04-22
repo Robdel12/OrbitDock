@@ -1,4 +1,6 @@
-use orbitdock_protocol::{ClaudeUsageSnapshot, CodexUsageSnapshot, UsageErrorInfo};
+use orbitdock_protocol::{
+  ClaudeUsageSnapshot, CodexRateLimitReachedType, CodexUsageSnapshot, UsageErrorInfo,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{ProviderFilter, UsageAction};
@@ -171,6 +173,9 @@ async fn show_codex(rest: &RestClient, output: &Output) -> i32 {
             secondary.used_percent, secondary.window_duration_mins
           );
         }
+        if let Some(reason) = usage.rate_limit_reached_type {
+          println!("  Limit reason: {}", codex_limit_reason_label(reason));
+        }
       } else if let Some(ref info) = resp.error_info {
         eprintln!("Codex usage unavailable: {}", info.message);
       }
@@ -179,6 +184,22 @@ async fn show_codex(rest: &RestClient, output: &Output) -> i32 {
     Err((code, err)) => {
       output.print_error(&err);
       code
+    }
+  }
+}
+
+fn codex_limit_reason_label(reason: CodexRateLimitReachedType) -> &'static str {
+  match reason {
+    CodexRateLimitReachedType::RateLimitReached => "rate limit reached",
+    CodexRateLimitReachedType::WorkspaceOwnerCreditsDepleted => "workspace owner credits depleted",
+    CodexRateLimitReachedType::WorkspaceMemberCreditsDepleted => {
+      "workspace member credits depleted"
+    }
+    CodexRateLimitReachedType::WorkspaceOwnerUsageLimitReached => {
+      "workspace owner usage limit reached"
+    }
+    CodexRateLimitReachedType::WorkspaceMemberUsageLimitReached => {
+      "workspace member usage limit reached"
     }
   }
 }

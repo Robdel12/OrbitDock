@@ -66,21 +66,7 @@ const childTypeSummary = (child) => {
     return row.tool_display?.summary || row.title || null
   }
 
-  if (row.row_type !== 'command_execution') {
-    return null
-  }
-
-  const actions = row.command_actions || []
-  if (actions.length === 0) return 'Run command'
-
-  if (actions.every((action) => action.type === 'read')) return 'Read'
-  if (actions.every((action) => action.type === 'search')) return 'Search'
-  if (actions.every((action) => action.type === 'list_files')) return 'List files'
-  if (actions.every((action) => action.type === 'search' || action.type === 'list_files')) {
-    return 'Search'
-  }
-
-  return 'Command'
+  return null
 }
 
 export { ActivityGroupRow }

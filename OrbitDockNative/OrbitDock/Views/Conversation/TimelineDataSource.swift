@@ -81,7 +81,7 @@ enum TimelineDataSource {
 
       for entry in entries {
         switch entry.row {
-          case .tool, .commandExecution:
+          case .tool:
             toolBuffer.append(ToolBufferItem(entry: entry))
 
           case .context, .notice, .shellCommand, .task, .worker, .plan, .hook, .handoff:
@@ -223,8 +223,6 @@ enum TimelineDataSource {
     switch entry.row {
       case let .tool(toolRow):
         return .tool(toolRow)
-      case let .commandExecution(commandExecution):
-        return .commandExecution(commandExecution)
       default:
         return nil
     }
@@ -234,8 +232,6 @@ enum TimelineDataSource {
     switch child {
       case let .tool(toolRow):
         return toolRow.title
-      case let .commandExecution(commandExecution):
-        return commandExecution.commandActions.first.map(commandExecutionActionTitle(_:)) ?? "Run command"
     }
   }
 
@@ -243,17 +239,6 @@ enum TimelineDataSource {
     switch child {
       case let .tool(toolRow):
         return toolRow.status
-      case let .commandExecution(commandExecution):
-        switch commandExecution.status {
-          case .inProgress:
-            return .running
-          case .completed:
-            return .completed
-          case .failed:
-            return .failed
-          case .declined:
-            return .blocked
-        }
     }
   }
 
@@ -261,8 +246,6 @@ enum TimelineDataSource {
     switch child {
       case let .tool(toolRow):
         return toolRow.family
-      case let .commandExecution(commandExecution):
-        return commandExecutionFamily(commandExecution)
     }
   }
 
@@ -288,29 +271,6 @@ enum TimelineDataSource {
     }
 
     return .completed
-  }
-
-  nonisolated private static func commandExecutionFamily(_ row: ServerConversationCommandExecutionRow) -> ServerConversationToolFamily {
-    if row.commandActions.allSatisfy({ $0.type == .read }) {
-      return .fileRead
-    }
-    if row.commandActions.allSatisfy({ $0.type == .search || $0.type == .listFiles }) {
-      return .search
-    }
-    return .shell
-  }
-
-  nonisolated private static func commandExecutionActionTitle(_ action: ServerConversationCommandAction) -> String {
-    switch action.type {
-      case .read:
-        return "Read"
-      case .search:
-        return "Search"
-      case .listFiles:
-        return "List files"
-      case .unknown:
-        return "Run command"
-    }
   }
 
   private static func displayIndexByRowID(_ entries: [ServerConversationRowEntry]) -> [String: Int] {

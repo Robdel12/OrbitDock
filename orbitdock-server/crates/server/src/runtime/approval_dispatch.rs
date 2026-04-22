@@ -21,8 +21,8 @@ pub(crate) struct ApprovalDispatchResult {
 }
 
 enum ProviderApprovalAction {
-  Codex(CodexAction),
-  Claude(ClaudeAction),
+  Codex(Box<CodexAction>),
+  Claude(Box<ClaudeAction>),
 }
 
 fn claude_allow_response(
@@ -102,7 +102,7 @@ fn provider_approval_action(
         },
       },
     };
-    return Ok(ProviderApprovalAction::Codex(action));
+    return Ok(ProviderApprovalAction::Codex(Box::new(action)));
   }
 
   let response = match decision {
@@ -122,10 +122,12 @@ fn provider_approval_action(
     }),
   };
 
-  Ok(ProviderApprovalAction::Claude(ClaudeAction::ApproveTool {
-    request_id,
-    response,
-  }))
+  Ok(ProviderApprovalAction::Claude(Box::new(
+    ClaudeAction::ApproveTool {
+      request_id,
+      response,
+    },
+  )))
 }
 
 fn parse_network_policy_amendment(
@@ -237,12 +239,12 @@ pub(crate) async fn dispatch_approve_tool(
   match action {
     ProviderApprovalAction::Codex(action) => {
       if let Some(tx) = codex_tx {
-        let _ = tx.send(action).await;
+        let _ = tx.send(*action).await;
       }
     }
     ProviderApprovalAction::Claude(action) => {
       if let Some(tx) = claude_tx {
-        let _ = tx.send(action).await;
+        let _ = tx.send(*action).await;
       }
     }
   }

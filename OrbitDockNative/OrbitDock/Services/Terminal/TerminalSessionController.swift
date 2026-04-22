@@ -13,6 +13,7 @@ final class TerminalSessionController: Identifiable {
 
   private(set) var title: String = "Terminal"
   private(set) var isConnected = false
+  private(set) var hasOutput = false
 
   /// Closure to send encoded input bytes to the server.
   var sendToServer: ((Data) -> Void)?
@@ -26,9 +27,9 @@ final class TerminalSessionController: Identifiable {
   /// Called to notify the server of a resize.
   var sendResize: ((UInt16, UInt16) -> Void)?
 
-  init(terminalId: String, cols: UInt16 = 80, rows: UInt16 = 24) {
+  init(terminalId: String, cols: UInt16 = 80, rows: UInt16 = 24, maxScrollback: Int = 10_000) {
     self.id = terminalId
-    self.ghostty = GhosttyTerminalEmulator(cols: cols, rows: rows)
+    self.ghostty = GhosttyTerminalEmulator(cols: cols, rows: rows, maxScrollback: maxScrollback)
     self.keyEncoder = GhosttyKeyEncoderWrapper()
 
     // Wire up effects.
@@ -45,11 +46,15 @@ final class TerminalSessionController: Identifiable {
   /// Dispatches to main queue to ensure ghostty's VT processing runs on
   /// the main thread's full 8MB stack (Swift async task stacks are ~512KB).
   func feedOutput(_ data: Data) {
+    guard !data.isEmpty else { return }
+
     if Thread.isMainThread {
+      hasOutput = true
       ghostty.feedOutput(data)
       onOutputReceived?()
     } else {
       DispatchQueue.main.async { [weak self] in
+        self?.hasOutput = true
         self?.ghostty.feedOutput(data)
         self?.onOutputReceived?()
       }

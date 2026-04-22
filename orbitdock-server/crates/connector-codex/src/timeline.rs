@@ -7,6 +7,10 @@ use codex_protocol::protocol::{
 };
 use serde_json::json;
 
+pub(crate) fn is_thread_start_skills_trimmed_warning(message: &str) -> bool {
+  message.starts_with("Some enabled skills were not included in the model-visible skills list")
+}
+
 pub(crate) fn dynamic_tool_output_to_text(
   content_items: &[DynamicToolCallOutputContentItem],
   fallback_error: Option<String>,
@@ -250,6 +254,7 @@ fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
 fn hook_event_label(run: &HookRunSummary) -> &'static str {
   match run.event_name {
     codex_protocol::protocol::HookEventName::PreToolUse => "pre_tool_use",
+    codex_protocol::protocol::HookEventName::PermissionRequest => "permission request",
     codex_protocol::protocol::HookEventName::PostToolUse => "post_tool_use",
     codex_protocol::protocol::HookEventName::SessionStart => "session start",
     codex_protocol::protocol::HookEventName::UserPromptSubmit => "prompt submit",

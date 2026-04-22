@@ -72,14 +72,24 @@ struct ServerCodexRateLimitWindow: Codable {
   }
 }
 
+enum ServerCodexRateLimitReachedType: String, Codable {
+  case rateLimitReached = "rate_limit_reached"
+  case workspaceOwnerCreditsDepleted = "workspace_owner_credits_depleted"
+  case workspaceMemberCreditsDepleted = "workspace_member_credits_depleted"
+  case workspaceOwnerUsageLimitReached = "workspace_owner_usage_limit_reached"
+  case workspaceMemberUsageLimitReached = "workspace_member_usage_limit_reached"
+}
+
 struct ServerCodexUsageSnapshot: Codable {
   let primary: ServerCodexRateLimitWindow?
   let secondary: ServerCodexRateLimitWindow?
+  let rateLimitReachedType: ServerCodexRateLimitReachedType?
   let fetchedAtUnix: Double
 
   enum CodingKeys: String, CodingKey {
     case primary
     case secondary
+    case rateLimitReachedType = "rate_limit_reached_type"
     case fetchedAtUnix = "fetched_at_unix"
   }
 }

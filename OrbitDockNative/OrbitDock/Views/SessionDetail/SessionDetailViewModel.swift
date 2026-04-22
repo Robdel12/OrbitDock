@@ -387,7 +387,7 @@ final class SessionDetailViewModel {
   }
 
   func copyResumeCommand() {
-    let command = "claude --resume \(sessionId)"
+    let command = screenPresentation.provider.resumeCommand(sessionId: sessionId)
     Platform.services.copyToClipboard(command)
     copiedResume = true
 

@@ -21,6 +21,7 @@ struct ServerRowContent: Decodable {
   let rowId: String
   let inputDisplay: String?
   let outputDisplay: String?
+  let images: [ServerImageInput]
   let diffDisplay: [ServerDiffLine]?
   let language: String?
   /// Starting line number for Read tool output (from cat -n format).
@@ -30,9 +31,21 @@ struct ServerRowContent: Decodable {
     case rowId = "row_id"
     case inputDisplay = "input_display"
     case outputDisplay = "output_display"
+    case images
     case diffDisplay = "diff_display"
     case language
     case startLine = "start_line"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    rowId = try container.decode(String.self, forKey: .rowId)
+    inputDisplay = try container.decodeIfPresent(String.self, forKey: .inputDisplay)
+    outputDisplay = try container.decodeIfPresent(String.self, forKey: .outputDisplay)
+    images = try container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? []
+    diffDisplay = try container.decodeIfPresent([ServerDiffLine].self, forKey: .diffDisplay)
+    language = try container.decodeIfPresent(String.self, forKey: .language)
+    startLine = try container.decodeIfPresent(Int.self, forKey: .startLine)
   }
 }
 
