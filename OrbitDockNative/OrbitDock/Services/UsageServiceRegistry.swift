@@ -109,17 +109,26 @@ final class UsageServiceRegistry {
     guard !runtimes.isEmpty else { return }
 
     summaryLoading = true
-    do {
-      var snapshots: [ServerUsageSummarySnapshotPayload] = []
-      for runtime in runtimes {
+    var snapshots: [ServerUsageSummarySnapshotPayload] = []
+    var errors: [String] = []
+    for runtime in runtimes {
+      do {
         let snapshot = try await runtime.clients.usage.fetchUsageSummary(todayStartUnix: todayStartUnix)
         snapshots.append(snapshot)
+      } catch {
+        errors.append(error.localizedDescription)
       }
+    }
+
+    if !snapshots.isEmpty {
       summary = mergeUsageSummaries(snapshots)
       summaryTodayStartUnix = todayStartUnix
-      summaryError = nil
-    } catch {
-      summaryError = UsageFetchError(message: error.localizedDescription)
+      summaryError = errors.isEmpty
+        ? nil
+        : UsageFetchError(message: "Some usage endpoints failed:\n\(errors.joined(separator: "\n"))")
+    } else {
+      let message = errors.isEmpty ? "No usage endpoints are available." : errors.joined(separator: "\n")
+      summaryError = UsageFetchError(message: message)
     }
     summaryLoading = false
 

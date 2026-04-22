@@ -67,6 +67,9 @@ final class DashboardDataService {
             case .activeSessionsInvalidated:
               self.scheduleRefresh()
 
+            case let .sessionDelta(_, changes) where changes.affectsDashboardProjection:
+              self.scheduleRefresh()
+
             case .connectionStatusChanged(.connected):
               connection.subscribeActiveSessions(sinceRevision: self.endpointRevisionsByEndpointId[endpointId])
               self.scheduleRefresh()
@@ -262,3 +265,28 @@ final class DashboardDataService {
   }
 }
 
+private extension ServerStateChanges {
+  var affectsDashboardProjection: Bool {
+    status != nil
+      || workStatus != nil
+      || controlMode != nil
+      || lifecycleState != nil
+      || pendingApproval != nil
+      || currentDiff != nil
+      || cumulativeDiff != nil
+      || customName != nil
+      || summary != nil
+      || codexIntegrationMode != nil
+      || claudeIntegrationMode != nil
+      || lastActivityAt != nil
+      || firstPrompt != nil
+      || lastMessage != nil
+      || model != nil
+      || effort != nil
+      || gitBranch != nil
+      || currentCwd != nil
+      || repositoryRoot != nil
+      || isWorktree != nil
+      || unreadCount != nil
+  }
+}

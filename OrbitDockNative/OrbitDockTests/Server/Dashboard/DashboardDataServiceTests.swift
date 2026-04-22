@@ -57,6 +57,33 @@ struct DashboardDataServiceTests {
     #expect(await fixture.requestPaths() == ["/api/sessions/active", "/api/sessions/active"])
   }
 
+  @Test func dashboardVisibleSessionDeltaRefetchesDashboardSnapshot() async throws {
+    let fixture = DashboardLoaderFixture(
+      responses: [
+        .snapshot(revision: 1, title: "Initial Title"),
+        .snapshot(revision: 2, title: "Working Title"),
+      ]
+    )
+    let harness = makeHarness(loader: fixture.loader)
+    let service = DashboardDataService()
+    defer { service.stop() }
+
+    service.start(runtimeRegistry: harness.registry)
+    await fixture.waitForRequestCount(1)
+    await drainMainActorTasks()
+
+    harness.connection.emitForTesting(.sessionDelta(
+      sessionId: "session-1",
+      changes: ServerStateChanges(workStatus: .working, lastActivityAt: "2026-04-14T12:02:00Z")
+    ))
+    await fixture.waitForRequestCount(2)
+    await drainMainActorTasks()
+
+    #expect(service.snapshot?.conversations.map(\.title) == ["Working Title"])
+    #expect(service.snapshot?.revision == 2)
+    #expect(await fixture.requestPaths() == ["/api/sessions/active", "/api/sessions/active"])
+  }
+
   @Test func repeatedInvalidationsDuringInflightRefreshCoalesceIntoOneFollowupRefresh() async throws {
     let fixture = DashboardLoaderFixture(
       responses: [

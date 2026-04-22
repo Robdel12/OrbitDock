@@ -19,6 +19,11 @@ struct OverviewPanel: View {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
+  private var usageRefreshIdentity: String {
+    let todayStartUnix = UInt64(max(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970, 0))
+    return "\(todayStartUnix)|\(runtimeRegistry.dashboardRefreshIdentity)"
+  }
+
   private var conversations: [DashboardConversationRecord] {
     viewModel.presentation?.filteredConversations ?? []
   }
@@ -95,7 +100,7 @@ struct OverviewPanel: View {
       .padding(layoutMode.isPhoneCompact ? Spacing.lg : Spacing.section)
     }
     .scrollContentBackground(.hidden)
-    .task {
+    .task(id: usageRefreshIdentity) {
       await usageRegistry.refreshIfNeeded()
     }
   }

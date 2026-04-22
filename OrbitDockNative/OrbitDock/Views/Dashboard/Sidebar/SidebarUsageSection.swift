@@ -2,7 +2,13 @@ import SwiftUI
 
 struct SidebarUsageSection: View {
   @State private var expandedProviderIDs: Set<String> = []
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var registry
+
+  private var usageRefreshIdentity: String {
+    let todayStartUnix = UInt64(max(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970, 0))
+    return "\(todayStartUnix)|\(runtimeRegistry.dashboardRefreshIdentity)"
+  }
 
   private var activeProviders: [(
     provider: Provider,
@@ -43,7 +49,7 @@ struct SidebarUsageSection: View {
       .padding(.horizontal, Spacing.md)
       .padding(.bottom, Spacing.md)
     }
-    .task {
+    .task(id: usageRefreshIdentity) {
       await registry.refreshIfNeeded()
     }
   }

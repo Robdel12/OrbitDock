@@ -48,6 +48,11 @@ struct DashboardStatusBar: View {
     )
   }
 
+  private var usageRefreshIdentity: String {
+    let todayStartUnix = UInt64(max(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970, 0))
+    return "\(todayStartUnix)|\(runtimeRegistry.dashboardRefreshIdentity)"
+  }
+
   /// Connection state
   private var enabledRuntimes: [ServerRuntime] {
     runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
@@ -135,7 +140,7 @@ struct DashboardStatusBar: View {
         .fill(Color.panelBorder.opacity(0.28))
         .frame(height: 1)
     }
-    .task(id: Calendar.current.startOfDay(for: Date())) {
+    .task(id: usageRefreshIdentity) {
       await usageRegistry.refreshIfNeeded(todayStart: Calendar.current.startOfDay(for: Date()))
     }
   }
