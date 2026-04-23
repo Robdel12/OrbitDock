@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+mod agent_threads;
 mod approvals;
 mod capabilities;
 mod codex_auth;
@@ -31,6 +32,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+pub use agent_threads::{
+  get_agent_thread_conversation, list_agent_threads, post_agent_thread_message,
+};
 pub use approvals::{
   answer_question, approve_tool, delete_approval_endpoint, list_approvals_endpoint,
   respond_to_permission_request,

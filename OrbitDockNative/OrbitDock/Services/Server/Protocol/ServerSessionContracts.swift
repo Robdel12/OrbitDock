@@ -973,6 +973,163 @@ struct ServerSubagentTool: Codable, Identifiable {
   }
 }
 
+enum ServerAgentThreadInterjectionMode: String, Codable {
+  case direct
+  case parentMediated = "parent_mediated"
+  case none
+}
+
+enum ServerAgentThreadTranscriptFreshness: String, Decodable {
+  case live
+  case pollable
+  case finalOnly = "final_only"
+  case unavailable
+}
+
+struct ServerAgentThreadCapabilities: Decodable {
+  let canViewTranscript: Bool
+  let hasLiveUpdates: Bool
+  let acceptsUserInput: Bool
+  let canInterrupt: Bool
+  let canResume: Bool
+  let canClose: Bool
+  let interjectionMode: ServerAgentThreadInterjectionMode
+
+  enum CodingKeys: String, CodingKey {
+    case canViewTranscript = "can_view_transcript"
+    case hasLiveUpdates = "has_live_updates"
+    case acceptsUserInput = "accepts_user_input"
+    case canInterrupt = "can_interrupt"
+    case canResume = "can_resume"
+    case canClose = "can_close"
+    case interjectionMode = "interjection_mode"
+  }
+}
+
+struct ServerAgentThreadConversationSummary: Decodable {
+  let freshness: ServerAgentThreadTranscriptFreshness
+  let hasTranscript: Bool
+  let totalRowCount: UInt64?
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
+
+  enum CodingKeys: String, CodingKey {
+    case freshness
+    case hasTranscript = "has_transcript"
+    case totalRowCount = "total_row_count"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
+  }
+}
+
+struct ServerAgentThreadSummary: Decodable, Identifiable {
+  let id: String
+  let provider: ServerProvider
+  let agentType: String
+  let label: String?
+  let status: ServerSubagentStatus
+  let taskSummary: String?
+  let resultSummary: String?
+  let errorSummary: String?
+  let parentThreadId: String?
+  let model: String?
+  let startedAt: String
+  let lastActivityAt: String?
+  let endedAt: String?
+  let capabilities: ServerAgentThreadCapabilities
+  let conversation: ServerAgentThreadConversationSummary
+  let limitations: [String]
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case provider
+    case agentType = "agent_type"
+    case label
+    case status
+    case taskSummary = "task_summary"
+    case resultSummary = "result_summary"
+    case errorSummary = "error_summary"
+    case parentThreadId = "parent_thread_id"
+    case model
+    case startedAt = "started_at"
+    case lastActivityAt = "last_activity_at"
+    case endedAt = "ended_at"
+    case capabilities
+    case conversation
+    case limitations
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    provider = try container.decode(ServerProvider.self, forKey: .provider)
+    agentType = try container.decode(String.self, forKey: .agentType)
+    label = try container.decodeIfPresent(String.self, forKey: .label)
+    status = try container.decode(ServerSubagentStatus.self, forKey: .status)
+    taskSummary = try container.decodeIfPresent(String.self, forKey: .taskSummary)
+    resultSummary = try container.decodeIfPresent(String.self, forKey: .resultSummary)
+    errorSummary = try container.decodeIfPresent(String.self, forKey: .errorSummary)
+    parentThreadId = try container.decodeIfPresent(String.self, forKey: .parentThreadId)
+    model = try container.decodeIfPresent(String.self, forKey: .model)
+    startedAt = try container.decode(String.self, forKey: .startedAt)
+    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
+    endedAt = try container.decodeIfPresent(String.self, forKey: .endedAt)
+    capabilities = try container.decode(ServerAgentThreadCapabilities.self, forKey: .capabilities)
+    conversation = try container.decode(ServerAgentThreadConversationSummary.self, forKey: .conversation)
+    limitations = try container.decodeIfPresent([String].self, forKey: .limitations) ?? []
+  }
+}
+
+struct ServerAgentThreadListResponse: Decodable {
+  let sessionId: String
+  let revision: UInt64
+  let threads: [ServerAgentThreadSummary]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case revision
+    case threads
+  }
+}
+
+struct ServerAgentThreadConversationPage: Decodable {
+  let sessionId: String
+  let threadId: String
+  let rows: [ServerConversationRowEntry]
+  let totalRowCount: UInt64
+  let hasMoreBefore: Bool
+  let oldestSequence: UInt64?
+  let newestSequence: UInt64?
+  let freshness: ServerAgentThreadTranscriptFreshness
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case threadId = "thread_id"
+    case rows
+    case totalRowCount = "total_row_count"
+    case hasMoreBefore = "has_more_before"
+    case oldestSequence = "oldest_sequence"
+    case newestSequence = "newest_sequence"
+    case freshness
+  }
+}
+
+struct ServerAgentThreadMessageResponse: Decodable {
+  let accepted: Bool
+  let threadId: String
+  let interjectionMode: ServerAgentThreadInterjectionMode
+  let row: ServerConversationRowEntry
+  let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
+
+  enum CodingKeys: String, CodingKey {
+    case accepted
+    case threadId = "thread_id"
+    case interjectionMode = "interjection_mode"
+    case row
+    case sessionDetailSnapshot = "session_detail_snapshot"
+  }
+}
+
 // MARK: - Session State
 
 struct ServerSessionState: Codable, Identifiable {

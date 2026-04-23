@@ -183,7 +183,7 @@ fn read_directory_entries(target: &PathBuf) -> Result<Vec<DirectoryEntry>, std::
   Ok(listing)
 }
 
-async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
+pub(crate) async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
   match resolve_subagent_transcript_path(subagent_id).await {
     Some(path) => {
       let parse_path = path.clone();
@@ -197,7 +197,7 @@ async fn load_subagent_tools(subagent_id: &str) -> Vec<SubagentTool> {
   }
 }
 
-async fn load_subagent_rows(subagent_id: &str) -> Vec<ConversationRowEntry> {
+pub(crate) async fn load_subagent_rows(subagent_id: &str) -> Vec<ConversationRowEntry> {
   let Some(path) = resolve_subagent_transcript_path(subagent_id).await else {
     return vec![];
   };
@@ -207,7 +207,7 @@ async fn load_subagent_rows(subagent_id: &str) -> Vec<ConversationRowEntry> {
     .unwrap_or_default()
 }
 
-async fn resolve_subagent_transcript_path(subagent_id: &str) -> Option<String> {
+pub(crate) async fn resolve_subagent_transcript_path(subagent_id: &str) -> Option<String> {
   // Check persisted path first
   if let Ok(Some(path)) = load_subagent_transcript_path(subagent_id).await {
     return Some(path);

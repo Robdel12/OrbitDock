@@ -77,6 +77,8 @@ final class SessionDetailTerminalModel {
 @Observable
 final class SessionDetailWorkerModel {
   var selectedWorkerId: String?
+  var messageDraft = ""
+  var isSendingMessage = false
   var state = SessionDetailWorkerState.empty
   var rosterPresentation: SessionWorkerRosterPresentation?
   var detailPresentation: SessionWorkerDetailPresentation?
@@ -87,6 +89,8 @@ final class SessionDetailWorkerModel {
   func reset() {
     cancelDetailLoad()
     selectedWorkerId = nil
+    messageDraft = ""
+    isSendingMessage = false
     state = .empty
     rosterPresentation = nil
     detailPresentation = nil
@@ -96,15 +100,19 @@ final class SessionDetailWorkerModel {
     let visibleWorkerIDs = Set(snapshotState.subagents.map(\.id))
     let preservedTools = state.subagentTools.filter { visibleWorkerIDs.contains($0.key) }
     let preservedMessages = state.subagentMessages.filter { visibleWorkerIDs.contains($0.key) }
+    let preservedThreads = state.agentThreads.filter { visibleWorkerIDs.contains($0.id) }
+    let preservedPages = state.agentThreadPages.filter { visibleWorkerIDs.contains($0.key) }
 
     state = SessionDetailWorkerState(
       subagents: snapshotState.subagents,
       subagentTools: preservedTools,
       subagentMessages: preservedMessages,
+      agentThreads: preservedThreads,
+      agentThreadPages: preservedPages,
       timelineRevision: snapshotState.timelineRevision
     )
 
-    rosterPresentation = SessionWorkerRosterPlanner.presentation(subagents: state.subagents)
+    rosterPresentation = rosterPresentation(for: state)
     syncSelectedWorker(layoutConfig: layoutConfig)
   }
 
@@ -131,18 +139,23 @@ final class SessionDetailWorkerModel {
         }
       }
 
-      async let toolsRequest = try? session.api.fetchSubagentTools(subagentId: workerId)
-      async let messagesRequest = try? session.api.fetchSubagentMessages(subagentId: workerId)
+      async let threadsRequest = try? session.api.listAgentThreads()
+      async let conversationRequest = try? session.api.fetchAgentThreadConversation(threadId: workerId)
 
-      let tools = await toolsRequest
-      let messages = await messagesRequest
+      let threads = await threadsRequest
+      let conversation = await conversationRequest
 
       guard !Task.isCancelled else { return }
       guard requestID == detailLoadRequestID else { return }
       guard selectedWorkerId == workerId else { return }
 
-      state.subagentTools[workerId] = tools ?? []
-      state.subagentMessages[workerId] = messages ?? []
+      if let threads {
+        state.agentThreads = threads.threads
+        rosterPresentation = SessionWorkerRosterPlanner.presentation(agentThreads: threads.threads)
+      }
+      if let conversation {
+        state.agentThreadPages[workerId] = conversation
+      }
       syncDetailPresentation(layoutConfig: layoutConfig)
     }
   }
@@ -185,10 +198,17 @@ final class SessionDetailWorkerModel {
   }
 
   private func syncSelectedWorker(layoutConfig: LayoutConfiguration) {
-    let nextSelectedWorkerId = SessionWorkerRosterPlanner.preferredSelectedWorkerID(
-      currentSelectionID: selectedWorkerId,
-      subagents: state.subagents
-    )
+    let nextSelectedWorkerId: String? = if !state.agentThreads.isEmpty {
+      SessionWorkerRosterPlanner.preferredSelectedWorkerID(
+        currentSelectionID: selectedWorkerId,
+        agentThreads: state.agentThreads
+      )
+    } else {
+      SessionWorkerRosterPlanner.preferredSelectedWorkerID(
+        currentSelectionID: selectedWorkerId,
+        subagents: state.subagents
+      )
+    }
 
     if selectedWorkerId != nextSelectedWorkerId {
       selectedWorkerId = nextSelectedWorkerId
@@ -204,21 +224,38 @@ final class SessionDetailWorkerModel {
     }
 
     let hasLoadedWorkerPayload =
-      state.subagentTools[selectedWorkerId] != nil
-      || state.subagentMessages[selectedWorkerId] != nil
+      state.agentThreadPages[selectedWorkerId] != nil
+        || state.subagentTools[selectedWorkerId] != nil
+        || state.subagentMessages[selectedWorkerId] != nil
 
     guard hasLoadedWorkerPayload else {
       detailPresentation = nil
       return
     }
 
-    detailPresentation = SessionWorkerRosterPlanner.detailPresentation(
-      subagents: state.subagents,
-      selectedWorkerID: selectedWorkerId,
-      toolsByWorker: state.subagentTools,
-      messagesByWorker: state.subagentMessages,
-      timelineEntries: []
-    )
+    if !state.agentThreads.isEmpty {
+      detailPresentation = SessionWorkerRosterPlanner.detailPresentation(
+        agentThreads: state.agentThreads,
+        selectedWorkerID: selectedWorkerId,
+        pageByThread: state.agentThreadPages,
+        subagents: state.subagents
+      )
+    } else {
+      detailPresentation = SessionWorkerRosterPlanner.detailPresentation(
+        subagents: state.subagents,
+        selectedWorkerID: selectedWorkerId,
+        toolsByWorker: state.subagentTools,
+        messagesByWorker: state.subagentMessages,
+        timelineEntries: []
+      )
+    }
+  }
+
+  private func rosterPresentation(for state: SessionDetailWorkerState) -> SessionWorkerRosterPresentation? {
+    if !state.agentThreads.isEmpty {
+      return SessionWorkerRosterPlanner.presentation(agentThreads: state.agentThreads)
+    }
+    return SessionWorkerRosterPlanner.presentation(subagents: state.subagents)
   }
 }
 

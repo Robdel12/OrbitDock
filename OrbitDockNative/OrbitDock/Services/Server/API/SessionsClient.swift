@@ -523,6 +523,10 @@ struct SessionsClient: Sendable {
     let worktreeId: String
   }
 
+  struct AgentThreadMessageRequest: Encodable {
+    let content: String
+  }
+
   private let http: ServerHTTPClient
   private let requestBuilder: HTTPRequestBuilder
 
@@ -537,6 +541,21 @@ struct SessionsClient: Sendable {
     suffix: String
   ) -> String {
     "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/subagents/\(requestBuilder.encodePathComponent(subagentId))/\(suffix)"
+  }
+
+  private func agentThreadPath(
+    sessionId: String,
+    threadId: String? = nil,
+    suffix: String? = nil
+  ) -> String {
+    var path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/agent-threads"
+    if let threadId {
+      path += "/\(requestBuilder.encodePathComponent(threadId))"
+    }
+    if let suffix {
+      path += "/\(suffix)"
+    }
+    return path
   }
 
   func createSession(_ request: CreateSessionRequest) async throws -> CreateSessionResponse {
@@ -679,6 +698,37 @@ struct SessionsClient: Sendable {
       subagentPath(sessionId: sessionId, subagentId: subagentId, suffix: "messages")
     )
     return response.rows
+  }
+
+  func listAgentThreads(sessionId: String) async throws -> ServerAgentThreadListResponse {
+    try await http.get(agentThreadPath(sessionId: sessionId))
+  }
+
+  func getAgentThreadConversation(
+    sessionId: String,
+    threadId: String,
+    beforeSequence: UInt64? = nil,
+    limit: Int = 50
+  ) async throws -> ServerAgentThreadConversationPage {
+    var query = [URLQueryItem(name: "limit", value: "\(limit)")]
+    if let beforeSequence {
+      query.append(URLQueryItem(name: "before_sequence", value: "\(beforeSequence)"))
+    }
+    return try await http.get(
+      agentThreadPath(sessionId: sessionId, threadId: threadId, suffix: "conversation"),
+      query: query
+    )
+  }
+
+  func sendAgentThreadMessage(
+    sessionId: String,
+    threadId: String,
+    content: String
+  ) async throws -> ServerAgentThreadMessageResponse {
+    try await http.post(
+      agentThreadPath(sessionId: sessionId, threadId: threadId, suffix: "message"),
+      body: AgentThreadMessageRequest(content: content)
+    )
   }
 
   func markSessionRead(_ sessionId: String) async throws -> UInt64 {

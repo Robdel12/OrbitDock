@@ -1097,6 +1097,97 @@ pub struct SubagentTool {
   pub is_in_progress: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentThreadInterjectionMode {
+  Direct,
+  ParentMediated,
+  None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentThreadTranscriptFreshness {
+  Live,
+  Pollable,
+  FinalOnly,
+  Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentThreadCapabilities {
+  pub can_view_transcript: bool,
+  pub has_live_updates: bool,
+  pub accepts_user_input: bool,
+  pub can_interrupt: bool,
+  pub can_resume: bool,
+  pub can_close: bool,
+  pub interjection_mode: AgentThreadInterjectionMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentThreadConversationSummary {
+  pub freshness: AgentThreadTranscriptFreshness,
+  pub has_transcript: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub total_row_count: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub oldest_sequence: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub newest_sequence: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentThreadSummary {
+  pub id: String,
+  pub provider: Provider,
+  pub agent_type: AgentType,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub label: Option<String>,
+  pub status: SubagentStatus,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub task_summary: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub result_summary: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub error_summary: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub parent_thread_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  pub started_at: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub last_activity_at: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub ended_at: Option<String>,
+  pub capabilities: AgentThreadCapabilities,
+  pub conversation: AgentThreadConversationSummary,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub limitations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentThreadListResponse {
+  pub session_id: String,
+  pub revision: u64,
+  pub threads: Vec<AgentThreadSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentThreadConversationPage {
+  pub session_id: String,
+  pub thread_id: String,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub rows: Vec<crate::conversation_contracts::RowEntrySummary>,
+  pub total_row_count: u64,
+  pub has_more_before: bool,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub oldest_sequence: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub newest_sequence: Option<u64>,
+  pub freshness: AgentThreadTranscriptFreshness,
+}
+
 /// Full session state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {

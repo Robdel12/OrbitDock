@@ -54,6 +54,32 @@ enum SessionWorkerRosterPlanner {
     )
   }
 
+  static func presentation(agentThreads: [ServerAgentThreadSummary]) -> SessionWorkerRosterPresentation? {
+    let threads = visibleAgentThreads(agentThreads)
+    let workers = threads.map(workerPresentation)
+
+    guard !workers.isEmpty else { return nil }
+
+    let activeCount = agentThreads.filter { isActive($0.status) }.count
+    let completedCount = agentThreads.filter { $0.status == .completed }.count
+    let stalledCount = agentThreads.count - activeCount - completedCount
+    let archivedCount = max(agentThreads.count - threads.count, 0)
+
+    return SessionWorkerRosterPresentation(
+      title: "Agent Threads",
+      summary: workerSummary(
+        activeCount: activeCount,
+        completedCount: completedCount,
+        stalledCount: stalledCount,
+        archivedCount: archivedCount
+      ),
+      detailPrompt: activeCount > 0
+        ? "Watch live child conversations while the parent session stays in view."
+        : "Revisit finished child conversations without losing the main thread.",
+      workers: workers
+    )
+  }
+
   static func preferredSelectedWorkerID(
     currentSelectionID: String?,
     subagents: [ServerSubagentInfo]
@@ -67,6 +93,21 @@ enum SessionWorkerRosterPlanner {
     }
 
     return visibleSubagents(subagents: subagents).first?.id
+  }
+
+  static func preferredSelectedWorkerID(
+    currentSelectionID: String?,
+    agentThreads: [ServerAgentThreadSummary]
+  ) -> String? {
+    let visibleWorkerIDs = Set(visibleAgentThreads(agentThreads).map(\.id))
+
+    if let currentSelectionID,
+       visibleWorkerIDs.contains(currentSelectionID)
+    {
+      return currentSelectionID
+    }
+
+    return visibleAgentThreads(agentThreads).first?.id
   }
 
   static func detailPresentation(
@@ -112,7 +153,57 @@ enum SessionWorkerRosterPlanner {
       threadEntries: threadEntries,
       conversationEvents: timelineSummary.conversationEvents,
       relatedWorkers: relatedWorkers,
-      latestConversationEventID: timelineSummary.conversationEvents.last?.id
+      latestConversationEventID: timelineSummary.conversationEvents.last?.id,
+      capabilities: [],
+      limitations: [],
+      conversationRows: messagesByWorker[subagent.id] ?? [],
+      transcriptStatusLabel: "Transcript",
+      canSendMessage: false,
+      messageModeLabel: nil
+    )
+  }
+
+  static func detailPresentation(
+    agentThreads: [ServerAgentThreadSummary],
+    selectedWorkerID: String?,
+    pageByThread: [String: ServerAgentThreadConversationPage],
+    subagents: [ServerSubagentInfo]
+  ) -> SessionWorkerDetailPresentation? {
+    guard let selectedWorkerID,
+          let thread = agentThreads.first(where: { $0.id == selectedWorkerID })
+    else {
+      return nil
+    }
+
+    let status = statusPresentation(thread.status)
+    let visuals = visuals(for: thread.agentType)
+    let page = pageByThread[thread.id]
+    let rows = page?.rows ?? []
+    let legacySubagent = subagents.first(where: { $0.id == thread.id }) ?? subagentInfo(from: thread)
+
+    return SessionWorkerDetailPresentation(
+      id: thread.id,
+      title: thread.label ?? visuals.label,
+      subtitle: workerSubtitle(thread),
+      statusLabel: status.label,
+      statusColor: status.color,
+      iconName: visuals.iconName,
+      isActive: status.isActive,
+      statusNarrative: status.narrative,
+      assignmentPreview: thread.taskSummary,
+      reportPreview: thread.resultSummary ?? thread.errorSummary,
+      detailLines: detailLines(for: thread),
+      tools: rows.compactMap(toolActivityFromRow).suffix(8).map { $0 },
+      threadEntries: threadEntries(for: rows),
+      conversationEvents: rows.map(conversationEventPresentation),
+      relatedWorkers: relatedWorkers(for: legacySubagent, among: subagents),
+      latestConversationEventID: rows.last?.id,
+      capabilities: capabilities(for: thread),
+      limitations: thread.limitations,
+      conversationRows: rows,
+      transcriptStatusLabel: transcriptStatusLabel(thread.conversation.freshness),
+      canSendMessage: thread.capabilities.acceptsUserInput,
+      messageModeLabel: messageModeLabel(thread.capabilities.interjectionMode)
     )
   }
 
@@ -129,12 +220,47 @@ enum SessionWorkerRosterPlanner {
       .map(\.subagent)
   }
 
+  private static func visibleAgentThreads(_ threads: [ServerAgentThreadSummary]) -> [ServerAgentThreadSummary] {
+    let ranked = sortedAgentThreads(threads)
+    let activeWorkers = ranked.filter { isActive($0.status) }
+    let inactiveWorkers = ranked.filter { !isActive($0.status) }
+
+    return activeWorkers + inactiveWorkers.prefix(maxRecentInactiveWorkers)
+  }
+
+  private static func sortedAgentThreads(_ threads: [ServerAgentThreadSummary]) -> [ServerAgentThreadSummary] {
+    threads.sorted { lhs, rhs in
+      let lhsActive = isActive(lhs.status)
+      let rhsActive = isActive(rhs.status)
+      if lhsActive != rhsActive {
+        return lhsActive && !rhsActive
+      }
+
+      return sortDate(for: lhs) > sortDate(for: rhs)
+    }
+  }
+
   private static func rankedWorkerSort(lhs: RankedWorker, rhs: RankedWorker) -> Bool {
     if lhs.isActive != rhs.isActive {
       return lhs.isActive && !rhs.isActive
     }
 
     return lhs.sortDate > rhs.sortDate
+  }
+
+  private static func workerPresentation(thread: ServerAgentThreadSummary) -> SessionWorkerRosterPresentation.Worker {
+    let status = statusPresentation(thread.status)
+    let visuals = visuals(for: thread.agentType)
+
+    return SessionWorkerRosterPresentation.Worker(
+      id: thread.id,
+      title: thread.label ?? visuals.label,
+      subtitle: workerSubtitle(thread),
+      statusLabel: status.label,
+      statusColor: status.color,
+      isActive: status.isActive,
+      iconName: visuals.iconName
+    )
   }
 
   private static func workerPresentation(subagent: ServerSubagentInfo) -> SessionWorkerRosterPresentation.Worker {
@@ -185,6 +311,48 @@ enum SessionWorkerRosterPlanner {
     .compactMap { $0 }
   }
 
+  private static func detailLines(for thread: ServerAgentThreadSummary)
+    -> [SessionWorkerDetailPresentation.DetailLine]
+  {
+    [
+      detailLine(id: "type", label: "Role", value: visuals(for: thread.agentType).label),
+      detailLine(id: "provider", label: "Provider", value: thread.provider.rawValue.capitalized),
+      detailLine(id: "model", label: "Model", value: thread.model),
+      detailLine(id: "started", label: "Started", value: formattedDate(thread.startedAt)),
+      detailLine(id: "last", label: "Last active", value: formattedDate(thread.lastActivityAt)),
+      detailLine(id: "ended", label: "Ended", value: formattedDate(thread.endedAt)),
+      detailLine(id: "parent", label: "Parent thread", value: thread.parentThreadId),
+    ]
+    .compactMap { $0 }
+  }
+
+  private static func capabilities(
+    for thread: ServerAgentThreadSummary
+  ) -> [SessionWorkerDetailPresentation.Capability] {
+    [
+      .init(
+        id: "transcript",
+        label: "Transcript",
+        value: thread.capabilities.canViewTranscript
+          ? transcriptStatusLabel(thread.conversation.freshness)
+          : "Unavailable",
+        color: thread.capabilities.canViewTranscript ? .statusReply : .textSecondary
+      ),
+      .init(
+        id: "input",
+        label: "Input",
+        value: messageModeLabel(thread.capabilities.interjectionMode) ?? "Observe only",
+        color: thread.capabilities.acceptsUserInput ? .composerSteer : .textSecondary
+      ),
+      .init(
+        id: "updates",
+        label: "Updates",
+        value: thread.capabilities.hasLiveUpdates ? "Live" : "On refresh",
+        color: thread.capabilities.hasLiveUpdates ? .statusWorking : .textSecondary
+      ),
+    ]
+  }
+
   private static func detailLine(
     id: String,
     label: String,
@@ -201,6 +369,18 @@ enum SessionWorkerRosterPlanner {
       subagent.taskSummary,
       subagent.resultSummary,
       subagent.errorSummary,
+    ]
+    .compactMap {
+      $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+    .first
+  }
+
+  private static func workerSubtitle(_ thread: ServerAgentThreadSummary) -> String? {
+    [
+      thread.taskSummary,
+      thread.resultSummary,
+      thread.errorSummary,
     ]
     .compactMap {
       $0?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -243,6 +423,13 @@ enum SessionWorkerRosterPlanner {
       ?? .distantPast
   }
 
+  private static func sortDate(for thread: ServerAgentThreadSummary) -> Date {
+    parseDate(thread.lastActivityAt)
+      ?? parseDate(thread.startedAt)
+      ?? parseDate(thread.endedAt)
+      ?? .distantPast
+  }
+
   private static func parseDate(_ value: String?) -> Date? {
     guard let value else { return nil }
     return iso8601Formatter.date(from: value)
@@ -251,6 +438,48 @@ enum SessionWorkerRosterPlanner {
   private static func formattedDate(_ value: String?) -> String? {
     guard let date = parseDate(value) else { return nil }
     return date.formatted(date: .abbreviated, time: .shortened)
+  }
+
+  private static func transcriptStatusLabel(_ freshness: ServerAgentThreadTranscriptFreshness) -> String {
+    switch freshness {
+      case .live:
+        "Live"
+      case .pollable:
+        "Refreshable"
+      case .finalOnly:
+        "Final transcript"
+      case .unavailable:
+        "Unavailable"
+    }
+  }
+
+  private static func messageModeLabel(_ mode: ServerAgentThreadInterjectionMode) -> String? {
+    switch mode {
+      case .direct:
+        "Message worker"
+      case .parentMediated:
+        "Ask parent to redirect"
+      case .none:
+        nil
+    }
+  }
+
+  private static func subagentInfo(from thread: ServerAgentThreadSummary) -> ServerSubagentInfo {
+    ServerSubagentInfo(
+      id: thread.id,
+      agentType: thread.agentType,
+      startedAt: thread.startedAt,
+      endedAt: thread.endedAt,
+      provider: thread.provider,
+      label: thread.label,
+      status: thread.status,
+      taskSummary: thread.taskSummary,
+      resultSummary: thread.resultSummary,
+      errorSummary: thread.errorSummary,
+      parentSubagentId: thread.parentThreadId,
+      model: thread.model,
+      lastActivityAt: thread.lastActivityAt
+    )
   }
 
   private static func visuals(for agentType: String) -> (label: String, iconName: String) {
@@ -281,6 +510,21 @@ enum SessionWorkerRosterPlanner {
       summary: tool.summary,
       statusLabel: tool.isInProgress ? "Running" : "Done",
       statusColor: statusColor
+    )
+  }
+
+  private static func toolActivityFromRow(
+    _ row: ServerConversationRowEntry
+  ) -> SessionWorkerDetailPresentation.ToolActivity? {
+    guard case let .tool(tool) = row.row else { return nil }
+    let isRunning = tool.status == .running || tool.status == .pending
+    return .init(
+      id: tool.id,
+      iconName: ToolCardStyle.icon(for: tool.title),
+      toolName: tool.title,
+      summary: tool.summary ?? tool.toolDisplay.outputPreview ?? tool.subtitle ?? "Tool activity",
+      statusLabel: isRunning ? "Running" : tool.status.rawValue.capitalized,
+      statusColor: isRunning ? .statusWorking : tool.status == .failed ? .feedbackNegative : .feedbackPositive
     )
   }
 
@@ -871,7 +1115,7 @@ enum SessionWorkerRosterPlanner {
   private static func reportPreview(for child: ServerConversationActivityGroupChild) -> String? {
     switch child {
       case let .tool(tool):
-        return reportPreview(for: tool)
+        reportPreview(for: tool)
     }
   }
 

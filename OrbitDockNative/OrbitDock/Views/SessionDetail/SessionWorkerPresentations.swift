@@ -61,6 +61,13 @@ struct SessionWorkerDetailPresentation {
     let tint: Color
   }
 
+  struct Capability: Identifiable {
+    let id: String
+    let label: String
+    let value: String
+    let color: Color
+  }
+
   let id: String
   let title: String
   let subtitle: String?
@@ -77,5 +84,10 @@ struct SessionWorkerDetailPresentation {
   let conversationEvents: [ConversationEvent]
   let relatedWorkers: [RelatedWorker]
   let latestConversationEventID: String?
+  let capabilities: [Capability]
+  let limitations: [String]
+  let conversationRows: [ServerConversationRowEntry]
+  let transcriptStatusLabel: String
+  let canSendMessage: Bool
+  let messageModeLabel: String?
 }
-

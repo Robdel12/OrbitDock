@@ -79,6 +79,8 @@ enum SessionDetailSnapshotBuilder {
         subagents: SessionWorkerRosterPlanner.visibleSubagents(subagents: session.subagents),
         subagentTools: [:],
         subagentMessages: [:],
+        agentThreads: [],
+        agentThreadPages: [:],
         timelineRevision: 0
       ),
       currentTool: session.pendingToolName,

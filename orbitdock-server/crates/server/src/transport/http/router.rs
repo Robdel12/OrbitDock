@@ -192,6 +192,18 @@ fn session_attachment_routes() -> Router<Arc<SessionRegistry>> {
 fn session_support_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
+      "/api/sessions/{session_id}/agent-threads",
+      get(super::list_agent_threads),
+    )
+    .route(
+      "/api/sessions/{session_id}/agent-threads/{thread_id}/conversation",
+      get(super::get_agent_thread_conversation),
+    )
+    .route(
+      "/api/sessions/{session_id}/agent-threads/{thread_id}/message",
+      post(super::post_agent_thread_message),
+    )
+    .route(
       "/api/sessions/{session_id}/subagents/{subagent_id}/tools",
       get(super::list_subagent_tools_endpoint),
     )

@@ -282,6 +282,92 @@ struct SessionWorkerRosterPlannerTests {
       .contains("The runtime coordinator owns the auth refresh path.") == true)
   }
 
+  @Test func agentThreadPresentationOrdersActiveThreadsFirst() throws {
+    let running = makeAgentThread(
+      id: "thread-running",
+      label: "Scout",
+      status: "running",
+      taskSummary: "Inspect the auth flow",
+      resultSummary: nil,
+      freshness: "pollable",
+      acceptsUserInput: true,
+      interjectionMode: "parent_mediated",
+      lastActivityAt: "2026-03-10T12:00:00Z"
+    )
+    let completed = makeAgentThread(
+      id: "thread-complete",
+      label: "Finisher",
+      status: "completed",
+      taskSummary: nil,
+      resultSummary: "Returned findings",
+      freshness: "final_only",
+      acceptsUserInput: false,
+      interjectionMode: "none",
+      lastActivityAt: "2026-03-10T11:00:00Z"
+    )
+
+    let presentation = try #require(SessionWorkerRosterPlanner.presentation(agentThreads: [completed, running]))
+
+    #expect(presentation.title == "Agent Threads")
+    #expect(presentation.summary == "1 active · 1 complete")
+    #expect(presentation.workers.map(\.id) == ["thread-running", "thread-complete"])
+    #expect(presentation.workers.first?.subtitle == "Inspect the auth flow")
+  }
+
+  @Test func agentThreadDetailSurfacesTranscriptAndInputCapability() throws {
+    let thread = makeAgentThread(
+      id: "thread-running",
+      label: "Scout",
+      status: "running",
+      taskSummary: "Inspect the auth flow",
+      resultSummary: nil,
+      freshness: "pollable",
+      acceptsUserInput: true,
+      interjectionMode: "parent_mediated",
+      lastActivityAt: "2026-03-10T12:00:00Z"
+    )
+    let rows = [
+      makeRowEntry(
+        id: "thread-user",
+        sessionId: "session-1",
+        sequence: 1,
+        rowType: .user,
+        content: "Inspect the auth flow"
+      ),
+      makeRowEntry(
+        id: "thread-assistant",
+        sessionId: "session-1",
+        sequence: 2,
+        rowType: .assistant,
+        content: "The runtime coordinator owns the auth refresh path."
+      ),
+    ]
+    let page = ServerAgentThreadConversationPage(
+      sessionId: "session-1",
+      threadId: thread.id,
+      rows: rows,
+      totalRowCount: UInt64(rows.count),
+      hasMoreBefore: false,
+      oldestSequence: rows.first?.sequence,
+      newestSequence: rows.last?.sequence,
+      freshness: .pollable
+    )
+
+    let presentation = try #require(SessionWorkerRosterPlanner.detailPresentation(
+      agentThreads: [thread],
+      selectedWorkerID: thread.id,
+      pageByThread: [thread.id: page],
+      subagents: []
+    ))
+
+    #expect(presentation.title == "Scout")
+    #expect(presentation.transcriptStatusLabel == "Refreshable")
+    #expect(presentation.canSendMessage)
+    #expect(presentation.messageModeLabel == "Ask parent to redirect")
+    #expect(presentation.conversationRows.map(\.id) == ["thread-user", "thread-assistant"])
+    #expect(presentation.capabilities.contains(where: { $0.label == "Input" && $0.value == "Ask parent to redirect" }))
+  }
+
   @Test func detailPresentationBuildsConversationTrailFromWorkerLinkedMessages() {
     let worker = makeWorker(
       id: "worker-running",
@@ -403,16 +489,16 @@ struct SessionWorkerRosterPlannerTests {
       toolsByWorker: [:],
       messagesByWorker: [
         worker.id: [
-        makeShellCommandEntry(
-          id: "shell-1",
-          sessionId: worker.id,
-          sequence: 1,
-          title: "Run migration check",
-          command: "orbitdock migrate --check",
-          stdout: "stdout-1\nstdout-2",
-          stderr: "stderr-1",
-          outputPreview: "stdout-1\nstderr-1\nstdout-2"
-        ),
+          makeShellCommandEntry(
+            id: "shell-1",
+            sessionId: worker.id,
+            sequence: 1,
+            title: "Run migration check",
+            command: "orbitdock migrate --check",
+            stdout: "stdout-1\nstdout-2",
+            stderr: "stderr-1",
+            outputPreview: "stdout-1\nstderr-1\nstdout-2"
+          ),
         ],
       ],
       timelineEntries: []
@@ -619,6 +705,64 @@ struct SessionWorkerRosterPlannerTests {
       model: nil,
       lastActivityAt: lastActivityAt
     )
+  }
+
+  private func makeAgentThread(
+    id: String,
+    label: String?,
+    status: String,
+    taskSummary: String?,
+    resultSummary: String?,
+    freshness: String,
+    acceptsUserInput: Bool,
+    interjectionMode: String,
+    lastActivityAt: String?
+  ) -> ServerAgentThreadSummary {
+    let labelJSON = jsonString(label)
+    let taskSummaryJSON = jsonString(taskSummary)
+    let resultSummaryJSON = jsonString(resultSummary)
+    let lastActivityAtJSON = jsonString(lastActivityAt)
+    let json = """
+    {
+      "id": "\(id)",
+      "provider": "codex",
+      "agent_type": "general-purpose",
+      "label": \(labelJSON),
+      "status": "\(status)",
+      "task_summary": \(taskSummaryJSON),
+      "result_summary": \(resultSummaryJSON),
+      "error_summary": null,
+      "parent_thread_id": null,
+      "model": "gpt-5.4",
+      "started_at": "2026-03-10T09:00:00Z",
+      "last_activity_at": \(lastActivityAtJSON),
+      "ended_at": null,
+      "capabilities": {
+        "can_view_transcript": true,
+        "has_live_updates": false,
+        "accepts_user_input": \(acceptsUserInput),
+        "can_interrupt": false,
+        "can_resume": false,
+        "can_close": false,
+        "interjection_mode": "\(interjectionMode)"
+      },
+      "conversation": {
+        "freshness": "\(freshness)",
+        "has_transcript": true,
+        "total_row_count": 2,
+        "oldest_sequence": 1,
+        "newest_sequence": 2
+      },
+      "limitations": []
+    }
+    """
+    return try! JSONDecoder().decode(ServerAgentThreadSummary.self, from: Data(json.utf8))
+  }
+
+  private func jsonString(_ value: String?) -> String {
+    guard let value else { return "null" }
+    let data = try! JSONEncoder().encode(value)
+    return String(data: data, encoding: .utf8)!
   }
 
   private enum RowEntryType {

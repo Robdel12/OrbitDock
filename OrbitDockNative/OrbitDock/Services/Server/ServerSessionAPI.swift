@@ -104,6 +104,41 @@ final class ServerSessionAPI {
     try await clients.sessions.getSubagentMessages(sessionId: sessionId, subagentId: subagentId)
   }
 
+  func listAgentThreads() async throws -> ServerAgentThreadListResponse {
+    try await clients.sessions.listAgentThreads(sessionId: sessionId)
+  }
+
+  func fetchAgentThreadConversation(
+    threadId: String,
+    beforeSequence: UInt64? = nil,
+    limit: Int = 50
+  ) async throws -> ServerAgentThreadConversationPage {
+    try await clients.sessions.getAgentThreadConversation(
+      sessionId: sessionId,
+      threadId: threadId,
+      beforeSequence: beforeSequence,
+      limit: limit
+    )
+  }
+
+  func sendAgentThreadMessage(
+    threadId: String,
+    content: String
+  ) async throws -> ConversationMutationResult {
+    let response = try await clients.sessions.sendAgentThreadMessage(
+      sessionId: sessionId,
+      threadId: threadId,
+      content: content
+    )
+    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
+    transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))
+    transport.invalidate([.conversation, .detail])
+    return ConversationMutationResult(
+      row: response.row,
+      sessionDetailSnapshot: detailSnapshot
+    )
+  }
+
   func removeWorktree(
     worktreeId: String,
     force: Bool,

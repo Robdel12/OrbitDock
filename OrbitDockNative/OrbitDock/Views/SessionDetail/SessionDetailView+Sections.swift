@@ -20,6 +20,14 @@ extension SessionDetailView {
           rosterPresentation: workerRosterPresentation,
           detailPresentation: workerDetailPresentation,
           selectedWorkerID: viewModel.worker.selectedWorkerId,
+          messageDraft: Binding(
+            get: { viewModel.worker.messageDraft },
+            set: { viewModel.worker.messageDraft = $0 }
+          ),
+          isSendingMessage: viewModel.worker.isSendingMessage,
+          sessionId: sessionId,
+          endpointId: endpointId,
+          clients: scopedSession.clients,
           onSelectWorker: { workerId in
             selectWorkerInPanel(workerId)
           },
@@ -27,6 +35,9 @@ extension SessionDetailView {
             withAnimation(Motion.gentle) {
               viewModel.revealWorkerConversationEvent(messageId)
             }
+          },
+          onSendMessage: {
+            sendAgentThreadMessage()
           }
         )
       }

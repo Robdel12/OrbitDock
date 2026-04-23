@@ -1,3 +1,4 @@
+pub(crate) mod agent_threads;
 pub(crate) mod codex_tools;
 pub(crate) mod conversation_semantics;
 pub(crate) mod git;

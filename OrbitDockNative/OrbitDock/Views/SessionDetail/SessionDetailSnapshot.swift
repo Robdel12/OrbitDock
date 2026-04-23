@@ -203,12 +203,16 @@ struct SessionDetailWorkerState {
   let subagents: [ServerSubagentInfo]
   var subagentTools: [String: [ServerSubagentTool]]
   var subagentMessages: [String: [ServerConversationRowEntry]]
+  var agentThreads: [ServerAgentThreadSummary]
+  var agentThreadPages: [String: ServerAgentThreadConversationPage]
   let timelineRevision: Int
 
   static let empty = SessionDetailWorkerState(
     subagents: [],
     subagentTools: [:],
     subagentMessages: [:],
+    agentThreads: [],
+    agentThreadPages: [:],
     timelineRevision: 0
   )
 }
