@@ -1,27 +1,23 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-
+use codex_app_server_protocol::{
+  DynamicToolSpec as AppServerDynamicToolSpec, SandboxMode as AppServerSandboxMode,
+  ThreadResumeParams, ThreadStartParams, ThreadStartSource,
+};
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_core::ThreadManager;
 use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
 use codex_features::Feature;
-use codex_login::{AuthCredentialsStoreMode, AuthManager};
-use codex_models_manager::collaboration_mode_presets::CollaborationModesConfig;
-use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::ModelProviderInfo;
-use codex_protocol::config_types::{
-  ApprovalsReviewer, CollaborationMode, CollaborationModeMask, ModeKind, Personality,
-  ReasoningSummary, ServiceTier, Settings,
-};
+use codex_protocol::config_types::{ApprovalsReviewer, Personality, ReasoningSummary, ServiceTier};
 use codex_protocol::openai_models::{
   default_input_modalities, ApplyPatchToolType, ConfigShellToolType, ModelInfo,
-  ModelInstructionsVariables, ModelMessages, ModelVisibility, ModelsResponse, ReasoningEffort,
+  ModelInstructionsVariables, ModelMessages, ModelVisibility, ModelsResponse,
   TruncationPolicyConfig, WebSearchToolType,
 };
-use codex_protocol::protocol::{Op, SessionSource};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::collections::HashMap;
 use tracing::warn;
 
-use super::policy_bridge::parse_sandbox_policy_with_details;
+use super::policy_bridge::parse_approval_policy_with_details;
 use super::{CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides};
 use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
@@ -34,7 +30,6 @@ const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
 const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 const ENV_CODEX_ENABLE_APP_CONNECTORS: &str = "ORBITDOCK_CODEX_ENABLE_APP_CONNECTORS";
-const ORBITDOCK_CODEX_AUTH_STORE_MODE: AuthCredentialsStoreMode = AuthCredentialsStoreMode::File;
 const ORBITDOCK_OPENROUTER_SITE_URL: &str = "https://orbitdock.dev";
 const ORBITDOCK_OPENROUTER_TITLE: &str = "OrbitDock";
 const ORBITDOCK_EXTERNAL_MODEL_BASE_INSTRUCTIONS: &str =
@@ -44,15 +39,6 @@ const ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE: &str =
   "You optimize for team morale and being a supportive teammate as much as code quality.";
 const ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE: &str =
   "You are a deeply pragmatic, effective software engineer.";
-const ORBITDOCK_PLAN_SHAPE_HINT_MARKER: &str = "[orbitdock-plan-shape-v1]";
-const ORBITDOCK_PLAN_SHAPE_HINT: &str = r#"[orbitdock-plan-shape-v1]
-Plan mode guidance:
-1. Start with the desired outcome and constraints in 1-2 bullets.
-2. Propose 2-5 implementation phases with checkbox steps and clear deliverables.
-3. Close with verification steps and notable risks/unknowns.
-
-When a plan is ready to persist, call `plan_write` and save Markdown under `plans/`.
-"#;
 
 pub fn requested_sandbox_policy_details(
   sandbox_mode: Option<&str>,
@@ -82,12 +68,89 @@ pub fn config_loader_sandbox_mode(
     .map(ToOwned::to_owned)
 }
 
+#[cfg(test)]
 fn override_cwd(cwd: &str) -> Option<std::path::PathBuf> {
   let trimmed = cwd.trim();
   if trimmed.is_empty() {
     None
   } else {
     Some(std::path::PathBuf::from(trimmed))
+  }
+}
+
+fn convert_app_server_type<T, U>(value: T, label: &str) -> Result<U, ConnectorError>
+where
+  T: Serialize,
+  U: DeserializeOwned,
+{
+  serde_json::from_value(serde_json::to_value(value).map_err(|error| {
+    ConnectorError::ProviderError(format!("Failed to encode Codex {label}: {error}"))
+  })?)
+  .map_err(|error| {
+    ConnectorError::ProviderError(format!(
+      "Failed to convert Codex {label} for app-server: {error}"
+    ))
+  })
+}
+
+fn convert_optional<T, U>(value: Option<T>, label: &str) -> Result<Option<U>, ConnectorError>
+where
+  T: Serialize,
+  U: DeserializeOwned,
+{
+  value
+    .map(|inner| convert_app_server_type(inner, label))
+    .transpose()
+}
+
+fn app_server_sandbox_mode(
+  sandbox_mode: Option<&str>,
+  sandbox_policy_details: Option<&CodexSandboxPolicy>,
+) -> Option<AppServerSandboxMode> {
+  requested_sandbox_policy_details(sandbox_mode, sandbox_policy_details)
+    .map(|details| match details.mode {
+      CodexSandboxMode::DangerFullAccess => AppServerSandboxMode::DangerFullAccess,
+      CodexSandboxMode::ReadOnly => AppServerSandboxMode::ReadOnly,
+      CodexSandboxMode::WorkspaceWrite => AppServerSandboxMode::WorkspaceWrite,
+      CodexSandboxMode::ExternalSandbox => AppServerSandboxMode::WorkspaceWrite,
+    })
+    .or_else(|| {
+      match sandbox_mode
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+      {
+        Some("danger-full-access") => Some(AppServerSandboxMode::DangerFullAccess),
+        Some("read-only") | Some("read-only-network") => Some(AppServerSandboxMode::ReadOnly),
+        Some("workspace-write")
+        | Some("workspace-write-network")
+        | Some("external-sandbox")
+        | Some("external-sandbox-network") => Some(AppServerSandboxMode::WorkspaceWrite),
+        _ => None,
+      }
+    })
+}
+
+pub(crate) fn resume_connector_with_tools_config<'a>(
+  cwd: &'a str,
+  thread_id: &'a str,
+  model: Option<&'a str>,
+  approval_policy: Option<&'a str>,
+  sandbox_mode: Option<&'a str>,
+  sandbox_policy_details: Option<&'a CodexSandboxPolicy>,
+  config_overrides: &'a CodexConfigOverrides,
+  runtime_overrides: CodexRuntimeOverrides,
+  dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
+) -> ResumeConnectorWithToolsConfig<'a> {
+  ResumeConnectorWithToolsConfig {
+    cwd,
+    thread_id,
+    model,
+    approval_policy,
+    sandbox_mode,
+    sandbox_policy_details,
+    config_overrides,
+    runtime_overrides,
+    dynamic_tools,
   }
 }
 
@@ -242,50 +305,57 @@ impl CodexConnector {
     let codex_home = find_codex_home()
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
 
-    let auth_manager = Arc::new(AuthManager::new(
-      codex_home.clone().to_path_buf(),
-      true,
-      ORBITDOCK_CODEX_AUTH_STORE_MODE,
-    ));
-
-    let mut config = Self::build_config(
-      cwd,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details,
-      config_overrides,
-      &runtime_overrides,
-    )
-    .await?;
-
-    let thread_manager = Arc::new(ThreadManager::new(
-      &config,
-      auth_manager.clone(),
-      SessionSource::Mcp,
-      CollaborationModesConfig::default(),
-      Arc::new(Self::embedded_environment_manager()?),
-      None,
-    ));
-    Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-    let configured_model = config.model.clone();
-    let new_thread = thread_manager
-      .start_thread_with_tools(config, dynamic_tools, false)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
-
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf(), cwd)?;
-    connector
-      .apply_post_start_overrides(
-        runtime_overrides,
-        configured_model,
-        None,
-        cwd,
-        sandbox_mode,
-        sandbox_policy_details,
-      )
+    let app_server =
+      crate::app_server::shared_app_server(cwd, config_overrides, &runtime_overrides).await?;
+    let approval_policy =
+      parse_approval_policy_with_details(approval_policy, None).map_err(|error| {
+        ConnectorError::ProviderError(format!("Invalid approval policy: {error}"))
+      })?;
+    let response = app_server
+      .thread_start(ThreadStartParams {
+        model: model.map(ToString::to_string),
+        model_provider: config_overrides.model_provider.clone(),
+        service_tier: convert_optional(
+          parse_service_tier_override(runtime_overrides.service_tier.as_deref()),
+          "service tier",
+        )?,
+        cwd: Some(cwd.to_string()),
+        approval_policy: convert_optional(approval_policy, "approval policy")?,
+        approvals_reviewer: convert_optional(
+          parse_approvals_reviewer(runtime_overrides.approvals_reviewer.as_deref()),
+          "approvals reviewer",
+        )?,
+        sandbox: app_server_sandbox_mode(sandbox_mode, sandbox_policy_details),
+        config: None,
+        service_name: None,
+        base_instructions: None,
+        developer_instructions: runtime_overrides.developer_instructions.clone(),
+        personality: convert_optional(
+          parse_personality(runtime_overrides.personality.as_deref()),
+          "personality",
+        )?,
+        ephemeral: None,
+        session_start_source: Some(ThreadStartSource::Startup),
+        dynamic_tools: Some(convert_app_server_type::<_, Vec<AppServerDynamicToolSpec>>(
+          dynamic_tools,
+          "dynamic tools",
+        )?),
+        mock_experimental_field: None,
+        experimental_raw_events: false,
+        persist_extended_history: true,
+      })
       .await?;
-    Ok(connector)
+
+    let reasoning_effort = convert_optional(response.reasoning_effort, "reasoning effort")?;
+    Self::from_app_server_thread(
+      app_server,
+      response.thread.id,
+      codex_home.to_path_buf(),
+      cwd,
+      Some(response.model),
+      reasoning_effort,
+    )
+    .await
   }
 
   pub async fn resume(
@@ -296,17 +366,19 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
-      cwd,
-      thread_id,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details: None,
-      config_overrides: &default_overrides,
-      runtime_overrides: CodexRuntimeOverrides::default(),
-      dynamic_tools: Vec::new(),
-    })
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(
+      resume_connector_with_tools_config(
+        cwd,
+        thread_id,
+        model,
+        approval_policy,
+        sandbox_mode,
+        None,
+        &default_overrides,
+        CodexRuntimeOverrides::default(),
+        Vec::new(),
+      ),
+    )
     .await
   }
 
@@ -318,17 +390,19 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
-      cwd,
-      thread_id,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details: None,
-      config_overrides,
-      runtime_overrides: CodexRuntimeOverrides::default(),
-      dynamic_tools: Vec::new(),
-    })
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(
+      resume_connector_with_tools_config(
+        cwd,
+        thread_id,
+        model,
+        approval_policy,
+        sandbox_mode,
+        None,
+        config_overrides,
+        CodexRuntimeOverrides::default(),
+        Vec::new(),
+      ),
+    )
     .await
   }
 
@@ -341,17 +415,19 @@ impl CodexConnector {
     runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
-      cwd,
-      thread_id,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details: None,
-      config_overrides: &default_overrides,
-      runtime_overrides,
-      dynamic_tools: Vec::new(),
-    })
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(
+      resume_connector_with_tools_config(
+        cwd,
+        thread_id,
+        model,
+        approval_policy,
+        sandbox_mode,
+        None,
+        &default_overrides,
+        runtime_overrides,
+        Vec::new(),
+      ),
+    )
     .await
   }
 
@@ -364,17 +440,19 @@ impl CodexConnector {
     config_overrides: &CodexConfigOverrides,
     runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
-      cwd,
-      thread_id,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details: None,
-      config_overrides,
-      runtime_overrides,
-      dynamic_tools: Vec::new(),
-    })
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(
+      resume_connector_with_tools_config(
+        cwd,
+        thread_id,
+        model,
+        approval_policy,
+        sandbox_mode,
+        None,
+        config_overrides,
+        runtime_overrides,
+        Vec::new(),
+      ),
+    )
     .await
   }
 
@@ -396,45 +474,19 @@ impl CodexConnector {
     let codex_home = find_codex_home()
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
 
-    let rollout_path = codex_core::find_thread_path_by_id_str(&codex_home, thread_id)
-      .await
-      .map_err(|e| {
-        ConnectorError::ProviderError(format!("Failed to find rollout for thread: {}", e))
-      })?
-      .ok_or_else(|| {
-        ConnectorError::ProviderError(format!("No rollout file found for thread {}", thread_id))
-      })?;
-
-    let auth_manager = Arc::new(AuthManager::new(
-      codex_home.clone().to_path_buf(),
-      true,
-      ORBITDOCK_CODEX_AUTH_STORE_MODE,
-    ));
-
-    let mut config = Self::build_config(
-      cwd,
-      model,
-      approval_policy,
-      sandbox_mode,
-      sandbox_policy_details,
-      config_overrides,
-      &runtime_overrides,
-    )
-    .await?;
-
-    let thread_manager = Arc::new(ThreadManager::new(
-      &config,
-      auth_manager.clone(),
-      SessionSource::Mcp,
-      CollaborationModesConfig::default(),
-      Arc::new(Self::embedded_environment_manager()?),
-      None,
-    ));
-    Self::finalize_reasoning_summary(&mut config, thread_manager.as_ref()).await;
-    let configured_model = config.model.clone();
     if !dynamic_tools.is_empty() {
       match codex_protocol::ThreadId::try_from(thread_id) {
         Ok(resume_thread_id) => {
+          let config = Self::build_config(
+            cwd,
+            model,
+            approval_policy,
+            sandbox_mode,
+            sandbox_policy_details,
+            config_overrides,
+            &runtime_overrides,
+          )
+          .await?;
           if let Some(state_db) = codex_core::get_state_db(&config).await {
             if let Err(err) = state_db
               .persist_dynamic_tools(resume_thread_id, Some(dynamic_tools.as_slice()))
@@ -457,23 +509,52 @@ impl CodexConnector {
         }
       }
     }
-    let new_thread = thread_manager
-      .resume_thread_from_rollout(config, rollout_path, auth_manager, None)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to resume thread: {}", e)))?;
 
-    let connector = Self::from_thread(new_thread, thread_manager, codex_home.to_path_buf(), cwd)?;
-    connector
-      .apply_post_start_overrides(
-        runtime_overrides,
-        configured_model,
-        None,
-        cwd,
-        sandbox_mode,
-        sandbox_policy_details,
-      )
+    let app_server =
+      crate::app_server::shared_app_server(cwd, config_overrides, &runtime_overrides).await?;
+    let approval_policy =
+      parse_approval_policy_with_details(approval_policy, None).map_err(|error| {
+        ConnectorError::ProviderError(format!("Invalid approval policy: {error}"))
+      })?;
+    let response = app_server
+      .thread_resume(ThreadResumeParams {
+        thread_id: thread_id.to_string(),
+        history: None,
+        path: None,
+        model: model.map(ToString::to_string),
+        model_provider: config_overrides.model_provider.clone(),
+        service_tier: convert_optional(
+          parse_service_tier_override(runtime_overrides.service_tier.as_deref()),
+          "service tier",
+        )?,
+        cwd: Some(cwd.to_string()),
+        approval_policy: convert_optional(approval_policy, "approval policy")?,
+        approvals_reviewer: convert_optional(
+          parse_approvals_reviewer(runtime_overrides.approvals_reviewer.as_deref()),
+          "approvals reviewer",
+        )?,
+        sandbox: app_server_sandbox_mode(sandbox_mode, sandbox_policy_details),
+        config: None,
+        base_instructions: None,
+        developer_instructions: runtime_overrides.developer_instructions.clone(),
+        personality: convert_optional(
+          parse_personality(runtime_overrides.personality.as_deref()),
+          "personality",
+        )?,
+        persist_extended_history: true,
+      })
       .await?;
-    Ok(connector)
+
+    let reasoning_effort = convert_optional(response.reasoning_effort, "reasoning effort")?;
+    Self::from_app_server_thread(
+      app_server,
+      response.thread.id,
+      codex_home.to_path_buf(),
+      cwd,
+      Some(response.model),
+      reasoning_effort,
+    )
+    .await
   }
 
   pub async fn build_config(
@@ -617,86 +698,9 @@ impl CodexConnector {
       parse_bool_env(ENV_CODEX_ENABLE_APP_CONNECTORS).unwrap_or(false),
     );
     let forced_apply_patch_feature = ensure_apply_patch_feature_for_custom_models(&mut config);
-    let _ = (cwd, forced_apply_patch_feature);
+    let _ = forced_apply_patch_feature;
 
     Ok(config)
-  }
-
-  pub(crate) async fn finalize_reasoning_summary(
-    config: &mut Config,
-    thread_manager: &ThreadManager,
-  ) {
-    let supports_reasoning_summaries =
-      model_supports_reasoning_summaries(thread_manager, config).await;
-    if should_disable_reasoning_summary(config.model.as_deref(), supports_reasoning_summaries) {
-      config.model_reasoning_summary = Some(ReasoningSummary::None);
-    }
-  }
-
-  pub(crate) async fn apply_post_start_overrides(
-    &self,
-    runtime_overrides: CodexRuntimeOverrides,
-    configured_model: Option<String>,
-    configured_effort: Option<ReasoningEffort>,
-    cwd: &str,
-    sandbox_mode: Option<&str>,
-    sandbox_policy_details: Option<&CodexSandboxPolicy>,
-  ) -> Result<(), ConnectorError> {
-    let requested_effort = runtime_overrides
-      .effort
-      .as_deref()
-      .and_then(parse_reasoning_effort_value);
-    let sandbox_policy = parse_sandbox_policy_with_details(sandbox_mode, sandbox_policy_details)
-      .map_err(|error| {
-        ConnectorError::ProviderError(format!(
-          "Failed to apply Codex sandbox policy after startup: {error}"
-        ))
-      })?;
-    let collaboration_mode = collaboration_mode_for_update(
-      self.thread_manager.as_ref(),
-      runtime_overrides.collaboration_mode.as_deref(),
-      None,
-      configured_model.unwrap_or_else(|| "gpt-5-codex".to_string()),
-      requested_effort.or(configured_effort),
-      runtime_overrides.developer_instructions.as_deref(),
-    );
-    let service_tier = parse_service_tier_override(runtime_overrides.service_tier.as_deref());
-    let personality = parse_personality(runtime_overrides.personality.as_deref());
-    let approvals_reviewer =
-      parse_approvals_reviewer(runtime_overrides.approvals_reviewer.as_deref());
-
-    if collaboration_mode.is_none()
-      && approvals_reviewer.is_none()
-      && service_tier.is_none()
-      && personality.is_none()
-      && runtime_overrides.multi_agent.is_none()
-      && requested_effort.is_none()
-      && sandbox_policy.is_none()
-    {
-      return Ok(());
-    }
-
-    self
-      .thread
-      .submit(Op::OverrideTurnContext {
-        cwd: override_cwd(cwd),
-        approval_policy: None,
-        sandbox_policy,
-        windows_sandbox_level: None,
-        model: None,
-        effort: requested_effort.map(Some),
-        summary: None,
-        approvals_reviewer,
-        service_tier,
-        collaboration_mode,
-        personality,
-      })
-      .await
-      .map_err(|e| {
-        ConnectorError::ProviderError(format!("Failed to apply Codex runtime overrides: {}", e))
-      })?;
-
-    Ok(())
   }
 }
 
@@ -709,80 +713,48 @@ pub async fn discover_models_for_context(
   cwd: Option<&str>,
   model_provider: Option<&str>,
 ) -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError> {
-  let codex_home = find_codex_home()
-    .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
-  let auth_manager = Arc::new(AuthManager::new(
-    codex_home.to_path_buf(),
-    true,
-    ORBITDOCK_CODEX_AUTH_STORE_MODE,
-  ));
-  let harness_overrides = ConfigOverrides {
-    cwd: cwd.map(std::path::PathBuf::from),
-    model_provider: model_provider.map(str::to_string),
-    ..Default::default()
-  };
-  let mut base_config = match Config::load_with_cli_overrides_and_harness_overrides(
-    Vec::new(),
-    harness_overrides,
+  let app_server = crate::app_server::shared_app_server(
+    cwd.unwrap_or("."),
+    &CodexConfigOverrides {
+      model_provider: model_provider.map(str::to_string),
+      config_profile: None,
+    },
+    &CodexRuntimeOverrides::default(),
   )
-  .await
-  {
-    Ok(config) => config,
-    Err(err) => {
-      warn!(
-        "Failed to load config for model discovery: {}. Falling back to defaults.",
-        err
-      );
-      Config::load_default_with_cli_overrides(Vec::new())
-        .await
-        .map_err(|e| {
-          ConnectorError::ProviderError(format!("Failed to load config for model discovery: {}", e))
-        })?
-    }
-  };
-  apply_orbitdock_provider_defaults(&mut base_config);
-  let thread_manager = Arc::new(ThreadManager::new(
-    &base_config,
-    auth_manager,
-    SessionSource::Mcp,
-    CollaborationModesConfig::default(),
-    Arc::new(CodexConnector::embedded_environment_manager()?),
-    None,
-  ));
+  .await?;
 
-  let mut models: Vec<orbitdock_protocol::CodexModelOption> = Vec::new();
-  for preset in thread_manager
-    .list_models(RefreshStrategy::OnlineIfUncached)
-    .await
+  let models = app_server
+    .model_list(false)
+    .await?
+    .data
     .into_iter()
-    .filter(|preset| preset.show_in_picker)
-  {
-    let mut model_config = base_config.clone();
-    model_config.model = Some(preset.model.clone());
-    let supports_reasoning_summaries =
-      model_supports_reasoning_summaries(thread_manager.as_ref(), &model_config).await;
-    let supported_reasoning_efforts = preset
-      .supported_reasoning_efforts
-      .into_iter()
-      .map(|effort| effort.effort.to_string())
-      .collect();
+    .filter(|model| !model.hidden)
+    .map(|model| {
+      let supported_reasoning_efforts = model
+        .supported_reasoning_efforts
+        .into_iter()
+        .map(|effort| effort.reasoning_effort.to_string())
+        .collect();
+      let supported_service_tiers = model.additional_speed_tiers;
+      let supports_reasoning_summaries = !model_rejects_reasoning_summary(Some(&model.model));
 
-    models.push(orbitdock_protocol::CodexModelOption {
-      id: preset.id,
-      model: preset.model,
-      display_name: preset.display_name,
-      description: preset.description,
-      is_default: preset.is_default,
-      supported_reasoning_efforts,
-      supports_reasoning_summaries,
-      supported_collaboration_modes: vec!["default".to_string(), "plan".to_string()],
-      supports_multi_agent: true,
-      multi_agent_is_experimental: true,
-      supports_personality: true,
-      supported_service_tiers: vec!["fast".to_string(), "flex".to_string()],
-      supports_developer_instructions: true,
-    });
-  }
+      orbitdock_protocol::CodexModelOption {
+        id: model.id,
+        model: model.model,
+        display_name: model.display_name,
+        description: model.description,
+        is_default: model.is_default,
+        supported_reasoning_efforts,
+        supports_reasoning_summaries,
+        supported_collaboration_modes: vec!["default".to_string(), "plan".to_string()],
+        supports_multi_agent: true,
+        multi_agent_is_experimental: true,
+        supports_personality: model.supports_personality,
+        supported_service_tiers,
+        supports_developer_instructions: true,
+      }
+    })
+    .collect();
 
   Ok(models)
 }
@@ -794,19 +766,6 @@ pub(crate) fn parse_approvals_reviewer(value: Option<&str>) -> Option<ApprovalsR
     _ => None,
   }
 }
-
-fn parse_reasoning_effort_value(value: &str) -> Option<ReasoningEffort> {
-  match value {
-    "none" => Some(ReasoningEffort::None),
-    "minimal" => Some(ReasoningEffort::Minimal),
-    "low" => Some(ReasoningEffort::Low),
-    "medium" => Some(ReasoningEffort::Medium),
-    "high" => Some(ReasoningEffort::High),
-    "xhigh" => Some(ReasoningEffort::XHigh),
-    _ => None,
-  }
-}
-
 pub(crate) fn apply_orbitdock_embedded_runtime_defaults(
   config: &mut Config,
   app_connectors_enabled: bool,
@@ -1096,184 +1055,12 @@ pub(crate) fn reasoning_summary_for_model(
   }
 }
 
-pub(crate) async fn model_supports_reasoning_summaries(
-  thread_manager: &ThreadManager,
-  config: &Config,
-) -> bool {
-  let Some(model) = config.model.as_deref() else {
-    return true;
-  };
-
-  thread_manager
-    .get_models_manager()
-    .get_model_info(model, &config.to_models_manager_config())
-    .await
-    .supports_reasoning_summaries
-}
-
+#[cfg(test)]
 pub(crate) fn should_disable_reasoning_summary(
   model: Option<&str>,
   supports_reasoning_summaries: bool,
 ) -> bool {
   !supports_reasoning_summaries || model_rejects_reasoning_summary(model)
-}
-
-pub(crate) fn collaboration_mode_for_update(
-  thread_manager: &ThreadManager,
-  explicit_collaboration_mode: Option<&str>,
-  permission_mode: Option<&str>,
-  model: String,
-  effort: Option<ReasoningEffort>,
-  developer_instructions: Option<&str>,
-) -> Option<CollaborationMode> {
-  let explicit_mode = explicit_collaboration_mode
-    .and_then(parse_mode_kind)
-    .map(|mode| {
-      collaboration_mode_from_name_or_mode(
-        thread_manager.list_collaboration_modes(),
-        mode_kind_name(mode),
-        model.clone(),
-        effort,
-        developer_instructions,
-      )
-    });
-
-  if explicit_mode.is_some() {
-    return explicit_mode.flatten();
-  }
-
-  let permission_mode_selection = permission_mode.and_then(parse_mode_kind).map(|mode| {
-    collaboration_mode_from_name_or_mode(
-      thread_manager.list_collaboration_modes(),
-      mode_kind_name(mode),
-      model.clone(),
-      effort,
-      developer_instructions,
-    )
-  });
-
-  if permission_mode_selection.is_some() {
-    return permission_mode_selection.flatten();
-  }
-
-  developer_instructions.map(|instructions| CollaborationMode {
-    mode: ModeKind::Default,
-    settings: Settings {
-      model,
-      reasoning_effort: effort,
-      developer_instructions: Some(instructions.to_string()),
-    },
-  })
-}
-
-#[cfg(test)]
-pub(crate) fn collaboration_mode_from_permission_mode(
-  permission_mode: Option<&str>,
-  model: String,
-  effort: Option<ReasoningEffort>,
-) -> Option<CollaborationMode> {
-  let mode = permission_mode.and_then(parse_mode_kind)?;
-  Some(build_collaboration_mode(
-    mode,
-    model,
-    effort,
-    None::<String>,
-  ))
-}
-
-pub(crate) fn collaboration_mode_from_name_or_mode(
-  masks: Vec<CollaborationModeMask>,
-  mode_name: &str,
-  model: String,
-  effort: Option<ReasoningEffort>,
-  developer_instructions: Option<&str>,
-) -> Option<CollaborationMode> {
-  let normalized = mode_name.trim().to_ascii_lowercase();
-  let parsed_mode = parse_mode_kind(normalized.as_str())?;
-  let base = build_collaboration_mode(
-    parsed_mode,
-    model,
-    effort,
-    developer_instructions.map(ToOwned::to_owned),
-  );
-
-  let matched_mask = masks.into_iter().find(|mask| {
-    mask.name.trim().eq_ignore_ascii_case(normalized.as_str())
-      || mask
-        .mode
-        .map(|mode| mode_kind_name(mode).eq_ignore_ascii_case(normalized.as_str()))
-        .unwrap_or(false)
-  });
-
-  let resolved = matched_mask
-    .map(|mask| base.apply_mask(&mask))
-    .unwrap_or(base);
-  let developer_override = developer_instructions_override(
-    parsed_mode,
-    developer_instructions,
-    resolved.settings.developer_instructions.as_deref(),
-  );
-  Some(resolved.with_updates(None, None, developer_override))
-}
-
-fn build_collaboration_mode(
-  mode: ModeKind,
-  model: String,
-  effort: Option<ReasoningEffort>,
-  developer_instructions: impl Into<Option<String>>,
-) -> CollaborationMode {
-  CollaborationMode {
-    mode,
-    settings: Settings {
-      model,
-      reasoning_effort: effort,
-      developer_instructions: developer_instructions.into(),
-    },
-  }
-}
-
-fn developer_instructions_override(
-  mode: ModeKind,
-  explicit: Option<&str>,
-  resolved: Option<&str>,
-) -> Option<Option<String>> {
-  match mode {
-    ModeKind::Plan => Some(Some(with_plan_shape_hint(explicit.or(resolved)))),
-    ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => {
-      explicit.map(|value| Some(value.to_string()))
-    }
-  }
-}
-
-fn with_plan_shape_hint(instructions: Option<&str>) -> String {
-  let hint = ORBITDOCK_PLAN_SHAPE_HINT.trim();
-
-  let Some(instructions) = instructions else {
-    return hint.to_string();
-  };
-  if instructions.trim().is_empty() {
-    return hint.to_string();
-  }
-  if instructions.contains(ORBITDOCK_PLAN_SHAPE_HINT_MARKER) {
-    return instructions.to_string();
-  }
-
-  format!("{}\n\n{hint}", instructions.trim_end())
-}
-
-fn mode_kind_name(mode: ModeKind) -> &'static str {
-  match mode {
-    ModeKind::Plan => "plan",
-    ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
-  }
-}
-
-fn parse_mode_kind(value: &str) -> Option<ModeKind> {
-  match value.trim().to_ascii_lowercase().as_str() {
-    "plan" => Some(ModeKind::Plan),
-    "default" => Some(ModeKind::Default),
-    _ => None,
-  }
 }
 
 pub(crate) fn parse_personality(value: Option<&str>) -> Option<Personality> {

@@ -23,12 +23,6 @@ const COMMON_PATH_DIRS: [&str; 6] = [
   "/usr/sbin",
   "/sbin",
 ];
-const COMMON_CODEX_PATHS: [&str; 4] = [
-  "/usr/local/bin/codex",
-  "/opt/homebrew/bin/codex",
-  "/usr/bin/codex",
-  "/bin/codex",
-];
 
 const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -162,9 +156,6 @@ fn install_launchd(plan: &ServiceInstallPlan) -> anyhow::Result<()> {
 
   let service_environment = resolve_service_environment();
   let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
-  if let Some(codex_bin) = service_environment.codex_bin {
-    environment_variables.push(("ORBITDOCK_CODEX_PATH".to_string(), codex_bin));
-  }
   if let Some(claude_bin) = service_environment.claude_bin {
     environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
   }
@@ -348,7 +339,6 @@ fn launchd_domain() -> String {
 
 struct ServiceEnvironment {
   path: String,
-  codex_bin: Option<String>,
   claude_bin: Option<String>,
 }
 
@@ -385,13 +375,8 @@ fn render_launchd_plist(
 fn resolve_service_environment() -> ServiceEnvironment {
   let path = resolve_path_for_service();
   let path_entries = split_path_entries(&path);
-  let codex_bin = resolve_codex_binary_for_service(&path_entries);
   let claude_bin = resolve_claude_binary_for_service(&path_entries);
-  ServiceEnvironment {
-    path,
-    codex_bin,
-    claude_bin,
-  }
+  ServiceEnvironment { path, claude_bin }
 }
 
 /// Resolve a PATH suitable for the launchd service environment.
@@ -427,21 +412,6 @@ fn resolve_path_for_service() -> String {
   }
 
   dedup_non_empty(entries).unwrap_or_else(|| COMMON_PATH_DIRS.join(":"))
-}
-
-fn resolve_codex_binary_for_service(path_entries: &[String]) -> Option<String> {
-  if let Some(path) = resolve_explicit_binary_env("ORBITDOCK_CODEX_PATH") {
-    return Some(path);
-  }
-
-  for candidate in COMMON_CODEX_PATHS {
-    let path = Path::new(candidate);
-    if is_executable_file(path) {
-      return Some(candidate.to_string());
-    }
-  }
-
-  find_binary_in_path_entries("codex", path_entries)
 }
 
 fn resolve_claude_binary_for_service(path_entries: &[String]) -> Option<String> {

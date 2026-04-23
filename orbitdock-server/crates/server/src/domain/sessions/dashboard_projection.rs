@@ -8,8 +8,7 @@
 use std::path::Path;
 
 use orbitdock_protocol::{
-  ClaudeIntegrationMode, CodexIntegrationMode, DashboardConversationItem, DashboardDiffPreview,
-  Provider, SessionSummary,
+  ClaudeIntegrationMode, CodexIntegrationMode, DashboardConversationItem, Provider, SessionSummary,
 };
 
 use super::session::SessionSnapshot;
@@ -74,7 +73,7 @@ pub fn dashboard_item_from_snapshot(snap: &SessionSnapshot) -> DashboardConversa
     last_activity_at: snap.last_activity_at.clone(),
     unread_count: snap.unread_count,
     has_turn_diff: snap.has_turn_diff,
-    diff_preview: dashboard_diff_preview(snap.current_diff.as_deref()),
+    diff_preview: snap.diff_preview.clone(),
     pending_tool_name: snap.pending_tool_name.clone(),
     pending_tool_input: snap.pending_tool_input.clone(),
     pending_question: snap.pending_question.clone(),
@@ -215,46 +214,4 @@ fn dashboard_alert_context(
       .or(context_line)
       .unwrap_or("Needs your attention."),
   )
-}
-
-fn dashboard_diff_preview(diff: Option<&str>) -> Option<DashboardDiffPreview> {
-  let diff = diff?.trim();
-  if diff.is_empty() {
-    return None;
-  }
-
-  let mut file_paths: Vec<String> = vec![];
-  let mut additions = 0_u32;
-  let mut deletions = 0_u32;
-
-  for line in diff.lines() {
-    if let Some(path) = line.strip_prefix("+++ b/") {
-      let path = path.trim();
-      if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-        file_paths.push(path.to_string());
-      }
-      continue;
-    }
-    if let Some(rest) = line.strip_prefix("diff --git ") {
-      if let Some(path) = rest.split(" b/").nth(1) {
-        let path = path.trim();
-        if !path.is_empty() && !file_paths.iter().any(|existing| existing == path) {
-          file_paths.push(path.to_string());
-        }
-      }
-      continue;
-    }
-    if line.starts_with('+') && !line.starts_with("+++") {
-      additions = additions.saturating_add(1);
-    } else if line.starts_with('-') && !line.starts_with("---") {
-      deletions = deletions.saturating_add(1);
-    }
-  }
-
-  Some(DashboardDiffPreview {
-    file_count: file_paths.len() as u32,
-    additions,
-    deletions,
-    file_paths: file_paths.into_iter().take(3).collect(),
-  })
 }

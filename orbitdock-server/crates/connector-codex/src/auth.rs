@@ -1,16 +1,10 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex as StdMutex};
-use std::time::Duration;
+use std::sync::Arc;
 
-use codex_app_server_protocol::AuthMode;
-use codex_core::config::find_codex_home;
-use codex_login::run_login_server;
-use codex_login::AuthCredentialsStoreMode;
-use codex_login::AuthManager;
-use codex_login::CodexAuth;
-use codex_login::ServerOptions as LoginServerOptions;
-use codex_login::ShutdownHandle;
-use codex_login::CLIENT_ID;
+use codex_app_server_protocol::{
+  Account, CancelLoginAccountStatus, GetAccountResponse, LoginAccountParams, LoginAccountResponse,
+  ServerNotification,
+};
 use orbitdock_protocol::CodexAccount;
 use orbitdock_protocol::CodexAccountStatus;
 use orbitdock_protocol::CodexAuthMode;
@@ -18,293 +12,186 @@ use orbitdock_protocol::CodexLoginCancelStatus;
 use orbitdock_protocol::ServerMessage;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
-use tracing::warn;
-use uuid::Uuid;
-
-const LOGIN_CHATGPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
-
-#[derive(Clone)]
-struct ActiveLogin {
-  login_id: String,
-  shutdown_handle: ShutdownHandle,
-}
-
-enum ServiceState {
-  Deferred {
-    codex_home: PathBuf,
-    credentials_store_mode: AuthCredentialsStoreMode,
-  },
-  Ready {
-    auth_manager: Arc<AuthManager>,
-    codex_home: PathBuf,
-    credentials_store_mode: AuthCredentialsStoreMode,
-  },
-  Disabled {
-    reason: String,
-  },
-}
 
 pub struct CodexAuthService {
-  state: StdMutex<ServiceState>,
+  auth_home: PathBuf,
   list_tx: broadcast::Sender<ServerMessage>,
-  active_login: Arc<Mutex<Option<ActiveLogin>>>,
+  active_login_id: Arc<Mutex<Option<String>>>,
 }
 
 impl CodexAuthService {
   pub fn new(list_tx: broadcast::Sender<ServerMessage>) -> Self {
-    match find_codex_home() {
-      Ok(codex_home) => {
-        let credentials_store_mode = AuthCredentialsStoreMode::File;
-        Self {
-          state: StdMutex::new(ServiceState::Deferred {
-            codex_home: codex_home.to_path_buf(),
-            credentials_store_mode,
-          }),
-          list_tx,
-          active_login: Arc::new(Mutex::new(None)),
-        }
-      }
-      Err(err) => Self {
-        state: StdMutex::new(ServiceState::Disabled {
-          reason: format!("Failed to find codex home: {err}"),
-        }),
-        list_tx,
-        active_login: Arc::new(Mutex::new(None)),
-      },
-    }
-  }
-
-  pub fn new_with_store_mode(
-    list_tx: broadcast::Sender<ServerMessage>,
-    codex_home: PathBuf,
-    credentials_store_mode: AuthCredentialsStoreMode,
-  ) -> Self {
-    Self {
-      state: StdMutex::new(ServiceState::Deferred {
-        codex_home,
-        credentials_store_mode,
-      }),
-      list_tx,
-      active_login: Arc::new(Mutex::new(None)),
-    }
+    Self::new_with_auth_home(list_tx, default_auth_cwd())
   }
 
   pub fn new_with_file_store(
     list_tx: broadcast::Sender<ServerMessage>,
     codex_home: PathBuf,
   ) -> Self {
-    Self::new_with_store_mode(list_tx, codex_home, AuthCredentialsStoreMode::File)
+    Self::new_with_auth_home(list_tx, codex_home)
+  }
+
+  fn new_with_auth_home(list_tx: broadcast::Sender<ServerMessage>, auth_home: PathBuf) -> Self {
+    Self {
+      auth_home,
+      list_tx,
+      active_login_id: Arc::new(Mutex::new(None)),
+    }
   }
 
   pub async fn read_account(&self, refresh_token: bool) -> Result<CodexAccountStatus, String> {
-    let auth_manager = self.auth_manager()?;
-
-    // Pick up any auth changes made by CLI outside OrbitDock.
-    auth_manager.reload();
-
-    if refresh_token {
-      if let Err(err) = auth_manager.refresh_token().await {
-        warn!(
-            error = %err,
-            "Failed to refresh ChatGPT auth token while reading account state"
-        );
-      }
-    }
-
-    Ok(self.status_from_auth_manager(&auth_manager).await)
+    let app_server = self.app_server().await?;
+    let response = app_server
+      .account_read(refresh_token)
+      .await
+      .map_err(|error| error.to_string())?;
+    Ok(self.status_from_response(response).await)
   }
 
   pub async fn start_chatgpt_login(&self) -> Result<(String, String), String> {
-    let (auth_manager, codex_home, credentials_store_mode) = self.ready_parts()?;
+    let app_server = self.app_server().await?;
+    let notifications = app_server.subscribe_global_notifications();
+    let response = app_server
+      .account_login_start(LoginAccountParams::Chatgpt)
+      .await
+      .map_err(|error| error.to_string())?;
 
-    let opts = LoginServerOptions {
-      open_browser: false,
-      ..LoginServerOptions::new(
-        codex_home.clone(),
-        CLIENT_ID.to_string(),
-        None,
-        credentials_store_mode,
-      )
+    let LoginAccountResponse::Chatgpt { login_id, auth_url } = response else {
+      return Err("Codex app-server returned a non-ChatGPT login response".to_string());
     };
 
-    let server =
-      run_login_server(opts).map_err(|err| format!("failed to start login server: {err}"))?;
-    let login_id = Uuid::new_v4().to_string();
-    let auth_url = server.auth_url.clone();
-    let shutdown_handle = server.cancel_handle();
-
-    {
-      let mut guard = self.active_login.lock().await;
-      if let Some(existing) = guard.take() {
-        existing.shutdown_handle.shutdown();
-      }
-      *guard = Some(ActiveLogin {
-        login_id: login_id.clone(),
-        shutdown_handle: shutdown_handle.clone(),
-      });
-    }
-
-    let active_login = self.active_login.clone();
-    let list_tx = self.list_tx.clone();
-    let login_id_for_task = login_id.clone();
-    tokio::spawn(async move {
-      let (success, error) =
-        match tokio::time::timeout(LOGIN_CHATGPT_TIMEOUT, server.block_until_done()).await {
-          Ok(Ok(())) => (true, None),
-          Ok(Err(err)) => (false, Some(format!("Login server error: {err}"))),
-          Err(_) => {
-            shutdown_handle.shutdown();
-            (false, Some("Login timed out".to_string()))
-          }
-        };
-
-      {
-        let mut guard = active_login.lock().await;
-        if guard.as_ref().map(|v| v.login_id.as_str()) == Some(login_id_for_task.as_str()) {
-          *guard = None;
-        }
-      }
-
-      if success {
-        auth_manager.reload();
-      }
-
-      let _ = list_tx.send(ServerMessage::CodexLoginChatgptCompleted {
-        login_id: login_id_for_task.clone(),
-        success,
-        error,
-      });
-
-      let status = Self::status_from_parts(&auth_manager, &active_login).await;
-      if success {
-        let _ = list_tx.send(ServerMessage::CodexAccountUpdated {
-          status: status.clone(),
-        });
-      }
-      let _ = list_tx.send(ServerMessage::CodexAccountStatus { status });
-    });
-
+    *self.active_login_id.lock().await = Some(login_id.clone());
+    self.spawn_login_completion_watcher(Arc::clone(&app_server), login_id.clone(), notifications);
     Ok((login_id, auth_url))
   }
 
   pub async fn cancel_chatgpt_login(&self, login_id: String) -> CodexLoginCancelStatus {
-    if Uuid::parse_str(&login_id).is_err() {
-      return CodexLoginCancelStatus::InvalidId;
+    let Ok(app_server) = self.app_server().await else {
+      return CodexLoginCancelStatus::NotFound;
+    };
+    let response = app_server.account_login_cancel(login_id.clone()).await;
+    let status = match response {
+      Ok(response) => match response.status {
+        CancelLoginAccountStatus::Canceled => CodexLoginCancelStatus::Canceled,
+        CancelLoginAccountStatus::NotFound => CodexLoginCancelStatus::NotFound,
+      },
+      Err(_) => CodexLoginCancelStatus::NotFound,
+    };
+
+    if matches!(status, CodexLoginCancelStatus::Canceled) {
+      let mut active = self.active_login_id.lock().await;
+      if active.as_deref() == Some(login_id.as_str()) {
+        *active = None;
+      }
     }
 
-    let mut guard = self.active_login.lock().await;
-    if guard.as_ref().map(|v| v.login_id.as_str()) == Some(login_id.as_str()) {
-      if let Some(active) = guard.take() {
-        active.shutdown_handle.shutdown();
-      }
-      CodexLoginCancelStatus::Canceled
-    } else {
-      CodexLoginCancelStatus::NotFound
-    }
+    status
   }
 
   pub async fn logout(&self) -> Result<CodexAccountStatus, String> {
-    let auth_manager = self.auth_manager()?;
-
-    {
-      let mut guard = self.active_login.lock().await;
-      if let Some(active) = guard.take() {
-        active.shutdown_handle.shutdown();
-      }
-    }
-
-    auth_manager
-      .logout()
-      .map_err(|err| format!("logout failed: {err}"))?;
-
-    Ok(self.status_from_auth_manager(&auth_manager).await)
-  }
-
-  fn auth_manager(&self) -> Result<Arc<AuthManager>, String> {
-    let mut state = self
-      .state
-      .lock()
-      .map_err(|_| "Codex auth service state lock poisoned".to_string())?;
-
-    match &*state {
-      ServiceState::Ready { auth_manager, .. } => Ok(auth_manager.clone()),
-      ServiceState::Disabled { reason } => Err(reason.clone()),
-      ServiceState::Deferred {
-        codex_home,
-        credentials_store_mode,
-      } => {
-        let codex_home = codex_home.clone();
-        let credentials_store_mode = *credentials_store_mode;
-        let auth_manager = AuthManager::shared(codex_home.clone(), true, credentials_store_mode);
-        *state = ServiceState::Ready {
-          auth_manager: auth_manager.clone(),
-          codex_home,
-          credentials_store_mode,
-        };
-        Ok(auth_manager)
-      }
-    }
-  }
-
-  fn ready_parts(&self) -> Result<(Arc<AuthManager>, PathBuf, AuthCredentialsStoreMode), String> {
-    let auth_manager = self.auth_manager()?;
-    let state = self
-      .state
-      .lock()
-      .map_err(|_| "Codex auth service state lock poisoned".to_string())?;
-
-    match &*state {
-      ServiceState::Ready {
-        codex_home,
-        credentials_store_mode,
-        ..
-      } => Ok((auth_manager, codex_home.clone(), *credentials_store_mode)),
-      ServiceState::Disabled { reason } => Err(reason.clone()),
-      ServiceState::Deferred { .. } => Err("Codex auth service failed to initialize".to_string()),
-    }
-  }
-
-  async fn status_from_auth_manager(&self, auth_manager: &Arc<AuthManager>) -> CodexAccountStatus {
-    Self::status_from_parts(auth_manager, &self.active_login).await
-  }
-
-  async fn status_from_parts(
-    auth_manager: &Arc<AuthManager>,
-    active_login: &Arc<Mutex<Option<ActiveLogin>>>,
-  ) -> CodexAccountStatus {
-    let auth = auth_manager.auth().await;
-    let active_login_id = active_login
-      .lock()
+    let app_server = self.app_server().await?;
+    app_server
+      .account_logout()
       .await
-      .as_ref()
-      .map(|v| v.login_id.clone());
-    let account = auth.as_ref().map(Self::account_from_auth);
-    CodexAccountStatus {
-      auth_mode: auth.as_ref().map(Self::auth_mode_from_auth),
-      requires_openai_auth: true,
-      account,
-      login_in_progress: active_login_id.is_some(),
-      active_login_id,
-    }
+      .map_err(|error| error.to_string())?;
+    *self.active_login_id.lock().await = None;
+    self.read_account(false).await
   }
 
-  fn auth_mode_from_auth(auth: &CodexAuth) -> CodexAuthMode {
-    match auth.auth_mode() {
-      AuthMode::ApiKey => CodexAuthMode::ApiKey,
-      AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => CodexAuthMode::Chatgpt,
-    }
+  async fn app_server(&self) -> Result<Arc<crate::app_server::CodexAppServer>, String> {
+    let cwd = self.auth_home.to_string_lossy();
+    crate::app_server::shared_app_server_for_cwd(&cwd)
+      .await
+      .map_err(|error| error.to_string())
   }
 
-  fn account_from_auth(auth: &CodexAuth) -> CodexAccount {
-    match auth.auth_mode() {
-      AuthMode::ApiKey => CodexAccount::ApiKey,
-      AuthMode::Chatgpt | AuthMode::ChatgptAuthTokens => CodexAccount::Chatgpt {
-        email: auth.get_account_email(),
-        plan_type: auth
-          .account_plan_type()
-          .map(|value| format!("{value:?}").to_lowercase()),
-      },
-    }
+  fn spawn_login_completion_watcher(
+    &self,
+    app_server: Arc<crate::app_server::CodexAppServer>,
+    login_id: String,
+    mut notifications: broadcast::Receiver<ServerNotification>,
+  ) {
+    let active_login_id = self.active_login_id.clone();
+    let list_tx = self.list_tx.clone();
+    tokio::spawn(async move {
+      loop {
+        let notification = match notifications.recv().await {
+          Ok(notification) => notification,
+          Err(broadcast::error::RecvError::Lagged(_)) => continue,
+          Err(broadcast::error::RecvError::Closed) => return,
+        };
+
+        let ServerNotification::AccountLoginCompleted(event) = notification else {
+          continue;
+        };
+        if event.login_id.as_deref() != Some(login_id.as_str()) {
+          continue;
+        }
+
+        {
+          let mut active = active_login_id.lock().await;
+          if active.as_deref() == Some(login_id.as_str()) {
+            *active = None;
+          }
+        }
+
+        let _ = list_tx.send(ServerMessage::CodexLoginChatgptCompleted {
+          login_id: login_id.clone(),
+          success: event.success,
+          error: event.error,
+        });
+
+        if let Ok(response) = app_server.account_read(false).await {
+          let status = status_from_response(response, &active_login_id).await;
+          if event.success {
+            let _ = list_tx.send(ServerMessage::CodexAccountUpdated {
+              status: status.clone(),
+            });
+          }
+          let _ = list_tx.send(ServerMessage::CodexAccountStatus { status });
+        }
+        return;
+      }
+    });
+  }
+
+  async fn status_from_response(&self, response: GetAccountResponse) -> CodexAccountStatus {
+    status_from_response(response, &self.active_login_id).await
+  }
+}
+
+fn default_auth_cwd() -> PathBuf {
+  dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn auth_mode_from_account(account: &Account) -> CodexAuthMode {
+  match account {
+    Account::ApiKey {} => CodexAuthMode::ApiKey,
+    Account::Chatgpt { .. } => CodexAuthMode::Chatgpt,
+  }
+}
+
+fn account_from_app_server(account: Account) -> CodexAccount {
+  match account {
+    Account::ApiKey {} => CodexAccount::ApiKey,
+    Account::Chatgpt { email, plan_type } => CodexAccount::Chatgpt {
+      email: Some(email),
+      plan_type: Some(format!("{plan_type:?}").to_lowercase()),
+    },
+  }
+}
+
+async fn status_from_response(
+  response: GetAccountResponse,
+  active_login_id: &Arc<Mutex<Option<String>>>,
+) -> CodexAccountStatus {
+  let active_login_id = active_login_id.lock().await.clone();
+  CodexAccountStatus {
+    auth_mode: response.account.as_ref().map(auth_mode_from_account),
+    requires_openai_auth: response.requires_openai_auth,
+    account: response.account.map(account_from_app_server),
+    login_in_progress: active_login_id.is_some(),
+    active_login_id,
   }
 }
 
@@ -313,40 +200,28 @@ mod tests {
   use super::*;
 
   #[test]
-  fn new_service_can_start_deferred_without_auth_manager() {
+  fn new_service_defers_app_server_start_until_used() {
     let (list_tx, _) = broadcast::channel(1);
-    let service = CodexAuthService {
-      state: StdMutex::new(ServiceState::Deferred {
-        codex_home: PathBuf::from("/tmp/orbitdock-codex-auth-tests"),
-        credentials_store_mode: AuthCredentialsStoreMode::Auto,
-      }),
+    let service = CodexAuthService::new_with_auth_home(
       list_tx,
-      active_login: Arc::new(Mutex::new(None)),
-    };
+      PathBuf::from("/tmp/orbitdock-codex-auth-tests"),
+    );
 
-    let state = service.state.lock().expect("state lock");
-    assert!(matches!(&*state, ServiceState::Deferred { .. }));
+    assert_eq!(
+      service.auth_home,
+      PathBuf::from("/tmp/orbitdock-codex-auth-tests")
+    );
   }
 
   #[test]
-  fn test_service_uses_file_credentials_store_mode() {
+  fn new_with_file_store_uses_supplied_cwd_for_app_server_bootstrap() {
     let (list_tx, _) = broadcast::channel(1);
-    let service = CodexAuthService::new_with_store_mode(
-      list_tx,
-      PathBuf::from("/tmp/orbitdock-codex-tests"),
-      AuthCredentialsStoreMode::File,
-    );
+    let service =
+      CodexAuthService::new_with_file_store(list_tx, PathBuf::from("/tmp/orbitdock-codex-tests"));
 
-    let state = service.state.lock().expect("state lock");
-    match &*state {
-      ServiceState::Deferred {
-        codex_home,
-        credentials_store_mode,
-      } => {
-        assert_eq!(codex_home, &PathBuf::from("/tmp/orbitdock-codex-tests"));
-        assert_eq!(*credentials_store_mode, AuthCredentialsStoreMode::File);
-      }
-      _ => panic!("expected deferred test auth service"),
-    }
+    assert_eq!(
+      service.auth_home,
+      PathBuf::from("/tmp/orbitdock-codex-tests")
+    );
   }
 }

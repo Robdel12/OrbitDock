@@ -2,6 +2,7 @@ pub(crate) mod approval_state;
 pub(crate) mod conversation;
 pub(crate) mod conversation_state;
 pub(crate) mod dashboard_projection;
+pub(crate) mod diff_preview;
 pub(crate) mod facets;
 pub(crate) mod restore;
 pub(crate) mod session;

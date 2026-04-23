@@ -1,169 +1,16 @@
 use std::path::Path;
 
-use codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem;
+#[cfg(test)]
+use codex_protocol::protocol::{CodexErrorInfo, StreamErrorEvent};
 use codex_protocol::protocol::{
-  CodexErrorInfo, HookOutputEntry, HookRunStatus, HookRunSummary, RealtimeHandoffRequested,
-  ReviewOutputEvent, ReviewRequest, ReviewTarget, StreamErrorEvent,
+  HookOutputEntry, HookRunStatus, HookRunSummary, RealtimeHandoffRequested,
 };
-use serde_json::json;
 
 pub(crate) fn is_thread_start_skills_trimmed_warning(message: &str) -> bool {
   message.starts_with("Some enabled skills were not included in the model-visible skills list")
 }
 
-pub(crate) fn dynamic_tool_output_to_text(
-  content_items: &[DynamicToolCallOutputContentItem],
-  fallback_error: Option<String>,
-) -> Option<String> {
-  let mut lines: Vec<String> = Vec::new();
-
-  for item in content_items {
-    match item {
-      DynamicToolCallOutputContentItem::InputText { text } => {
-        if !text.is_empty() {
-          lines.push(text.clone());
-        }
-      }
-      DynamicToolCallOutputContentItem::InputImage { image_url } => {
-        lines.push(format!("[image] {}", image_url));
-      }
-    }
-  }
-
-  if lines.is_empty() {
-    fallback_error
-  } else {
-    Some(lines.join("\n"))
-  }
-}
-
-#[allow(dead_code)]
-pub(crate) fn tool_input_with_arguments(
-  metadata: serde_json::Value,
-  arguments: Option<&serde_json::Value>,
-) -> Option<String> {
-  let mut payload = match metadata {
-    serde_json::Value::Object(object) => object,
-    _ => serde_json::Map::new(),
-  };
-
-  if let Some(args_value) = arguments {
-    payload.insert("arguments".to_string(), args_value.clone());
-
-    if let serde_json::Value::Object(args_object) = args_value {
-      for (key, value) in args_object {
-        if !payload.contains_key(key) {
-          payload.insert(key.clone(), value.clone());
-        }
-      }
-    }
-  }
-
-  serde_json::to_string(&serde_json::Value::Object(payload)).ok()
-}
-
-#[allow(dead_code)]
-pub(crate) fn reasoning_trace_metadata_json(
-  reasoning_kind: &'static str,
-  stream: &'static str,
-  item_id: Option<&str>,
-  part_index: Option<i64>,
-) -> Option<String> {
-  let mut metadata = json!({
-      "kind": "reasoning_trace",
-      "reasoning_kind": reasoning_kind,
-      "stream": stream,
-  });
-
-  if let Some(object) = metadata.as_object_mut() {
-    if let Some(id) = item_id {
-      object.insert("item_id".to_string(), json!(id));
-    }
-    if let Some(index) = part_index {
-      object.insert("part_index".to_string(), json!(index));
-    }
-  }
-
-  serde_json::to_string(&metadata).ok()
-}
-
-pub(crate) fn review_request_summary(request: &ReviewRequest) -> String {
-  if let Some(hint) = &request.user_facing_hint {
-    let trimmed = hint.trim();
-    if !trimmed.is_empty() {
-      return trimmed.to_string();
-    }
-  }
-
-  match &request.target {
-    ReviewTarget::UncommittedChanges => "Review uncommitted changes".to_string(),
-    ReviewTarget::BaseBranch { branch } => format!("Review changes against branch `{branch}`"),
-    ReviewTarget::Commit { sha, title } => {
-      if let Some(title) = title {
-        let trimmed_title = title.trim();
-        if !trimmed_title.is_empty() {
-          return format!("Review commit `{sha}` - {trimmed_title}");
-        }
-      }
-      format!("Review commit `{sha}`")
-    }
-    ReviewTarget::Custom { instructions } => {
-      if instructions.trim().is_empty() {
-        "Run custom review".to_string()
-      } else {
-        format!(
-          "Custom review\n\n{}",
-          truncate_for_display(instructions, 600)
-        )
-      }
-    }
-  }
-}
-
-pub(crate) fn render_review_output(output: &ReviewOutputEvent) -> String {
-  let mut lines: Vec<String> = Vec::new();
-
-  if !output.overall_correctness.trim().is_empty() {
-    lines.push(format!(
-      "Overall correctness: {}",
-      output.overall_correctness.trim()
-    ));
-  }
-
-  if !output.overall_explanation.trim().is_empty() {
-    lines.push(String::new());
-    lines.push(output.overall_explanation.trim().to_string());
-  }
-
-  lines.push(String::new());
-  lines.push(format!(
-    "Confidence: {:.2}",
-    output.overall_confidence_score
-  ));
-
-  if !output.findings.is_empty() {
-    lines.push(String::new());
-    lines.push(format!("Findings ({})", output.findings.len()));
-    for finding in &output.findings {
-      let path = finding.code_location.absolute_file_path.display();
-      let range = &finding.code_location.line_range;
-      lines.push(format!(
-        "- [P{}] {} ({path}:{}-{}, confidence {:.2})",
-        finding.priority,
-        finding.title.trim(),
-        range.start,
-        range.end,
-        finding.confidence_score
-      ));
-      if !finding.body.trim().is_empty() {
-        lines.push(format!("  {}", finding.body.trim()));
-      }
-    }
-  }
-
-  lines.join("\n")
-}
-
+#[cfg(test)]
 pub(crate) fn stream_error_should_surface_to_timeline(event: &StreamErrorEvent) -> bool {
   !matches!(
     event.codex_error_info,
@@ -277,14 +124,5 @@ fn hook_status_label(status: HookRunStatus) -> &'static str {
     HookRunStatus::Failed => "failed",
     HookRunStatus::Blocked => "blocked",
     HookRunStatus::Stopped => "stopped",
-  }
-}
-
-fn truncate_for_display(value: &str, max_chars: usize) -> String {
-  let trimmed = value.trim();
-  if trimmed.chars().count() <= max_chars {
-    trimmed.to_string()
-  } else {
-    format!("{}...", trimmed.chars().take(max_chars).collect::<String>())
   }
 }

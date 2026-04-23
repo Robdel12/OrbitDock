@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use orbitdock_protocol::{
   ApprovalRequest, ClaudeIntegrationMode, CodexIntegrationMode, SessionControlMode,
-  SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+  SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
+use super::diff_preview::{build_dashboard_diff_preview, has_turn_diff};
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -49,7 +50,7 @@ pub struct SessionSnapshotInput<'a> {
   pub repository_root: Option<&'a str>,
   pub is_worktree: bool,
   pub worktree_id: Option<&'a str>,
-  pub has_turn_diff: bool,
+  pub turn_diffs: &'a [TurnDiff],
   pub subscriber_count: usize,
   pub unread_count: u64,
   pub mission_id: Option<&'a str>,
@@ -151,7 +152,8 @@ pub fn build_session_snapshot(input: SessionSnapshotInput<'_>) -> SessionSnapsho
     repository_root: input.repository_root.map(ToOwned::to_owned),
     is_worktree: input.is_worktree,
     worktree_id: input.worktree_id.map(ToOwned::to_owned),
-    has_turn_diff: input.has_turn_diff,
+    has_turn_diff: has_turn_diff(input.current_diff, input.turn_diffs),
+    diff_preview: build_dashboard_diff_preview(input.current_diff, input.turn_diffs),
     subscriber_count: input.subscriber_count,
     unread_count: input.unread_count,
     mission_id: input.mission_id.map(ToOwned::to_owned),
@@ -237,6 +239,7 @@ mod tests {
     let terminal_app = "Terminal";
     let repository_root = "/tmp";
     let worktree_id = "wt-1";
+    let turn_diffs: Vec<TurnDiff> = vec![];
 
     let snapshot = build_session_snapshot(SessionSnapshotInput {
       identity: &identity(),
@@ -271,7 +274,7 @@ mod tests {
       repository_root: Some(repository_root),
       is_worktree: true,
       worktree_id: Some(worktree_id),
-      has_turn_diff: true,
+      turn_diffs: &turn_diffs,
       subscriber_count: 5,
       unread_count: 9,
       mission_id: Some(mission_id),

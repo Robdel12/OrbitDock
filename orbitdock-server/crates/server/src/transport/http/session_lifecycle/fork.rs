@@ -26,8 +26,6 @@ use orbitdock_protocol::{
 #[derive(Debug, Deserialize)]
 pub struct ForkSessionRequest {
   #[serde(default)]
-  pub nth_user_message: Option<u32>,
-  #[serde(default)]
   pub model: Option<String>,
   #[serde(default)]
   pub approval_policy_details: Option<CodexApprovalPolicy>,
@@ -118,7 +116,6 @@ pub async fn fork_session(
       if source_action_tx
         .send(CodexAction::ForkSession {
           source_session_id: source_session_id.clone(),
-          nth_user_message: body.nth_user_message,
           model: fork_plan.effective_model.clone(),
           approval_policy: fork_plan.effective_approval_policy.clone(),
           sandbox_mode: fork_plan.effective_sandbox_mode.clone(),
@@ -145,7 +142,6 @@ pub async fn fork_session(
         &state,
         crate::runtime::session_fork_runtime::FinalizeCodexForkRequest {
           source_session_id: &source_session_id,
-          nth_user_message: body.nth_user_message,
           effective_cwd: &effective_cwd,
           effective_model: fork_plan.effective_model.as_deref(),
           effective_approval_policy: fork_plan.effective_approval_policy.as_deref(),
@@ -171,8 +167,6 @@ pub struct ForkToWorktreeRequest {
   pub branch_name: String,
   #[serde(default)]
   pub base_branch: Option<String>,
-  #[serde(default)]
-  pub nth_user_message: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -223,7 +217,6 @@ pub async fn fork_session_to_worktree(
     Path(source_session_id.clone()),
     State(state),
     Json(ForkSessionRequest {
-      nth_user_message: body.nth_user_message,
       model: None,
       approval_policy_details: None,
       sandbox_policy_details: None,
@@ -246,8 +239,6 @@ pub async fn fork_session_to_worktree(
 #[derive(Debug, Deserialize)]
 pub struct ForkToExistingWorktreeRequest {
   pub worktree_id: String,
-  #[serde(default)]
-  pub nth_user_message: Option<u32>,
 }
 
 pub async fn fork_session_to_existing_worktree(
@@ -279,7 +270,6 @@ pub async fn fork_session_to_existing_worktree(
     Path(source_session_id),
     State(state),
     Json(ForkSessionRequest {
-      nth_user_message: body.nth_user_message,
       model: None,
       approval_policy_details: None,
       sandbox_policy_details: None,

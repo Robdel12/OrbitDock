@@ -14,7 +14,7 @@ use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::config::ResumeConnectorWithToolsConfig;
+use crate::config::resume_connector_with_tools_config;
 use crate::{CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides, UpdateConfigOptions};
 
 /// Groups the parameters common to all Codex session constructors.
@@ -163,7 +163,6 @@ pub enum CodexAction {
   EndSession,
   ForkSession {
     source_session_id: String,
-    nth_user_message: Option<u32>,
     model: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
@@ -298,13 +297,11 @@ impl std::fmt::Debug for CodexAction {
       Self::EndSession => write!(f, "EndSession"),
       Self::ForkSession {
         source_session_id,
-        nth_user_message,
         model,
         ..
       } => f
         .debug_struct("ForkSession")
         .field("source_session_id", source_session_id)
-        .field("nth_user_message", nth_user_message)
         .field("model", model)
         .finish(),
     }
@@ -324,6 +321,28 @@ fn parse_dynamic_tools(
     .into_iter()
     .filter_map(|value| serde_json::from_value(value).ok())
     .collect()
+}
+
+fn session_config<'a>(
+  cwd: &'a str,
+  model: Option<&'a str>,
+  approval_policy: Option<&'a str>,
+  sandbox_mode: Option<&'a str>,
+  sandbox_policy_details: Option<orbitdock_protocol::CodexSandboxPolicy>,
+  config_overrides: CodexConfigOverrides,
+  runtime_overrides: CodexRuntimeOverrides,
+  dynamic_tools_json: Vec<serde_json::Value>,
+) -> CodexSessionConfig<'a> {
+  CodexSessionConfig {
+    cwd,
+    model,
+    approval_policy,
+    sandbox_mode,
+    sandbox_policy_details,
+    config_overrides,
+    runtime_overrides,
+    dynamic_tools_json,
+  }
 }
 
 impl CodexSession {
@@ -354,16 +373,16 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: None,
+        None,
         config_overrides,
-        runtime_overrides: CodexRuntimeOverrides::default(),
-        dynamic_tools_json: Vec::new(),
-      },
+        CodexRuntimeOverrides::default(),
+        Vec::new(),
+      ),
     )
     .await
   }
@@ -379,16 +398,16 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: None,
-        config_overrides: CodexConfigOverrides::default(),
+        None,
+        CodexConfigOverrides::default(),
         runtime_overrides,
-        dynamic_tools_json: Vec::new(),
-      },
+        Vec::new(),
+      ),
     )
     .await
   }
@@ -405,16 +424,16 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: None,
+        None,
         config_overrides,
         runtime_overrides,
-        dynamic_tools_json: Vec::new(),
-      },
+        Vec::new(),
+      ),
     )
     .await
   }
@@ -436,16 +455,16 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     Self::new_with_config(
       session_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: sandbox_policy_details.cloned(),
-        config_overrides: CodexConfigOverrides::default(),
+        sandbox_policy_details.cloned(),
+        CodexConfigOverrides::default(),
         runtime_overrides,
         dynamic_tools_json,
-      },
+      ),
     )
     .await
   }
@@ -506,16 +525,16 @@ impl CodexSession {
     Self::resume_with_config(
       session_id,
       thread_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: None,
+        None,
         config_overrides,
-        runtime_overrides: CodexRuntimeOverrides::default(),
-        dynamic_tools_json: Vec::new(),
-      },
+        CodexRuntimeOverrides::default(),
+        Vec::new(),
+      ),
     )
     .await
   }
@@ -533,16 +552,16 @@ impl CodexSession {
     Self::resume_with_config(
       session_id,
       thread_id,
-      CodexSessionConfig {
+      session_config(
         cwd,
         model,
         approval_policy,
         sandbox_mode,
-        sandbox_policy_details: None,
-        config_overrides: CodexConfigOverrides::default(),
+        None,
+        CodexConfigOverrides::default(),
         runtime_overrides,
-        dynamic_tools_json: Vec::new(),
-      },
+        Vec::new(),
+      ),
     )
     .await
   }
@@ -555,17 +574,17 @@ impl CodexSession {
   ) -> Result<Self, ConnectorError> {
     let dynamic_tools = parse_dynamic_tools(config.dynamic_tools_json);
     let connector = CodexConnector::resume_with_config_overrides_runtime_overrides_and_tools(
-      ResumeConnectorWithToolsConfig {
-        cwd: config.cwd,
+      resume_connector_with_tools_config(
+        config.cwd,
         thread_id,
-        model: config.model,
-        approval_policy: config.approval_policy,
-        sandbox_mode: config.sandbox_mode,
-        sandbox_policy_details: config.sandbox_policy_details.as_ref(),
-        config_overrides: &config.config_overrides,
-        runtime_overrides: config.runtime_overrides,
+        config.model,
+        config.approval_policy,
+        config.sandbox_mode,
+        config.sandbox_policy_details.as_ref(),
+        &config.config_overrides,
+        config.runtime_overrides,
         dynamic_tools,
-      },
+      ),
     )
     .await?;
 
@@ -575,7 +594,7 @@ impl CodexSession {
     })
   }
 
-  /// Get the codex-core thread ID (used to link with rollout files)
+  /// Get the Codex app-server thread ID.
   pub fn thread_id(&self) -> &str {
     self.connector.thread_id()
   }
@@ -732,7 +751,6 @@ impl CodexSession {
         connector.shutdown().await?;
       }
       CodexAction::ForkSession {
-        nth_user_message,
         model,
         approval_policy,
         sandbox_mode,
@@ -742,7 +760,6 @@ impl CodexSession {
       } => {
         let result = connector
           .fork_thread(
-            nth_user_message,
             model.as_deref(),
             approval_policy.as_deref(),
             sandbox_mode.as_deref(),

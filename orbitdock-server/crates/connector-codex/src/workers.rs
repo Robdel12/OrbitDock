@@ -1,37 +1,54 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(test)]
 use codex_protocol::protocol::AgentStatus;
+#[cfg(test)]
 use orbitdock_protocol::domain_events::AgentType;
+#[cfg(test)]
 use orbitdock_protocol::{Provider, SubagentInfo, SubagentStatus};
 
 static ISO_NOW_FALLBACK_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn collab_agent_label(
-  thread_id: &str,
-  agent_nickname: Option<&str>,
-  agent_role: Option<&str>,
-) -> String {
-  let mut parts = vec![thread_id.to_string()];
-  if let Some(nickname) = agent_nickname {
-    let trimmed = nickname.trim();
-    if !trimmed.is_empty() {
-      parts.push(format!("nickname={trimmed}"));
-    }
-  }
-  if let Some(role) = agent_role {
-    let trimmed = role.trim();
-    if !trimmed.is_empty() {
-      parts.push(format!("role={trimmed}"));
-    }
-  }
-  parts.join(" · ")
+#[cfg(test)]
+fn trimmed_string(value: Option<&str>) -> Option<String> {
+  value
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(ToOwned::to_owned)
 }
 
-pub(crate) fn agent_status_failed(status: &AgentStatus) -> bool {
-  matches!(status, AgentStatus::Errored(_) | AgentStatus::NotFound)
+#[cfg(test)]
+fn build_subagent(
+  now: String,
+  id: String,
+  agent_role: Option<String>,
+  agent_nickname: Option<String>,
+  task_summary: Option<String>,
+  parent_subagent_id: Option<String>,
+  status: SubagentStatus,
+  ended_at: Option<String>,
+  result_summary: Option<String>,
+  error_summary: Option<String>,
+) -> SubagentInfo {
+  SubagentInfo {
+    id: id.clone(),
+    agent_type: normalized_agent_type(agent_role.as_deref()),
+    started_at: now.clone(),
+    ended_at,
+    provider: Some(Provider::Codex),
+    label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
+    status,
+    task_summary: trimmed_string(task_summary.as_deref()),
+    result_summary,
+    error_summary,
+    parent_subagent_id,
+    model: None,
+    last_activity_at: Some(now),
+  }
 }
 
+#[cfg(test)]
 pub(crate) fn build_authoritative_codex_subagent(
   id: String,
   agent_role: Option<String>,
@@ -43,26 +60,21 @@ pub(crate) fn build_authoritative_codex_subagent(
   let now = iso_now();
   let (mapped_status, ended_at, result_summary, error_summary) = map_agent_status(status, &now);
 
-  SubagentInfo {
-    id: id.clone(),
-    agent_type: normalized_agent_type(agent_role.as_deref()),
-    started_at: now.clone(),
+  build_subagent(
+    now,
+    id,
+    agent_role,
+    agent_nickname,
+    task_summary,
+    parent_subagent_id,
+    mapped_status,
     ended_at,
-    provider: Some(Provider::Codex),
-    label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-    status: mapped_status,
-    task_summary: task_summary.and_then(|summary| {
-      let trimmed = summary.trim();
-      (!trimmed.is_empty()).then(|| trimmed.to_string())
-    }),
     result_summary,
     error_summary,
-    parent_subagent_id,
-    model: None,
-    last_activity_at: Some(now),
-  }
+  )
 }
 
+#[cfg(test)]
 pub(crate) fn build_inflight_codex_subagent(
   id: String,
   agent_role: Option<String>,
@@ -82,26 +94,21 @@ pub(crate) fn build_inflight_codex_subagent(
   };
 
   let now = iso_now();
-  Some(SubagentInfo {
-    id: id.clone(),
-    agent_type: normalized_agent_type(agent_role.as_deref()),
-    started_at: now.clone(),
-    ended_at: None,
-    provider: Some(Provider::Codex),
-    label: normalized_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-    status: mapped_status,
-    task_summary: task_summary.and_then(|summary| {
-      let trimmed = summary.trim();
-      (!trimmed.is_empty()).then(|| trimmed.to_string())
-    }),
-    result_summary: None,
-    error_summary: None,
+  Some(build_subagent(
+    now,
+    id,
+    agent_role,
+    agent_nickname,
+    task_summary,
     parent_subagent_id,
-    model: None,
-    last_activity_at: Some(now),
-  })
+    mapped_status,
+    None,
+    None,
+    None,
+  ))
 }
 
+#[cfg(test)]
 pub(crate) fn build_running_codex_subagent(
   id: String,
   agent_role: Option<String>,
@@ -120,6 +127,7 @@ pub(crate) fn build_running_codex_subagent(
   .expect("running subagent should always build")
 }
 
+#[cfg(test)]
 pub(crate) fn build_codex_subagent_for_status(
   id: String,
   agent_role: Option<String>,
@@ -154,6 +162,7 @@ pub(crate) fn build_codex_subagent_for_status(
   }
 }
 
+#[cfg(test)]
 fn map_agent_status(
   status: &AgentStatus,
   now: &str,
@@ -192,6 +201,7 @@ fn map_agent_status(
   }
 }
 
+#[cfg(test)]
 fn normalized_agent_type(role: Option<&str>) -> AgentType {
   let raw = role
     .map(str::trim)
@@ -200,6 +210,7 @@ fn normalized_agent_type(role: Option<&str>) -> AgentType {
   AgentType::from_str_normalized(raw)
 }
 
+#[cfg(test)]
 fn normalized_agent_label(nickname: Option<&str>, role: Option<&str>, id: &str) -> Option<String> {
   nickname
     .map(str::trim)

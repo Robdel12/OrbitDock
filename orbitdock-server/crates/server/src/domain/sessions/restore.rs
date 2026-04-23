@@ -10,6 +10,7 @@ use orbitdock_protocol::{
 #[cfg(test)]
 use orbitdock_protocol::{CodexConfigMode, CodexConfigSource, Provider};
 
+use super::diff_preview::{build_dashboard_diff_preview, has_turn_diff};
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -52,11 +53,6 @@ pub fn restored_has_pending_approval(
   pending_approval_id: Option<&str>,
 ) -> bool {
   pending_tool_name.is_some() || pending_question.is_some() || pending_approval_id.is_some()
-}
-
-/// Returns `true` when the restored state still carries a turn diff.
-pub fn restored_has_turn_diff(current_diff: Option<&str>, turn_diffs: &[TurnDiff]) -> bool {
-  current_diff.is_some() || !turn_diffs.is_empty()
 }
 
 /// Returns the row count represented by persisted conversation rows.
@@ -134,7 +130,8 @@ pub fn build_restored_session_snapshot(input: SessionRestoreSnapshotInput<'_>) -
     repository_root: None,
     is_worktree: false,
     worktree_id: None,
-    has_turn_diff: restored_has_turn_diff(input.current_diff, input.turn_diffs),
+    has_turn_diff: has_turn_diff(input.current_diff, input.turn_diffs),
+    diff_preview: build_dashboard_diff_preview(input.current_diff, input.turn_diffs),
     subscriber_count: 0,
     unread_count: input.unread_count,
     mission_id: None,
@@ -210,7 +207,12 @@ mod tests {
   #[test]
   fn build_restored_session_snapshot_uses_restored_defaults() {
     let rows: Vec<ConversationRowEntry> = vec![];
-    let turn_diffs: Vec<TurnDiff> = vec![];
+    let turn_diffs = vec![TurnDiff {
+      turn_id: "turn-1".to_string(),
+      diff: "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,1 +1,2 @@\n-old\n+new\n+extra".to_string(),
+      token_usage: None,
+      snapshot_kind: None,
+    }];
 
     let snapshot = build_restored_session_snapshot(SessionRestoreSnapshotInput {
       identity: &identity(),
@@ -226,7 +228,7 @@ mod tests {
       token_usage: &TokenUsage::default(),
       token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
       rows: &rows,
-      current_diff: Some("diff"),
+      current_diff: None,
       current_plan: Some("plan"),
       turn_diffs: &turn_diffs,
       pending_tool_name: Some("Bash"),
@@ -241,13 +243,21 @@ mod tests {
 
     assert_eq!(snapshot.message_count, 0);
     assert!(snapshot.has_turn_diff);
+    assert_eq!(
+      snapshot.diff_preview.as_ref().map(|preview| (
+        preview.file_count,
+        preview.additions,
+        preview.deletions
+      )),
+      Some((1, 2, 1))
+    );
     assert!(snapshot.has_pending_approval);
     assert_eq!(snapshot.repository_root, None);
     assert!(!snapshot.is_worktree);
     assert_eq!(snapshot.worktree_id, None);
     assert_eq!(snapshot.pending_tool_name.as_deref(), Some("Bash"));
     assert_eq!(snapshot.current_plan.as_deref(), Some("plan"));
-    assert_eq!(snapshot.current_diff.as_deref(), Some("diff"));
+    assert_eq!(snapshot.current_diff.as_deref(), None);
     assert_eq!(snapshot.terminal_session_id.as_deref(), Some("terminal-1"));
     assert_eq!(snapshot.terminal_app.as_deref(), Some("Terminal"));
     assert_eq!(snapshot.approval_version, 12);
@@ -262,7 +272,7 @@ mod tests {
     assert!(!restored_has_pending_approval(None, None, None));
 
     let turn_diffs: Vec<TurnDiff> = vec![];
-    assert!(restored_has_turn_diff(Some("diff"), &turn_diffs));
-    assert!(!restored_has_turn_diff(None, &turn_diffs));
+    assert!(has_turn_diff(Some("diff"), &turn_diffs));
+    assert!(!has_turn_diff(None, &turn_diffs));
   }
 }

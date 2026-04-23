@@ -194,14 +194,6 @@ orbitdock mission provider test
 
 Provider config reads show the effective source. If a value is currently coming from `ORBITDOCK_DAYTONA_*` or `ORBITDOCK_PUBLIC_SERVER_URL`, the CLI reports `source=env` so you can tell that persisted settings are overridden.
 
-### Backward Compatibility
-
-The old form still works:
-
-```bash
-orbitdock --bind 127.0.0.1:4000   # same as: orbitdock start --bind ...
-```
-
 ## Architecture
 
 This section is the quick mental model for the server. If you're trying to decide where a change belongs, start with the crate split: `crates/cli` owns the binary surface, and `crates/server` owns the runtime, transport, persistence, and admin capabilities.
@@ -336,10 +328,11 @@ Provider-agnostic vocabulary shared by all connectors and the server:
 
 ### connector-codex
 
-Codex-specific logic. Depends on `codex-core`, `codex-login`, `codex-protocol`.
+Codex-specific logic. Depends on the open-source Codex app-server crates and typed protocol/runtime helpers.
 
-- `session.rs` — `CodexSession`, `CodexAction`, connector lifecycle
-- `auth.rs` — `CodexAuthService` (OAuth flow via codex-login)
+- `app_server.rs` — shared embedded app-server host, typed RPCs, turn/event mapping
+- `session.rs` — `CodexSession`, `CodexAction`, connector lifecycle over app-server
+- `auth.rs` — `CodexAuthService` (account and login flow through app-server)
 - `rollout_parser.rs` — typed JSONL parser using `codex-protocol` types (replaces raw Value matching)
 
 ### connector-claude
@@ -440,7 +433,7 @@ X-OrbitDock-Client-Version: 0.4.0
 ```json
 { "type": "create_session", "provider": "codex", "cwd": "/path", "model": "o3" }
 { "type": "resume_session", "session_id": "..." }
-{ "type": "fork_session", "source_session_id": "...", "nth_user_message": 3 }
+{ "type": "fork_session", "source_session_id": "..." }
 { "type": "send_message", "session_id": "...", "content": "..." }
 { "type": "steer_turn", "session_id": "...", "content": "use postgres instead", "images": [], "mentions": [] }
 { "type": "approve_tool", "session_id": "...", "request_id": "...", "decision": "approved" }

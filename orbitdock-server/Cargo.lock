@@ -1164,6 +1164,7 @@ dependencies = [
  "anstyle",
  "clap_lex",
  "strsim 0.11.1",
+ "terminal_size",
 ]
 
 [[package]]
@@ -1265,6 +1266,92 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-app-server"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "codex-analytics",
+ "codex-app-server-protocol",
+ "codex-arg0",
+ "codex-backend-client",
+ "codex-chatgpt",
+ "codex-cloud-requirements",
+ "codex-config",
+ "codex-core",
+ "codex-core-plugins",
+ "codex-exec-server",
+ "codex-features",
+ "codex-feedback",
+ "codex-file-search",
+ "codex-git-utils",
+ "codex-login",
+ "codex-mcp",
+ "codex-models-manager",
+ "codex-otel",
+ "codex-protocol",
+ "codex-rmcp-client",
+ "codex-rollout",
+ "codex-sandboxing",
+ "codex-shell-command",
+ "codex-state",
+ "codex-thread-store",
+ "codex-tools",
+ "codex-utils-absolute-path",
+ "codex-utils-cli",
+ "codex-utils-json-to-toml",
+ "codex-utils-pty",
+ "codex-utils-rustls-provider",
+ "constant_time_eq",
+ "futures",
+ "gethostname",
+ "hmac",
+ "jsonwebtoken",
+ "owo-colors",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "time",
+ "tokio",
+ "tokio-tungstenite 0.28.0",
+ "tokio-util",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "codex-app-server-client"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "codex-app-server",
+ "codex-app-server-protocol",
+ "codex-arg0",
+ "codex-core",
+ "codex-exec-server",
+ "codex-feedback",
+ "codex-protocol",
+ "codex-utils-rustls-provider",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.28.0",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "codex-app-server-protocol"
 version = "0.122.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
@@ -1332,6 +1419,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-backend-client"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "anyhow",
+ "codex-backend-openapi-models",
+ "codex-client",
+ "codex-login",
+ "codex-protocol",
+ "reqwest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "codex-backend-openapi-models"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_with",
+]
+
+[[package]]
+name = "codex-chatgpt"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "anyhow",
+ "clap",
+ "codex-app-server-protocol",
+ "codex-config",
+ "codex-connectors",
+ "codex-core",
+ "codex-git-utils",
+ "codex-login",
+ "codex-utils-cli",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "codex-client"
 version = "0.122.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
@@ -1355,6 +1485,30 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "zstd",
+]
+
+[[package]]
+name = "codex-cloud-requirements"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "codex-backend-client",
+ "codex-config",
+ "codex-core",
+ "codex-login",
+ "codex-otel",
+ "codex-protocol",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]
@@ -2217,6 +2371,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-utils-cli"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "clap",
+ "codex-protocol",
+ "serde",
+ "toml 0.9.12+spec-1.1.0",
+]
+
+[[package]]
 name = "codex-utils-home-dir"
 version = "0.122.0"
 source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
@@ -2236,6 +2401,15 @@ dependencies = [
  "mime_guess",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "codex-utils-json-to-toml"
+version = "0.122.0"
+source = "git+https://github.com/openai/codex?tag=rust-v0.122.0#230dcadee609fa99d6162fe1107457030e5270a7"
+dependencies = [
+ "serde_json",
+ "toml 0.9.12+spec-1.1.0",
 ]
 
 [[package]]
@@ -4791,6 +4965,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "is_ci"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7655c9839580ee829dfacba1d1278c2b7883e50a277ff7541299489d6bdfdc45"
+
+[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4904,6 +5084,21 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64 0.22.1",
+ "js-sys",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
 ]
 
 [[package]]
@@ -6172,17 +6367,19 @@ version = "0.13.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "codex-app-server-client",
  "codex-app-server-protocol",
  "codex-arg0",
  "codex-core",
  "codex-core-plugins",
  "codex-exec-server",
  "codex-features",
+ "codex-feedback",
  "codex-git-utils",
- "codex-login",
  "codex-models-manager",
  "codex-protocol",
  "codex-utils-absolute-path",
+ "dirs",
  "notify 7.0.0",
  "openssl",
  "orbitdock-connector-core",
@@ -6300,6 +6497,10 @@ name = "owo-colors"
 version = "4.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
+dependencies = [
+ "supports-color 2.1.0",
+ "supports-color 3.0.2",
+]
 
 [[package]]
 name = "parking"
@@ -8472,6 +8673,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
+name = "simple_asn1"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "thiserror 2.0.18",
+ "time",
+]
+
+[[package]]
 name = "siphasher"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8979,6 +9192,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
+name = "supports-color"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6398cde53adc3c4557306a96ce67b302968513830a77a95b2b17305d9719a89"
+dependencies = [
+ "is-terminal",
+ "is_ci",
+]
+
+[[package]]
+name = "supports-color"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c64fc7232dd8d2e4ac5ce4ef302b1d81e0b80d055b9d77c7c4f51f6aa4c867d6"
+dependencies = [
+ "is_ci",
+]
+
+[[package]]
 name = "symlink"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9126,6 +9358,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "terminal_size"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
+dependencies = [
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

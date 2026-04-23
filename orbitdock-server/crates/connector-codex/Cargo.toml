@@ -14,12 +14,13 @@ codex-core = { workspace = true }
 codex-core-plugins = { workspace = true }
 codex-features = { workspace = true }
 codex-models-manager = { workspace = true }
-codex-login = { workspace = true }
 codex-protocol = { workspace = true }
+codex-app-server-client = { workspace = true }
 codex-app-server-protocol = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
 codex-git-utils = { workspace = true }
 codex-exec-server = { workspace = true }
+codex-feedback = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -28,5 +29,6 @@ notify = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 base64 = { workspace = true }
+dirs = { workspace = true }
 toml = "0.9"
 openssl = { workspace = true }

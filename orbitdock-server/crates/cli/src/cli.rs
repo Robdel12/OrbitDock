@@ -622,10 +622,6 @@ pub enum SessionAction {
     /// Source session ID
     session_id: String,
 
-    /// Fork from this user message index (0-based)
-    #[arg(long)]
-    nth_user_message: Option<u32>,
-
     /// Model for new session
     #[arg(long)]
     model: Option<String>,

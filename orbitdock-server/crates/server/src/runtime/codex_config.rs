@@ -1,5 +1,3 @@
-#[path = "codex_config/binary_discovery.rs"]
-mod binary_discovery;
 #[path = "codex_config/catalog.rs"]
 mod catalog;
 #[path = "codex_config_types.rs"]

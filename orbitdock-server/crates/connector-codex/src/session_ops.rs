@@ -3,35 +3,26 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use codex_app_server_protocol::{
-  MarketplaceInterface, MarketplaceLoadErrorInfo, PluginAuthPolicy, PluginInstallParams,
-  PluginInstallPolicy, PluginInstallResponse, PluginInterface, PluginListResponse,
-  PluginMarketplaceEntry, PluginSource, PluginSummary, PluginUninstallParams,
-  PluginUninstallResponse,
+  CollaborationModeMask as AppServerCollaborationModeMask, PluginInstallParams,
+  PluginInstallResponse, PluginListResponse, PluginUninstallParams, PluginUninstallResponse,
+  RequestId, SandboxPolicy as AppServerSandboxPolicy, TurnStartParams, TurnSteerParams,
+  UserInput as AppServerUserInput,
 };
-use codex_core::SteerInputError;
-use codex_core_plugins::manifest::PluginManifestInterface;
-use codex_core_plugins::marketplace::{
-  MarketplaceError, MarketplacePluginAuthPolicy, MarketplacePluginInstallPolicy,
-  MarketplacePluginSource,
-};
+use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::{McpServerRefreshConfig, Op, ReviewDecision};
-use codex_protocol::request_permissions::{PermissionGrantScope, RequestPermissionsResponse};
-use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
-use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use tracing::warn;
 
 use super::config::{
-  collaboration_mode_for_update, parse_approvals_reviewer, parse_personality,
-  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
+  parse_approvals_reviewer, parse_personality, parse_service_tier_override,
+  preferred_reasoning_summary, reasoning_summary_for_model,
 };
 use super::policy_bridge::{parse_approval_policy_with_details, parse_sandbox_policy_with_details};
 use super::{
   CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides, SteerOutcome, UpdateConfigOptions,
 };
 use crate::session::{CodexExecApproval, CodexPatchApproval};
-use orbitdock_connector_core::ConnectorError;
+use orbitdock_connector_core::{ConnectorError, ConnectorStateEvent};
 
 fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
   Some(match value {
@@ -45,89 +36,239 @@ fn parse_reasoning_effort(value: &str) -> Option<ReasoningEffort> {
   })
 }
 
+fn parse_mode_kind(value: &str) -> Option<ModeKind> {
+  match value.trim().to_ascii_lowercase().as_str() {
+    "plan" => Some(ModeKind::Plan),
+    "default" | "code" | "pair_programming" | "execute" | "custom" => Some(ModeKind::Default),
+    _ => None,
+  }
+}
+
+fn collaboration_mode_name(mode: ModeKind) -> &'static str {
+  match mode {
+    ModeKind::Plan => "plan",
+    ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
+  }
+}
+
+fn convert_app_server_type<T, U>(value: T, label: &str) -> Result<U, ConnectorError>
+where
+  T: serde::Serialize,
+  U: serde::de::DeserializeOwned,
+{
+  serde_json::from_value(serde_json::to_value(value).map_err(|error| {
+    ConnectorError::ProviderError(format!("Failed to encode Codex {label}: {error}"))
+  })?)
+  .map_err(|error| {
+    ConnectorError::ProviderError(format!(
+      "Failed to convert Codex {label} for app-server: {error}"
+    ))
+  })
+}
+
+fn convert_optional<T, U>(value: Option<T>, label: &str) -> Result<Option<U>, ConnectorError>
+where
+  T: serde::Serialize,
+  U: serde::de::DeserializeOwned,
+{
+  value
+    .map(|inner| convert_app_server_type(inner, label))
+    .transpose()
+}
+
+fn app_server_request_id(value: &str) -> RequestId {
+  value
+    .parse::<i64>()
+    .map(RequestId::Integer)
+    .unwrap_or_else(|_| RequestId::String(value.to_string()))
+}
+
+async fn take_pending_request(connector: &CodexConnector, request_id: &str) -> RequestId {
+  connector
+    .pending_app_server_requests
+    .lock()
+    .await
+    .remove(request_id)
+    .unwrap_or_else(|| app_server_request_id(request_id))
+}
+
+fn app_server_user_input(
+  content: &str,
+  skills: &[orbitdock_protocol::SkillInput],
+  images: &[orbitdock_protocol::ImageInput],
+  mentions: &[orbitdock_protocol::MentionInput],
+) -> Vec<AppServerUserInput> {
+  let mut items = Vec::new();
+  if !content.is_empty() {
+    items.push(AppServerUserInput::Text {
+      text: content.to_string(),
+      text_elements: Vec::new(),
+    });
+  }
+
+  for skill in skills {
+    items.push(AppServerUserInput::Skill {
+      name: skill.name.clone(),
+      path: PathBuf::from(&skill.path),
+    });
+  }
+
+  for image in images {
+    match image.input_type.as_str() {
+      "url" => items.push(AppServerUserInput::Image {
+        url: image.value.clone(),
+      }),
+      "path" => items.push(AppServerUserInput::LocalImage {
+        path: PathBuf::from(&image.value),
+      }),
+      other => {
+        warn!("Unknown image input_type: {}, treating as url", other);
+        items.push(AppServerUserInput::Image {
+          url: image.value.clone(),
+        });
+      }
+    }
+  }
+
+  for mention in mentions {
+    items.push(AppServerUserInput::Mention {
+      name: mention.name.clone(),
+      path: mention.path.clone(),
+    });
+  }
+
+  items
+}
+
+fn select_collaboration_mode_mask(
+  masks: Vec<AppServerCollaborationModeMask>,
+  mode: ModeKind,
+  requested_name: &str,
+) -> Option<AppServerCollaborationModeMask> {
+  let normalized = requested_name.trim();
+  masks.into_iter().find(|mask| {
+    mask.name.trim().eq_ignore_ascii_case(normalized)
+      || mask
+        .mode
+        .map(|candidate| candidate == mode)
+        .unwrap_or(false)
+  })
+}
+
+fn build_collaboration_mode(
+  mode: ModeKind,
+  selected_mask: Option<AppServerCollaborationModeMask>,
+  model: String,
+  effort: Option<ReasoningEffort>,
+  developer_instructions: Option<&str>,
+) -> CollaborationMode {
+  let mask_model = selected_mask.as_ref().and_then(|mask| mask.model.clone());
+  let mask_effort = selected_mask
+    .and_then(|mask| mask.reasoning_effort)
+    .flatten();
+
+  CollaborationMode {
+    mode,
+    settings: Settings {
+      model: mask_model.unwrap_or(model),
+      reasoning_effort: mask_effort.or(effort),
+      developer_instructions: developer_instructions.map(ToString::to_string),
+    },
+  }
+}
+
+async fn app_server_collaboration_mode_for_update(
+  app_server: &crate::app_server::CodexAppServer,
+  explicit_collaboration_mode: Option<&str>,
+  permission_mode: Option<&str>,
+  model: String,
+  effort: Option<ReasoningEffort>,
+  developer_instructions: Option<&str>,
+) -> Result<Option<CollaborationMode>, ConnectorError> {
+  let requested_mode = explicit_collaboration_mode
+    .or(permission_mode)
+    .and_then(parse_mode_kind);
+  let requested_name = explicit_collaboration_mode
+    .or(permission_mode)
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .map(ToString::to_string);
+
+  if requested_mode.is_none() && developer_instructions.is_none() {
+    return Ok(None);
+  }
+
+  let mode = requested_mode.unwrap_or(ModeKind::Default);
+  let name = requested_name
+    .as_deref()
+    .unwrap_or_else(|| collaboration_mode_name(mode));
+  let masks = app_server.collaboration_mode_list().await?.data;
+  let selected_mask = select_collaboration_mode_mask(masks, mode, name);
+
+  Ok(Some(build_collaboration_mode(
+    mode,
+    selected_mask,
+    model,
+    effort,
+    developer_instructions,
+  )))
+}
+
 impl CodexConnector {
-  async fn build_plugin_config(
-    &self,
-    cwd: &str,
-    config_overrides: &CodexConfigOverrides,
-    runtime_overrides: &CodexRuntimeOverrides,
-  ) -> Result<codex_core::config::Config, ConnectorError> {
-    let mut config = Self::build_config(
-      cwd,
-      None,
-      None,
-      None,
-      None,
-      config_overrides,
-      runtime_overrides,
-    )
-    .await?;
-    Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
-    Ok(config)
-  }
-
-  fn clear_plugin_related_caches(&self) {
-    self.thread_manager.plugins_manager().clear_cache();
-    self.thread_manager.skills_manager().clear_cache();
-  }
-
   pub async fn fork_thread(
     &self,
-    nth_user_message: Option<u32>,
     model: Option<&str>,
     approval_policy: Option<&str>,
     sandbox_mode: Option<&str>,
     cwd: Option<&str>,
   ) -> Result<(CodexConnector, String), ConnectorError> {
-    let rollout_path = codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to find rollout path: {}", e)))?
-      .ok_or_else(|| {
-        ConnectorError::ProviderError(format!(
-          "No rollout file found for thread {}",
-          self.thread_id
-        ))
-      })?;
-
+    let app_server = self.app_server_session()?;
     let effective_cwd = cwd.unwrap_or(".");
-    let mut config = Self::build_config(
-      effective_cwd,
-      model,
-      approval_policy,
-      sandbox_mode,
-      None,
-      &CodexConfigOverrides::default(),
-      &CodexRuntimeOverrides::default(),
-    )
-    .await?;
-    Self::finalize_reasoning_summary(&mut config, self.thread_manager.as_ref()).await;
-    let configured_model = config.model.clone();
-
-    let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
-
-    let new_thread = self
-      .thread_manager
-      .fork_thread(nth, config, rollout_path, false, None)
+    let approval_policy =
+      parse_approval_policy_with_details(approval_policy, None).map_err(|error| {
+        ConnectorError::ProviderError(format!("Invalid approval policy: {error}"))
+      })?;
+    let sandbox = parse_sandbox_policy_with_details(sandbox_mode, None)
+      .map_err(|error| ConnectorError::ProviderError(format!("Invalid sandbox mode: {error}")))?;
+    let response = app_server
+      .thread_fork(codex_app_server_protocol::ThreadForkParams {
+        thread_id: self.thread_id.clone(),
+        path: None,
+        model: model.map(ToString::to_string),
+        model_provider: None,
+        service_tier: None,
+        cwd: Some(effective_cwd.to_string()),
+        approval_policy: convert_optional(approval_policy, "approval policy")?,
+        approvals_reviewer: None,
+        sandbox: sandbox.map(|policy| match policy {
+          codex_protocol::protocol::SandboxPolicy::DangerFullAccess => {
+            codex_app_server_protocol::SandboxMode::DangerFullAccess
+          }
+          codex_protocol::protocol::SandboxPolicy::ReadOnly { .. } => {
+            codex_app_server_protocol::SandboxMode::ReadOnly
+          }
+          _ => codex_app_server_protocol::SandboxMode::WorkspaceWrite,
+        }),
+        config: None,
+        base_instructions: None,
+        developer_instructions: None,
+        ephemeral: false,
+        persist_extended_history: true,
+      })
       .await
       .map_err(|e| ConnectorError::ProviderError(format!("Failed to fork thread: {}", e)))?;
 
-    let new_thread_id = new_thread.thread_id.to_string();
-    let connector = Self::from_thread(
-      new_thread,
-      self.thread_manager.clone(),
+    let new_thread_id = response.thread.id.clone();
+    let reasoning_effort = convert_optional(response.reasoning_effort, "reasoning effort")?;
+    let connector = Self::from_app_server_thread(
+      app_server,
+      new_thread_id.clone(),
       self.codex_home.clone(),
       effective_cwd,
-    )?;
-    connector
-      .apply_post_start_overrides(
-        CodexRuntimeOverrides::default(),
-        configured_model,
-        None,
-        effective_cwd,
-        sandbox_mode,
-        None,
-      )
-      .await?;
+      Some(response.model),
+      reasoning_effort,
+    )
+    .await?;
 
     Ok((connector, new_thread_id))
   }
@@ -141,91 +282,59 @@ impl CodexConnector {
     images: &[orbitdock_protocol::ImageInput],
     mentions: &[orbitdock_protocol::MentionInput],
   ) -> Result<(), ConnectorError> {
-    if model.is_some() || effort.is_some() {
-      let effort_value = effort.map(|e| match e {
-        "none" => ReasoningEffort::None,
-        "minimal" => ReasoningEffort::Minimal,
-        "low" => ReasoningEffort::Low,
-        "medium" => ReasoningEffort::Medium,
-        "high" => ReasoningEffort::High,
-        "xhigh" => ReasoningEffort::XHigh,
-        _ => ReasoningEffort::Medium,
-      });
-      let effective_model = if let Some(model) = model {
-        Some(model.to_string())
-      } else {
-        let current = self.current_model.lock().await;
-        current.clone()
-      };
-      let summary = Some(reasoning_summary_for_model(
-        effective_model.as_deref(),
-        preferred_reasoning_summary(),
-      ));
-      let override_op = Op::OverrideTurnContext {
-        cwd: None,
-        approval_policy: None,
-        sandbox_policy: None,
-        windows_sandbox_level: None,
-        model: model.map(|m| m.to_string()),
-        effort: effort_value.map(Some),
-        summary,
-        approvals_reviewer: None,
-        service_tier: None,
-        collaboration_mode: None,
-        personality: None,
-      };
-      self.thread.submit(override_op).await.map_err(|e| {
-        ConnectorError::ProviderError(format!("Failed to override turn context: {}", e))
-      })?;
-    }
-
-    let mut items = vec![UserInput::Text {
-      text: content.to_string(),
-      text_elements: Vec::new(),
-    }];
-
-    for skill in skills {
-      items.push(UserInput::Skill {
-        name: skill.name.clone(),
-        path: PathBuf::from(&skill.path),
-      });
-    }
-
-    for image in images {
-      match image.input_type.as_str() {
-        "url" => items.push(UserInput::Image {
-          image_url: image.value.clone(),
-        }),
-        "path" => items.push(UserInput::LocalImage {
-          path: PathBuf::from(&image.value),
-        }),
-        other => {
-          warn!("Unknown image input_type: {}, treating as url", other);
-          items.push(UserInput::Image {
-            image_url: image.value.clone(),
-          });
-        }
-      }
-    }
-
-    for mention in mentions {
-      items.push(UserInput::Mention {
-        name: mention.name.clone(),
-        path: mention.path.clone(),
-      });
-    }
-
-    let op = Op::UserInput {
-      items,
-      final_output_json_schema: None,
-      responsesapi_client_metadata: None,
+    let app_server = self.app_server_session()?;
+    let effort_value = effort.and_then(parse_reasoning_effort);
+    let effective_model = if let Some(model) = model {
+      Some(model.to_string())
+    } else {
+      self.current_model.lock().await.clone()
     };
-
-    self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to send message: {}", e)))?;
+    let summary = Some(reasoning_summary_for_model(
+      effective_model.as_deref(),
+      preferred_reasoning_summary(),
+    ));
+    let cwd = self.current_cwd.lock().await.clone();
+    let pending_context = self.pending_turn_context.lock().await.clone();
+    let requested_model = model.map(ToString::to_string).or(pending_context.model);
+    let requested_effort =
+      convert_optional(effort_value, "reasoning effort")?.or(pending_context.effort);
+    let requested_summary =
+      convert_optional(summary, "reasoning summary")?.or(pending_context.summary);
+    let requested_collaboration_mode = pending_context.collaboration_mode;
+    let next_model = requested_collaboration_mode
+      .as_ref()
+      .map(|mode| mode.settings.model.clone())
+      .or_else(|| requested_model.clone());
+    let next_effort = requested_collaboration_mode
+      .as_ref()
+      .map(|mode| mode.settings.reasoning_effort)
+      .unwrap_or(requested_effort);
+    let response = app_server
+      .turn_start(TurnStartParams {
+        thread_id: self.thread_id.clone(),
+        input: app_server_user_input(content, skills, images, mentions),
+        responsesapi_client_metadata: None,
+        cwd: pending_context
+          .cwd
+          .or_else(|| (!cwd.trim().is_empty()).then(|| PathBuf::from(cwd.as_str()))),
+        approval_policy: pending_context.approval_policy,
+        approvals_reviewer: pending_context.approvals_reviewer,
+        sandbox_policy: pending_context.sandbox_policy,
+        model: requested_model,
+        service_tier: pending_context.service_tier,
+        effort: requested_effort,
+        summary: requested_summary,
+        personality: pending_context.personality,
+        output_schema: None,
+        collaboration_mode: requested_collaboration_mode,
+      })
+      .await?;
+    *self.pending_turn_context.lock().await = Default::default();
+    *self.active_turn_id.lock().await = Some(response.turn.id);
+    if let Some(model) = next_model {
+      *self.current_model.lock().await = Some(model);
+    }
+    *self.current_reasoning_effort.lock().await = next_effort;
 
     Ok(())
   }
@@ -236,54 +345,22 @@ impl CodexConnector {
     images: &[orbitdock_protocol::ImageInput],
     mentions: &[orbitdock_protocol::MentionInput],
   ) -> Result<SteerOutcome, ConnectorError> {
-    let mut items: Vec<UserInput> = Vec::new();
-
-    if !content.is_empty() {
-      items.push(UserInput::Text {
-        text: content.to_string(),
-        text_elements: Vec::new(),
-      });
-    }
-
-    for image in images {
-      match image.input_type.as_str() {
-        "url" => items.push(UserInput::Image {
-          image_url: image.value.clone(),
-        }),
-        "path" => items.push(UserInput::LocalImage {
-          path: PathBuf::from(&image.value),
-        }),
-        other => {
-          warn!("Unknown image input_type: {}, treating as url", other);
-          items.push(UserInput::Image {
-            image_url: image.value.clone(),
-          });
-        }
-      }
-    }
-
-    for mention in mentions {
-      items.push(UserInput::Mention {
-        name: mention.name.clone(),
-        path: mention.path.clone(),
-      });
-    }
-
-    match self.thread.steer_input(items, None, None).await {
-      Ok(_turn_id) => Ok(SteerOutcome::Accepted),
-      Err(SteerInputError::NoActiveTurn(_items)) => Err(ConnectorError::ProviderError(
-        "No active turn to steer".into(),
-      )),
-      Err(SteerInputError::EmptyInput) => {
-        Err(ConnectorError::ProviderError("Empty steer input".into()))
-      }
-      Err(SteerInputError::ExpectedTurnMismatch { expected, actual }) => Err(
-        ConnectorError::ProviderError(format!("Turn mismatch: expected {expected}, got {actual}")),
-      ),
-      Err(SteerInputError::ActiveTurnNotSteerable { turn_kind }) => Err(
-        ConnectorError::ProviderError(format!("Active turn is not steerable: {turn_kind:?}")),
-      ),
-    }
+    let expected_turn_id = self
+      .active_turn_id
+      .lock()
+      .await
+      .clone()
+      .ok_or_else(|| ConnectorError::ProviderError("No active turn to steer".into()))?;
+    self
+      .app_server_session()?
+      .turn_steer(TurnSteerParams {
+        thread_id: self.thread_id.clone(),
+        input: app_server_user_input(content, &[], images, mentions),
+        responsesapi_client_metadata: None,
+        expected_turn_id,
+      })
+      .await?;
+    Ok(SteerOutcome::Accepted)
   }
 
   pub async fn list_skills(
@@ -291,13 +368,52 @@ impl CodexConnector {
     cwds: Vec<String>,
     force_reload: bool,
   ) -> Result<(), ConnectorError> {
-    let cwds: Vec<PathBuf> = cwds.into_iter().map(PathBuf::from).collect();
-    let op = Op::ListSkills { cwds, force_reload };
+    let response = self
+      .app_server_session()?
+      .skills_list(codex_app_server_protocol::SkillsListParams {
+        cwds: crate::app_server::path_bufs(cwds),
+        force_reload,
+        per_cwd_extra_user_roots: None,
+      })
+      .await?;
+    let skills = response
+      .data
+      .into_iter()
+      .map(|entry| orbitdock_protocol::SkillsListEntry {
+        cwd: entry.cwd.to_string_lossy().to_string(),
+        skills: entry
+          .skills
+          .into_iter()
+          .map(|skill| orbitdock_protocol::SkillMetadata {
+            name: skill.name,
+            description: skill.description,
+            short_description: skill.short_description,
+            path: skill.path.to_string_lossy().to_string(),
+            scope: convert_app_server_type(skill.scope, "skill scope")
+              .unwrap_or(orbitdock_protocol::SkillScope::User),
+            enabled: skill.enabled,
+          })
+          .collect(),
+        errors: entry
+          .errors
+          .into_iter()
+          .map(|error| orbitdock_protocol::SkillErrorInfo {
+            path: error.path.to_string_lossy().to_string(),
+            message: error.message,
+          })
+          .collect(),
+      })
+      .collect();
+    let output = ConnectorStateEvent::SkillsList {
+      skills,
+      errors: Vec::new(),
+    }
+    .into();
     self
-      .thread
-      .submit(op)
+      .output_tx
+      .send(output)
       .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to list skills: {}", e)))?;
+      .map_err(|_| ConnectorError::ProviderError("Codex output channel is closed".to_string()))?;
     Ok(())
   }
 
@@ -308,147 +424,115 @@ impl CodexConnector {
     config_overrides: &CodexConfigOverrides,
     runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginListResponse, ConnectorError> {
-    let plugins_manager = self.thread_manager.plugins_manager();
-    let session_source = self.thread_manager.session_source();
-    let config = self
-      .build_plugin_config(cwd, config_overrides, runtime_overrides)
-      .await?;
-
     let roots: Vec<_> = cwds
       .into_iter()
       .map(|value| normalize_absolute_path(cwd, &value))
       .collect::<Result<_, _>>()?;
-
-    let marketplaces = tokio::task::spawn_blocking(move || {
-      let outcome = plugins_manager.list_marketplaces_for_config(&config, &roots)?;
-      let marketplace_load_errors: Vec<MarketplaceLoadErrorInfo> = outcome
-        .errors
-        .into_iter()
-        .map(|e| MarketplaceLoadErrorInfo {
-          marketplace_path: e.path,
-          message: e.message,
-        })
-        .collect();
-      let marketplaces: Vec<PluginMarketplaceEntry> = outcome
-        .marketplaces
-        .into_iter()
-        .filter_map(|marketplace| {
-          let plugins = marketplace
-            .plugins
-            .into_iter()
-            .filter(|plugin| {
-              session_source
-                .matches_product_restriction(plugin.policy.products.as_deref().unwrap_or(&[]))
-            })
-            .map(map_plugin_summary)
-            .collect::<Vec<_>>();
-
-          (!plugins.is_empty()).then_some(PluginMarketplaceEntry {
-            name: marketplace.name,
-            path: Some(marketplace.path),
-            interface: marketplace.interface.map(|interface| MarketplaceInterface {
-              display_name: interface.display_name,
-            }),
-            plugins,
-          })
-        })
-        .collect();
-      Ok::<(Vec<PluginMarketplaceEntry>, Vec<MarketplaceLoadErrorInfo>), MarketplaceError>((
-        marketplaces,
-        marketplace_load_errors,
-      ))
-    })
-    .await
-    .map_err(|e| {
-      ConnectorError::ProviderError(format!("Failed to list plugin marketplaces: {}", e))
-    })?
-    .map_err(|e| {
-      ConnectorError::ProviderError(format!("Failed to list plugin marketplaces: {}", e))
-    })?;
-
-    let (marketplaces, marketplace_load_errors) = marketplaces;
-    Ok(PluginListResponse {
-      marketplaces,
-      marketplace_load_errors,
-      featured_plugin_ids: Vec::new(),
-    })
+    crate::app_server::shared_app_server(cwd, config_overrides, runtime_overrides)
+      .await?
+      .plugin_list(roots)
+      .await
   }
 
   pub async fn install_plugin(
     &self,
-    _cwd: &str,
+    cwd: &str,
     params: PluginInstallParams,
-    _config_overrides: &CodexConfigOverrides,
-    _runtime_overrides: &CodexRuntimeOverrides,
+    config_overrides: &CodexConfigOverrides,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginInstallResponse, ConnectorError> {
-    let plugins_manager = self.thread_manager.plugins_manager();
-    let marketplace_path =
-      require_local_marketplace_path(params.marketplace_path, params.remote_marketplace_name)?;
-    let request = codex_core::plugins::PluginInstallRequest {
-      plugin_name: params.plugin_name,
-      marketplace_path,
-    };
-
-    let outcome = plugins_manager
-      .install_plugin(request)
+    crate::app_server::shared_app_server(cwd, config_overrides, runtime_overrides)
+      .await?
+      .plugin_install(params)
       .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to install plugin: {}", e)))?;
-
-    self.clear_plugin_related_caches();
-
-    Ok(PluginInstallResponse {
-      auth_policy: map_plugin_auth_policy(outcome.auth_policy),
-      apps_needing_auth: Vec::new(),
-    })
   }
 
   pub async fn uninstall_plugin(
     &self,
-    _cwd: &str,
+    cwd: &str,
     params: PluginUninstallParams,
-    _config_overrides: &CodexConfigOverrides,
-    _runtime_overrides: &CodexRuntimeOverrides,
+    config_overrides: &CodexConfigOverrides,
+    runtime_overrides: &CodexRuntimeOverrides,
   ) -> Result<PluginUninstallResponse, ConnectorError> {
-    let plugins_manager = self.thread_manager.plugins_manager();
-
-    plugins_manager
-      .uninstall_plugin(params.plugin_id)
+    crate::app_server::shared_app_server(cwd, config_overrides, runtime_overrides)
+      .await?
+      .plugin_uninstall(params)
       .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to uninstall plugin: {}", e)))?;
-
-    self.clear_plugin_related_caches();
-
-    Ok(PluginUninstallResponse {})
   }
 
   pub async fn list_mcp_tools(&self) -> Result<(), ConnectorError> {
-    let op = Op::ListMcpTools;
+    let response = self.app_server_session()?.mcp_server_status_list().await?;
+    let tools = response
+      .data
+      .iter()
+      .map(|status| {
+        Ok((
+          status.name.clone(),
+          convert_app_server_type(status.tools.clone(), "MCP tools")?,
+        ))
+      })
+      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+    let resources = response
+      .data
+      .iter()
+      .map(|status| {
+        Ok((
+          status.name.clone(),
+          convert_app_server_type(status.resources.clone(), "MCP resources")?,
+        ))
+      })
+      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+    let resource_templates = response
+      .data
+      .iter()
+      .map(|status| {
+        Ok((
+          status.name.clone(),
+          convert_app_server_type(status.resource_templates.clone(), "MCP resource templates")?,
+        ))
+      })
+      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+    let auth_statuses = response
+      .data
+      .into_iter()
+      .map(|status| {
+        Ok((
+          status.name,
+          convert_app_server_type(status.auth_status, "MCP auth status")?,
+        ))
+      })
+      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+    let output = ConnectorStateEvent::McpToolsList {
+      tools,
+      resources,
+      resource_templates,
+      auth_statuses,
+    }
+    .into();
     self
-      .thread
-      .submit(op)
+      .output_tx
+      .send(output)
       .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to list MCP tools: {}", e)))?;
+      .map_err(|_| ConnectorError::ProviderError("Codex output channel is closed".to_string()))?;
     Ok(())
   }
 
   pub async fn refresh_mcp_servers(&self) -> Result<(), ConnectorError> {
-    let config = McpServerRefreshConfig {
-      mcp_servers: serde_json::Value::Object(Default::default()),
-      mcp_oauth_credentials_store_mode: serde_json::Value::Null,
-    };
-    let op = Op::RefreshMcpServers { config };
-    self.thread.submit(op).await.map_err(|e| {
-      ConnectorError::ProviderError(format!("Failed to refresh MCP servers: {}", e))
-    })?;
+    self.app_server_session()?.mcp_server_refresh().await?;
     Ok(())
   }
 
   pub async fn interrupt(&self) -> Result<(), ConnectorError> {
+    let Some(turn_id) = self.active_turn_id.lock().await.clone() else {
+      return Ok(());
+    };
     self
-      .thread
-      .submit(Op::Interrupt)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to interrupt: {}", e)))?;
+      .app_server_session()?
+      .turn_interrupt(codex_app_server_protocol::TurnInterruptParams {
+        thread_id: self.thread_id.clone(),
+        turn_id,
+      })
+      .await?;
 
     Ok(())
   }
@@ -458,38 +542,14 @@ impl CodexConnector {
     request_id: &str,
     decision: CodexExecApproval,
   ) -> Result<(), ConnectorError> {
-    let review = match decision {
-      CodexExecApproval::Approved => ReviewDecision::Approved,
-      CodexExecApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
-      CodexExecApproval::ApprovedAlways { proposed_amendment } => {
-        if let Some(cmd) = proposed_amendment {
-          ReviewDecision::ApprovedExecpolicyAmendment {
-            proposed_execpolicy_amendment: codex_protocol::approvals::ExecPolicyAmendment::new(cmd),
-          }
-        } else {
-          ReviewDecision::ApprovedForSession
-        }
-      }
-      CodexExecApproval::NetworkPolicyAmendment {
-        network_policy_amendment,
-      } => ReviewDecision::NetworkPolicyAmendment {
-        network_policy_amendment,
-      },
-      CodexExecApproval::Abort => ReviewDecision::Abort,
-      CodexExecApproval::Denied => ReviewDecision::Denied,
-    };
-
-    let op = Op::ExecApproval {
-      id: request_id.to_string(),
-      turn_id: None,
-      decision: review,
-    };
-
+    let server_request_id = take_pending_request(self, request_id).await;
     self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve exec: {}", e)))?;
+      .app_server_session()?
+      .resolve_server_request(
+        server_request_id,
+        crate::app_server::exec_approval_response(decision),
+      )
+      .await?;
 
     Ok(())
   }
@@ -499,23 +559,14 @@ impl CodexConnector {
     request_id: &str,
     decision: CodexPatchApproval,
   ) -> Result<(), ConnectorError> {
-    let review = match decision {
-      CodexPatchApproval::Approved => ReviewDecision::Approved,
-      CodexPatchApproval::ApprovedForSession => ReviewDecision::ApprovedForSession,
-      CodexPatchApproval::Abort => ReviewDecision::Abort,
-      CodexPatchApproval::Denied => ReviewDecision::Denied,
-    };
-
-    let op = Op::PatchApproval {
-      id: request_id.to_string(),
-      decision: review,
-    };
-
+    let server_request_id = take_pending_request(self, request_id).await;
     self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve patch: {}", e)))?;
+      .app_server_session()?
+      .resolve_server_request(
+        server_request_id,
+        crate::app_server::patch_approval_response(decision),
+      )
+      .await?;
 
     Ok(())
   }
@@ -525,23 +576,14 @@ impl CodexConnector {
     request_id: &str,
     answers: HashMap<String, Vec<String>>,
   ) -> Result<(), ConnectorError> {
-    let response = RequestUserInputResponse {
-      answers: answers
-        .into_iter()
-        .map(|(k, v)| (k, RequestUserInputAnswer { answers: v }))
-        .collect(),
-    };
-
-    let op = Op::UserInputAnswer {
-      id: request_id.to_string(),
-      response,
-    };
-
+    let server_request_id = take_pending_request(self, request_id).await;
     self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to answer question: {}", e)))?;
+      .app_server_session()?
+      .resolve_server_request(
+        server_request_id,
+        crate::app_server::question_response(answers),
+      )
+      .await?;
 
     Ok(())
   }
@@ -552,39 +594,21 @@ impl CodexConnector {
     permissions: serde_json::Value,
     scope: orbitdock_protocol::PermissionGrantScope,
   ) -> Result<(), ConnectorError> {
-    let permissions = serde_json::from_value(permissions).map_err(|e| {
-      ConnectorError::ProviderError(format!(
-        "Failed to decode granted permissions payload: {}",
-        e
-      ))
-    })?;
-    let scope = match scope {
-      orbitdock_protocol::PermissionGrantScope::Turn => PermissionGrantScope::Turn,
-      orbitdock_protocol::PermissionGrantScope::Session => PermissionGrantScope::Session,
-    };
-
-    let op = Op::RequestPermissionsResponse {
-      id: request_id.to_string(),
-      response: RequestPermissionsResponse { permissions, scope },
-    };
-
-    self.thread.submit(op).await.map_err(|e| {
-      ConnectorError::ProviderError(format!("Failed to respond to permission request: {}", e))
-    })?;
+    let server_request_id = take_pending_request(self, request_id).await;
+    let response = crate::app_server::permissions_response(permissions, scope)?;
+    self
+      .app_server_session()?
+      .resolve_server_request(server_request_id, response)
+      .await?;
 
     Ok(())
   }
 
   pub async fn set_thread_name(&self, name: &str) -> Result<(), ConnectorError> {
-    let op = Op::SetThreadName {
-      name: name.to_string(),
-    };
-
     self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to set thread name: {}", e)))?;
+      .app_server_session()?
+      .thread_set_name(self.thread_id.clone(), name.to_string())
+      .await?;
 
     Ok(())
   }
@@ -601,7 +625,7 @@ impl CodexConnector {
       approvals_reviewer,
       permission_mode,
       collaboration_mode,
-      multi_agent: _,
+      multi_agent,
       personality,
       service_tier,
       developer_instructions,
@@ -609,79 +633,72 @@ impl CodexConnector {
       effort,
     } = options;
 
+    let app_server = self.app_server_session()?;
     let policy = parse_approval_policy_with_details(approval_policy, approval_policy_details)
       .map_err(|e| ConnectorError::ProviderError(format!("Invalid approval policy: {e}")))?;
     let sandbox = parse_sandbox_policy_with_details(sandbox_mode, sandbox_policy_details)
       .map_err(|e| ConnectorError::ProviderError(format!("Invalid sandbox mode: {e}")))?;
 
-    let current_model = {
-      let current = self.current_model.lock().await;
-      current.clone().unwrap_or_else(|| "gpt-5-codex".to_string())
-    };
-    let current_effort = {
-      let current = self.current_reasoning_effort.lock().await;
-      *current
-    };
     let approvals_reviewer = parse_approvals_reviewer(approvals_reviewer);
-    let collaboration_mode = collaboration_mode_for_update(
-      self.thread_manager.as_ref(),
+    // The app-server exposes collaboration mode as a per-turn override, but
+    // multi-agent is a thread/runtime feature. OrbitDock applies it when the
+    // session is started or resumed, and persists mid-session changes for the
+    // next materialization.
+    let _ = multi_agent;
+    let effort = effort.and_then(parse_reasoning_effort);
+    let current_model = self.current_model.lock().await.clone();
+    let effective_model = model
+      .map(ToString::to_string)
+      .or(current_model)
+      .ok_or_else(|| ConnectorError::ProviderError("Codex model is not available".to_string()))?;
+    let effective_effort = effort.or(*self.current_reasoning_effort.lock().await);
+    let collaboration_mode = app_server_collaboration_mode_for_update(
+      &app_server,
       collaboration_mode,
       permission_mode,
-      current_model,
-      current_effort,
+      effective_model.clone(),
+      effective_effort,
       developer_instructions,
-    );
+    )
+    .await?;
     let override_cwd = {
       let cwd = self.current_cwd.lock().await;
       cwd.trim().to_string()
     };
-    let op = Op::OverrideTurnContext {
-      cwd: (!override_cwd.is_empty()).then(|| PathBuf::from(override_cwd.as_str())),
-      approval_policy: policy,
-      sandbox_policy: sandbox,
-      windows_sandbox_level: None,
-      model: model.map(ToString::to_string),
-      effort: effort.and_then(parse_reasoning_effort).map(Some),
-      summary: None,
-      approvals_reviewer,
-      service_tier: parse_service_tier_override(service_tier),
-      collaboration_mode,
-      personality: parse_personality(personality),
-    };
-
-    self
-      .thread
-      .submit(op)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to update config: {}", e)))?;
+    let mut pending = self.pending_turn_context.lock().await;
+    pending.cwd = (!override_cwd.is_empty()).then(|| PathBuf::from(override_cwd.as_str()));
+    pending.approval_policy = convert_optional(policy, "approval policy")?;
+    pending.approvals_reviewer = convert_optional(approvals_reviewer, "approvals reviewer")?;
+    pending.sandbox_policy =
+      convert_optional::<_, AppServerSandboxPolicy>(sandbox, "sandbox policy")?;
+    pending.model = model.map(ToString::to_string);
+    pending.service_tier =
+      convert_optional(parse_service_tier_override(service_tier), "service tier")?;
+    pending.effort = convert_optional(effort, "reasoning effort")?;
+    pending.personality = convert_optional(parse_personality(personality), "personality")?;
+    pending.collaboration_mode = convert_optional(collaboration_mode, "collaboration mode")?;
 
     Ok(())
   }
 
   pub async fn compact(&self) -> Result<(), ConnectorError> {
     self
-      .thread
-      .submit(Op::Compact)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to compact: {}", e)))?;
+      .app_server_session()?
+      .thread_compact_start(self.thread_id.clone())
+      .await?;
     Ok(())
   }
 
   pub async fn undo(&self) -> Result<(), ConnectorError> {
-    self
-      .thread
-      .submit(Op::Undo)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to undo: {}", e)))?;
+    self.thread_rollback(1).await?;
     Ok(())
   }
 
   pub async fn thread_rollback(&self, num_turns: u32) -> Result<(), ConnectorError> {
     self
-      .thread
-      .submit(Op::ThreadRollback { num_turns })
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to thread rollback: {}", e)))?;
+      .app_server_session()?
+      .thread_rollback(self.thread_id.clone(), num_turns)
+      .await?;
     Ok(())
   }
 
@@ -690,22 +707,19 @@ impl CodexConnector {
     call_id: String,
     response: codex_protocol::dynamic_tools::DynamicToolResponse,
   ) -> Result<(), ConnectorError> {
-    let op = Op::DynamicToolResponse {
-      id: call_id,
-      response,
-    };
-    self.thread.submit(op).await.map_err(|e| {
-      ConnectorError::ProviderError(format!("Failed to submit dynamic tool response: {}", e))
-    })?;
+    let server_request_id = take_pending_request(self, &call_id).await;
+    let response = crate::app_server::dynamic_tool_response(response)?;
+    self
+      .app_server_session()?
+      .resolve_server_request(server_request_id, response)
+      .await?;
     Ok(())
   }
 
   pub async fn shutdown(&self) -> Result<(), ConnectorError> {
-    self
-      .thread
-      .submit(Op::Shutdown)
-      .await
-      .map_err(|e| ConnectorError::ProviderError(format!("Failed to shutdown: {}", e)))?;
+    if let Some(app_server) = self.app_server.as_ref() {
+      app_server.unregister_session(&self.thread_id).await;
+    }
     Ok(())
   }
 }
@@ -720,86 +734,4 @@ fn normalize_absolute_path(cwd: &str, value: &str) -> Result<AbsolutePathBuf, Co
 
   AbsolutePathBuf::try_from(path)
     .map_err(|e| ConnectorError::ProviderError(format!("Invalid plugin cwd path `{value}`: {}", e)))
-}
-
-fn require_local_marketplace_path(
-  marketplace_path: Option<AbsolutePathBuf>,
-  remote_marketplace_name: Option<String>,
-) -> Result<AbsolutePathBuf, ConnectorError> {
-  match (marketplace_path, remote_marketplace_name) {
-    (Some(marketplace_path), None) => Ok(marketplace_path),
-    (None, Some(remote_marketplace_name)) => Err(ConnectorError::ProviderError(format!(
-      "Remote plugin install is not supported yet for marketplace {remote_marketplace_name}"
-    ))),
-    (Some(_), Some(_)) | (None, None) => Err(ConnectorError::ProviderError(
-      "Plugin install requires exactly one of marketplacePath or remoteMarketplaceName".to_string(),
-    )),
-  }
-}
-
-fn map_plugin_install_policy(policy: MarketplacePluginInstallPolicy) -> PluginInstallPolicy {
-  match policy {
-    MarketplacePluginInstallPolicy::NotAvailable => PluginInstallPolicy::NotAvailable,
-    MarketplacePluginInstallPolicy::Available => PluginInstallPolicy::Available,
-    MarketplacePluginInstallPolicy::InstalledByDefault => PluginInstallPolicy::InstalledByDefault,
-  }
-}
-
-fn map_plugin_auth_policy(policy: MarketplacePluginAuthPolicy) -> PluginAuthPolicy {
-  match policy {
-    MarketplacePluginAuthPolicy::OnInstall => PluginAuthPolicy::OnInstall,
-    MarketplacePluginAuthPolicy::OnUse => PluginAuthPolicy::OnUse,
-  }
-}
-
-fn map_plugin_interface(interface: PluginManifestInterface) -> PluginInterface {
-  PluginInterface {
-    display_name: interface.display_name,
-    short_description: interface.short_description,
-    long_description: interface.long_description,
-    developer_name: interface.developer_name,
-    category: interface.category,
-    capabilities: interface.capabilities,
-    website_url: interface.website_url,
-    privacy_policy_url: interface.privacy_policy_url,
-    terms_of_service_url: interface.terms_of_service_url,
-    default_prompt: interface.default_prompt,
-    brand_color: interface.brand_color,
-    composer_icon: interface.composer_icon,
-    composer_icon_url: None,
-    logo: interface.logo,
-    logo_url: None,
-    screenshots: interface.screenshots,
-    screenshot_urls: Vec::new(),
-  }
-}
-
-fn map_plugin_source(source: MarketplacePluginSource) -> PluginSource {
-  match source {
-    MarketplacePluginSource::Local { path } => PluginSource::Local { path },
-    MarketplacePluginSource::Git {
-      url,
-      path,
-      ref_name,
-      sha,
-    } => PluginSource::Git {
-      url,
-      path,
-      ref_name,
-      sha,
-    },
-  }
-}
-
-fn map_plugin_summary(plugin: codex_core::plugins::ConfiguredMarketplacePlugin) -> PluginSummary {
-  PluginSummary {
-    id: plugin.id,
-    name: plugin.name,
-    source: map_plugin_source(plugin.source),
-    installed: plugin.installed,
-    enabled: plugin.enabled,
-    install_policy: map_plugin_install_policy(plugin.policy.installation),
-    auth_policy: map_plugin_auth_policy(plugin.policy.authentication),
-    interface: plugin.interface.map(map_plugin_interface),
-  }
 }

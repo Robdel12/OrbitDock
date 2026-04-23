@@ -206,8 +206,6 @@ pub enum ClientMessage {
   ForkSession {
     source_session_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nth_user_message: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     approval_policy: Option<String>,
@@ -241,14 +239,10 @@ pub enum ClientMessage {
     branch_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     base_branch: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nth_user_message: Option<u32>,
   },
   ForkSessionToExistingWorktree {
     source_session_id: String,
     worktree_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nth_user_message: Option<u32>,
   },
 
   // Approval history
@@ -1160,7 +1154,6 @@ mod tests {
     let json = r#"{
           "type":"fork_session",
           "source_session_id":"sess-src-1",
-          "nth_user_message":3,
           "model":"o3",
           "approval_policy":"on-request",
           "sandbox_mode":"read-only",
@@ -1171,7 +1164,6 @@ mod tests {
     match &parsed {
       ClientMessage::ForkSession {
         source_session_id,
-        nth_user_message,
         model,
         approval_policy,
         sandbox_mode,
@@ -1179,7 +1171,6 @@ mod tests {
         ..
       } => {
         assert_eq!(source_session_id, "sess-src-1");
-        assert_eq!(*nth_user_message, Some(3));
         assert_eq!(model.as_deref(), Some("o3"));
         assert_eq!(approval_policy.as_deref(), Some("on-request"));
         assert_eq!(sandbox_mode.as_deref(), Some("read-only"));
@@ -1192,12 +1183,9 @@ mod tests {
     let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
     match reparsed {
       ClientMessage::ForkSession {
-        source_session_id,
-        nth_user_message,
-        ..
+        source_session_id, ..
       } => {
         assert_eq!(source_session_id, "sess-src-1");
-        assert_eq!(nth_user_message, Some(3));
       }
       other => panic!("unexpected variant on roundtrip: {:?}", other),
     }
@@ -1210,12 +1198,10 @@ mod tests {
     match &parsed {
       ClientMessage::ForkSession {
         source_session_id,
-        nth_user_message,
         model,
         ..
       } => {
         assert_eq!(source_session_id, "sess-src-2");
-        assert_eq!(*nth_user_message, None);
         assert_eq!(*model, None);
       }
       other => panic!("unexpected variant: {:?}", other),
@@ -1228,8 +1214,7 @@ mod tests {
           "type":"fork_session_to_worktree",
           "source_session_id":"sess-src-3",
           "branch_name":"feat/server-side-fork",
-          "base_branch":"main",
-          "nth_user_message":4
+          "base_branch":"main"
         }"#;
 
     let parsed: ClientMessage = serde_json::from_str(json).expect("parse fork_session_to_worktree");
@@ -1238,12 +1223,10 @@ mod tests {
         source_session_id,
         branch_name,
         base_branch,
-        nth_user_message,
       } => {
         assert_eq!(source_session_id, "sess-src-3");
         assert_eq!(branch_name, "feat/server-side-fork");
         assert_eq!(base_branch.as_deref(), Some("main"));
-        assert_eq!(*nth_user_message, Some(4));
       }
       other => panic!("unexpected variant: {:?}", other),
     }
@@ -1268,8 +1251,7 @@ mod tests {
     let json = r#"{
           "type":"fork_session_to_existing_worktree",
           "source_session_id":"sess-src-4",
-          "worktree_id":"wt-123",
-          "nth_user_message":2
+          "worktree_id":"wt-123"
         }"#;
 
     let parsed: ClientMessage =
@@ -1278,11 +1260,9 @@ mod tests {
       ClientMessage::ForkSessionToExistingWorktree {
         source_session_id,
         worktree_id,
-        nth_user_message,
       } => {
         assert_eq!(source_session_id, "sess-src-4");
         assert_eq!(worktree_id, "wt-123");
-        assert_eq!(*nth_user_message, Some(2));
       }
       other => panic!("unexpected variant: {:?}", other),
     }

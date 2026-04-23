@@ -235,6 +235,7 @@ mod tests {
       is_worktree: false,
       worktree_id: None,
       has_turn_diff: false,
+      diff_preview: None,
       subscriber_count: 0,
       unread_count: 0,
       mission_id: None,

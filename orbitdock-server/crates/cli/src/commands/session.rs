@@ -75,7 +75,6 @@ struct ResumeSessionResponse {
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ForkSessionRequest {
-  nth_user_message: Option<u32>,
   model: Option<String>,
   approval_policy: Option<String>,
   sandbox_mode: Option<String>,
@@ -310,19 +309,8 @@ pub async fn run(
     }
     SessionAction::Interrupt { session_id } => interrupt(config, output, session_id).await,
     SessionAction::End { session_id } => end_session(config, output, session_id).await,
-    SessionAction::Fork {
-      session_id,
-      nth_user_message,
-      model,
-    } => {
-      fork(
-        rest,
-        output,
-        session_id,
-        *nth_user_message,
-        model.as_deref(),
-      )
-      .await
+    SessionAction::Fork { session_id, model } => {
+      fork(rest, output, session_id, model.as_deref()).await
     }
     SessionAction::Steer {
       session_id,
@@ -1357,15 +1345,8 @@ async fn end_session(config: &ClientConfig, output: &Output, session_id: &str) -
   }
 }
 
-async fn fork(
-  rest: &RestClient,
-  output: &Output,
-  session_id: &str,
-  nth_user_message: Option<u32>,
-  model: Option<&str>,
-) -> i32 {
+async fn fork(rest: &RestClient, output: &Output, session_id: &str, model: Option<&str>) -> i32 {
   let request = ForkSessionRequest {
-    nth_user_message,
     model: model.map(str::to_string),
     approval_policy: None,
     sandbox_mode: None,

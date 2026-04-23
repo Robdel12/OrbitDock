@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 use orbitdock_connector_codex::CodexConnector;
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
@@ -9,12 +9,8 @@ use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
 use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
-use crate::infrastructure::persistence::{
-  load_messages_from_transcript_path, PersistCommand, SessionCreateParams,
-};
-use crate::runtime::session_fork_policy::{
-  remap_rows_for_fork, select_fork_rows, truncate_rows_before_nth_user_row,
-};
+use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
+use crate::runtime::session_fork_policy::remap_rows_for_fork;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
   claim_codex_thread_for_direct_session, hydrate_full_row_history,
@@ -27,7 +23,6 @@ pub(crate) struct ForkedSessionStart {
 
 pub(crate) struct FinalizeCodexForkRequest<'a> {
   pub source_session_id: &'a str,
-  pub nth_user_message: Option<u32>,
   pub effective_cwd: &'a str,
   pub effective_model: Option<&'a str>,
   pub effective_approval_policy: Option<&'a str>,
@@ -140,7 +135,6 @@ pub(crate) async fn finalize_codex_fork_session(
 ) -> Result<ForkedSessionStart, String> {
   let FinalizeCodexForkRequest {
     source_session_id,
-    nth_user_message,
     effective_cwd,
     effective_model,
     effective_approval_policy,
@@ -166,22 +160,7 @@ pub(crate) async fn finalize_codex_fork_session(
   });
   handle.set_forked_from(source_session_id.to_string());
 
-  let source_fork_rows =
-    load_source_fork_rows(state, source_session_id, nth_user_message, &new_session_id).await;
-  let rollout_rows = load_rollout_fork_rows(&new_connector, &new_session_id).await;
-
-  if !source_fork_rows.is_empty() && rollout_rows.len() < source_fork_rows.len() {
-    info!(
-        component = "session",
-        event = "session.fork.rows_source_selected",
-        new_session_id = %new_session_id,
-        source_row_count = source_fork_rows.len(),
-        rollout_row_count = rollout_rows.len(),
-        "Selected source session rows for fork hydration"
-    );
-  }
-
-  let forked_rows = select_fork_rows(source_fork_rows, rollout_rows);
+  let forked_rows = load_source_fork_rows(state, source_session_id, &new_session_id).await;
   if !forked_rows.is_empty() {
     handle.replace_rows(forked_rows.clone());
   }
@@ -268,7 +247,6 @@ pub(crate) async fn finalize_codex_fork_session(
 async fn load_source_fork_rows(
   state: &Arc<SessionRegistry>,
   source_session_id: &str,
-  nth_user_message: Option<u32>,
   new_session_id: &str,
 ) -> Vec<ConversationRowEntry> {
   let Some(source_actor) = state.get_session(source_session_id) else {
@@ -283,10 +261,7 @@ async fn load_source_fork_rows(
         Some(source_state.total_row_count),
       )
       .await;
-      remap_rows_for_fork(
-        truncate_rows_before_nth_user_row(&full_source_rows, nth_user_message),
-        new_session_id,
-      )
+      remap_rows_for_fork(full_source_rows, new_session_id)
     }
     Err(_) => {
       warn!(
@@ -295,47 +270,6 @@ async fn load_source_fork_rows(
           source_session_id = %source_session_id,
           new_session_id = %new_session_id,
           "Failed to read source session state for fork hydration"
-      );
-      Vec::new()
-    }
-  }
-}
-
-async fn load_rollout_fork_rows(
-  connector: &CodexConnector,
-  new_session_id: &str,
-) -> Vec<ConversationRowEntry> {
-  let Some(rollout_path) = connector.rollout_path().await else {
-    return Vec::new();
-  };
-
-  match load_messages_from_transcript_path(&rollout_path, new_session_id).await {
-    Ok(rows) if !rows.is_empty() => {
-      info!(
-          component = "session",
-          event = "session.fork.rows_loaded",
-          new_session_id = %new_session_id,
-          row_count = rows.len(),
-          "Loaded forked conversation history"
-      );
-      rows
-    }
-    Ok(_) => {
-      debug!(
-          component = "session",
-          event = "session.fork.no_rows",
-          new_session_id = %new_session_id,
-          "Forked thread rollout has no parseable rows"
-      );
-      Vec::new()
-    }
-    Err(error) => {
-      warn!(
-          component = "session",
-          event = "session.fork.rows_load_failed",
-          new_session_id = %new_session_id,
-          error = %error,
-          "Failed to load forked conversation history"
       );
       Vec::new()
     }

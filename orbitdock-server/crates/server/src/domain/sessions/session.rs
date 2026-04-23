@@ -11,10 +11,10 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::{
   ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode,
-  CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides, Provider,
-  SessionControlMode, SessionLifecycleState, SessionState, SessionStatus, SessionSummary,
-  SessionSurface, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
-  WorkStatus,
+  CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides,
+  DashboardDiffPreview, Provider, SessionControlMode, SessionLifecycleState, SessionState,
+  SessionStatus, SessionSummary, SessionSurface, StateChanges, SubagentInfo, TokenUsage,
+  TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 
 #[cfg(test)]
@@ -143,6 +143,7 @@ pub struct SessionSnapshot {
   pub is_worktree: bool,
   pub worktree_id: Option<String>,
   pub has_turn_diff: bool,
+  pub diff_preview: Option<DashboardDiffPreview>,
   /// Number of active WebSocket subscribers (for subscriber-gated background tasks).
   pub subscriber_count: usize,
   /// Cached count of unread messages.

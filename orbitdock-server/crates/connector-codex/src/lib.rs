@@ -1,13 +1,15 @@
 //! Codex connector
 //!
-//! Direct integration with codex-core library.
-//! No subprocess, no JSON-RPC — just Rust function calls.
+//! OrbitDock uses an embedded Codex app-server host as the first-class session
+//! runtime and keeps direct Codex crates only for setup, rollout
+//! parsing, and other surfaces the app-server does not own.
 
+pub mod app_server;
 pub mod auth;
 mod config;
-mod event_mapping;
 mod policy_bridge;
 pub mod rollout_parser;
+mod row_mapping;
 mod runtime;
 pub mod session;
 mod session_ops;
@@ -20,29 +22,50 @@ mod workers;
 /// Must be called before the tokio runtime starts.
 pub use codex_arg0::arg0_dispatch;
 
-use codex_core::{CodexThread, ThreadManager};
+use codex_app_server_protocol::{
+  ApprovalsReviewer as AppServerApprovalsReviewer, AskForApproval as AppServerAskForApproval,
+  RequestId, SandboxPolicy as AppServerSandboxPolicy,
+};
+use codex_protocol::config_types::{
+  CollaborationMode as AppServerCollaborationMode, Personality as AppServerPersonality,
+  ReasoningSummary, ServiceTier as AppServerServiceTier,
+};
 use codex_protocol::openai_models::ReasoningEffort;
-use codex_protocol::protocol::{Event, EventMsg};
+use orbitdock_connector_core::ConnectorOutput;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::debug;
 
 pub use self::config::{
   config_loader_sandbox_mode, discover_models, discover_models_for_context,
   requested_sandbox_policy_details,
 };
-use self::runtime::EventLoopState;
-use orbitdock_connector_core::ConnectorOutput;
 
-/// Re-export from protocol for connector use.
 pub use orbitdock_protocol::SteerOutcome;
 
-/// Codex connector using direct codex-core integration
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AppServerPendingTurnContext {
+  pub(crate) cwd: Option<PathBuf>,
+  pub(crate) approval_policy: Option<AppServerAskForApproval>,
+  pub(crate) approvals_reviewer: Option<AppServerApprovalsReviewer>,
+  pub(crate) sandbox_policy: Option<AppServerSandboxPolicy>,
+  pub(crate) model: Option<String>,
+  pub(crate) service_tier: Option<Option<AppServerServiceTier>>,
+  pub(crate) effort: Option<ReasoningEffort>,
+  pub(crate) summary: Option<ReasoningSummary>,
+  pub(crate) personality: Option<AppServerPersonality>,
+  pub(crate) collaboration_mode: Option<AppServerCollaborationMode>,
+}
+
+/// Codex connector using the embedded Codex app-server as the first-class session runtime.
 pub struct CodexConnector {
-  thread: Arc<CodexThread>,
-  thread_manager: Arc<ThreadManager>,
+  app_server: Option<Arc<app_server::CodexAppServer>>,
+  pending_app_server_requests: Arc<tokio::sync::Mutex<HashMap<String, RequestId>>>,
+  pending_turn_context: Arc<tokio::sync::Mutex<AppServerPendingTurnContext>>,
+  active_turn_id: Arc<tokio::sync::Mutex<Option<String>>>,
   codex_home: PathBuf,
+  output_tx: mpsc::Sender<ConnectorOutput>,
   output_rx: Option<mpsc::Receiver<ConnectorOutput>>,
   thread_id: String,
   current_cwd: Arc<tokio::sync::Mutex<String>>,
@@ -53,9 +76,12 @@ pub struct CodexConnector {
 impl Clone for CodexConnector {
   fn clone(&self) -> Self {
     Self {
-      thread: Arc::clone(&self.thread),
-      thread_manager: Arc::clone(&self.thread_manager),
+      app_server: self.app_server.clone(),
+      pending_app_server_requests: Arc::clone(&self.pending_app_server_requests),
+      pending_turn_context: Arc::clone(&self.pending_turn_context),
+      active_turn_id: Arc::clone(&self.active_turn_id),
       codex_home: self.codex_home.clone(),
+      output_tx: self.output_tx.clone(),
       output_rx: None,
       thread_id: self.thread_id.clone(),
       current_cwd: Arc::clone(&self.current_cwd),
@@ -99,322 +125,14 @@ pub struct UpdateConfigOptions<'a> {
 }
 
 impl CodexConnector {
-  /// Translate a codex-core Event into typed connector outputs.
-  async fn translate_event(
-    event: Event,
-    state: &EventLoopState,
-  ) -> event_mapping::ConnectorOutputs {
-    let EventLoopState {
-      output_buffers,
-      delta_buffers,
-      streaming_message,
-      raw_tool_calls,
-      msg_counter,
-      env_tracker,
-      reasoning_tracker,
-      current_model,
-      current_reasoning_effort,
-      current_cwd,
-      patch_contexts,
-    } = state;
-
-    #[allow(unreachable_patterns)]
-    match event.msg {
-      EventMsg::UserMessage(e) => {
-        event_mapping::messages::handle_user_message(&event.id, e, msg_counter)
-      }
-
-      EventMsg::TurnStarted(_) => {
-        event_mapping::lifecycle::handle_turn_started(delta_buffers, reasoning_tracker).await
-      }
-
-      EventMsg::TurnComplete(_) => {
-        event_mapping::lifecycle::handle_turn_complete(delta_buffers, reasoning_tracker).await
-      }
-
-      EventMsg::TurnAborted(e) => {
-        event_mapping::lifecycle::handle_turn_aborted(e, delta_buffers, reasoning_tracker).await
-      }
-
-      EventMsg::SessionConfigured(e) => {
-        event_mapping::lifecycle::handle_session_configured(
-          e,
-          env_tracker,
-          current_cwd,
-          current_model,
-          current_reasoning_effort,
-        )
-        .await
-      }
-
-      EventMsg::AgentMessage(e) => {
-        event_mapping::messages::handle_agent_message(&event.id, e, streaming_message).await
-      }
-
-      EventMsg::AgentReasoning(_) => Vec::new(),
-
-      EventMsg::GuardianAssessment(e) => event_mapping::guardian::handle_guardian_assessment(e),
-
-      EventMsg::ExecCommandBegin(e) => {
-        event_mapping::tools::handle_exec_command_begin(e, output_buffers, env_tracker, current_cwd)
-          .await
-      }
-
-      EventMsg::ExecCommandOutputDelta(e) => {
-        event_mapping::tools::handle_exec_command_output_delta(e, output_buffers).await
-      }
-
-      EventMsg::ExecCommandEnd(e) => {
-        event_mapping::tools::handle_exec_command_end(e, output_buffers).await
-      }
-
-      EventMsg::PatchApplyBegin(e) => {
-        event_mapping::tools::handle_patch_apply_begin(e, patch_contexts).await
-      }
-
-      EventMsg::PatchApplyUpdated(e) => {
-        event_mapping::tools::handle_patch_apply_updated(e, patch_contexts).await
-      }
-
-      EventMsg::PatchApplyEnd(e) => {
-        event_mapping::tools::handle_patch_apply_end(e, patch_contexts).await
-      }
-
-      EventMsg::McpToolCallBegin(e) => event_mapping::tools::handle_mcp_tool_call_begin(e),
-
-      EventMsg::McpToolCallEnd(e) => event_mapping::tools::handle_mcp_tool_call_end(e),
-
-      EventMsg::WebSearchBegin(e) => event_mapping::tools::handle_web_search_begin(e),
-
-      EventMsg::WebSearchEnd(e) => event_mapping::tools::handle_web_search_end(e),
-
-      EventMsg::ViewImageToolCall(e) => event_mapping::tools::handle_view_image_tool_call(e),
-
-      EventMsg::ImageGenerationBegin(e) => event_mapping::tools::handle_image_generation_begin(e),
-
-      EventMsg::ImageGenerationEnd(e) => event_mapping::tools::handle_image_generation_end(e),
-
-      EventMsg::DynamicToolCallRequest(e) => {
-        event_mapping::tools::handle_dynamic_tool_call_request(e)
-      }
-
-      EventMsg::DynamicToolCallResponse(e) => {
-        event_mapping::tools::handle_dynamic_tool_call_response(e)
-      }
-
-      EventMsg::TerminalInteraction(e) => {
-        event_mapping::tools::handle_terminal_interaction(e, output_buffers).await
-      }
-
-      EventMsg::CollabAgentSpawnBegin(e) => {
-        event_mapping::collab::handle_collab_agent_spawn_begin(e)
-      }
-
-      EventMsg::CollabAgentSpawnEnd(e) => event_mapping::collab::handle_collab_agent_spawn_end(e),
-
-      EventMsg::CollabAgentInteractionBegin(e) => {
-        event_mapping::collab::handle_collab_agent_interaction_begin(e)
-      }
-
-      EventMsg::CollabAgentInteractionEnd(e) => {
-        event_mapping::collab::handle_collab_agent_interaction_end(e)
-      }
-
-      EventMsg::CollabWaitingBegin(e) => event_mapping::collab::handle_collab_waiting_begin(e),
-
-      EventMsg::CollabWaitingEnd(e) => event_mapping::collab::handle_collab_waiting_end(e),
-
-      EventMsg::CollabCloseBegin(e) => event_mapping::collab::handle_collab_close_begin(e),
-
-      EventMsg::CollabCloseEnd(e) => event_mapping::collab::handle_collab_close_end(e),
-
-      EventMsg::CollabResumeBegin(e) => event_mapping::collab::handle_collab_resume_begin(e),
-
-      EventMsg::CollabResumeEnd(e) => event_mapping::collab::handle_collab_resume_end(e),
-
-      EventMsg::ExecApprovalRequest(e) => event_mapping::approvals::handle_exec_approval_request(e),
-
-      EventMsg::ApplyPatchApprovalRequest(e) => {
-        event_mapping::approvals::handle_apply_patch_approval_request(e)
-      }
-
-      EventMsg::RequestUserInput(e) => {
-        event_mapping::approvals::handle_request_user_input(&event.id, e, msg_counter)
-      }
-
-      EventMsg::RequestPermissions(e) => event_mapping::approvals::handle_request_permissions(e),
-
-      EventMsg::ElicitationRequest(e) => {
-        event_mapping::approvals::handle_elicitation_request(&event.id, e, msg_counter)
-      }
-
-      EventMsg::TokenCount(e) => event_mapping::runtime_signals::handle_token_count(e),
-
-      EventMsg::TurnDiff(e) => event_mapping::runtime_signals::handle_turn_diff(e),
-
-      EventMsg::PlanUpdate(e) => {
-        event_mapping::runtime_signals::handle_plan_update(&event.id, e, msg_counter)
-      }
-
-      EventMsg::PlanDelta(e) => {
-        event_mapping::runtime_signals::handle_plan_delta(delta_buffers, e).await
-      }
-
-      EventMsg::Warning(e) => {
-        event_mapping::runtime_signals::handle_warning(&event.id, e, msg_counter)
-      }
-
-      EventMsg::ModelReroute(e) => {
-        event_mapping::runtime_signals::handle_model_reroute(
-          &event.id,
-          e,
-          current_model,
-          msg_counter,
-        )
-        .await
-      }
-
-      // Realtime lifecycle is noisy and not especially useful as transcript content.
-      // We keep actual failures visible below, but treat start/close bookkeeping as
-      // ephemeral state rather than assistant messages.
-      EventMsg::RealtimeConversationStarted(_) => {
-        event_mapping::runtime_signals::handle_realtime_conversation_started()
-      }
-
-      EventMsg::RealtimeConversationRealtime(e) => {
-        event_mapping::runtime_signals::handle_realtime_conversation_realtime(
-          &event.id,
-          e,
-          msg_counter,
-        )
-      }
-
-      EventMsg::RealtimeConversationClosed(_) => {
-        event_mapping::runtime_signals::handle_realtime_conversation_closed()
-      }
-
-      EventMsg::DeprecationNotice(e) => {
-        event_mapping::runtime_signals::handle_deprecation_notice(&event.id, e, msg_counter)
-      }
-
-      EventMsg::BackgroundEvent(e) => {
-        event_mapping::runtime_signals::handle_background_event(&event.id, e, msg_counter)
-      }
-
-      EventMsg::HookStarted(e) => event_mapping::runtime_signals::handle_hook_started(e),
-
-      EventMsg::HookCompleted(e) => event_mapping::runtime_signals::handle_hook_completed(e),
-
-      EventMsg::ThreadNameUpdated(e) => {
-        event_mapping::runtime_signals::handle_thread_name_updated(e)
-      }
-
-      EventMsg::ShutdownComplete => event_mapping::runtime_signals::handle_shutdown_complete(),
-
-      EventMsg::Error(e) => event_mapping::runtime_signals::handle_error(e.message),
-
-      EventMsg::StreamError(e) => {
-        event_mapping::runtime_signals::handle_stream_error(&event.id, e, msg_counter)
-      }
-
-      EventMsg::AgentMessageContentDelta(e) => {
-        event_mapping::streaming::handle_agent_message_content_delta(e, streaming_message).await
-      }
-
-      EventMsg::AgentMessageDelta(_) => Vec::new(),
-
-      EventMsg::ReasoningContentDelta(e) => {
-        event_mapping::streaming::handle_reasoning_content_delta(
-          delta_buffers,
-          reasoning_tracker,
-          e,
-        )
-        .await
-      }
-
-      EventMsg::ReasoningRawContentDelta(e) => {
-        event_mapping::streaming::handle_reasoning_raw_content_delta(
-          delta_buffers,
-          reasoning_tracker,
-          e,
-        )
-        .await
-      }
-
-      EventMsg::AgentReasoningDelta(_) => Vec::new(),
-
-      EventMsg::AgentReasoningRawContent(_) => Vec::new(),
-
-      EventMsg::AgentReasoningRawContentDelta(_) => Vec::new(),
-
-      EventMsg::AgentReasoningSectionBreak(_) => {
-        event_mapping::streaming::handle_agent_reasoning_section_break(reasoning_tracker).await
-      }
-
-      EventMsg::EnteredReviewMode(e) => {
-        event_mapping::streaming::handle_entered_review_mode(&event.id, e, msg_counter)
-      }
-
-      EventMsg::ExitedReviewMode(e) => {
-        event_mapping::streaming::handle_exited_review_mode(&event.id, e, msg_counter)
-      }
-
-      EventMsg::ItemStarted(e) => {
-        event_mapping::streaming::handle_item_started(delta_buffers, e).await
-      }
-
-      EventMsg::ItemCompleted(e) => {
-        event_mapping::streaming::handle_item_completed(delta_buffers, e).await
-      }
-
-      EventMsg::RawResponseItem(e) => {
-        event_mapping::streaming::handle_raw_response_item(
-          &event.id,
-          e,
-          msg_counter,
-          raw_tool_calls,
-        )
-        .await
-      }
-
-      EventMsg::ListSkillsResponse(e) => {
-        event_mapping::capabilities::handle_list_skills_response(e)
-      }
-
-      EventMsg::GetHistoryEntryResponse(e) => {
-        event_mapping::capabilities::handle_get_history_entry_response(&event.id, e, msg_counter)
-      }
-
-      EventMsg::ContextCompacted(_) => event_mapping::runtime_signals::handle_context_compacted(),
-
-      EventMsg::UndoStarted(e) => event_mapping::runtime_signals::handle_undo_started(e),
-
-      EventMsg::UndoCompleted(e) => event_mapping::runtime_signals::handle_undo_completed(e),
-
-      EventMsg::ThreadRolledBack(e) => event_mapping::runtime_signals::handle_thread_rolled_back(e),
-
-      EventMsg::SkillsUpdateAvailable => {
-        event_mapping::runtime_signals::handle_skills_update_available()
-      }
-
-      EventMsg::McpListToolsResponse(e) => {
-        event_mapping::capabilities::handle_mcp_list_tools_response(e)
-      }
-
-      EventMsg::McpStartupUpdate(e) => event_mapping::capabilities::handle_mcp_startup_update(e),
-
-      EventMsg::McpStartupComplete(e) => {
-        event_mapping::capabilities::handle_mcp_startup_complete(e)
-      }
-
-      // Log but ignore other events
-      other => {
-        let name = format!("{:?}", other);
-        let variant = name.split('(').next().unwrap_or(&name);
-        debug!("Unhandled codex event: {}", variant);
-        vec![]
-      }
-    }
+  fn app_server_session(
+    &self,
+  ) -> Result<Arc<app_server::CodexAppServer>, orbitdock_connector_core::ConnectorError> {
+    self.app_server.clone().ok_or_else(|| {
+      orbitdock_connector_core::ConnectorError::ProviderError(
+        "Codex app-server session is not available".to_string(),
+      )
+    })
   }
 
   /// Get the typed output receiver (can only be called once).
@@ -422,7 +140,7 @@ impl CodexConnector {
     self.output_rx.take()
   }
 
-  /// Get the codex-core thread ID (used to link with rollout files)
+  /// Get the Codex app-server thread ID.
   pub fn thread_id(&self) -> &str {
     &self.thread_id
   }
@@ -430,14 +148,5 @@ impl CodexConnector {
   /// Get the codex home directory path
   pub fn codex_home(&self) -> &std::path::Path {
     &self.codex_home
-  }
-
-  /// Find the rollout file path for this connector's thread
-  pub async fn rollout_path(&self) -> Option<String> {
-    codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
-      .await
-      .ok()
-      .flatten()
-      .map(|p| p.to_string_lossy().to_string())
   }
 }

@@ -1,174 +1,68 @@
 use super::workers::iso_now;
 use super::CodexConnector;
-use crate::event_mapping::OutputBufferState;
-use crate::event_mapping::{row_created_output, row_updated_output, ConnectorOutputs};
-use codex_core::{CodexThread, ThreadManager};
+use crate::row_mapping::{row_created_output, row_updated_output};
 use codex_protocol::openai_models::ReasoningEffort;
-use orbitdock_connector_core::{ConnectorError, ConnectorOutput, ConnectorStateEvent};
+use orbitdock_connector_core::{ConnectorError, ConnectorOutput};
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::domain_events::{ToolFamily, ToolKind};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
 
-/// Groups the shared Arc<Mutex> state threaded through the event loop.
-pub(super) struct EventLoopState {
-  pub(super) output_buffers: Arc<tokio::sync::Mutex<HashMap<String, OutputBufferState>>>,
-  pub(super) delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
-  pub(super) streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
-  pub(super) raw_tool_calls: Arc<tokio::sync::Mutex<HashMap<String, RawToolCallContext>>>,
-  pub(super) msg_counter: Arc<AtomicU64>,
-  pub(super) env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
-  pub(super) reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
-  pub(super) current_model: Arc<tokio::sync::Mutex<Option<String>>>,
-  pub(super) current_reasoning_effort: Arc<tokio::sync::Mutex<Option<ReasoningEffort>>>,
-  pub(super) current_cwd: Arc<tokio::sync::Mutex<String>>,
-  pub(super) patch_contexts: Arc<tokio::sync::Mutex<HashMap<String, serde_json::Value>>>,
-}
-
-pub(super) struct RawToolCallContext {
-  pub(super) title: String,
-  pub(super) family: ToolFamily,
-  pub(super) kind: ToolKind,
-  pub(super) invocation: serde_json::Value,
-  pub(super) started_at: String,
-}
-
-/// Tracks an in-progress assistant message being streamed via deltas
-pub(super) struct StreamingMessage {
-  pub(super) message_id: String,
-  pub(super) content: String,
-  pub(super) last_broadcast: std::time::Instant,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct ReasoningEventTracker {
-  pub(super) summary_seen: bool,
-  pub(super) raw_seen: bool,
-}
-
-impl ReasoningEventTracker {
-  pub(super) fn reset_for_turn(&mut self) {
-    self.summary_seen = false;
-    self.raw_seen = false;
-  }
-
-  pub(super) fn should_process_modern_summary(&mut self) -> bool {
-    self.summary_seen = true;
-    true
-  }
-
-  pub(super) fn mark_modern_summary_seen(&mut self) {
-    self.summary_seen = true;
-  }
-
-  pub(super) fn should_process_modern_raw(&mut self) -> bool {
-    self.raw_seen = true;
-    true
-  }
-}
-
-/// Tracks the current working directory so we only emit changes
-pub(super) struct EnvironmentTracker {
-  pub(super) cwd: Option<String>,
-  pub(super) branch: Option<String>,
-  pub(super) sha: Option<String>,
+/// Tracks an in-progress assistant message being streamed via app-server deltas.
+pub(crate) struct StreamingMessage {
+  pub(crate) message_id: String,
+  pub(crate) content: String,
+  pub(crate) last_broadcast: std::time::Instant,
 }
 
 /// Minimum interval between streaming content broadcasts (ms)
 pub(super) const STREAM_THROTTLE_MS: u128 = 50;
 
 impl CodexConnector {
-  /// Create a connector from an existing NewThread (shared by new() and fork_thread())
-  pub(super) fn from_thread(
-    new_thread: codex_core::NewThread,
-    thread_manager: Arc<ThreadManager>,
+  pub(crate) async fn from_app_server_thread(
+    app_server: Arc<crate::app_server::CodexAppServer>,
+    thread_id: String,
     codex_home: PathBuf,
     cwd: &str,
+    model: Option<String>,
+    reasoning_effort: Option<ReasoningEffort>,
   ) -> Result<Self, ConnectorError> {
-    let thread = new_thread.thread;
-    let thread_id = new_thread.thread_id;
-    info!("Started codex thread: {:?}", thread_id);
-
     let (output_tx, output_rx) = mpsc::channel(256);
 
-    let current_model = Arc::new(tokio::sync::Mutex::new(Option::<String>::None));
-    let current_reasoning_effort =
-      Arc::new(tokio::sync::Mutex::new(Option::<ReasoningEffort>::None));
+    let current_model = Arc::new(tokio::sync::Mutex::new(model));
+    let current_reasoning_effort = Arc::new(tokio::sync::Mutex::new(reasoning_effort));
     let current_cwd = Arc::new(tokio::sync::Mutex::new(cwd.to_string()));
+    let active_turn_id = Arc::new(tokio::sync::Mutex::new(None));
+    let pending_app_server_requests = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+    let pending_turn_context = Arc::new(tokio::sync::Mutex::new(Default::default()));
 
-    let state = EventLoopState {
-      output_buffers: Arc::new(tokio::sync::Mutex::new(
-        HashMap::<String, OutputBufferState>::new(),
-      )),
-      delta_buffers: Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new())),
-      streaming_message: Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None)),
-      raw_tool_calls: Arc::new(tokio::sync::Mutex::new(
-        HashMap::<String, RawToolCallContext>::new(),
-      )),
-      msg_counter: Arc::new(AtomicU64::new(0)),
-      env_tracker: Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
-        cwd: None,
-        branch: None,
-        sha: None,
-      })),
-      reasoning_tracker: Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default())),
-      current_model: current_model.clone(),
-      current_reasoning_effort: current_reasoning_effort.clone(),
-      current_cwd: current_cwd.clone(),
-      patch_contexts: Arc::new(tokio::sync::Mutex::new(
-        HashMap::<String, serde_json::Value>::new(),
-      )),
-    };
-
-    let thread_for_loop = thread.clone();
-    let output_tx = output_tx.clone();
-    tokio::spawn(async move {
-      Self::event_loop(thread_for_loop, output_tx, state).await;
-    });
+    app_server
+      .register_session(
+        thread_id.clone(),
+        crate::app_server::AppServerSessionRoute::new(
+          output_tx.clone(),
+          Arc::clone(&active_turn_id),
+          Arc::clone(&pending_app_server_requests),
+        ),
+      )
+      .await;
 
     Ok(Self {
-      thread,
-      thread_manager,
+      app_server: Some(app_server),
+      pending_app_server_requests,
+      pending_turn_context,
+      active_turn_id,
       codex_home,
+      output_tx,
       output_rx: Some(output_rx),
-      thread_id: thread_id.to_string(),
+      thread_id,
       current_cwd,
       current_model,
       current_reasoning_effort,
     })
-  }
-
-  /// Async event loop — pulls events from CodexThread and translates them
-  async fn event_loop(
-    thread: Arc<CodexThread>,
-    output_tx: mpsc::Sender<ConnectorOutput>,
-    state: EventLoopState,
-  ) {
-    loop {
-      match thread.next_event().await {
-        Ok(event) => {
-          let events = Box::pin(Self::translate_event(event, &state)).await;
-          for output in events {
-            if output_tx.send(output).await.is_err() {
-              debug!("Typed codex output channel closed");
-              return;
-            }
-          }
-        }
-        Err(error) => {
-          error!("Error reading codex event: {}", error);
-          let output = ConnectorStateEvent::Error(format!("Event read error: {}", error)).into();
-          let _ = output_tx.send(output).await;
-          return;
-        }
-      }
-    }
   }
 }
 
@@ -215,7 +109,7 @@ pub(crate) async fn apply_delta_thinking(
   delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
   message_id: String,
   delta: String,
-) -> ConnectorOutputs {
+) -> Vec<ConnectorOutput> {
   let (is_new, content) = {
     let mut buffers = delta_buffers.lock().await;
     match buffers.get_mut(&message_id) {

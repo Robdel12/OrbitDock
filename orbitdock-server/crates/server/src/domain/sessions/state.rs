@@ -6,6 +6,7 @@ use super::approval_state::{
   ApprovalQueueState, PendingApprovalEntry, PendingApprovalMutation,
 };
 use super::conversation_state::{is_non_user_row, is_non_user_row_summary, ConversationState};
+use super::diff_preview::has_turn_diff;
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -452,7 +453,7 @@ impl SessionCoreState {
       is_worktree: self.environment.is_worktree,
       worktree_id: self.environment.worktree_id.clone(),
       unread_count: self.unread_count,
-      has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
+      has_turn_diff: has_turn_diff(self.current_diff.as_deref(), &self.turn_diffs),
       display_title,
       context_line,
       list_status: SessionSummary::list_status_from_parts(self.status, self.work_status),
@@ -594,7 +595,7 @@ impl SessionCoreState {
       repository_root: self.environment.repository_root.as_deref(),
       is_worktree: self.environment.is_worktree,
       worktree_id: self.environment.worktree_id.as_deref(),
-      has_turn_diff: self.current_diff.is_some() || !self.turn_diffs.is_empty(),
+      turn_diffs: &self.turn_diffs,
       subscriber_count,
       unread_count: self.unread_count,
       mission_id: self.mission_id.as_deref(),

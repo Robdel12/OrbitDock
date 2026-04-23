@@ -2,6 +2,18 @@ use clap::Parser;
 use orbitdock_cli::cli::{BinaryCli as Cli, BinaryCommand as Command};
 use std::io::IsTerminal;
 
+// Match Codex arg0's worker stack for embedded app-server resume/start futures.
+const TOKIO_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+
+fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+  Ok(
+    tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .thread_stack_size(TOKIO_WORKER_STACK_SIZE)
+      .build()?,
+  )
+}
+
 fn main() -> anyhow::Result<()> {
   let _arg0_guard = orbitdock_connector_codex::arg0_dispatch();
 
@@ -146,16 +158,11 @@ fn main() -> anyhow::Result<()> {
   let cli_config = orbitdock_cli::client::config::ClientConfig::resolve_binary(&cli)?;
 
   if let Some(command) = cli.command.as_ref() {
-    let runtime = tokio::runtime::Runtime::new()?;
+    let runtime = build_runtime()?;
     if let Some(exit_code) = runtime.block_on(orbitdock_cli::dispatch_binary(command, &cli_config))
     {
       std::process::exit(exit_code);
     }
-  }
-
-  if let Some(Command::Completions { shell }) = &cli.command {
-    orbitdock_cli::cli::generate_binary_completions(*shell);
-    return Ok(());
   }
 
   let (
@@ -239,7 +246,7 @@ fn main() -> anyhow::Result<()> {
     None
   };
 
-  let runtime = tokio::runtime::Runtime::new()?;
+  let runtime = build_runtime()?;
   let run_options = orbitdock_server::ServerRunOptions {
     bind_addr,
     auth_token,
