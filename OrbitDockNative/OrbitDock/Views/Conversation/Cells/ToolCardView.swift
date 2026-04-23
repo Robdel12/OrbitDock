@@ -1,14 +1,3 @@
-//
-//  ToolCardView.swift
-//  OrbitDock
-//
-//  Compact row + inline preview + dispatch to type-specific expanded views.
-//  Expanded content fetched on demand via REST — zero truncation.
-//  The toolType field from ServerToolDisplay drives rendering dispatch.
-//
-//  Expanded views live in Views/ToolCards/Expanded/*.swift
-//
-
 import SwiftUI
 
 struct ToolCardView: View {
@@ -196,12 +185,7 @@ struct ToolCardView: View {
     toolType == "bash" && isRunning
   }
 
-  private var summary: String {
-    rawSummary
-  }
-
   var body: some View {
-    // Content-first layouts by tool family
     if isFileChangeCard {
       fileChangeBody
     } else if isReadCard {
@@ -413,20 +397,25 @@ struct ToolCardView: View {
 
   // MARK: - Bash Card Layout
 
-  /// Bash card layout — terminal command is the content
+  /// Bash card layout — different structure for collapsed vs expanded
   private var bashCardBody: some View {
     VStack(alignment: .leading, spacing: 0) {
-      bashCardHeader
-
-      bashCommandStrip
-
-      bashCardContent
+      if isExpanded {
+        // Expanded: full terminal chrome
+        bashExpandedHeader
+        bashCommandStrip
+        bashCardContent
+      } else {
+        // Collapsed: compact scannable card
+        bashCollapsedHeader
+        bashCardContent
+      }
     }
-    .background(Color.backgroundCode.opacity(0.95))
+    .background(isExpanded ? Color.backgroundCode.opacity(0.95) : Color.backgroundTertiary)
     .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
     .overlay {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .strokeBorder(Color.white.opacity(0.04), lineWidth: 1)
+        .strokeBorder(Color.surfaceBorder, lineWidth: 1)
     }
     .padding(.vertical, Spacing.xs)
     .overlay { toolPtySubscriptionBridge }
@@ -434,8 +423,40 @@ struct ToolCardView: View {
     .onTapGesture { onToggle?() }
   }
 
-  /// Terminal title bar for bash — cwd/title chrome, with command pinned below.
-  private var bashCardHeader: some View {
+  /// Collapsed header — compact single row with command inline
+  private var bashCollapsedHeader: some View {
+    HStack(spacing: Spacing.sm_) {
+      // Terminal icon
+      Image(systemName: "terminal")
+        .font(.system(size: IconScale.sm, weight: .semibold))
+        .foregroundStyle(Color.toolBash)
+
+      // Command with $ prefix
+      HStack(spacing: Spacing.xs) {
+        Text("$")
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.toolBash)
+
+        Text(bashCommandText)
+          .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
+
+      Spacer(minLength: Spacing.sm)
+
+      // Status + duration + chevron
+      statusIndicatorWithSuccess(tint: Color.toolBash)
+      expandChevron
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .contentShape(Rectangle())
+  }
+
+  /// Expanded header — full terminal chrome with traffic lights and cwd
+  private var bashExpandedHeader: some View {
     HStack(spacing: Spacing.sm) {
       #if os(macOS)
         HStack(spacing: Spacing.xs) {
@@ -515,7 +536,7 @@ struct ToolCardView: View {
     BashExpandedView(
       content: content,
       isFailed: isFailed,
-      liveOutputPreview: shellExecution?.liveOutputPreview ?? display?.liveOutputPreview,
+      liveOutputPreview: shellExecution?.liveOutputPreview ?? display?.liveOutputPreview ?? display?.outputPreview,
       isRunning: isRunning,
       commandOverride: shellExecution?.command,
       cwd: shellExecution?.cwd,
@@ -559,7 +580,7 @@ struct ToolCardView: View {
     )
   }
 
-  /// Preview of bash output — uses Ghostty for proper ANSI rendering
+  /// Preview of bash output — uses the shared terminal renderer for live PTY output.
   @ViewBuilder
   private var bashOutputPreview: some View {
     let transcript = bashPreviewTranscript(output: bashPreviewOutput)
@@ -574,7 +595,7 @@ struct ToolCardView: View {
         title: bashTerminalTitle
       )
     } else if isRunning {
-      HStack {
+      HStack(spacing: Spacing.sm_) {
         Circle()
           .fill(Color.toolBash)
           .frame(width: 6, height: 6)
@@ -582,7 +603,7 @@ struct ToolCardView: View {
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.textTertiary)
       }
-      .padding(.horizontal, Spacing.sm)
+      .padding(.horizontal, Spacing.md)
       .padding(.vertical, Spacing.sm)
     }
   }
@@ -702,20 +723,15 @@ struct ToolCardView: View {
     .contentShape(Rectangle())
   }
 
-  /// The search pattern from input
   private var searchPattern: String {
-    // Prefer subtitle (which is the pattern) over summary
     if let sub = rawSubtitle, !sub.isEmpty {
       return sub
     }
-    // Fall back to summary
     return rawSummary
   }
 
-  /// Number of results from rightMeta
   private var searchResultCount: Int? {
     guard let meta = rightMeta else { return nil }
-    // Parse "12 results" or similar
     let digits = meta.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
     return Int(digits)
   }
@@ -1640,7 +1656,6 @@ struct ToolCardView: View {
       } else if isLoadingContent {
         loadingState
       } else {
-        // Fallback to legacy expanded view if no diff lines
         if let content = fetchedContent {
           expandedBody(content)
         }
@@ -1792,7 +1807,7 @@ struct ToolCardView: View {
     .background(bgColor)
   }
 
-  /// Preview diff from previewLines (fallback when full diff not available)
+  /// Preview diff from previewLines when full diff content is not available.
   private func inlinePreviewDiff(lines: [String], totalChanges: Int) -> some View {
     let isAddition = display?.diffPreview?.isAddition ?? true
     let maxPreviewLines = isCompactLayout ? 6 : 8
@@ -2013,7 +2028,7 @@ struct ToolCardView: View {
       : Color.textSecondary
 
     return VStack(alignment: .leading, spacing: isCompactLayout ? 1 : 0) {
-      Text(summary)
+      Text(rawSummary)
         .font((display?.summaryFont == "mono" || display?.summaryFont == "monospace")
           ? .system(size: isCompactLayout ? TypeScale.subhead : TypeScale.body, weight: .medium, design: .monospaced)
           : .system(size: isCompactLayout ? TypeScale.subhead : TypeScale.body, weight: .semibold, design: .rounded))

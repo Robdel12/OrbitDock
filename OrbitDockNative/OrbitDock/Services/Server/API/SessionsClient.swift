@@ -479,7 +479,6 @@ struct SessionsClient: Sendable {
   }
 
   struct ForkRequest: Encodable {
-    var nthUserMessage: UInt32?
     var model: String?
     var approvalPolicyDetails: ServerCodexApprovalPolicy?
     var sandboxPolicyDetails: ServerCodexSandboxPolicy? = nil
@@ -504,7 +503,6 @@ struct SessionsClient: Sendable {
   struct ForkToWorktreeRequest: Encodable {
     let branchName: String
     var baseBranch: String?
-    var nthUserMessage: UInt32?
   }
 
   struct ForkToWorktreeResponse: Decodable {
@@ -523,7 +521,6 @@ struct SessionsClient: Sendable {
 
   struct ForkToExistingWorktreeRequest: Encodable {
     let worktreeId: String
-    var nthUserMessage: UInt32?
   }
 
   private let http: ServerHTTPClient

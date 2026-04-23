@@ -21,11 +21,7 @@ struct SidebarSessionRow: View {
 
   private var recencyLabel: String? {
     guard let date = session.lastActivityAt ?? session.startedAt else { return nil }
-    let interval = max(0, Date.now.timeIntervalSince(date))
-    if interval < 60 { return "now" }
-    if interval < 3_600 { return "\(Int(interval / 60))m" }
-    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
-    return "\(Int(interval / 86_400))d"
+    return RelativeClock.shortLabel(for: date)
   }
 
   var body: some View {
@@ -100,79 +96,140 @@ struct SidebarSessionRow: View {
   @ViewBuilder
   private var stateContent: some View {
     switch displayStatus {
-    case .working:
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          if let branch = session.compactBranchLabel {
+      case .working:
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            if let branch = session.compactBranchLabel {
+              metaDot
+              branchText(branch)
+            }
             metaDot
-            branchText(branch)
+            workingLabel
           }
-          metaDot
-          workingLabel
-        }
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          metaDot
-          workingLabel
-        }
-        providerAndModel
-      }
-
-    case .permission:
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          metaDot
-          alertText(color: .statusPermission, fallback: "awaiting approval")
-        }
-        providerAndModel
-      }
-
-    case .question:
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          metaDot
-          alertText(color: .statusQuestion, fallback: "has a question")
-        }
-        providerAndModel
-      }
-
-    case .reply:
-      ViewThatFits(in: .horizontal) {
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          if let branch = session.compactBranchLabel {
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
             metaDot
-            branchText(branch)
+            workingLabel
           }
-          metaDot
-          replyContent
-        }
-        HStack(spacing: Spacing.xs) {
           providerAndModel
-          metaDot
-          replyContent
         }
-        HStack(spacing: Spacing.xs) {
-          providerAndModel
-          if let branch = session.compactBranchLabel {
-            metaDot
-            branchText(branch)
-          }
-        }
-      }
 
-    case .ended:
-      HStack(spacing: Spacing.xs) {
-        providerAndModel
-        if let branch = session.compactBranchLabel {
-          metaDot
-          branchText(branch)
+      case .permission:
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            metaDot
+            alertText(color: .statusPermission, fallback: "awaiting approval")
+          }
+          providerAndModel
         }
-      }
+
+      case .question:
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            metaDot
+            alertText(color: .statusQuestion, fallback: "has a question")
+          }
+          providerAndModel
+        }
+
+      case .reply:
+        if let diff = visibleDiffPreview {
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              metaDot
+              diffStats(diff)
+              if let branch = session.compactBranchLabel {
+                metaDot
+                branchText(branch)
+              }
+            }
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              metaDot
+              diffStats(diff)
+            }
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              if let branch = session.compactBranchLabel {
+                metaDot
+                branchText(branch)
+              }
+            }
+          }
+        } else {
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              if let branch = session.compactBranchLabel {
+                metaDot
+                branchText(branch)
+              }
+              metaDot
+              replyContent
+            }
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              metaDot
+              replyContent
+            }
+            HStack(spacing: Spacing.xs) {
+              providerAndModel
+              if let branch = session.compactBranchLabel {
+                metaDot
+                branchText(branch)
+              }
+            }
+          }
+        }
+
+      case .ended:
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            if let diff = visibleDiffPreview {
+              metaDot
+              diffStats(diff)
+            }
+            if let branch = session.compactBranchLabel {
+              metaDot
+              branchText(branch)
+            }
+          }
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            if let diff = visibleDiffPreview {
+              metaDot
+              diffStats(diff)
+            }
+          }
+          HStack(spacing: Spacing.xs) {
+            providerAndModel
+            if let branch = session.compactBranchLabel {
+              metaDot
+              branchText(branch)
+            }
+          }
+          providerAndModel
+        }
     }
+  }
+
+  private var visibleDiffPreview: ServerDashboardDiffPreview? {
+    guard let diff = session.diffPreview else { return nil }
+    let hasVisibleStats = diff.fileCount > 0 || diff.additions > 0 || diff.deletions > 0
+    return hasVisibleStats ? diff : nil
+  }
+
+  @ViewBuilder
+  private var replyContent: some View {
+    Text(session.compactPreviewText)
+      .font(.system(size: TypeScale.mini, weight: .regular))
+      .foregroundStyle(Color.textQuaternary)
+      .lineLimit(1)
   }
 
   // MARK: - Metadata Components
@@ -226,26 +283,16 @@ struct SidebarSessionRow: View {
       .lineLimit(1)
   }
 
-  @ViewBuilder
-  private var replyContent: some View {
-    if let diff = session.diffPreview, diff.fileCount > 0 {
-      diffStats(diff)
-    } else {
-      Text(session.compactPreviewText)
-        .font(.system(size: TypeScale.mini, weight: .regular))
-        .foregroundStyle(Color.textQuaternary)
-        .lineLimit(1)
-    }
-  }
-
   private func diffStats(_ diff: ServerDashboardDiffPreview) -> some View {
     HStack(spacing: Spacing.xs) {
       Text("+\(diff.additions)")
         .foregroundStyle(Color.diffAddedAccent)
       Text("-\(diff.deletions)")
         .foregroundStyle(Color.diffRemovedAccent)
-      Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
-        .foregroundStyle(Color.textQuaternary)
+      if diff.fileCount > 0 {
+        Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
+          .foregroundStyle(Color.textQuaternary)
+      }
     }
     .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
   }
@@ -264,18 +311,18 @@ struct SidebarSessionRow: View {
   private var titleWeight: Font.Weight {
     if isSelected { return .bold }
     switch displayStatus {
-    case .working, .permission, .question: return .semibold
-    case .reply: return .medium
-    case .ended: return .regular
+      case .working, .permission, .question: return .semibold
+      case .reply: return .medium
+      case .ended: return .regular
     }
   }
 
   private var titleColor: Color {
     if isSelected { return .textPrimary }
     switch displayStatus {
-    case .working, .permission, .question: return .textPrimary
-    case .reply: return .textSecondary
-    case .ended: return .textTertiary
+      case .working, .permission, .question: return .textPrimary
+      case .reply: return .textSecondary
+      case .ended: return .textTertiary
     }
   }
 
@@ -283,12 +330,22 @@ struct SidebarSessionRow: View {
     if isSelected { return Color.surfaceSelected }
     if isHovered { return Color.surfaceHover }
     switch displayStatus {
-    case .permission, .question:
-      return displayStatus.color.opacity(OpacityTier.tint)
-    case .working:
-      return Color.statusWorking.opacity(OpacityTier.tint)
-    default:
-      return .clear
+      case .permission, .question:
+        return displayStatus.color.opacity(OpacityTier.tint)
+      case .working:
+        return Color.statusWorking.opacity(OpacityTier.tint)
+      default:
+        return .clear
     }
+  }
+}
+
+private enum RelativeClock {
+  static func shortLabel(for date: Date, now: Date = .now) -> String {
+    let interval = max(0, now.timeIntervalSince(date))
+    if interval < 60 { return "now" }
+    if interval < 3_600 { return "\(Int(interval / 60))m" }
+    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
+    return "\(Int(interval / 86_400))d"
   }
 }

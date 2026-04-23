@@ -59,13 +59,9 @@ final class ServerSessionAPI {
       }
     }
 
-    do {
-      let payload = try await task.value
-      lastDetailSnapshot = payload
-      return payload
-    } catch {
-      throw error
-    }
+    let payload = try await task.value
+    lastDetailSnapshot = payload
+    return payload
   }
 
   func fetchConversationHistory(
@@ -139,7 +135,7 @@ final class ServerSessionAPI {
     request.images = images
     request.mentions = mentions
     let response = try await clients.conversation.sendMessage(sessionId, request: request)
-    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
     transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))
     transport.invalidate([.conversation])
     triggerLocalNamingIfNeeded(prompt: content)
@@ -158,7 +154,7 @@ final class ServerSessionAPI {
     request.images = images
     request.mentions = mentions
     let response = try await clients.conversation.steerTurn(sessionId, request: request)
-    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
     transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))
     transport.invalidate([.conversation])
     return ConversationMutationResult(
@@ -207,12 +203,12 @@ final class ServerSessionAPI {
 
   func resumeSession() async throws -> ServerSessionDetailSnapshotPayload? {
     let response = try await clients.sessions.resumeSession(sessionId)
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func endSession() async throws -> ServerSessionDetailSnapshotPayload? {
     let response = try await clients.sessions.endSession(sessionId)
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func interruptSession() async throws -> ServerSessionDetailSnapshotPayload? {
@@ -247,7 +243,7 @@ final class ServerSessionAPI {
       developerInstructions: developerInstructions
     )
     let response = try await clients.sessions.takeoverSession(sessionId, request: request)
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func renameSession(name: String?) async throws -> ServerSessionDetailSnapshotPayload? {
@@ -255,7 +251,7 @@ final class ServerSessionAPI {
     updateLocalNamingState { state in
       state.customName = LocalConversationNamingPlanner.cleanOptionalText(name)
     }
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func setSummary(_ summary: String) async throws -> ServerSessionDetailSnapshotPayload? {
@@ -263,7 +259,7 @@ final class ServerSessionAPI {
     updateLocalNamingState { state in
       state.summary = LocalConversationNamingPlanner.cleanOptionalText(summary)
     }
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func updateSessionConfig(
@@ -293,8 +289,7 @@ final class ServerSessionAPI {
       effort: effort
     )
     let payload = try await clients.sessions.updateSessionConfig(sessionId, config: config)
-    transport.recordRevision(payload.revision)
-    lastDetailSnapshot = payload
+    storeDetailSnapshot(payload)
     return payload
   }
 
@@ -319,14 +314,12 @@ final class ServerSessionAPI {
       developerInstructions: developerInstructions
     )
     let payload = try await clients.sessions.updateCodexSessionOverrides(sessionId, config: config)
-    transport.recordRevision(payload.revision)
-    lastDetailSnapshot = payload
+    storeDetailSnapshot(payload)
     return payload
   }
 
-  func forkSession(nthUserMessage: UInt32?) async throws {
-    var request = SessionsClient.ForkRequest()
-    request.nthUserMessage = nthUserMessage
+  func forkSession() async throws {
+    let request = SessionsClient.ForkRequest()
     let response = try await clients.sessions.forkSession(sessionId, request: request)
     endpointRuntime.requestSelection(
       SessionRef(endpointId: endpointRuntime.endpointId, sessionId: response.newSessionId)
@@ -335,12 +328,10 @@ final class ServerSessionAPI {
 
   func forkSessionToWorktree(
     branchName: String,
-    baseBranch: String?,
-    nthUserMessage: UInt32?
+    baseBranch: String?
   ) async throws {
     var request = SessionsClient.ForkToWorktreeRequest(branchName: branchName)
     request.baseBranch = baseBranch
-    request.nthUserMessage = nthUserMessage
     let response = try await clients.sessions.forkSessionToWorktree(sessionId, request: request)
     endpointRuntime.requestSelection(
       SessionRef(endpointId: endpointRuntime.endpointId, sessionId: response.newSessionId)
@@ -348,10 +339,9 @@ final class ServerSessionAPI {
   }
 
   func forkSessionToExistingWorktree(
-    worktreeId: String,
-    nthUserMessage: UInt32?
+    worktreeId: String
   ) async throws {
-    let request = SessionsClient.ForkToExistingWorktreeRequest(worktreeId: worktreeId, nthUserMessage: nthUserMessage)
+    let request = SessionsClient.ForkToExistingWorktreeRequest(worktreeId: worktreeId)
     let response = try await clients.sessions.forkSessionToExistingWorktree(sessionId, request: request)
     endpointRuntime.requestSelection(
       SessionRef(endpointId: endpointRuntime.endpointId, sessionId: response.newSessionId)
@@ -428,7 +418,7 @@ final class ServerSessionAPI {
       behavior: behavior,
       scope: scope
     )
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func removePermissionRule(
@@ -442,7 +432,7 @@ final class ServerSessionAPI {
       behavior: behavior,
       scope: scope
     )
-    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot, fallbackSurfaces: [.detail])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func executeShell(command: String) async throws {
@@ -545,6 +535,11 @@ final class ServerSessionAPI {
     cacheLocalNamingState(state)
   }
 
+  private func storeDetailSnapshot(_ payload: ServerSessionDetailSnapshotPayload) {
+    transport.recordRevision(payload.revision)
+    lastDetailSnapshot = payload
+  }
+
   private func generateLocalTitle(for context: LocalConversationNamingContext) async -> String? {
     if let generator = localTitleGenerator {
       return await generator(context)
@@ -562,7 +557,7 @@ final class ServerSessionAPI {
   @discardableResult
   private func adoptMutationDetailSnapshot(
     _ payload: ServerSessionDetailSnapshotPayload?,
-    fallbackSurfaces: SessionInvalidationSet
+    fallbackSurfaces: SessionInvalidationSet = [.detail]
   ) -> ServerSessionDetailSnapshotPayload? {
     transport.recordRevision(payload?.revision)
     if let payload {

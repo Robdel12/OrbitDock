@@ -1,10 +1,3 @@
-//
-//  SettingsView.swift
-//  OrbitDock
-//
-//  Settings/Preferences window - Cosmic Harbor theme
-//
-
 import SwiftUI
 
 enum SettingsPane: String, CaseIterable, Identifiable {
@@ -82,21 +75,15 @@ struct SettingsView: View {
   }
 
   private var endpointHealthSummary: SettingsEndpointHealthSummary {
-    let endpointCount = runtimeRegistry.runtimes.count
-    let enabledEndpointCount = runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
-    let connectedEndpointCount = runtimeRegistry.runtimes.filter { runtime in
-      let status = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id)
-      if case .connected = status {
-        return true
-      }
-      return false
-    }.count
-
     return SettingsEndpointHealthSummary.make(
-      endpointCount: endpointCount,
-      enabledEndpointCount: enabledEndpointCount,
+      endpointCount: runtimeRegistry.runtimes.count,
+      enabledEndpointCount: runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count,
       connectedEndpointCount: connectedEndpointCount
     )
+  }
+
+  private var connectedEndpointCount: Int {
+    runtimeRegistry.runtimes.filter(isConnectedRuntime).count
   }
 
   private var endpointHealthColor: Color {
@@ -129,13 +116,16 @@ struct SettingsView: View {
   }
 
   private var splitLayout: some View {
-    NavigationSplitView {
+    HStack(spacing: 0) {
       sidebar
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
-    } detail: {
+        .frame(width: 260)
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
       detailPane
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .navigationSplitViewStyle(.prominentDetail)
   }
 
   private var sidebar: some View {
@@ -146,7 +136,7 @@ struct SettingsView: View {
         .padding(.bottom, Spacing.md)
 
       ScrollView {
-        VStack(spacing: Spacing.xs) {
+        VStack(spacing: Spacing.sm_) {
           ForEach(SettingsPane.allCases) { pane in
             SettingsSidebarButton(
               title: pane.title,
@@ -167,7 +157,7 @@ struct SettingsView: View {
         .padding(.horizontal, Spacing.md)
         .padding(.bottom, Spacing.lg)
     }
-    .frame(maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .background(Color.backgroundSecondary)
   }
 
@@ -241,11 +231,7 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
           ToolbarItem(placement: .confirmationAction) {
-            Button("Done") {
-              router.goBack(source: .unspecified)
-            }
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.accent)
+            dismissButton()
           }
         }
         .navigationDestination(for: SettingsPane.self) { pane in
@@ -274,12 +260,7 @@ struct SettingsView: View {
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
         Spacer()
-        Button("Done") {
-          router.goBack(source: .unspecified)
-        }
-        .font(.system(size: TypeScale.body, weight: .semibold))
-        .foregroundStyle(Color.accent)
-        .buttonStyle(.plain)
+        dismissButton(plainStyle: true)
       }
       .padding(.horizontal, Spacing.section)
       .padding(.vertical, Spacing.md)
@@ -313,6 +294,31 @@ struct SettingsView: View {
       case .diagnostics:
         DiagnosticsSettingsView()
     }
+  }
+
+  @ViewBuilder
+  private func dismissButton(plainStyle: Bool = false) -> some View {
+    if plainStyle {
+      Button("Done", action: dismissSettings)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.accent)
+        .buttonStyle(.plain)
+    } else {
+      Button("Done", action: dismissSettings)
+        .font(.system(size: TypeScale.body, weight: .semibold))
+        .foregroundStyle(Color.accent)
+    }
+  }
+
+  private func dismissSettings() {
+    router.goBack(source: .unspecified)
+  }
+
+  private func isConnectedRuntime(_ runtime: ServerRuntime) -> Bool {
+    if case .connected = runtimeRegistry.displayConnectionStatus(for: runtime.endpoint.id) {
+      return true
+    }
+    return false
   }
 }
 

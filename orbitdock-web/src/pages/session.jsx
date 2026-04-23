@@ -331,10 +331,9 @@ const SessionPage = () => {
     // The sidebar updates automatically via session_list_item_updated WS event
   }
 
-  const handleFork = (nthUserMessage) => {
-    const body = nthUserMessage != null ? { nth_user_message: nthUserMessage } : {}
+  const handleFork = () => {
     http
-      .post(`/api/sessions/${sessionId}/fork`, body)
+      .post(`/api/sessions/${sessionId}/fork`, {})
       .then((res) => {
         if (res?.session?.id) navigate(`/session/${res.session.id}`)
       })

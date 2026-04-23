@@ -392,12 +392,18 @@ struct AlertConversationCard: View, Equatable {
 
 @ViewBuilder
 private func dashboardDiffLabel(for conversation: DashboardConversationRecord) -> some View {
-  if conversation.hasTurnDiff, let diff = conversation.diffPreview {
+  if conversation.hasTurnDiff, let diff = conversation.diffPreview,
+     diff.fileCount > 0 || diff.additions > 0 || diff.deletions > 0
+  {
     HStack(spacing: Spacing.gap) {
       Text("+\(diff.additions)")
         .foregroundStyle(Color.diffAddedAccent.opacity(0.7))
       Text("−\(diff.deletions)")
         .foregroundStyle(Color.diffRemovedAccent.opacity(0.7))
+      if diff.fileCount > 0 {
+        Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
+          .foregroundStyle(Color.textQuaternary)
+      }
     }
     .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
   }

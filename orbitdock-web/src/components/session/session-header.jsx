@@ -50,52 +50,6 @@ const RenameInput = ({ value, onSave, onCancel }) => {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Fork popover body
-// ---------------------------------------------------------------------------
-
-const ForkPopover = ({ open, onClose, onFork }) => {
-  const [nthMessage, setNthMessage] = useState('')
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const val = nthMessage.trim()
-    onFork(val ? parseInt(val, 10) : undefined)
-    onClose()
-  }
-
-  return (
-    <ActionPopover open={open} onClose={onClose} title="Fork session">
-      <form onSubmit={handleSubmit}>
-        <div class={popoverStyles.field}>
-          <label class={popoverStyles.label}>Fork at message # (optional)</label>
-          <input
-            class={popoverStyles.input}
-            type="number"
-            min="1"
-            placeholder="Last message"
-            value={nthMessage}
-            onInput={(e) => setNthMessage(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div class={popoverStyles.actions}>
-          <Button variant="ghost" size="sm" type="button" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" size="sm" type="submit">
-            Fork
-          </Button>
-        </div>
-      </form>
-    </ActionPopover>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Rollback popover body
-// ---------------------------------------------------------------------------
-
 const RollbackPopover = ({ open, onClose, onRollback }) => {
   const [numTurns, setNumTurns] = useState('1')
 
@@ -362,7 +316,7 @@ const ContextPill = ({ tokenUsage }) => {
   const total = (tokenUsage.input_tokens || 0) + (tokenUsage.output_tokens || 0)
   if (total === 0) return null
 
-  const contextWindow = tokenUsage.context_window_total
+  const contextWindow = tokenUsage.context_window
   const pct = contextWindow ? Math.round((total / contextWindow) * 100) : null
   if (pct == null) return null
 
@@ -457,18 +411,10 @@ const SessionHeader = ({
     onRename?.(name)
   }
 
-  const handleFork = (nthUserMessage) => {
-    onFork?.(nthUserMessage)
-  }
-
   const handleRollback = (numTurns) => {
     onRollback?.(numTurns)
   }
 
-  const openFork = () => {
-    setSubPopover('fork')
-    setOverflowOpen(false)
-  }
   const openRollback = () => {
     setSubPopover('rollback')
     setOverflowOpen(false)
@@ -677,8 +623,14 @@ const SessionHeader = ({
                     Take Over
                   </button>
                 )}
-                <button class={styles.overflowItem} onClick={openFork}>
-                  Fork…
+                <button
+                  class={styles.overflowItem}
+                  onClick={() => {
+                    onFork?.()
+                    setOverflowOpen(false)
+                  }}
+                >
+                  Fork
                 </button>
                 {onForkToWorktree && (
                   <button
@@ -724,9 +676,6 @@ const SessionHeader = ({
       </div>
 
       {/* Popovers rendered outside flow */}
-      <div class={styles.popoverAnchor}>
-        <ForkPopover open={subPopover === 'fork'} onClose={closeSubPopover} onFork={handleFork} />
-      </div>
       <div class={styles.popoverAnchor}>
         <RollbackPopover open={subPopover === 'rollback'} onClose={closeSubPopover} onRollback={handleRollback} />
       </div>

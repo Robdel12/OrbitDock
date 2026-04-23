@@ -115,7 +115,7 @@ GET /api/sessions/{id}/search?q=&family=&status=     → { rows, total_row_count
 POST  /api/sessions                    create (body: { provider, cwd, model?, ... })
 POST  /api/sessions/{id}/resume        resume persisted session
 POST  /api/sessions/{id}/end           end session
-POST  /api/sessions/{id}/fork          fork (body: { nth_user_message?, model?, ... })
+POST  /api/sessions/{id}/fork          fork (body: { model?, ... })
 POST  /api/sessions/{id}/takeover      take over passive session
 PATCH /api/sessions/{id}/name          rename (body: { name })       ← NOTE: /name not /{id}
 PATCH /api/sessions/{id}/config        update config (body: { model?, approval_policy?, ... })

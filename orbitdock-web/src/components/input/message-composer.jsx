@@ -118,7 +118,7 @@ const formatTokenUsage = (usage) => {
   if (!usage) return null
   const total = (usage.input_tokens || 0) + (usage.output_tokens || 0)
   if (total === 0) return null
-  const ctxTotal = usage.context_window_total || 0
+  const ctxTotal = usage.context_window || 0
   const pct = ctxTotal ? Math.round((total / ctxTotal) * 100) : null
   const display = ctxTotal ? `${formatK(total)}/${formatK(ctxTotal)}` : formatK(total)
   return { display, pct }
