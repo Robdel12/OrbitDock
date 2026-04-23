@@ -4,14 +4,9 @@ struct SessionWorkerCompanionPanel: View {
   let rosterPresentation: SessionWorkerRosterPresentation
   let detailPresentation: SessionWorkerDetailPresentation?
   let selectedWorkerID: String?
-  @Binding var messageDraft: String
-  let isSendingMessage: Bool
-  let sessionId: String
-  let endpointId: UUID?
-  let clients: ServerClients?
+  let showsDetail: Bool
   let onSelectWorker: (String) -> Void
   let onRevealConversationEvent: (String) -> Void
-  let onSendMessage: () -> Void
 
   var body: some View {
     ScrollView(showsIndicators: false) {
@@ -22,27 +17,23 @@ struct SessionWorkerCompanionPanel: View {
           onSelectWorker: onSelectWorker
         )
 
-        Divider()
-          .foregroundStyle(Color.panelBorder.opacity(0.6))
+        if showsDetail {
+          Divider()
+            .foregroundStyle(Color.panelBorder.opacity(0.6))
 
-        VStack(alignment: .leading, spacing: Spacing.md) {
-          if let detailPresentation {
-            SessionWorkerDetailView(
-              presentation: detailPresentation,
-              messageDraft: $messageDraft,
-              isSendingMessage: isSendingMessage,
-              sessionId: sessionId,
-              endpointId: endpointId,
-              clients: clients,
-              onSelectWorker: onSelectWorker,
-              onRevealConversationEvent: onRevealConversationEvent,
-              onSendMessage: onSendMessage
-            )
-          } else {
-            SessionWorkerEmptyState()
+          VStack(alignment: .leading, spacing: Spacing.md) {
+            if let detailPresentation {
+              SessionWorkerDetailView(
+                presentation: detailPresentation,
+                onSelectWorker: onSelectWorker,
+                onRevealConversationEvent: onRevealConversationEvent
+              )
+            } else {
+              SessionWorkerEmptyState()
+            }
           }
+          .padding(.vertical, Spacing.md)
         }
-        .padding(.vertical, Spacing.md)
       }
     }
   }
@@ -50,14 +41,8 @@ struct SessionWorkerCompanionPanel: View {
 
 struct SessionWorkerDetailView: View {
   let presentation: SessionWorkerDetailPresentation
-  @Binding var messageDraft: String
-  let isSendingMessage: Bool
-  let sessionId: String
-  let endpointId: UUID?
-  let clients: ServerClients?
   let onSelectWorker: (String) -> Void
   let onRevealConversationEvent: (String) -> Void
-  let onSendMessage: () -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
@@ -69,16 +54,6 @@ struct SessionWorkerDetailView: View {
 
       if !presentation.detailLines.isEmpty {
         workerFactsGrid
-      }
-
-      if !presentation.capabilities.isEmpty {
-        capabilityGrid
-      }
-
-      if hasAgentThreadEnvelope {
-        agentThreadComposer
-
-        agentConversationSection
       }
 
       missionBriefing
@@ -326,140 +301,6 @@ struct SessionWorkerDetailView: View {
       Spacer(minLength: 0)
     }
     .padding(.horizontal, Spacing.xs)
-  }
-
-  private var hasAgentThreadEnvelope: Bool {
-    !presentation.capabilities.isEmpty
-      || !presentation.limitations.isEmpty
-      || !presentation.conversationRows.isEmpty
-      || presentation.messageModeLabel != nil
-  }
-
-  private var capabilityGrid: some View {
-    LazyVGrid(
-      columns: [
-        GridItem(.adaptive(minimum: 128), alignment: .leading),
-      ],
-      alignment: .leading,
-      spacing: Spacing.sm
-    ) {
-      ForEach(presentation.capabilities) { capability in
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(capability.label.uppercased())
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textQuaternary)
-
-          HStack(spacing: Spacing.xs) {
-            Circle()
-              .fill(capability.color)
-              .frame(width: 6, height: 6)
-
-            Text(capability.value)
-              .font(.system(size: TypeScale.meta, weight: .semibold))
-              .foregroundStyle(Color.textPrimary)
-              .lineLimit(2)
-          }
-        }
-        .frame(maxWidth: .infinity, minHeight: 54, alignment: .leading)
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(
-          Color.backgroundTertiary.opacity(0.62),
-          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        )
-      }
-    }
-  }
-
-  private var agentThreadComposer: some View {
-    activitySection(
-      title: "Interject",
-      eyebrow: presentation.messageModeLabel ?? "Provider capability",
-      icon: "arrow.up.message.fill",
-      accent: presentation.canSendMessage ? Color.statusReply : Color.textTertiary
-    ) {
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        if presentation.canSendMessage {
-          TextField("Message this agent", text: $messageDraft, axis: .vertical)
-            .textFieldStyle(.plain)
-            .font(.system(size: TypeScale.body))
-            .foregroundStyle(Color.textPrimary)
-            .lineLimit(2 ... 5)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(
-              Color.backgroundSecondary.opacity(0.78),
-              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            )
-
-          HStack(spacing: Spacing.sm) {
-            Spacer(minLength: 0)
-
-            Button {
-              onSendMessage()
-            } label: {
-              Label(isSendingMessage ? "Sending" : "Send", systemImage: "arrow.up.circle.fill")
-                .font(.system(size: TypeScale.meta, weight: .semibold))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.statusReply)
-            .disabled(isSendingMessage || messageDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-          }
-        } else if presentation.limitations.isEmpty {
-          Text("This provider exposes this thread as observe-only right now.")
-            .font(.system(size: TypeScale.meta))
-            .foregroundStyle(Color.textSecondary)
-        } else {
-          VStack(alignment: .leading, spacing: Spacing.xs) {
-            ForEach(presentation.limitations, id: \.self) { limitation in
-              HStack(alignment: .top, spacing: Spacing.xs) {
-                Image(systemName: "info.circle.fill")
-                  .font(.system(size: TypeScale.mini, weight: .semibold))
-                  .foregroundStyle(Color.textTertiary)
-                  .padding(.top, 2)
-
-                Text(limitation)
-                  .font(.system(size: TypeScale.meta))
-                  .foregroundStyle(Color.textSecondary)
-                  .fixedSize(horizontal: false, vertical: true)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private var agentConversationSection: some View {
-    activitySection(
-      title: "Conversation",
-      eyebrow: presentation.transcriptStatusLabel,
-      icon: "text.bubble.fill",
-      accent: Color.statusReply
-    ) {
-      if presentation.conversationRows.isEmpty {
-        Text("No transcript rows captured yet.")
-          .font(.system(size: TypeScale.meta))
-          .foregroundStyle(Color.textSecondary)
-      } else {
-        VStack(spacing: Spacing.sm) {
-          ForEach(presentation.conversationRows) { row in
-            TimelineRowContent(
-              entry: row,
-              isExpanded: false,
-              sessionId: sessionId,
-              endpointId: endpointId,
-              clients: clients
-            )
-            .padding(.vertical, Spacing.xs)
-            .background(
-              Color.backgroundSecondary.opacity(0.54),
-              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            )
-          }
-        }
-      }
-    }
   }
 
   private var missionBriefing: some View {

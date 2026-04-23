@@ -1,12 +1,24 @@
 import SwiftUI
 
 extension ConversationViewModel {
-  func bind(sessionId: String?, session: ServerSessionContext, viewMode: ChatViewMode) {
-    let didChange = currentSessionId != sessionId || currentSession !== session
+  func bind(
+    sessionId: String?,
+    session: ServerSessionContext,
+    viewMode: ChatViewMode,
+    routeKey: String? = nil,
+    agentThreadId: String? = nil
+  ) {
+    let nextRouteKey = routeKey ?? sessionId
+    let didChange =
+      currentRouteKey != nextRouteKey
+        || currentSession !== session
+        || currentAgentThreadId != agentThreadId
     currentSessionId = sessionId
+    currentRouteKey = nextRouteKey
+    currentAgentThreadId = agentThreadId
     currentSession = session
     currentViewMode = viewMode
-    timelineViewModel.bind(sessionId: sessionId)
+    timelineViewModel.bind(sessionId: nextRouteKey)
 
     if didChange {
       followState = .initial

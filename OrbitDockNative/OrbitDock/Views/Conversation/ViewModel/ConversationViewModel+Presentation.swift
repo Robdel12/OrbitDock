@@ -37,6 +37,29 @@ extension ConversationViewModel {
     }
   }
 
+  func applyAgentThreadPage(_ page: ServerAgentThreadConversationPage) {
+    let mergedPage = ConversationHistoryPaging.mergeBootstrap(
+      existingRows: rowEntries,
+      existingHasMoreBefore: hasMoreBefore,
+      existingTotalRowCount: totalRowCount,
+      bootstrapRows: page.rows,
+      bootstrapHasMoreBefore: page.hasMoreBefore,
+      bootstrapTotalRowCount: page.totalRowCount
+    )
+    rowEntries = mergedPage.rows
+    hasMoreBefore = mergedPage.hasMoreBefore
+    totalRowCount = mergedPage.totalRowCount
+    conversationLoaded = true
+    forkOrigin = nil
+    structureRevision += 1
+    contentRevision += 1
+    rebuildPresentation(
+      changedEntries: page.rows,
+      appendedEntryCount: 0,
+      visibilityEventRowID: nil
+    )
+  }
+
   func applyDelta(_ delta: ServerSessionTransport.ConversationRowDelta) {
     conversationLoaded = true
 

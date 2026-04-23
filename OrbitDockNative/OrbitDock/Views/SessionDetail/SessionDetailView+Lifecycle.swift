@@ -15,7 +15,8 @@ extension SessionDetailView {
       workerId: workerId,
       sessionId: sessionId,
       session: scopedSession,
-      layoutConfig: viewModel.layoutConfig
+      layoutConfig: viewModel.layoutConfig,
+      chatViewMode: chatViewMode
     )
   }
 
@@ -26,7 +27,8 @@ extension SessionDetailView {
       workerId: workerId,
       sessionId: sessionId,
       session: scopedSession,
-      layoutConfig: viewModel.layoutConfig
+      layoutConfig: viewModel.layoutConfig,
+      chatViewMode: chatViewMode
     )
   }
 
@@ -57,6 +59,7 @@ extension SessionDetailView {
           sessionId: sessionId,
           session: scopedSession,
           layoutConfig: viewModel.layoutConfig,
+          chatViewMode: chatViewMode,
           for: workerId
         )
       } catch {

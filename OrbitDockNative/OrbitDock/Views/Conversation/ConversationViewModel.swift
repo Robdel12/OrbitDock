@@ -6,6 +6,8 @@ import SwiftUI
 final class ConversationViewModel {
   var hasShownContent = false
   var currentSessionId: String?
+  var currentRouteKey: String?
+  var currentAgentThreadId: String?
   var currentSession: ServerSessionContext
   var currentViewMode: ChatViewMode = .focused
   var hasTimeline = false
@@ -38,6 +40,7 @@ final class ConversationViewModel {
     viewMode: ChatViewMode
   ) {
     currentSessionId = sessionId
+    currentRouteKey = sessionId
     currentSession = session
     currentViewMode = viewMode
   }

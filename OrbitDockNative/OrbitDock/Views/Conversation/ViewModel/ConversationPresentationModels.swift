@@ -63,6 +63,17 @@ enum ConversationHistoryPaging {
     )
   }
 
+  static func mergeOlderPage(
+    existingRows: [ServerConversationRowEntry],
+    page: ServerAgentThreadConversationPage
+  ) -> MergeResult {
+    MergeResult(
+      rows: normalizedRows(page.rows + existingRows),
+      hasMoreBefore: page.hasMoreBefore,
+      totalRowCount: page.totalRowCount
+    )
+  }
+
   private static func normalizedRows(
     _ rows: [ServerConversationRowEntry]
   ) -> [ServerConversationRowEntry] {

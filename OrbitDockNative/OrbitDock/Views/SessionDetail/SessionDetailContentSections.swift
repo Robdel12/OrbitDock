@@ -10,6 +10,7 @@ struct SessionDetailConversationSection: View {
   let currentTool: String?
   let showsOrbitStatusIndicator: Bool
   let chatViewMode: ChatViewMode
+  var routeIdentitySuffix: String? = nil
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
   @Binding var scrollCommand: ConversationScrollCommand?
@@ -17,7 +18,7 @@ struct SessionDetailConversationSection: View {
   let onFollowStateChanged: (ConversationFollowState) -> Void
 
   private var routeIdentity: String {
-    "\(endpointId.uuidString):\(sessionId)"
+    "\(endpointId.uuidString):\(sessionId):\(routeIdentitySuffix ?? "main")"
   }
 
   var body: some View {

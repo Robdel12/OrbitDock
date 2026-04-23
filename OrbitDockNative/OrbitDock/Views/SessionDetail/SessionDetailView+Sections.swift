@@ -20,14 +20,7 @@ extension SessionDetailView {
           rosterPresentation: workerRosterPresentation,
           detailPresentation: workerDetailPresentation,
           selectedWorkerID: viewModel.worker.selectedWorkerId,
-          messageDraft: Binding(
-            get: { viewModel.worker.messageDraft },
-            set: { viewModel.worker.messageDraft = $0 }
-          ),
-          isSendingMessage: viewModel.worker.isSendingMessage,
-          sessionId: sessionId,
-          endpointId: endpointId,
-          clients: scopedSession.clients,
+          showsDetail: !viewModel.worker.hasAgentThreadRoster,
           onSelectWorker: { workerId in
             selectWorkerInPanel(workerId)
           },
@@ -35,9 +28,6 @@ extension SessionDetailView {
             withAnimation(Motion.gentle) {
               viewModel.revealWorkerConversationEvent(messageId)
             }
-          },
-          onSendMessage: {
-            sendAgentThreadMessage()
           }
         )
       }
@@ -107,6 +97,29 @@ extension SessionDetailView {
 
   var conversationContent: some View {
     let presentation = viewModel.conversationPresentation
+    if let threadId = viewModel.worker.openedAgentThreadID {
+      return SessionDetailConversationSection(
+        sessionId: sessionId,
+        session: scopedSession,
+        viewModel: viewModel.worker.threadConversationViewModel,
+        endpointId: endpointId,
+        isSessionActive: presentation.isSessionActive,
+        displayStatus: presentation.displayStatus,
+        currentTool: presentation.currentTool,
+        showsOrbitStatusIndicator: false,
+        chatViewMode: chatViewMode,
+        routeIdentitySuffix: "agent-thread:\(threadId)",
+        openFileInReview: presentation.canOpenFileInReview ? { filePath in
+          withAnimation(Motion.gentle) {
+            viewModel.openFileInReview(projectPath: presentation.projectPath, filePath: filePath)
+          }
+        } : nil,
+        focusWorkerInDeck: nil,
+        scrollCommand: $viewModel.worker.threadScrollCommand,
+        onJumpToLatest: viewModel.worker.jumpThreadConversationToLatest,
+        onFollowStateChanged: viewModel.worker.handleThreadConversationFollowStateChanged
+      )
+    }
 
     return SessionDetailConversationSection(
       sessionId: sessionId,
@@ -201,7 +214,10 @@ extension SessionDetailView {
   }
 
   var footerMode: SessionDetailFooterMode {
-    viewModel.footerMode
+    if viewModel.worker.openedAgentThreadID != nil {
+      return .passive
+    }
+    return viewModel.footerMode
   }
 
   var sessionDetailWorktreeCleanupState: SessionDetailWorktreeCleanupBannerState? {

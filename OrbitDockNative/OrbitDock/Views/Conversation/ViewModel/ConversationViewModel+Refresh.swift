@@ -27,26 +27,55 @@ extension ConversationViewModel {
     guard let oldestSequence = rowEntries.first?.sequence else { return }
     isLoadingOlder = true
     let session = currentSession
+    let routeKey = currentRouteKey
+    let agentThreadId = currentAgentThreadId
 
     Task {
       defer { isLoadingOlder = false }
       do {
-        let page = try await session.api.fetchConversationHistory(
-          beforeSequence: oldestSequence,
-          limit: pageSize
-        )
-        guard self.currentSessionId == currentSessionId, self.currentSession === session else { return }
-        let mergedPage = ConversationHistoryPaging.mergeOlderPage(
-          existingRows: rowEntries,
-          page: page
-        )
+        let pageRows: [ServerConversationRowEntry]
+        let mergedPage: ConversationHistoryPaging.MergeResult
+        if let agentThreadId {
+          let page = try await session.api.fetchAgentThreadConversation(
+            threadId: agentThreadId,
+            beforeSequence: oldestSequence,
+            limit: pageSize
+          )
+          guard
+            self.currentSessionId == currentSessionId,
+            self.currentRouteKey == routeKey,
+            self.currentAgentThreadId == agentThreadId,
+            self.currentSession === session
+          else { return }
+          pageRows = page.rows
+          mergedPage = ConversationHistoryPaging.mergeOlderPage(
+            existingRows: rowEntries,
+            page: page
+          )
+        } else {
+          let page = try await session.api.fetchConversationHistory(
+            beforeSequence: oldestSequence,
+            limit: pageSize
+          )
+          guard
+            self.currentSessionId == currentSessionId,
+            self.currentRouteKey == routeKey,
+            self.currentAgentThreadId == nil,
+            self.currentSession === session
+          else { return }
+          pageRows = page.rows
+          mergedPage = ConversationHistoryPaging.mergeOlderPage(
+            existingRows: rowEntries,
+            page: page
+          )
+        }
         hasMoreBefore = mergedPage.hasMoreBefore
         totalRowCount = mergedPage.totalRowCount
         rowEntries = mergedPage.rows
         structureRevision += 1
         contentRevision += 1
         rebuildPresentation(
-          changedEntries: page.rows,
+          changedEntries: pageRows,
           appendedEntryCount: 0,
           visibilityEventRowID: nil
         )
@@ -69,6 +98,15 @@ extension ConversationViewModel {
 
   func performRefreshCycle() async {
     guard let sessionId = currentSessionId, !sessionId.isEmpty else { return }
+    if let agentThreadId = currentAgentThreadId {
+      await performAgentThreadRefreshCycle(
+        sessionId: sessionId,
+        routeKey: currentRouteKey,
+        agentThreadId: agentThreadId
+      )
+      return
+    }
+
     let requestedForcedResyncRevision = pendingForcedResyncRevision
     let isUnversionedForcedResync = pendingForceHTTPResync && requestedForcedResyncRevision == nil
     let shouldForceHTTPResync = shouldRunForcedResync(
@@ -134,6 +172,63 @@ extension ConversationViewModel {
             sid: sessionId,
             data: ["error": error.localizedDescription]
           )
+        }
+      }
+    }
+  }
+
+  private func performAgentThreadRefreshCycle(
+    sessionId: String,
+    routeKey: String?,
+    agentThreadId: String
+  ) async {
+    let shouldForceHTTPResync = pendingForceHTTPResync
+    pendingForceHTTPResync = false
+    pendingForcedResyncRevision = nil
+
+    let session = currentSession
+    let needsInitialBootstrap = !conversationLoaded && rowEntries.isEmpty
+    guard needsInitialBootstrap || shouldForceHTTPResync else { return }
+
+    isRefreshInFlight = true
+    defer {
+      isRefreshInFlight = false
+    }
+
+    do {
+      let page = try await session.api.fetchAgentThreadConversation(
+        threadId: agentThreadId,
+        limit: pageSize
+      )
+      guard
+        currentSessionId == sessionId,
+        currentRouteKey == routeKey,
+        currentAgentThreadId == agentThreadId,
+        currentSession === session
+      else { return }
+      applyAgentThreadPage(page)
+    } catch {
+      netLog(
+        .error,
+        cat: .conv,
+        "Agent thread conversation fetch failed during refresh",
+        sid: sessionId,
+        data: [
+          "threadId": agentThreadId,
+          "initialBootstrap": needsInitialBootstrap ? "true" : "false",
+          "error": error.localizedDescription,
+        ]
+      )
+
+      if needsInitialBootstrap {
+        guard
+          currentSessionId == sessionId,
+          currentRouteKey == routeKey,
+          currentAgentThreadId == agentThreadId
+        else { return }
+        if rowEntries.isEmpty {
+          conversationLoaded = true
+          rebuildPresentation(changedEntries: [])
         }
       }
     }

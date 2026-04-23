@@ -82,9 +82,24 @@ final class SessionDetailWorkerModel {
   var state = SessionDetailWorkerState.empty
   var rosterPresentation: SessionWorkerRosterPresentation?
   var detailPresentation: SessionWorkerDetailPresentation?
+  var threadConversationViewModel = ConversationViewModel()
+  var threadScrollCommand: ConversationScrollCommand?
 
   @ObservationIgnored private var detailLoadTask: Task<Void, Never>?
   @ObservationIgnored private var detailLoadRequestID = 0
+  @ObservationIgnored private var threadScrollCommandNonce = 0
+
+  var hasAgentThreadRoster: Bool {
+    !state.agentThreads.isEmpty
+  }
+
+  var openedAgentThreadID: String? {
+    guard
+      let selectedWorkerId,
+      state.agentThreads.contains(where: { $0.id == selectedWorkerId })
+    else { return nil }
+    return selectedWorkerId
+  }
 
   func reset() {
     cancelDetailLoad()
@@ -94,10 +109,13 @@ final class SessionDetailWorkerModel {
     state = .empty
     rosterPresentation = nil
     detailPresentation = nil
+    threadConversationViewModel = ConversationViewModel()
+    threadScrollCommand = nil
+    threadScrollCommandNonce = 0
   }
 
   func apply(snapshotState: SessionDetailWorkerState, layoutConfig: LayoutConfiguration) {
-    let visibleWorkerIDs = Set(snapshotState.subagents.map(\.id))
+    let visibleWorkerIDs = Set(snapshotState.subagents.map(\.id)).union(state.agentThreads.map(\.id))
     let preservedTools = state.subagentTools.filter { visibleWorkerIDs.contains($0.key) }
     let preservedMessages = state.subagentMessages.filter { visibleWorkerIDs.contains($0.key) }
     let preservedThreads = state.agentThreads.filter { visibleWorkerIDs.contains($0.id) }
@@ -124,6 +142,7 @@ final class SessionDetailWorkerModel {
     sessionId: String,
     session: ServerSessionContext,
     layoutConfig: LayoutConfiguration,
+    chatViewMode: ChatViewMode = .focused,
     for workerId: String? = nil
   ) {
     guard let workerId = workerId ?? selectedWorkerId else { return }
@@ -156,6 +175,17 @@ final class SessionDetailWorkerModel {
       if let conversation {
         state.agentThreadPages[workerId] = conversation
       }
+      if !state.agentThreads.isEmpty {
+        bindAgentThreadConversation(
+          sessionId: sessionId,
+          session: session,
+          chatViewMode: chatViewMode,
+          threadId: workerId
+        )
+        if let conversation {
+          threadConversationViewModel.applyAgentThreadPage(conversation)
+        }
+      }
       syncDetailPresentation(layoutConfig: layoutConfig)
     }
   }
@@ -164,15 +194,28 @@ final class SessionDetailWorkerModel {
     workerId: String,
     sessionId: String,
     session: ServerSessionContext,
-    layoutConfig: LayoutConfiguration
+    layoutConfig: LayoutConfiguration,
+    chatViewMode: ChatViewMode = .focused
   ) {
     guard !workerId.isEmpty else { return }
     selectedWorkerId = workerId
+    if state.agentThreads.contains(where: { $0.id == workerId }) {
+      bindAgentThreadConversation(
+        sessionId: sessionId,
+        session: session,
+        chatViewMode: chatViewMode,
+        threadId: workerId
+      )
+      if let page = state.agentThreadPages[workerId] {
+        threadConversationViewModel.applyAgentThreadPage(page)
+      }
+    }
     syncDetailPresentation(layoutConfig: layoutConfig)
     loadDetails(
       sessionId: sessionId,
       session: session,
       layoutConfig: layoutConfig,
+      chatViewMode: chatViewMode,
       for: workerId
     )
   }
@@ -181,14 +224,40 @@ final class SessionDetailWorkerModel {
     workerId: String,
     sessionId: String,
     session: ServerSessionContext,
-    layoutConfig: LayoutConfiguration
+    layoutConfig: LayoutConfiguration,
+    chatViewMode: ChatViewMode = .focused
   ) {
     select(
       workerId: workerId,
       sessionId: sessionId,
       session: session,
-      layoutConfig: layoutConfig
+      layoutConfig: layoutConfig,
+      chatViewMode: chatViewMode
     )
+  }
+
+  func bindAgentThreadConversation(
+    sessionId: String,
+    session: ServerSessionContext,
+    chatViewMode: ChatViewMode,
+    threadId: String
+  ) {
+    threadConversationViewModel.bind(
+      sessionId: sessionId,
+      session: session,
+      viewMode: chatViewMode,
+      routeKey: agentThreadConversationRouteKey(sessionId: sessionId, threadId: threadId),
+      agentThreadId: threadId
+    )
+  }
+
+  func jumpThreadConversationToLatest() {
+    threadScrollCommandNonce += 1
+    threadScrollCommand = .jumpToLatest(nonce: threadScrollCommandNonce)
+  }
+
+  func handleThreadConversationFollowStateChanged(_ state: ConversationFollowState) {
+    threadConversationViewModel.applyFollowState(state)
   }
 
   func cancelDetailLoad() {
@@ -256,6 +325,10 @@ final class SessionDetailWorkerModel {
       return SessionWorkerRosterPlanner.presentation(agentThreads: state.agentThreads)
     }
     return SessionWorkerRosterPlanner.presentation(subagents: state.subagents)
+  }
+
+  private func agentThreadConversationRouteKey(sessionId: String, threadId: String) -> String {
+    "\(sessionId):agent-thread:\(threadId)"
   }
 }
 

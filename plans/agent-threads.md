@@ -52,16 +52,19 @@ For this first production pass:
 
 ## UI
 
-Replace the detail-heavy worker inspector with an Agent Threads sidecar:
+Use the worker sidecar as the entry point, then open the selected child thread
+in OrbitDock's normal conversation surface:
 
 - native roster remains compact and scannable
-- selected worker shows a mini conversation timeline using existing row
-  renderers where possible
-- explicit capability strip explains what OrbitDock can do for the selected
-  provider/thread
-- composer appears only when the server reports an input capability
-- parent-mediated interjection is labeled as such
-- graph/related workers stay visible but secondary
+- selected agent thread routes the main pane to `ConversationView`
+- agent-thread pages reuse normal conversation paging, row rendering, follow
+  state, and jump-to-latest behavior
+- the bespoke worker detail inspector remains for legacy subagent payloads, but
+  agent-thread rows do not open a special transcript panel
+- the direct parent composer is suppressed while a child thread is open so input
+  is not accidentally sent to the wrong conversation
+- provider capabilities stay on the server contract so a future normal-composer
+  interjection path can be added without Swift guessing provider behavior
 
 ## Testing
 
@@ -82,7 +85,7 @@ Use the testing philosophy:
 - [x] Add Swift protocol/API client types
 - [x] Add session API methods
 - [x] Update worker scene model to load agent-thread details
-- [x] Build conversation-first Agent Threads UI
+- [x] Build conversation-first Agent Threads routing
 - [x] Add Rust tests
 - [x] Add Swift tests
 - [x] Run Rust checks/tests
