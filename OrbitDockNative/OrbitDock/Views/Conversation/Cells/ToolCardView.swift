@@ -580,20 +580,13 @@ struct ToolCardView: View {
     )
   }
 
-  /// Preview of bash output — uses the shared terminal renderer for live PTY output.
+  /// Preview of bash output without mounting the full terminal renderer.
   @ViewBuilder
   private var bashOutputPreview: some View {
-    let transcript = bashPreviewTranscript(output: bashPreviewOutput)
+    let previewLines = bashCompactPreviewLines
 
-    if toolPtySession?.hasOutput == true || transcript != nil {
-      bashTerminalSurface(
-        transcript: transcript,
-        maxHeight: isCompactLayout ? 180 : 220,
-        captureScrollWithoutFocus: false,
-        cursorBlinkEnabled: isRunning,
-        minRows: isCompactLayout ? 5 : 6,
-        title: bashTerminalTitle
-      )
+    if !previewLines.isEmpty {
+      bashCompactOutputPreview(lines: previewLines)
     } else if isRunning {
       HStack(spacing: Spacing.sm_) {
         Circle()
@@ -606,6 +599,26 @@ struct ToolCardView: View {
       .padding(.horizontal, Spacing.md)
       .padding(.vertical, Spacing.sm)
     }
+  }
+
+  private var bashCompactPreviewLines: [String] {
+    compactPreviewLines(from: bashPreviewOutput ?? "", limit: isCompactLayout ? 4 : 3)
+  }
+
+  private func bashCompactOutputPreview(lines: [String]) -> some View {
+    VStack(alignment: .leading, spacing: Spacing.xs) {
+      ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+        previewCodeLine(
+          line,
+          prefix: index == 0 ? ">" : nil,
+          tint: Color.toolBash,
+          font: .system(size: TypeScale.caption, design: .monospaced),
+          lineLimit: 1,
+          prefixWidth: 10
+        )
+      }
+    }
+    .previewStripChrome(tint: Color.toolBash, horizontalPad: previewHorizontalPad, bottomPad: Spacing.sm_)
   }
 
   private var bashPreviewOutput: String? {

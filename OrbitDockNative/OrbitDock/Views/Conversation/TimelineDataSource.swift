@@ -21,10 +21,12 @@ enum TimelineDataSource {
       entries: [ServerConversationRowEntry],
       viewMode: ChatViewMode
     ) -> Projection {
+      let visibleEntries = entries.filter(shouldDisplayInTimeline(_:))
+
       guard viewMode == .focused else {
-        let directIndexByRowID = TimelineDataSource.displayIndexByRowID(entries)
+        let directIndexByRowID = TimelineDataSource.displayIndexByRowID(visibleEntries)
         return Projection(
-          displayedEntries: entries,
+          displayedEntries: visibleEntries,
           directDisplayIndexByRowID: directIndexByRowID,
           groupIndexByChildRowID: [:],
           groupSpecsByIndex: [:]
@@ -79,7 +81,7 @@ enum TimelineDataSource {
         toolBuffer.removeAll()
       }
 
-      for entry in entries {
+      for entry in visibleEntries {
         switch entry.row {
           case .tool:
             toolBuffer.append(ToolBufferItem(entry: entry))
@@ -289,5 +291,11 @@ enum TimelineDataSource {
       entriesByID[entry.id] = entry
     }
     return entriesByID
+  }
+
+  private static func shouldDisplayInTimeline(_ entry: ServerConversationRowEntry) -> Bool {
+    guard case let .notice(notice) = entry.row else { return true }
+    return notice.id != "warning-thread-start-skills-trimmed"
+      && notice.title != "Some skills are outside the model-visible list"
   }
 }

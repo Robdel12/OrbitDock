@@ -36,6 +36,33 @@ struct ConversationTimelineViewModelTests {
     #expect(group.children.map { $0.id } == ["tool-1", "tool-2"])
   }
 
+  @Test func timelineHidesStartupSkillsTrimmedNotice() {
+    let viewModel = ConversationTimelineViewModel()
+    viewModel.bind(sessionId: "session-1")
+
+    viewModel.apply(
+      presentation: ConversationTimelinePresentation(
+        entries: [
+          makeNoticeEntry(
+            id: "warning-thread-start-skills-trimmed",
+            sequence: 1,
+            title: "Some skills are outside the model-visible list"
+          ),
+          makeToolEntry(id: "tool-1", sequence: 2, summary: "Read"),
+        ],
+        contentRevision: 1,
+        structureRevision: 1,
+        changedEntries: []
+      ),
+      viewMode: .verbose
+    )
+
+    let displayedEntries = viewModel.renderedEntries(limit: viewModel.displayedEntryCount)
+
+    #expect(viewModel.displayedEntryCount == 1)
+    #expect(displayedEntries.first?.id == "tool-1")
+  }
+
   @Test func expandedRowsSurviveContentOnlyUpdates() {
     let viewModel = ConversationTimelineViewModel()
     viewModel.bind(sessionId: "session-1")
@@ -332,6 +359,28 @@ struct ConversationTimelineViewModelTests {
           planExplanation: nil
         ),
         shellExecution: shellExecution
+      ))
+    )
+  }
+
+  private func makeNoticeEntry(
+    id: String,
+    sequence: UInt64,
+    title: String
+  ) -> ServerConversationRowEntry {
+    ServerConversationRowEntry(
+      sessionId: "session-1",
+      sequence: sequence,
+      turnId: nil,
+      turnStatus: .active,
+      row: .notice(ServerConversationNoticeRow(
+        id: id,
+        kind: .generic,
+        severity: .info,
+        title: title,
+        summary: nil,
+        body: nil,
+        renderHints: .init()
       ))
     )
   }

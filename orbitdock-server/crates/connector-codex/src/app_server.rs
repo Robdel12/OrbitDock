@@ -1786,8 +1786,9 @@ fn runtime_warning_notice_copy(message: &str) -> (String, Option<String>, Notice
 }
 
 fn is_suppressed_runtime_warning(message: &str) -> bool {
-  (message.starts_with("Model metadata for `")
-    && message.contains("Defaulting to fallback metadata"))
+  is_thread_start_skills_trimmed_warning(message)
+    || (message.starts_with("Model metadata for `")
+      && message.contains("Defaulting to fallback metadata"))
     || (message.starts_with("Under-development features enabled:")
       && message.contains("codex_hooks"))
 }
@@ -2508,6 +2509,16 @@ mod tests {
       }
       other => panic!("expected turn_usage_updated output, got {other:?}"),
     }
+  }
+
+  #[test]
+  fn startup_skills_trimmed_warning_stays_out_of_timeline() {
+    let outputs = map_warning(
+      "Some enabled skills were not included in the model-visible skills list for this session."
+        .to_string(),
+    );
+
+    assert!(outputs.is_empty());
   }
 
   #[test]
