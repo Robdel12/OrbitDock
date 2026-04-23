@@ -32,7 +32,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use orbitdock_connector_core::{
   ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
 };
-use orbitdock_protocol::conversation_contracts::ConversationRow;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, NoticeRowSeverity};
 use orbitdock_protocol::domain_events::{AgentType, ToolKind, ToolStatus};
 use orbitdock_protocol::TokenUsageSnapshotKind;
 use std::collections::HashMap;
@@ -759,17 +759,44 @@ fn runtime_warning_preserves_other_warnings() {
 }
 
 #[test]
-fn runtime_warning_suppresses_trimmed_skills_warning() {
+fn runtime_warning_surfaces_trimmed_skills_warning_once() {
   let msg_counter = AtomicU64::new(0);
+  let message = "Some enabled skills were not included in the model-visible skills list for this session. Mention a skill by name or path if you need it.";
   let events = super::event_mapping::runtime_signals::handle_warning(
     "event-1",
     WarningEvent {
-      message: "Some enabled skills were not included in the model-visible skills list for this session. Mention a skill by name or path if you need it.".to_string(),
+      message: message.to_string(),
+    },
+    &msg_counter,
+  );
+  let duplicate_events = super::event_mapping::runtime_signals::handle_warning(
+    "event-2",
+    WarningEvent {
+      message: message.to_string(),
     },
     &msg_counter,
   );
 
-  assert!(events.is_empty());
+  assert_eq!(events.len(), 1);
+  assert_eq!(duplicate_events.len(), 1);
+  let ConversationRow::Notice(notice) = created_row(&events[0]) else {
+    panic!("expected skills warning notice row");
+  };
+  let ConversationRow::Notice(duplicate_notice) = created_row(&duplicate_events[0]) else {
+    panic!("expected skills warning notice row");
+  };
+  assert_eq!(notice.id, "warning-thread-start-skills-trimmed");
+  assert_eq!(duplicate_notice.id, notice.id);
+  assert_eq!(
+    notice.title,
+    "Some skills are outside the model-visible list"
+  );
+  assert_eq!(
+    notice.summary.as_deref(),
+    Some("Mention a skill by name or path if Codex needs it.")
+  );
+  assert_eq!(notice.body.as_deref(), Some(message));
+  assert_eq!(notice.severity, NoticeRowSeverity::Info);
 }
 
 #[test]

@@ -161,7 +161,7 @@ pub(crate) fn handle_warning(
 fn runtime_warning_notice_row(event_id: &str, seq: u64, message: String) -> NoticeRow {
   let (title, summary, severity) = runtime_warning_notice_copy(&message);
   NoticeRow {
-    id: format!("warning-{}-{}", event_id, seq),
+    id: runtime_warning_notice_id(event_id, seq, &message),
     kind: NoticeRowKind::Generic,
     severity,
     title,
@@ -177,7 +177,23 @@ fn runtime_warning_notice_row(event_id: &str, seq: u64, message: String) -> Noti
   }
 }
 
+fn runtime_warning_notice_id(event_id: &str, seq: u64, message: &str) -> String {
+  if is_thread_start_skills_trimmed_warning(message) {
+    return "warning-thread-start-skills-trimmed".to_string();
+  }
+
+  format!("warning-{event_id}-{seq}")
+}
+
 fn runtime_warning_notice_copy(message: &str) -> (String, Option<String>, NoticeRowSeverity) {
+  if is_thread_start_skills_trimmed_warning(message) {
+    return (
+      "Some skills are outside the model-visible list".to_string(),
+      Some("Mention a skill by name or path if Codex needs it.".to_string()),
+      NoticeRowSeverity::Info,
+    );
+  }
+
   (
     "Codex warning".to_string(),
     Some(message.to_string()),
@@ -186,9 +202,8 @@ fn runtime_warning_notice_copy(message: &str) -> (String, Option<String>, Notice
 }
 
 pub(crate) fn is_suppressed_runtime_warning(message: &str) -> bool {
-  is_thread_start_skills_trimmed_warning(message)
-    || (message.starts_with("Model metadata for `")
-      && message.contains("Defaulting to fallback metadata"))
+  (message.starts_with("Model metadata for `")
+    && message.contains("Defaulting to fallback metadata"))
     || (message.starts_with("Under-development features enabled:")
       && message.contains("codex_hooks"))
 }
