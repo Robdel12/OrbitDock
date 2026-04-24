@@ -340,12 +340,7 @@ enum ControlDeckPresentationBuilder {
   // MARK: - Model Display
 
   private static func shortModelLabel(_ model: String?) -> String {
-    guard let model else { return "Default" }
-    // Strip common prefixes for compact display
-    let shortened = model
-      .replacingOccurrences(of: "claude-", with: "")
-      .replacingOccurrences(of: "-20251001", with: "")
-    return shortened
+    ModelCatalog.describe(model)?.displayName ?? "Default"
   }
 
   private static func optionLabel(
