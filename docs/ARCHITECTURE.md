@@ -60,6 +60,7 @@ Examples:
 - session detail
 - conversation
 - review canvas
+- session runtime / controls
 - skills
 - MCP servers
 
@@ -204,6 +205,7 @@ This is the intended ownership model.
 | Conversation | conversation view model | conversation bootstrap + pagination | conversation row deltas + explicit conversation resync |
 | Composer UI | session interaction model owned by the session detail scene | selected-session detail snapshot + mutation responses | parent session detail invalidation |
 | Review canvas | review view model | review/diff snapshot | review-specific invalidation |
+| Session runtime / controls | session runtime view model | runtime support snapshot (`/controls`, instructions, collaboration modes) | detail/capability invalidation + explicit runtime refresh |
 | Skills | skills view model | skills snapshot | skills-specific invalidation |
 | MCP servers | MCP view model | MCP snapshot | MCP-specific invalidation |
 
@@ -237,6 +239,8 @@ For approvals, config, session status, review data, skills, and MCP capability c
 - treat WS as a signal
 - refresh the owning HTTP snapshot
 - replace the local surface state with the new authoritative snapshot
+
+That same rule applies to normalized session controls and Codex runtime support reads. The client should not guess control availability from provider names, turn counts, or local UI state when the server already exposes an explicit runtime-support contract.
 
 Do not build a parallel client-side state machine out of websocket payloads.
 

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use codex_app_server_protocol::{
+  CollaborationModeListResponse,
   PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
   PluginUninstallResponse,
 };
@@ -103,6 +104,9 @@ pub enum CodexAction {
     config_overrides: CodexConfigOverrides,
     runtime_overrides: CodexRuntimeOverrides,
     reply_tx: oneshot::Sender<Result<PluginListResponse, ConnectorError>>,
+  },
+  ListCollaborationModes {
+    reply_tx: oneshot::Sender<Result<CollaborationModeListResponse, ConnectorError>>,
   },
   InstallPlugin {
     cwd: String,
@@ -213,6 +217,7 @@ impl std::fmt::Debug for CodexAction {
         .field("cwd", cwd)
         .field("cwds", cwds)
         .finish(),
+      Self::ListCollaborationModes { .. } => write!(f, "ListCollaborationModes"),
       Self::InstallPlugin { cwd, params, .. } => f
         .debug_struct("InstallPlugin")
         .field("cwd", cwd)
@@ -643,6 +648,10 @@ impl CodexSession {
         let result = connector
           .list_plugins(&cwd, cwds, &config_overrides, &runtime_overrides)
           .await;
+        let _ = reply_tx.send(result);
+      }
+      CodexAction::ListCollaborationModes { reply_tx } => {
+        let result = connector.list_collaboration_modes().await;
         let _ = reply_tx.send(result);
       }
       CodexAction::InstallPlugin {

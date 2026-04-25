@@ -8,10 +8,11 @@ struct HeaderView: View {
   let endpointId: UUID
   let presentation: SessionDetailScreenPresentation
   let codexAccountStatus: ServerCodexAccountStatus?
-  var onEndSession: (() -> Void)?
-  var layoutConfig: Binding<LayoutConfiguration>?
-  var chatViewMode: Binding<ChatViewMode>?
-  var workerPanelVisible: Binding<Bool>?
+  var onEndSession: (() -> Void)? = nil
+  var onManageCapabilities: (() -> Void)? = nil
+  var layoutConfig: Binding<LayoutConfiguration>? = nil
+  var chatViewMode: Binding<ChatViewMode>? = nil
+  var workerPanelVisible: Binding<Bool>? = nil
   var hasWorkerPanelContent = false
 
   @State private var isHoveringBack = false
@@ -218,6 +219,16 @@ struct HeaderView: View {
 
   private var overflowMenu: some View {
     Menu {
+      if presentation.provider == .codex, let onManageCapabilities {
+        Button {
+          onManageCapabilities()
+        } label: {
+          Label("Codex Runtime", systemImage: "slider.horizontal.3")
+        }
+
+        Divider()
+      }
+
       HeaderContinuationMenuSection(continuation: currentContinuation)
 
       if presentation.isActive, let onEnd = onEndSession {
@@ -241,6 +252,16 @@ struct HeaderView: View {
 
   private var compactOverflowMenu: some View {
     Menu {
+      if presentation.provider == .codex, let onManageCapabilities {
+        Button {
+          onManageCapabilities()
+        } label: {
+          Label("Codex Runtime", systemImage: "slider.horizontal.3")
+        }
+
+        Divider()
+      }
+
       if let layoutBinding = layoutConfig {
         Section("Layout") {
           ForEach(LayoutConfiguration.allCases, id: \.self) { config in

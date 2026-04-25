@@ -3,9 +3,9 @@ use codex_app_server_protocol::{
   ThreadResumeParams, ThreadStartParams, ThreadStartSource,
 };
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
+use codex_exec_server::{EnvironmentManager, EnvironmentManagerArgs, ExecServerRuntimePaths};
 use codex_features::Feature;
-use codex_models_manager::ModelProviderInfo;
+use codex_model_provider_info::ModelProviderInfo;
 use codex_protocol::config_types::{ApprovalsReviewer, Personality, ReasoningSummary, ServiceTier};
 use codex_protocol::openai_models::{
   default_input_modalities, ApplyPatchToolType, ConfigShellToolType, ModelInfo,
@@ -185,10 +185,9 @@ impl CodexConnector {
   }
 
   pub(crate) fn embedded_environment_manager() -> Result<EnvironmentManager, ConnectorError> {
-    Ok(EnvironmentManager::new_with_runtime_paths(
-      None,
-      Some(Self::embedded_codex_runtime_paths()?),
-    ))
+    Ok(EnvironmentManager::new(EnvironmentManagerArgs::from_env(
+      Self::embedded_codex_runtime_paths()?,
+    )))
   }
 
   pub async fn new(
@@ -326,6 +325,7 @@ impl CodexConnector {
           "approvals reviewer",
         )?,
         sandbox: app_server_sandbox_mode(sandbox_mode, sandbox_policy_details),
+        permission_profile: None,
         config: None,
         service_name: None,
         base_instructions: None,
@@ -336,6 +336,7 @@ impl CodexConnector {
         )?,
         ephemeral: None,
         session_start_source: Some(ThreadStartSource::Startup),
+        environments: None,
         dynamic_tools: Some(convert_app_server_type::<_, Vec<AppServerDynamicToolSpec>>(
           dynamic_tools,
           "dynamic tools",
@@ -534,6 +535,7 @@ impl CodexConnector {
           "approvals reviewer",
         )?,
         sandbox: app_server_sandbox_mode(sandbox_mode, sandbox_policy_details),
+        permission_profile: None,
         config: None,
         base_instructions: None,
         developer_instructions: runtime_overrides.developer_instructions.clone(),
@@ -541,6 +543,7 @@ impl CodexConnector {
           parse_personality(runtime_overrides.personality.as_deref()),
           "personality",
         )?,
+        exclude_turns: false,
         persist_extended_history: true,
       })
       .await?;
@@ -762,7 +765,7 @@ pub async fn discover_models_for_context(
 pub(crate) fn parse_approvals_reviewer(value: Option<&str>) -> Option<ApprovalsReviewer> {
   match value.map(str::trim).filter(|value| !value.is_empty()) {
     Some("user") => Some(ApprovalsReviewer::User),
-    Some("guardian_subagent") => Some(ApprovalsReviewer::GuardianSubagent),
+    Some("guardian_subagent") | Some("auto_review") => Some(ApprovalsReviewer::AutoReview),
     _ => None,
   }
 }

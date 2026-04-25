@@ -8,12 +8,14 @@ use serde::{Deserialize, Serialize};
 mod common;
 mod flags;
 mod instructions;
+mod runtime;
 mod mcp;
 mod plugins;
 mod skills;
 
 pub use flags::apply_flag_settings;
 pub use instructions::get_session_instructions;
+pub use runtime::list_collaboration_modes_endpoint;
 pub use mcp::{
   list_mcp_tools_endpoint, mcp_authenticate, mcp_clear_auth, mcp_set_servers, refresh_mcp_servers,
   toggle_mcp_server,
@@ -44,6 +46,23 @@ pub struct SessionInstructionsResponse {
   pub session_id: String,
   pub provider: orbitdock_protocol::Provider,
   pub instructions: SessionInstructionsPayload,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionCollaborationMode {
+  pub name: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub mode: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reasoning_effort: Option<String>,
+  pub clears_reasoning_effort: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionCollaborationModesResponse {
+  pub data: Vec<SessionCollaborationMode>,
 }
 
 #[derive(Debug, Serialize, Default)]

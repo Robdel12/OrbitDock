@@ -29,6 +29,7 @@ final class SessionDetailViewModel {
   var terminal = SessionDetailTerminalModel()
   var worker = SessionDetailWorkerModel()
   var cleanup = SessionDetailWorktreeCleanupModel()
+  var capabilities = SessionCapabilitiesModel()
   var conversationViewModel: ConversationViewModel
   var interaction = SessionInteractionModel()
 
@@ -142,6 +143,7 @@ final class SessionDetailViewModel {
     terminal.reset()
     worker.reset()
     cleanup.reset()
+    capabilities.reset()
     pendingApprovalPanelOpenSignal = 0
   }
 
@@ -253,17 +255,31 @@ final class SessionDetailViewModel {
       conversationViewModel.requestForcedResync(revision: revision)
     }
 
-    guard targets.contains(.detail) else { return }
-    guard SessionSurfaceRefreshPlanner.shouldRequestRefresh(
-      snapshotRevision: lastLoadedRevision,
-      pendingRevision: pendingInvalidationRevision,
-      incomingInvalidationRevision: revision
-    ) else { return }
-    pendingInvalidationRevision = SessionSurfaceRefreshPlanner.nextPendingRevision(
-      pendingRevision: pendingInvalidationRevision,
-      incomingInvalidationRevision: revision
-    )
-    requestRefresh()
+    if targets.contains(.capabilities) {
+      capabilities.markStale()
+      if capabilities.hasLoaded {
+        Task { [session, projectPath = screenPresentation.projectPath] in
+          await capabilities.refresh(
+            session: session,
+            projectPath: projectPath,
+            sessionState: self.detailPayload?.session
+          )
+        }
+      }
+    }
+
+    if targets.contains(.detail) {
+      guard SessionSurfaceRefreshPlanner.shouldRequestRefresh(
+        snapshotRevision: lastLoadedRevision,
+        pendingRevision: pendingInvalidationRevision,
+        incomingInvalidationRevision: revision
+      ) else { return }
+      pendingInvalidationRevision = SessionSurfaceRefreshPlanner.nextPendingRevision(
+        pendingRevision: pendingInvalidationRevision,
+        incomingInvalidationRevision: revision
+      )
+      requestRefresh()
+    }
   }
 
   func refresh() async {
@@ -445,6 +461,7 @@ final class SessionDetailViewModel {
       self.pendingInvalidationRevision = nil
     }
     detailPayload = payload
+    capabilities.syncSessionState(payload.session)
     interaction.applyOwnerDetailSnapshot(
       payload,
       source: "session_detail_owner"
@@ -503,7 +520,7 @@ final class SessionDetailViewModel {
 
     guard activeSubscriptionIdentity != bindingIdentity else { return }
     clearSessionSubscription()
-    session.transport.subscribe(surfaces: [.detail, .conversation])
+    session.transport.subscribe(surfaces: [.detail, .conversation, .capabilities])
     activeSubscriptionIdentity = bindingIdentity
     activeSubscriptionSession = session
   }
@@ -512,7 +529,7 @@ final class SessionDetailViewModel {
     refreshRunner.cancel()
     diffBannerDismissTask?.cancel()
     pendingInvalidationRevision = nil
-    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail, .conversation])
+    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail, .conversation, .capabilities])
     activeSubscriptionSession = nil
     activeSubscriptionIdentity = nil
   }

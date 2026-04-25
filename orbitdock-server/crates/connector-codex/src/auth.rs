@@ -166,14 +166,14 @@ fn default_auth_cwd() -> PathBuf {
 
 fn auth_mode_from_account(account: &Account) -> CodexAuthMode {
   match account {
-    Account::ApiKey {} => CodexAuthMode::ApiKey,
+    Account::ApiKey {} | Account::AmazonBedrock {} => CodexAuthMode::ApiKey,
     Account::Chatgpt { .. } => CodexAuthMode::Chatgpt,
   }
 }
 
 fn account_from_app_server(account: Account) -> CodexAccount {
   match account {
-    Account::ApiKey {} => CodexAccount::ApiKey,
+    Account::ApiKey {} | Account::AmazonBedrock {} => CodexAccount::ApiKey,
     Account::Chatgpt { email, plan_type } => CodexAccount::Chatgpt {
       email: Some(email),
       plan_type: Some(format!("{plan_type:?}").to_lowercase()),

@@ -17,6 +17,7 @@ struct SessionDetailView: View {
 
   @State var viewModel: SessionDetailViewModel
   @State var isDirectControlDeckFocused = false
+  @State var showCapabilitiesSheet = false
   @AppStorage("chatViewMode") var chatViewMode: ChatViewMode = .focused
   @AppStorage("sessionDetail.showWorkerPanel") var showWorkerPanel = false
 
@@ -124,6 +125,15 @@ struct SessionDetailView: View {
     .onChange(of: showWorkerPanel) { _, visible in
       viewModel.handleWorkerPanelVisibilityChange(visible)
     }
+    .sheet(isPresented: $showCapabilitiesSheet) {
+      SessionCapabilitiesSheet(
+        session: scopedSession,
+        projectPath: screenPresentation.projectPath,
+        provider: screenPresentation.provider,
+        sessionState: viewModel.detailPayload?.session,
+        model: viewModel.capabilities
+      )
+    }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
       guard let command = SessionDetailShortcutPlanner.command(
@@ -217,6 +227,16 @@ struct SessionDetailView: View {
 
         Divider()
 
+        if screenPresentation.provider == .codex {
+          Button {
+            openCapabilitiesSheet()
+          } label: {
+            Label("Codex Runtime", systemImage: "slider.horizontal.3")
+          }
+
+          Divider()
+        }
+
         HeaderDebugContextMenu(
           sessionId: screenPresentation.debugContext.sessionId,
           threadId: screenPresentation.debugContext.threadId,
@@ -254,6 +274,17 @@ struct SessionDetailView: View {
 
   // Remaining sections and imperative handlers live in companion files so this root
   // stays focused on feature composition and lifecycle wiring.
+
+  func openCapabilitiesSheet() {
+    showCapabilitiesSheet = true
+    Task {
+      await viewModel.capabilities.loadIfNeeded(
+        session: scopedSession,
+        projectPath: screenPresentation.projectPath,
+        sessionState: viewModel.detailPayload?.session
+      )
+    }
+  }
 }
 
 private struct SessionDetailTerminalToggleFocusedValueKey: FocusedValueKey {

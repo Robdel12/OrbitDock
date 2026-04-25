@@ -132,6 +132,34 @@ fn session_lifecycle_routes() -> Router<Arc<SessionRegistry>> {
 fn session_action_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route(
+      "/api/sessions/{session_id}/controls",
+      get(super::get_session_controls),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/stop-active-turn",
+      post(super::stop_active_turn),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/compact-context",
+      post(super::compact_context_control),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/undo-last-turn",
+      post(super::undo_last_turn_control),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/rollback-turns",
+      post(super::rollback_turns_control),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/stop-target",
+      post(super::stop_target),
+    )
+    .route(
+      "/api/sessions/{session_id}/controls/rewind-to-message",
+      post(super::rewind_to_message),
+    )
+    .route(
       "/api/sessions/{session_id}/conversation/interrupt",
       post(super::interrupt_session),
     )
@@ -198,6 +226,10 @@ fn session_support_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/sessions/{session_id}/subagents/{subagent_id}/messages",
       get(super::list_subagent_messages_endpoint),
+    )
+    .route(
+      "/api/sessions/{session_id}/collaboration-modes",
+      get(super::list_collaboration_modes_endpoint),
     )
     .route(
       "/api/sessions/{session_id}/skills",

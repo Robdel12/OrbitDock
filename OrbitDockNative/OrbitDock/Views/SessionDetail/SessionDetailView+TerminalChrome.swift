@@ -126,6 +126,7 @@ extension SessionDetailView {
         presentation: screenPresentation,
         codexAccountStatus: scopedSession.codexAccountStatus,
         onEndSession: screenPresentation.isActive ? { viewModel.endSession() } : nil,
+        onManageCapabilities: screenPresentation.provider == .codex ? { openCapabilitiesSheet() } : nil,
         layoutConfig: screenPresentation.isDirect ? $viewModel.layoutConfig : nil,
         chatViewMode: $chatViewMode,
         workerPanelVisible: $showWorkerPanel,

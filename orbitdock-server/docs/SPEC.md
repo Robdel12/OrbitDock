@@ -442,12 +442,17 @@ Optional fields: `model`, `effort`, `approval_policy`, `sandbox_mode`, `permissi
 | Take over passive session | `POST /api/sessions/{id}/lifecycle/takeover` | |
 | Fork session | `POST /api/sessions/{id}/lifecycle/fork` | Creates a new session from conversation history |
 | Fork into worktree | `POST /api/sessions/{id}/lifecycle/fork/worktree` | Creates worktree + fork |
-| Interrupt active turn | `POST /api/sessions/{id}/conversation/interrupt` | |
-| Undo last turn | `POST /api/sessions/{id}/conversation/undo` | |
-| Rollback N turns | `POST /api/sessions/{id}/conversation/rollback` | Body: `{"num_turns": 2}` |
-| Compact context | `POST /api/sessions/{id}/conversation/compact` | |
+| Read control capabilities | `GET /api/sessions/{id}/controls` | Preferred control bootstrap surface |
+| Interrupt active turn | `POST /api/sessions/{id}/controls/stop-active-turn` | |
+| Undo last turn | `POST /api/sessions/{id}/controls/undo-last-turn` | |
+| Rollback N turns | `POST /api/sessions/{id}/controls/rollback-turns` | Body: `{"num_turns": 2}` |
+| Compact context | `POST /api/sessions/{id}/controls/compact-context` | |
+| Stop provider target | `POST /api/sessions/{id}/controls/stop-target` | Body: `{"target_id": "task-..."}`; provider-specific |
+| Rewind to provider message boundary | `POST /api/sessions/{id}/controls/rewind-to-message` | Body: `{"message_id": "msg-..."}`; provider-specific |
 | Rename | `PATCH /api/sessions/{id}/detail/name` | Body: `{"name": "..."}` |
 | Update config | `PATCH /api/sessions/{id}/detail/config` | Partial update of session settings |
+
+The older `/conversation/interrupt`, `/conversation/undo`, `/conversation/rollback`, `/conversation/compact`, `/conversation/stop`, and `/conversation/rewind` routes remain as compatibility shims. New clients should prefer `/controls/*`.
 
 ### 5.8 Worktree Management
 
@@ -674,10 +679,12 @@ MCP provides external tool integrations (GitHub, Linear, etc.).
 
 - `GET /api/sessions/{id}/mcp` — current tool catalog
 - `POST /api/sessions/{id}/mcp/refresh` — refresh servers
-- `POST /api/sessions/{id}/mcp/toggle` — enable/disable a server
-- `POST /api/sessions/{id}/mcp/authenticate` — start auth for a server
-- `POST /api/sessions/{id}/mcp/clear-auth` — clear saved auth
-- `POST /api/sessions/{id}/mcp/servers` — apply server config
+- `POST /api/sessions/{id}/mcp/toggle` — enable/disable a Claude server
+- `POST /api/sessions/{id}/mcp/authenticate` — start auth for a Claude server
+- `POST /api/sessions/{id}/mcp/clear-auth` — clear saved Claude auth
+- `POST /api/sessions/{id}/mcp/servers` — apply Claude MCP server config
+
+Codex currently shares the MCP read/refresh inventory surface, but not the Claude-specific toggle/auth/config mutation routes.
 
 ### 8.3 Permissions
 
@@ -689,6 +696,13 @@ MCP provides external tool integrations (GitHub, Linear, etc.).
 ### 8.4 Session Instructions
 
 - `GET /api/sessions/{id}/instructions` — view CLAUDE.md, system prompt, developer instructions
+
+### 8.5 Session Runtime Support Reads
+
+- `GET /api/sessions/{id}/controls` — normalized control capabilities for the active provider
+- `GET /api/sessions/{id}/collaboration-modes` — live Codex collaboration presets for the active runtime
+
+These routes exist so clients can bootstrap runtime support explicitly instead of inferring it from provider name or model metadata.
 
 ## 9. Implementation Notes
 

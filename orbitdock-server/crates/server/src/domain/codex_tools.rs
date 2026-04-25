@@ -122,6 +122,7 @@ pub fn codex_workspace_dynamic_tool_specs() -> Vec<DynamicToolSpec> {
   codex_workspace_tool_definitions()
     .into_iter()
     .map(|tool| DynamicToolSpec {
+      namespace: None,
       name: tool.name,
       description: tool.description,
       input_schema: tool.input_schema,
@@ -142,6 +143,7 @@ pub fn default_codex_dynamic_tool_specs(include_mission_tools: bool) -> Vec<Dyna
       crate::domain::mission_control::tools::mission_tool_definitions()
         .into_iter()
         .map(|tool| DynamicToolSpec {
+          namespace: None,
           name: tool.name,
           description: tool.description,
           input_schema: tool.input_schema,

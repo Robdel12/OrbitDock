@@ -32,6 +32,7 @@ Examples:
 - conversation
 - composer UI
 - review canvas
+- session runtime / controls
 - skills
 - MCP servers
 
@@ -190,13 +191,19 @@ Library is a cold surface. It should not be eagerly loaded just because dashboar
 
 ### Other Session Surfaces
 
-This includes the composer UI, review canvas, skills, and MCP servers.
+This includes the composer UI, review canvas, session runtime/controls, skills, and MCP servers.
 
 The control deck is the current SwiftUI composer component name. It is not an API surface and must not appear in endpoint names, route contracts, or transport ownership.
 
 - HTTP: surface-specific authoritative snapshot
 - WS follow-up: surface-specific invalidation or replay hint
 - Owner: the matching feature owner for that surface
+
+For session runtime/controls specifically, the bootstrap should come from explicit support/state reads such as:
+
+- `GET /api/sessions/{id}/controls`
+- `GET /api/sessions/{id}/instructions`
+- `GET /api/sessions/{id}/collaboration-modes`
 
 These surfaces should not refresh because of a broad unrelated per-session event.
 
@@ -227,7 +234,7 @@ Library should not be treated like an always-hot global cache.
 3. The conversation owner performs the conversation HTTP bootstrap.
 4. The session transport records the returned replay cursor/revision.
 5. The selected-session route subscribes to conversation/detail follow-up immediately.
-6. Slower selected-session detail/support refreshes, such as capabilities, skills, review, and project-file support data, run after realtime is attached.
+6. Slower selected-session detail/support refreshes, such as runtime controls, capabilities, skills, review, and project-file support data, run after realtime is attached.
 
 If one intentional selected-session bootstrap hydrates multiple closely related surfaces, that is fine.
 

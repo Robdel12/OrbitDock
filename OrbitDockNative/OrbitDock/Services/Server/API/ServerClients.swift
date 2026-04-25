@@ -13,6 +13,9 @@ final class ServerClients: Sendable {
   let config: ConfigClient
   let filesystem: FilesystemClient
   let skills: SkillsClient
+  let capabilities: CapabilitiesClient
+  let runtime: SessionRuntimeClient
+  let controls: SessionControlsClient
   let usage: UsageClient
   let activeSessions: ActiveSessionsClient
   let archivedSessions: ArchivedSessionsClient
@@ -59,6 +62,9 @@ final class ServerClients: Sendable {
     self.config = ConfigClient(http: http)
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
+    self.capabilities = CapabilitiesClient(http: http, requestBuilder: requestBuilder)
+    self.runtime = SessionRuntimeClient(http: http, requestBuilder: requestBuilder)
+    self.controls = SessionControlsClient(http: http, requestBuilder: requestBuilder)
     self.usage = UsageClient(http: http)
     self.activeSessions = ActiveSessionsClient(http: http)
     self.archivedSessions = ArchivedSessionsClient(http: http)

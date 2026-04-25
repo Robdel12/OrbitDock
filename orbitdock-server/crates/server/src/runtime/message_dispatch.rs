@@ -333,7 +333,7 @@ pub(crate) async fn dispatch_steer_turn(
   Ok(steer_entry)
 }
 
-pub(crate) async fn dispatch_interrupt(
+pub(crate) async fn dispatch_stop_active_turn(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
@@ -354,7 +354,14 @@ pub(crate) async fn dispatch_interrupt(
   }
 }
 
-pub(crate) async fn dispatch_compact(
+pub(crate) async fn dispatch_interrupt(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), &'static str> {
+  dispatch_stop_active_turn(state, session_id).await
+}
+
+pub(crate) async fn dispatch_compact_context(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
@@ -371,7 +378,14 @@ pub(crate) async fn dispatch_compact(
   }
 }
 
-pub(crate) async fn dispatch_undo(
+pub(crate) async fn dispatch_compact(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), &'static str> {
+  dispatch_compact_context(state, session_id).await
+}
+
+pub(crate) async fn dispatch_undo_last_turn(
   state: &Arc<SessionRegistry>,
   session_id: &str,
 ) -> Result<(), &'static str> {
@@ -388,7 +402,14 @@ pub(crate) async fn dispatch_undo(
   }
 }
 
-pub(crate) async fn dispatch_rollback(
+pub(crate) async fn dispatch_undo(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+) -> Result<(), &'static str> {
+  dispatch_undo_last_turn(state, session_id).await
+}
+
+pub(crate) async fn dispatch_rollback_turns(
   state: &Arc<SessionRegistry>,
   session_id: &str,
   num_turns: u32,
@@ -413,7 +434,15 @@ pub(crate) async fn dispatch_rollback(
   }
 }
 
-pub(crate) async fn dispatch_stop_task(
+pub(crate) async fn dispatch_rollback(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  num_turns: u32,
+) -> Result<(), &'static str> {
+  dispatch_rollback_turns(state, session_id, num_turns).await
+}
+
+pub(crate) async fn dispatch_stop_target(
   state: &Arc<SessionRegistry>,
   session_id: &str,
   task_id: String,
@@ -423,6 +452,33 @@ pub(crate) async fn dispatch_stop_task(
   if let Some(tx) = state.get_claude_action_tx(session_id) {
     let _ = tx.send(ClaudeAction::StopTask { task_id }).await;
     Ok(())
+  } else if state.get_codex_action_tx(session_id).is_some() {
+    Err("unsupported_control")
+  } else {
+    Err("connector_unavailable")
+  }
+}
+
+pub(crate) async fn dispatch_stop_task(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  task_id: String,
+) -> Result<(), &'static str> {
+  dispatch_stop_target(state, session_id, task_id).await
+}
+
+pub(crate) async fn dispatch_rewind_to_message(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  user_message_id: String,
+) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
+  if let Some(tx) = state.get_claude_action_tx(session_id) {
+    let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
+    Ok(())
+  } else if state.get_codex_action_tx(session_id).is_some() {
+    Err("unsupported_control")
   } else {
     Err("connector_unavailable")
   }
@@ -433,14 +489,7 @@ pub(crate) async fn dispatch_rewind_files(
   session_id: &str,
   user_message_id: String,
 ) -> Result<(), &'static str> {
-  ensure_session_exists(state, session_id)?;
-
-  if let Some(tx) = state.get_claude_action_tx(session_id) {
-    let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
-    Ok(())
-  } else {
-    Err("connector_unavailable")
-  }
+  dispatch_rewind_to_message(state, session_id, user_message_id).await
 }
 
 pub(crate) async fn dispatch_answer_question(

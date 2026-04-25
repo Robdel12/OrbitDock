@@ -1381,6 +1381,7 @@ async fn map_item(
     }
     ThreadItem::DynamicToolCall {
       id,
+      namespace,
       tool,
       arguments,
       status,
@@ -1389,6 +1390,7 @@ async fn map_item(
       duration_ms,
     } => map_dynamic_tool(
       id,
+      namespace,
       tool,
       arguments,
       content_items,
@@ -1989,6 +1991,7 @@ fn map_collab_agent_status(status: codex_app_server_protocol::CollabAgentStatus)
 
 fn map_dynamic_tool(
   id: String,
+  namespace: Option<String>,
   tool: String,
   arguments: Value,
   content_items: Option<Vec<DynamicToolCallOutputContentItem>>,
@@ -2008,7 +2011,7 @@ fn map_dynamic_tool(
       kind,
       title.to_string(),
       None,
-      dynamic_tool_invocation(tool, arguments),
+      dynamic_tool_invocation(namespace.clone(), tool, arguments),
       None,
       started,
       success,
@@ -2037,7 +2040,7 @@ fn map_dynamic_tool(
     kind,
     title.to_string(),
     summary,
-    dynamic_tool_invocation(tool, arguments),
+    dynamic_tool_invocation(namespace, tool, arguments),
     Some(result),
     started,
     success,
@@ -2045,8 +2048,9 @@ fn map_dynamic_tool(
   )
 }
 
-fn dynamic_tool_invocation(tool_name: String, arguments: Value) -> Value {
+fn dynamic_tool_invocation(namespace: Option<String>, tool_name: String, arguments: Value) -> Value {
   json!({
+    "namespace": namespace,
     "tool_name": tool_name,
     "raw_input": arguments,
   })
@@ -2963,6 +2967,7 @@ pub(crate) fn permissions_response(
         codex_app_server_protocol::PermissionGrantScope::Session
       }
     },
+    strict_auto_review: None,
   })
 }
 

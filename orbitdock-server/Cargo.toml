@@ -17,18 +17,19 @@ authors = ["Robert DeLuca"]
 
 [workspace.dependencies]
 # Codex OSS crates (embedded app-server host plus typed protocol/runtime helpers)
-codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-features = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-app-server-client = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-core-plugins = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-git-utils = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-exec-server = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
-codex-feedback = { git = "https://github.com/openai/codex", tag = "rust-v0.122.0" }
+codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-features = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-model-provider-info = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-models-manager = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-app-server-client = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-core-plugins = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-git-utils = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-exec-server = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
+codex-feedback = { git = "https://github.com/openai/codex", tag = "rust-v0.125.0" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

@@ -67,6 +67,10 @@ pub(crate) fn dispatch_error_response(
       "invalid_answer_payload",
       "Question approvals require a non-empty answer or answers map",
     ),
+    "unsupported_control" => unprocessable(
+      "unsupported_control",
+      "This session provider does not support that control",
+    ),
     "rollback_failed" => unprocessable(
       "rollback_failed",
       "Could not find user message for rollback",

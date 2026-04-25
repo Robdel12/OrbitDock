@@ -4,9 +4,10 @@ use std::path::PathBuf;
 
 use axum::{extract::Path, extract::Query, extract::State, http::StatusCode, Json};
 use codex_app_server_protocol::{
-  PluginAuthPolicy, PluginInstallPolicy, PluginListResponse, PluginMarketplaceEntry, PluginSource,
-  PluginSummary,
+  CollaborationModeListResponse, CollaborationModeMask, PluginAuthPolicy, PluginInstallPolicy,
+  PluginListResponse, PluginMarketplaceEntry, PluginSource, PluginSummary,
 };
+use codex_protocol::config_types::ModeKind;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use orbitdock_protocol::{
   McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Provider, ServerMessage,
@@ -25,8 +26,9 @@ use crate::{
 };
 
 use super::{
-  get_session_instructions, install_plugin, list_mcp_tools_endpoint, list_plugins_endpoint,
-  list_skills_endpoint, uninstall_plugin, PluginsQuery, SkillsQuery,
+  get_session_instructions, install_plugin, list_collaboration_modes_endpoint,
+  list_mcp_tools_endpoint, list_plugins_endpoint, list_skills_endpoint, uninstall_plugin,
+  PluginsQuery, SkillsQuery,
 };
 
 fn persist_codex_session(
@@ -319,6 +321,72 @@ async fn list_plugins_endpoint_dispatches_action_and_returns_payload() {
       status, body.error
     ),
   }
+}
+
+#[tokio::test]
+async fn collaboration_modes_endpoint_dispatches_action_and_returns_payload() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_codex_session(&db_path, &session_id, "/tmp/orbitdock-api-test", None);
+  let (action_tx, mut action_rx) = mpsc::channel(8);
+  state.set_codex_action_tx(&session_id, action_tx);
+
+  let task = tokio::spawn(async move {
+    let action = action_rx
+      .recv()
+      .await
+      .expect("collaboration modes endpoint should dispatch codex action");
+    match action {
+      CodexAction::ListCollaborationModes { reply_tx } => {
+        let _ = reply_tx.send(Ok(CollaborationModeListResponse {
+          data: vec![
+            CollaborationModeMask {
+              name: "default".to_string(),
+              mode: Some(ModeKind::Default),
+              model: Some("gpt-5".to_string()),
+              reasoning_effort: None,
+            },
+            CollaborationModeMask {
+              name: "plan".to_string(),
+              mode: Some(ModeKind::Plan),
+              model: Some("gpt-5".to_string()),
+              reasoning_effort: Some(None),
+            },
+          ],
+        }));
+      }
+      other => panic!("expected ListCollaborationModes action, got {:?}", other),
+    }
+  });
+
+  let response = list_collaboration_modes_endpoint(Path(session_id.clone()), State(state))
+    .await
+    .expect("collaboration modes endpoint should succeed");
+
+  task.await.expect("collaboration modes helper task should complete");
+
+  assert_eq!(response.0.data.len(), 2);
+  assert_eq!(response.0.data[0].name, "default");
+  assert_eq!(response.0.data[1].name, "plan");
+}
+
+#[tokio::test]
+async fn collaboration_modes_endpoint_returns_empty_payload_for_claude() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  let transcript = NamedTempFile::new().expect("claude transcript temp file");
+  persist_claude_session(
+    &db_path,
+    &session_id,
+    "/tmp/orbitdock-api-test",
+    transcript.path().to_str().expect("transcript path"),
+  );
+
+  let response = list_collaboration_modes_endpoint(Path(session_id), State(state))
+    .await
+    .expect("claude collaboration modes endpoint should succeed");
+
+  assert!(response.0.data.is_empty());
 }
 
 #[tokio::test]

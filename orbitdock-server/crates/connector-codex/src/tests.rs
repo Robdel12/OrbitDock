@@ -13,7 +13,8 @@ use super::workers::{build_authoritative_codex_subagent, build_inflight_codex_su
 use super::workers::{build_codex_subagent_for_status, build_running_codex_subagent};
 use super::CodexConnector;
 use codex_core::config::Config as CoreConfig;
-use codex_models_manager::{ModelProviderInfo, WireApi};
+use codex_model_provider_info::ModelProviderInfo;
+use codex_models_manager::WireApi;
 use codex_protocol::config_types::{ReasoningSummary, ServiceTier};
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::protocol::{

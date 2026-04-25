@@ -3,9 +3,10 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use codex_app_server_protocol::{
-  CollaborationModeMask as AppServerCollaborationModeMask, PluginInstallParams,
-  PluginInstallResponse, PluginListResponse, PluginUninstallParams, PluginUninstallResponse,
-  RequestId, SandboxPolicy as AppServerSandboxPolicy, TurnStartParams, TurnSteerParams,
+  CollaborationModeListResponse, CollaborationModeMask as AppServerCollaborationModeMask,
+  McpServerStatus, PluginInstallParams, PluginInstallResponse, PluginListResponse,
+  PluginUninstallParams, PluginUninstallResponse, RequestId,
+  SandboxPolicy as AppServerSandboxPolicy, TurnStartParams, TurnSteerParams,
   UserInput as AppServerUserInput,
 };
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
@@ -74,6 +75,23 @@ where
   value
     .map(|inner| convert_app_server_type(inner, label))
     .transpose()
+}
+
+fn flatten_mcp_tools(
+  statuses: &[McpServerStatus],
+) -> Result<HashMap<String, orbitdock_protocol::McpTool>, ConnectorError> {
+  let mut tools = HashMap::new();
+
+  for status in statuses {
+    for (tool_name, tool) in &status.tools {
+      tools.insert(
+        tool_name.clone(),
+        convert_app_server_type(tool.clone(), "MCP tool")?,
+      );
+    }
+  }
+
+  Ok(tools)
 }
 
 fn app_server_request_id(value: &str) -> RequestId {
@@ -249,10 +267,12 @@ impl CodexConnector {
           }
           _ => codex_app_server_protocol::SandboxMode::WorkspaceWrite,
         }),
+        permission_profile: None,
         config: None,
         base_instructions: None,
         developer_instructions: None,
         ephemeral: false,
+        exclude_turns: false,
         persist_extended_history: true,
       })
       .await
@@ -314,12 +334,14 @@ impl CodexConnector {
         thread_id: self.thread_id.clone(),
         input: app_server_user_input(content, skills, images, mentions),
         responsesapi_client_metadata: None,
+        environments: None,
         cwd: pending_context
           .cwd
           .or_else(|| (!cwd.trim().is_empty()).then(|| PathBuf::from(cwd.as_str()))),
         approval_policy: pending_context.approval_policy,
         approvals_reviewer: pending_context.approvals_reviewer,
         sandbox_policy: pending_context.sandbox_policy,
+        permission_profile: None,
         model: requested_model,
         service_tier: pending_context.service_tier,
         effort: requested_effort,
@@ -434,6 +456,12 @@ impl CodexConnector {
       .await
   }
 
+  pub async fn list_collaboration_modes(
+    &self,
+  ) -> Result<CollaborationModeListResponse, ConnectorError> {
+    self.app_server_session()?.collaboration_mode_list().await
+  }
+
   pub async fn install_plugin(
     &self,
     cwd: &str,
@@ -462,16 +490,7 @@ impl CodexConnector {
 
   pub async fn list_mcp_tools(&self) -> Result<(), ConnectorError> {
     let response = self.app_server_session()?.mcp_server_status_list().await?;
-    let tools = response
-      .data
-      .iter()
-      .map(|status| {
-        Ok((
-          status.name.clone(),
-          convert_app_server_type(status.tools.clone(), "MCP tools")?,
-        ))
-      })
-      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+    let tools = flatten_mcp_tools(&response.data)?;
     let resources = response
       .data
       .iter()
@@ -721,6 +740,64 @@ impl CodexConnector {
       app_server.unregister_session(&self.thread_id).await;
     }
     Ok(())
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::flatten_mcp_tools;
+  use codex_app_server_protocol::{McpAuthStatus, McpServerStatus};
+  use codex_protocol::mcp::{Resource as McpResource, ResourceTemplate as McpResourceTemplate};
+  use std::collections::HashMap;
+
+  #[test]
+  fn flatten_mcp_tools_uses_qualified_tool_keys() {
+    let status = McpServerStatus {
+      name: "docs".to_string(),
+      tools: HashMap::from([(
+        "docs__search".to_string(),
+        codex_protocol::mcp::Tool {
+          name: "search".to_string(),
+          title: Some("Search Docs".to_string()),
+          description: Some("Search docs".to_string()),
+          input_schema: serde_json::json!({ "type": "object" }),
+          output_schema: None,
+          annotations: None,
+          icons: None,
+          meta: None,
+        },
+      )]),
+      resources: vec![McpResource {
+        name: "overview".to_string(),
+        uri: "docs://overview".to_string(),
+        description: Some("Docs overview".to_string()),
+        mime_type: Some("text/markdown".to_string()),
+        title: None,
+        size: None,
+        annotations: None,
+        icons: None,
+        meta: None,
+      }],
+      resource_templates: vec![McpResourceTemplate {
+        name: "topic".to_string(),
+        uri_template: "docs://topics/{name}".to_string(),
+        title: Some("Topic".to_string()),
+        description: Some("Topic template".to_string()),
+        mime_type: Some("text/markdown".to_string()),
+        annotations: None,
+        icons: None,
+        meta: None,
+      }],
+      auth_status: McpAuthStatus::OAuth,
+    };
+
+    let tools = flatten_mcp_tools(&[status]).expect("tools should flatten");
+
+    assert_eq!(tools.len(), 1);
+    assert_eq!(
+      tools.get("docs__search").map(|tool| tool.name.as_str()),
+      Some("search")
+    );
   }
 }
 

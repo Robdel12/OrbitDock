@@ -36,9 +36,9 @@ pub use approvals::{
   respond_to_permission_request,
 };
 pub use capabilities::{
-  apply_flag_settings, get_session_instructions, install_plugin, list_mcp_tools_endpoint,
-  list_plugins_endpoint, list_skills_endpoint, mcp_authenticate, mcp_clear_auth, mcp_set_servers,
-  refresh_mcp_servers, toggle_mcp_server, uninstall_plugin,
+  apply_flag_settings, get_session_instructions, install_plugin, list_collaboration_modes_endpoint,
+  list_mcp_tools_endpoint, list_plugins_endpoint, list_skills_endpoint, mcp_authenticate,
+  mcp_clear_auth, mcp_set_servers, refresh_mcp_servers, toggle_mcp_server, uninstall_plugin,
 };
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
 pub(crate) use connector_actions::{
@@ -74,9 +74,10 @@ pub use server_meta::{
   fetch_claude_usage, fetch_codex_usage, fetch_usage_summary, list_claude_models, list_codex_models,
 };
 pub use session_actions::{
-  compact_context, get_session_image_attachment, interrupt_session, post_session_message,
-  post_steer_turn, rewind_files, rollback_turns, stop_task, undo_last_turn,
-  upload_session_image_attachment, AcceptedResponse,
+  compact_context, compact_context_control, get_session_controls, get_session_image_attachment,
+  interrupt_session, post_session_message, post_steer_turn, rewind_files, rewind_to_message,
+  rollback_turns, rollback_turns_control, stop_active_turn, stop_target, stop_task,
+  undo_last_turn, undo_last_turn_control, upload_session_image_attachment, AcceptedResponse,
 };
 pub use session_lifecycle::{
   batch_write_codex_config, create_session, end_session, fork_session,

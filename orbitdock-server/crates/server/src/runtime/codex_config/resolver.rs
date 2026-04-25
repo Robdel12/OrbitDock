@@ -397,7 +397,7 @@ fn runtime_override_layer(selection: &CodexConfigSelection) -> Option<CodexInspe
 fn core_approvals_reviewer_to_protocol(reviewer: ApprovalsReviewer) -> CodexApprovalsReviewer {
   match reviewer {
     ApprovalsReviewer::User => CodexApprovalsReviewer::User,
-    ApprovalsReviewer::GuardianSubagent => CodexApprovalsReviewer::GuardianSubagent,
+    ApprovalsReviewer::AutoReview => CodexApprovalsReviewer::GuardianSubagent,
   }
 }
 

@@ -268,7 +268,6 @@ impl RolloutFileProcessor {
       RolloutItem::TurnContext(ctx) => self.parse_turn_context(ctx, path),
       RolloutItem::EventMsg(event) => self.parse_event_msg(event, path),
       RolloutItem::ResponseItem(item) => self.parse_response_item(item, path),
-      RolloutItem::SessionState(_) => vec![],
       RolloutItem::Compacted(_) => vec![],
     }
   }
@@ -1117,6 +1116,7 @@ impl RolloutFileProcessor {
         | codex_protocol::protocol::RealtimeEvent::ConversationItemDone { .. }
         | codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(_)
         | codex_protocol::protocol::RealtimeEvent::ResponseCancelled(_)
+        | codex_protocol::protocol::RealtimeEvent::NoopRequested(_)
         | codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
         codex_protocol::protocol::RealtimeEvent::HandoffRequested(handoff) => {
           let Some(content) = realtime_text_from_handoff_request(&handoff) else {

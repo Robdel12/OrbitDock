@@ -14,9 +14,14 @@ use super::{
 };
 use crate::{
   infrastructure::persistence::PersistCommand,
-  runtime::{session_queries::load_full_session_state, session_registry::SessionRegistry},
+  runtime::{
+    session_queries::{load_full_session_state, load_light_session_state},
+    session_registry::SessionRegistry,
+  },
 };
-use orbitdock_protocol::{ImageInput, MentionInput, SessionDetailSnapshot, SkillInput};
+use orbitdock_protocol::{
+  ImageInput, MentionInput, Provider, SessionControlMode, SessionDetailSnapshot, SkillInput,
+};
 
 #[derive(Debug, Serialize)]
 pub struct AcceptedResponse {
@@ -96,6 +101,43 @@ pub struct RewindFilesRequest {
   pub user_message_id: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SessionControlsResponse {
+  pub session_id: String,
+  pub provider: Provider,
+  pub controls: SessionControlsPayload,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionControlsPayload {
+  pub stop_active_turn: SessionControlCapability,
+  pub compact_context: SessionControlCapability,
+  pub undo_last_turn: SessionControlCapability,
+  pub rollback_turns: SessionControlCapability,
+  pub stop_target: SessionControlCapability,
+  pub rewind_to_message: SessionControlCapability,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SessionControlCapability {
+  pub supported: bool,
+  pub available: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub target_kind: Option<&'static str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub max_count: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StopTargetRequest {
+  pub target_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RewindToMessageRequest {
+  pub message_id: String,
+}
+
 fn next_http_message_id(prefix: &str) -> String {
   format!("{prefix}-{}", orbitdock_protocol::new_id())
 }
@@ -133,6 +175,75 @@ async fn accepted_response(
   Ok(Json(AcceptedResponse {
     accepted: true,
     session_detail_snapshot: Some(load_session_detail_snapshot(state, session_id).await?),
+  }))
+}
+
+fn direct_connector_available(session: &orbitdock_protocol::SessionState) -> bool {
+  session.control_mode == SessionControlMode::Direct
+    && session.connector_attached
+    && session.lifecycle_state != orbitdock_protocol::SessionLifecycleState::Ended
+}
+
+fn session_controls_for_state(
+  session: &orbitdock_protocol::SessionState,
+) -> SessionControlsPayload {
+  let provider = session.provider;
+  let available = direct_connector_available(session);
+  let has_turns = session.turn_count > 0;
+  let max_turns = u32::try_from(session.turn_count).ok().filter(|value| *value > 0);
+
+  SessionControlsPayload {
+    stop_active_turn: SessionControlCapability {
+      supported: matches!(provider, Provider::Claude | Provider::Codex),
+      available: available && session.can_interrupt,
+      target_kind: None,
+      max_count: None,
+    },
+    compact_context: SessionControlCapability {
+      supported: matches!(provider, Provider::Claude | Provider::Codex),
+      available,
+      target_kind: None,
+      max_count: None,
+    },
+    undo_last_turn: SessionControlCapability {
+      supported: matches!(provider, Provider::Claude | Provider::Codex),
+      available: available && has_turns,
+      target_kind: None,
+      max_count: Some(1),
+    },
+    rollback_turns: SessionControlCapability {
+      supported: matches!(provider, Provider::Claude | Provider::Codex),
+      available: available && has_turns,
+      target_kind: None,
+      max_count: max_turns,
+    },
+    stop_target: SessionControlCapability {
+      supported: provider == Provider::Claude,
+      available: available && provider == Provider::Claude,
+      target_kind: (provider == Provider::Claude).then_some("task"),
+      max_count: None,
+    },
+    rewind_to_message: SessionControlCapability {
+      supported: provider == Provider::Claude,
+      available: available && provider == Provider::Claude && has_turns,
+      target_kind: (provider == Provider::Claude).then_some("user_message"),
+      max_count: None,
+    },
+  }
+}
+
+pub async fn get_session_controls(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> Result<Json<SessionControlsResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  let session = load_light_session_state(&state, &session_id)
+    .await
+    .map_err(|error| session_load_error(&session_id, error))?;
+
+  Ok(Json(SessionControlsResponse {
+    session_id,
+    provider: session.provider,
+    controls: session_controls_for_state(&session),
   }))
 }
 
@@ -325,6 +436,16 @@ pub async fn interrupt_session(
   accepted_response(&state, &session_id).await
 }
 
+pub async fn stop_active_turn(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  crate::runtime::message_dispatch::dispatch_stop_active_turn(&state, &session_id)
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
 pub async fn compact_context(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -335,11 +456,31 @@ pub async fn compact_context(
   accepted_response(&state, &session_id).await
 }
 
+pub async fn compact_context_control(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  crate::runtime::message_dispatch::dispatch_compact_context(&state, &session_id)
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
 pub async fn undo_last_turn(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   crate::runtime::message_dispatch::dispatch_undo(&state, &session_id)
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
+pub async fn undo_last_turn_control(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  crate::runtime::message_dispatch::dispatch_undo_last_turn(&state, &session_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
   accepted_response(&state, &session_id).await
@@ -365,12 +506,43 @@ pub async fn rollback_turns(
   accepted_response(&state, &session_id).await
 }
 
+pub async fn rollback_turns_control(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+  Json(body): Json<RollbackTurnsRequest>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  if body.num_turns < 1 {
+    return Err((
+      StatusCode::BAD_REQUEST,
+      Json(ApiErrorResponse {
+        code: "invalid_argument",
+        error: "num_turns must be >= 1".to_string(),
+      }),
+    ));
+  }
+  crate::runtime::message_dispatch::dispatch_rollback_turns(&state, &session_id, body.num_turns)
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
 pub async fn stop_task(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<StopTaskRequest>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   crate::runtime::message_dispatch::dispatch_stop_task(&state, &session_id, body.task_id)
+    .await
+    .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
+pub async fn stop_target(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+  Json(body): Json<StopTargetRequest>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  crate::runtime::message_dispatch::dispatch_stop_target(&state, &session_id, body.target_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
   accepted_response(&state, &session_id).await
@@ -389,4 +561,178 @@ pub async fn rewind_files(
   .await
   .map_err(|code| dispatch_error_response(code, &session_id))?;
   accepted_response(&state, &session_id).await
+}
+
+pub async fn rewind_to_message(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+  Json(body): Json<RewindToMessageRequest>,
+) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
+  crate::runtime::message_dispatch::dispatch_rewind_to_message(
+    &state,
+    &session_id,
+    body.message_id,
+  )
+  .await
+  .map_err(|code| dispatch_error_response(code, &session_id))?;
+  accepted_response(&state, &session_id).await
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::{
+    domain::sessions::session::SessionHandle,
+    infrastructure::persistence::{flush_batch_for_test, PersistCommand, SessionCreateParams},
+    transport::http::test_support::new_persist_test_state,
+  };
+  use axum::{extract::Path, extract::State};
+  use tokio::sync::mpsc;
+
+  fn persist_codex_session(
+    db_path: &std::path::PathBuf,
+    session_id: &str,
+    control_mode: SessionControlMode,
+  ) {
+    flush_batch_for_test(
+      db_path,
+      vec![PersistCommand::SessionCreate(Box::new(SessionCreateParams {
+        id: session_id.to_string(),
+        provider: Provider::Codex,
+        control_mode,
+        project_path: "/tmp/orbitdock-controls-test".to_string(),
+        project_name: Some("orbitdock-controls-test".to_string()),
+        branch: Some("main".to_string()),
+        model: Some("gpt-5".to_string()),
+        approval_policy: None,
+        sandbox_mode: None,
+        permission_mode: None,
+        collaboration_mode: None,
+        multi_agent: None,
+        personality: None,
+        service_tier: None,
+        developer_instructions: None,
+        codex_config_mode: None,
+        codex_config_profile: None,
+        codex_model_provider: None,
+        codex_config_source: None,
+        codex_config_overrides_json: None,
+        forked_from_session_id: None,
+        mission_id: None,
+        issue_identifier: None,
+        allow_bypass_permissions: false,
+        worktree_id: None,
+      }))],
+    )
+    .expect("persist codex session fixture");
+  }
+
+  fn persist_claude_session(db_path: &std::path::PathBuf, session_id: &str) {
+    flush_batch_for_test(
+      db_path,
+      vec![PersistCommand::ClaudeSessionUpsert {
+        id: session_id.to_string(),
+        project_path: "/tmp/orbitdock-controls-test".to_string(),
+        project_name: Some("orbitdock-controls-test".to_string()),
+        branch: Some("main".to_string()),
+        model: Some("claude-opus-4-1".to_string()),
+        context_label: None,
+        transcript_path: Some("/tmp/orbitdock-controls-test/transcript.jsonl".to_string()),
+        source: Some("hook".to_string()),
+        agent_type: None,
+        permission_mode: Some("acceptEdits".to_string()),
+        terminal_session_id: None,
+        terminal_app: None,
+        forked_from_session_id: None,
+        repository_root: Some("/tmp/orbitdock-controls-test".to_string()),
+        is_worktree: false,
+        git_sha: Some("abc123".to_string()),
+      }],
+    )
+    .expect("persist claude session fixture");
+  }
+
+  #[tokio::test]
+  async fn controls_endpoint_reports_normalized_capabilities_for_codex() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_codex_session(&db_path, &session_id, SessionControlMode::Direct);
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-controls-test".to_string(),
+    ));
+    let (action_tx, _action_rx) = mpsc::channel(4);
+    state.set_codex_action_tx(&session_id, action_tx);
+
+    let Json(response) = get_session_controls(Path(session_id), State(state))
+      .await
+      .expect("controls endpoint should succeed");
+
+    assert_eq!(response.provider, Provider::Codex);
+    assert!(response.controls.stop_active_turn.supported);
+    assert!(response.controls.compact_context.supported);
+    assert!(response.controls.undo_last_turn.supported);
+    assert!(response.controls.rollback_turns.supported);
+    assert!(!response.controls.stop_target.supported);
+    assert!(!response.controls.rewind_to_message.supported);
+  }
+
+  #[tokio::test]
+  async fn stop_target_returns_unsupported_for_codex_sessions() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_codex_session(&db_path, &session_id, SessionControlMode::Direct);
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Codex,
+      "/tmp/orbitdock-controls-test".to_string(),
+    ));
+    let (action_tx, _action_rx) = mpsc::channel(4);
+    state.set_codex_action_tx(&session_id, action_tx);
+
+    let response = stop_target(
+      Path(session_id),
+      State(state),
+      Json(StopTargetRequest {
+        target_id: "task-123".to_string(),
+      }),
+    )
+    .await;
+
+    match response {
+      Ok(_) => panic!("expected stop_target to fail for codex"),
+      Err((status, body)) => {
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.code, "unsupported_control");
+      }
+    }
+  }
+
+  #[tokio::test]
+  async fn controls_endpoint_reports_targeted_controls_for_claude() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_claude_session(&db_path, &session_id);
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Claude,
+      "/tmp/orbitdock-controls-test".to_string(),
+    ));
+    let (action_tx, _action_rx) = mpsc::channel(4);
+    state.set_claude_action_tx(&session_id, action_tx);
+
+    let Json(response) = get_session_controls(Path(session_id), State(state))
+      .await
+      .expect("controls endpoint should succeed");
+
+    assert_eq!(response.provider, Provider::Claude);
+    assert!(response.controls.stop_target.supported);
+    assert_eq!(response.controls.stop_target.target_kind, Some("task"));
+    assert!(response.controls.rewind_to_message.supported);
+    assert_eq!(
+      response.controls.rewind_to_message.target_kind,
+      Some("user_message")
+    );
+  }
 }

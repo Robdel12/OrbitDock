@@ -96,6 +96,49 @@ final class ServerSessionAPI {
     try await clients.skills.listSkills(sessionId: sessionId, forceReload: forceReload)
   }
 
+  func listPlugins(cwds: [String] = []) async throws -> CapabilitiesClient.PluginsResponse {
+    try await clients.capabilities.listPlugins(sessionId: sessionId, cwds: cwds)
+  }
+
+  func installPlugin(
+    marketplacePath: String?,
+    remoteMarketplaceName: String?,
+    pluginName: String
+  ) async throws -> CapabilitiesClient.PluginInstallResponse {
+    try await clients.capabilities.installPlugin(
+      sessionId: sessionId,
+      request: .init(
+        marketplacePath: marketplacePath,
+        remoteMarketplaceName: remoteMarketplaceName,
+        pluginName: pluginName
+      )
+    )
+  }
+
+  func uninstallPlugin(pluginId: String) async throws {
+    try await clients.capabilities.uninstallPlugin(sessionId: sessionId, pluginId: pluginId)
+  }
+
+  func listMcp() async throws -> CapabilitiesClient.McpResponse {
+    try await clients.capabilities.listMcp(sessionId: sessionId)
+  }
+
+  func refreshMcp() async throws {
+    try await clients.capabilities.refreshMcp(sessionId: sessionId)
+  }
+
+  func fetchSessionInstructions() async throws -> ServerSessionInstructions {
+    try await clients.runtime.fetchSessionInstructions(sessionId)
+  }
+
+  func listCollaborationModes() async throws -> [ServerSessionCollaborationMode] {
+    try await clients.runtime.listCollaborationModes(sessionId).data
+  }
+
+  func fetchSessionControls() async throws -> ServerSessionControlsPayload {
+    try await clients.controls.fetchSessionControls(sessionId).controls
+  }
+
   func fetchSubagentTools(subagentId: String) async throws -> [ServerSubagentTool] {
     try await clients.sessions.getSubagentTools(sessionId: sessionId, subagentId: subagentId)
   }
@@ -211,13 +254,13 @@ final class ServerSessionAPI {
     return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
+  func stopActiveTurn() async throws -> ServerSessionDetailSnapshotPayload? {
+    let response = try await clients.controls.stopActiveTurn(sessionId)
+    return applyControlResponse(response, emptySnapshotInvalidations: [.detail])
+  }
+
   func interruptSession() async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.interruptSession(sessionId)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    if response.sessionDetailSnapshot == nil {
-      transport.invalidate([.detail])
-    }
-    return response.sessionDetailSnapshot
+    try await stopActiveTurn()
   }
 
   func takeoverSession(
@@ -349,40 +392,36 @@ final class ServerSessionAPI {
   }
 
   func compactContext() async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.compactContext(sessionId)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    transport.invalidate([.conversation, .detail, .review])
-    return response.sessionDetailSnapshot
+    let response = try await clients.controls.compactContext(sessionId)
+    return applyControlResponse(response, alwaysInvalidations: [.conversation, .detail, .review])
   }
 
   func undoLastTurn() async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.undoLastTurn(sessionId)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    transport.invalidate([.conversation, .detail, .review])
-    return response.sessionDetailSnapshot
+    let response = try await clients.controls.undoLastTurn(sessionId)
+    return applyControlResponse(response, alwaysInvalidations: [.conversation, .detail, .review])
   }
 
   func rollbackTurns(numTurns: UInt32) async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.rollbackTurns(sessionId, numTurns: numTurns)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    transport.invalidate([.conversation, .detail, .review])
-    return response.sessionDetailSnapshot
+    let response = try await clients.controls.rollbackTurns(sessionId, numTurns: numTurns)
+    return applyControlResponse(response, alwaysInvalidations: [.conversation, .detail, .review])
+  }
+
+  func rewindToMessage(messageId: String) async throws -> ServerSessionDetailSnapshotPayload? {
+    let response = try await clients.controls.rewindToMessage(sessionId, messageId: messageId)
+    return applyControlResponse(response, alwaysInvalidations: [.conversation, .detail, .review])
   }
 
   func rewindFiles(userMessageId: String) async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.rewindFiles(sessionId, userMessageId: userMessageId)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    transport.invalidate([.conversation, .detail, .review])
-    return response.sessionDetailSnapshot
+    try await rewindToMessage(messageId: userMessageId)
+  }
+
+  func stopTarget(targetId: String) async throws -> ServerSessionDetailSnapshotPayload? {
+    let response = try await clients.controls.stopTarget(sessionId, targetId: targetId)
+    return applyControlResponse(response, emptySnapshotInvalidations: [.detail])
   }
 
   func stopTask(taskId: String) async throws -> ServerSessionDetailSnapshotPayload? {
-    let response = try await clients.conversation.stopTask(sessionId, taskId: taskId)
-    transport.recordRevision(response.sessionDetailSnapshot?.revision)
-    if response.sessionDetailSnapshot == nil {
-      transport.invalidate([.detail])
-    }
-    return response.sessionDetailSnapshot
+    try await stopTarget(targetId: taskId)
   }
 
   func uploadImageAttachment(
@@ -456,6 +495,25 @@ final class ServerSessionAPI {
     if state.hasResolvedTitle {
       localNamingClaimed = true
     }
+  }
+
+  private func applyControlResponse(
+    _ response: ServerAcceptedResponse,
+    alwaysInvalidations: SessionInvalidationSet = [],
+    emptySnapshotInvalidations: SessionInvalidationSet = []
+  ) -> ServerSessionDetailSnapshotPayload? {
+    let snapshot = response.sessionDetailSnapshot
+    transport.recordRevision(snapshot?.revision)
+
+    if !alwaysInvalidations.isEmpty {
+      transport.invalidate(alwaysInvalidations)
+    }
+
+    if snapshot == nil, !emptySnapshotInvalidations.isEmpty {
+      transport.invalidate(emptySnapshotInvalidations)
+    }
+
+    return snapshot
   }
 
   private func triggerLocalNamingIfNeeded(prompt: String) {

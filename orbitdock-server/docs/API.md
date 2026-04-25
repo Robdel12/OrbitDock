@@ -333,6 +333,96 @@ Queues a steer message for the active turn.
 
 Returns `202 Accepted` with `SteerTurnResponse`.
 
+### `GET /api/sessions/{session_id}/controls`
+
+Returns the normalized session control capability surface for the active provider.
+
+Returns:
+
+- `session_id`
+- `provider`
+- `controls`
+
+`controls` includes:
+
+- `stop_active_turn`
+- `compact_context`
+- `undo_last_turn`
+- `rollback_turns`
+- `stop_target`
+- `rewind_to_message`
+
+Each control advertises:
+
+- `supported`
+- `available`
+- optional `target_kind`
+- optional `max_count`
+
+This is the preferred bootstrap path for control availability. Clients should use it instead of inferring support from provider names.
+
+### `POST /api/sessions/{session_id}/controls/stop-active-turn`
+
+Stops the active turn for the current provider.
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/controls/compact-context`
+
+Requests context compaction using the current provider's native mechanism.
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/controls/undo-last-turn`
+
+Requests the provider's native "undo last turn" behavior.
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/controls/rollback-turns`
+
+Requests rollback of the most recent `N` turns.
+
+Request body:
+
+```json
+{"num_turns": 2}
+```
+
+Returns `AcceptedResponse`.
+
+### `POST /api/sessions/{session_id}/controls/stop-target`
+
+Stops a provider-specific execution target when supported.
+
+Request body:
+
+```json
+{"target_id":"task-..."}
+```
+
+Returns `AcceptedResponse`.
+
+If the current provider does not support targeted stop controls, the route returns `422 unsupported_control`.
+
+### `POST /api/sessions/{session_id}/controls/rewind-to-message`
+
+Rewinds to a provider-specific message boundary when supported.
+
+Request body:
+
+```json
+{"message_id":"msg-..."}
+```
+
+Returns `AcceptedResponse`.
+
+If the current provider does not support message-targeted rewind, the route returns `422 unsupported_control`.
+
+### Compatibility action routes
+
+The older `/conversation/*` action routes remain available as compatibility shims. New clients should prefer `/controls/*`.
+
 ### `POST /api/sessions/{session_id}/conversation/interrupt`
 
 Returns `AcceptedResponse`.
@@ -562,6 +652,24 @@ Returns:
 
 For Claude, `instructions` can include merged `claude_md`.
 
+### `GET /api/sessions/{session_id}/collaboration-modes`
+
+Returns the live Codex collaboration preset catalog for the active session runtime.
+
+Returns:
+
+- `data`
+
+Each item can include:
+
+- `name`
+- optional `mode`
+- optional `model`
+- optional `reasoning_effort`
+- `clears_reasoning_effort`
+
+For non-Codex sessions, this route returns an empty `data` array.
+
 ### `GET /api/sessions/{session_id}/skills`
 
 Query params:
@@ -616,11 +724,15 @@ Returns `AcceptedResponse` with no detail snapshot.
 
 Toggles a Claude MCP server.
 
+This is currently Claude-specific. Codex MCP support is currently read/refresh-oriented through the shared inventory routes.
+
 Returns `AcceptedResponse` with no detail snapshot.
 
 ### `POST /api/sessions/{session_id}/mcp/authenticate`
 
 Starts MCP auth flow for a server.
+
+This is currently Claude-specific.
 
 Returns `AcceptedResponse` with no detail snapshot.
 
@@ -628,11 +740,15 @@ Returns `AcceptedResponse` with no detail snapshot.
 
 Clears MCP auth state for a server.
 
+This is currently Claude-specific.
+
 Returns `AcceptedResponse` with no detail snapshot.
 
 ### `POST /api/sessions/{session_id}/mcp/servers`
 
 Sets the Claude MCP server config payload.
+
+This is currently Claude-specific.
 
 Returns `AcceptedResponse` with no detail snapshot.
 

@@ -1196,6 +1196,74 @@ struct ServerSessionInstructions: Decodable, Sendable {
   }
 }
 
+struct ServerSessionCollaborationMode: Decodable, Identifiable, Sendable {
+  let name: String
+  let mode: String?
+  let model: String?
+  let reasoningEffort: String?
+  let clearsReasoningEffort: Bool
+
+  var id: String {
+    name
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case mode
+    case model
+    case reasoningEffort = "reasoning_effort"
+    case clearsReasoningEffort = "clears_reasoning_effort"
+  }
+}
+
+struct ServerSessionCollaborationModesResponse: Decodable, Sendable {
+  let data: [ServerSessionCollaborationMode]
+}
+
+struct ServerSessionControlCapability: Decodable, Sendable {
+  let supported: Bool
+  let available: Bool
+  let targetKind: String?
+  let maxCount: UInt32?
+
+  enum CodingKeys: String, CodingKey {
+    case supported
+    case available
+    case targetKind = "target_kind"
+    case maxCount = "max_count"
+  }
+}
+
+struct ServerSessionControlsPayload: Decodable, Sendable {
+  let stopActiveTurn: ServerSessionControlCapability
+  let compactContext: ServerSessionControlCapability
+  let undoLastTurn: ServerSessionControlCapability
+  let rollbackTurns: ServerSessionControlCapability
+  let stopTarget: ServerSessionControlCapability
+  let rewindToMessage: ServerSessionControlCapability
+
+  enum CodingKeys: String, CodingKey {
+    case stopActiveTurn = "stop_active_turn"
+    case compactContext = "compact_context"
+    case undoLastTurn = "undo_last_turn"
+    case rollbackTurns = "rollback_turns"
+    case stopTarget = "stop_target"
+    case rewindToMessage = "rewind_to_message"
+  }
+}
+
+struct ServerSessionControlsResponse: Decodable, Sendable {
+  let sessionId: String
+  let provider: ServerProvider
+  let controls: ServerSessionControlsPayload
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case provider
+    case controls
+  }
+}
+
 // MARK: - Delta Updates
 
 struct ServerStateChanges: Codable {
