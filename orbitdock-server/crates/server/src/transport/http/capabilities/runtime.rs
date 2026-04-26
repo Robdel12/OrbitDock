@@ -9,10 +9,7 @@ use tokio::sync::oneshot;
 use crate::{
   connectors::codex_session::CodexAction,
   runtime::session_registry::SessionRegistry,
-  transport::http::{
-    connector_actions::dispatch_codex_query,
-    ApiResult,
-  },
+  transport::http::{connector_actions::dispatch_codex_query, ApiResult},
 };
 
 use super::{
@@ -46,9 +43,7 @@ pub async fn list_collaboration_modes_endpoint(
         mode: mode.mode.map(|value| match value {
           codex_protocol::config_types::ModeKind::Plan => "plan".to_string(),
           codex_protocol::config_types::ModeKind::Default => "default".to_string(),
-          codex_protocol::config_types::ModeKind::PairProgramming => {
-            "pair_programming".to_string()
-          }
+          codex_protocol::config_types::ModeKind::PairProgramming => "pair_programming".to_string(),
           codex_protocol::config_types::ModeKind::Execute => "execute".to_string(),
         }),
         model: mode.model,

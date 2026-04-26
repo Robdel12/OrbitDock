@@ -300,11 +300,47 @@ struct ServerMcpResourceTemplate: Codable {
   }
 }
 
-enum ServerMcpAuthStatus: String, Codable {
+enum ServerMcpAuthStatus: Codable, Equatable {
   case unsupported
-  case notLoggedIn = "not_logged_in"
-  case bearerToken = "bearer_token"
+  case notLoggedIn
+  case bearerToken
   case oauth
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let rawValue = try container.decode(String.self)
+
+    switch rawValue {
+    case "unsupported":
+      self = .unsupported
+    case "not_logged_in", "notLoggedIn":
+      self = .notLoggedIn
+    case "bearer_token", "bearerToken":
+      self = .bearerToken
+    case "oauth", "oAuth", "o_auth":
+      self = .oauth
+    default:
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "Unsupported MCP auth status: \(rawValue)"
+      )
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+
+    switch self {
+    case .unsupported:
+      try container.encode("unsupported")
+    case .notLoggedIn:
+      try container.encode("not_logged_in")
+    case .bearerToken:
+      try container.encode("bearer_token")
+    case .oauth:
+      try container.encode("oauth")
+    }
+  }
 }
 
 /// Tagged enum matching Rust's `#[serde(tag = "state", rename_all = "snake_case")]`

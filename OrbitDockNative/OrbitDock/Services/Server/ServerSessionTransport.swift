@@ -8,6 +8,8 @@ enum ServerSessionInvalidation: String, Hashable, Sendable {
   case detail
   case review
   case capabilities
+  case skills
+  case mcp
 }
 
 @MainActor
@@ -123,6 +125,15 @@ final class ServerSessionTransport {
           invalidate([invalidation])
         }
 
+      case .skillsUpdateAvailable:
+        invalidate([.skills])
+
+      case .mcpStartupUpdate, .mcpStartupComplete:
+        invalidate([.mcp])
+
+      case .claudeCapabilities:
+        invalidate([.capabilities])
+
       case let .conversationRowsChanged(_, upserted, removedRowIds, _):
         emitConversationRows(.init(upserted: upserted, removedIds: removedRowIds))
 
@@ -144,7 +155,7 @@ final class ServerSessionTransport {
 
     switch code {
       case "lagged", "replay_oversized":
-        invalidate([.conversation, .detail, .review])
+        invalidate([.conversation, .detail, .review, .capabilities, .skills, .mcp])
         return
       default:
         break

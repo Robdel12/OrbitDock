@@ -127,6 +127,10 @@ final class ServerSessionAPI {
     try await clients.capabilities.refreshMcp(sessionId: sessionId)
   }
 
+  func authenticateMcp(serverName: String) async throws -> CapabilitiesClient.McpAuthenticateResponse {
+    try await clients.capabilities.authenticateMcp(sessionId: sessionId, serverName: serverName)
+  }
+
   func fetchSessionInstructions() async throws -> ServerSessionInstructions {
     try await clients.runtime.fetchSessionInstructions(sessionId)
   }
@@ -204,6 +208,12 @@ final class ServerSessionAPI {
       row: response.row,
       sessionDetailSnapshot: detailSnapshot
     )
+  }
+
+  func runSessionShellCommand(command: String) async throws -> ServerSessionDetailSnapshotPayload? {
+    let response = try await clients.conversation.runSessionShellCommand(sessionId, command: command)
+    transport.invalidate([.conversation])
+    return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }
 
   func approveTool(

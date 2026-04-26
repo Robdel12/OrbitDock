@@ -205,6 +205,10 @@ For session runtime/controls specifically, the bootstrap should come from explic
 - `GET /api/sessions/{id}/instructions`
 - `GET /api/sessions/{id}/collaboration-modes`
 
+Session-scoped shell commands are conversation mutations, not a terminal bootstrap surface:
+
+- `POST /api/sessions/{id}/conversation/shell-command`
+
 These surfaces should not refresh because of a broad unrelated per-session event.
 
 ## Boot Sequences

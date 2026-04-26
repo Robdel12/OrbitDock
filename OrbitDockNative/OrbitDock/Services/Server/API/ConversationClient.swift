@@ -50,6 +50,10 @@ struct ConversationClient: Sendable {
     var mentions: [ServerMentionInput] = []
   }
 
+  struct SessionShellCommandRequest: Encodable {
+    let command: String
+  }
+
   private let http: ServerHTTPClient
   private let requestBuilder: HTTPRequestBuilder
 
@@ -136,6 +140,16 @@ struct ConversationClient: Sendable {
     try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/steer",
       body: request
+    )
+  }
+
+  func runSessionShellCommand(
+    _ sessionId: String,
+    command: String
+  ) async throws -> ServerAcceptedResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/shell-command",
+      body: SessionShellCommandRequest(command: command)
     )
   }
 

@@ -61,6 +61,24 @@ struct CapabilitiesClient: Sendable {
     }
   }
 
+  struct McpAuthenticateRequest: Encodable {
+    let serverName: String
+
+    enum CodingKeys: String, CodingKey {
+      case serverName = "server_name"
+    }
+  }
+
+  struct McpAuthenticateResponse: Decodable {
+    let accepted: Bool
+    let authorizationURL: String?
+
+    enum CodingKeys: String, CodingKey {
+      case accepted
+      case authorizationURL = "authorization_url"
+    }
+  }
+
   private let http: ServerHTTPClient
   private let requestBuilder: HTTPRequestBuilder
 
@@ -110,6 +128,16 @@ struct CapabilitiesClient: Sendable {
     let _: ServerAcceptedResponse = try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/mcp/refresh",
       body: ServerEmptyBody()
+    )
+  }
+
+  func authenticateMcp(
+    sessionId: String,
+    serverName: String
+  ) async throws -> McpAuthenticateResponse {
+    try await http.post(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/mcp/authenticate",
+      body: McpAuthenticateRequest(serverName: serverName)
     )
   }
 }

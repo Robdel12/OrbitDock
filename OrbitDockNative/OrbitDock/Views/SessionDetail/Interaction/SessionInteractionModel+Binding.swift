@@ -52,9 +52,11 @@ extension SessionInteractionModel {
     }
   }
 
-  func loadSkills() async {
+  func loadSkills(force: Bool = false) async {
     guard let sessionId = currentSessionId, let session = currentSession else { return }
+    guard force || !hasAttemptedSkillLoad else { return }
     guard !isLoadingSkills else { return }
+    hasAttemptedSkillLoad = true
     isLoadingSkills = true
     defer { isLoadingSkills = false }
 

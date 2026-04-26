@@ -61,7 +61,11 @@ extension SessionInteractionModel {
       sid: payload.session.id,
       data: snapshotLogData(snapshot: payload, source: source)
     )
-    snapshot = ControlDeckSnapshotMapper.map(payload, codexModels: currentSession?.codexModels ?? [])
+    snapshot = ControlDeckSnapshotMapper.map(
+      payload,
+      codexModels: currentSession?.codexModels ?? [],
+      controls: controls
+    )
     lastError = nil
     rebuildPresentation()
     logSessionStateIfChanged(source: "applyDetail(\(source))")
@@ -119,7 +123,9 @@ extension SessionInteractionModel {
     snapshot = nil
     presentation = nil
     skills = []
+    controls = nil
     isLoadingSkills = false
+    hasAttemptedSkillLoad = false
     isLoading = false
     isResuming = false
     lastError = nil
@@ -212,6 +218,45 @@ extension SessionInteractionModel {
   ) async {
     await loadCodexModelsIfNeeded(for: session.provider, binding: binding)
     await loadProjectFileIndexIfNeeded(for: session.projectPath, binding: binding)
+    await loadControlsIfNeeded(binding: binding)
+    await loadSkillsIfNeeded(for: session.provider, binding: binding)
+  }
+
+  func loadControlsIfNeeded(binding: BindingContext) async {
+    guard isCurrent(binding) else { return }
+    let session = binding.session
+
+    do {
+      let fetchedControls = try await session.api.fetchSessionControls()
+      guard isCurrent(binding) else { return }
+      controls = fetchedControls
+      updateSnapshotWithControls(fetchedControls)
+    } catch {
+      // Controls are optional — don't fail the load if they're unavailable
+      netLog(.debug, cat: .store, "Session controls fetch skipped", sid: binding.sessionId, data: [
+        "error": String(describing: error)
+      ])
+    }
+  }
+
+  func updateSnapshotWithControls(_ newControls: ServerSessionControlsPayload) {
+    guard let current = snapshot else { return }
+    snapshot = current.replacing(
+      sessionShell: ControlDeckSnapshotMapper.mapSessionShell(newControls),
+      turnControls: ControlDeckSnapshotMapper.mapTurnControls(newControls)
+    )
+    rebuildPresentation()
+  }
+
+  func refreshControls() async {
+    guard let binding = currentBindingContext else { return }
+    await loadControlsIfNeeded(binding: binding)
+  }
+
+  func loadSkillsIfNeeded(for provider: ServerProvider, binding: BindingContext) async {
+    guard provider == .codex else { return }
+    guard isCurrent(binding) else { return }
+    await loadSkills()
   }
 
   func loadProjectFileIndexIfNeeded(for projectPath: String?, binding: BindingContext) async {

@@ -12,10 +12,14 @@ struct ControlDeckSnapshot: Sendable {
   let tokenUsageSnapshotKind: ControlDeckTokenUsageSnapshotKind
   let tokenStatus: ControlDeckTokenStatus
   let pendingApproval: ControlDeckApproval?
+  let sessionShell: ControlDeckSessionShellCapability?
+  let turnControls: ControlDeckTurnControls?
 
   func replacing(
     preferences: ControlDeckPreferences? = nil,
-    pendingApproval: ControlDeckApproval?? = nil
+    pendingApproval: ControlDeckApproval?? = nil,
+    sessionShell: ControlDeckSessionShellCapability?? = nil,
+    turnControls: ControlDeckTurnControls?? = nil
   ) -> ControlDeckSnapshot {
     ControlDeckSnapshot(
       revision: revision,
@@ -26,7 +30,9 @@ struct ControlDeckSnapshot: Sendable {
       tokenUsage: tokenUsage,
       tokenUsageSnapshotKind: tokenUsageSnapshotKind,
       tokenStatus: tokenStatus,
-      pendingApproval: pendingApproval ?? self.pendingApproval
+      pendingApproval: pendingApproval ?? self.pendingApproval,
+      sessionShell: sessionShell ?? self.sessionShell,
+      turnControls: turnControls ?? self.turnControls
     )
   }
 }
@@ -192,4 +198,28 @@ enum ControlDeckStatusModule: String, Hashable, Sendable {
   case branch
   case cwd
   case attachments
+  case turnControls
+}
+
+// MARK: - Turn Controls
+
+struct ControlDeckTurnControls: Equatable, Sendable {
+  let undoLastTurn: ControlDeckTurnControlCapability
+  let compactContext: ControlDeckTurnControlCapability
+  let rollbackTurns: ControlDeckTurnControlCapability
+  let maxRollbackTurns: Int
+
+  var hasAnySupported: Bool {
+    undoLastTurn.supported || compactContext.supported || rollbackTurns.supported
+  }
+}
+
+struct ControlDeckTurnControlCapability: Equatable, Sendable {
+  let supported: Bool
+  let available: Bool
+}
+
+struct ControlDeckSessionShellCapability: Equatable, Sendable {
+  let supported: Bool
+  let available: Bool
 }

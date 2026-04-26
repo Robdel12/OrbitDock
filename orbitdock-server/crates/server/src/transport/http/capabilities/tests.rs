@@ -363,7 +363,9 @@ async fn collaboration_modes_endpoint_dispatches_action_and_returns_payload() {
     .await
     .expect("collaboration modes endpoint should succeed");
 
-  task.await.expect("collaboration modes helper task should complete");
+  task
+    .await
+    .expect("collaboration modes helper task should complete");
 
   assert_eq!(response.0.data.len(), 2);
   assert_eq!(response.0.data[0].name, "default");

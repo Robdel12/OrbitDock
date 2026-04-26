@@ -125,6 +125,9 @@ struct SessionDetailView: View {
     .onChange(of: showWorkerPanel) { _, visible in
       viewModel.handleWorkerPanelVisibilityChange(visible)
     }
+    .onChange(of: showCapabilitiesSheet) { _, visible in
+      viewModel.handleCapabilitiesVisibilityChange(visible)
+    }
     .sheet(isPresented: $showCapabilitiesSheet) {
       SessionCapabilitiesSheet(
         session: scopedSession,
@@ -133,6 +136,10 @@ struct SessionDetailView: View {
         sessionState: viewModel.detailPayload?.session,
         model: viewModel.capabilities
       )
+#if os(iOS)
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
+#endif
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
@@ -231,7 +238,7 @@ struct SessionDetailView: View {
           Button {
             openCapabilitiesSheet()
           } label: {
-            Label("Codex Runtime", systemImage: "slider.horizontal.3")
+            Label("Codex Workspace", systemImage: "slider.horizontal.3")
           }
 
           Divider()
@@ -277,13 +284,6 @@ struct SessionDetailView: View {
 
   func openCapabilitiesSheet() {
     showCapabilitiesSheet = true
-    Task {
-      await viewModel.capabilities.loadIfNeeded(
-        session: scopedSession,
-        projectPath: screenPresentation.projectPath,
-        sessionState: viewModel.detailPayload?.session
-      )
-    }
   }
 }
 

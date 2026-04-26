@@ -41,6 +41,7 @@ final class SessionDetailViewModel {
   @ObservationIgnored private var diffBannerDismissTask: Task<Void, Never>?
   @ObservationIgnored private var pendingInvalidationRevision: UInt64?
   @ObservationIgnored private var lastLoadedRevision: UInt64?
+  @ObservationIgnored private var isCapabilitiesVisible = false
 
   var detailPayload: ServerSessionDetailSnapshotPayload?
   var screenPresentation = SessionDetailScreenPresentation.empty
@@ -135,6 +136,7 @@ final class SessionDetailViewModel {
     currentBindingRevision += 1
     refreshRunner.cancel()
     diffBannerDismissTask?.cancel()
+    isCapabilitiesVisible = false
     pendingInvalidationRevision = nil
     lastLoadedRevision = nil
     detailPayload = nil
@@ -256,16 +258,18 @@ final class SessionDetailViewModel {
     }
 
     if targets.contains(.capabilities) {
-      capabilities.markStale()
-      if capabilities.hasLoaded {
-        Task { [session, projectPath = screenPresentation.projectPath] in
-          await capabilities.refresh(
-            session: session,
-            projectPath: projectPath,
-            sessionState: self.detailPayload?.session
-          )
-        }
-      }
+      capabilities.markWorkspaceStale()
+      refreshCapabilitiesIfVisible(for: capabilities.selectedSection)
+    }
+
+    if targets.contains(.skills) {
+      capabilities.markStale(.skills)
+      refreshCapabilitiesIfVisible(for: .skills)
+    }
+
+    if targets.contains(.mcp) {
+      capabilities.markStale(.mcp)
+      refreshCapabilitiesIfVisible(for: .mcp)
     }
 
     if targets.contains(.detail) {
@@ -303,6 +307,18 @@ final class SessionDetailViewModel {
       session: session,
       layoutConfig: layoutConfig
     )
+  }
+
+  func handleCapabilitiesVisibilityChange(_ visible: Bool) {
+    guard shouldSubscribeToServerSession else { return }
+    guard isCapabilitiesVisible != visible else { return }
+
+    isCapabilitiesVisible = visible
+    if visible {
+      session.transport.subscribe(surfaces: [.capabilities])
+    } else {
+      session.transport.unsubscribe(surfaces: [.capabilities])
+    }
   }
 
   func jumpConversationToLatest() {
@@ -520,7 +536,7 @@ final class SessionDetailViewModel {
 
     guard activeSubscriptionIdentity != bindingIdentity else { return }
     clearSessionSubscription()
-    session.transport.subscribe(surfaces: [.detail, .conversation, .capabilities])
+    session.transport.subscribe(surfaces: [.detail, .conversation])
     activeSubscriptionIdentity = bindingIdentity
     activeSubscriptionSession = session
   }
@@ -529,7 +545,9 @@ final class SessionDetailViewModel {
     refreshRunner.cancel()
     diffBannerDismissTask?.cancel()
     pendingInvalidationRevision = nil
-    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail, .conversation, .capabilities])
+    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.capabilities])
+    isCapabilitiesVisible = false
+    activeSubscriptionSession?.transport.unsubscribe(surfaces: [.detail, .conversation])
     activeSubscriptionSession = nil
     activeSubscriptionIdentity = nil
   }
@@ -564,6 +582,23 @@ final class SessionDetailViewModel {
   private func requestRefresh() {
     refreshRunner.schedule { [weak self] in
       await self?.performRefresh()
+    }
+  }
+
+  private func refreshCapabilitiesIfVisible(for section: SessionCapabilitiesSection) {
+    guard capabilities.visibleSections.contains(section) else { return }
+
+    let projectPath = detailPayload?.session.projectPath ?? screenPresentation.projectPath
+    let sessionState = detailPayload?.session
+
+    Task { [weak self] in
+      guard let self else { return }
+      await self.capabilities.loadIfNeeded(
+        session: self.session,
+        projectPath: projectPath,
+        sessionState: sessionState,
+        section: section
+      )
     }
   }
 

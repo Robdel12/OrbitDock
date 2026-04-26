@@ -40,6 +40,7 @@ struct ControlDeckPresentation: Equatable, Sendable {
   let supportsImages: Bool
   let headerSubtitle: String
   let statusModules: [ControlDeckStatusModuleItem]
+  let turnControls: ControlDeckTurnControls?
   let placeholder: String
   let sendTint: String
 }
@@ -79,6 +80,8 @@ struct ControlDeckStatusModuleItem: Identifiable, Equatable, Sendable {
     case readOnly
     /// Tappable — opens a picker with the given options. Current value is `label`.
     case picker(options: [Option])
+    /// Menu with action items (not value selection).
+    case actions(items: [ActionItem])
   }
 
   struct Option: Identifiable, Equatable, Sendable {
@@ -87,6 +90,32 @@ struct ControlDeckStatusModuleItem: Identifiable, Equatable, Sendable {
 
     var id: String {
       value
+    }
+  }
+
+  struct ActionItem: Identifiable, Equatable, Sendable {
+    let action: String
+    let label: String
+    let icon: String?
+    let isEnabled: Bool
+    let isDestructive: Bool
+
+    var id: String {
+      action
+    }
+
+    init(
+      action: String,
+      label: String,
+      icon: String? = nil,
+      isEnabled: Bool = true,
+      isDestructive: Bool = false
+    ) {
+      self.action = action
+      self.label = label
+      self.icon = icon
+      self.isEnabled = isEnabled
+      self.isDestructive = isDestructive
     }
   }
 }

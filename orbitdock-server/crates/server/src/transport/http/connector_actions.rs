@@ -71,6 +71,10 @@ pub(crate) fn dispatch_error_response(
       "unsupported_control",
       "This session provider does not support that control",
     ),
+    "unsupported_session_shell" => unprocessable(
+      "unsupported_session_shell",
+      "This session provider does not support session shell commands",
+    ),
     "rollback_failed" => unprocessable(
       "rollback_failed",
       "Could not find user message for rollback",

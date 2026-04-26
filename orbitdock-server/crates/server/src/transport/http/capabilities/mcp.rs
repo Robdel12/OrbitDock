@@ -11,17 +11,18 @@ use crate::{
   runtime::session_registry::SessionRegistry,
   transport::http::{
     connector_actions::{
-      dispatch_claude_action, dispatch_codex_action, subscribe_session_events,
-      wait_for_mcp_tools_event,
+      dispatch_claude_action, dispatch_codex_action, dispatch_codex_query,
+      subscribe_session_events, wait_for_mcp_tools_event,
     },
     AcceptedResponse, ApiErrorResponse, ApiResult,
   },
 };
 use orbitdock_connector_claude::session::ClaudeAction;
+use tokio::sync::oneshot;
 
 use super::{
-  common::accepted_without_detail, McpServerNameRequest, McpSetServersRequest, McpToggleRequest,
-  McpToolsResponse, RefreshMcpServerRequest,
+  common::accepted_without_detail, McpAuthenticateResponse, McpServerNameRequest,
+  McpSetServersRequest, McpToggleRequest, McpToolsResponse, RefreshMcpServerRequest,
 };
 
 pub async fn list_mcp_tools_endpoint(
@@ -92,7 +93,29 @@ pub async fn mcp_authenticate(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
   Json(body): Json<McpServerNameRequest>,
-) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+) -> Result<(StatusCode, Json<McpAuthenticateResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+  if state.get_codex_action_tx(&session_id).is_some() {
+    let (reply_tx, reply_rx) = oneshot::channel();
+    let response = dispatch_codex_query(
+      &state,
+      &session_id,
+      reply_rx,
+      CodexAction::AuthenticateMcpServer {
+        server_name: body.server_name,
+        reply_tx,
+      },
+    )
+    .await?;
+
+    return Ok((
+      StatusCode::ACCEPTED,
+      Json(McpAuthenticateResponse {
+        accepted: true,
+        authorization_url: Some(response.authorization_url),
+      }),
+    ));
+  }
+
   dispatch_claude_action(
     &state,
     &session_id,
@@ -102,7 +125,13 @@ pub async fn mcp_authenticate(
   )
   .await?;
 
-  Ok(accepted_without_detail())
+  Ok((
+    StatusCode::ACCEPTED,
+    Json(McpAuthenticateResponse {
+      accepted: true,
+      authorization_url: None,
+    }),
+  ))
 }
 
 pub async fn mcp_clear_auth(

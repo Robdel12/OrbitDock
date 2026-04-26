@@ -46,10 +46,14 @@ fn surface_message_matches(msg: &ServerMessage, surface: SessionSurface) -> bool
     ),
     SessionSurface::Capabilities => matches!(
       msg,
-      ServerMessage::SessionSurfaceInvalidated {
-        surface: SessionSurface::Capabilities,
-        ..
-      }
+      ServerMessage::SkillsUpdateAvailable { .. }
+        | ServerMessage::McpStartupUpdate { .. }
+        | ServerMessage::McpStartupComplete { .. }
+        | ServerMessage::ClaudeCapabilities { .. }
+        | ServerMessage::SessionSurfaceInvalidated {
+          surface: SessionSurface::Capabilities,
+          ..
+        }
     ),
   }
 }

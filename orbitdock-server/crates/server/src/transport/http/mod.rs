@@ -75,9 +75,10 @@ pub use server_meta::{
 };
 pub use session_actions::{
   compact_context, compact_context_control, get_session_controls, get_session_image_attachment,
-  interrupt_session, post_session_message, post_steer_turn, rewind_files, rewind_to_message,
-  rollback_turns, rollback_turns_control, stop_active_turn, stop_target, stop_task,
-  undo_last_turn, undo_last_turn_control, upload_session_image_attachment, AcceptedResponse,
+  interrupt_session, post_session_message, post_session_shell_command, post_steer_turn,
+  rewind_files, rewind_to_message, rollback_turns, rollback_turns_control, stop_active_turn,
+  stop_target, stop_task, undo_last_turn, undo_last_turn_control, upload_session_image_attachment,
+  AcceptedResponse,
 };
 pub use session_lifecycle::{
   batch_write_codex_config, create_session, end_session, fork_session,

@@ -223,7 +223,7 @@ struct HeaderView: View {
         Button {
           onManageCapabilities()
         } label: {
-          Label("Codex Runtime", systemImage: "slider.horizontal.3")
+          Label("Codex Workspace", systemImage: "slider.horizontal.3")
         }
 
         Divider()
@@ -256,7 +256,7 @@ struct HeaderView: View {
         Button {
           onManageCapabilities()
         } label: {
-          Label("Codex Runtime", systemImage: "slider.horizontal.3")
+          Label("Codex Workspace", systemImage: "slider.horizontal.3")
         }
 
         Divider()

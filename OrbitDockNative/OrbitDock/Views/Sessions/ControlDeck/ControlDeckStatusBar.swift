@@ -38,14 +38,19 @@ struct ControlDeckStatusBar: View {
   var isSubmitting: Bool = false
   var isResuming: Bool = false
   var sendTint: String = "accent"
+  var isShellMode: Bool = false
+  var supportsSessionShell: Bool = false
+  var sessionShellAvailable: Bool = false
   var onAddImage: (() -> Void)?
   var onPasteImage: (() -> Void)?
   var onSubmit: (() -> Void)?
+  var onToggleShellMode: (() -> Void)?
   var onResume: (() -> Void)?
   var isDictating: Bool = false
   var canInterruptSession: Bool = false
   var onDictation: (() -> Void)?
   var onInterrupt: (() -> Void)?
+  var onTurnControlAction: ((String) -> Void)?
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -67,7 +72,7 @@ struct ControlDeckStatusBar: View {
 
   private func isControlModule(_ module: ControlDeckStatusModuleItem) -> Bool {
     switch module.id {
-      case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort, .model:
+      case .autonomy, .approvalMode, .collaborationMode, .autoReview, .effort, .model, .turnControls:
         return true
       default:
         return false
@@ -107,6 +112,15 @@ struct ControlDeckStatusBar: View {
 
   private var actionButtons: some View {
     HStack(spacing: isCompact ? Spacing.xs : Spacing.xxs) {
+      if supportsSessionShell {
+        ghostButton(
+          icon: "terminal",
+          tint: isShellMode ? .composerShell : .terminal,
+          isEnabled: sessionShellAvailable,
+          action: { onToggleShellMode?() }
+        )
+      }
+
       if supportsImages {
         ghostButton(icon: "paperclip", tint: .accent, action: { onAddImage?() })
       }
@@ -203,7 +217,7 @@ struct ControlDeckStatusBar: View {
             .controlSize(.mini)
             .tint(.white)
         } else {
-          Image(systemName: "arrow.up")
+          Image(systemName: isShellMode ? "terminal.fill" : "arrow.up")
             .font(.system(size: TypeScale.caption, weight: .bold))
             .foregroundStyle(canSubmit ? Color.backgroundPrimary : Color.textQuaternary)
         }
@@ -213,12 +227,13 @@ struct ControlDeckStatusBar: View {
     }
     .buttonStyle(.plain)
     .disabled(!canSubmit || isSubmitting)
-    .accessibilityLabel("Send")
+    .accessibilityLabel(isShellMode ? "Run in Session" : "Send")
   }
 
   private var resolvedSendTint: Color {
     switch sendTint {
       case "accent": .accent
+      case "composerShell": .composerShell
       case "feedbackWarning": .feedbackWarning
       case "feedbackCaution": .feedbackCaution
       case "feedbackPositive": .feedbackPositive
@@ -301,9 +316,55 @@ struct ControlDeckStatusBar: View {
         } else {
           genericModuleView(module)
         }
+      case .turnControls:
+        turnControlsModuleView(module)
       default:
         genericModuleView(module)
     }
+  }
+
+  @ViewBuilder
+  private func turnControlsModuleView(_ module: ControlDeckStatusModuleItem) -> some View {
+    if case let .actions(items) = module.interaction, !items.isEmpty {
+      Menu {
+        ForEach(items) { item in
+          Button(role: item.isDestructive ? .destructive : nil) {
+            onTurnControlAction?(item.action)
+          } label: {
+            Label(item.label, systemImage: item.icon ?? "circle")
+          }
+          .disabled(!item.isEnabled)
+        }
+      } label: {
+        turnControlsModuleLabel(module)
+      }
+      .menuStyle(.borderlessButton)
+      .fixedSize()
+    } else {
+      moduleLabel(module)
+    }
+  }
+
+  private func turnControlsModuleLabel(_ module: ControlDeckStatusModuleItem) -> some View {
+    HStack(spacing: Spacing.xxs) {
+      Image(systemName: module.icon)
+        .font(.system(size: IconScale.sm, weight: .semibold))
+        .frame(width: 12)
+        .foregroundStyle(tintColor(module.tintName))
+      Text(module.label)
+        .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+        .lineLimit(1)
+        .foregroundStyle(Color.textPrimary)
+      Image(systemName: "chevron.up.chevron.down")
+        .font(.system(size: IconScale.xs, weight: .semibold))
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .padding(.horizontal, Spacing.sm_)
+    .padding(.vertical, Spacing.gap)
+    .background(
+      Color.backgroundTertiary.opacity(0.72),
+      in: Capsule()
+    )
   }
 
   @ViewBuilder
@@ -336,6 +397,10 @@ struct ControlDeckStatusBar: View {
           .menuStyle(.borderlessButton)
           .fixedSize()
         }
+
+      case .actions:
+        // Actions are handled by custom module views, not generic
+        moduleLabel(module)
     }
   }
 
@@ -430,7 +495,7 @@ struct ControlDeckStatusBar: View {
     switch module.interaction {
       case let .picker(options):
         options
-      case .readOnly:
+      case .readOnly, .actions:
         []
     }
   }

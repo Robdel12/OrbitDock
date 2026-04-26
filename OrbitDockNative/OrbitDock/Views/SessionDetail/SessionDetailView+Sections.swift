@@ -115,6 +115,16 @@ extension SessionDetailView {
       focusWorkerInDeck: workerRosterPresentation != nil ? { workerId in
         focusWorkerInDeck(workerId)
       } : nil,
+      rewindToMessage: { messageId in
+        Task {
+          await viewModel.interaction.rewindToMessage(messageId)
+        }
+      },
+      stopTarget: { targetId in
+        Task {
+          await viewModel.interaction.stopTarget(targetId)
+        }
+      },
       scrollCommand: $viewModel.conversation.scrollCommand,
       onJumpToLatest: viewModel.jumpConversationToLatest,
       onFollowStateChanged: viewModel.handleConversationFollowStateChanged

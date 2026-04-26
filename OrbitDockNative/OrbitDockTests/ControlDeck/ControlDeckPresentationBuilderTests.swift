@@ -139,6 +139,29 @@ struct ControlDeckPresentationBuilderTests {
     #expect(presentation.canResume)
   }
 
+  @Test func rollbackTurnControlsExpandIntoConcreteMenuActions() {
+    let presentation = ControlDeckPresentationBuilder.build(
+      snapshot: makeSnapshot(
+        turnControls: ControlDeckTurnControls(
+          undoLastTurn: .init(supported: true, available: true),
+          compactContext: .init(supported: true, available: true),
+          rollbackTurns: .init(supported: true, available: true),
+          maxRollbackTurns: 7
+        )
+      ),
+      isLoading: false
+    )
+
+    let turnModule = presentation.statusModules.first { $0.id == .turnControls }
+    guard case let .actions(items)? = turnModule?.interaction else {
+      Issue.record("Expected turn controls actions module")
+      return
+    }
+
+    let rollbackActions = items.filter { $0.action.hasPrefix("rollback:") }
+    #expect(rollbackActions.map(\.action) == ["rollback:1", "rollback:2", "rollback:5", "rollback:7"])
+  }
+
   private func makeSnapshot(
     lifecycle: ControlDeckLifecycle = .open,
     workStatus: ControlDeckWorkStatus = .waiting,
@@ -146,7 +169,8 @@ struct ControlDeckPresentationBuilderTests {
     steerable: Bool = false,
     canInterrupt: Bool = false,
     connectorAttached: Bool = true,
-    pendingApproval: ControlDeckApproval? = nil
+    pendingApproval: ControlDeckApproval? = nil,
+    turnControls: ControlDeckTurnControls? = nil
   ) -> ControlDeckSnapshot {
     ControlDeckSnapshot(
       revision: 1,
@@ -187,12 +211,14 @@ struct ControlDeckPresentationBuilderTests {
         permissionModeOptions: [],
         collaborationModeOptions: [],
         autoReviewOptions: [],
-        availableStatusModules: []
+        availableStatusModules: [.turnControls]
       ),
       preferences: ControlDeckPreferences(
         density: .comfortable,
         showWhenEmpty: .auto,
-        modules: []
+        modules: [
+          .init(module: .turnControls, visible: true)
+        ]
       ),
       tokenUsage: ControlDeckTokenUsage(
         inputTokens: 0,
@@ -202,7 +228,9 @@ struct ControlDeckPresentationBuilderTests {
       ),
       tokenUsageSnapshotKind: .unknown,
       tokenStatus: ControlDeckTokenStatus(label: "—", tone: .muted),
-      pendingApproval: pendingApproval
+      pendingApproval: pendingApproval,
+      sessionShell: nil,
+      turnControls: turnControls
     )
   }
 

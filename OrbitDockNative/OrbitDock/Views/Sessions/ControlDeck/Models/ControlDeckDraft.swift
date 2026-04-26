@@ -6,6 +6,7 @@ struct ControlDeckDraft: Equatable {
   var selectedSkillPaths: Set<String> = []
   var modelOverride: String?
   var effortOverride: String?
+  var submissionIntentOverride: ControlDeckSubmissionIntent?
 
   var trimmedText: String {
     text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,6 +22,7 @@ struct ControlDeckDraft: Equatable {
     selectedSkillPaths = []
     modelOverride = nil
     effortOverride = nil
+    submissionIntentOverride = nil
   }
 
   // MARK: - Draft Persistence (survives navigation)

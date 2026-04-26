@@ -822,7 +822,6 @@ pub fn transition(
     }
 
     Input::Error(msg) => {
-      state.phase = WorkPhase::Idle;
       state.last_activity_at = Some(now.to_string());
       state.last_progress_at = Some(now.to_string());
 
@@ -859,22 +858,6 @@ pub fn transition(
           total_row_count: state.total_row_count,
         },
       )));
-      effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
-        id: sid.clone(),
-        status: None,
-        work_status: Some(WorkStatus::Waiting),
-        last_activity_at: Some(now.to_string()),
-        last_progress_at: Some(now.to_string()),
-      })));
-      effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
-        session_id: sid,
-        changes: Box::new(StateChanges {
-          work_status: Some(WorkStatus::Waiting),
-          last_activity_at: Some(now.to_string()),
-          last_progress_at: Some(now.to_string()),
-          ..Default::default()
-        }),
-      })));
     }
 
     // -- Conversation rows ------------------------------------------------
@@ -3824,15 +3807,15 @@ mod tests {
   }
 
   #[test]
-  fn error_transitions_to_idle() {
+  fn error_keeps_working_phase_intact() {
     let mut state = test_state();
     state.phase = WorkPhase::Working;
 
     let (new_state, effects) = transition(state, Input::Error("something broke".to_string()), NOW);
 
-    assert_eq!(new_state.phase, WorkPhase::Idle);
-    // 4 effects: message persist, message emit, session update, session delta
-    assert_eq!(effects.len(), 4);
+    assert_eq!(new_state.phase, WorkPhase::Working);
+    // Error rows are informational; a separate terminal event owns work-status changes.
+    assert_eq!(effects.len(), 2);
     // Verify the error row was added to state
     let last_row = new_state.rows.last().unwrap();
     if let ConversationRow::System(ref msg) = last_row.row {
@@ -3841,6 +3824,37 @@ mod tests {
     } else {
       panic!("expected System row for error");
     }
+  }
+
+  #[test]
+  fn error_then_turn_aborted_transitions_to_idle() {
+    let mut state = test_state();
+    state.phase = WorkPhase::Working;
+
+    let (state_after_error, _) =
+      transition(state, Input::Error("something broke".to_string()), NOW);
+    let (new_state, effects) = transition(
+      state_after_error,
+      Input::TurnAborted {
+        reason: "something broke".to_string(),
+      },
+      NOW,
+    );
+
+    assert_eq!(new_state.phase, WorkPhase::Idle);
+    assert!(effects.iter().any(|effect| {
+      matches!(
+        effect,
+        Effect::Persist(op)
+          if matches!(
+            op.as_ref(),
+            PersistOp::SessionUpdate {
+              work_status: Some(WorkStatus::Waiting),
+              ..
+            }
+          )
+      )
+    }));
   }
 
   #[test]

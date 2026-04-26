@@ -76,6 +76,11 @@ pub struct SteerTurnRequest {
   pub mentions: Vec<MentionInput>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SessionShellCommandRequest {
+  pub command: String,
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct UploadImageAttachmentQuery {
   #[serde(default)]
@@ -110,6 +115,7 @@ pub struct SessionControlsResponse {
 
 #[derive(Debug, Serialize)]
 pub struct SessionControlsPayload {
+  pub shell_command: SessionControlCapability,
   pub stop_active_turn: SessionControlCapability,
   pub compact_context: SessionControlCapability,
   pub undo_last_turn: SessionControlCapability,
@@ -190,9 +196,17 @@ fn session_controls_for_state(
   let provider = session.provider;
   let available = direct_connector_available(session);
   let has_turns = session.turn_count > 0;
-  let max_turns = u32::try_from(session.turn_count).ok().filter(|value| *value > 0);
+  let max_turns = u32::try_from(session.turn_count)
+    .ok()
+    .filter(|value| *value > 0);
 
   SessionControlsPayload {
+    shell_command: SessionControlCapability {
+      supported: provider == Provider::Codex,
+      available: available && provider == Provider::Codex,
+      target_kind: None,
+      max_count: None,
+    },
     stop_active_turn: SessionControlCapability {
       supported: matches!(provider, Provider::Claude | Provider::Codex),
       available: available && session.can_interrupt,
@@ -446,6 +460,40 @@ pub async fn stop_active_turn(
   accepted_response(&state, &session_id).await
 }
 
+pub async fn post_session_shell_command(
+  Path(session_id): Path<String>,
+  State(state): State<Arc<SessionRegistry>>,
+  Json(body): Json<SessionShellCommandRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+  let command = body.command.trim();
+  if command.is_empty() {
+    return Err((
+      StatusCode::BAD_REQUEST,
+      Json(ApiErrorResponse {
+        code: "invalid_request",
+        error: "Provide a non-empty session shell command".to_string(),
+      }),
+    ));
+  }
+
+  crate::runtime::message_dispatch::dispatch_session_shell_command(
+    &state,
+    &session_id,
+    command.to_string(),
+  )
+  .await
+  .map_err(|code| dispatch_error_response(code, &session_id))?;
+
+  flush_persistence(&state).await;
+  Ok((
+    StatusCode::ACCEPTED,
+    Json(AcceptedResponse {
+      accepted: true,
+      session_detail_snapshot: Some(load_session_detail_snapshot(&state, &session_id).await?),
+    }),
+  ))
+}
+
 pub async fn compact_context(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -596,33 +644,35 @@ mod tests {
   ) {
     flush_batch_for_test(
       db_path,
-      vec![PersistCommand::SessionCreate(Box::new(SessionCreateParams {
-        id: session_id.to_string(),
-        provider: Provider::Codex,
-        control_mode,
-        project_path: "/tmp/orbitdock-controls-test".to_string(),
-        project_name: Some("orbitdock-controls-test".to_string()),
-        branch: Some("main".to_string()),
-        model: Some("gpt-5".to_string()),
-        approval_policy: None,
-        sandbox_mode: None,
-        permission_mode: None,
-        collaboration_mode: None,
-        multi_agent: None,
-        personality: None,
-        service_tier: None,
-        developer_instructions: None,
-        codex_config_mode: None,
-        codex_config_profile: None,
-        codex_model_provider: None,
-        codex_config_source: None,
-        codex_config_overrides_json: None,
-        forked_from_session_id: None,
-        mission_id: None,
-        issue_identifier: None,
-        allow_bypass_permissions: false,
-        worktree_id: None,
-      }))],
+      vec![PersistCommand::SessionCreate(Box::new(
+        SessionCreateParams {
+          id: session_id.to_string(),
+          provider: Provider::Codex,
+          control_mode,
+          project_path: "/tmp/orbitdock-controls-test".to_string(),
+          project_name: Some("orbitdock-controls-test".to_string()),
+          branch: Some("main".to_string()),
+          model: Some("gpt-5".to_string()),
+          approval_policy: None,
+          sandbox_mode: None,
+          permission_mode: None,
+          collaboration_mode: None,
+          multi_agent: None,
+          personality: None,
+          service_tier: None,
+          developer_instructions: None,
+          codex_config_mode: None,
+          codex_config_profile: None,
+          codex_model_provider: None,
+          codex_config_source: None,
+          codex_config_overrides_json: None,
+          forked_from_session_id: None,
+          mission_id: None,
+          issue_identifier: None,
+          allow_bypass_permissions: false,
+          worktree_id: None,
+        },
+      ))],
     )
     .expect("persist codex session fixture");
   }
@@ -670,6 +720,8 @@ mod tests {
       .expect("controls endpoint should succeed");
 
     assert_eq!(response.provider, Provider::Codex);
+    assert!(response.controls.shell_command.supported);
+    assert!(response.controls.shell_command.available);
     assert!(response.controls.stop_active_turn.supported);
     assert!(response.controls.compact_context.supported);
     assert!(response.controls.undo_last_turn.supported);
@@ -734,5 +786,37 @@ mod tests {
       response.controls.rewind_to_message.target_kind,
       Some("user_message")
     );
+    assert!(!response.controls.shell_command.supported);
+  }
+
+  #[tokio::test]
+  async fn session_shell_command_returns_unsupported_for_claude_sessions() {
+    let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+    let session_id = orbitdock_protocol::new_session_id();
+    persist_claude_session(&db_path, &session_id);
+    state.add_session(SessionHandle::new(
+      session_id.clone(),
+      Provider::Claude,
+      "/tmp/orbitdock-controls-test".to_string(),
+    ));
+    let (action_tx, _action_rx) = mpsc::channel(4);
+    state.set_claude_action_tx(&session_id, action_tx);
+
+    let response = post_session_shell_command(
+      Path(session_id),
+      State(state),
+      Json(SessionShellCommandRequest {
+        command: "git status --short".to_string(),
+      }),
+    )
+    .await;
+
+    match response {
+      Ok(_) => panic!("expected session shell command to fail for claude"),
+      Err((status, body)) => {
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.code, "unsupported_session_shell");
+      }
+    }
   }
 }

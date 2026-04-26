@@ -11,6 +11,7 @@ struct ConversationProjectGroup: Identifiable {
   let endpointName: String?
   let name: String
   let conversations: [DashboardConversationRecord]
+  let sortedConversations: [DashboardConversationRecord]
   let attentionCount: Int
   let workingCount: Int
   let readyCount: Int
@@ -26,30 +27,11 @@ struct ConversationProjectGroup: Identifiable {
     if workingCount > 0 { return .statusWorking }
     return .statusReply
   }
+}
 
-  /// Sessions sorted for display with stable ordering to avoid list jumpiness.
-  /// "In orbit" sessions stay pinned to the top, but preserve stable ordering
-  /// within that bucket.
-  var sortedConversations: [DashboardConversationRecord] {
-    conversations.sorted { lhs, rhs in
-      let lhsBucket = Self.sortBucket(for: lhs.displayStatus)
-      let rhsBucket = Self.sortBucket(for: rhs.displayStatus)
-      if lhsBucket != rhsBucket {
-        return lhsBucket < rhsBucket
-      }
-
-      let lhsDate = lhs.startedAt ?? .distantPast
-      let rhsDate = rhs.startedAt ?? .distantPast
-      if lhsDate != rhsDate {
-        return lhsDate > rhsDate
-      }
-      return lhs.id < rhs.id
-    }
-  }
-
-  private static func sortBucket(for status: SessionDisplayStatus) -> Int {
-    status == .working ? 0 : 1
-  }
+enum ConversationProjectGroupSortMode {
+  case dashboard
+  case sidebar
 }
 
 enum ConversationProjectGroupBuilder {
@@ -58,7 +40,8 @@ enum ConversationProjectGroupBuilder {
   ///   to match this order. New/unknown projects append alphabetically after the ordered ones.
   static func build(
     from conversations: [DashboardConversationRecord],
-    customOrder: [String] = []
+    customOrder: [String] = [],
+    sortMode: ConversationProjectGroupSortMode = .dashboard
   ) -> [ConversationProjectGroup] {
     let groups = Dictionary(grouping: conversations) { conv in
       ConversationGroupKey(path: conv.groupingPath, endpointId: conv.sessionRef.endpointId)
@@ -66,12 +49,14 @@ enum ConversationProjectGroupBuilder {
 
     let unsorted = groups.compactMap { key, conversations -> ConversationProjectGroup? in
       guard let first = conversations.first else { return nil }
+      let sortedConversations = sortConversations(conversations, mode: sortMode)
       return ConversationProjectGroup(
         path: key.path,
         endpointId: key.endpointId,
         endpointName: first.endpointName,
         name: first.displayProjectName,
         conversations: conversations,
+        sortedConversations: sortedConversations,
         attentionCount: conversations.filter(\.displayStatus.needsAttention).count,
         workingCount: conversations.filter { $0.displayStatus == .working }.count,
         readyCount: conversations.filter { $0.displayStatus == .reply }.count,
@@ -104,5 +89,50 @@ enum ConversationProjectGroupBuilder {
       return nameOrder == .orderedAscending
     }
     return lhs.path < rhs.path
+  }
+
+  private static func sortConversations(
+    _ conversations: [DashboardConversationRecord],
+    mode: ConversationProjectGroupSortMode
+  ) -> [DashboardConversationRecord] {
+    Array(conversations.enumerated())
+      .sorted { lhs, rhs in
+        switch mode {
+          case .dashboard:
+            let lhsBucket = sortBucket(for: lhs.element.displayStatus)
+            let rhsBucket = sortBucket(for: rhs.element.displayStatus)
+            if lhsBucket != rhsBucket {
+              return lhsBucket < rhsBucket
+            }
+
+            let lhsDate = lhs.element.startedAt ?? .distantPast
+            let rhsDate = rhs.element.startedAt ?? .distantPast
+            if lhsDate != rhsDate {
+              return lhsDate > rhsDate
+            }
+
+          case .sidebar:
+            let lhsIsWorking = lhs.element.displayStatus == .working
+            let rhsIsWorking = rhs.element.displayStatus == .working
+            if lhsIsWorking != rhsIsWorking {
+              return lhsIsWorking && !rhsIsWorking
+            }
+
+            if !lhsIsWorking {
+              let lhsDate = lhs.element.lastActivityAt ?? lhs.element.startedAt ?? .distantPast
+              let rhsDate = rhs.element.lastActivityAt ?? rhs.element.startedAt ?? .distantPast
+              if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+              }
+            }
+        }
+
+        return lhs.offset < rhs.offset
+      }
+      .map(\.element)
+  }
+
+  private static func sortBucket(for status: SessionDisplayStatus) -> Int {
+    status == .working ? 0 : 1
   }
 }

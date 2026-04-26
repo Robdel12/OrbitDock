@@ -1,6 +1,33 @@
 import Foundation
 
 extension SessionInteractionModel {
+  func submitShellCommand(draft: ControlDeckDraft) async throws {
+    guard let session = currentSession else { return }
+    if draft.attachments.hasItems {
+      throw NSError(
+        domain: "OrbitDock.SessionShell",
+        code: 1,
+        userInfo: [NSLocalizedDescriptionKey: "Session shell commands do not support attachments yet."]
+      )
+    }
+
+    let command = ControlDeckSubmissionPlanner.normalizedShellCommand(from: draft)
+    guard !command.isEmpty else {
+      throw NSError(
+        domain: "OrbitDock.SessionShell",
+        code: 2,
+        userInfo: [NSLocalizedDescriptionKey: "Enter a shell command to run in this session."]
+      )
+    }
+
+    if let snapshot = try await session.api.runSessionShellCommand(command: command) {
+      acceptAuthoritativeDetailSnapshot(
+        snapshot,
+        source: "session_shell_command_response"
+      )
+    }
+  }
+
   func submitTurn(
     draft: ControlDeckDraft,
     uploadedImageIds: [String: String]
@@ -63,6 +90,81 @@ extension SessionInteractionModel {
           snapshot,
           source: "interrupt_response"
         )
+      }
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func undoLastTurn() async {
+    guard currentSessionId != nil, let session = currentSession else { return }
+    do {
+      if let snapshot = try await session.api.undoLastTurn() {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "undo_response"
+        )
+        await refreshControls()
+      }
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func compactContext() async {
+    guard currentSessionId != nil, let session = currentSession else { return }
+    do {
+      if let snapshot = try await session.api.compactContext() {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "compact_response"
+        )
+        await refreshControls()
+      }
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func rollbackTurns(_ count: Int) async {
+    guard currentSessionId != nil, let session = currentSession else { return }
+    do {
+      if let snapshot = try await session.api.rollbackTurns(numTurns: UInt32(count)) {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "rollback_response"
+        )
+        await refreshControls()
+      }
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func rewindToMessage(_ messageId: String) async {
+    guard currentSessionId != nil, let session = currentSession else { return }
+    do {
+      if let snapshot = try await session.api.rewindToMessage(messageId: messageId) {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "rewind_response"
+        )
+        await refreshControls()
+      }
+    } catch {
+      lastError = String(describing: error)
+    }
+  }
+
+  func stopTarget(_ targetId: String) async {
+    guard currentSessionId != nil, let session = currentSession else { return }
+    do {
+      if let snapshot = try await session.api.stopTarget(targetId: targetId) {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "stop_target_response"
+        )
+        await refreshControls()
       }
     } catch {
       lastError = String(describing: error)

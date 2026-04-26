@@ -16,16 +16,17 @@ use codex_app_server_protocol::{
   FileChangeRequestApprovalResponse, FileUpdateChange, GetAccountParams,
   GetAccountRateLimitsResponse, GetAccountResponse, JSONRPCErrorError, ListMcpServerStatusParams,
   ListMcpServerStatusResponse, LoginAccountParams, LoginAccountResponse, LogoutAccountResponse,
-  McpServerElicitationRequest, McpServerRefreshResponse, McpServerStartupState,
-  McpServerStatusDetail, ModelListParams, ModelListResponse, PatchApplyStatus, PatchChangeKind,
-  PermissionsRequestApprovalResponse, PluginInstallParams, PluginInstallResponse, PluginListParams,
-  PluginListResponse, PluginUninstallParams, PluginUninstallResponse, RequestId,
-  ServerNotification, ServerRequest, SkillsListParams, SkillsListResponse,
-  ThreadCompactStartParams, ThreadCompactStartResponse, ThreadForkParams, ThreadForkResponse,
-  ThreadItem, ThreadRollbackParams, ThreadRollbackResponse, ThreadSetNameParams,
-  ThreadSetNameResponse, ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer,
-  ToolRequestUserInputResponse, TurnInterruptParams, TurnInterruptResponse, TurnStartParams,
-  TurnStartResponse, TurnStatus, TurnSteerParams, TurnSteerResponse, UserInput,
+  McpServerElicitationRequest, McpServerOauthLoginParams, McpServerOauthLoginResponse,
+  McpServerRefreshResponse, McpServerStartupState, McpServerStatusDetail, ModelListParams,
+  ModelListResponse, PatchApplyStatus, PatchChangeKind, PermissionsRequestApprovalResponse,
+  PluginInstallParams, PluginInstallResponse, PluginListParams, PluginListResponse,
+  PluginUninstallParams, PluginUninstallResponse, RequestId, ServerNotification, ServerRequest,
+  SkillsListParams, SkillsListResponse, ThreadCompactStartParams, ThreadCompactStartResponse,
+  ThreadForkParams, ThreadForkResponse, ThreadItem, ThreadRollbackParams, ThreadRollbackResponse,
+  ThreadSetNameParams, ThreadSetNameResponse, ThreadShellCommandParams, ThreadShellCommandResponse,
+  ThreadStartParams, ThreadStartResponse, ToolRequestUserInputAnswer, ToolRequestUserInputResponse,
+  TurnInterruptParams, TurnInterruptResponse, TurnStartParams, TurnStartResponse, TurnStatus,
+  TurnSteerParams, TurnSteerResponse, UserInput,
 };
 use codex_arg0::Arg0DispatchPaths;
 use codex_core::config_loader::{CloudRequirementsLoader, LoaderOverrides};
@@ -381,13 +382,43 @@ impl CodexAppServer {
   pub async fn mcp_server_status_list(
     &self,
   ) -> Result<ListMcpServerStatusResponse, ConnectorError> {
+    let mut cursor = None;
+    let mut data = Vec::new();
+
+    loop {
+      let response: ListMcpServerStatusResponse = self
+        .request(ClientRequest::McpServerStatusList {
+          request_id: self.next_request_id(),
+          params: ListMcpServerStatusParams {
+            cursor,
+            limit: Some(100),
+            detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
+          },
+        })
+        .await?;
+
+      data.extend(response.data);
+      cursor = response.next_cursor;
+      if cursor.is_none() {
+        return Ok(ListMcpServerStatusResponse {
+          data,
+          next_cursor: None,
+        });
+      }
+    }
+  }
+
+  pub async fn mcp_server_oauth_login(
+    &self,
+    name: String,
+  ) -> Result<McpServerOauthLoginResponse, ConnectorError> {
     self
-      .request(ClientRequest::McpServerStatusList {
+      .request(ClientRequest::McpServerOauthLogin {
         request_id: self.next_request_id(),
-        params: ListMcpServerStatusParams {
-          cursor: None,
-          limit: None,
-          detail: Some(McpServerStatusDetail::Full),
+        params: McpServerOauthLoginParams {
+          name,
+          scopes: None,
+          timeout_secs: None,
         },
       })
       .await
@@ -439,6 +470,19 @@ impl CodexAppServer {
           thread_id,
           num_turns,
         },
+      })
+      .await
+  }
+
+  pub async fn thread_shell_command(
+    &self,
+    thread_id: String,
+    command: String,
+  ) -> Result<ThreadShellCommandResponse, ConnectorError> {
+    self
+      .request(ClientRequest::ThreadShellCommand {
+        request_id: self.next_request_id(),
+        params: ThreadShellCommandParams { thread_id, command },
       })
       .await
   }
@@ -2048,7 +2092,11 @@ fn map_dynamic_tool(
   )
 }
 
-fn dynamic_tool_invocation(namespace: Option<String>, tool_name: String, arguments: Value) -> Value {
+fn dynamic_tool_invocation(
+  namespace: Option<String>,
+  tool_name: String,
+  arguments: Value,
+) -> Value {
   json!({
     "namespace": namespace,
     "tool_name": tool_name,
@@ -2526,6 +2574,16 @@ mod tests {
   }
 
   #[test]
+  fn skills_context_budget_warning_stays_out_of_timeline() {
+    let outputs = map_warning(
+      "Warning: Exceeded skills context budget of 2%. Loaded skill descriptions were truncated by an average of 84 characters per skill."
+        .to_string(),
+    );
+
+    assert!(outputs.is_empty());
+  }
+
+  #[test]
   fn file_change_row_normalizes_app_server_add_content_for_diff_display() {
     let row = file_change_tool_row(
       "patch-1".to_string(),
@@ -2566,6 +2624,7 @@ mod tests {
   fn dynamic_file_tool_rows_keep_native_file_display_shape() {
     let outputs = map_dynamic_tool(
       "dynamic-write-1".to_string(),
+      None,
       "file_write".to_string(),
       json!({ "path": "/tmp/runtime.js" }),
       Some(vec![DynamicToolCallOutputContentItem::InputText {

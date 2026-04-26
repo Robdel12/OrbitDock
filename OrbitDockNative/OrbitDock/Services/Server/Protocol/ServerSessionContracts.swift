@@ -1235,6 +1235,7 @@ struct ServerSessionControlCapability: Decodable, Sendable {
 }
 
 struct ServerSessionControlsPayload: Decodable, Sendable {
+  let shellCommand: ServerSessionControlCapability
   let stopActiveTurn: ServerSessionControlCapability
   let compactContext: ServerSessionControlCapability
   let undoLastTurn: ServerSessionControlCapability
@@ -1243,6 +1244,7 @@ struct ServerSessionControlsPayload: Decodable, Sendable {
   let rewindToMessage: ServerSessionControlCapability
 
   enum CodingKeys: String, CodingKey {
+    case shellCommand = "shell_command"
     case stopActiveTurn = "stop_active_turn"
     case compactContext = "compact_context"
     case undoLastTurn = "undo_last_turn"

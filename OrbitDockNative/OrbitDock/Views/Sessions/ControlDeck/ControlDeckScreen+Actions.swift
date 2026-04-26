@@ -2,7 +2,11 @@ import SwiftUI
 
 extension ControlDeckScreen {
   func handleTextChange(_ text: String) {
-    let shouldLoadSkills = composer.handleTextChange(text, availableSkills: interaction.skills)
+    let shouldLoadSkills = composer.handleTextChange(
+      text,
+      availableSkills: interaction.skills,
+      allowsAutocomplete: !isShellMode
+    )
     if shouldLoadSkills {
       Task { await interaction.loadSkills() }
     }
@@ -82,7 +86,11 @@ extension ControlDeckScreen {
   func submitDraft() {
     guard composer.draft.hasContent, !composer.isSubmitting else { return }
 
-    let submissionAction = ControlDeckSubmissionPlanner.action(for: currentMode)
+    let submissionAction = ControlDeckSubmissionPlanner.action(
+      for: currentMode,
+      intent: submissionIntent,
+      sessionShellAvailable: sessionShellAvailable
+    )
     composer.isSubmitting = true
     let currentDraft = composer.draft
 
@@ -91,20 +99,24 @@ extension ControlDeckScreen {
 
       do {
         var imageIds = composer.uploadedImageIds
-        for image in currentDraft.attachments.images where imageIds[image.localId] == nil {
-          let attachmentId = try await interaction.uploadImage(
-            data: image.uploadData,
-            mimeType: image.uploadMimeType,
-            displayName: image.displayName,
-            pixelWidth: image.pixelWidth,
-            pixelHeight: image.pixelHeight
-          )
-          imageIds[image.localId] = attachmentId
+        if submissionAction != .submitShellCommand {
+          for image in currentDraft.attachments.images where imageIds[image.localId] == nil {
+            let attachmentId = try await interaction.uploadImage(
+              data: image.uploadData,
+              mimeType: image.uploadMimeType,
+              displayName: image.displayName,
+              pixelWidth: image.pixelWidth,
+              pixelHeight: image.pixelHeight
+            )
+            imageIds[image.localId] = attachmentId
+          }
         }
 
         composer.uploadedImageIds = imageIds
 
-        if submissionAction == .steerTurn {
+        if submissionAction == .submitShellCommand {
+          try await interaction.submitShellCommand(draft: currentDraft)
+        } else if submissionAction == .steerTurn {
           try await interaction.steerTurn(draft: currentDraft, uploadedImageIds: imageIds)
         } else {
           try await interaction.submitTurn(draft: currentDraft, uploadedImageIds: imageIds)
@@ -125,6 +137,15 @@ extension ControlDeckScreen {
         ])
       }
     }
+  }
+
+  func toggleShellMode() {
+    guard sessionShellSupported else { return }
+
+    let nextIntent: ControlDeckSubmissionIntent = isShellMode ? .message : .shell
+    composer.draft.submissionIntentOverride = nextIntent
+    composer.completionState.dismiss()
+    composer.focusState.requestFocus()
   }
 
   func resumeSession() {
@@ -150,5 +171,28 @@ extension ControlDeckScreen {
         interaction.lastError = error
       }
     }
+  }
+
+  func handleTurnControlAction(_ action: String) {
+    netLog(.info, cat: .store, "ControlDeck turn control action tapped", sid: sessionId, data: [
+      "action": action
+    ])
+    Task {
+      switch action {
+      case "undo":
+        await interaction.undoLastTurn()
+      case "compact":
+        await interaction.compactContext()
+      default:
+        if let count = rollbackTurnCount(for: action) {
+          await interaction.rollbackTurns(count)
+        }
+      }
+    }
+  }
+
+  private func rollbackTurnCount(for action: String) -> Int? {
+    guard action.hasPrefix("rollback:") else { return nil }
+    return Int(action.dropFirst("rollback:".count))
   }
 }

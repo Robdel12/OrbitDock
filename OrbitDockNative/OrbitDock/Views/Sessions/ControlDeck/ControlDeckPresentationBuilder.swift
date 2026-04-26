@@ -26,8 +26,10 @@ enum ControlDeckPresentationBuilder {
         capabilities: snapshot.capabilities,
         preferences: snapshot.preferences,
         tokenStatus: snapshot.tokenStatus,
+        turnControls: snapshot.turnControls,
         availableModels: availableModels
       ),
+      turnControls: snapshot.turnControls,
       placeholder: placeholder(for: mode),
       sendTint: sendTint(for: mode)
     )
@@ -109,6 +111,7 @@ enum ControlDeckPresentationBuilder {
     capabilities: ControlDeckCapabilities,
     preferences: ControlDeckPreferences,
     tokenStatus: ControlDeckTokenStatus,
+    turnControls: ControlDeckTurnControls? = nil,
     availableModels: [String] = []
   ) -> [ControlDeckStatusModuleItem] {
     let visibleSet = Set(
@@ -126,6 +129,7 @@ enum ControlDeckPresentationBuilder {
         state: state,
         capabilities: capabilities,
         tokenStatus: tokenStatus,
+        turnControls: turnControls,
         availableModels: availableModels
       )
     }
@@ -188,6 +192,7 @@ enum ControlDeckPresentationBuilder {
     state: ControlDeckSessionState,
     capabilities: ControlDeckCapabilities,
     tokenStatus: ControlDeckTokenStatus,
+    turnControls: ControlDeckTurnControls? = nil,
     availableModels: [String] = []
   ) -> ControlDeckStatusModuleItem? {
     let folder = (state.currentCwd ?? state.projectPath).split(separator: "/").last.map(String.init) ?? "\u{2014}"
@@ -334,7 +339,85 @@ enum ControlDeckPresentationBuilder {
           reviewerValue: nil,
           interaction: .readOnly
         )
+      case .turnControls:
+        guard let controls = turnControls, controls.hasAnySupported else {
+          return nil
+        }
+        return buildTurnControlsModule(controls)
     }
+  }
+
+  private static func buildTurnControlsModule(
+    _ controls: ControlDeckTurnControls
+  ) -> ControlDeckStatusModuleItem {
+    var actions: [ControlDeckStatusModuleItem.ActionItem] = []
+
+    if controls.undoLastTurn.supported {
+      actions.append(.init(
+        action: "undo",
+        label: "Undo Last Turn",
+        icon: "arrow.uturn.backward",
+        isEnabled: controls.undoLastTurn.available
+      ))
+    }
+
+    if controls.compactContext.supported {
+      actions.append(.init(
+        action: "compact",
+        label: "Compact Context",
+        icon: "arrow.down.right.and.arrow.up.left",
+        isEnabled: controls.compactContext.available
+      ))
+    }
+
+    if controls.rollbackTurns.supported {
+      actions.append(contentsOf: rollbackActionItems(controls))
+    }
+
+    return ControlDeckStatusModuleItem(
+      id: .turnControls,
+      label: "Turn",
+      icon: "arrow.uturn.backward.circle",
+      tintName: "textSecondary",
+      selectedValue: nil,
+      reviewerValue: nil,
+      interaction: .actions(items: actions)
+    )
+  }
+
+  private static func rollbackActionItems(
+    _ controls: ControlDeckTurnControls
+  ) -> [ControlDeckStatusModuleItem.ActionItem] {
+    let maxTurns = max(1, controls.maxRollbackTurns)
+    let counts: [Int]
+    if maxTurns <= 3 {
+      counts = Array(1...maxTurns)
+    } else {
+      counts = [1, 2, 5, maxTurns]
+        .filter { $0 <= maxTurns }
+        .reduce(into: [Int]()) { ordered, count in
+          if !ordered.contains(count) {
+            ordered.append(count)
+          }
+        }
+    }
+
+    return counts.map { count in
+      ControlDeckStatusModuleItem.ActionItem(
+        action: "rollback:\(count)",
+        label: rollbackLabel(for: count),
+        icon: "arrow.counterclockwise",
+        isEnabled: controls.rollbackTurns.available,
+        isDestructive: true
+      )
+    }
+  }
+
+  private static func rollbackLabel(for count: Int) -> String {
+    if count == 1 {
+      return "Rollback 1 Turn"
+    }
+    return "Rollback \(count) Turns"
   }
 
   // MARK: - Model Display

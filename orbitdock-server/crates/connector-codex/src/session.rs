@@ -7,9 +7,8 @@
 use std::collections::HashMap;
 
 use codex_app_server_protocol::{
-  CollaborationModeListResponse,
-  PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
-  PluginUninstallResponse,
+  CollaborationModeListResponse, PluginInstallParams, PluginInstallResponse, PluginListResponse,
+  PluginUninstallParams, PluginUninstallResponse,
 };
 use orbitdock_connector_core::ConnectorError;
 use serde_json::Value;
@@ -93,6 +92,9 @@ pub enum CodexAction {
     images: Vec<orbitdock_protocol::ImageInput>,
     mentions: Vec<orbitdock_protocol::MentionInput>,
   },
+  ShellCommand {
+    command: String,
+  },
   Interrupt,
   ListSkills {
     cwds: Vec<String>,
@@ -159,6 +161,12 @@ pub enum CodexAction {
   },
   ListMcpTools,
   RefreshMcpServers,
+  AuthenticateMcpServer {
+    server_name: String,
+    reply_tx: oneshot::Sender<
+      Result<codex_app_server_protocol::McpServerOauthLoginResponse, ConnectorError>,
+    >,
+  },
   Compact,
   Undo,
   ThreadRollback {
@@ -205,6 +213,10 @@ impl std::fmt::Debug for CodexAction {
         .field("message_id", message_id)
         .field("images_count", &images.len())
         .field("mentions_count", &mentions.len())
+        .finish(),
+      Self::ShellCommand { command } => f
+        .debug_struct("ShellCommand")
+        .field("command_len", &command.len())
         .finish(),
       Self::Interrupt => write!(f, "Interrupt"),
       Self::ListSkills { cwds, force_reload } => f
@@ -293,6 +305,10 @@ impl std::fmt::Debug for CodexAction {
       Self::SetThreadName { name } => f.debug_struct("SetThreadName").field("name", name).finish(),
       Self::ListMcpTools => write!(f, "ListMcpTools"),
       Self::RefreshMcpServers => write!(f, "RefreshMcpServers"),
+      Self::AuthenticateMcpServer { server_name, .. } => f
+        .debug_struct("AuthenticateMcpServer")
+        .field("server_name", server_name)
+        .finish(),
       Self::Compact => write!(f, "Compact"),
       Self::Undo => write!(f, "Undo"),
       Self::ThreadRollback { num_turns } => f
@@ -632,6 +648,9 @@ impl CodexSession {
       CodexAction::SteerTurn { .. } => {
         unreachable!("SteerTurn should be handled in the main event loop");
       }
+      CodexAction::ShellCommand { command } => {
+        connector.session_shell_command(&command).await?;
+      }
       CodexAction::Interrupt => {
         connector.interrupt().await?;
       }
@@ -746,6 +765,13 @@ impl CodexSession {
       }
       CodexAction::RefreshMcpServers => {
         connector.refresh_mcp_servers().await?;
+      }
+      CodexAction::AuthenticateMcpServer {
+        server_name,
+        reply_tx,
+      } => {
+        let result = connector.authenticate_mcp_server(&server_name).await;
+        let _ = reply_tx.send(result);
       }
       CodexAction::Compact => {
         connector.compact().await?;

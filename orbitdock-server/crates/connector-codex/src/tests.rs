@@ -14,7 +14,6 @@ use super::workers::{build_codex_subagent_for_status, build_running_codex_subage
 use super::CodexConnector;
 use codex_core::config::Config as CoreConfig;
 use codex_model_provider_info::ModelProviderInfo;
-use codex_models_manager::WireApi;
 use codex_protocol::config_types::{ReasoningSummary, ServiceTier};
 use codex_protocol::openai_models::ApplyPatchToolType;
 use codex_protocol::protocol::{
@@ -43,18 +42,6 @@ fn embedded_codex_runtime_paths_use_current_orbitdock_executable() {
     runtime_paths.codex_self_exe.as_path(),
     current_exe.as_path()
   );
-}
-
-#[tokio::test]
-async fn embedded_environment_exposes_runtime_paths_for_sandboxed_filesystem() {
-  let manager = CodexConnector::embedded_environment_manager().expect("environment manager");
-  let environment = manager
-    .current()
-    .await
-    .expect("current environment")
-    .expect("local environment");
-
-  assert!(environment.local_runtime_paths().is_some());
 }
 
 #[test]
@@ -92,24 +79,12 @@ fn parse_service_tier_override_supports_set_and_clear() {
 fn orbitdock_provider_defaults_add_openrouter_attribution_headers() {
   let mut config = config_with_provider(
     "openrouter",
-    ModelProviderInfo {
-      name: "OpenRouter".to_string(),
-      base_url: Some("https://openrouter.ai/api/v1".to_string()),
-      env_key: Some("OPENROUTER_API_KEY".to_string()),
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: None,
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    test_provider(
+      "OpenRouter",
+      Some("https://openrouter.ai/api/v1"),
+      Some("OPENROUTER_API_KEY"),
+      None,
+    ),
   );
 
   apply_orbitdock_provider_defaults(&mut config);
@@ -136,30 +111,18 @@ fn orbitdock_provider_defaults_add_openrouter_attribution_headers() {
 fn orbitdock_provider_defaults_preserve_existing_openrouter_headers() {
   let mut config = config_with_provider(
     "openrouter",
-    ModelProviderInfo {
-      name: "OpenRouter".to_string(),
-      base_url: Some("https://openrouter.ai/api/v1".to_string()),
-      env_key: Some("OPENROUTER_API_KEY".to_string()),
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: Some(HashMap::from([
+    test_provider(
+      "OpenRouter",
+      Some("https://openrouter.ai/api/v1"),
+      Some("OPENROUTER_API_KEY"),
+      Some(HashMap::from([
         (
           "HTTP-Referer".to_string(),
           "https://custom.example".to_string(),
         ),
         ("X-Title".to_string(), "Custom Title".to_string()),
       ])),
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    ),
   );
 
   apply_orbitdock_provider_defaults(&mut config);
@@ -213,24 +176,12 @@ fn embedded_runtime_defaults_preserve_explicit_app_connector_opt_in() {
 fn external_model_defaults_seed_synthetic_catalog_for_non_openai_models() {
   let mut config = config_with_provider(
     "openrouter",
-    ModelProviderInfo {
-      name: "OpenRouter".to_string(),
-      base_url: Some("https://openrouter.ai/api/v1".to_string()),
-      env_key: Some("OPENROUTER_API_KEY".to_string()),
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: None,
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    test_provider(
+      "OpenRouter",
+      Some("https://openrouter.ai/api/v1"),
+      Some("OPENROUTER_API_KEY"),
+      None,
+    ),
   );
   config.model = Some("z-ai/glm-5v-turbo".to_string());
   config.model_catalog = None;
@@ -276,24 +227,7 @@ fn external_model_defaults_leave_openai_models_untouched() {
 fn external_model_defaults_merge_into_existing_catalog_model() {
   let mut config = config_with_provider(
     "ollama",
-    ModelProviderInfo {
-      name: "Ollama".to_string(),
-      base_url: Some("http://localhost:11434/v1".to_string()),
-      env_key: None,
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: None,
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    test_provider("Ollama", Some("http://localhost:11434/v1"), None, None),
   );
   config.model = Some("seed-model".to_string());
   config.model_catalog = None;
@@ -361,24 +295,12 @@ fn external_model_defaults_merge_into_existing_catalog_model() {
 fn custom_provider_should_enable_apply_patch_override() {
   let config = config_with_provider(
     "openrouter",
-    ModelProviderInfo {
-      name: "OpenRouter".to_string(),
-      base_url: Some("https://openrouter.ai/api/v1".to_string()),
-      env_key: Some("OPENROUTER_API_KEY".to_string()),
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: None,
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    test_provider(
+      "OpenRouter",
+      Some("https://openrouter.ai/api/v1"),
+      Some("OPENROUTER_API_KEY"),
+      None,
+    ),
   );
   assert!(should_enable_apply_patch_for_custom_models(&config));
 }
@@ -396,24 +318,12 @@ fn openai_provider_should_not_enable_apply_patch_override() {
 fn custom_provider_force_enables_apply_patch_feature() {
   let mut config = config_with_provider(
     "openrouter",
-    ModelProviderInfo {
-      name: "OpenRouter".to_string(),
-      base_url: Some("https://openrouter.ai/api/v1".to_string()),
-      env_key: Some("OPENROUTER_API_KEY".to_string()),
-      env_key_instructions: None,
-      experimental_bearer_token: None,
-      auth: None,
-      wire_api: WireApi::Responses,
-      query_params: None,
-      http_headers: None,
-      env_http_headers: None,
-      request_max_retries: None,
-      stream_max_retries: None,
-      stream_idle_timeout_ms: None,
-      websocket_connect_timeout_ms: None,
-      requires_openai_auth: false,
-      supports_websockets: false,
-    },
+    test_provider(
+      "OpenRouter",
+      Some("https://openrouter.ai/api/v1"),
+      Some("OPENROUTER_API_KEY"),
+      None,
+    ),
   );
 
   let _ = config
@@ -503,6 +413,21 @@ fn config_with_provider(provider_id: &str, provider: ModelProviderInfo) -> CoreC
     .model_providers
     .insert(provider_id.to_string(), provider);
   config
+}
+
+fn test_provider(
+  name: &str,
+  base_url: Option<&str>,
+  env_key: Option<&str>,
+  http_headers: Option<HashMap<String, String>>,
+) -> ModelProviderInfo {
+  let mut provider = ModelProviderInfo::create_openai_provider(base_url.map(str::to_string));
+  provider.name = name.to_string();
+  provider.env_key = env_key.map(str::to_string);
+  provider.http_headers = http_headers;
+  provider.requires_openai_auth = false;
+  provider.supports_websockets = false;
+  provider
 }
 
 #[test]

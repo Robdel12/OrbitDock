@@ -4,7 +4,8 @@ enum ControlDeckSnapshotMapper {
   @MainActor
   static func map(
     _ payload: ServerSessionDetailSnapshotPayload,
-    codexModels: [ServerCodexModelOption]
+    codexModels: [ServerCodexModelOption],
+    controls: ServerSessionControlsPayload? = nil
   ) -> ControlDeckSnapshot {
     let session = payload.session
     return ControlDeckSnapshot(
@@ -16,7 +17,36 @@ enum ControlDeckSnapshotMapper {
       tokenUsage: mapTokenUsage(session.tokenUsage),
       tokenUsageSnapshotKind: mapSnapshotKind(session.tokenUsageSnapshotKind),
       tokenStatus: buildTokenStatus(session),
-      pendingApproval: session.pendingApproval.map(mapApproval)
+      pendingApproval: session.pendingApproval.map(mapApproval),
+      sessionShell: controls.map(mapSessionShell),
+      turnControls: controls.map(mapTurnControls)
+    )
+  }
+
+  static func mapSessionShell(
+    _ controls: ServerSessionControlsPayload
+  ) -> ControlDeckSessionShellCapability {
+    ControlDeckSessionShellCapability(
+      supported: controls.shellCommand.supported,
+      available: controls.shellCommand.available
+    )
+  }
+
+  static func mapTurnControls(_ controls: ServerSessionControlsPayload) -> ControlDeckTurnControls {
+    ControlDeckTurnControls(
+      undoLastTurn: mapControlCapability(controls.undoLastTurn),
+      compactContext: mapControlCapability(controls.compactContext),
+      rollbackTurns: mapControlCapability(controls.rollbackTurns),
+      maxRollbackTurns: Int(controls.rollbackTurns.maxCount ?? 10)
+    )
+  }
+
+  private static func mapControlCapability(
+    _ capability: ServerSessionControlCapability
+  ) -> ControlDeckTurnControlCapability {
+    ControlDeckTurnControlCapability(
+      supported: capability.supported,
+      available: capability.available
     )
   }
 
@@ -93,7 +123,7 @@ enum ControlDeckSnapshotMapper {
         .init(module: .approvalMode, visible: true),
         .init(module: .collaborationMode, visible: true),
         .init(module: .autoReview, visible: true),
-        .init(module: .attachments, visible: true),
+        .init(module: .turnControls, visible: true),
         .init(module: .model, visible: true),
         .init(module: .effort, visible: true),
         .init(module: .tokens, visible: true),
@@ -151,12 +181,12 @@ enum ControlDeckSnapshotMapper {
   }
 
   private static func availableStatusModules(for provider: ServerProvider) -> [ControlDeckStatusModule] {
-    let shared: [ControlDeckStatusModule] = [.model, .effort, .tokens, .branch, .cwd]
+    let shared: [ControlDeckStatusModule] = [.turnControls, .model, .effort, .tokens, .branch, .cwd]
     switch provider {
       case .claude:
         return [.autonomy] + shared
       case .codex:
-        return [.approvalMode, .collaborationMode, .attachments] + shared
+        return [.approvalMode, .collaborationMode] + shared
     }
   }
 

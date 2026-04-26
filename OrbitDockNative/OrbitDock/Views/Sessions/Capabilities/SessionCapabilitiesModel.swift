@@ -1,6 +1,49 @@
 import Foundation
 import Observation
 
+enum SessionCapabilitiesSection: String, CaseIterable, Identifiable {
+  case skills
+  case plugins
+  case mcp
+
+  var id: String {
+    rawValue
+  }
+
+  var title: String {
+    switch self {
+    case .skills:
+      "Skills"
+    case .plugins:
+      "Plugins"
+    case .mcp:
+      "MCP"
+    }
+  }
+
+  var refreshTitle: String {
+    switch self {
+    case .skills:
+      "Refresh Skills"
+    case .plugins:
+      "Refresh Plugins"
+    case .mcp:
+      "Refresh MCP"
+    }
+  }
+
+  var emptyTitle: String {
+    switch self {
+    case .skills:
+      "No skills discovered"
+    case .plugins:
+      "No plugin marketplaces available"
+    case .mcp:
+      "No MCP servers reported"
+    }
+  }
+}
+
 struct SessionCapabilitiesMcpServer: Identifiable {
   let name: String
   let authStatus: ServerMcpAuthStatus?
@@ -16,188 +59,136 @@ struct SessionCapabilitiesMcpServer: Identifiable {
 @MainActor
 @Observable
 final class SessionCapabilitiesModel {
-  enum Tab: String, CaseIterable, Identifiable {
-    case runtime
-    case plugins
-    case skills
-    case mcp
-
-    var id: String {
-      rawValue
-    }
-  }
-
-  var selectedTab: Tab = .runtime
+  var selectedSection: SessionCapabilitiesSection = .skills
   var sessionState: ServerSessionState?
-  var controls: ServerSessionControlsPayload?
-  var instructions: ServerSessionInstructionsPayload?
-  var collaborationModes: [ServerSessionCollaborationMode] = []
   var skills: [ServerSkillsListEntry] = []
   var skillErrors: [ServerSkillErrorInfo] = []
   var marketplaces: [ServerPluginMarketplaceEntry] = []
   var pluginLoadErrors: [ServerPluginMarketplaceLoadError] = []
   var featuredPluginIDs: Set<String> = []
   var mcpServers: [SessionCapabilitiesMcpServer] = []
-  var isLoading = false
-  var isRefreshingMcp = false
-  var isApplyingCollaboration = false
-  var isInterrupting = false
-  var isCompacting = false
-  var isUndoing = false
-  var isRollingBack = false
-  var rollbackTurnCount = 1
   var installingPluginIDs: Set<String> = []
   var uninstallingPluginIDs: Set<String> = []
+  var authenticatingMcpServerNames: Set<String> = []
   var lastError: String?
   var notice: String?
-  var hasLoaded = false
-  var isStale = false
+  var visibleSections: Set<SessionCapabilitiesSection> = []
+  var loadedSections: Set<SessionCapabilitiesSection> = []
+  var loadingSections: Set<SessionCapabilitiesSection> = []
+  var staleSections: Set<SessionCapabilitiesSection> = []
 
-  @ObservationIgnored private var loadGeneration = 0
+  @ObservationIgnored private var loadGenerations: [SessionCapabilitiesSection: Int] = [:]
 
   func reset() {
-    selectedTab = .runtime
+    selectedSection = .skills
     sessionState = nil
-    controls = nil
-    instructions = nil
-    collaborationModes = []
     skills = []
     skillErrors = []
     marketplaces = []
     pluginLoadErrors = []
     featuredPluginIDs = []
     mcpServers = []
-    isLoading = false
-    isRefreshingMcp = false
-    isApplyingCollaboration = false
-    isInterrupting = false
-    isCompacting = false
-    isUndoing = false
-    isRollingBack = false
-    rollbackTurnCount = 1
     installingPluginIDs = []
     uninstallingPluginIDs = []
+    authenticatingMcpServerNames = []
     lastError = nil
     notice = nil
-    hasLoaded = false
-    isStale = false
-    loadGeneration += 1
+    visibleSections = []
+    loadedSections = []
+    loadingSections = []
+    staleSections = []
+    loadGenerations = [:]
   }
 
-  func markStale() {
-    isStale = true
+  func setVisible(_ visible: Bool, section: SessionCapabilitiesSection) {
+    if visible {
+      visibleSections.insert(section)
+    } else {
+      visibleSections.remove(section)
+    }
   }
 
   func syncSessionState(_ state: ServerSessionState?) {
     sessionState = state
-    clampRollbackTurnCount()
+  }
+
+  func hasLoaded(_ section: SessionCapabilitiesSection) -> Bool {
+    loadedSections.contains(section)
+  }
+
+  func isLoading(_ section: SessionCapabilitiesSection) -> Bool {
+    loadingSections.contains(section)
+  }
+
+  func isStale(_ section: SessionCapabilitiesSection) -> Bool {
+    staleSections.contains(section)
   }
 
   func loadIfNeeded(
     session: ServerSessionContext,
     projectPath: String,
-    sessionState: ServerSessionState?
+    sessionState: ServerSessionState?,
+    section: SessionCapabilitiesSection
   ) async {
     syncSessionState(sessionState)
-    guard !hasLoaded || isStale else { return }
-    await refresh(session: session, projectPath: projectPath, sessionState: sessionState)
+    guard !isLoading(section) else { return }
+    guard !hasLoaded(section) || isStale(section) else { return }
+    await refresh(
+      session: session,
+      projectPath: projectPath,
+      sessionState: sessionState,
+      section: section
+    )
+  }
+
+  func refreshCurrentSection(
+    session: ServerSessionContext,
+    projectPath: String,
+    sessionState: ServerSessionState?,
+    forceReload: Bool = false
+  ) async {
+    await refresh(
+      session: session,
+      projectPath: projectPath,
+      sessionState: sessionState,
+      section: selectedSection,
+      forceReload: forceReload
+    )
   }
 
   func refresh(
     session: ServerSessionContext,
     projectPath: String,
     sessionState: ServerSessionState?,
-    forceSkillReload: Bool = false
+    section: SessionCapabilitiesSection,
+    forceReload: Bool = false
   ) async {
     syncSessionState(sessionState)
 
-    let generation = nextGeneration()
-    isLoading = true
-    lastError = nil
-
-    let cwdHints = projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      ? []
-      : [projectPath]
-
-    async let instructionsTask = session.api.fetchSessionInstructions()
-    async let controlsTask = session.api.fetchSessionControls()
-    async let collaborationTask = session.api.listCollaborationModes()
-    async let skillsTask = session.api.listSkills(forceReload: forceSkillReload)
-    async let pluginsTask = session.api.listPlugins(cwds: cwdHints)
-    async let mcpTask = session.api.listMcp()
-
-    var capturedError: Error?
-
-    var loadedInstructions: ServerSessionInstructionsPayload?
-    do {
-      let response = try await instructionsTask
-      loadedInstructions = response.instructions
-    } catch {
-      capturedError = capturedError ?? error
+    switch section {
+    case .skills:
+      await refreshSkills(
+        session: session,
+        section: section,
+        forceReload: forceReload
+      )
+    case .plugins:
+      await refreshPlugins(
+        session: session,
+        projectPath: projectPath,
+        section: section
+      )
+    case .mcp:
+      await refreshMcpInventory(session: session, section: section)
     }
+  }
 
-    var loadedControls: ServerSessionControlsPayload?
-    do {
-      loadedControls = try await controlsTask
-    } catch {
-      capturedError = capturedError ?? error
-    }
+  func markStale(_ section: SessionCapabilitiesSection) {
+    staleSections.insert(section)
+  }
 
-    var loadedCollaborationModes: [ServerSessionCollaborationMode] = []
-    do {
-      loadedCollaborationModes = try await collaborationTask
-    } catch {
-      capturedError = capturedError ?? error
-    }
-
-    var loadedSkills: [ServerSkillsListEntry] = []
-    var loadedSkillErrors: [ServerSkillErrorInfo] = []
-    do {
-      let response = try await skillsTask
-      loadedSkills = response.skills
-      loadedSkillErrors = response.errors + response.skills.flatMap(\.errors)
-    } catch {
-      capturedError = capturedError ?? error
-    }
-
-    var loadedMarketplaces: [ServerPluginMarketplaceEntry] = []
-    var loadedPluginLoadErrors: [ServerPluginMarketplaceLoadError] = []
-    var loadedFeaturedPluginIDs: Set<String> = []
-    do {
-      let response = try await pluginsTask
-      loadedMarketplaces = response.marketplaces
-      loadedPluginLoadErrors = response.marketplaceLoadErrors
-      loadedFeaturedPluginIDs = Set(response.featuredPluginIDs)
-    } catch {
-      capturedError = capturedError ?? error
-    }
-
-    var loadedMcpServers: [SessionCapabilitiesMcpServer] = []
-    do {
-      let response = try await mcpTask
-      loadedMcpServers = Self.mapMcpServers(response)
-    } catch {
-      capturedError = capturedError ?? error
-    }
-
-    guard generation == loadGeneration else { return }
-
-    controls = loadedControls
-    instructions = loadedInstructions
-    collaborationModes = loadedCollaborationModes
-    skills = loadedSkills
-    skillErrors = loadedSkillErrors
-    marketplaces = loadedMarketplaces
-    pluginLoadErrors = loadedPluginLoadErrors
-    featuredPluginIDs = loadedFeaturedPluginIDs
-    mcpServers = loadedMcpServers
-    hasLoaded = true
-    isStale = false
-    isLoading = false
-
-    if let capturedError {
-      lastError = capturedError.localizedDescription
-    }
+  func markWorkspaceStale() {
+    staleSections.formUnion(SessionCapabilitiesSection.allCases)
   }
 
   func installPlugin(
@@ -222,8 +213,10 @@ final class SessionCapabilitiesModel {
         session: session,
         projectPath: projectPath,
         sessionState: self.sessionState,
-        forceSkillReload: true
+        section: .plugins,
+        forceReload: true
       )
+      staleSections.formUnion([.skills, .mcp])
     } catch {
       lastError = error.localizedDescription
     }
@@ -244,8 +237,10 @@ final class SessionCapabilitiesModel {
         session: session,
         projectPath: projectPath,
         sessionState: self.sessionState,
-        forceSkillReload: true
+        section: .plugins,
+        forceReload: true
       )
+      staleSections.formUnion([.skills, .mcp])
     } catch {
       lastError = error.localizedDescription
     }
@@ -255,66 +250,47 @@ final class SessionCapabilitiesModel {
     session: ServerSessionContext,
     projectPath: String
   ) async {
-    guard !isRefreshingMcp else { return }
-
-    isRefreshingMcp = true
-    defer { isRefreshingMcp = false }
+    guard !isLoading(.mcp) else { return }
 
     do {
       try await session.api.refreshMcp()
       notice = "Requested an MCP refresh."
-      await refresh(session: session, projectPath: projectPath, sessionState: self.sessionState)
+      markStale(.mcp)
+      await loadIfNeeded(
+        session: session,
+        projectPath: projectPath,
+        sessionState: self.sessionState,
+        section: .mcp
+      )
     } catch {
       lastError = error.localizedDescription
     }
   }
 
-  func applyCollaborationMode(
-    _ mode: ServerSessionCollaborationMode,
-    session: ServerSessionContext
+  func authenticateMcp(
+    server: SessionCapabilitiesMcpServer,
+    session: ServerSessionContext,
+    projectPath: String
   ) async {
-    await runAction(\.isApplyingCollaboration) {
-      let payload = try await session.api.updateSessionConfig(collaborationMode: mode.name)
-      await self.applyDetailSnapshot(payload, session: session)
-      self.notice = "Switched collaboration to \(mode.name)."
-    }
-  }
+    guard server.authStatus == .notLoggedIn else { return }
+    guard !authenticatingMcpServerNames.contains(server.name) else { return }
 
-  func interruptTurn(session: ServerSessionContext) async {
-    await runAction(\.isInterrupting) {
-      if let payload = try await session.api.stopActiveTurn() {
-        await self.applyDetailSnapshot(payload, session: session)
+    authenticatingMcpServerNames.insert(server.name)
+    defer { authenticatingMcpServerNames.remove(server.name) }
+
+    do {
+      let response = try await session.api.authenticateMcp(serverName: server.name)
+      if let urlString = response.authorizationURL,
+        let url = URL(string: urlString),
+        Platform.services.openURL(url)
+      {
+        notice = "Opened sign-in for \(server.name). Refresh MCP after auth completes."
+      } else {
+        notice = "Started auth for \(server.name)."
       }
-      self.notice = "Requested a turn stop."
-    }
-  }
-
-  func compactContext(session: ServerSessionContext) async {
-    await runAction(\.isCompacting) {
-      if let payload = try await session.api.compactContext() {
-        await self.applyDetailSnapshot(payload, session: session)
-      }
-      self.notice = "Requested context compaction."
-    }
-  }
-
-  func undoLastTurn(session: ServerSessionContext) async {
-    await runAction(\.isUndoing) {
-      if let payload = try await session.api.undoLastTurn() {
-        await self.applyDetailSnapshot(payload, session: session)
-      }
-      self.notice = "Requested undo."
-    }
-  }
-
-  func rollbackTurns(session: ServerSessionContext) async {
-    let turns = max(1, rollbackTurnCount)
-
-    await runAction(\.isRollingBack) {
-      if let payload = try await session.api.rollbackTurns(numTurns: UInt32(turns)) {
-        await self.applyDetailSnapshot(payload, session: session)
-      }
-      self.notice = turns == 1 ? "Rolled back 1 turn." : "Rolled back \(turns) turns."
+      markStale(.mcp)
+    } catch {
+      lastError = error.localizedDescription
     }
   }
 
@@ -326,48 +302,87 @@ final class SessionCapabilitiesModel {
     plugin.interface?.displayName ?? plugin.name
   }
 
-  private func applyDetailSnapshot(
-    _ payload: ServerSessionDetailSnapshotPayload,
-    session: ServerSessionContext
+  private func refreshSkills(
+    session: ServerSessionContext,
+    section: SessionCapabilitiesSection,
+    forceReload: Bool
   ) async {
-    sessionState = payload.session
-    clampRollbackTurnCount()
-    await refreshControls(session: session)
-    isStale = true
-  }
+    let generation = beginLoading(section)
+    defer { finishLoading(section, generation: generation) }
 
-  private func refreshControls(session: ServerSessionContext) async {
     do {
-      controls = try await session.api.fetchSessionControls()
+      let response = try await session.api.listSkills(forceReload: forceReload)
+      guard isCurrent(section, generation: generation) else { return }
+      skills = response.skills
+      skillErrors = response.errors + response.skills.flatMap(\.errors)
+      loadedSections.insert(section)
+      staleSections.remove(section)
     } catch {
+      guard isCurrent(section, generation: generation) else { return }
       lastError = error.localizedDescription
     }
   }
 
-  private func clampRollbackTurnCount() {
-    let availableTurns = Int(sessionState?.turnCount ?? 1)
-    rollbackTurnCount = max(1, min(rollbackTurnCount, max(1, availableTurns)))
-  }
-
-  private func nextGeneration() -> Int {
-    loadGeneration += 1
-    return loadGeneration
-  }
-
-  private func runAction(
-    _ flag: ReferenceWritableKeyPath<SessionCapabilitiesModel, Bool>,
-    operation: @escaping () async throws -> Void
+  private func refreshPlugins(
+    session: ServerSessionContext,
+    projectPath: String,
+    section: SessionCapabilitiesSection
   ) async {
-    guard !self[keyPath: flag] else { return }
+    let generation = beginLoading(section)
+    defer { finishLoading(section, generation: generation) }
 
-    self[keyPath: flag] = true
-    defer { self[keyPath: flag] = false }
+    let cwdHints = projectPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      ? []
+      : [projectPath]
 
     do {
-      try await operation()
+      let response = try await session.api.listPlugins(cwds: cwdHints)
+      guard isCurrent(section, generation: generation) else { return }
+      marketplaces = response.marketplaces
+      pluginLoadErrors = response.marketplaceLoadErrors
+      featuredPluginIDs = Set(response.featuredPluginIDs)
+      loadedSections.insert(section)
+      staleSections.remove(section)
     } catch {
+      guard isCurrent(section, generation: generation) else { return }
       lastError = error.localizedDescription
     }
+  }
+
+  private func refreshMcpInventory(
+    session: ServerSessionContext,
+    section: SessionCapabilitiesSection
+  ) async {
+    let generation = beginLoading(section)
+    defer { finishLoading(section, generation: generation) }
+
+    do {
+      let response = try await session.api.listMcp()
+      guard isCurrent(section, generation: generation) else { return }
+      mcpServers = Self.mapMcpServers(response)
+      loadedSections.insert(section)
+      staleSections.remove(section)
+    } catch {
+      guard isCurrent(section, generation: generation) else { return }
+      lastError = error.localizedDescription
+    }
+  }
+
+  private func beginLoading(_ section: SessionCapabilitiesSection) -> Int {
+    lastError = nil
+    loadingSections.insert(section)
+    let nextGeneration = (loadGenerations[section] ?? 0) + 1
+    loadGenerations[section] = nextGeneration
+    return nextGeneration
+  }
+
+  private func finishLoading(_ section: SessionCapabilitiesSection, generation: Int) {
+    guard isCurrent(section, generation: generation) else { return }
+    loadingSections.remove(section)
+  }
+
+  private func isCurrent(_ section: SessionCapabilitiesSection, generation: Int) -> Bool {
+    loadGenerations[section] == generation
   }
 
   private static func mapMcpServers(

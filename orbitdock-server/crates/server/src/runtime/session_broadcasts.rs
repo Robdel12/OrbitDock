@@ -118,7 +118,7 @@ pub(crate) fn invalidated_surfaces(msg: &ServerMessage) -> &'static [SessionSurf
     | ServerMessage::McpToolsList { .. }
     | ServerMessage::McpStartupUpdate { .. }
     | ServerMessage::McpStartupComplete { .. }
-    | ServerMessage::ClaudeCapabilities { .. } => &[SessionSurface::Capabilities],
+    | ServerMessage::ClaudeCapabilities { .. } => &[],
     _ => &[],
   }
 }
@@ -154,5 +154,14 @@ mod tests {
         SessionSurface::Review,
       ]
     );
+  }
+
+  #[test]
+  fn capabilities_domain_events_do_not_emit_extra_surface_invalidations() {
+    let invalidations = invalidated_surfaces(&ServerMessage::SkillsUpdateAvailable {
+      session_id: "session-1".to_string(),
+    });
+
+    assert!(invalidations.is_empty());
   }
 }

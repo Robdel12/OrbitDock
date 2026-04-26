@@ -1,6 +1,6 @@
 # OrbitDock Server API
 
-Last updated: 2026-04-17
+Last updated: 2026-04-24
 
 This file is the route-level contract for OrbitDock's Rust server.
 
@@ -333,6 +333,15 @@ Queues a steer message for the active turn.
 
 Returns `202 Accepted` with `SteerTurnResponse`.
 
+### `POST /api/sessions/{session_id}/conversation/shell-command`
+
+Runs a Codex `thread/shellCommand` against the active session thread.
+
+- This is a session-shell mutation, not the generic OrbitDock shell executor.
+- It returns `202 Accepted` with `AcceptedResponse`.
+- Progress and output arrive through the normal conversation websocket stream as Codex command-execution items.
+- The command runs with Codex's `thread/shellCommand` semantics, which are unsandboxed and do not inherit the session sandbox policy.
+
 ### `GET /api/sessions/{session_id}/controls`
 
 Returns the normalized session control capability surface for the active provider.
@@ -345,6 +354,7 @@ Returns:
 
 `controls` includes:
 
+- `shell_command`
 - `stop_active_turn`
 - `compact_context`
 - `undo_last_turn`
@@ -714,6 +724,8 @@ Returns:
 - `resource_templates`
 - `auth_statuses`
 
+For Codex sessions this is backed by App Server `mcpServerStatus/list` with the lightweight `toolsAndAuthOnly` detail level so the UI can render server status without repeatedly fetching heavy resource payloads.
+
 ### `POST /api/sessions/{session_id}/mcp/refresh`
 
 Refreshes MCP server state.
@@ -732,9 +744,12 @@ Returns `AcceptedResponse` with no detail snapshot.
 
 Starts MCP auth flow for a server.
 
-This is currently Claude-specific.
+For Codex sessions this calls App Server `mcpServer/oauth/login` and returns:
 
-Returns `AcceptedResponse` with no detail snapshot.
+- `accepted`
+- `authorization_url`
+
+For Claude sessions this starts the provider auth flow and returns `accepted` with no authorization URL.
 
 ### `POST /api/sessions/{session_id}/mcp/clear-auth`
 

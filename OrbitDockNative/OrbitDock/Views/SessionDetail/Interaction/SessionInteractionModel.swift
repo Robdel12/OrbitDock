@@ -12,7 +12,9 @@ final class SessionInteractionModel {
   var snapshot: ControlDeckSnapshot?
   var presentation: ControlDeckPresentation?
   var skills: [ControlDeckSkill] = []
+  var controls: ServerSessionControlsPayload?
   var isLoadingSkills = false
+  var hasAttemptedSkillLoad = false
   var isLoading = false
   var isResuming = false
   var lastError: String?
@@ -22,6 +24,8 @@ final class SessionInteractionModel {
   var lifecycle: ControlDeckLifecycle { snapshot?.state.lifecycle ?? .ended }
   var acceptsUserInput: Bool { snapshot?.state.acceptsUserInput ?? false }
   var steerable: Bool { snapshot?.state.steerable ?? false }
+  var sessionShell: ControlDeckSessionShellCapability? { snapshot?.sessionShell }
+  var turnControls: ControlDeckTurnControls? { snapshot?.turnControls }
 
   @ObservationIgnored let refreshRunner = CoalescedRefreshRunner()
   @ObservationIgnored var currentSessionId: String?

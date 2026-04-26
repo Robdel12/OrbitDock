@@ -24,6 +24,10 @@ struct TimelineRowContent: View {
   var isChildLoading: ((String) -> Bool)?
 
   @Environment(\.horizontalSizeClass) private var sizeClass
+  @Environment(\.rewindToMessage) private var rewindToMessage
+  @Environment(\.stopTarget) private var stopTarget
+
+  @State private var showRewindConfirmation = false
 
   private var isUserRow: Bool {
     if case .user = entry.row { return true }
@@ -50,26 +54,10 @@ struct TimelineRowContent: View {
   private var cellContent: some View {
     switch entry.row {
       case let .user(msg):
-        MessageRowView(
-          role: .user, content: msg.content,
-          images: convertImages(msg.images),
-          memoryCitation: msg.memoryCitation,
-          isStreaming: msg.isStreaming,
-          imageLoader: imageLoader,
-          isSteer: false,
-          deliveryStatus: msg.deliveryStatus
-        )
+        userMessageView(msg: msg, isSteer: false)
 
       case let .steer(msg):
-        MessageRowView(
-          role: .user, content: msg.content,
-          images: convertImages(msg.images),
-          memoryCitation: msg.memoryCitation,
-          isStreaming: msg.isStreaming,
-          imageLoader: imageLoader,
-          isSteer: true,
-          deliveryStatus: msg.deliveryStatus
-        )
+        userMessageView(msg: msg, isSteer: true)
 
       case let .assistant(msg):
         MessageRowView(
@@ -169,8 +157,8 @@ struct TimelineRowContent: View {
       case let .question(question):
         ApprovalRowView(title: question.title, subtitle: question.subtitle, summary: question.summary, isQuestion: true)
 
-      case let .worker(worker):
-        WorkerRowView(icon: "person.2.fill", iconColor: .toolTask, title: worker.title, subtitle: worker.subtitle)
+      case let .worker(workerRow):
+        workerRowView(workerRow: workerRow)
 
       case let .plan(plan):
         WorkerRowView(icon: "list.bullet.clipboard", iconColor: .toolPlan, title: plan.title, subtitle: plan.subtitle)
@@ -192,6 +180,64 @@ struct TimelineRowContent: View {
     guard let serverImages, !serverImages.isEmpty else { return [] }
     return serverImages.enumerated().compactMap { index, input in
       input.toMessageImage(index: index, sessionId: sessionId)
+    }
+  }
+
+  @ViewBuilder
+  private func userMessageView(msg: ServerConversationMessageRow, isSteer: Bool) -> some View {
+    MessageRowView(
+      role: .user, content: msg.content,
+      images: convertImages(msg.images),
+      memoryCitation: msg.memoryCitation,
+      isStreaming: msg.isStreaming,
+      imageLoader: imageLoader,
+      isSteer: isSteer,
+      deliveryStatus: msg.deliveryStatus
+    )
+    .contextMenu {
+      if rewindToMessage != nil {
+        Button(role: .destructive) {
+          showRewindConfirmation = true
+        } label: {
+          Label("Rewind to Here", systemImage: "arrow.uturn.backward")
+        }
+      }
+    }
+    .confirmationDialog(
+      "Rewind to this message?",
+      isPresented: $showRewindConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Rewind", role: .destructive) {
+        rewindToMessage?(entry.id)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This will undo all messages after this point.")
+    }
+  }
+
+  @ViewBuilder
+  private func workerRowView(workerRow: ServerConversationWorkerRow) -> some View {
+    HStack(spacing: Spacing.sm) {
+      WorkerRowView(
+        icon: "person.2.fill",
+        iconColor: .toolTask,
+        title: workerRow.title,
+        subtitle: workerRow.subtitle
+      )
+
+      if workerRow.worker.status == .running, stopTarget != nil {
+        Button {
+          stopTarget?(workerRow.worker.id)
+        } label: {
+          Image(systemName: "stop.fill")
+            .font(.system(size: IconScale.sm))
+            .foregroundStyle(Color.statusError)
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, Spacing.sm)
+      }
     }
   }
 }

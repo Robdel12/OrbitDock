@@ -41,8 +41,20 @@ final class ControlDeckComposerModel {
   }
 
   @discardableResult
-  func handleTextChange(_ text: String, availableSkills: [ControlDeckSkill]) -> Bool {
-    syncSelectedSkillsFromText(text, availableSkills: availableSkills)
+  func handleTextChange(
+    _ text: String,
+    availableSkills: [ControlDeckSkill],
+    allowsAutocomplete: Bool
+  ) -> Bool {
+    if allowsAutocomplete {
+      syncSelectedSkillsFromText(text, availableSkills: availableSkills)
+    } else {
+      completionState.dismiss()
+    }
+
+    guard allowsAutocomplete else {
+      return false
+    }
 
     let nextMode = ControlDeckAutocompletePlanner.completionMode(for: text)
     switch nextMode {

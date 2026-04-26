@@ -51,6 +51,14 @@ private struct WorkerDeckFocusKey: EnvironmentKey {
   static let defaultValue: ((String) -> Void)? = nil
 }
 
+private struct RewindToMessageKey: EnvironmentKey {
+  static let defaultValue: ((String) -> Void)? = nil
+}
+
+private struct StopTargetKey: EnvironmentKey {
+  static let defaultValue: ((String) -> Void)? = nil
+}
+
 extension EnvironmentValues {
   /// Call with a file path to open that file in the review canvas (switches to split if needed).
   var openFileInReview: ((String) -> Void)? {
@@ -62,6 +70,18 @@ extension EnvironmentValues {
   var focusWorkerInDeck: ((String) -> Void)? {
     get { self[WorkerDeckFocusKey.self] }
     set { self[WorkerDeckFocusKey.self] = newValue }
+  }
+
+  /// Call with a message id to rewind the conversation to that message boundary.
+  var rewindToMessage: ((String) -> Void)? {
+    get { self[RewindToMessageKey.self] }
+    set { self[RewindToMessageKey.self] = newValue }
+  }
+
+  /// Call with a target id to stop a running subagent/worker.
+  var stopTarget: ((String) -> Void)? {
+    get { self[StopTargetKey.self] }
+    set { self[StopTargetKey.self] = newValue }
   }
 }
 

@@ -5,9 +5,48 @@ extension ControlDeckScreen {
     interaction.presentation?.mode ?? .disabled
   }
 
+  var sessionShellSupported: Bool {
+    interaction.sessionShell?.supported ?? (interaction.snapshot?.state.provider == .codex)
+  }
+
+  var sessionShellAvailable: Bool {
+    if let available = interaction.sessionShell?.available {
+      return available
+    }
+
+    guard sessionShellSupported, let snapshot = interaction.snapshot else {
+      return false
+    }
+
+    return snapshot.state.controlMode == .direct
+      && snapshot.state.connectorAttached
+      && snapshot.state.lifecycle != .ended
+  }
+
+  var submissionIntent: ControlDeckSubmissionIntent {
+    ControlDeckSubmissionPlanner.intent(
+      for: composer.draft,
+      sessionShellSupported: sessionShellSupported
+    )
+  }
+
+  var isShellMode: Bool {
+    submissionIntent == .shell
+  }
+
   var canSubmit: Bool {
     let modeAllowsInput = currentMode == .compose || currentMode == .steer
-    return modeAllowsInput && composer.draft.hasContent && !composer.isSubmitting && !interaction.isResuming
+    guard modeAllowsInput && !composer.isSubmitting && !interaction.isResuming else {
+      return false
+    }
+
+    if isShellMode {
+      guard sessionShellAvailable else { return false }
+      guard composer.draft.attachments.items.isEmpty else { return false }
+      return !ControlDeckSubmissionPlanner.normalizedShellCommand(from: composer.draft).isEmpty
+    }
+
+    return composer.draft.hasContent
   }
 
   var isInputEnabled: Bool {
@@ -65,6 +104,9 @@ extension ControlDeckScreen {
       isResuming: interaction.isResuming,
       isInputEnabled: isInputEnabled,
       canSubmit: canSubmit,
+      isShellMode: isShellMode,
+      supportsSessionShell: sessionShellSupported,
+      sessionShellAvailable: sessionShellAvailable,
       presentation: interaction.presentation,
       pendingApproval: interaction.pendingApproval,
       errorMessage: interaction.lastError,
@@ -78,6 +120,7 @@ extension ControlDeckScreen {
       onRemoveAttachment: { composer.draft.attachments.remove(id: $0) },
       onDropImages: handleDrop,
       onSubmit: submitDraft,
+      onToggleShellMode: toggleShellMode,
       onResume: resumeSession,
       onApprove: { Task { await interaction.approveTool(decision: .approved) } },
       onApproveForSession: { Task { await interaction.approveTool(decision: .approvedForSession) } },
@@ -104,7 +147,8 @@ extension ControlDeckScreen {
       onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
       onDictation: dictationAction,
-      onInterrupt: { Task { await interaction.interruptSession() } }
+      onInterrupt: { Task { await interaction.interruptSession() } },
+      onTurnControlAction: handleTurnControlAction
     )
     .background(
       GeometryReader { proxy in

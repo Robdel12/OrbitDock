@@ -284,17 +284,32 @@ struct SidebarSessionRow: View {
   }
 
   private func diffStats(_ diff: ServerDashboardDiffPreview) -> some View {
-    HStack(spacing: Spacing.xs) {
-      Text("+\(diff.additions)")
-        .foregroundStyle(Color.diffAddedAccent)
-      Text("-\(diff.deletions)")
-        .foregroundStyle(Color.diffRemovedAccent)
+    let net = Int(diff.additions) - Int(diff.deletions)
+    let deltaColor: Color = net > 0 ? .feedbackPositive.opacity(0.6) : net < 0 ? .feedbackCaution.opacity(0.5) : .textQuaternary
+    let deltaText = net >= 0 ? "+\(formatLineCount(net))" : formatLineCount(net)
+
+    return HStack(spacing: Spacing.xs) {
+      Text(deltaText)
+        .foregroundStyle(deltaColor)
+      Text("Δ")
+        .foregroundStyle(Color.textQuaternary.opacity(0.6))
       if diff.fileCount > 0 {
-        Text("\(diff.fileCount) \(diff.fileCount == 1 ? "file" : "files")")
+        Text("·")
+          .foregroundStyle(Color.textQuaternary.opacity(0.5))
+        Text("\(diff.fileCount)f")
           .foregroundStyle(Color.textQuaternary)
       }
     }
     .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
+  }
+
+  private func formatLineCount(_ count: Int) -> String {
+    let absCount = abs(count)
+    if absCount >= 1000 {
+      let k = Double(absCount) / 1000.0
+      return String(format: "%.1fk", k).replacingOccurrences(of: ".0k", with: "k")
+    }
+    return "\(count)"
   }
 
   // MARK: - Actions

@@ -35,8 +35,16 @@ enum DashboardPresentationBuilder {
     let pinnedConversations = pinnedRefs.compactMap { pinnedLookup[$0] }
     let unpinnedSidebar = sidebar.filter { !pinnedSet.contains($0.sessionRef) }
 
-    let groups = buildGroups(from: filtered, customOrder: projectOrder)
-    let sidebarGroups = buildGroups(from: unpinnedSidebar, customOrder: projectOrder)
+    let groups = buildGroups(
+      from: filtered,
+      customOrder: projectOrder,
+      sortMode: .dashboard
+    )
+    let sidebarGroups = buildGroups(
+      from: unpinnedSidebar,
+      customOrder: projectOrder,
+      sortMode: .sidebar
+    )
 
     return DashboardPresentation(
       groups: groups,
@@ -133,8 +141,13 @@ enum DashboardPresentationBuilder {
 
   private static func buildGroups(
     from conversations: [DashboardConversationRecord],
-    customOrder: [String]
+    customOrder: [String],
+    sortMode: ConversationProjectGroupSortMode
   ) -> [ConversationProjectGroup] {
-    ConversationProjectGroupBuilder.build(from: conversations, customOrder: customOrder)
+    ConversationProjectGroupBuilder.build(
+      from: conversations,
+      customOrder: customOrder,
+      sortMode: sortMode
+    )
   }
 }

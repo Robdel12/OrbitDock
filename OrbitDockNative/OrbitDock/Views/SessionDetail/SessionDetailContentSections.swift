@@ -12,6 +12,8 @@ struct SessionDetailConversationSection: View {
   let chatViewMode: ChatViewMode
   let openFileInReview: ((String) -> Void)?
   let focusWorkerInDeck: ((String) -> Void)?
+  let rewindToMessage: ((String) -> Void)?
+  let stopTarget: ((String) -> Void)?
   @Binding var scrollCommand: ConversationScrollCommand?
   let onJumpToLatest: () -> Void
   let onFollowStateChanged: (ConversationFollowState) -> Void
@@ -41,6 +43,8 @@ struct SessionDetailConversationSection: View {
     .id(routeIdentity)
     .environment(\.openFileInReview, openFileInReview)
     .environment(\.focusWorkerInDeck, focusWorkerInDeck)
+    .environment(\.rewindToMessage, rewindToMessage)
+    .environment(\.stopTarget, stopTarget)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     #if os(iOS)
       .onTapGesture {

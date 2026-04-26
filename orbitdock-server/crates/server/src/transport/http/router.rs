@@ -88,6 +88,10 @@ fn session_write_routes() -> Router<Arc<SessionRegistry>> {
       post(super::post_steer_turn),
     )
     .route(
+      "/api/sessions/{session_id}/conversation/shell-command",
+      post(super::post_session_shell_command),
+    )
+    .route(
       "/api/sessions/{session_id}/detail/name",
       patch(super::rename_session),
     )

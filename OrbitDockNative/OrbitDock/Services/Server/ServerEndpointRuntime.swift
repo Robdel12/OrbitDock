@@ -186,7 +186,11 @@ final class ServerEndpointRuntime {
 
       case let .sessionSurfaceInvalidated(sessionId, _, _),
            let .conversationRowsChanged(sessionId, _, _, _),
-           let .revision(sessionId, _):
+           let .revision(sessionId, _),
+           let .skillsUpdateAvailable(sessionId),
+           let .mcpStartupUpdate(sessionId, _, _),
+           let .mcpStartupComplete(sessionId, _, _, _),
+           let .claudeCapabilities(sessionId, _, _, _, _):
         sessionContext(for: sessionId)?.transport.handleEvent(event)
 
       default:

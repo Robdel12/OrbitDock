@@ -333,6 +333,27 @@ pub(crate) async fn dispatch_steer_turn(
   Ok(steer_entry)
 }
 
+pub(crate) async fn dispatch_session_shell_command(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  command: String,
+) -> Result<(), &'static str> {
+  ensure_session_exists(state, session_id)?;
+
+  if let Some(tx) = state.get_codex_action_tx(session_id) {
+    tx.send(CodexAction::ShellCommand { command })
+      .await
+      .map_err(|_| {
+        state.remove_codex_action_tx(session_id);
+        "connector_unavailable"
+      })
+  } else if state.get_claude_action_tx(session_id).is_some() {
+    Err("unsupported_session_shell")
+  } else {
+    Err("connector_unavailable")
+  }
+}
+
 pub(crate) async fn dispatch_stop_active_turn(
   state: &Arc<SessionRegistry>,
   session_id: &str,

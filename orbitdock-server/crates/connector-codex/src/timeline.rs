@@ -8,6 +8,7 @@ use codex_protocol::protocol::{
 
 pub(crate) fn is_thread_start_skills_trimmed_warning(message: &str) -> bool {
   message.starts_with("Some enabled skills were not included in the model-visible skills list")
+    || message.starts_with("Warning: Exceeded skills context budget")
 }
 
 #[cfg(test)]

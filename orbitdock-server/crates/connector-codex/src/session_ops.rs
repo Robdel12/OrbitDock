@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use codex_app_server_protocol::{
   CollaborationModeListResponse, CollaborationModeMask as AppServerCollaborationModeMask,
-  McpServerStatus, PluginInstallParams, PluginInstallResponse, PluginListResponse,
-  PluginUninstallParams, PluginUninstallResponse, RequestId,
-  SandboxPolicy as AppServerSandboxPolicy, TurnStartParams, TurnSteerParams,
-  UserInput as AppServerUserInput,
+  McpAuthStatus as AppServerMcpAuthStatus, McpServerOauthLoginResponse, McpServerStatus,
+  PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
+  PluginUninstallResponse, RequestId, SandboxPolicy as AppServerSandboxPolicy, TurnStartParams,
+  TurnSteerParams, UserInput as AppServerUserInput,
 };
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
@@ -92,6 +92,15 @@ fn flatten_mcp_tools(
   }
 
   Ok(tools)
+}
+
+fn convert_mcp_auth_status(value: AppServerMcpAuthStatus) -> orbitdock_protocol::McpAuthStatus {
+  match value {
+    AppServerMcpAuthStatus::Unsupported => orbitdock_protocol::McpAuthStatus::Unsupported,
+    AppServerMcpAuthStatus::NotLoggedIn => orbitdock_protocol::McpAuthStatus::NotLoggedIn,
+    AppServerMcpAuthStatus::BearerToken => orbitdock_protocol::McpAuthStatus::BearerToken,
+    AppServerMcpAuthStatus::OAuth => orbitdock_protocol::McpAuthStatus::OAuth,
+  }
 }
 
 fn app_server_request_id(value: &str) -> RequestId {
@@ -385,6 +394,14 @@ impl CodexConnector {
     Ok(SteerOutcome::Accepted)
   }
 
+  pub async fn session_shell_command(&self, command: &str) -> Result<(), ConnectorError> {
+    self
+      .app_server_session()?
+      .thread_shell_command(self.thread_id.clone(), command.to_string())
+      .await?;
+    Ok(())
+  }
+
   pub async fn list_skills(
     &self,
     cwds: Vec<String>,
@@ -514,13 +531,8 @@ impl CodexConnector {
     let auth_statuses = response
       .data
       .into_iter()
-      .map(|status| {
-        Ok((
-          status.name,
-          convert_app_server_type(status.auth_status, "MCP auth status")?,
-        ))
-      })
-      .collect::<Result<HashMap<_, _>, ConnectorError>>()?;
+      .map(|status| (status.name, convert_mcp_auth_status(status.auth_status)))
+      .collect::<HashMap<_, _>>();
     let output = ConnectorStateEvent::McpToolsList {
       tools,
       resources,
@@ -539,6 +551,16 @@ impl CodexConnector {
   pub async fn refresh_mcp_servers(&self) -> Result<(), ConnectorError> {
     self.app_server_session()?.mcp_server_refresh().await?;
     Ok(())
+  }
+
+  pub async fn authenticate_mcp_server(
+    &self,
+    server_name: &str,
+  ) -> Result<McpServerOauthLoginResponse, ConnectorError> {
+    self
+      .app_server_session()?
+      .mcp_server_oauth_login(server_name.to_string())
+      .await
   }
 
   pub async fn interrupt(&self) -> Result<(), ConnectorError> {
@@ -785,8 +807,6 @@ mod tests {
         description: Some("Topic template".to_string()),
         mime_type: Some("text/markdown".to_string()),
         annotations: None,
-        icons: None,
-        meta: None,
       }],
       auth_status: McpAuthStatus::OAuth,
     };

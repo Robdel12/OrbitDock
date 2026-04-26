@@ -12,6 +12,9 @@ struct ControlDeckView: View {
   let isResuming: Bool
   let isInputEnabled: Bool
   let canSubmit: Bool
+  let isShellMode: Bool
+  let supportsSessionShell: Bool
+  let sessionShellAvailable: Bool
   let presentation: ControlDeckPresentation?
   let pendingApproval: ControlDeckApproval?
   let errorMessage: String?
@@ -27,6 +30,7 @@ struct ControlDeckView: View {
   let onRemoveAttachment: (String) -> Void
   let onDropImages: ([NSItemProvider]) -> Bool
   let onSubmit: () -> Void
+  let onToggleShellMode: () -> Void
   let onResume: (() -> Void)?
 
   // Approval callbacks
@@ -50,6 +54,7 @@ struct ControlDeckView: View {
   var isDictating: Bool = false
   var onDictation: (() -> Void)?
   var onInterrupt: (() -> Void)?
+  var onTurnControlAction: ((String) -> Void)?
 
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -97,21 +102,26 @@ struct ControlDeckView: View {
             onModuleAction: onModuleAction,
             onApprovalReviewerAction: onApprovalReviewerAction,
             onSandboxPolicyAction: onSandboxPolicyAction,
-            supportsImages: isInputEnabled && presentation.supportsImages,
+            supportsImages: isInputEnabled && presentation.supportsImages && !isShellMode,
             canPasteImage: isInputEnabled && canPasteImage(),
             canSubmit: canSubmit,
             canResume: presentation.canResume,
             isSubmitting: isSubmitting,
             isResuming: isResuming,
-            sendTint: presentation.sendTint,
+            sendTint: isShellMode ? "composerShell" : presentation.sendTint,
+            isShellMode: isShellMode,
+            supportsSessionShell: supportsSessionShell,
+            sessionShellAvailable: sessionShellAvailable,
             onAddImage: onAddImage,
             onPasteImage: { _ = onPasteImage() },
             onSubmit: onSubmit,
+            onToggleShellMode: onToggleShellMode,
             onResume: onResume,
             isDictating: isDictating,
             canInterruptSession: presentation.canInterrupt,
             onDictation: onDictation,
-            onInterrupt: onInterrupt
+            onInterrupt: onInterrupt,
+            onTurnControlAction: onTurnControlAction
           )
           .padding(.horizontal, horizontalContentPadding)
           .padding(.bottom, Spacing.sm)
@@ -147,6 +157,7 @@ struct ControlDeckView: View {
         case .none: return Color.panelBorder
       }
     }
+    if isShellMode { return Color.composerShell.opacity(0.5) }
     if isWorkingHighlight { return Color.feedbackWarning.opacity(OpacityTier.vivid) }
     return composer.focusState.isFocused ? Color.accent.opacity(0.5) : Color.panelBorder
   }
@@ -214,36 +225,50 @@ struct ControlDeckView: View {
   private var editorSection: some View {
     @Bindable var composer = composer
 
-    return ZStack(alignment: .topLeading) {
-      if composer.draft.text.isEmpty {
-        Text(presentation?.placeholder ?? "Message the session\u{2026}")
-          .font(.system(size: TypeScale.body))
-          .foregroundStyle(Color.textTertiary)
-          .padding(.top, Spacing.xxs)
-          .padding(.leading, Spacing.xxs)
-          .allowsHitTesting(false)
-      }
+    return VStack(alignment: .leading, spacing: Spacing.xs) {
+      ZStack(alignment: .topLeading) {
+        if composer.draft.text.isEmpty {
+          Text(editorPlaceholder)
+            .font(.system(size: TypeScale.body))
+            .foregroundStyle(Color.textTertiary)
+            .padding(.top, Spacing.xxs)
+            .padding(.leading, Spacing.xxs)
+            .allowsHitTesting(false)
+        }
 
-      ControlDeckTextArea(
-        text: $composer.draft.text,
-        focusRequestSignal: $composer.focusState.focusRequestSignal,
-        blurRequestSignal: $composer.focusState.blurRequestSignal,
-        moveCursorToEndSignal: $composer.focusState.moveCursorToEndSignal,
-        measuredHeight: $composer.focusState.measuredHeight,
-        isEnabled: isInputEnabled,
-        minLines: 1,
-        maxLines: 8,
-        onPasteImage: onPasteImage,
-        canPasteImage: canPasteImage,
-        onKeyCommand: onKeyCommand,
-        onFocusEvent: onFocusEvent
-      )
+        ControlDeckTextArea(
+          text: $composer.draft.text,
+          focusRequestSignal: $composer.focusState.focusRequestSignal,
+          blurRequestSignal: $composer.focusState.blurRequestSignal,
+          moveCursorToEndSignal: $composer.focusState.moveCursorToEndSignal,
+          measuredHeight: $composer.focusState.measuredHeight,
+          isEnabled: isInputEnabled,
+          minLines: 1,
+          maxLines: 8,
+          onPasteImage: { isShellMode ? false : onPasteImage() },
+          canPasteImage: { !isShellMode && canPasteImage() },
+          onKeyCommand: onKeyCommand,
+          onFocusEvent: onFocusEvent
+        )
+      }
+      .frame(height: max(composer.focusState.measuredHeight, 20))
     }
-    .frame(height: max(composer.focusState.measuredHeight, 20))
-    .onDrop(of: [.image, .fileURL], isTargeted: nil, perform: onDropImages)
+    .onDrop(
+      of: [.image, .fileURL],
+      isTargeted: nil,
+      perform: { providers in
+        isShellMode ? false : onDropImages(providers)
+      }
+    )
     .onChange(of: composer.draft.text) { _, newValue in
       onTextChange(newValue)
     }
   }
 
+  private var editorPlaceholder: String {
+    if isShellMode {
+      return "Run a command in this session\u{2026}"
+    }
+    return presentation?.placeholder ?? "Message the session\u{2026}"
+  }
 }
