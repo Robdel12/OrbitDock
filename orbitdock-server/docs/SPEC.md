@@ -680,11 +680,11 @@ MCP provides external tool integrations (GitHub, Linear, etc.).
 - `GET /api/sessions/{id}/mcp` — current tool catalog
 - `POST /api/sessions/{id}/mcp/refresh` — refresh servers
 - `POST /api/sessions/{id}/mcp/toggle` — enable/disable a Claude server
-- `POST /api/sessions/{id}/mcp/authenticate` — start auth for a Claude server
+- `POST /api/sessions/{id}/mcp/authenticate` — start auth for a supported provider server
 - `POST /api/sessions/{id}/mcp/clear-auth` — clear saved Claude auth
 - `POST /api/sessions/{id}/mcp/servers` — apply Claude MCP server config
 
-Codex currently shares the MCP read/refresh inventory surface, but not the Claude-specific toggle/auth/config mutation routes.
+Codex currently shares the MCP read/refresh inventory surface and supports `mcp/authenticate` through app-server OAuth login, but not the Claude-specific toggle/clear-auth/config mutation routes.
 
 ### 8.3 Permissions
 
