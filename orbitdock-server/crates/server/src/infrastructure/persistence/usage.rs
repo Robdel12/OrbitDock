@@ -1,4 +1,5 @@
 use super::*;
+use crate::infrastructure::usage_pricing::{estimate_cost_usd, pricing_snapshot};
 
 pub(super) fn snapshot_kind_to_str(kind: TokenUsageSnapshotKind) -> &'static str {
   match kind {
@@ -78,6 +79,7 @@ pub(crate) fn snapshot_kind_from_str(kind: Option<&str>) -> TokenUsageSnapshotKi
     Some("context_turn") => TokenUsageSnapshotKind::ContextTurn,
     Some("lifetime_totals") => TokenUsageSnapshotKind::LifetimeTotals,
     Some("mixed") => TokenUsageSnapshotKind::Mixed,
+    Some("mixed_legacy") => TokenUsageSnapshotKind::Mixed,
     Some("compaction_reset") => TokenUsageSnapshotKind::CompactionReset,
     _ => TokenUsageSnapshotKind::Unknown,
   }
@@ -279,6 +281,8 @@ pub(super) struct TurnSnapshotRow<'a> {
   pub session_id: &'a str,
   pub turn_id: &'a str,
   pub turn_seq: u64,
+  pub provider: &'a str,
+  pub model: Option<&'a str>,
   pub input_tokens: u64,
   pub output_tokens: u64,
   pub cached_tokens: u64,
@@ -294,6 +298,8 @@ pub(super) fn upsert_usage_turn_snapshot(
     session_id,
     turn_id,
     turn_seq,
+    provider,
+    model,
     input_tokens,
     output_tokens,
     cached_tokens,
@@ -322,6 +328,8 @@ pub(super) fn upsert_usage_turn_snapshot(
             session_id,
             turn_id,
             turn_seq,
+            provider,
+            model,
             snapshot_kind,
             input_tokens,
             output_tokens,
@@ -329,9 +337,11 @@ pub(super) fn upsert_usage_turn_snapshot(
             context_window,
             input_delta_tokens,
             created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         ON CONFLICT(session_id, turn_id) DO UPDATE SET
             turn_seq = excluded.turn_seq,
+            provider = excluded.provider,
+            model = excluded.model,
             snapshot_kind = excluded.snapshot_kind,
             input_tokens = excluded.input_tokens,
             output_tokens = excluded.output_tokens,
@@ -343,6 +353,8 @@ pub(super) fn upsert_usage_turn_snapshot(
       session_id,
       turn_id,
       *turn_seq as i64,
+      provider,
+      model,
       snapshot_kind_to_str(*snapshot_kind),
       *input_tokens as i64,
       *output_tokens as i64,
@@ -360,6 +372,8 @@ pub(super) fn upsert_usage_turn_snapshot(
 struct StoredTurnUsageSnapshot {
   turn_id: String,
   turn_seq: u64,
+  provider: String,
+  model: Option<String>,
   usage: TokenUsage,
   snapshot_kind: TokenUsageSnapshotKind,
 }
@@ -368,32 +382,33 @@ pub(super) fn recompute_usage_ledger_for_session(
   conn: &Connection,
   session_id: &str,
 ) -> Result<(), rusqlite::Error> {
-  let (provider, model, session_started_at): (String, Option<String>, Option<String>) = conn
-    .query_row(
-      "SELECT COALESCE(provider, 'claude'), model, started_at
+  let session_started_at: Option<String> = conn.query_row(
+    "SELECT started_at
        FROM sessions
        WHERE id = ?1",
-      params![session_id],
-      |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
+    params![session_id],
+    |row| row.get(0),
+  )?;
 
   let turns = conn
     .prepare(
-      "SELECT turn_id, turn_seq, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind
+      "SELECT turn_id, turn_seq, provider, model, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind
        FROM usage_turns
        WHERE session_id = ?1
        ORDER BY turn_seq ASC, rowid ASC",
     )?
     .query_map(params![session_id], |row| {
-      let snapshot_kind: String = row.get(6)?;
+      let snapshot_kind: String = row.get(8)?;
       Ok(StoredTurnUsageSnapshot {
         turn_id: row.get(0)?,
         turn_seq: row.get::<_, i64>(1)?.max(0) as u64,
+        provider: row.get(2)?,
+        model: row.get(3)?,
         usage: TokenUsage {
-          input_tokens: row.get::<_, i64>(2)?.max(0) as u64,
-          output_tokens: row.get::<_, i64>(3)?.max(0) as u64,
-          cached_tokens: row.get::<_, i64>(4)?.max(0) as u64,
-          context_window: row.get::<_, i64>(5)?.max(0) as u64,
+          input_tokens: row.get::<_, i64>(4)?.max(0) as u64,
+          output_tokens: row.get::<_, i64>(5)?.max(0) as u64,
+          cached_tokens: row.get::<_, i64>(6)?.max(0) as u64,
+          context_window: row.get::<_, i64>(7)?.max(0) as u64,
         },
         snapshot_kind: snapshot_kind_from_str(Some(snapshot_kind.as_str())),
       })
@@ -416,9 +431,13 @@ pub(super) fn recompute_usage_ledger_for_session(
   for turn in turns {
     let normalized =
       normalize_usage_for_ledger(previous_usage.as_ref(), &turn.usage, turn.snapshot_kind);
+    let provider_enum = turn
+      .provider
+      .parse()
+      .unwrap_or(orbitdock_protocol::Provider::Claude);
+    let pricing = pricing_snapshot(provider_enum, turn.model.as_deref());
     let estimated_cost_usd = estimate_cost_usd(
-      provider.as_str(),
-      model.as_deref(),
+      &pricing,
       normalized.billable_input_tokens,
       normalized.billable_output_tokens,
       normalized.cache_read_tokens,
@@ -441,8 +460,15 @@ pub(super) fn recompute_usage_ledger_for_session(
         cache_write_tokens,
         context_input_tokens,
         context_window,
-        estimated_cost_usd
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+        estimated_cost_usd,
+        pricing_source,
+        pricing_version,
+        pricing_model_key,
+        input_cost_per_token,
+        output_cost_per_token,
+        cache_read_cost_per_token,
+        cache_write_cost_per_token
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
       ON CONFLICT(session_id, turn_id) DO UPDATE SET
         turn_seq = excluded.turn_seq,
         provider = excluded.provider,
@@ -456,13 +482,20 @@ pub(super) fn recompute_usage_ledger_for_session(
         cache_write_tokens = excluded.cache_write_tokens,
         context_input_tokens = excluded.context_input_tokens,
         context_window = excluded.context_window,
-        estimated_cost_usd = excluded.estimated_cost_usd",
+        estimated_cost_usd = excluded.estimated_cost_usd,
+        pricing_source = excluded.pricing_source,
+        pricing_version = excluded.pricing_version,
+        pricing_model_key = excluded.pricing_model_key,
+        input_cost_per_token = excluded.input_cost_per_token,
+        output_cost_per_token = excluded.output_cost_per_token,
+        cache_read_cost_per_token = excluded.cache_read_cost_per_token,
+        cache_write_cost_per_token = excluded.cache_write_cost_per_token",
       params![
         session_id,
         &turn.turn_id,
         turn.turn_seq as i64,
-        &provider,
-        &model,
+        &turn.provider,
+        &turn.model,
         &session_started_at,
         chrono_now(),
         snapshot_kind_to_str(turn.snapshot_kind),
@@ -473,6 +506,13 @@ pub(super) fn recompute_usage_ledger_for_session(
         normalized.context_input_tokens as i64,
         normalized.context_window as i64,
         estimated_cost_usd,
+        pricing.source,
+        pricing.version,
+        &pricing.model_key,
+        pricing.input_cost_per_token,
+        pricing.output_cost_per_token,
+        pricing.cache_read_cost_per_token,
+        pricing.cache_write_cost_per_token,
       ],
     )?;
     previous_usage = Some(turn.usage);
@@ -481,22 +521,277 @@ pub(super) fn recompute_usage_ledger_for_session(
   Ok(())
 }
 
-pub(crate) fn estimate_cost_usd(
-  provider: &str,
-  model: Option<&str>,
-  input_tokens: u64,
-  output_tokens: u64,
-  cache_read_tokens: u64,
-  cache_write_tokens: u64,
-) -> f64 {
-  let provider_enum: orbitdock_protocol::Provider = provider
-    .parse()
-    .unwrap_or(orbitdock_protocol::Provider::Claude);
-  let p = orbitdock_protocol::model_pricing(provider_enum, model);
-  input_tokens as f64 * p.input_per_token
-    + output_tokens as f64 * p.output_per_token
-    + cache_read_tokens as f64 * p.cache_read_per_token
-    + cache_write_tokens as f64 * p.cache_write_per_token
+pub(crate) fn recompute_all_usage_ledgers(conn: &Connection) -> Result<(), rusqlite::Error> {
+  let session_ids = conn
+    .prepare("SELECT DISTINCT session_id FROM usage_turns")?
+    .query_map([], |row| row.get::<_, String>(0))?
+    .collect::<Result<Vec<_>, _>>()?;
+
+  for session_id in session_ids {
+    recompute_usage_ledger_for_session(conn, &session_id)?;
+  }
+
+  Ok(())
+}
+
+pub(crate) fn rebuild_usage_session_state(conn: &Connection) -> Result<(), rusqlite::Error> {
+  if !query_exists(
+    conn,
+    "SELECT 1
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'usage_session_state'",
+  )? {
+    return Ok(());
+  }
+
+  conn.execute("DELETE FROM usage_session_state", [])?;
+
+  let session_ids = conn
+    .prepare("SELECT DISTINCT session_id FROM usage_turns")?
+    .query_map([], |row| row.get::<_, String>(0))?
+    .collect::<Result<Vec<_>, _>>()?;
+
+  for session_id in session_ids {
+    let session_meta: Option<(String, Option<String>, Option<String>)> = conn
+      .query_row(
+        "SELECT COALESCE(provider, 'claude'), codex_integration_mode, claude_integration_mode
+         FROM sessions
+         WHERE id = ?1",
+        params![&session_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+      )
+      .optional()?;
+    let Some((provider, codex_mode, claude_mode)) = session_meta else {
+      continue;
+    };
+
+    let latest_turn: Option<(String, i64, i64, i64, i64)> = conn
+      .query_row(
+        "SELECT snapshot_kind, input_tokens, output_tokens, cached_tokens, context_window
+         FROM usage_turns
+         WHERE session_id = ?1
+         ORDER BY turn_seq DESC, rowid DESC
+         LIMIT 1",
+        params![&session_id],
+        |row| {
+          Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+          ))
+        },
+      )
+      .optional()?;
+    let Some((
+      snapshot_kind,
+      snapshot_input_tokens,
+      snapshot_output_tokens,
+      snapshot_cached_tokens,
+      snapshot_context_window,
+    )) = latest_turn
+    else {
+      continue;
+    };
+
+    let (lifetime_input_tokens, lifetime_output_tokens, lifetime_cached_tokens): (i64, i64, i64) =
+      conn.query_row(
+        "SELECT
+         COALESCE(SUM(billable_input_tokens), 0),
+         COALESCE(SUM(billable_output_tokens), 0),
+         COALESCE(SUM(cache_read_tokens), 0)
+       FROM usage_ledger_entries
+       WHERE session_id = ?1",
+        params![&session_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+      )?;
+
+    let snapshot_kind_enum = snapshot_kind_from_str(Some(snapshot_kind.as_str()));
+    let (context_input_tokens, context_cached_tokens) = match snapshot_kind_enum {
+      TokenUsageSnapshotKind::CompactionReset => (0, 0),
+      _ => (snapshot_input_tokens, snapshot_cached_tokens),
+    };
+
+    conn.execute(
+      "INSERT INTO usage_session_state (
+         session_id,
+         provider,
+         codex_integration_mode,
+         claude_integration_mode,
+         snapshot_kind,
+         snapshot_input_tokens,
+         snapshot_output_tokens,
+         snapshot_cached_tokens,
+         snapshot_context_window,
+         lifetime_input_tokens,
+         lifetime_output_tokens,
+         lifetime_cached_tokens,
+         context_input_tokens,
+         context_cached_tokens,
+         context_window,
+         updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+      params![
+        &session_id,
+        provider,
+        codex_mode,
+        claude_mode,
+        snapshot_kind,
+        snapshot_input_tokens,
+        snapshot_output_tokens,
+        snapshot_cached_tokens,
+        snapshot_context_window,
+        lifetime_input_tokens,
+        lifetime_output_tokens,
+        lifetime_cached_tokens,
+        context_input_tokens,
+        context_cached_tokens,
+        snapshot_context_window,
+        chrono_now(),
+      ],
+    )?;
+  }
+
+  Ok(())
+}
+
+fn usage_accounting_repair_needed(conn: &Connection) -> Result<bool, rusqlite::Error> {
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_turns
+       WHERE snapshot_kind = 'mixed_legacy'",
+  )? {
+    return Ok(true);
+  }
+
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_ledger_entries
+       WHERE snapshot_kind = 'mixed_legacy'",
+  )? {
+    return Ok(true);
+  }
+
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_turns
+       WHERE provider IS NULL
+          OR trim(provider) = ''
+          OR model IS NULL",
+  )? {
+    return Ok(true);
+  }
+
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_turns ut
+       LEFT JOIN usage_ledger_entries ule
+         ON ule.session_id = ut.session_id
+        AND ule.turn_id = ut.turn_id
+       WHERE ule.turn_id IS NULL",
+  )? {
+    return Ok(true);
+  }
+
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_ledger_entries
+       WHERE pricing_model_key IS NULL
+          OR input_cost_per_token = 0
+          OR output_cost_per_token = 0",
+  )? {
+    return Ok(true);
+  }
+
+  query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_turns ut
+       LEFT JOIN usage_session_state uss
+         ON uss.session_id = ut.session_id
+       WHERE uss.session_id IS NULL",
+  )
+}
+
+pub(crate) fn repair_usage_accounting_if_needed(conn: &Connection) -> Result<(), rusqlite::Error> {
+  if !usage_accounting_tables_exist(conn)? {
+    return Ok(());
+  }
+
+  if !usage_accounting_repair_needed(conn)? {
+    return Ok(());
+  }
+
+  repair_usage_accounting(conn)
+}
+
+pub(crate) fn repair_usage_accounting(conn: &Connection) -> Result<(), rusqlite::Error> {
+  if !usage_accounting_tables_exist(conn)? {
+    return Ok(());
+  }
+
+  conn.execute(
+    "UPDATE usage_turns
+     SET snapshot_kind = 'mixed'
+     WHERE snapshot_kind = 'mixed_legacy'",
+    [],
+  )?;
+  conn.execute(
+    "UPDATE usage_turns
+     SET provider = COALESCE(NULLIF(provider, ''), (
+           SELECT COALESCE(s.provider, 'claude')
+           FROM sessions s
+           WHERE s.id = usage_turns.session_id
+         )),
+         model = COALESCE(model, (
+           SELECT s.model
+           FROM sessions s
+           WHERE s.id = usage_turns.session_id
+         ))
+     WHERE provider IS NULL
+        OR trim(provider) = ''
+        OR model IS NULL",
+    [],
+  )?;
+  conn.execute(
+    "UPDATE usage_ledger_entries
+     SET snapshot_kind = 'mixed'
+     WHERE snapshot_kind = 'mixed_legacy'",
+    [],
+  )?;
+
+  recompute_all_usage_ledgers(conn)?;
+  rebuild_usage_session_state(conn)
+}
+
+fn usage_accounting_tables_exist(conn: &Connection) -> Result<bool, rusqlite::Error> {
+  if !query_exists(
+    conn,
+    "SELECT 1
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'usage_turns'",
+  )? {
+    return Ok(false);
+  }
+
+  query_exists(
+    conn,
+    "SELECT 1
+       FROM sqlite_master
+       WHERE type = 'table' AND name = 'usage_ledger_entries'",
+  )
+}
+
+fn query_exists(conn: &Connection, sql: &str) -> Result<bool, rusqlite::Error> {
+  conn.query_row(&format!("SELECT EXISTS({sql})"), [], |row| {
+    row.get::<_, i64>(0).map(|value| value == 1)
+  })
 }
 
 #[cfg(test)]
@@ -510,12 +805,16 @@ mod tests {
            id TEXT PRIMARY KEY,
            provider TEXT,
            model TEXT,
+           codex_integration_mode TEXT,
+           claude_integration_mode TEXT,
            started_at TEXT
          );
          CREATE TABLE usage_turns (
            session_id TEXT NOT NULL,
            turn_id TEXT NOT NULL,
            turn_seq INTEGER NOT NULL,
+           provider TEXT NOT NULL DEFAULT 'claude',
+           model TEXT,
            snapshot_kind TEXT NOT NULL,
            input_tokens INTEGER NOT NULL DEFAULT 0,
            output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -541,7 +840,32 @@ mod tests {
            context_input_tokens INTEGER NOT NULL DEFAULT 0,
            context_window INTEGER NOT NULL DEFAULT 0,
            estimated_cost_usd REAL NOT NULL DEFAULT 0,
+           pricing_source TEXT NOT NULL DEFAULT 'orbitdock_builtin',
+           pricing_version TEXT NOT NULL DEFAULT '2026-04-backbone-v1',
+           pricing_model_key TEXT,
+           input_cost_per_token REAL NOT NULL DEFAULT 0,
+           output_cost_per_token REAL NOT NULL DEFAULT 0,
+           cache_read_cost_per_token REAL NOT NULL DEFAULT 0,
+           cache_write_cost_per_token REAL NOT NULL DEFAULT 0,
            PRIMARY KEY (session_id, turn_id)
+         );
+         CREATE TABLE usage_session_state (
+           session_id TEXT PRIMARY KEY,
+           provider TEXT NOT NULL,
+           codex_integration_mode TEXT,
+           claude_integration_mode TEXT,
+           snapshot_kind TEXT NOT NULL DEFAULT 'unknown',
+           snapshot_input_tokens INTEGER NOT NULL DEFAULT 0,
+           snapshot_output_tokens INTEGER NOT NULL DEFAULT 0,
+           snapshot_cached_tokens INTEGER NOT NULL DEFAULT 0,
+           snapshot_context_window INTEGER NOT NULL DEFAULT 0,
+           lifetime_input_tokens INTEGER NOT NULL DEFAULT 0,
+           lifetime_output_tokens INTEGER NOT NULL DEFAULT 0,
+           lifetime_cached_tokens INTEGER NOT NULL DEFAULT 0,
+           context_input_tokens INTEGER NOT NULL DEFAULT 0,
+           context_cached_tokens INTEGER NOT NULL DEFAULT 0,
+           context_window INTEGER NOT NULL DEFAULT 0,
+           updated_at TEXT NOT NULL
          );",
       )
       .expect("create usage schema");
@@ -559,6 +883,8 @@ mod tests {
       session_id: "session-1",
       turn_id,
       turn_seq,
+      provider: "codex",
+      model: Some("gpt-5.4"),
       input_tokens,
       output_tokens,
       cached_tokens,
@@ -586,7 +912,7 @@ mod tests {
 
     let rows = conn
       .prepare(
-        "SELECT turn_id, billable_input_tokens, billable_output_tokens, cache_read_tokens
+        "SELECT turn_id, billable_input_tokens, billable_output_tokens, cache_read_tokens, pricing_source, pricing_version, pricing_model_key
          FROM usage_ledger_entries
          WHERE session_id = 'session-1'
          ORDER BY turn_seq",
@@ -598,6 +924,9 @@ mod tests {
             row.get::<_, i64>(1)?,
             row.get::<_, i64>(2)?,
             row.get::<_, i64>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, Option<String>>(6)?,
           ))
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -607,9 +936,210 @@ mod tests {
     assert_eq!(
       rows,
       vec![
-        ("turn-1".to_string(), 100, 10, 50),
-        ("turn-2".to_string(), 80, 8, 40),
-        ("turn-3".to_string(), 120, 12, 60),
+        (
+          "turn-1".to_string(),
+          100,
+          10,
+          50,
+          "orbitdock_builtin".to_string(),
+          "2026-04-backbone-v1".to_string(),
+          Some("gpt-5".to_string()),
+        ),
+        (
+          "turn-2".to_string(),
+          80,
+          8,
+          40,
+          "orbitdock_builtin".to_string(),
+          "2026-04-backbone-v1".to_string(),
+          Some("gpt-5".to_string()),
+        ),
+        (
+          "turn-3".to_string(),
+          120,
+          12,
+          60,
+          "orbitdock_builtin".to_string(),
+          "2026-04-backbone-v1".to_string(),
+          Some("gpt-5".to_string()),
+        ),
+      ]
+    );
+  }
+
+  #[test]
+  fn repair_usage_accounting_backfills_missing_ledger_rows_and_normalizes_legacy_kinds() {
+    let conn = Connection::open_in_memory().expect("open sqlite");
+    create_usage_ledger_test_schema(&conn);
+    conn
+      .execute(
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        params![
+          "session-1",
+          "claude",
+          "claude-sonnet-4",
+          "2026-03-29T00:00:00Z"
+        ],
+      )
+      .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_turns (
+           session_id, turn_id, turn_seq, provider, model, snapshot_kind, input_tokens, output_tokens, cached_tokens, context_window, input_delta_tokens, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+          "session-1",
+          "turn-1",
+          1_i64,
+          "claude",
+          "claude-sonnet-4",
+          "mixed_legacy",
+          100_i64,
+          20_i64,
+          40_i64,
+          200_000_i64,
+          100_i64,
+          "2026-03-29T00:05:00Z",
+        ],
+      )
+      .expect("insert legacy turn");
+
+    repair_usage_accounting(&conn).expect("repair usage accounting");
+
+    let row = conn
+      .query_row(
+        "SELECT
+           ule.snapshot_kind,
+           ule.pricing_source,
+           ule.pricing_version,
+           ule.pricing_model_key,
+           ule.billable_input_tokens,
+           ule.billable_output_tokens,
+           ule.cache_read_tokens,
+           uss.snapshot_input_tokens,
+           uss.snapshot_output_tokens,
+           uss.snapshot_cached_tokens
+         FROM usage_ledger_entries ule
+         JOIN usage_session_state uss ON uss.session_id = ule.session_id
+         WHERE ule.session_id = ?1 AND ule.turn_id = ?2",
+        params!["session-1", "turn-1"],
+        |row| {
+          Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(6)?,
+            row.get::<_, i64>(7)?,
+            row.get::<_, i64>(8)?,
+            row.get::<_, i64>(9)?,
+          ))
+        },
+      )
+      .expect("read repaired ledger row");
+
+    assert_eq!(
+      row,
+      (
+        "mixed".to_string(),
+        "orbitdock_builtin".to_string(),
+        "2026-04-backbone-v1".to_string(),
+        Some("claude-sonnet-4".to_string()),
+        100,
+        20,
+        40,
+        100,
+        20,
+        40,
+      )
+    );
+  }
+
+  #[test]
+  fn ledger_recompute_preserves_turn_level_model_snapshots_when_session_model_changes() {
+    let conn = Connection::open_in_memory().expect("open sqlite");
+    create_usage_ledger_test_schema(&conn);
+    conn
+      .execute(
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        params![
+          "session-1",
+          "claude",
+          "claude-opus-4",
+          "2026-04-22T00:00:00Z"
+        ],
+      )
+      .expect("insert session");
+
+    upsert_usage_turn_snapshot(
+      &conn,
+      &TurnSnapshotRow {
+        session_id: "session-1",
+        turn_id: "turn-1",
+        turn_seq: 1,
+        provider: "claude",
+        model: Some("claude-sonnet-4"),
+        input_tokens: 100,
+        output_tokens: 20,
+        cached_tokens: 10,
+        context_window: 200_000,
+        snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+      },
+    )
+    .expect("insert first turn");
+    upsert_usage_turn_snapshot(
+      &conn,
+      &TurnSnapshotRow {
+        session_id: "session-1",
+        turn_id: "turn-2",
+        turn_seq: 2,
+        provider: "claude",
+        model: Some("claude-opus-4"),
+        input_tokens: 160,
+        output_tokens: 40,
+        cached_tokens: 20,
+        context_window: 200_000,
+        snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+      },
+    )
+    .expect("insert second turn");
+
+    recompute_usage_ledger_for_session(&conn, "session-1").expect("recompute usage ledger");
+
+    let rows = conn
+      .prepare(
+        "SELECT turn_id, model, pricing_model_key
+         FROM usage_ledger_entries
+         WHERE session_id = 'session-1'
+         ORDER BY turn_seq",
+      )
+      .and_then(|mut stmt| {
+        let rows = stmt.query_map([], |row| {
+          Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+          ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+      })
+      .expect("read ledger rows");
+
+    assert_eq!(
+      rows,
+      vec![
+        (
+          "turn-1".to_string(),
+          Some("claude-sonnet-4".to_string()),
+          Some("claude-sonnet-4".to_string()),
+        ),
+        (
+          "turn-2".to_string(),
+          Some("claude-opus-4".to_string()),
+          Some("claude-opus-4".to_string()),
+        ),
       ]
     );
   }

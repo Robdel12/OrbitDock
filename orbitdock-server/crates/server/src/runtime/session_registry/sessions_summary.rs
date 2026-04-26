@@ -2,9 +2,11 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 
 use orbitdock_protocol::{
-  estimate_session_cost, ServerMessage, SessionListItem, SessionStatus, SessionSummary,
-  SessionsSummaryCounts, SessionsSummarySnapshot,
+  ServerMessage, SessionListItem, SessionStatus, SessionSummary, SessionsSummaryCounts,
+  SessionsSummarySnapshot,
 };
+
+use crate::infrastructure::usage_pricing::estimate_session_cost as estimate_live_session_cost;
 
 use super::SessionRegistry;
 
@@ -151,7 +153,7 @@ fn session_list_item_from_snapshot(
     is_worktree: snapshot.is_worktree,
     worktree_id: snapshot.worktree_id.clone(),
     total_tokens: snapshot.token_usage.input_tokens + snapshot.token_usage.output_tokens,
-    total_cost_usd: estimate_session_cost(
+    total_cost_usd: estimate_live_session_cost(
       snapshot.provider,
       snapshot.model.as_deref(),
       &snapshot.token_usage,

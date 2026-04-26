@@ -593,6 +593,7 @@ mod tests {
   fn default_workspace_tools_do_not_duplicate_existing_names() {
     let merged = with_default_codex_workspace_tools(vec![DynamicToolSpec {
       name: "file_read".to_string(),
+      namespace: None,
       description: "custom read".to_string(),
       input_schema: json!({
         "type": "object",

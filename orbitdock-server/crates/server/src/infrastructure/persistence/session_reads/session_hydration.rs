@@ -50,10 +50,10 @@ async fn load_session_by_id_with_db_path(
     let mut stmt = conn.prepare(
       "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.status, s.work_status, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
-                        COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
-                        COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
-                        COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
-                        COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                        COALESCE(uss.snapshot_input_tokens, 0),
+                        COALESCE(uss.snapshot_output_tokens, 0),
+                        COALESCE(uss.snapshot_cached_tokens, 0),
+                        COALESCE(uss.snapshot_context_window, 0),
                         s.provider, COALESCE(s.control_mode, CASE
                             WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
                             WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'

@@ -15,15 +15,8 @@ struct StatsPopoverContent: View {
   @Environment(UsageServiceRegistry.self) private var registry
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
-  let todayStats: StatusBarStats
-  let allStats: StatusBarStats
-
   private var displayedStats: (today: StatusBarStats, allTime: StatusBarStats) {
-    StatusBarStats.resolve(
-      summary: registry.summary,
-      fallbackToday: todayStats,
-      fallbackAllTime: allStats
-    )
+    StatusBarStats.resolve(summary: registry.summary)
   }
 
   private var activeProviders: [(provider: Provider, windows: [RateLimitWindow], isLoading: Bool)] {
@@ -248,18 +241,23 @@ struct StatusBarStats {
   let costByModel: [(model: String, cost: Double, color: Color)]
 
   static func resolve(
-    summary: ServerUsageSummarySnapshotPayload?,
-    fallbackToday: StatusBarStats,
-    fallbackAllTime: StatusBarStats
+    summary: ServerUsageSummarySnapshotPayload?
   ) -> (today: StatusBarStats, allTime: StatusBarStats) {
     guard let summary else {
-      return (today: fallbackToday, allTime: fallbackAllTime)
+      return (today: .empty, allTime: .empty)
     }
     return (
       today: from(summary.today),
       allTime: from(summary.allTime)
     )
   }
+
+  static let empty = StatusBarStats(
+    sessionCount: 0,
+    cost: 0,
+    tokens: 0,
+    costByModel: []
+  )
 
   static func from(_ bucket: ServerUsageSummaryBucketPayload) -> StatusBarStats {
     let sortedCosts = bucket.costByModel.map {
@@ -272,67 +270,6 @@ struct StatusBarStats {
       tokens: Int(bucket.totalTokens),
       costByModel: sortedCosts
     )
-  }
-
-  static func from(
-    sessions: [RootSessionNode],
-    costCalculator: TokenCostCalculator
-  ) -> StatusBarStats {
-    var costByModel: [String: Double] = [:]
-    var totalCost = 0.0
-    var totalTokens = 0
-
-    for session in sessions {
-      totalTokens += session.totalTokens
-      let sessionCost = resolvedCost(for: session, costCalculator: costCalculator)
-      totalCost += sessionCost
-      guard let model = normalizeModelName(session.model) else { continue }
-      guard sessionCost > 0 else { continue }
-      costByModel[model, default: 0] += sessionCost
-    }
-
-    let sortedCosts = costByModel.sorted { $0.value > $1.value }.map {
-      (model: $0.key, cost: $0.value, color: colorForModel($0.key))
-    }
-
-    return StatusBarStats(
-      sessionCount: sessions.count,
-      cost: totalCost,
-      tokens: totalTokens,
-      costByModel: sortedCosts
-    )
-  }
-
-  private static func resolvedCost(for session: RootSessionNode, costCalculator: TokenCostCalculator) -> Double {
-    if session.totalCostUSD > 0 {
-      return session.totalCostUSD
-    }
-    guard session.totalTokens > 0 else { return 0 }
-    // Use granular token breakdown when available for accurate cost.
-    // Cached tokens are billed at the cache-read rate, not the full input rate.
-    let hasBreakdown = session.inputTokens > 0 || session.outputTokens > 0
-    if hasBreakdown {
-      return costCalculator.calculateCost(
-        model: session.model,
-        inputTokens: session.inputTokens,
-        outputTokens: session.outputTokens,
-        cacheReadTokens: session.cachedTokens
-      )
-    }
-    return 0
-  }
-
-  private static func normalizeModelName(_ model: String?) -> String? {
-    guard let model = model?.lowercased(), !model.isEmpty else { return nil }
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return nil }
-    return nil
   }
 
   private static func colorForModel(_ model: String) -> Color {

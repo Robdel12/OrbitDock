@@ -352,8 +352,7 @@ enum SessionDetailUsagePlanner {
     outputTokens: Int?,
     cachedTokens: Int?,
     contextUsed: Int,
-    totalTokens: Int,
-    costCalculator: TokenCostCalculator
+    totalTokens: Int
   ) -> TranscriptUsageStats {
     var stats = TranscriptUsageStats()
     stats.model = model
@@ -371,14 +370,6 @@ enum SessionDetailUsagePlanner {
     } else {
       stats.outputTokens = max(totalTokens, 0)
     }
-
-    stats.estimatedCostUSD = costCalculator.calculateCost(
-      model: model,
-      inputTokens: stats.inputTokens,
-      outputTokens: stats.outputTokens,
-      cacheReadTokens: stats.cacheReadTokens,
-      cacheCreationTokens: stats.cacheCreationTokens
-    )
 
     return stats
   }

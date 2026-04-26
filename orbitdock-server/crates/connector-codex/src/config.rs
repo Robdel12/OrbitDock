@@ -130,30 +130,6 @@ fn app_server_sandbox_mode(
     })
 }
 
-pub(crate) fn resume_connector_with_tools_config<'a>(
-  cwd: &'a str,
-  thread_id: &'a str,
-  model: Option<&'a str>,
-  approval_policy: Option<&'a str>,
-  sandbox_mode: Option<&'a str>,
-  sandbox_policy_details: Option<&'a CodexSandboxPolicy>,
-  config_overrides: &'a CodexConfigOverrides,
-  runtime_overrides: CodexRuntimeOverrides,
-  dynamic_tools: Vec<codex_protocol::dynamic_tools::DynamicToolSpec>,
-) -> ResumeConnectorWithToolsConfig<'a> {
-  ResumeConnectorWithToolsConfig {
-    cwd,
-    thread_id,
-    model,
-    approval_policy,
-    sandbox_mode,
-    sandbox_policy_details,
-    config_overrides,
-    runtime_overrides,
-    dynamic_tools,
-  }
-}
-
 pub struct ResumeConnectorWithToolsConfig<'a> {
   pub cwd: &'a str,
   pub thread_id: &'a str,
@@ -367,19 +343,17 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(
-      resume_connector_with_tools_config(
-        cwd,
-        thread_id,
-        model,
-        approval_policy,
-        sandbox_mode,
-        None,
-        &default_overrides,
-        CodexRuntimeOverrides::default(),
-        Vec::new(),
-      ),
-    )
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      sandbox_policy_details: None,
+      config_overrides: &default_overrides,
+      runtime_overrides: CodexRuntimeOverrides::default(),
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -391,19 +365,17 @@ impl CodexConnector {
     sandbox_mode: Option<&str>,
     config_overrides: &CodexConfigOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(
-      resume_connector_with_tools_config(
-        cwd,
-        thread_id,
-        model,
-        approval_policy,
-        sandbox_mode,
-        None,
-        config_overrides,
-        CodexRuntimeOverrides::default(),
-        Vec::new(),
-      ),
-    )
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      sandbox_policy_details: None,
+      config_overrides,
+      runtime_overrides: CodexRuntimeOverrides::default(),
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -416,19 +388,17 @@ impl CodexConnector {
     runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
     let default_overrides = CodexConfigOverrides::default();
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(
-      resume_connector_with_tools_config(
-        cwd,
-        thread_id,
-        model,
-        approval_policy,
-        sandbox_mode,
-        None,
-        &default_overrides,
-        runtime_overrides,
-        Vec::new(),
-      ),
-    )
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      sandbox_policy_details: None,
+      config_overrides: &default_overrides,
+      runtime_overrides,
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 
@@ -441,19 +411,17 @@ impl CodexConnector {
     config_overrides: &CodexConfigOverrides,
     runtime_overrides: CodexRuntimeOverrides,
   ) -> Result<Self, ConnectorError> {
-    Self::resume_with_config_overrides_runtime_overrides_and_tools(
-      resume_connector_with_tools_config(
-        cwd,
-        thread_id,
-        model,
-        approval_policy,
-        sandbox_mode,
-        None,
-        config_overrides,
-        runtime_overrides,
-        Vec::new(),
-      ),
-    )
+    Self::resume_with_config_overrides_runtime_overrides_and_tools(ResumeConnectorWithToolsConfig {
+      cwd,
+      thread_id,
+      model,
+      approval_policy,
+      sandbox_mode,
+      sandbox_policy_details: None,
+      config_overrides,
+      runtime_overrides,
+      dynamic_tools: Vec::new(),
+    })
     .await
   }
 

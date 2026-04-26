@@ -4,6 +4,10 @@ use axum::{
   extract::{Query, State},
   Json,
 };
+use orbitdock_protocol::{
+  Provider, UsageBreakdownEntry, UsageBreakdownGroupBy, UsageBreakdownSnapshot, UsageSummaryBucket,
+  UsageSummaryModelCost, UsageSummarySnapshot,
+};
 use rusqlite::Connection;
 
 use crate::{
@@ -12,8 +16,8 @@ use crate::{
 };
 
 use super::{
-  ClaudeUsageResponse, CodexUsageResponse, SessionSummaryRow, UsageLedgerRow, UsageSummaryBucket,
-  UsageSummaryModelCost, UsageSummaryQuery, UsageSummarySnapshot,
+  ClaudeUsageResponse, CodexUsageResponse, SessionSummaryRow, UsageBreakdownQuery, UsageLedgerRow,
+  UsageSummaryQuery,
 };
 use crate::transport::http::errors::{internal, ApiResult};
 
@@ -78,6 +82,25 @@ pub async fn fetch_usage_summary(
   Ok(Json(summary))
 }
 
+pub async fn fetch_usage_breakdown(
+  Query(query): Query<UsageBreakdownQuery>,
+) -> ApiResult<UsageBreakdownSnapshot> {
+  let db_path = crate::infrastructure::paths::db_path();
+  let breakdown = tokio::task::spawn_blocking(move || {
+    load_usage_breakdown(&db_path, query.group_by, query.start_unix, query.end_unix)
+  })
+  .await
+  .map_err(|err| {
+    internal(
+      "usage_breakdown_failed",
+      format!("Usage breakdown task failed: {err}"),
+    )
+  })?
+  .map_err(|err| internal("usage_breakdown_failed", err.to_string()))?;
+
+  Ok(Json(breakdown))
+}
+
 pub(super) fn load_usage_summary(
   db_path: &std::path::Path,
   today_start_unix: Option<u64>,
@@ -92,19 +115,7 @@ pub(super) fn load_usage_summary(
      PRAGMA busy_timeout = 5000;",
   )?;
 
-  let sessions: Vec<SessionSummaryRow> = conn
-    .prepare(&format!(
-      "SELECT s.id, s.started_at FROM sessions s WHERE {DIRECT_SESSION_PREDICATE}"
-    ))?
-    .query_map([], |row| {
-      let session_id: String = row.get(0)?;
-      let started_at: Option<String> = row.get(1)?;
-      Ok(SessionSummaryRow {
-        id: session_id,
-        started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
-      })
-    })?
-    .collect::<Result<Vec<_>, _>>()?;
+  let sessions = load_direct_sessions(&conn)?;
 
   let ledger_rows = load_usage_ledger_rows(&conn)?;
   let mut today = UsageSummaryBucket::default();
@@ -144,11 +155,67 @@ pub(super) fn load_usage_summary(
   Ok(UsageSummarySnapshot { today, all_time })
 }
 
+pub(super) fn load_usage_breakdown(
+  db_path: &std::path::Path,
+  group_by: UsageBreakdownGroupBy,
+  start_unix: Option<u64>,
+  end_unix: Option<u64>,
+) -> anyhow::Result<UsageBreakdownSnapshot> {
+  if !db_path.exists() {
+    return Ok(UsageBreakdownSnapshot {
+      group_by,
+      start_unix,
+      end_unix,
+      ..UsageBreakdownSnapshot::default()
+    });
+  }
+
+  let conn = Connection::open(db_path)?;
+  conn.execute_batch(
+    "PRAGMA journal_mode = WAL;
+     PRAGMA busy_timeout = 5000;",
+  )?;
+
+  let filtered_rows: Vec<UsageLedgerRow> = load_usage_ledger_rows(&conn)?
+    .into_iter()
+    .filter(|row| row_in_range(row, start_unix, end_unix))
+    .collect();
+
+  let totals = build_totals_bucket(&filtered_rows);
+  let groups = build_breakdown_groups(&filtered_rows, group_by);
+
+  Ok(UsageBreakdownSnapshot {
+    group_by,
+    start_unix,
+    end_unix,
+    totals,
+    groups,
+  })
+}
+
+fn load_direct_sessions(conn: &Connection) -> anyhow::Result<Vec<SessionSummaryRow>> {
+  conn
+    .prepare(&format!(
+      "SELECT s.id, s.started_at FROM sessions s WHERE {DIRECT_SESSION_PREDICATE}"
+    ))?
+    .query_map([], |row| {
+      let session_id: String = row.get(0)?;
+      let started_at: Option<String> = row.get(1)?;
+      Ok(SessionSummaryRow {
+        id: session_id,
+        started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
+      })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
 fn load_usage_ledger_rows(conn: &Connection) -> anyhow::Result<Vec<UsageLedgerRow>> {
   conn
     .prepare(&format!(
       "SELECT
          ule.session_id,
+         ule.provider,
          ule.model,
          ule.observed_at,
          ule.billable_input_tokens,
@@ -161,15 +228,17 @@ fn load_usage_ledger_rows(conn: &Connection) -> anyhow::Result<Vec<UsageLedgerRo
     ))?
     .query_map([], |row| {
       let session_id: String = row.get(0)?;
-      let observed_at: Option<String> = row.get(2)?;
+      let provider_raw: String = row.get(1)?;
+      let observed_at: Option<String> = row.get(3)?;
       Ok(UsageLedgerRow {
         session_id,
-        model: row.get(1)?,
+        provider: provider_raw.parse().unwrap_or(Provider::Claude),
+        model: row.get(2)?,
         observed_at_unix: parse_timestamp_to_unix(observed_at.as_deref()),
-        input_tokens: row.get::<_, i64>(3)?.max(0) as u64,
-        output_tokens: row.get::<_, i64>(4)?.max(0) as u64,
-        cached_tokens: row.get::<_, i64>(5)?.max(0) as u64,
-        cost_usd: row.get::<_, f64>(6)?,
+        input_tokens: row.get::<_, i64>(4)?.max(0) as u64,
+        output_tokens: row.get::<_, i64>(5)?.max(0) as u64,
+        cached_tokens: row.get::<_, i64>(6)?.max(0) as u64,
+        cost_usd: row.get::<_, f64>(7)?,
       })
     })?
     .collect::<Result<Vec<_>, _>>()
@@ -206,6 +275,147 @@ fn apply_usage_aggregate(bucket: &mut UsageSummaryBucket, aggregate: &UsageLedge
         cost_usd: aggregate.cost_usd,
       });
     }
+  }
+}
+
+fn row_in_range(row: &UsageLedgerRow, start_unix: Option<u64>, end_unix: Option<u64>) -> bool {
+  let observed = row.observed_at_unix;
+  if let Some(start_unix) = start_unix {
+    if observed.is_none_or(|value| value < start_unix) {
+      return false;
+    }
+  }
+  if let Some(end_unix) = end_unix {
+    if observed.is_none_or(|value| value >= end_unix) {
+      return false;
+    }
+  }
+  true
+}
+
+fn build_totals_bucket(rows: &[UsageLedgerRow]) -> UsageSummaryBucket {
+  let mut bucket = UsageSummaryBucket::default();
+  let mut session_ids = std::collections::HashSet::new();
+
+  for row in rows {
+    session_ids.insert(row.session_id.clone());
+    apply_usage_aggregate(&mut bucket, row);
+  }
+
+  bucket.session_count = session_ids.len() as u64;
+  sort_model_costs(&mut bucket);
+  bucket
+}
+
+fn build_breakdown_groups(
+  rows: &[UsageLedgerRow],
+  group_by: UsageBreakdownGroupBy,
+) -> Vec<UsageBreakdownEntry> {
+  #[derive(Default)]
+  struct GroupAccumulator {
+    provider: Option<Provider>,
+    model: Option<String>,
+    session_id: Option<String>,
+    day_start_unix: Option<u64>,
+    session_ids: std::collections::HashSet<String>,
+    turn_count: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_tokens: u64,
+    total_cost_usd: f64,
+  }
+
+  let mut groups: std::collections::BTreeMap<String, GroupAccumulator> =
+    std::collections::BTreeMap::new();
+
+  for row in rows {
+    let (group_key, provider, model, session_id, day_start_unix) = match group_by {
+      UsageBreakdownGroupBy::Provider => (
+        provider_key(row.provider),
+        Some(row.provider),
+        None,
+        None,
+        None,
+      ),
+      UsageBreakdownGroupBy::Model => (
+        row.model.clone().unwrap_or_else(|| "unknown".to_string()),
+        None,
+        row.model.clone(),
+        None,
+        None,
+      ),
+      UsageBreakdownGroupBy::Session => (
+        row.session_id.clone(),
+        None,
+        None,
+        Some(row.session_id.clone()),
+        None,
+      ),
+      UsageBreakdownGroupBy::Day => {
+        let day_start = row.observed_at_unix.map(|value| value - (value % 86_400));
+        (
+          day_start
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+          None,
+          None,
+          None,
+          day_start,
+        )
+      }
+    };
+
+    let group = groups.entry(group_key).or_default();
+    group.provider = provider.or(group.provider);
+    if group.model.is_none() {
+      group.model = model;
+    }
+    if group.session_id.is_none() {
+      group.session_id = session_id;
+    }
+    if group.day_start_unix.is_none() {
+      group.day_start_unix = day_start_unix;
+    }
+    group.session_ids.insert(row.session_id.clone());
+    group.turn_count = group.turn_count.saturating_add(1);
+    group.input_tokens = group.input_tokens.saturating_add(row.input_tokens);
+    group.output_tokens = group.output_tokens.saturating_add(row.output_tokens);
+    group.cached_tokens = group.cached_tokens.saturating_add(row.cached_tokens);
+    group.total_cost_usd += row.cost_usd;
+  }
+
+  let mut entries: Vec<UsageBreakdownEntry> = groups
+    .into_iter()
+    .map(|(group_key, accumulator)| UsageBreakdownEntry {
+      group_key,
+      provider: accumulator.provider,
+      model: accumulator.model,
+      session_id: accumulator.session_id,
+      day_start_unix: accumulator.day_start_unix,
+      turn_count: accumulator.turn_count,
+      session_count: accumulator.session_ids.len() as u64,
+      input_tokens: accumulator.input_tokens,
+      output_tokens: accumulator.output_tokens,
+      cached_tokens: accumulator.cached_tokens,
+      total_tokens: accumulator
+        .input_tokens
+        .saturating_add(accumulator.output_tokens),
+      total_cost_usd: accumulator.total_cost_usd,
+    })
+    .collect();
+
+  match group_by {
+    UsageBreakdownGroupBy::Day => entries.sort_by_key(|entry| entry.day_start_unix.unwrap_or(0)),
+    _ => entries.sort_by(|lhs, rhs| rhs.total_cost_usd.total_cmp(&lhs.total_cost_usd)),
+  }
+
+  entries
+}
+
+fn provider_key(provider: Provider) -> String {
+  match provider {
+    Provider::Claude => "claude".to_string(),
+    Provider::Codex => "codex".to_string(),
   }
 }
 

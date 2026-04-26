@@ -426,8 +426,7 @@ struct ServerSessionTransportReconnectRecoveryTests {
     viewModel.bind(
       sessionId: "session-1",
       endpointId: harness.runtime.endpointId,
-      session: harness.session,
-      modelPricingService: ModelPricingService()
+      session: harness.session
     )
     await viewModel.refresh()
 

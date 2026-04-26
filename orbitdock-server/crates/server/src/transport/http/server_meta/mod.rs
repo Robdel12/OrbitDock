@@ -1,5 +1,6 @@
 use orbitdock_protocol::{
-  ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption, CodexUsageSnapshot, UsageErrorInfo,
+  ClaudeModelOption, ClaudeUsageSnapshot, CodexModelOption, CodexUsageSnapshot,
+  UsageBreakdownGroupBy, UsageErrorInfo,
 };
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +8,9 @@ mod models;
 mod usage;
 
 pub use models::{list_claude_models, list_codex_models};
-pub use usage::{fetch_claude_usage, fetch_codex_usage, fetch_usage_summary};
+pub use usage::{
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_breakdown, fetch_usage_summary,
+};
 
 #[derive(Debug, Serialize)]
 pub struct CodexUsageResponse {
@@ -45,27 +48,18 @@ pub struct UsageSummaryQuery {
   pub today_start_unix: Option<u64>,
 }
 
-#[derive(Debug, Default, Serialize)]
-pub struct UsageSummarySnapshot {
-  pub today: UsageSummaryBucket,
-  pub all_time: UsageSummaryBucket,
+fn default_usage_breakdown_group_by() -> UsageBreakdownGroupBy {
+  UsageBreakdownGroupBy::Model
 }
 
-#[derive(Debug, Default, Serialize)]
-pub struct UsageSummaryBucket {
-  pub session_count: u64,
-  pub total_tokens: u64,
-  pub input_tokens: u64,
-  pub output_tokens: u64,
-  pub cached_tokens: u64,
-  pub total_cost_usd: f64,
-  pub cost_by_model: Vec<UsageSummaryModelCost>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UsageSummaryModelCost {
-  pub model: String,
-  pub cost_usd: f64,
+#[derive(Debug, Deserialize)]
+pub struct UsageBreakdownQuery {
+  #[serde(default = "default_usage_breakdown_group_by")]
+  pub group_by: UsageBreakdownGroupBy,
+  #[serde(default)]
+  pub start_unix: Option<u64>,
+  #[serde(default)]
+  pub end_unix: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +71,7 @@ struct SessionSummaryRow {
 #[derive(Debug, Clone)]
 struct UsageLedgerRow {
   session_id: String,
+  provider: orbitdock_protocol::Provider,
   model: Option<String>,
   observed_at_unix: Option<u64>,
   input_tokens: u64,

@@ -7,6 +7,7 @@ mod detail;
 mod review;
 mod row_content;
 mod summary;
+mod usage;
 
 pub use conversation::{
   get_conversation_history, get_conversation_snapshot, get_session_stats, mark_session_read,
@@ -16,6 +17,7 @@ pub use detail::get_session_detail;
 pub use review::get_session_review;
 pub use row_content::get_row_content;
 pub use summary::{get_active_sessions_snapshot, get_archived_sessions_snapshot};
+pub use usage::get_session_usage_turns;
 
 const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
 const MAX_CONVERSATION_PAGE_SIZE: usize = 200;
@@ -63,6 +65,14 @@ pub struct ConversationSearchQuery {
   pub status: Option<String>,
   #[serde(default)]
   pub kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SessionUsageTurnsQuery {
+  #[serde(default)]
+  pub limit: Option<usize>,
+  #[serde(default)]
+  pub before_turn_seq: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]

@@ -765,6 +765,18 @@ impl CodexConnector {
   }
 }
 
+fn normalize_absolute_path(cwd: &str, value: &str) -> Result<AbsolutePathBuf, ConnectorError> {
+  let path = PathBuf::from(value);
+  let path = if path.is_absolute() {
+    path
+  } else {
+    Path::new(cwd).join(path)
+  };
+
+  AbsolutePathBuf::try_from(path)
+    .map_err(|e| ConnectorError::ProviderError(format!("Invalid plugin cwd path `{value}`: {}", e)))
+}
+
 #[cfg(test)]
 mod tests {
   use super::flatten_mcp_tools;
@@ -819,16 +831,4 @@ mod tests {
       Some("search")
     );
   }
-}
-
-fn normalize_absolute_path(cwd: &str, value: &str) -> Result<AbsolutePathBuf, ConnectorError> {
-  let path = PathBuf::from(value);
-  let path = if path.is_absolute() {
-    path
-  } else {
-    Path::new(cwd).join(path)
-  };
-
-  AbsolutePathBuf::try_from(path)
-    .map_err(|e| ConnectorError::ProviderError(format!("Invalid plugin cwd path `{value}`: {}", e)))
 }

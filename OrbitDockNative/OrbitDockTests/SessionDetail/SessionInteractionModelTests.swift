@@ -479,7 +479,7 @@ private actor ControlDeckDetailFixture {
           ),
           response
         )
-      case ("POST", "/api/sessions/session-1/conversation/interrupt"):
+      case ("POST", "/api/sessions/session-1/controls/stop-active-turn"):
         interruptRequestCount += 1
         return (
           Data(

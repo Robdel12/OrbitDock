@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::infrastructure::db_pool::ReadPool;
+use crate::infrastructure::usage_pricing::estimate_session_cost as estimate_live_session_cost;
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexIntegrationMode, LibrarySnapshot, Provider, SessionControlMode,
   SessionLifecycleState, SessionListItem, SessionListStatus, SessionState, SessionStatus,
@@ -200,10 +201,10 @@ const PROJECTION_SELECT: &str = "SELECT s.id,
                   s.personality,
                   s.service_tier,
                   s.developer_instructions,
-                  COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
-                  COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
-                  COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
-                  COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                  COALESCE(uss.snapshot_input_tokens, 0),
+                  COALESCE(uss.snapshot_output_tokens, 0),
+                  COALESCE(uss.snapshot_cached_tokens, 0),
+                  COALESCE(uss.snapshot_context_window, 0),
                   COALESCE(uss.snapshot_kind, 'unknown'),
                   s.pending_approval_id,
                   s.mission_id,
@@ -435,6 +436,16 @@ fn session_summary_from_projection(projection: &PersistedDashboardProjection) ->
   }
 }
 
+fn session_list_item_from_summary(summary: &SessionSummary) -> SessionListItem {
+  let mut item = SessionListItem::from_summary(summary);
+  item.total_cost_usd = estimate_live_session_cost(
+    summary.provider,
+    summary.model.as_deref(),
+    &summary.token_usage,
+  );
+  item
+}
+
 pub(crate) async fn load_library_snapshot(
   state: &Arc<SessionRegistry>,
   limit: usize,
@@ -457,7 +468,10 @@ pub(crate) async fn load_library_snapshot(
 
   Ok(LibrarySnapshot {
     revision: state.current_library_revision(),
-    sessions: sessions.iter().map(SessionListItem::from_summary).collect(),
+    sessions: sessions
+      .iter()
+      .map(session_list_item_from_summary)
+      .collect(),
     next_offset,
     total_count,
   })

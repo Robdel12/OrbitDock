@@ -9,7 +9,6 @@ struct SessionDetailView: View {
   @Environment(ServerRuntimeRegistry.self) var runtimeRegistry
   @Environment(TerminalSessionRegistry.self) var terminalRegistry
   @Environment(\.horizontalSizeClass) var horizontalSizeClass
-  @Environment(\.modelPricingService) var modelPricingService
   @Environment(AppRouter.self) var router
   let sessionId: String
   let endpointId: UUID
@@ -104,7 +103,6 @@ struct SessionDetailView: View {
         sessionId: sessionId,
         endpointId: endpointId,
         session: session,
-        modelPricingService: modelPricingService,
         terminalRegistry: terminalRegistry,
         showWorkerPanel: showWorkerPanel,
         chatViewMode: chatViewMode

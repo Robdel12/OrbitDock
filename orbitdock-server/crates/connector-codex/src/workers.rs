@@ -19,7 +19,7 @@ fn trimmed_string(value: Option<&str>) -> Option<String> {
 }
 
 #[cfg(test)]
-fn build_subagent(
+struct TestSubagentArgs {
   now: String,
   id: String,
   agent_role: Option<String>,
@@ -30,7 +30,22 @@ fn build_subagent(
   ended_at: Option<String>,
   result_summary: Option<String>,
   error_summary: Option<String>,
-) -> SubagentInfo {
+}
+
+#[cfg(test)]
+fn build_subagent(args: TestSubagentArgs) -> SubagentInfo {
+  let TestSubagentArgs {
+    now,
+    id,
+    agent_role,
+    agent_nickname,
+    task_summary,
+    parent_subagent_id,
+    status,
+    ended_at,
+    result_summary,
+    error_summary,
+  } = args;
   SubagentInfo {
     id: id.clone(),
     agent_type: normalized_agent_type(agent_role.as_deref()),
@@ -60,18 +75,18 @@ pub(crate) fn build_authoritative_codex_subagent(
   let now = iso_now();
   let (mapped_status, ended_at, result_summary, error_summary) = map_agent_status(status, &now);
 
-  build_subagent(
+  build_subagent(TestSubagentArgs {
     now,
     id,
     agent_role,
     agent_nickname,
     task_summary,
     parent_subagent_id,
-    mapped_status,
+    status: mapped_status,
     ended_at,
     result_summary,
     error_summary,
-  )
+  })
 }
 
 #[cfg(test)]
@@ -94,18 +109,18 @@ pub(crate) fn build_inflight_codex_subagent(
   };
 
   let now = iso_now();
-  Some(build_subagent(
+  Some(build_subagent(TestSubagentArgs {
     now,
     id,
     agent_role,
     agent_nickname,
     task_summary,
     parent_subagent_id,
-    mapped_status,
-    None,
-    None,
-    None,
-  ))
+    status: mapped_status,
+    ended_at: None,
+    result_summary: None,
+    error_summary: None,
+  }))
 }
 
 #[cfg(test)]

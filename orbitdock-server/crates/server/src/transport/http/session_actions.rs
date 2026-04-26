@@ -721,11 +721,15 @@ mod tests {
 
     assert_eq!(response.provider, Provider::Codex);
     assert!(response.controls.shell_command.supported);
-    assert!(response.controls.shell_command.available);
+    assert!(!response.controls.shell_command.available);
     assert!(response.controls.stop_active_turn.supported);
+    assert!(!response.controls.stop_active_turn.available);
     assert!(response.controls.compact_context.supported);
+    assert!(!response.controls.compact_context.available);
     assert!(response.controls.undo_last_turn.supported);
+    assert!(!response.controls.undo_last_turn.available);
     assert!(response.controls.rollback_turns.supported);
+    assert!(!response.controls.rollback_turns.available);
     assert!(!response.controls.stop_target.supported);
     assert!(!response.controls.rewind_to_message.supported);
   }

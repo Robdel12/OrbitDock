@@ -3,17 +3,6 @@ import Foundation
 import Testing
 
 struct SessionDetailPlanningTests {
-  private let costCalculator = TokenCostCalculator(
-    prices: [
-      "claude-opus-4": ModelPrice(
-        inputCostPerToken: 1.0,
-        outputCostPerToken: 2.0,
-        cacheReadInputTokenCost: 0.5,
-        cacheCreationInputTokenCost: 4.0
-      ),
-    ]
-  )
-
   @Test func openingPendingApprovalPanelReturnsToFollowingAndRequestsLatestScroll() {
     let plan = ConversationFollowPlanner.apply(
       current: ConversationFollowState(mode: .detachedByUser, unreadCount: 6),
@@ -335,22 +324,21 @@ struct SessionDetailPlanningTests {
     #expect(!status.showsContext)
   }
 
-  @Test func usagePlannerPrefersServerUsageAndFallsBackToTotalTokens() {
+  @Test func usagePlannerPrefersServerUsageAndFallsBackToTokenCountOnly() {
     let serverStats = SessionDetailUsagePlanner.makeStats(
       model: "claude-opus-4",
       inputTokens: 120,
       outputTokens: 45,
       cachedTokens: 10,
       contextUsed: 300,
-      totalTokens: 999,
-      costCalculator: costCalculator
+      totalTokens: 999
     )
     #expect(serverStats.model == "claude-opus-4")
     #expect(serverStats.inputTokens == 120)
     #expect(serverStats.outputTokens == 45)
     #expect(serverStats.cacheReadTokens == 10)
     #expect(serverStats.contextUsed == 300)
-    #expect(serverStats.estimatedCostUSD == 215)
+    #expect(serverStats.estimatedCostUSD == 0)
 
     let fallbackStats = SessionDetailUsagePlanner.makeStats(
       model: "claude-opus-4",
@@ -358,14 +346,13 @@ struct SessionDetailPlanningTests {
       outputTokens: nil,
       cachedTokens: nil,
       contextUsed: 0,
-      totalTokens: 88,
-      costCalculator: costCalculator
+      totalTokens: 88
     )
     #expect(fallbackStats.inputTokens == 0)
     #expect(fallbackStats.outputTokens == 88)
     #expect(fallbackStats.cacheReadTokens == 0)
     #expect(fallbackStats.contextUsed == 0)
-    #expect(fallbackStats.estimatedCostUSD == 176)
+    #expect(fallbackStats.estimatedCostUSD == 0)
   }
 
   @Test func diffPlannerCountsCombinedTurnSnapshotsWithoutDuplicatingCurrentSnapshot() {

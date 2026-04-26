@@ -251,10 +251,10 @@ async fn load_sessions_for_startup_with_db_path(
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                         s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
-                        COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
-                        COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
-                        COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
-                        COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                        COALESCE(uss.snapshot_input_tokens, 0),
+                        COALESCE(uss.snapshot_output_tokens, 0),
+                        COALESCE(uss.snapshot_cached_tokens, 0),
+                        COALESCE(uss.snapshot_context_window, 0),
                         COALESCE(uss.snapshot_kind, 'unknown')
                  FROM sessions s
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id

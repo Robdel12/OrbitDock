@@ -59,7 +59,6 @@ struct OrbitDockWindowRoot: View {
     .environment(libraryDataService)
     .environment(pinnedSessionsService)
     .environment(\.rootSessionActions, RootSessionActions(runtimeRegistry: appRuntime.runtimeRegistry))
-    .environment(\.modelPricingService, ModelPricingService.live())
     .focusedSceneValue(\.orbitDockRouter, router)
     .focusable()
     .focusEffectDisabled()

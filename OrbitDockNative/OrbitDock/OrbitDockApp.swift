@@ -13,18 +13,12 @@ struct OrbitDockApp: App {
     @Environment(\.scenePhase) private var scenePhase
   #endif
   @State private var appRuntime: OrbitDockAppRuntime
-  private let modelPricingService: ModelPricingService
 
   init() {
     let appRuntime = OrbitDockAppRuntime()
-    let modelPricingService = ModelPricingService.live()
     _appRuntime = State(initialValue: appRuntime)
-    self.modelPricingService = modelPricingService
     #if os(macOS)
-      appDelegate.configure(
-        appRuntime: appRuntime,
-        modelPricingService: modelPricingService
-      )
+      appDelegate.configure(appRuntime: appRuntime)
     #else
       appDelegate.configure(appRuntime: appRuntime)
     #endif
@@ -39,7 +33,6 @@ struct OrbitDockApp: App {
         } else {
           OrbitDockWindowRoot(appRuntime: appRuntime)
             .environment(appRuntime)
-            .environment(\.modelPricingService, modelPricingService)
             .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
         }
       }
@@ -53,7 +46,6 @@ struct OrbitDockApp: App {
             .frame(width: 1, height: 1)
         } else {
           MenuBarView()
-            .environment(\.modelPricingService, modelPricingService)
             .environment(appRuntime.runtimeRegistry)
             .environment(appRuntime.usageServiceRegistry)
             .environment(appRuntime.sessionsSummaryDataService)
@@ -74,7 +66,6 @@ struct OrbitDockApp: App {
         } else {
           OrbitDockWindowRoot(appRuntime: appRuntime)
             .environment(appRuntime)
-            .environment(\.modelPricingService, modelPricingService)
         }
       }
       .onChange(of: scenePhase) { _, newPhase in
@@ -218,14 +209,9 @@ struct OrbitDockWindowCommands: Commands {
 #if os(macOS)
   class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var appRuntime: OrbitDockAppRuntime?
-    private var modelPricingService: ModelPricingService?
 
-    func configure(
-      appRuntime: OrbitDockAppRuntime,
-      modelPricingService: ModelPricingService
-    ) {
+    func configure(appRuntime: OrbitDockAppRuntime) {
       self.appRuntime = appRuntime
-      self.modelPricingService = modelPricingService
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

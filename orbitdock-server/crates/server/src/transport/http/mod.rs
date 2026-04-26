@@ -71,7 +71,8 @@ pub use server_info::{
   set_workspace_provider_config_value, test_workspace_provider,
 };
 pub use server_meta::{
-  fetch_claude_usage, fetch_codex_usage, fetch_usage_summary, list_claude_models, list_codex_models,
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_breakdown, fetch_usage_summary,
+  list_claude_models, list_codex_models,
 };
 pub use session_actions::{
   compact_context, compact_context_control, get_session_controls, get_session_image_attachment,
@@ -90,7 +91,7 @@ pub use session_lifecycle::{
 pub use sessions::{
   get_active_sessions_snapshot, get_archived_sessions_snapshot, get_conversation_history,
   get_conversation_snapshot, get_row_content, get_session_detail, get_session_review,
-  get_session_stats, mark_session_read, search_conversation_rows,
+  get_session_stats, get_session_usage_turns, mark_session_read, search_conversation_rows,
 };
 pub use sessions_summary::get_sessions_summary;
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};

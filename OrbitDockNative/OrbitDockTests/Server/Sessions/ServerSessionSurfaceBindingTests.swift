@@ -46,8 +46,7 @@ struct ServerSessionSurfaceBindingTests {
     viewModel.bind(
       sessionId: "session-1",
       endpointId: endpointId,
-      session: session,
-      modelPricingService: ModelPricingService()
+      session: session
     )
     viewModel.applyConversationMutationRow(
       makeUserRowEntry(
@@ -90,7 +89,6 @@ struct ServerSessionSurfaceBindingTests {
         sessionId: "session-1",
         endpointId: endpointId,
         session: session,
-        modelPricingService: ModelPricingService(),
         terminalRegistry: TerminalSessionRegistry(),
         showWorkerPanel: false,
         chatViewMode: .focused
@@ -188,8 +186,7 @@ struct ServerSessionSurfaceBindingTests {
     viewModel.bind(
       sessionId: "session-1",
       endpointId: endpointId,
-      session: firstSession,
-      modelPricingService: ModelPricingService()
+      session: firstSession
     )
 
     let firstRefresh = Task { await viewModel.refresh() }
@@ -198,8 +195,7 @@ struct ServerSessionSurfaceBindingTests {
     viewModel.bind(
       sessionId: "session-2",
       endpointId: endpointId,
-      session: secondSession,
-      modelPricingService: ModelPricingService()
+      session: secondSession
     )
     await viewModel.refresh()
     await fixture.releaseFirstSessionDetailRequest()
@@ -224,8 +220,7 @@ struct ServerSessionSurfaceBindingTests {
     viewModel.bind(
       sessionId: "session-1",
       endpointId: endpointId,
-      session: session,
-      modelPricingService: ModelPricingService()
+      session: session
     )
 
     viewModel.applyDetailPayload(

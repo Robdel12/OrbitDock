@@ -11,6 +11,7 @@ use orbitdock_protocol::conversation_contracts::{
 };
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
 use orbitdock_protocol::{Provider, SessionControlMode};
+use rusqlite::Connection;
 
 use crate::{
   domain::sessions::session::SessionHandle,
@@ -21,9 +22,10 @@ use crate::{
 use super::{
   common::clamp_library_limit,
   conversation::{get_conversation_snapshot, get_session_stats, search_conversation_rows},
+  get_session_usage_turns,
   row_content::test_shell_execution_row_content,
   summary::{get_active_sessions_snapshot, get_archived_sessions_snapshot},
-  ConversationPageQuery, ConversationSearchQuery, LibrarySnapshotQuery,
+  ConversationPageQuery, ConversationSearchQuery, LibrarySnapshotQuery, SessionUsageTurnsQuery,
 };
 
 fn persist_session_fixture(
@@ -166,6 +168,124 @@ fn test_shell_tool_row(
   }
 }
 
+fn insert_usage_turn_fixture(db_path: &PathBuf, session_id: &str) {
+  let conn = Connection::open(db_path).expect("open sqlite");
+  conn
+    .execute(
+      "INSERT INTO usage_turns (
+         session_id, turn_id, turn_seq, provider, model, snapshot_kind,
+         input_tokens, output_tokens, cached_tokens, context_window, input_delta_tokens, created_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+      rusqlite::params![
+        session_id,
+        "turn-1",
+        1_i64,
+        "codex",
+        "gpt-5.4",
+        "lifetime_totals",
+        100_i64,
+        20_i64,
+        0_i64,
+        200_000_i64,
+        100_i64,
+        "2026-04-26T10:00:00Z",
+      ],
+    )
+    .expect("insert usage turn 1");
+  conn
+    .execute(
+      "INSERT INTO usage_turns (
+         session_id, turn_id, turn_seq, provider, model, snapshot_kind,
+         input_tokens, output_tokens, cached_tokens, context_window, input_delta_tokens, created_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+      rusqlite::params![
+        session_id,
+        "turn-2",
+        2_i64,
+        "codex",
+        "gpt-5.4",
+        "lifetime_totals",
+        160_i64,
+        32_i64,
+        0_i64,
+        200_000_i64,
+        60_i64,
+        "2026-04-26T10:05:00Z",
+      ],
+    )
+    .expect("insert usage turn 2");
+  conn
+    .execute(
+      "INSERT INTO usage_ledger_entries (
+         session_id, turn_id, turn_seq, provider, model, session_started_at, observed_at,
+         snapshot_kind, billable_input_tokens, billable_output_tokens, cache_read_tokens,
+         cache_write_tokens, context_input_tokens, context_window, estimated_cost_usd,
+         pricing_source, pricing_version, pricing_model_key, input_cost_per_token,
+         output_cost_per_token, cache_read_cost_per_token, cache_write_cost_per_token
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+      rusqlite::params![
+        session_id,
+        "turn-1",
+        1_i64,
+        "codex",
+        "gpt-5.4",
+        "2026-04-26T09:58:00Z",
+        "2026-04-26T10:00:00Z",
+        "lifetime_totals",
+        100_i64,
+        20_i64,
+        0_i64,
+        0_i64,
+        100_i64,
+        200_000_i64,
+        0.0004_f64,
+        "orbitdock_builtin",
+        "2026-04-backbone-v1",
+        "gpt-5",
+        2.0 / 1_000_000.0,
+        10.0 / 1_000_000.0,
+        0.0_f64,
+        0.0_f64,
+      ],
+    )
+    .expect("insert usage ledger 1");
+  conn
+    .execute(
+      "INSERT INTO usage_ledger_entries (
+         session_id, turn_id, turn_seq, provider, model, session_started_at, observed_at,
+         snapshot_kind, billable_input_tokens, billable_output_tokens, cache_read_tokens,
+         cache_write_tokens, context_input_tokens, context_window, estimated_cost_usd,
+         pricing_source, pricing_version, pricing_model_key, input_cost_per_token,
+         output_cost_per_token, cache_read_cost_per_token, cache_write_cost_per_token
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+      rusqlite::params![
+        session_id,
+        "turn-2",
+        2_i64,
+        "codex",
+        "gpt-5.4",
+        "2026-04-26T09:58:00Z",
+        "2026-04-26T10:05:00Z",
+        "lifetime_totals",
+        60_i64,
+        12_i64,
+        0_i64,
+        0_i64,
+        160_i64,
+        200_000_i64,
+        0.00024_f64,
+        "orbitdock_builtin",
+        "2026-04-backbone-v1",
+        "gpt-5",
+        2.0 / 1_000_000.0,
+        10.0 / 1_000_000.0,
+        0.0_f64,
+        0.0_f64,
+      ],
+    )
+    .expect("insert usage ledger 2");
+}
+
 #[test]
 fn library_snapshot_limit_clamps_to_safe_bounds() {
   assert_eq!(clamp_library_limit(None), 200);
@@ -248,6 +368,54 @@ async fn session_stats_reports_tool_rollups() {
   assert_eq!(response.0.failed_tool_count, 1);
   assert_eq!(response.0.average_tool_duration_ms, 2000);
   assert_eq!(response.0.tool_count_by_family.get("shell"), Some(&2));
+}
+
+#[tokio::test]
+async fn session_usage_turns_returns_paginated_turn_rows_with_summary() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(&db_path, &session_id, "/tmp/orbitdock-usage-turns", vec![]);
+  insert_usage_turn_fixture(&db_path, &session_id);
+
+  let response = get_session_usage_turns(
+    Path(session_id.clone()),
+    Query(SessionUsageTurnsQuery {
+      limit: Some(1),
+      before_turn_seq: None,
+    }),
+    State(state.clone()),
+  )
+  .await
+  .expect("session usage turns should succeed");
+
+  assert_eq!(response.0.session_id, session_id);
+  assert_eq!(response.0.total_turn_count, 2);
+  assert!(response.0.has_more_before);
+  assert_eq!(response.0.rows.len(), 1);
+  assert_eq!(response.0.rows[0].turn_id, "turn-2");
+  assert_eq!(response.0.rows[0].billable_input_tokens, 60);
+  assert_eq!(
+    response.0.rows[0].pricing.model_key.as_deref(),
+    Some("gpt-5")
+  );
+  assert_eq!(response.0.summary.input_tokens, 160);
+  assert_eq!(response.0.summary.output_tokens, 32);
+  assert_eq!(response.0.summary.total_tokens, 192);
+
+  let next_page = get_session_usage_turns(
+    Path(session_id),
+    Query(SessionUsageTurnsQuery {
+      limit: Some(1),
+      before_turn_seq: response.0.oldest_turn_seq,
+    }),
+    State(state),
+  )
+  .await
+  .expect("session usage turns pagination should succeed");
+
+  assert!(!next_page.0.has_more_before);
+  assert_eq!(next_page.0.rows.len(), 1);
+  assert_eq!(next_page.0.rows[0].turn_id, "turn-1");
 }
 
 #[tokio::test]

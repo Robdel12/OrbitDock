@@ -589,10 +589,20 @@ pub(super) fn persist_turn_diff_insert(
     )?;
   }
 
+  let (provider, model): (String, Option<String>) = conn.query_row(
+    "SELECT COALESCE(provider, 'claude'), model
+     FROM sessions
+     WHERE id = ?1",
+    params![session_id],
+    |row| Ok((row.get(0)?, row.get(1)?)),
+  )?;
+
   let snapshot = super::TurnSnapshotRow {
     session_id: &session_id,
     turn_id: &turn_id,
     turn_seq,
+    provider: &provider,
+    model: model.as_deref(),
     input_tokens,
     output_tokens,
     cached_tokens,

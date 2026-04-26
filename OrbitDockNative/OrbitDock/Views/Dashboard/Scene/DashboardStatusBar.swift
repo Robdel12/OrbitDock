@@ -12,7 +12,6 @@ import SwiftUI
 // MARK: - Status Bar
 
 struct DashboardStatusBar: View {
-  @Environment(\.modelPricingService) private var modelPricingService
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(UsageServiceRegistry.self) private var usageRegistry
 
@@ -20,32 +19,8 @@ struct DashboardStatusBar: View {
 
   @State private var showStatsPopover = false
 
-  private var dashboardStatsSessions: [RootSessionNode] {
-    sessions.filter { !$0.isActive || $0.hasLiveEndpointConnection }
-  }
-
-  private var precomputedStats: (today: StatusBarStats, all: StatusBarStats) {
-    let calculator = modelPricingService.calculatorSnapshot
-    let calendar = Calendar.current
-    let startOfToday = calendar.startOfDay(for: Date())
-
-    let todaySessions = dashboardStatsSessions.filter {
-      guard let start = $0.startedAt else { return false }
-      return start >= startOfToday
-    }
-    return (
-      today: StatusBarStats.from(sessions: todaySessions, costCalculator: calculator),
-      all: StatusBarStats.from(sessions: sessions, costCalculator: calculator)
-    )
-  }
-
   private var displayedStats: (today: StatusBarStats, allTime: StatusBarStats) {
-    let fallback = precomputedStats
-    return StatusBarStats.resolve(
-      summary: usageRegistry.summary,
-      fallbackToday: fallback.today,
-      fallbackAllTime: fallback.all
-    )
+    StatusBarStats.resolve(summary: usageRegistry.summary)
   }
 
   private var usageRefreshIdentity: String {
@@ -184,7 +159,7 @@ struct DashboardStatusBar: View {
       "Today: \(DashboardFormatters.cost(todayStats.cost)), \(todayStats.sessionCount) sessions, \(DashboardFormatters.tokensUpperK(todayStats.tokens)) tokens"
     )
     .popover(isPresented: $showStatsPopover) {
-      StatsPopoverContent(todayStats: todayStats, allStats: allStats)
+      StatsPopoverContent()
     }
   }
 

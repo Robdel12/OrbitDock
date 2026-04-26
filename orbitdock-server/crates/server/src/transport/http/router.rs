@@ -67,6 +67,10 @@ fn session_read_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_session_stats),
     )
     .route(
+      "/api/sessions/{session_id}/usage/turns",
+      get(super::get_session_usage_turns),
+    )
+    .route(
       "/api/sessions/{session_id}/conversation/rows/{row_id}/content",
       get(super::get_row_content),
     )
@@ -345,6 +349,7 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       post(super::set_client_primary_claim),
     )
     .route("/api/usage/summary", get(super::fetch_usage_summary))
+    .route("/api/usage/breakdown", get(super::fetch_usage_breakdown))
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))
     .route("/api/models/codex", get(super::list_codex_models))

@@ -817,9 +817,11 @@ async fn map_notification(
         text.push_str(&step.step);
         text.push('\n');
       }
-      (!text.trim().is_empty())
-        .then(|| vec![state_output(ConnectorStateEvent::PlanUpdated(text))])
-        .unwrap_or_default()
+      if text.trim().is_empty() {
+        Vec::new()
+      } else {
+        vec![state_output(ConnectorStateEvent::PlanUpdated(text))]
+      }
     }
     ServerNotification::AgentMessageDelta(event) => {
       map_agent_message_delta(event.item_id, event.delta, route).await
@@ -1432,19 +1434,19 @@ async fn map_item(
       content_items,
       success,
       duration_ms,
-    } => map_dynamic_tool(
+    } => map_dynamic_tool(DynamicToolCallArgs {
       id,
       namespace,
       tool,
       arguments,
       content_items,
-      success.unwrap_or(!matches!(
+      success: success.unwrap_or(!matches!(
         status,
         codex_app_server_protocol::DynamicToolCallStatus::Failed
       )),
       duration_ms,
       started,
-    ),
+    }),
     ThreadItem::CollabAgentToolCall {
       id,
       tool,
@@ -1455,7 +1457,7 @@ async fn map_item(
       model,
       reasoning_effort,
       agents_states,
-    } => map_collab_agent_tool(
+    } => map_collab_agent_tool(CollabAgentToolCallArgs {
       id,
       tool,
       status,
@@ -1463,10 +1465,10 @@ async fn map_item(
       receiver_thread_ids,
       prompt,
       model,
-      reasoning_effort.map(|value| format!("{value:?}")),
+      reasoning_effort: reasoning_effort.map(|value| format!("{value:?}")),
       agents_states,
       started,
-    ),
+    }),
     ThreadItem::WebSearch { id, query, action } => map_generic_tool(
       id,
       "web_search".to_string(),
@@ -1476,36 +1478,36 @@ async fn map_item(
       None,
       started,
     ),
-    ThreadItem::ImageView { id, path } => map_tool_row(
+    ThreadItem::ImageView { id, path } => map_tool_row(ToolRowArgs {
       id,
-      ToolFamily::Image,
-      ToolKind::ViewImage,
-      path.display().to_string(),
-      None,
-      json!({ "path": path.display().to_string() }),
-      None,
+      family: ToolFamily::Image,
+      kind: ToolKind::ViewImage,
+      title: path.display().to_string(),
+      summary: None,
+      invocation: json!({ "path": path.display().to_string() }),
+      result: None,
       started,
-      true,
-      None,
-    ),
+      success: true,
+      duration_ms: None,
+    }),
     ThreadItem::ImageGeneration {
       id,
       status,
       revised_prompt,
       result,
       saved_path,
-    } => map_tool_row(
+    } => map_tool_row(ToolRowArgs {
       id,
-      ToolFamily::Image,
-      ToolKind::ImageGeneration,
-      "Image generation".to_string(),
-      revised_prompt,
-      json!({ "status": status }),
-      Some(json!({ "result": result, "saved_path": saved_path })),
+      family: ToolFamily::Image,
+      kind: ToolKind::ImageGeneration,
+      title: "Image generation".to_string(),
+      summary: revised_prompt,
+      invocation: json!({ "status": status }),
+      result: Some(json!({ "result": result, "saved_path": saved_path })),
       started,
-      true,
-      None,
-    ),
+      success: true,
+      duration_ms: None,
+    }),
     ThreadItem::EnteredReviewMode { id, review } if !started => {
       vec![row_created_output(row_entry(ConversationRow::Notice(
         NoticeRow {
@@ -1533,22 +1535,22 @@ async fn map_item(
         },
       )))]
     }
-    ThreadItem::ContextCompaction { id } => map_tool_row(
+    ThreadItem::ContextCompaction { id } => map_tool_row(ToolRowArgs {
       id,
-      ToolFamily::Context,
-      ToolKind::CompactContext,
-      if started {
+      family: ToolFamily::Context,
+      kind: ToolKind::CompactContext,
+      title: if started {
         "Compacting context".to_string()
       } else {
         "Context compacted".to_string()
       },
-      None,
-      json!({}),
-      (!started).then(|| json!({ "summary": "Context compacted" })),
+      summary: None,
+      invocation: json!({}),
+      result: (!started).then(|| json!({ "summary": "Context compacted" })),
       started,
-      true,
-      None,
-    ),
+      success: true,
+      duration_ms: None,
+    }),
     other => {
       debug!(item = ?other, started, "Unhandled Codex app-server item");
       Vec::new()
@@ -1566,18 +1568,18 @@ fn map_generic_tool(
   started: bool,
 ) -> Vec<ConnectorOutput> {
   let (family, kind) = classify_tool_name(&tool);
-  map_tool_row(
+  map_tool_row(ToolRowArgs {
     id,
     family,
     kind,
-    tool,
-    None,
-    arguments,
-    result.and_then(|value| serde_json::to_value(value).ok()),
+    title: tool,
+    summary: None,
+    invocation: arguments,
+    result: result.and_then(|value| serde_json::to_value(value).ok()),
     started,
     success,
-    duration_millis(duration_ms),
-  )
+    duration_ms: duration_millis(duration_ms),
+  })
 }
 
 fn map_terminal_interaction(
@@ -1848,7 +1850,7 @@ fn stable_hash(value: &str) -> u64 {
   hash
 }
 
-fn map_collab_agent_tool(
+struct CollabAgentToolCallArgs {
   id: String,
   tool: codex_app_server_protocol::CollabAgentTool,
   status: codex_app_server_protocol::CollabAgentToolCallStatus,
@@ -1859,7 +1861,21 @@ fn map_collab_agent_tool(
   reasoning_effort: Option<String>,
   agents_states: HashMap<String, codex_app_server_protocol::CollabAgentState>,
   started: bool,
-) -> Vec<ConnectorOutput> {
+}
+
+fn map_collab_agent_tool(args: CollabAgentToolCallArgs) -> Vec<ConnectorOutput> {
+  let CollabAgentToolCallArgs {
+    id,
+    tool,
+    status,
+    sender_thread_id,
+    receiver_thread_ids,
+    prompt,
+    model,
+    reasoning_effort,
+    agents_states,
+    started,
+  } = args;
   let (kind, title) = collab_agent_tool_identity(&tool);
   let running = started
     || matches!(
@@ -2033,7 +2049,7 @@ fn map_collab_agent_status(status: codex_app_server_protocol::CollabAgentStatus)
   }
 }
 
-fn map_dynamic_tool(
+struct DynamicToolCallArgs {
   id: String,
   namespace: Option<String>,
   tool: String,
@@ -2042,25 +2058,37 @@ fn map_dynamic_tool(
   success: bool,
   duration_ms: Option<i64>,
   started: bool,
-) -> Vec<ConnectorOutput> {
+}
+
+fn map_dynamic_tool(args: DynamicToolCallArgs) -> Vec<ConnectorOutput> {
+  let DynamicToolCallArgs {
+    id,
+    namespace,
+    tool,
+    arguments,
+    content_items,
+    success,
+    duration_ms,
+    started,
+  } = args;
   if started {
     let (family, kind, title) = dynamic_tool_identity_from_name(&tool).unwrap_or((
       ToolFamily::Generic,
       ToolKind::DynamicToolCall,
       tool.as_str(),
     ));
-    return map_tool_row(
+    return map_tool_row(ToolRowArgs {
       id,
       family,
       kind,
-      title.to_string(),
-      None,
-      dynamic_tool_invocation(namespace.clone(), tool, arguments),
-      None,
+      title: title.to_string(),
+      summary: None,
+      invocation: dynamic_tool_invocation(namespace.clone(), tool, arguments),
+      result: None,
       started,
       success,
-      duration_millis(duration_ms),
-    );
+      duration_ms: duration_millis(duration_ms),
+    });
   }
 
   let output = dynamic_tool_output_to_text(content_items.as_deref());
@@ -2078,18 +2106,18 @@ fn map_dynamic_tool(
   let (summary, result) =
     dynamic_tool_result_payload(tool.as_str(), kind, &arguments, output.as_ref());
 
-  map_tool_row(
+  map_tool_row(ToolRowArgs {
     id,
     family,
     kind,
-    title.to_string(),
+    title: title.to_string(),
     summary,
-    dynamic_tool_invocation(namespace, tool, arguments),
-    Some(result),
+    invocation: dynamic_tool_invocation(namespace, tool, arguments),
+    result: Some(result),
     started,
     success,
-    duration_millis(duration_ms),
-  )
+    duration_ms: duration_millis(duration_ms),
+  })
 }
 
 fn dynamic_tool_invocation(
@@ -2253,7 +2281,7 @@ fn dynamic_tool_result_payload(
   (summary, Value::Object(result))
 }
 
-fn map_tool_row(
+struct ToolRowArgs {
   id: String,
   family: ToolFamily,
   kind: ToolKind,
@@ -2264,7 +2292,21 @@ fn map_tool_row(
   started: bool,
   success: bool,
   duration_ms: Option<u64>,
-) -> Vec<ConnectorOutput> {
+}
+
+fn map_tool_row(args: ToolRowArgs) -> Vec<ConnectorOutput> {
+  let ToolRowArgs {
+    id,
+    family,
+    kind,
+    title,
+    summary,
+    invocation,
+    result,
+    started,
+    success,
+    duration_ms,
+  } = args;
   let row = ToolRow {
     id: id.clone(),
     provider: Provider::Codex,
@@ -2486,6 +2528,108 @@ fn map_token_usage(usage: codex_app_server_protocol::ThreadTokenUsage) -> Vec<Co
   ]
 }
 
+pub(crate) fn request_key(request_id: &RequestId) -> String {
+  match request_id {
+    RequestId::Integer(value) => value.to_string(),
+    RequestId::String(value) => value.clone(),
+  }
+}
+
+pub(crate) fn exec_approval_response(
+  decision: crate::session::CodexExecApproval,
+) -> CommandExecutionRequestApprovalResponse {
+  CommandExecutionRequestApprovalResponse {
+    decision: match decision {
+      crate::session::CodexExecApproval::Approved => CommandExecutionApprovalDecision::Accept,
+      crate::session::CodexExecApproval::ApprovedForSession => {
+        CommandExecutionApprovalDecision::AcceptForSession
+      }
+      crate::session::CodexExecApproval::ApprovedAlways { proposed_amendment } => {
+        proposed_amendment
+          .map(
+            |command| CommandExecutionApprovalDecision::AcceptWithExecpolicyAmendment {
+              execpolicy_amendment: codex_app_server_protocol::ExecPolicyAmendment { command },
+            },
+          )
+          .unwrap_or(CommandExecutionApprovalDecision::AcceptForSession)
+      }
+      crate::session::CodexExecApproval::NetworkPolicyAmendment {
+        network_policy_amendment,
+      } => CommandExecutionApprovalDecision::ApplyNetworkPolicyAmendment {
+        network_policy_amendment: network_policy_amendment.into(),
+      },
+      crate::session::CodexExecApproval::Abort => CommandExecutionApprovalDecision::Cancel,
+      crate::session::CodexExecApproval::Denied => CommandExecutionApprovalDecision::Decline,
+    },
+  }
+}
+
+pub(crate) fn patch_approval_response(
+  decision: crate::session::CodexPatchApproval,
+) -> FileChangeRequestApprovalResponse {
+  FileChangeRequestApprovalResponse {
+    decision: match decision {
+      crate::session::CodexPatchApproval::Approved => FileChangeApprovalDecision::Accept,
+      crate::session::CodexPatchApproval::ApprovedForSession => {
+        FileChangeApprovalDecision::AcceptForSession
+      }
+      crate::session::CodexPatchApproval::Abort => FileChangeApprovalDecision::Cancel,
+      crate::session::CodexPatchApproval::Denied => FileChangeApprovalDecision::Decline,
+    },
+  }
+}
+
+pub(crate) fn question_response(
+  answers: HashMap<String, Vec<String>>,
+) -> ToolRequestUserInputResponse {
+  ToolRequestUserInputResponse {
+    answers: answers
+      .into_iter()
+      .map(|(key, answers)| (key, ToolRequestUserInputAnswer { answers }))
+      .collect(),
+  }
+}
+
+pub(crate) fn permissions_response(
+  permissions: serde_json::Value,
+  scope: orbitdock_protocol::PermissionGrantScope,
+) -> Result<PermissionsRequestApprovalResponse, ConnectorError> {
+  let permissions = serde_json::from_value(permissions).map_err(|error| {
+    ConnectorError::ProviderError(format!(
+      "Failed to decode granted permissions payload: {error}"
+    ))
+  })?;
+  Ok(PermissionsRequestApprovalResponse {
+    permissions,
+    scope: match scope {
+      orbitdock_protocol::PermissionGrantScope::Turn => {
+        codex_app_server_protocol::PermissionGrantScope::Turn
+      }
+      orbitdock_protocol::PermissionGrantScope::Session => {
+        codex_app_server_protocol::PermissionGrantScope::Session
+      }
+    },
+    strict_auto_review: None,
+  })
+}
+
+pub(crate) fn dynamic_tool_response(
+  response: codex_protocol::dynamic_tools::DynamicToolResponse,
+) -> Result<DynamicToolCallResponse, ConnectorError> {
+  serde_json::from_value(serde_json::to_value(response).map_err(|error| {
+    ConnectorError::ProviderError(format!("Failed to encode dynamic tool response: {error}"))
+  })?)
+  .map_err(|error| {
+    ConnectorError::ProviderError(format!(
+      "Failed to convert dynamic tool response for app-server: {error}"
+    ))
+  })
+}
+
+pub(crate) fn path_bufs(cwds: Vec<String>) -> Vec<PathBuf> {
+  cwds.into_iter().map(PathBuf::from).collect()
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -2622,18 +2766,18 @@ mod tests {
 
   #[test]
   fn dynamic_file_tool_rows_keep_native_file_display_shape() {
-    let outputs = map_dynamic_tool(
-      "dynamic-write-1".to_string(),
-      None,
-      "file_write".to_string(),
-      json!({ "path": "/tmp/runtime.js" }),
-      Some(vec![DynamicToolCallOutputContentItem::InputText {
+    let outputs = map_dynamic_tool(DynamicToolCallArgs {
+      id: "dynamic-write-1".to_string(),
+      namespace: None,
+      tool: "file_write".to_string(),
+      arguments: json!({ "path": "/tmp/runtime.js" }),
+      content_items: Some(vec![DynamicToolCallOutputContentItem::InputText {
         text: "{\"path\":\"/tmp/runtime.js\",\"bytes_written\":42}".to_string(),
       }]),
-      true,
-      Some(12),
-      false,
-    );
+      success: true,
+      duration_ms: Some(12),
+      started: false,
+    });
 
     let state = outputs
       .first()
@@ -2834,24 +2978,24 @@ mod tests {
 
   #[test]
   fn collab_agent_item_keeps_agent_tool_and_subagent_state() {
-    let outputs = map_collab_agent_tool(
-      "collab-1".to_string(),
-      CollabAgentTool::SpawnAgent,
-      CollabAgentToolCallStatus::Completed,
-      "parent-thread".to_string(),
-      vec!["child-thread".to_string()],
-      Some("Inspect the codebase".to_string()),
-      Some("gpt-5.4-mini".to_string()),
-      Some("medium".to_string()),
-      HashMap::from([(
+    let outputs = map_collab_agent_tool(CollabAgentToolCallArgs {
+      id: "collab-1".to_string(),
+      tool: CollabAgentTool::SpawnAgent,
+      status: CollabAgentToolCallStatus::Completed,
+      sender_thread_id: "parent-thread".to_string(),
+      receiver_thread_ids: vec!["child-thread".to_string()],
+      prompt: Some("Inspect the codebase".to_string()),
+      model: Some("gpt-5.4-mini".to_string()),
+      reasoning_effort: Some("medium".to_string()),
+      agents_states: HashMap::from([(
         "child-thread".to_string(),
         CollabAgentState {
           status: CollabAgentStatus::Completed,
           message: Some("Done".to_string()),
         },
       )]),
-      false,
-    );
+      started: false,
+    });
 
     let row_event = outputs
       .first()
@@ -2943,106 +3087,4 @@ mod tests {
       }),
     }
   }
-}
-
-pub(crate) fn request_key(request_id: &RequestId) -> String {
-  match request_id {
-    RequestId::Integer(value) => value.to_string(),
-    RequestId::String(value) => value.clone(),
-  }
-}
-
-pub(crate) fn exec_approval_response(
-  decision: crate::session::CodexExecApproval,
-) -> CommandExecutionRequestApprovalResponse {
-  CommandExecutionRequestApprovalResponse {
-    decision: match decision {
-      crate::session::CodexExecApproval::Approved => CommandExecutionApprovalDecision::Accept,
-      crate::session::CodexExecApproval::ApprovedForSession => {
-        CommandExecutionApprovalDecision::AcceptForSession
-      }
-      crate::session::CodexExecApproval::ApprovedAlways { proposed_amendment } => {
-        proposed_amendment
-          .map(
-            |command| CommandExecutionApprovalDecision::AcceptWithExecpolicyAmendment {
-              execpolicy_amendment: codex_app_server_protocol::ExecPolicyAmendment { command },
-            },
-          )
-          .unwrap_or(CommandExecutionApprovalDecision::AcceptForSession)
-      }
-      crate::session::CodexExecApproval::NetworkPolicyAmendment {
-        network_policy_amendment,
-      } => CommandExecutionApprovalDecision::ApplyNetworkPolicyAmendment {
-        network_policy_amendment: network_policy_amendment.into(),
-      },
-      crate::session::CodexExecApproval::Abort => CommandExecutionApprovalDecision::Cancel,
-      crate::session::CodexExecApproval::Denied => CommandExecutionApprovalDecision::Decline,
-    },
-  }
-}
-
-pub(crate) fn patch_approval_response(
-  decision: crate::session::CodexPatchApproval,
-) -> FileChangeRequestApprovalResponse {
-  FileChangeRequestApprovalResponse {
-    decision: match decision {
-      crate::session::CodexPatchApproval::Approved => FileChangeApprovalDecision::Accept,
-      crate::session::CodexPatchApproval::ApprovedForSession => {
-        FileChangeApprovalDecision::AcceptForSession
-      }
-      crate::session::CodexPatchApproval::Abort => FileChangeApprovalDecision::Cancel,
-      crate::session::CodexPatchApproval::Denied => FileChangeApprovalDecision::Decline,
-    },
-  }
-}
-
-pub(crate) fn question_response(
-  answers: HashMap<String, Vec<String>>,
-) -> ToolRequestUserInputResponse {
-  ToolRequestUserInputResponse {
-    answers: answers
-      .into_iter()
-      .map(|(key, answers)| (key, ToolRequestUserInputAnswer { answers }))
-      .collect(),
-  }
-}
-
-pub(crate) fn permissions_response(
-  permissions: serde_json::Value,
-  scope: orbitdock_protocol::PermissionGrantScope,
-) -> Result<PermissionsRequestApprovalResponse, ConnectorError> {
-  let permissions = serde_json::from_value(permissions).map_err(|error| {
-    ConnectorError::ProviderError(format!(
-      "Failed to decode granted permissions payload: {error}"
-    ))
-  })?;
-  Ok(PermissionsRequestApprovalResponse {
-    permissions,
-    scope: match scope {
-      orbitdock_protocol::PermissionGrantScope::Turn => {
-        codex_app_server_protocol::PermissionGrantScope::Turn
-      }
-      orbitdock_protocol::PermissionGrantScope::Session => {
-        codex_app_server_protocol::PermissionGrantScope::Session
-      }
-    },
-    strict_auto_review: None,
-  })
-}
-
-pub(crate) fn dynamic_tool_response(
-  response: codex_protocol::dynamic_tools::DynamicToolResponse,
-) -> Result<DynamicToolCallResponse, ConnectorError> {
-  serde_json::from_value(serde_json::to_value(response).map_err(|error| {
-    ConnectorError::ProviderError(format!("Failed to encode dynamic tool response: {error}"))
-  })?)
-  .map_err(|error| {
-    ConnectorError::ProviderError(format!(
-      "Failed to convert dynamic tool response for app-server: {error}"
-    ))
-  })
-}
-
-pub(crate) fn path_bufs(cwds: Vec<String>) -> Vec<PathBuf> {
-  cwds.into_iter().map(PathBuf::from).collect()
 }

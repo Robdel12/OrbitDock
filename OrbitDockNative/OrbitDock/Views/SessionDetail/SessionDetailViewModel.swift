@@ -33,7 +33,6 @@ final class SessionDetailViewModel {
   var conversationViewModel: ConversationViewModel
   var interaction = SessionInteractionModel()
 
-  @ObservationIgnored private weak var modelPricingService: ModelPricingService?
   @ObservationIgnored private let refreshRunner = CoalescedRefreshRunner()
   @ObservationIgnored private var currentBindingRevision = 0
   @ObservationIgnored private var activeSubscriptionIdentity: String?
@@ -82,11 +81,8 @@ final class SessionDetailViewModel {
     sessionId: String,
     endpointId: UUID,
     session: ServerSessionContext,
-    modelPricingService: ModelPricingService,
     chatViewMode: ChatViewMode = .focused
   ) {
-    self.modelPricingService = modelPricingService
-
     let didSessionChange =
       currentSessionId != sessionId
       || currentEndpointId != endpointId
@@ -175,8 +171,7 @@ final class SessionDetailViewModel {
       outputTokens: usageSource.outputTokens,
       cachedTokens: usageSource.cachedTokens,
       contextUsed: usageSource.contextUsed,
-      totalTokens: usageSource.totalTokens ?? 0,
-      costCalculator: modelPricingService?.calculatorSnapshot ?? .fallback
+      totalTokens: usageSource.totalTokens ?? 0
     )
   }
 
@@ -201,7 +196,6 @@ final class SessionDetailViewModel {
     sessionId: String,
     endpointId: UUID,
     session: ServerSessionContext,
-    modelPricingService: ModelPricingService,
     terminalRegistry: TerminalSessionRegistry,
     showWorkerPanel: Bool,
     chatViewMode: ChatViewMode
@@ -216,7 +210,6 @@ final class SessionDetailViewModel {
       sessionId: sessionId,
       endpointId: endpointId,
       session: session,
-      modelPricingService: modelPricingService,
       chatViewMode: chatViewMode
     )
     await bootstrapRouteAndSubscribeRealtime(bindingIdentity: bindingIdentity)

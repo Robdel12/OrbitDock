@@ -961,11 +961,7 @@ impl SessionSummary {
       is_worktree: self.is_worktree,
       worktree_id: self.worktree_id.clone(),
       total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
-      total_cost_usd: estimate_session_cost(
-        self.provider,
-        self.model.as_deref(),
-        &self.token_usage,
-      ),
+      total_cost_usd: 0.0,
       input_tokens: self.token_usage.input_tokens,
       output_tokens: self.token_usage.output_tokens,
       cached_tokens: self.token_usage.cached_tokens,
@@ -986,11 +982,6 @@ impl SessionSummary {
 
 impl From<SessionSummary> for SessionListItem {
   fn from(summary: SessionSummary) -> Self {
-    let cost = estimate_session_cost(
-      summary.provider,
-      summary.model.as_deref(),
-      &summary.token_usage,
-    );
     SessionListItem {
       id: summary.id,
       provider: summary.provider,
@@ -1014,7 +1005,7 @@ impl From<SessionSummary> for SessionListItem {
       is_worktree: summary.is_worktree,
       worktree_id: summary.worktree_id,
       total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
-      total_cost_usd: cost,
+      total_cost_usd: 0.0,
       input_tokens: summary.token_usage.input_tokens,
       output_tokens: summary.token_usage.output_tokens,
       cached_tokens: summary.token_usage.cached_tokens,
@@ -1354,11 +1345,7 @@ impl SessionListItem {
       is_worktree: summary.is_worktree,
       worktree_id: summary.worktree_id.clone(),
       total_tokens: summary.token_usage.input_tokens + summary.token_usage.output_tokens,
-      total_cost_usd: estimate_session_cost(
-        summary.provider,
-        summary.model.as_deref(),
-        &summary.token_usage,
-      ),
+      total_cost_usd: 0.0,
       input_tokens: summary.token_usage.input_tokens,
       output_tokens: summary.token_usage.output_tokens,
       cached_tokens: summary.token_usage.cached_tokens,
@@ -2074,6 +2061,94 @@ pub struct UsageSummarySnapshot {
   pub all_time: UsageSummaryBucket,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageBreakdownGroupBy {
+  Provider,
+  #[default]
+  Model,
+  Session,
+  Day,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageBreakdownEntry {
+  pub group_key: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub provider: Option<Provider>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub session_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub day_start_unix: Option<u64>,
+  pub turn_count: u64,
+  pub session_count: u64,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub total_tokens: u64,
+  pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageBreakdownSnapshot {
+  pub group_by: UsageBreakdownGroupBy,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub start_unix: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub end_unix: Option<u64>,
+  pub totals: UsageSummaryBucket,
+  #[serde(default)]
+  pub groups: Vec<UsageBreakdownEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsagePricingSnapshotPayload {
+  pub source: String,
+  pub version: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub model_key: Option<String>,
+  pub input_cost_per_token: f64,
+  pub output_cost_per_token: f64,
+  pub cache_read_cost_per_token: f64,
+  pub cache_write_cost_per_token: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionUsageTurnEntry {
+  pub turn_id: String,
+  pub turn_seq: u64,
+  pub provider: Provider,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub observed_at: Option<String>,
+  pub snapshot_kind: TokenUsageSnapshotKind,
+  pub raw_usage: TokenUsage,
+  pub billable_input_tokens: u64,
+  pub billable_output_tokens: u64,
+  pub cache_read_tokens: u64,
+  pub cache_write_tokens: u64,
+  pub context_input_tokens: u64,
+  pub estimated_cost_usd: f64,
+  pub pricing: UsagePricingSnapshotPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SessionUsageTurnsPage {
+  pub session_id: String,
+  pub total_turn_count: u64,
+  pub has_more_before: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub oldest_turn_seq: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub newest_turn_seq: Option<u64>,
+  pub summary: UsageSummaryBucket,
+  #[serde(default)]
+  pub rows: Vec<SessionUsageTurnEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MissionsSnapshot {
   pub revision: u64,
@@ -2510,68 +2585,6 @@ pub enum SessionPermissionRules {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sandbox_policy_details: Option<CodexSandboxPolicy>,
   },
-}
-
-// ---- Cost estimation (pure pricing table) ----
-
-pub struct ModelPricing {
-  pub input_per_token: f64,
-  pub output_per_token: f64,
-  pub cache_read_per_token: f64,
-  pub cache_write_per_token: f64,
-}
-
-pub fn model_pricing(provider: Provider, model: Option<&str>) -> ModelPricing {
-  let normalized = model.unwrap_or_default().to_ascii_lowercase();
-
-  if normalized.contains("opus") {
-    return ModelPricing {
-      input_per_token: 15.0 / 1_000_000.0,
-      output_per_token: 75.0 / 1_000_000.0,
-      cache_read_per_token: 1.875 / 1_000_000.0,
-      cache_write_per_token: 18.75 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("sonnet") {
-    return ModelPricing {
-      input_per_token: 3.0 / 1_000_000.0,
-      output_per_token: 15.0 / 1_000_000.0,
-      cache_read_per_token: 0.30 / 1_000_000.0,
-      cache_write_per_token: 3.75 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("haiku") {
-    return ModelPricing {
-      input_per_token: 0.8 / 1_000_000.0,
-      output_per_token: 4.0 / 1_000_000.0,
-      cache_read_per_token: 0.08 / 1_000_000.0,
-      cache_write_per_token: 1.0 / 1_000_000.0,
-    };
-  }
-  if normalized.contains("gpt-5") || matches!(provider, Provider::Codex) {
-    return ModelPricing {
-      input_per_token: 2.0 / 1_000_000.0,
-      output_per_token: 10.0 / 1_000_000.0,
-      cache_read_per_token: 0.0,
-      cache_write_per_token: 0.0,
-    };
-  }
-
-  // Default to Sonnet pricing
-  ModelPricing {
-    input_per_token: 3.0 / 1_000_000.0,
-    output_per_token: 15.0 / 1_000_000.0,
-    cache_read_per_token: 0.30 / 1_000_000.0,
-    cache_write_per_token: 3.75 / 1_000_000.0,
-  }
-}
-
-/// Estimate cost from token counts using hardcoded model pricing.
-pub fn estimate_session_cost(provider: Provider, model: Option<&str>, usage: &TokenUsage) -> f64 {
-  let p = model_pricing(provider, model);
-  usage.input_tokens as f64 * p.input_per_token
-    + usage.output_tokens as f64 * p.output_per_token
-    + usage.cached_tokens as f64 * p.cache_read_per_token
 }
 
 #[cfg(test)]

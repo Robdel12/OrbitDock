@@ -78,11 +78,11 @@ pub(crate) use transcripts::{
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
   load_token_usage_from_transcript_path, TranscriptCapabilities,
 };
-pub(crate) use usage::snapshot_kind_from_str;
 use usage::{
   persist_usage_event, recompute_usage_ledger_for_session, upsert_usage_session_state,
   upsert_usage_turn_snapshot, TurnSnapshotRow,
 };
+pub(crate) use usage::{repair_usage_accounting_if_needed, snapshot_kind_from_str};
 pub(crate) use workspace_sync::{
   apply_workspace_sync_batch, resolve_workspace_sync_target, update_workspace_heartbeat,
 };

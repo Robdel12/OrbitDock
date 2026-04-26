@@ -30,6 +30,8 @@ pub fn run_migrations(conn: &mut Connection) -> anyhow::Result<()> {
     .context("run refinery migrations")?;
 
   ensure_session_runtime_columns(conn)?;
+  crate::infrastructure::persistence::repair_usage_accounting_if_needed(conn)
+    .context("repair usage accounting")?;
 
   let applied = report.applied_migrations();
   let has_v042_after = refinery_history_has_version(conn, 42)?;
@@ -271,6 +273,44 @@ mod tests {
         "expected sessions to include column {expected}"
       );
     }
+
+    let mut usage_ledger_stmt = conn
+      .prepare("PRAGMA table_info(usage_ledger_entries)")
+      .expect("prepare usage ledger pragma");
+    let usage_ledger_columns: Vec<String> = usage_ledger_stmt
+      .query_map([], |row| row.get::<_, String>(1))
+      .expect("query usage ledger columns")
+      .filter_map(Result::ok)
+      .collect();
+    for expected in [
+      "pricing_source",
+      "pricing_version",
+      "pricing_model_key",
+      "input_cost_per_token",
+      "output_cost_per_token",
+      "cache_read_cost_per_token",
+      "cache_write_cost_per_token",
+    ] {
+      assert!(
+        usage_ledger_columns.iter().any(|column| column == expected),
+        "expected usage_ledger_entries to include column {expected}"
+      );
+    }
+
+    let mut usage_turns_stmt = conn
+      .prepare("PRAGMA table_info(usage_turns)")
+      .expect("prepare usage turns pragma");
+    let usage_turns_columns: Vec<String> = usage_turns_stmt
+      .query_map([], |row| row.get::<_, String>(1))
+      .expect("query usage turns columns")
+      .filter_map(Result::ok)
+      .collect();
+    for expected in ["provider", "model"] {
+      assert!(
+        usage_turns_columns.iter().any(|column| column == expected),
+        "expected usage_turns to include column {expected}"
+      );
+    }
   }
 
   #[test]
@@ -286,6 +326,56 @@ mod tests {
       })
       .expect("count refinery history rows");
     assert_eq!(migration_count, expected_migration_count);
+  }
+
+  #[test]
+  fn idempotent_migrations_preserve_usage_session_state_without_turns() {
+    let mut conn = Connection::open_in_memory().expect("open in-memory db");
+    run_migrations(&mut conn).expect("first run");
+
+    conn
+      .execute(
+        "INSERT INTO sessions (
+           id, provider, status, work_status, lifecycle_state, control_mode,
+           codex_integration_mode, project_path, started_at, last_activity_at
+         ) VALUES (
+           ?1, 'codex', 'active', 'waiting', 'open', 'direct',
+           'direct', '/tmp/orbitdock', '2026-04-26T10:00:00Z', '2026-04-26T10:00:00Z'
+         )",
+        ["session-1"],
+      )
+      .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_session_state (
+           session_id, provider, codex_integration_mode, snapshot_kind,
+           snapshot_input_tokens, snapshot_output_tokens, snapshot_cached_tokens,
+           snapshot_context_window, lifetime_input_tokens, lifetime_output_tokens,
+           lifetime_cached_tokens, context_input_tokens, context_cached_tokens,
+           context_window, updated_at
+         ) VALUES (
+           ?1, 'codex', 'direct', 'lifetime_totals',
+           10, 5, 2, 200000, 10, 5, 2, 10, 2, 200000, '2026-04-26T10:01:00Z'
+         )",
+        ["session-1"],
+      )
+      .expect("insert usage session state");
+
+    run_migrations(&mut conn).expect("second run should be idempotent");
+
+    let state_exists: bool = conn
+      .query_row(
+        "SELECT EXISTS(
+           SELECT 1
+           FROM usage_session_state
+           WHERE session_id = 'session-1'
+         )",
+        [],
+        |row| row.get::<_, i64>(0).map(|value| value == 1),
+      )
+      .expect("read usage session state");
+
+    assert!(state_exists);
   }
 
   #[test]
