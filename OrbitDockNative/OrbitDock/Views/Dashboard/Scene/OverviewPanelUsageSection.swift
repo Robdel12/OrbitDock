@@ -62,15 +62,17 @@ struct UsageCenterView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .navigationTitle("Usage")
     .toolbarTitleDisplayMode(.inline)
-    .toolbar {
-      ToolbarItem(placement: usageBackToolbarPlacement) {
-        Button {
-          router.goBack(source: .dashboardStream)
-        } label: {
-          Label(router.backDestinationLabel, systemImage: "chevron.left")
+    #if os(macOS)
+      .toolbar {
+        ToolbarItem(placement: usageBackToolbarPlacement) {
+          Button {
+            router.goBack(source: .dashboardStream)
+          } label: {
+            Label(router.backDestinationLabel, systemImage: "chevron.left")
+          }
         }
       }
-    }
+    #endif
     .task(id: usageRefreshIdentity) {
       await usageRegistry.refreshIfNeeded(todayStart: Calendar.current.startOfDay(for: Date()))
     }
@@ -79,8 +81,6 @@ struct UsageCenterView: View {
 
 #if os(macOS)
   private let usageBackToolbarPlacement: ToolbarItemPlacement = .navigation
-#else
-  private let usageBackToolbarPlacement: ToolbarItemPlacement = .topBarLeading
 #endif
 
 struct OverviewUsageProviderEntry {
