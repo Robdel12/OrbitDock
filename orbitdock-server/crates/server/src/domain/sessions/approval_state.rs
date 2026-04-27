@@ -8,12 +8,14 @@ use std::fmt;
 
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::{
-  ApprovalPreview, ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
-  CodexApprovalPolicy, CodexSandboxPolicy, CodexSessionOverrides, WorkStatus,
+  ApprovalPreview, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType, CodexApprovalPolicy,
+  CodexSandboxPolicy, CodexSessionOverrides, WorkStatus,
 };
 use serde::Serialize;
 
-use crate::domain::sessions::transition::{approval_preview, ApprovalPreviewInput};
+use crate::domain::sessions::transition::{
+  approval_preview, approval_question_prompts, ApprovalPreviewInput,
+};
 
 #[derive(Debug, Clone)]
 pub struct PendingApprovalEntry {
@@ -382,145 +384,11 @@ pub fn pending_approval_entries_effectively_equal(
     && approval_requests_effectively_equal(&left.request, &right.request)
 }
 
-pub fn parse_bool_value(value: Option<&serde_json::Value>) -> bool {
-  let Some(value) = value else {
-    return false;
-  };
-  if let Some(flag) = value.as_bool() {
-    return flag;
-  }
-  if let Some(number) = value.as_u64() {
-    return number > 0;
-  }
-  if let Some(text) = value.as_str() {
-    let normalized = text.trim().to_ascii_lowercase();
-    return normalized == "true" || normalized == "1" || normalized == "yes";
-  }
-  false
-}
-
-pub fn parse_question_options(
-  payload: &serde_json::Map<String, serde_json::Value>,
-) -> Vec<ApprovalQuestionOption> {
-  let Some(options) = payload.get("options").and_then(serde_json::Value::as_array) else {
-    return vec![];
-  };
-
-  options
-    .iter()
-    .filter_map(|raw_option| {
-      let option = raw_option.as_object()?;
-      let label = option
-        .get("label")
-        .or_else(|| option.get("value"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())?
-        .to_string();
-      let description = option
-        .get("description")
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(ToString::to_string);
-      Some(ApprovalQuestionOption { label, description })
-    })
-    .collect()
-}
-
-pub fn parse_question_prompt(
-  payload: &serde_json::Map<String, serde_json::Value>,
-  fallback_id: &str,
-) -> Option<ApprovalQuestionPrompt> {
-  let id = payload
-    .get("id")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .unwrap_or(fallback_id)
-    .to_string();
-  let header = payload
-    .get("header")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .map(ToString::to_string);
-  let question = payload
-    .get("question")
-    .and_then(serde_json::Value::as_str)
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .unwrap_or("Question")
-    .to_string();
-  if question.is_empty() {
-    return None;
-  }
-
-  Some(ApprovalQuestionPrompt {
-    id,
-    header,
-    question,
-    options: parse_question_options(payload),
-    allows_multiple_selection: parse_bool_value(
-      payload
-        .get("multiSelect")
-        .or_else(|| payload.get("multi_select")),
-    ),
-    allows_other: parse_bool_value(payload.get("isOther").or_else(|| payload.get("is_other"))),
-    is_secret: parse_bool_value(payload.get("isSecret").or_else(|| payload.get("is_secret"))),
-  })
-}
-
 pub fn extract_question_prompts(
   tool_input: Option<&str>,
   fallback_question: Option<&str>,
 ) -> Vec<ApprovalQuestionPrompt> {
-  let from_tool_input: Vec<ApprovalQuestionPrompt> = tool_input
-    .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
-    .and_then(|value| value.as_object().cloned())
-    .map(|payload| {
-      if let Some(questions) = payload
-        .get("questions")
-        .and_then(serde_json::Value::as_array)
-      {
-        return questions
-          .iter()
-          .enumerate()
-          .filter_map(|(index, raw_question)| {
-            let prompt = raw_question.as_object()?;
-            parse_question_prompt(prompt, index.to_string().as_str())
-          })
-          .collect();
-      }
-      if payload.contains_key("question") || payload.contains_key("options") {
-        return parse_question_prompt(&payload, "0")
-          .map(|prompt| vec![prompt])
-          .unwrap_or_default();
-      }
-      vec![]
-    })
-    .unwrap_or_default();
-
-  if !from_tool_input.is_empty() {
-    return from_tool_input;
-  }
-
-  let fallback_question = fallback_question
-    .map(str::trim)
-    .filter(|text| !text.is_empty())
-    .map(ToString::to_string);
-  match fallback_question {
-    Some(question) => vec![ApprovalQuestionPrompt {
-      id: "0".to_string(),
-      header: None,
-      question,
-      options: vec![],
-      allows_multiple_selection: false,
-      allows_other: true,
-      is_secret: false,
-    }],
-    None => vec![],
-  }
+  approval_question_prompts(tool_input, fallback_question)
 }
 
 pub fn preview_for_pending_approval(

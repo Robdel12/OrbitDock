@@ -1,6 +1,7 @@
 //! Re-exports the pure transition function from connector-core and provides
 //! the server-specific `persist_op_to_command` bridge.
 
+pub use orbitdock_connector_core::approval_preview::*;
 pub use orbitdock_connector_core::transition::*;
 
 use crate::infrastructure::persistence::{ApprovalRequestedParams, PersistCommand};

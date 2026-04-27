@@ -1,4 +1,5 @@
 use super::*;
+use crate::approval_preview::{approval_preview, shell_segments_for_preview, ApprovalPreviewInput};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
 use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel, TokenUsage};
 use serde_json::json;
@@ -496,7 +497,7 @@ fn build_approval_preview_covers_supported_non_shell_preview_types() {
   for (tool_input, approval_type, expected_preview_type, expected_manifest_line, expected_scope) in
     cases
   {
-    let preview = build_approval_preview(ApprovalPreviewInput {
+    let preview = approval_preview(ApprovalPreviewInput {
       request_id: "req-matrix",
       approval_type,
       tool_name: Some("Bash"),
@@ -520,7 +521,7 @@ fn build_approval_preview_covers_supported_non_shell_preview_types() {
 
 #[test]
 fn build_approval_preview_uses_prompt_preview_with_scope_and_low_risk_for_question() {
-  let preview = build_approval_preview(ApprovalPreviewInput {
+  let preview = approval_preview(ApprovalPreviewInput {
     request_id: "req-question",
     approval_type: ApprovalType::Question,
     tool_name: Some("AskUserQuestion"),

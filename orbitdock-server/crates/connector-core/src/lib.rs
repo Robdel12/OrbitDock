@@ -3,6 +3,7 @@
 //! Provider-agnostic vocabulary shared by all connectors and the server.
 //! Includes unified event/error types and the pure transition state machine.
 
+pub mod approval_preview;
 mod error;
 mod event;
 pub mod panic;
