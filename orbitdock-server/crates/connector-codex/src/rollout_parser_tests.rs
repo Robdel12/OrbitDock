@@ -1,4 +1,5 @@
 use super::*;
+use codex_protocol::models::{ContentItem, ImageDetail};
 
 #[test]
 fn binding_snapshot_reflects_current_parse_state() {

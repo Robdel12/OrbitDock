@@ -11,8 +11,15 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::SystemTime;
 
+#[path = "rollout_parser_content.rs"]
+mod rollout_parser_content;
+#[path = "rollout_parser_state.rs"]
+mod rollout_parser_state;
+#[path = "rollout_parser_subagents.rs"]
+mod rollout_parser_subagents;
+
 use crate::timeline::is_thread_start_skills_trimmed_warning;
-use codex_protocol::models::{ContentItem, ImageDetail, ResponseItem};
+use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::{
   EventMsg, RolloutItem, RolloutLine, SessionMetaLine, TurnContextItem,
 };
@@ -20,7 +27,6 @@ use codex_protocol::protocol::{
 // Re-export SessionSource so the server crate can use it without depending on codex-protocol
 pub use codex_protocol::protocol::{SessionSource, SubAgentSource};
 use notify::EventKind;
-use orbitdock_protocol::domain_events::AgentType;
 use orbitdock_protocol::provider_normalization::shared::{
   NormalizedApprovalKind, NormalizedApprovalRequest, NormalizedHandoff, NormalizedHandoffKind,
   NormalizedHookEvent, NormalizedHookLifecycle, NormalizedPlanEvent, NormalizedQuestion,
@@ -32,6 +38,11 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tracing::debug;
 
+use self::rollout_parser_content::{extract_images_from_content, extract_text_from_content};
+use self::rollout_parser_subagents::{
+  build_authoritative_rollout_subagent, build_rollout_subagent_for_status,
+  build_running_rollout_subagent,
+};
 use crate::timeline::{
   hook_completed_text, hook_output_text, hook_run_is_error, hook_started_text,
   realtime_text_from_handoff_request,
@@ -193,6 +204,34 @@ impl RolloutFileProcessor {
     }
   }
 
+  pub fn file_session_id(&self, path: &str) -> Option<String> {
+    rollout_parser_state::file_session_id(self, path)
+  }
+
+  pub fn mark_session_id(&mut self, path: &str, session_id: &str) {
+    rollout_parser_state::mark_session_id(self, path, session_id);
+  }
+
+  pub fn reset_session_binding(&mut self, path: &str) {
+    rollout_parser_state::reset_session_binding(self, path);
+  }
+
+  pub fn remove_path(&mut self, path: &str) {
+    rollout_parser_state::remove_path(self, path);
+  }
+
+  pub fn binding_snapshot(&self, path: &str) -> Option<PersistedFileState> {
+    rollout_parser_state::binding_snapshot(self, path)
+  }
+
+  fn saw_agent_event(&self, path: &str) -> bool {
+    rollout_parser_state::saw_agent_event(self, path)
+  }
+
+  fn ensure_parse_state(&mut self, path: &str) {
+    rollout_parser_state::ensure_parse_state(self, path);
+  }
+
   pub async fn ensure_session_meta_line(
     &mut self,
     path: &str,
@@ -208,28 +247,6 @@ impl RolloutFileProcessor {
       return Ok(self.parse_session_meta(meta, path).await);
     }
     Ok(vec![])
-  }
-
-  pub fn reset_session_binding(&mut self, path: &str) {
-    if let Some(state) = self.parse_states.get_mut(path) {
-      state.session_id = None;
-      state.project_path = None;
-      state.model_provider = None;
-    }
-  }
-
-  pub fn remove_path(&mut self, path: &str) {
-    self.parse_states.remove(path);
-  }
-
-  pub fn binding_snapshot(&self, path: &str) -> Option<PersistedFileState> {
-    self.parse_states.get(path).map(|state| PersistedFileState {
-      offset: 0,
-      session_id: state.session_id.clone(),
-      project_path: state.project_path.clone(),
-      model_provider: state.model_provider.clone(),
-      ignore_existing: None,
-    })
   }
 
   pub async fn parse_lines(
@@ -1356,98 +1373,6 @@ impl RolloutFileProcessor {
       _ => vec![],
     }
   }
-
-  // ── File state helpers ───────────────────────────────────────────────
-
-  pub fn file_session_id(&self, path: &str) -> Option<String> {
-    self
-      .parse_states
-      .get(path)
-      .and_then(|s| s.session_id.clone())
-  }
-
-  pub fn mark_session_id(&mut self, path: &str, session_id: &str) {
-    self.ensure_parse_state(path);
-    if let Some(state) = self.parse_states.get_mut(path) {
-      state.session_id = Some(session_id.to_string());
-    }
-  }
-
-  fn saw_agent_event(&self, path: &str) -> bool {
-    self
-      .parse_states
-      .get(path)
-      .map(|s| s.saw_agent_event)
-      .unwrap_or(false)
-  }
-
-  fn ensure_parse_state(&mut self, path: &str) {
-    if self.parse_states.contains_key(path) {
-      return;
-    }
-
-    let seeded = self.checkpoint_seeds.get(path).cloned().unwrap_or_default();
-
-    self.parse_states.insert(
-      path.to_string(),
-      ParseState {
-        session_id: seeded.session_id,
-        project_path: seeded.project_path,
-        model_provider: seeded.model_provider,
-        pending_tool_calls: HashMap::new(),
-        next_message_seq: 0,
-        saw_user_event: false,
-        saw_agent_event: false,
-      },
-    );
-  }
-}
-
-// ── Pure helper functions ────────────────────────────────────────────────────
-
-fn extract_text_from_content(content: &[ContentItem]) -> Option<String> {
-  let mut parts = Vec::new();
-  for item in content {
-    match item {
-      ContentItem::InputText { text } | ContentItem::OutputText { text } => {
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-          parts.push(trimmed.to_string());
-        }
-      }
-      _ => {}
-    }
-  }
-  if parts.is_empty() {
-    None
-  } else {
-    Some(parts.join("\n"))
-  }
-}
-
-fn extract_images_from_content(content: &[ContentItem]) -> Vec<ImageInput> {
-  let mut images = Vec::new();
-  for item in content {
-    if let ContentItem::InputImage { image_url, detail } = item {
-      images.push(ImageInput {
-        input_type: "url".to_string(),
-        value: image_url.clone(),
-        detail: detail.map(image_detail_value),
-        ..Default::default()
-      });
-    }
-  }
-  images
-}
-
-fn image_detail_value(detail: ImageDetail) -> String {
-  match detail {
-    ImageDetail::Auto => "auto",
-    ImageDetail::Low => "low",
-    ImageDetail::High => "high",
-    ImageDetail::Original => "original",
-  }
-  .to_string()
 }
 
 fn tool_label(raw: Option<&str>) -> Option<String> {
@@ -1470,223 +1395,6 @@ pub fn current_time_rfc3339() -> String {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap_or_default();
   format!("{}Z", duration.as_secs())
-}
-
-pub fn current_time_unix_z() -> String {
-  let secs = SystemTime::now()
-    .duration_since(std::time::UNIX_EPOCH)
-    .unwrap_or_default()
-    .as_secs();
-  format!("{}Z", secs)
-}
-
-fn normalized_rollout_summary(value: Option<String>) -> Option<String> {
-  value.and_then(|summary| {
-    let trimmed = summary.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
-  })
-}
-
-fn build_authoritative_rollout_subagent(
-  id: String,
-  agent_role: Option<String>,
-  agent_nickname: Option<String>,
-  task_summary: Option<String>,
-  parent_subagent_id: Option<String>,
-  status: &codex_protocol::protocol::AgentStatus,
-) -> SubagentInfo {
-  let now = current_time_rfc3339();
-  let (mapped_status, ended_at, result_summary, error_summary) =
-    map_rollout_agent_status(status, &now);
-
-  SubagentInfo {
-    id: id.clone(),
-    agent_type: normalized_rollout_agent_type(agent_role.as_deref()),
-    started_at: now.clone(),
-    ended_at,
-    provider: Some(orbitdock_protocol::Provider::Codex),
-    label: normalized_rollout_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-    status: mapped_status,
-    task_summary: normalized_rollout_summary(task_summary),
-    result_summary,
-    error_summary,
-    parent_subagent_id,
-    model: None,
-    last_activity_at: Some(now),
-  }
-}
-
-fn build_inflight_rollout_subagent(
-  id: String,
-  agent_role: Option<String>,
-  agent_nickname: Option<String>,
-  task_summary: Option<String>,
-  parent_subagent_id: Option<String>,
-  status: &codex_protocol::protocol::AgentStatus,
-) -> Option<SubagentInfo> {
-  let mapped_status = match status {
-    codex_protocol::protocol::AgentStatus::PendingInit => {
-      orbitdock_protocol::SubagentStatus::Pending
-    }
-    codex_protocol::protocol::AgentStatus::Running => orbitdock_protocol::SubagentStatus::Running,
-    codex_protocol::protocol::AgentStatus::Interrupted => {
-      orbitdock_protocol::SubagentStatus::Interrupted
-    }
-    codex_protocol::protocol::AgentStatus::Completed(_)
-    | codex_protocol::protocol::AgentStatus::Errored(_)
-    | codex_protocol::protocol::AgentStatus::Shutdown
-    | codex_protocol::protocol::AgentStatus::NotFound => return None,
-  };
-
-  let now = current_time_rfc3339();
-  Some(SubagentInfo {
-    id: id.clone(),
-    agent_type: normalized_rollout_agent_type(agent_role.as_deref()),
-    started_at: now.clone(),
-    ended_at: None,
-    provider: Some(orbitdock_protocol::Provider::Codex),
-    label: normalized_rollout_agent_label(agent_nickname.as_deref(), agent_role.as_deref(), &id),
-    status: mapped_status,
-    task_summary: normalized_rollout_summary(task_summary),
-    result_summary: None,
-    error_summary: None,
-    parent_subagent_id,
-    model: None,
-    last_activity_at: Some(now),
-  })
-}
-
-fn build_running_rollout_subagent(
-  id: String,
-  agent_role: Option<String>,
-  agent_nickname: Option<String>,
-  task_summary: Option<String>,
-  parent_subagent_id: Option<String>,
-) -> SubagentInfo {
-  build_inflight_rollout_subagent(
-    id,
-    agent_role,
-    agent_nickname,
-    task_summary,
-    parent_subagent_id,
-    &codex_protocol::protocol::AgentStatus::Running,
-  )
-  .expect("running rollout subagent should always build")
-}
-
-fn build_rollout_subagent_for_status(
-  id: String,
-  agent_role: Option<String>,
-  agent_nickname: Option<String>,
-  task_summary: Option<String>,
-  parent_subagent_id: Option<String>,
-  status: &codex_protocol::protocol::AgentStatus,
-) -> SubagentInfo {
-  match status {
-    codex_protocol::protocol::AgentStatus::PendingInit
-    | codex_protocol::protocol::AgentStatus::Running
-    | codex_protocol::protocol::AgentStatus::Interrupted => build_inflight_rollout_subagent(
-      id,
-      agent_role,
-      agent_nickname,
-      task_summary,
-      parent_subagent_id,
-      status,
-    )
-    .expect("non-terminal rollout subagent should always build"),
-    codex_protocol::protocol::AgentStatus::Completed(_)
-    | codex_protocol::protocol::AgentStatus::Errored(_)
-    | codex_protocol::protocol::AgentStatus::Shutdown
-    | codex_protocol::protocol::AgentStatus::NotFound => build_authoritative_rollout_subagent(
-      id,
-      agent_role,
-      agent_nickname,
-      task_summary,
-      parent_subagent_id,
-      status,
-    ),
-  }
-}
-
-fn map_rollout_agent_status(
-  status: &codex_protocol::protocol::AgentStatus,
-  now: &str,
-) -> (
-  orbitdock_protocol::SubagentStatus,
-  Option<String>,
-  Option<String>,
-  Option<String>,
-) {
-  match status {
-    codex_protocol::protocol::AgentStatus::PendingInit => (
-      orbitdock_protocol::SubagentStatus::Pending,
-      None,
-      None,
-      None,
-    ),
-    codex_protocol::protocol::AgentStatus::Running => (
-      orbitdock_protocol::SubagentStatus::Running,
-      None,
-      None,
-      None,
-    ),
-    codex_protocol::protocol::AgentStatus::Interrupted => (
-      orbitdock_protocol::SubagentStatus::Interrupted,
-      None,
-      None,
-      None,
-    ),
-    codex_protocol::protocol::AgentStatus::Completed(summary) => (
-      orbitdock_protocol::SubagentStatus::Completed,
-      Some(now.to_string()),
-      normalized_rollout_summary(summary.clone()),
-      None,
-    ),
-    codex_protocol::protocol::AgentStatus::Errored(message) => (
-      orbitdock_protocol::SubagentStatus::Failed,
-      Some(now.to_string()),
-      None,
-      normalized_rollout_summary(Some(message.clone())),
-    ),
-    codex_protocol::protocol::AgentStatus::Shutdown => (
-      orbitdock_protocol::SubagentStatus::Shutdown,
-      Some(now.to_string()),
-      None,
-      None,
-    ),
-    codex_protocol::protocol::AgentStatus::NotFound => (
-      orbitdock_protocol::SubagentStatus::NotFound,
-      Some(now.to_string()),
-      None,
-      Some("Agent not found".to_string()),
-    ),
-  }
-}
-
-fn normalized_rollout_agent_type(role: Option<&str>) -> AgentType {
-  let raw = role
-    .map(str::trim)
-    .filter(|r| !r.is_empty())
-    .unwrap_or("agent");
-  AgentType::from_str_normalized(raw)
-}
-
-fn normalized_rollout_agent_label(
-  nickname: Option<&str>,
-  role: Option<&str>,
-  id: &str,
-) -> Option<String> {
-  nickname
-    .map(str::trim)
-    .filter(|nickname| !nickname.is_empty())
-    .map(ToOwned::to_owned)
-    .or_else(|| {
-      role
-        .map(str::trim)
-        .filter(|role| !role.is_empty())
-        .map(ToOwned::to_owned)
-    })
-    .or_else(|| Some(id.to_string()))
 }
 
 pub fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
