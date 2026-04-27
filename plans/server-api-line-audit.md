@@ -90,6 +90,95 @@ Current top production-only server crate files:
 | 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
 | 631 | `orbitdock-server/crates/server/src/transport/http/session_actions.rs` |
 
+## Post-Wave-2 Refresh
+
+Reference commits:
+
+- `84b327c5` (`♻️ Split protocol session types`)
+- `04760925` (`♻️ Split runtime session query and restore paths`)
+- `9d8fb3f7` (`♻️ Split runtime session command dispatch`)
+- `f1765ded` (`♻️ Split persistence session read helpers`)
+- `6fb0e350` (`♻️ Split transport session action handlers`)
+- `ba633b99` (`♻️ Split CLI session command surfaces`)
+
+Current snapshot:
+
+- `orbitdock-server` now has 592 tracked files from `rg --files`.
+- Rust source under `orbitdock-server/crates` now has 120,540 lines across 521 `.rs` files.
+- Production-only Rust under `orbitdock-server/crates` now has 95,869 lines across 393 non-test `.rs` files.
+- Production-only Rust under `orbitdock-server/crates/server/src` now has 63,588 lines.
+- Native `Services/Server` now has 14,564 Swift lines.
+
+What changed:
+
+- File count went up because the plan deliberately split giant roots into smaller responsibility-aligned modules.
+- Production-only Rust still dropped by 1,794 lines from the Post-Phase-1 snapshot, which means this was not just file shuffling.
+- The biggest wins came from collapsing god files into facades and moving the real logic into narrow sibling modules.
+
+Selected hotspot reductions since Post-Phase-1:
+
+| File | Post-Phase-1 | Post-Wave-2 | Delta |
+| --- | ---: | ---: | ---: |
+| `orbitdock-server/crates/connector-codex/src/app_server.rs` | 2635 | 504 | -2131 |
+| `orbitdock-server/crates/connector-claude/src/lib.rs` | 3157 | 17 | -3140 |
+| `orbitdock-server/crates/connector-core/src/transition.rs` | 2858 | 1738 | -1120 |
+| `orbitdock-server/crates/protocol/src/types.rs` | 2643 | 1652 | -991 |
+| `orbitdock-server/crates/cli/src/commands/session.rs` | 2198 | 160 | -2038 |
+| `orbitdock-server/crates/server/src/runtime/session_queries.rs` | 808 | 18 | -790 |
+| `orbitdock-server/crates/server/src/runtime/restored_sessions.rs` | 624 | 20 | -604 |
+| `orbitdock-server/crates/server/src/transport/http/session_actions.rs` | 631 | 22 | -609 |
+| `orbitdock-server/crates/server/src/transport/http/session_lifecycle/create.rs` | 489 | 326 | -163 |
+| `orbitdock-server/crates/server/src/runtime/session_command_handler.rs` | 968 | 691 | -277 |
+
+Current top production-only Rust files:
+
+| Lines | File |
+| ---: | --- |
+| 1797 | `orbitdock-server/crates/connector-codex/src/rollout_parser.rs` |
+| 1738 | `orbitdock-server/crates/connector-core/src/transition.rs` |
+| 1652 | `orbitdock-server/crates/protocol/src/types.rs` |
+| 1622 | `orbitdock-server/crates/connector-claude/src/stdout.rs` |
+| 1617 | `orbitdock-server/crates/protocol/src/conversation_contracts/tool_display.rs` |
+| 1334 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 1230 | `orbitdock-server/crates/protocol/src/conversation_contracts/rows.rs` |
+| 1195 | `orbitdock-server/crates/cli/src/cli.rs` |
+| 1150 | `orbitdock-server/crates/cli/src/dev_console.rs` |
+| 1139 | `orbitdock-server/crates/connector-codex/src/app_server/item_mapping.rs` |
+| 1102 | `orbitdock-server/crates/connector-core/src/approval_preview.rs` |
+| 1066 | `orbitdock-server/crates/connector-codex/src/config.rs` |
+| 1041 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 980 | `orbitdock-server/crates/protocol/src/types/session.rs` |
+| 887 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 862 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 833 | `orbitdock-server/crates/server/src/infrastructure/github/client.rs` |
+| 829 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 813 | `orbitdock-server/crates/server/src/infrastructure/persistence/transcripts.rs` |
+| 805 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+
+Current top production-only server crate files:
+
+| Lines | File |
+| ---: | --- |
+| 1334 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 1041 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 887 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 862 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 833 | `orbitdock-server/crates/server/src/infrastructure/github/client.rs` |
+| 829 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 813 | `orbitdock-server/crates/server/src/infrastructure/persistence/transcripts.rs` |
+| 805 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+| 786 | `orbitdock-server/crates/server/src/app/mod.rs` |
+| 782 | `orbitdock-server/crates/server/src/infrastructure/persistence/usage.rs` |
+| 725 | `orbitdock-server/crates/server/src/admin/setup.rs` |
+| 706 | `orbitdock-server/crates/server/src/transport/http/server_meta/usage.rs` |
+| 694 | `orbitdock-server/crates/server/src/runtime/message_dispatch.rs` |
+| 691 | `orbitdock-server/crates/server/src/runtime/session_command_handler.rs` |
+| 691 | `orbitdock-server/crates/server/src/connectors/codex_hooks/mod.rs` |
+| 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
+| 631 | `orbitdock-server/crates/server/src/admin/doctor.rs` |
+| 621 | `orbitdock-server/crates/server/src/runtime/session_takeover.rs` |
+| 599 | `orbitdock-server/crates/server/src/connectors/claude_session.rs` |
+
 ## Baseline Refactor Pressure Read
 
 The section below is the original pre-Phase-1 hotspot read. Keep it for comparison against the refreshed production-only numbers above.

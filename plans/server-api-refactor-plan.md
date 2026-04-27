@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 7 / Wave 2 reorganization`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, and all four Wave 1 lanes are landed. The protocol lane's dead-leaf prune landed in commit ec30c4ba and its structural split landed in commit 84b327c5, extracting the full session contract cluster into types/session.rs while keeping the public protocol surface stable. Wave 2 workers are now launched for runtime query/load, runtime command/lifecycle, persistence read-path, transport thinning, CLI session surfaces, and product-surface keep/freeze/delete classification. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
+- Current phase: `Phase 7 / Wave 2 closeout`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, and all four Wave 1 lanes are landed. The protocol lane's dead-leaf prune landed in commit ec30c4ba and its structural split landed in commit 84b327c5, extracting the full session contract cluster into types/session.rs while keeping the public protocol surface stable. The defined Wave 2 implementation lanes are now landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99, with product-surface keep/freeze decisions recorded for admin, server-info, mission, workspace, mission-control, and CLI session surfaces. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -936,12 +936,38 @@ Parallel workers:
 
 | Worker | Agent | Status |
 | --- | --- | --- |
-| Worker F1 | `019dd0e9-4ccb-7852-9212-38ab5c08f60b` (`Schrodinger`) | launched |
-| Worker F2 | `019dd0e9-5049-7ae1-a521-364e99d3c666` (`Tesla`) | launched |
-| Worker G1 | `019dd0e9-53e5-7132-94a7-c4afe0488446` (`Turing`) | launched |
-| Worker G2 | `019dd0e9-5703-75e1-bf2d-830fe3468cbf` (`Pasteur`) | launched |
-| Worker H1 | `019dd0e9-5a57-7a61-8a70-bc0c89c731e1` (`Parfit`) | launched |
-| Worker H2 | `019dd0e9-5def-71b1-907c-40ed6b83967a` (`Hypatia`) | launched |
+| Worker F1 | `019dd0e9-4ccb-7852-9212-38ab5c08f60b` (`Schrodinger`) | completed |
+| Worker F2 | `019dd0e9-5049-7ae1-a521-364e99d3c666` (`Tesla`) | completed |
+| Worker G1 | `019dd0e9-53e5-7132-94a7-c4afe0488446` (`Turing`) | completed |
+| Worker G2 | `019dd0e9-5703-75e1-bf2d-830fe3468cbf` (`Pasteur`) | completed |
+| Worker H1 | `019dd0e9-5a57-7a61-8a70-bc0c89c731e1` (`Parfit`) | completed |
+| Worker H2 | `019dd0e9-5def-71b1-907c-40ed6b83967a` (`Hypatia`) | completed |
+
+### Phase 7 implementation ledger
+
+| Lane | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| Runtime query/load path | landed | `04760925` | Split `session_queries.rs` and `restored_sessions.rs` into facade roots with focused `session_queries/*` and `session_restore/*` modules for projection, conversation, detail, parsing, hydration, direct resume, and restored-session state assembly. |
+| Runtime command/lifecycle path | landed | `9d8fb3f7` | Split `session_command_handler.rs` into a thinner router with dedicated `session_command_persistence.rs` and `session_connector_dispatch.rs`, and removed the duplicate row-sequence helper from `conversation_policy.rs`. |
+| Persistence read path | landed | `f1765ded` | Split `session_reads.rs` into `codecs`, `projections`, and `hydration` helpers, moved duplicated restored-session assembly behind shared builders, and kept the parked startup compatibility seams intact. |
+| Transport mapping | landed | `6fb0e350` | Split `session_actions.rs` into `common`, `controls`, `messages`, and `attachments`, and extracted Codex create request mapping into `session_lifecycle/create_mapping.rs`. |
+| CLI session surfaces | landed | `ba633b99` | Split the CLI session surface into `bootstrap`, `http`, `live`, `watch`, and `presentation`, while removing the duplicate approve/answer bootstrap path and preserving the public CLI behavior. |
+
+### Phase 7 surface calls so far
+
+- `freeze`: `server/src/admin/`
+- `freeze`: `server/src/transport/http/server_info/`
+- `keep`: `server/src/runtime/mission_*`
+- `keep`: `server/src/runtime/workspace_*`
+- `keep`: `server/src/transport/http/mission_control/*`
+- `keep`: `cli/src/commands/session*`
+- `delete`: no whole-surface delete is justified yet in the mission/workspace/admin lane
+
+Interim notes:
+
+- The admin and server-info surfaces still serve live operational workflows, but they look stable enough to freeze instead of spending reorganization effort there right now.
+- The mission, workspace, and mission-control surfaces still map to active user workflows, so they stay in `keep` and should only be reorganized if a later lane needs it.
+- The next clean ownership sets after the current Wave 2 implementation lanes are mission runtime, workspace runtime, and the decomposed `transport/http/mission_control/*` tree.
 
 Decision rules:
 
@@ -956,23 +982,24 @@ Decision rules:
 
 Tasks:
 
-- [ ] Split runtime session files by lifecycle, query/load, and connector-dispatch responsibility.
-- [ ] Split persistence files by restore/hydration/usage ownership where safe.
-- [ ] Keep startup/write-side `control_mode` compatibility parked unless a dedicated redesign begins.
-- [ ] Mark mission/workspace/admin/CLI surfaces `keep`, `freeze`, or `delete`.
-- [ ] Land whole-surface deletions only after the owning worker packet and parent review agree.
+- [x] Split runtime session files by lifecycle, query/load, and connector-dispatch responsibility.
+- [x] Split persistence files by restore/hydration/usage ownership where safe.
+- [x] Keep startup/write-side `control_mode` compatibility parked unless a dedicated redesign begins.
+- [x] Mark mission/workspace/admin/CLI surfaces `keep`, `freeze`, or `delete`.
+- [x] Land whole-surface deletions only after the owning worker packet and parent review agree.
+  Result: no whole-surface deletion was justified in this wave, so the lane closed with explicit `keep`/`freeze` calls instead of forced cuts.
 
 Done when:
 
-- [ ] The main server hotspots are smaller and responsibility-aligned.
-- [ ] We have explicit keep/freeze/delete calls for the broad product/tooling surfaces.
-- [ ] Remaining complexity is concentrated in named live seams, not spread across giant files.
+- [x] The main server hotspots are smaller and responsibility-aligned.
+- [x] We have explicit keep/freeze/delete calls for the broad product/tooling surfaces.
+- [x] Remaining complexity is concentrated in named live seams, not spread across giant files.
 
 ## Verification
 
 Run per slice:
 
-- [ ] `make rust-check`
+- [x] `make rust-check`
 - [ ] Targeted `make rust-test` or crate test command for affected modules.
 - [ ] Native build/test command for Swift API contract changes.
 - [ ] Session smoke: create, detail, send message, subscribe, usage summary, startup restore.
@@ -988,17 +1015,17 @@ Phase 1-specific verification:
 
 Concrete command defaults:
 
-- [ ] Use `make rust-check` for fast shipped-graph compile validation.
+- [x] Use `make rust-check` for fast shipped-graph compile validation.
 - [x] Use `make rust-check-workspace` before the Phase 1 commit.
 - [x] Use `make rust-test` once Wave 2 is integrated, or earlier if a touched crate needs a focused confidence pass.
 
 ## Definition Of Done
 
-- [ ] Top hotspot files no longer carry large inline test blocks.
-- [ ] The top production hotspots are split by responsibility, not just shortened.
-- [ ] Obsolete surfaces are either deleted end-to-end or explicitly marked `freeze` with rationale.
-- [ ] Unsupported compatibility code is gone, and proven-live seams are explicitly documented instead of “cleaned up” by guesswork.
-- [ ] Protocol files contain active contracts only.
-- [ ] Connector event vocabulary is smaller and easier to trace.
+- [x] Top hotspot files no longer carry large inline test blocks.
+- [x] The top production hotspots are split by responsibility, not just shortened.
+- [x] Obsolete surfaces are either deleted end-to-end or explicitly marked `freeze` with rationale.
+- [x] Unsupported compatibility code is gone, and proven-live seams are explicitly documented instead of “cleaned up” by guesswork.
+- [x] Protocol files contain active contracts only.
+- [x] Connector event vocabulary is smaller and easier to trace.
 - [ ] Remaining tests prove user outcomes and durable server truth.
-- [ ] Line-count audit is regenerated and compared to baseline.
+- [x] Line-count audit is regenerated and compared to baseline.
