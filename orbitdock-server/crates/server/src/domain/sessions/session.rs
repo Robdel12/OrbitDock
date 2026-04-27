@@ -13,8 +13,8 @@ use orbitdock_protocol::{
   ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode,
   CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides,
   DashboardDiffPreview, Provider, SessionControlMode, SessionLifecycleState, SessionState,
-  SessionStatus, SessionSummary, SessionSurface, StateChanges, SubagentInfo, TokenUsage,
-  TokenUsageSnapshotKind, TurnDiff, WorkStatus,
+  SessionStatus, SessionSummary, SessionSurface, StateChanges, TokenUsage, TokenUsageSnapshotKind,
+  TurnDiff, WorkStatus,
 };
 
 #[cfg(test)]
@@ -34,6 +34,8 @@ use crate::domain::sessions::transition::TransitionState;
 use crate::runtime::session_broadcasts::invalidated_surfaces;
 use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
 use orbitdock_protocol::ServerMessage;
+#[cfg(test)]
+use orbitdock_protocol::SubagentInfo;
 use tokio::sync::broadcast;
 
 fn is_session_ended(msg: &ServerMessage) -> bool {
@@ -347,20 +349,14 @@ impl SessionHandle {
     self.state.retained_state(self.revision)
   }
 
-  /// Get subagents
-  #[allow(dead_code)]
-  pub fn subagents(&self) -> &[SubagentInfo] {
-    self.state.subagents()
-  }
-
   /// Set subagents list
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn set_subagents(&mut self, subagents: Vec<SubagentInfo>) {
     self.state.set_subagents(subagents);
     self.refresh_snapshot();
   }
 
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn set_pending_attention(
     &mut self,
     pending_tool_name: Option<String>,
@@ -400,7 +396,7 @@ impl SessionHandle {
   }
 
   /// Set first prompt
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn set_first_prompt(&mut self, prompt: Option<String>) {
     self.state.set_first_prompt(prompt);
   }
@@ -423,12 +419,6 @@ impl SessionHandle {
   /// Look up a row by ID.
   pub fn row_by_id(&self, row_id: &str) -> Option<&ConversationRowEntry> {
     self.state.row_by_id(row_id)
-  }
-
-  /// Get first prompt
-  #[allow(dead_code)]
-  pub fn first_prompt(&self) -> Option<&str> {
-    self.state.first_prompt()
   }
 
   /// Set codex integration mode
@@ -461,11 +451,6 @@ impl SessionHandle {
   /// Set transcript path
   pub fn set_transcript_path(&mut self, transcript_path: Option<String>) {
     self.state.set_transcript_path(transcript_path);
-  }
-
-  #[allow(dead_code)]
-  pub fn transcript_path(&self) -> Option<&str> {
-    self.state.transcript_path()
   }
 
   pub fn message_count(&self) -> usize {
@@ -591,12 +576,6 @@ impl SessionHandle {
     self.state.last_tool()
   }
 
-  /// Update token usage
-  #[allow(dead_code)]
-  pub fn update_tokens(&mut self, usage: TokenUsage) {
-    self.state.update_tokens(usage);
-  }
-
   /// Add a conversation row
   pub fn add_row(&mut self, entry: ConversationRowEntry) -> ConversationRowEntry {
     let entry = self.state.add_row(entry, self.has_active_viewers());
@@ -708,18 +687,6 @@ impl SessionHandle {
         content_len >= STREAMING_ROW_MIN_INITIAL_EMIT_CHARS
       }
     }
-  }
-
-  /// Update aggregated diff
-  #[allow(dead_code)]
-  pub fn update_diff(&mut self, diff: String) {
-    self.state.update_diff(diff);
-  }
-
-  /// Update plan
-  #[allow(dead_code)]
-  pub fn update_plan(&mut self, plan: String) {
-    self.state.update_plan(plan);
   }
 
   /// Get the current approval version.

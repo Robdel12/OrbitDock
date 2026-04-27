@@ -176,20 +176,8 @@ impl SessionCoreState {
     &self.config
   }
 
-  pub fn subagents(&self) -> &[SubagentInfo] {
-    &self.subagents
-  }
-
   pub fn rows(&self) -> &[ConversationRowEntry] {
     &self.rows
-  }
-
-  pub fn first_prompt(&self) -> Option<&str> {
-    self.display.first_prompt.as_deref()
-  }
-
-  pub fn transcript_path(&self) -> Option<&str> {
-    self.identity.transcript_path.as_deref()
   }
 
   pub fn message_count(&self) -> usize {
@@ -634,10 +622,12 @@ impl SessionCoreState {
     })
   }
 
+  #[cfg(test)]
   pub fn set_subagents(&mut self, subagents: Vec<SubagentInfo>) {
     self.subagents = subagents;
   }
 
+  #[cfg(test)]
   pub fn set_pending_attention(
     &mut self,
     pending_tool_name: Option<String>,
@@ -667,6 +657,7 @@ impl SessionCoreState {
     self.display.custom_name = name;
   }
 
+  #[cfg(test)]
   pub fn set_first_prompt(&mut self, prompt: Option<String>) {
     self.display.first_prompt = prompt;
   }
@@ -823,10 +814,6 @@ impl SessionCoreState {
     self.last_tool = tool;
   }
 
-  pub fn update_tokens(&mut self, usage: TokenUsage) {
-    self.token_usage = usage;
-  }
-
   pub fn add_row(
     &mut self,
     mut entry: ConversationRowEntry,
@@ -961,14 +948,6 @@ impl SessionCoreState {
     self.rows = rows;
     self.trim_retained_rows();
     self.timestamps.last_progress_at = Some(crate::support::session_time::chrono_now());
-  }
-
-  pub fn update_diff(&mut self, diff: String) {
-    self.current_diff = Some(Arc::from(diff));
-  }
-
-  pub fn update_plan(&mut self, plan: String) {
-    self.current_plan = Some(Arc::from(plan));
   }
 
   pub(crate) fn approval_queue_state(&self) -> ApprovalQueueState {
