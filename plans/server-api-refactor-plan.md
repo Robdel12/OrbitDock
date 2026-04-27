@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 6 / Wave 1 reorganization`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 will execute in this order: transition lane first, Codex app-server second, Claude connector third, and protocol/native mirrors fourth. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 lane 1 is landed in commit a46f1117, Wave 1 lane 2 is landed in commit 0e847e40, and Wave 1 lane 3 is landed in commit a0ef78e0. The next active lane is protocol/native mirrors. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -869,8 +869,28 @@ Tasks:
 
 - [ ] Land each Wave 1 lane as one coherent commit or a very small series of commits.
 - [ ] Run parent validation after each lane, not just at wave end.
-- [ ] Normalize naming/module layout after the first successful lane so the remaining workers follow the same pattern.
-- [ ] Update this plan after every Wave 1 lane lands.
+- [x] Normalize naming/module layout after the first successful lane so the remaining workers follow the same pattern.
+- [x] Update this plan after every landed Wave 1 lane.
+
+### Wave 1 lane ledger
+
+| Lane | Status | Commit | Notes |
+| --- | --- | --- | --- |
+| Transition / `connector-core/src/transition.rs` | landed | `a46f1117` | Extracted `approval_preview.rs`, rewired the reducer to use it, deleted the duplicate approval prompt parser in `server/src/domain/sessions/approval_state.rs`, and dropped the dead `subagent_lists_match` wrapper. |
+| Codex app-server / `connector-codex/src/app_server.rs` | landed | `0e847e40` | Split the app-server lane into `host`, `router`, `request_mapping`, `notification_mapping`, `item_mapping`, `response_codec`, and `compat`, while deleting the stale generic-tool helper and narrowing path conversion. |
+| Claude connector / `connector-claude/src/lib.rs` | landed | `a0ef78e0` | Split the lane into `connector`, `protocol`, `images`, `rows`, and `stdout`, and deleted the dead `ClaudeAction::Resume` / `ClaudeAction::Fork` variants without changing shadow/replay behavior. |
+| Protocol + native mirrors | next | — | Delete hard-dead WS event leaves first, then split message/session contract groups with matching Swift mirror updates. |
+
+### Wave 1 validation notes
+
+- Transition lane:
+  `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --manifest-path orbitdock-server/Cargo.toml`
+- Codex lane:
+  `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex app_server_tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`
+- Claude lane:
+  `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml`
+- Shared integration check after landing the first three lanes:
+  `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`
 
 Done when:
 
