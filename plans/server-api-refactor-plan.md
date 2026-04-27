@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 6 / Wave 1 reorganization`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 lane 1 is landed in commit a46f1117, Wave 1 lane 2 is landed in commit 0e847e40, Wave 1 lane 3 is landed in commit a0ef78e0, and the protocol lane's delete-first slice is landed in commit ec30c4ba. The next active step is the protocol lane's structural split after the dead push-event prune. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
+- Current phase: `Phase 7 / Wave 2 reorganization`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, and all four Wave 1 lanes are landed. The protocol lane's dead-leaf prune landed in commit ec30c4ba and its structural split landed in commit 84b327c5, extracting the full session contract cluster into types/session.rs while keeping the public protocol surface stable. Wave 2 workers are now launched for runtime query/load, runtime command/lifecycle, persistence read-path, transport thinning, CLI session surfaces, and product-surface keep/freeze/delete classification. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -879,7 +879,7 @@ Tasks:
 | Transition / `connector-core/src/transition.rs` | landed | `a46f1117` | Extracted `approval_preview.rs`, rewired the reducer to use it, deleted the duplicate approval prompt parser in `server/src/domain/sessions/approval_state.rs`, and dropped the dead `subagent_lists_match` wrapper. |
 | Codex app-server / `connector-codex/src/app_server.rs` | landed | `0e847e40` | Split the app-server lane into `host`, `router`, `request_mapping`, `notification_mapping`, `item_mapping`, `response_codec`, and `compat`, while deleting the stale generic-tool helper and narrowing path conversion. |
 | Claude connector / `connector-claude/src/lib.rs` | landed | `a0ef78e0` | Split the lane into `connector`, `protocol`, `images`, `rows`, and `stdout`, and deleted the dead `ClaudeAction::Resume` / `ClaudeAction::Fork` variants without changing shadow/replay behavior. |
-| Protocol + native mirrors | in progress | `ec30c4ba` | Deleted the dead WS-only `ApprovalsList`, `ApprovalDeleted`, `SubagentToolsList`, `PermissionRules`, and stale Swift-only `claude_models_list` push-event mirrors while keeping the live REST permission-rules path intact. |
+| Protocol + native mirrors | landed | `84b327c5` | Followed the dead-leaf prune in `ec30c4ba` by extracting the session contract cluster out of `protocol/src/types.rs` into `protocol/src/types/session.rs`, leaving `server.rs` and `client.rs` untouched and preserving the public re-export surface. |
 
 ### Wave 1 validation notes
 
@@ -897,12 +897,18 @@ Tasks:
   `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`
 - Native mirror validation after the dead-leaf prune:
   `xcodebuild -project OrbitDockNative/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`
+- Protocol structural split:
+  `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`
+- Protocol structural split validation:
+  `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`
+- Shared integration check after the protocol structural split:
+  `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`
 
 Done when:
 
-- [ ] The top connector/protocol hotspots are materially smaller and more legible.
-- [ ] At least one lane proves the “delete first, split second” pattern works in practice.
-- [ ] Cross-lane contracts are still stable after Wave 1 validation.
+- [x] The top connector/protocol hotspots are materially smaller and more legible.
+- [x] At least one lane proves the “delete first, split second” pattern works in practice.
+- [x] Cross-lane contracts are still stable after Wave 1 validation.
 
 ## Phase 7: Wave 2 Reorganization And Surface Decisions
 
@@ -925,6 +931,17 @@ Parallel workers:
 | Worker G2 | `gpt-5.4-mini` | transport mapping | Thin `session_actions.rs`, `session_lifecycle/create.rs`, and related HTTP mapping files down to transport concerns only. |
 | Worker H1 | `gpt-5.4-mini` | CLI/admin | Reorganize active CLI/admin code and prepare delete decisions for any clearly obsolete session/admin surfaces. |
 | Worker H2 | `gpt-5.4-mini` | mission/workspace/product surfaces | Decide `keep`, `freeze`, or `delete` for mission/workspace/admin-adjacent surfaces before we spend more reorganization effort on them. |
+
+### Phase 7 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker F1 | `019dd0e9-4ccb-7852-9212-38ab5c08f60b` (`Schrodinger`) | launched |
+| Worker F2 | `019dd0e9-5049-7ae1-a521-364e99d3c666` (`Tesla`) | launched |
+| Worker G1 | `019dd0e9-53e5-7132-94a7-c4afe0488446` (`Turing`) | launched |
+| Worker G2 | `019dd0e9-5703-75e1-bf2d-830fe3468cbf` (`Pasteur`) | launched |
+| Worker H1 | `019dd0e9-5a57-7a61-8a70-bc0c89c731e1` (`Parfit`) | launched |
+| Worker H2 | `019dd0e9-5def-71b1-907c-40ed6b83967a` (`Hypatia`) | launched |
 
 Decision rules:
 
