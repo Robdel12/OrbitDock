@@ -2,6 +2,7 @@ pub(crate) mod config;
 pub(crate) mod eligibility;
 pub mod executor;
 pub(crate) mod prompt;
+#[cfg(test)]
 pub(crate) mod retry;
 pub(crate) mod skills;
 pub(crate) mod template;

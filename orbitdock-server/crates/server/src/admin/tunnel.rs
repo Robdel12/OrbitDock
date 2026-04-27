@@ -7,7 +7,6 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const CLOUDFLARED_LABEL: &str = "com.orbitdock.cloudflare-tunnel";
@@ -110,44 +109,6 @@ pub fn ensure_cloudflared() -> anyhow::Result<String> {
       }
     }
   }
-}
-
-/// Start a quick tunnel and extract the public URL.
-///
-/// Returns the child process (still running) and the extracted URL.
-/// The caller is responsible for the child's lifetime.
-#[allow(dead_code)]
-pub fn start_tunnel_and_extract_url(port: u16) -> anyhow::Result<(Child, String)> {
-  let cloudflared = find_cloudflared()?;
-  let mut child = start_quick_tunnel(&cloudflared, port)?;
-
-  let stderr = child
-    .stderr
-    .take()
-    .ok_or_else(|| anyhow::anyhow!("no stderr from cloudflared"))?;
-
-  // Read stderr on a background thread so we can apply a timeout.
-  let (tx, rx) = mpsc::channel::<String>();
-  std::thread::spawn(move || {
-    let reader = BufReader::new(stderr);
-    for line in reader.lines().map_while(Result::ok) {
-      if tx.send(line).is_err() {
-        break;
-      }
-    }
-  });
-
-  let deadline = Instant::now() + Duration::from_secs(60);
-  while let Ok(line) = rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-    if is_tunnel_url_line(&line) {
-      if let Some(url) = extract_url(&line) {
-        return Ok((child, url));
-      }
-    }
-  }
-
-  let _ = child.kill();
-  anyhow::bail!("Timed out waiting for cloudflared to print tunnel URL (60s)")
 }
 
 /// Install and start a background Cloudflare tunnel service, then wait for the

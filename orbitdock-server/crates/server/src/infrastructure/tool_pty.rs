@@ -34,7 +34,6 @@ pub enum ToolPtyStatus {
 }
 
 struct ToolPtySession {
-  #[allow(dead_code)] // Used for debugging and future session isolation
   session_id: String,
   event_tx: broadcast::Sender<ToolPtyEvent>,
   replay_buffer: Vec<u8>,
@@ -164,19 +163,13 @@ impl ToolPtyService {
   /// Get just the replay buffer without subscribing.
   ///
   /// Useful for completed tools where streaming isn't needed.
-  #[allow(dead_code)] // Will be used for completed tool replay without streaming
+  #[cfg(test)]
   pub fn get_replay_buffer(&self, tool_id: &str) -> Option<Vec<u8>> {
     self.sessions.get(tool_id).map(|s| s.replay_buffer.clone())
   }
 
-  /// Get the session ID associated with a tool PTY.
-  #[allow(dead_code)] // Useful for debugging and session isolation
-  pub fn get_session_id(&self, tool_id: &str) -> Option<String> {
-    self.sessions.get(tool_id).map(|s| s.session_id.clone())
-  }
-
   /// Get the current status of a tool PTY session.
-  #[cfg_attr(not(test), allow(dead_code))]
+  #[cfg(test)]
   pub fn status(&self, tool_id: &str) -> Option<ToolPtyStatus> {
     self.sessions.get(tool_id).map(|s| s.status)
   }
@@ -206,7 +199,7 @@ impl ToolPtyService {
   }
 
   /// Check if a tool PTY session exists.
-  #[allow(dead_code)] // Will be used for session cleanup logic
+  #[cfg(test)]
   pub fn exists(&self, tool_id: &str) -> bool {
     self.sessions.contains_key(tool_id)
   }
@@ -222,34 +215,6 @@ impl ToolPtyService {
         tool_id = %tool_id,
         "Tool PTY session destroyed"
       );
-    }
-  }
-
-  /// Get the number of active subscribers for a tool PTY.
-  #[allow(dead_code)] // Will be used for monitoring and cleanup decisions
-  pub fn subscriber_count(&self, tool_id: &str) -> usize {
-    self
-      .sessions
-      .get(tool_id)
-      .map(|s| s.event_tx.receiver_count())
-      .unwrap_or(0)
-  }
-
-  /// Clean up old exited sessions based on a predicate.
-  #[allow(dead_code)] // Will be used for periodic session cleanup
-  pub fn cleanup_if<F>(&self, mut should_remove: F)
-  where
-    F: FnMut(&str, &ToolPtyStatus) -> bool,
-  {
-    let to_remove: Vec<String> = self
-      .sessions
-      .iter()
-      .filter(|entry| should_remove(entry.key(), &entry.value().status))
-      .map(|entry| entry.key().clone())
-      .collect();
-
-    for tool_id in to_remove {
-      self.destroy(&tool_id);
     }
   }
 }
