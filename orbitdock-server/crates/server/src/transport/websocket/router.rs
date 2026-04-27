@@ -62,10 +62,6 @@ pub(crate) fn handle_client_message<'a>(
           .await;
       }
 
-      MessageGroup::Config => {
-        crate::transport::websocket::handlers::config::handle(msg, client_tx, state, conn_id).await;
-      }
-
       MessageGroup::ClaudeHooks => {
         crate::transport::websocket::handlers::claude_hooks::handle(msg, client_tx, state).await;
       }
@@ -82,10 +78,6 @@ pub(crate) fn handle_client_message<'a>(
       MessageGroup::ToolPty => {
         crate::transport::websocket::handlers::tool_pty::handle(msg, client_tx, state, conn_id)
           .await;
-      }
-
-      MessageGroup::RestOnly => {
-        crate::transport::websocket::handlers::rest_only::handle(msg, client_tx).await;
       }
     }
   })

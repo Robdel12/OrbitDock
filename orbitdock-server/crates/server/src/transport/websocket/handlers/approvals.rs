@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::runtime::approval_dispatch::{dispatch_approve_tool, ApprovalDispatchResult};
 use crate::runtime::session_registry::SessionRegistry;
-use crate::transport::websocket::{send_json, send_rest_only_error, OutboundMessage};
+use crate::transport::websocket::{send_json, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 use orbitdock_protocol::ServerMessage;
 
@@ -74,14 +74,6 @@ pub(crate) async fn handle(
 
       send_approval_decision_result(client_tx, session_id.clone(), request_id_for_result, result)
         .await;
-    }
-
-    ClientMessage::ListApprovals { session_id, .. } => {
-      send_rest_only_error(client_tx, "GET /api/approvals", session_id).await;
-    }
-
-    ClientMessage::DeleteApproval { .. } => {
-      send_rest_only_error(client_tx, "DELETE /api/approvals/{approval_id}", None).await;
     }
 
     _ => {

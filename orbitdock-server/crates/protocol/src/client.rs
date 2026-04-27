@@ -7,8 +7,7 @@ use serde_json::Value;
 
 use crate::types::{
   CodexApprovalPolicy, CodexApprovalsReviewer, CodexSandboxPolicy, ImageInput, MentionInput,
-  PermissionGrantScope, Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput,
-  ToolApprovalDecision,
+  PermissionGrantScope, SkillInput, ToolApprovalDecision,
 };
 
 /// Messages sent from client to server
@@ -137,175 +136,6 @@ pub enum ClientMessage {
     name: Option<String>,
   },
 
-  // Session management
-  CreateSession {
-    provider: Provider,
-    cwd: String,
-    model: Option<String>,
-    approval_policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approval_policy_details: Option<CodexApprovalPolicy>,
-    sandbox_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sandbox_policy_details: Option<CodexSandboxPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    allowed_tools: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    disallowed_tools: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    effort: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    collaboration_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    multi_agent: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    personality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_tier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    developer_instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system_prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    append_system_prompt: Option<String>,
-  },
-  ResumeSession {
-    session_id: String,
-  },
-  TakeoverSession {
-    session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    approval_policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approval_policy_details: Option<CodexApprovalPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sandbox_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sandbox_policy_details: Option<CodexSandboxPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    allowed_tools: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    disallowed_tools: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    collaboration_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    multi_agent: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    personality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_tier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    developer_instructions: Option<String>,
-  },
-  ForkSession {
-    source_session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    approval_policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approval_policy_details: Option<CodexApprovalPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sandbox_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sandbox_policy_details: Option<CodexSandboxPolicy>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cwd: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    allowed_tools: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    disallowed_tools: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    collaboration_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    multi_agent: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    personality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_tier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    developer_instructions: Option<String>,
-  },
-  ForkSessionToWorktree {
-    source_session_id: String,
-    branch_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    base_branch: Option<String>,
-  },
-  ForkSessionToExistingWorktree {
-    source_session_id: String,
-    worktree_id: String,
-  },
-
-  // Approval history
-  ListApprovals {
-    session_id: Option<String>,
-    limit: Option<u32>,
-  },
-  DeleteApproval {
-    approval_id: i64,
-  },
-
-  // Codex models
-  ListModels,
-  // Codex account/auth state
-  CodexAccountRead {
-    #[serde(default)]
-    refresh_token: bool,
-  },
-  CodexLoginChatgptStart,
-  CodexLoginChatgptCancel {
-    login_id: String,
-  },
-  CodexAccountLogout,
-
-  // Skills
-  ListSkills {
-    session_id: String,
-    #[serde(default)]
-    cwds: Vec<String>,
-    #[serde(default)]
-    force_reload: bool,
-  },
-
-  // MCP
-  ListMcpTools {
-    session_id: String,
-  },
-  RefreshMcpServers {
-    session_id: String,
-  },
-
-  // Server config
-  SetOpenAiKey {
-    key: String,
-  },
-  SetServerRole {
-    is_primary: bool,
-  },
-  SetClientPrimaryClaim {
-    client_id: String,
-    device_name: String,
-    is_primary: bool,
-  },
-  CheckOpenAiKey {
-    request_id: String,
-  },
-  FetchCodexUsage {
-    request_id: String,
-  },
-  FetchClaudeUsage {
-    request_id: String,
-  },
-
   // Turn steering
   SteerTurn {
     session_id: String,
@@ -334,37 +164,6 @@ pub enum ClientMessage {
   RewindFiles {
     session_id: String,
     user_message_id: String,
-  },
-
-  // Review comments
-  CreateReviewComment {
-    session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    turn_id: Option<String>,
-    file_path: String,
-    line_start: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    line_end: Option<u32>,
-    body: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tag: Option<ReviewCommentTag>,
-  },
-  UpdateReviewComment {
-    comment_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    body: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tag: Option<ReviewCommentTag>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    status: Option<ReviewCommentStatus>,
-  },
-  DeleteReviewComment {
-    comment_id: String,
-  },
-  ListReviewComments {
-    session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    turn_id: Option<String>,
   },
 
   // Claude hook transport (server-owned write path)
@@ -455,12 +254,6 @@ pub enum ClientMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     permission_mode: Option<String>,
   },
-  // Subagent tools
-  GetSubagentTools {
-    session_id: String,
-    subagent_id: String,
-  },
-
   ClaudeSubagentEvent {
     session_id: String,
     hook_event_name: String,
@@ -573,40 +366,6 @@ pub enum ClientMessage {
   },
   UnsubscribeToolPty {
     tool_id: String,
-  },
-
-  // Remote filesystem browsing (for iOS project picker)
-  BrowseDirectory {
-    #[serde(default)]
-    path: Option<String>,
-    request_id: String,
-  },
-  ListRecentProjects {
-    request_id: String,
-  },
-
-  // Worktree management
-  ListWorktrees {
-    request_id: String,
-    #[serde(default)]
-    repo_root: Option<String>,
-  },
-  CreateWorktree {
-    request_id: String,
-    repo_path: String,
-    branch_name: String,
-    #[serde(default)]
-    base_branch: Option<String>,
-  },
-  RemoveWorktree {
-    request_id: String,
-    worktree_id: String,
-    #[serde(default)]
-    force: bool,
-  },
-  DiscoverWorktrees {
-    request_id: String,
-    repo_path: String,
   },
 }
 

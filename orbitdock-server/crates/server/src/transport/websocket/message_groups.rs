@@ -1,26 +1,18 @@
 use orbitdock_protocol::ClientMessage;
 
-use super::rest_only_policy::rest_only_route;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageGroup {
   Subscribe,
   SessionCrud,
   Messaging,
   Approvals,
-  Config,
   ClaudeHooks,
   Shell,
   Terminal,
   ToolPty,
-  RestOnly,
 }
 
 pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
-  if rest_only_route(message).is_some() {
-    return MessageGroup::RestOnly;
-  }
-
   match message {
     ClientMessage::SubscribeSessionsSummary { .. }
     | ClientMessage::UnsubscribeSessionsSummary
@@ -50,18 +42,13 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     | ClientMessage::StopTask { .. }
     | ClientMessage::RewindFiles { .. } => MessageGroup::Messaging,
 
-    ClientMessage::ApproveTool { .. }
-    | ClientMessage::ListApprovals { .. }
-    | ClientMessage::DeleteApproval { .. } => MessageGroup::Approvals,
-
-    ClientMessage::SetClientPrimaryClaim { .. } => MessageGroup::Config,
+    ClientMessage::ApproveTool { .. } => MessageGroup::Approvals,
 
     ClientMessage::ClaudeSessionStart { .. }
     | ClientMessage::ClaudeSessionEnd { .. }
     | ClientMessage::ClaudeStatusEvent { .. }
     | ClientMessage::ClaudeToolEvent { .. }
-    | ClientMessage::ClaudeSubagentEvent { .. }
-    | ClientMessage::GetSubagentTools { .. } => MessageGroup::ClaudeHooks,
+    | ClientMessage::ClaudeSubagentEvent { .. } => MessageGroup::ClaudeHooks,
 
     ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => MessageGroup::Shell,
 
@@ -74,6 +61,6 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
       MessageGroup::ToolPty
     }
 
-    _ => unreachable!("rest-only messages should be handled before classification"),
+    _ => unreachable!("unsupported websocket client message"),
   }
 }

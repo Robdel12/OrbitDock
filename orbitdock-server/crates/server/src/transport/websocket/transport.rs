@@ -23,22 +23,6 @@ pub(crate) async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMes
   let _ = tx.send(OutboundMessage::Json(Box::new(msg))).await;
 }
 
-pub(crate) async fn send_rest_only_error(
-  tx: &mpsc::Sender<OutboundMessage>,
-  endpoint: &str,
-  session_id: Option<String>,
-) {
-  send_json(
-    tx,
-    ServerMessage::Error {
-      code: "http_only_endpoint".into(),
-      message: format!("Use REST endpoint {endpoint} for this request"),
-      session_id,
-    },
-  )
-  .await;
-}
-
 pub(crate) async fn send_replay_or_resync_fallback(
   tx: &mpsc::Sender<OutboundMessage>,
   session_id: &str,
