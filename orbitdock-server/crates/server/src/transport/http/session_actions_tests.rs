@@ -4,8 +4,11 @@ use crate::{
   infrastructure::persistence::{flush_batch_for_test, PersistCommand, SessionCreateParams},
   transport::http::test_support::new_persist_test_state,
 };
-use axum::{extract::Path, extract::State};
+use axum::{extract::Path, extract::State, http::StatusCode, Json};
+use orbitdock_protocol::{Provider, SessionControlMode};
 use tokio::sync::mpsc;
+
+use super::common::{SessionShellCommandRequest, StopTargetRequest};
 
 fn persist_codex_session(
   db_path: &std::path::PathBuf,

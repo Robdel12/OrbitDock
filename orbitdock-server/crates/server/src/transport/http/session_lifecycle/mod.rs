@@ -1,6 +1,7 @@
 mod codex_config;
 mod common;
 mod create;
+mod create_mapping;
 mod fork;
 mod mutations;
 mod resume;
