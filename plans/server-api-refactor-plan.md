@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 11 / regroup and redesign recut`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2, and the full Phase 10 implementation wave is now complete. Wave 3A landed the protocol tiny delete-first cleanup, the domain session helper extraction, and the Claude stdout delete-plus-split series across commits ending in `ff10701c`, which moved the control, system, shared helper, and message-handler clusters out of `connector-claude/src/stdout.rs` and left a smaller orchestration facade. Wave 3B landed in commits `2e66bdbd`, `0a7c1a6a`, `7ee569be`, and `fdd1c2a3`, covering the Codex config/policy helper split, runtime dispatch/takeover helper split, CLI binary/dev-console split, and persistence-accounting plus Codex-hook operational split. Validation passed with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `env RUSTC_WRAPPER= make rust-check`. The next move is no longer another obvious split-now sweep; it is a deliberate redesign recut around the remaining live hotspots: `connector-codex/src/rollout_parser.rs`, `connector-core/src/transition.rs`, `protocol/src/types.rs`, `protocol/src/conversation_contracts/tool_display.rs`, `server/src/runtime/session_runtime_helpers.rs`, and `server/src/connectors/codex_session.rs`. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 12 landed / Phase 13 regroup pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, and the Phase 12 remaining-hotspot implementation wave is now landed too. Phase 12 commits `ddea7ac5`, `bbed6aca`, `bf20dbf9`, `f7e1ddcc`, and `516d829e` split the Codex rollout parser helper clusters, the connector-core row transition cluster, the runtime row/history helpers, the protocol approval/policy core, and the tiny Codex hook metadata tail cleanup. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib row_ --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server session_row_history --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining live hotspots are now narrower and better classified: `connector-codex/src/rollout_parser.rs` is down to 1,505 lines plus sibling helper modules and the next risky seam is still `parse_event_msg`; `connector-core/src/transition.rs` is down to 1,573 lines with `transition_rows.rs` carved out and the next clear seams are status/lifecycle and metadata clusters; `protocol/src/types.rs` is down to 1,458 lines with `types/approval_policy.rs` split out; `server/src/runtime/session_runtime_helpers.rs` is down to 787 lines with `session_row_history.rs` extracted; `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; and `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1413,7 +1413,27 @@ Execution rules:
 
 Tasks:
 
-- [ ] Launch the five Phase 12 implementation workers with disjoint ownership.
-- [ ] Integrate landed worker commits in order of dependency and validation confidence.
-- [ ] Re-run targeted crate/server tests after each landed slice.
+- [x] Launch the five Phase 12 implementation workers with disjoint ownership.
+- [x] Integrate landed worker commits in order of dependency and validation confidence.
+- [x] Re-run targeted crate/server tests after each landed slice.
 - [ ] Regroup again before any direct-session ownership redesign or startup/control-mode rewrite.
+
+### Phase 12 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd14f-1f05-7253-95ef-a4e564e6a160` (`Boyle`) | completed - landed in `ddea7ac5` |
+| Worker B | `019dd14f-2628-7a32-8ffa-409dca7cfd7f` (`Bacon`) | completed - landed in `bbed6aca` |
+| Worker C | `019dd14f-297b-7832-9c02-dcefa1cbf841` (`Carver`) | completed - landed in `bf20dbf9` |
+| Worker D | `019dd14f-2c7e-7760-b965-93574b180036` (`Ramanujan`) | completed - landed in `f7e1ddcc` |
+| Worker E | `019dd14f-2fbe-7721-98e7-ef018eca5e0c` (`Kierkegaard`) | completed - landed in `516d829e` |
+
+### Phase 12 execution note
+
+- `ddea7ac5` `♻️ Split Codex rollout parser helpers`
+- `bbed6aca` `♻️ Split connector-core row transition helpers`
+- `bf20dbf9` `♻️ Split runtime session row history helpers`
+- `f7e1ddcc` `♻️ Split protocol approval policy types`
+- `516d829e` `🗑️ Tighten unused Codex hook metadata params`
+- The rollout parser lane is no longer the immediate blocker for the rest of the server tree, but its high-risk `parse_event_msg` core still needs a later, more surgical recut.
+- The Codex ownership/startup seam remains parked. Phase 12 intentionally did not open `codex_session.rs` structural work.
