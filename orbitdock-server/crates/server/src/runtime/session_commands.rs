@@ -74,7 +74,7 @@ pub enum SessionCommand {
   },
 
   // -- Simple mutations (test-only) --
-  #[allow(dead_code)] // Test-only actor mutation helper for lightweight state assertions.
+  #[cfg(test)]
   SetWorkStatus {
     status: WorkStatus,
   },

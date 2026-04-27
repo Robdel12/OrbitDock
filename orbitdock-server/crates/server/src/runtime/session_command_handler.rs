@@ -424,6 +424,7 @@ pub async fn handle_session_command(
       let session_id = handle.id().to_string();
       dispatch_transition_input(&session_id, event, handle, persist_tx).await;
     }
+    #[cfg(test)]
     SessionCommand::SetWorkStatus { status } => {
       handle.set_work_status(status);
     }

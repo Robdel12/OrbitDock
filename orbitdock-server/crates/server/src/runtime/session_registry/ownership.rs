@@ -80,7 +80,6 @@ impl SessionRegistry {
   }
 
   /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
-  #[allow(dead_code)]
   pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
     if let Some(runtime_owner) = self
       .claude_runtime_owners

@@ -8,10 +8,8 @@ use crate::infrastructure::paths;
 use crate::runtime::session_registry::SessionRegistry;
 
 static INIT_TEST_DATA_DIR: Once = Once::new();
-#[allow(dead_code)]
 static TEST_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-#[allow(dead_code)]
 pub(crate) fn test_env_lock() -> &'static Mutex<()> {
   TEST_ENV_LOCK.get_or_init(|| Mutex::new(()))
 }
