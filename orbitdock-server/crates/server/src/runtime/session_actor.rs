@@ -77,33 +77,9 @@ impl SessionActorHandle {
       .map_err(|error| error.to_string())
   }
 
-  /// Try to send a command without awaiting (for non-async contexts).
-  #[allow(dead_code)]
-  pub fn try_send(&self, cmd: SessionCommand) {
-    if self.command_tx.try_send(cmd).is_err() {
-      warn!(
-          component = "session_actor",
-          session_id = %self.id,
-          "Actor channel full or closed"
-      );
-    }
-  }
-
   /// Lock-free snapshot read.
   pub fn snapshot(&self) -> Arc<SessionSnapshot> {
     self.snapshot.load_full()
-  }
-
-  /// Get the raw ArcSwap (for passing to list-level operations).
-  #[allow(dead_code)]
-  pub fn snapshot_swap(&self) -> &Arc<ArcSwap<SessionSnapshot>> {
-    &self.snapshot
-  }
-
-  /// Get a clone of the command sender (for passing to spawned tasks).
-  #[allow(dead_code)]
-  pub fn command_tx(&self) -> mpsc::Sender<SessionCommand> {
-    self.command_tx.clone()
   }
 
   pub async fn retained_state(&self) -> Result<SessionState, String> {
