@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 7 / Wave 2 closeout`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, and all four Wave 1 lanes are landed. The protocol lane's dead-leaf prune landed in commit ec30c4ba and its structural split landed in commit 84b327c5, extracting the full session contract cluster into types/session.rs while keeping the public protocol surface stable. The defined Wave 2 implementation lanes are now landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99, with product-surface keep/freeze decisions recorded for admin, server-info, mission, workspace, mission-control, and CLI session surfaces. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
+- Current phase: `Phase 8 / remaining-hotspot regroup`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The next active step is a fresh regroup around the remaining top-pressure live files from the refreshed audit: Codex rollout parsing and item mapping, Claude stdout/event-loop handling, protocol contract/rendering surfaces, domain session core state, CLI shell surfaces, and the remaining server operational/persistence hotspots. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -994,6 +994,278 @@ Done when:
 - [x] The main server hotspots are smaller and responsibility-aligned.
 - [x] We have explicit keep/freeze/delete calls for the broad product/tooling surfaces.
 - [x] Remaining complexity is concentrated in named live seams, not spread across giant files.
+
+## Phase 8: Remaining-Hotspot Regroup
+
+Objective: recut the post-Wave-2 top-pressure files into a new attack plan before we start another implementation wave.
+
+Current top remaining production hotspots driving this phase:
+
+- `connector-codex/src/rollout_parser.rs`
+- `connector-core/src/transition.rs`
+- `protocol/src/types.rs`
+- `connector-claude/src/stdout.rs`
+- `protocol/src/conversation_contracts/tool_display.rs`
+- `server/src/domain/sessions/state.rs`
+- `protocol/src/conversation_contracts/rows.rs`
+- `cli/src/cli.rs`
+- `cli/src/dev_console.rs`
+- `connector-codex/src/app_server/item_mapping.rs`
+
+Guiding rule:
+
+- Do not split for the sake of smaller files alone.
+- Delete stale helpers first when safe.
+- Then split along one of three boundaries only: protocol contract groups, provider event/translation stages, or domain state ownership seams.
+
+## Phase 9: Wave 3 Evaluation
+
+Objective: map the remaining large live files into clear implementation lanes with explicit `split now`, `freeze`, `delete first`, or `needs redesign` calls.
+
+Worker output contract:
+
+- Each worker returns one short evaluation packet for its lane.
+- Each packet must include:
+  - current responsibilities
+  - safe delete-first work
+  - target module layout
+  - live seams and risks
+  - tests to run
+  - implementation order inside the lane
+
+Parallel workers:
+
+| Worker | Model | Ownership | Evaluation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-codex/src/rollout_parser.rs`, `connector-codex/src/app_server/item_mapping.rs`, `connector-codex/src/session_ops.rs`, `connector-codex/src/config.rs` | Separate pure rollout parsing from file watching, normalization, item mapping, and config shaping; identify what can still be deleted before the next Codex connector split. |
+| Worker B | `gpt-5.4-mini` | `connector-claude/src/stdout.rs`, plus adjacent `rows.rs` and `protocol.rs` only if needed for boundary mapping | Map the Claude stdout/event-loop state machine, line parsing stages, approval/control handling, and row reconstruction seams so we can split it without touching shadow ownership semantics. |
+| Worker C | `gpt-5.4-mini` | `protocol/src/types.rs`, `protocol/src/types/session.rs`, `protocol/src/conversation_contracts/tool_display.rs`, `protocol/src/conversation_contracts/rows.rs` | Recut the remaining protocol surface into contract groups and identify whether rendering-heavy row/tool-display logic should split before any more type churn. |
+| Worker D | `gpt-5.4-mini` | `server/src/domain/sessions/state.rs`, `server/src/domain/sessions/session.rs`, and nearby pure domain helpers only when needed | Map the domain session core and identify which state ownership seams should split next without weakening actor/domain authority. |
+| Worker E | `gpt-5.4-mini` | `cli/src/cli.rs`, `cli/src/dev_console.rs`, and the active CLI session shell only when needed for context | Decide whether the remaining CLI shell surfaces are `split now` or `freeze`, and name the exact ownership sets if they still deserve active refactor effort. |
+| Worker F | `gpt-5.4-mini` | `server/src/infrastructure/persistence/{mod.rs,usage.rs,session_writes.rs}`, `server/src/runtime/{session_runtime_helpers.rs,message_dispatch.rs,session_takeover.rs}`, `server/src/connectors/{codex_session.rs,codex_hooks/mod.rs,claude_session.rs}` | Group the remaining server operational hotspots into the next realistic ownership sets and call out any delete-first or freeze-first opportunities before we touch them. |
+
+Tasks:
+
+- [x] Launch all Wave 3 evaluation workers with disjoint ownership.
+- [x] Require every packet to classify its lane as `split now`, `delete first`, `freeze`, or `needs redesign`.
+- [x] Integrate the packets back into this plan before starting the next implementation wave.
+
+### Phase 9 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd0fe-6f81-7983-b21a-9d35c7588036` (`Laplace`) | completed |
+| Worker B | `019dd0fe-7334-7830-996d-6aef39ccf40e` (`Gauss`) | completed |
+| Worker C | `019dd0fe-76fd-70d0-9d81-806f494ae746` (`Bacon`) | completed |
+| Worker D | `019dd0fe-7b2a-79c0-a21f-b260ad1e3ee7` (`Avicenna`) | completed |
+| Worker E | `019dd0fe-7e56-79d3-b877-c79be0115a1c` (`Ramanujan`) | completed |
+| Worker F | `019dd0fe-81b0-7ef1-9408-f78289301979` (`Euler`) | completed |
+
+### Phase 9 evaluation recut
+
+#### Worker A: Codex connector parser + mapping lane
+
+- Classification: `split now`
+- `rollout_parser.rs` is already close to a stable parsing seam, but `config.rs`, `session_ops.rs`, and `app_server/item_mapping.rs` still mix transport shaping, bridge helpers, connector state mutation, and runtime bootstrap.
+- Safe delete-first work:
+  - centralize the duplicated generic conversion helpers shared by `config.rs` and `session_ops.rs`
+  - collapse the overloaded constructor/restore parameter ladders in `config.rs`
+  - only split filesystem and git helpers out of `rollout_parser.rs` after the pure parser core is isolated
+- Target layout:
+  - `config/bootstrap.rs`
+  - `config/policy.rs`
+  - `session/commands.rs`
+  - `session/bridge.rs`
+  - `app_server/item_mapping/{tool_rows,messages,collab_agents,dynamic_tools,review_mode}.rs`
+  - `rollout/{parser,fs,subagents}.rs`
+- Live seam warning:
+  - `session_ops.rs` is still a direct connector-state owner
+  - `item_mapping.rs` mixes pure mapping with route-local stream-state coordination
+  - `rollout_parser.rs` still mixes pure parsing with some filesystem/process-side helpers
+- Lane order:
+  1. extract shared conversion/request helpers
+  2. split `config.rs`
+  3. split `session_ops.rs`
+  4. refactor `item_mapping.rs`
+  5. leave `rollout_parser.rs` for the tail unless the FS helpers are already moving
+
+#### Worker B: Claude stdout lane
+
+- Classification: `delete first`
+- `stdout.rs` currently owns the entire Claude stdout lifecycle: line parsing, replay suppression, turn lifecycle, message routing, streaming assistant state, tool/task reconciliation, PTY side effects, and approval/control translation.
+- Safe delete-first work:
+  - remove the write-only `ClaudeEventLoopState.last_turn_input`
+  - remove the write-only `ClaudeEventLoopState.turn_output`
+- Target layout:
+  - keep `stdout.rs` as the orchestration facade
+  - split into `stdout/state.rs`, `stdout/control.rs`, `stdout/system.rs`, `stdout/messages.rs`, and `stdout/helpers.rs`
+- Live seam warning:
+  - preserve the parked replay and shadow seam exactly
+  - keep replay filtering aligned with `--replay-user-messages` in `connector.rs` and the shadow cleanup guard in `session.rs`
+  - fragile edges include `task_tool_use_map`, `tool_rows`, stream flush ordering, and `ExitPlanMode` ordering
+- Lane order:
+  1. delete the write-only turn fields
+  2. run `cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml`
+  3. extract control and approval helpers
+  4. extract system handlers
+  5. extract message and stream handlers
+
+#### Worker C: Protocol rendering + session contract lane
+
+- Classification: `delete first`
+- `types.rs` is the protocol spine rather than dead junk, `types/session.rs` owns session-facing projections and display helpers, and `conversation_contracts/tool_display.rs` is already a clean pure renderer seam.
+- Safe delete-first work:
+  - remove `SessionSummary::to_list_item` from `protocol/src/types/session.rs`
+  - keep `SessionListItem::from_summary` as the single canonical constructor
+- Target layout:
+  - keep `types/session.rs` as the session projection root
+  - optionally later split `types/session_display.rs` or `types/session_projection.rs`
+  - keep `tool_display.rs` intact
+  - later split `rows.rs` into `model`, `summary`, and `transport` only if still justified
+- Live seam warning:
+  - `display_title_from_parts`, `context_line_from_parts`, and `list_status_from_parts` are broadly used
+  - `ToolDisplay` remains a client-decoded wire contract
+  - `ConversationRowSummary::into_transport_summary` is a transport safety gate
+- Lane order:
+  1. delete `SessionSummary::to_list_item`
+  2. run protocol tests
+  3. only then consider a smaller `types/session.rs` display split
+  4. treat `rows.rs` as a later follow-on, not the first cut
+
+#### Worker D: Domain session core lane
+
+- Classification: `split now`
+- The architecture boundary is already mostly present: `state.rs` is the mutable domain core and `session.rs` is the runtime shell for broadcast, snapshotting, and replay.
+- Safe delete-first work:
+  - move `is_local_http_row_id` and `latest_transcript_synced_row_id` out of `state.rs` into a shared row or conversation helper
+  - delete duplicate pure helper logic from `session.rs` once the shared helpers exist
+  - only remove the temporary transition bridge after callers no longer depend on `extract_state` and `apply_state`
+- Target layout:
+  - keep `state.rs` or rename later to `session_core.rs` as the domain authority
+  - keep `session.rs` or rename later to `session_handle.rs` as the runtime shell
+  - extract `support/session_modes.rs` for shared pure predicates
+  - extract a tiny row-sync or conversation helper for transcript-anchor logic and row-retention policy
+- Live seam warning:
+  - snapshot refresh is currently manual and uneven
+  - `StateChanges` can carry `control_mode`, but `SessionCoreState::apply_changes` does not consume it
+  - `broadcast()` still mixes transport sanitization, replay-log serialization, surface invalidation, and dashboard invalidation
+- Lane order:
+  1. freeze behavior with targeted tests
+  2. extract `session_modes` and row-sync helpers
+  3. tighten one obvious snapshot refresh path for snapshot-affecting mutations
+  4. remove the temporary transition bridge later, not in the first cut
+
+#### Worker E: CLI shell lane
+
+- Classification: `split now`
+- `cli.rs` still bundles binary-level clap parsing, client-facing command parsing, and shared conversion helpers, while `dev_console.rs` is cohesive but overstuffed with runtime, state, rendering, input, and terminal lifecycle concerns.
+- Safe delete-first work:
+  - no obvious dead code today
+  - the binary-to-client bridge is still live and should only be revisited after the split proves it is redundant
+- Target layout:
+  - `cli/{binary,client,shared}.rs`
+  - `dev_console/{runtime,state,render,input}.rs`
+- Live seam warning:
+  - `main.rs` depends on the binary-versus-client dispatch split
+  - `dev_console.rs` is TTY-sensitive and suspends raw mode around pager processes
+  - selection/filter/category logic is a real behavior seam
+- Lane order:
+  1. split `cli.rs` into `shared`, `binary`, and `client`
+  2. move `resolve_stdin`
+  3. split `dev_console.rs` into state, render, runtime, and input or effects
+  4. only then revisit whether the translation bridge can ever be deleted
+
+#### Worker F: Server operational lane
+
+- Mixed classification:
+  - `persistence/mod.rs`: `split now`
+  - `persistence/usage.rs`: `freeze`
+  - `persistence/session_writes.rs`: `split now`
+  - `runtime/session_runtime_helpers.rs`: `needs redesign`
+  - `runtime/message_dispatch.rs`: `split now`
+  - `runtime/session_takeover.rs`: `split now`
+  - `connectors/codex_session.rs`: `needs redesign`
+  - `connectors/codex_hooks/mod.rs`: `split now`
+  - `connectors/claude_session.rs`: `freeze`
+- Safe delete-first work:
+  - delete alias wrappers in `message_dispatch.rs` only after transport callsites move to canonical verbs
+  - delete duplicate cleanup fallback writes in `session_runtime_helpers.rs` only after one cleanup transition owns state change
+  - delete hook-side shadow-materialization helpers in `codex_hooks/mod.rs` only after routing and bootstrap are separated
+  - do not delete `preserve_direct_owned_claude_shadow`
+- Target layout:
+  - `persistence/session_state`: `mod.rs` + `session_writes.rs` + small shadow helpers
+  - `persistence/usage_accounting`: keep `usage.rs` intact
+  - `runtime/session_actions`: `message_dispatch.rs` + `session_takeover.rs`
+  - `runtime/session_lifecycle`: later redesign split for `session_runtime_helpers.rs`
+  - `connectors/codex`: redesign lane for `codex_session.rs`
+  - `connectors/hooks`: split `codex_hooks/mod.rs` into routing, bootstrap, and metadata-sync
+- Live seam warning:
+  - competing direct-session cleanup paths
+  - repeated provider-specific branching across dispatch, takeover, and hooks
+  - process-global transcript-sync cache in `session_runtime_helpers.rs`
+  - `codex_session.rs` still spans connector runtime, workspace diffing, and mission side effects
+- Lane order:
+  1. clean up `message_dispatch.rs` aliases and separate command families
+  2. split `session_takeover.rs`
+  3. carve `codex_hooks/mod.rs`
+  4. leave `session_runtime_helpers.rs` and `codex_session.rs` for a dedicated redesign wave
+
+Done when:
+
+- [x] Every remaining top-pressure file belongs to a named lane.
+- [x] The next implementation wave is split into coherent ownership sets.
+- [x] We have explicit `keep`/`freeze` calls for the remaining CLI and operational surfaces.
+
+## Phase 10: Wave 3 Implementation
+
+Objective: land the highest-confidence remaining split and delete-first lanes without reopening the parked redesign seams.
+
+Wave 3A implementation order:
+
+1. protocol tiny delete-first cleanup
+2. Claude stdout delete-first plus helper split
+3. domain session core helper extraction and snapshot-refresh tightening
+
+Wave 3B implementation order:
+
+1. Codex connector shared conversion, `config.rs`, and `session_ops.rs`
+2. CLI shell split
+3. server operational split-now lane: `message_dispatch.rs`, `session_takeover.rs`, `persistence/mod.rs`, `session_writes.rs`, `codex_hooks/mod.rs`
+
+Wave 3C parked redesign lanes:
+
+- `server/src/runtime/session_runtime_helpers.rs`
+- `server/src/connectors/codex_session.rs`
+- any broader revisit of startup or write-side `control_mode`
+
+Parallel workers:
+
+| Worker | Model | Ownership | Implementation mission |
+| --- | --- | --- | --- |
+| Worker A1 | `gpt-5.4-mini` | protocol tiny delete-first lane | Remove `SessionSummary::to_list_item`, validate the session projection seam, and only split display helpers if the delete-first pass leaves clear value. |
+| Worker B1 | `gpt-5.4-mini` | Claude stdout lane | Delete the write-only turn fields, then split control/system/message helper clusters out of `stdout.rs` while preserving replay and shadow semantics. |
+| Worker D1 | `gpt-5.4-mini` | domain session core lane | Extract shared pure helpers for session modes and transcript sync, then tighten the runtime-shell snapshot refresh path without changing authority boundaries. |
+| Worker A2 | `gpt-5.4-mini` | Codex connector lane | Extract shared bridge helpers, split `config.rs` and `session_ops.rs`, and only then decide whether `item_mapping.rs` should move in the same wave. |
+| Worker E1 | `gpt-5.4-mini` | CLI shell lane | Split `cli.rs` and `dev_console.rs` into clearer parser/runtime/rendering ownership sets while preserving the current CLI surface. |
+| Worker F1 | `gpt-5.4-mini` | server operational split-now lane | Split `message_dispatch.rs`, `session_takeover.rs`, `persistence/mod.rs`, `session_writes.rs`, and `codex_hooks/mod.rs` without touching the parked redesign files. |
+
+Execution rules:
+
+- Do not open Wave 3C redesign work until Wave 3A and 3B are landed and validated.
+- Keep `protocol/src/conversation_contracts/tool_display.rs`, `persistence/usage.rs`, and `connectors/claude_session.rs` frozen unless a touched lane forces a small local change.
+- If `connector-codex/src/rollout_parser.rs` still looks large after the Codex lane, treat it as a tail cleanup inside the Codex ownership set rather than a separate free-floating lane.
+
+Tasks:
+
+- [ ] Launch Wave 3A workers first and validate after each landed slice.
+- [ ] Launch Wave 3B only after Wave 3A conventions are confirmed.
+- [ ] Keep Wave 3C explicitly parked until a dedicated redesign phase is written.
+
+Done when:
+
+- [ ] The remaining split-now and delete-first lanes from Phase 9 are either landed or explicitly reclassified.
+- [ ] The parked redesign seams are still isolated and documented.
+- [ ] The next regroup is about true redesign, not obvious module breakup work we should have already done.
 
 ## Verification
 
