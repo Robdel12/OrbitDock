@@ -6,8 +6,8 @@ use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionContro
 
 use super::{
   control_mode_to_integration_mode, infer_codex_config_mode, load_latest_usage_turn_seq,
-  parse_control_mode, parse_lifecycle_state, resolve_custom_name_from_first_prompt,
-  snapshot_kind_from_str, RestoredSession, StoredCodexConfigRow,
+  parse_control_mode, parse_lifecycle_state, snapshot_kind_from_str, RestoredSession,
+  StoredCodexConfigRow,
 };
 use super::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
 
@@ -49,7 +49,7 @@ async fn load_session_by_id_with_db_path(
                             WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
                             WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
                             ELSE 'passive'
-                        END), s.codex_integration_mode, s.claude_integration_mode,
+                        END),
                         s.claude_sdk_session_id, s.codex_thread_id, s.end_reason,
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                         s.terminal_session_id, s.terminal_app,
@@ -86,16 +86,14 @@ async fn load_session_by_id_with_db_path(
           row.get::<_, i64>(21)?,
           row.get::<_, i64>(22)?,
           row.get::<_, String>(23)?,
-          row.get::<_, String>(24)?,
+          row.get::<_, Option<String>>(24)?,
           row.get::<_, Option<String>>(25)?,
           row.get::<_, Option<String>>(26)?,
           row.get::<_, Option<String>>(27)?,
-          row.get::<_, Option<String>>(28)?,
+          row.get::<_, String>(28)?,
           row.get::<_, Option<String>>(29)?,
-          row.get::<_, String>(30)?,
-          row.get::<_, Option<String>>(31)?,
-          row.get::<_, Option<String>>(32)?,
-          row.get::<_, String>(33)?,
+          row.get::<_, Option<String>>(30)?,
+          row.get::<_, String>(31)?,
         ))
       })
       .optional()?;
@@ -126,8 +124,6 @@ async fn load_session_by_id_with_db_path(
       context_window,
       provider,
       control_mode,
-      _codex_integration_mode,
-      _claude_integration_mode,
       claude_sdk_session_id,
       codex_thread_id,
       end_reason,
@@ -142,7 +138,7 @@ async fn load_session_by_id_with_db_path(
 
     let token_usage_snapshot_kind =
       snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
-    let control_mode = parse_control_mode(Some(control_mode)).unwrap_or(SessionControlMode::Passive);
+    let control_mode = parse_control_mode(control_mode).unwrap_or(SessionControlMode::Passive);
     let (codex_integration_mode, claude_integration_mode) =
       control_mode_to_integration_mode(&provider, control_mode);
 
@@ -151,8 +147,6 @@ async fn load_session_by_id_with_db_path(
     } else {
       Vec::new()
     };
-    let custom_name =
-      resolve_custom_name_from_first_prompt(&conn, &id, custom_name, first_prompt.as_deref())?;
 
     let (current_diff, current_plan): (Option<String>, Option<String>) = conn
       .query_row(
@@ -259,11 +253,7 @@ async fn load_session_by_id_with_db_path(
         },
       )
       .unwrap_or((None, None, None, None, None, None, None, None, None, None));
-    let codex_config_mode = infer_codex_config_mode(
-      codex_config_mode_raw.as_deref(),
-      codex_config_profile.as_deref(),
-      codex_model_provider.as_deref(),
-    );
+    let codex_config_mode = infer_codex_config_mode(codex_config_mode_raw.as_deref());
     let codex_config_source = match codex_config_source_raw.as_deref() {
       Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
       Some("user") => Some(CodexConfigSource::User),

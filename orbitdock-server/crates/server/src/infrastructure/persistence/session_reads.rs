@@ -36,11 +36,7 @@ type StoredCodexConfigRow = (
   Option<String>,
 );
 
-pub(super) fn infer_codex_config_mode(
-  raw_mode: Option<&str>,
-  _config_profile: Option<&str>,
-  _model_provider: Option<&str>,
-) -> Option<CodexConfigMode> {
+pub(super) fn infer_codex_config_mode(raw_mode: Option<&str>) -> Option<CodexConfigMode> {
   match raw_mode {
     Some("inherit") => Some(CodexConfigMode::Inherit),
     Some("profile") => Some(CodexConfigMode::Profile),
@@ -62,8 +58,6 @@ pub(super) struct ActiveSessionRow {
   pub model: Option<String>,
   pub custom_name: Option<String>,
   pub first_prompt: Option<String>,
-  pub summary: Option<String>,
-  pub codex_integration_mode: Option<String>,
   pub codex_thread_id: Option<String>,
   pub started_at: Option<String>,
   pub last_activity_at: Option<String>,
@@ -158,15 +152,6 @@ pub struct DirectCodexOwner {
   pub session_id: String,
   pub status: SessionStatus,
   pub lifecycle_state: SessionLifecycleState,
-}
-
-pub(super) fn resolve_custom_name_from_first_prompt(
-  _conn: &Connection,
-  _session_id: &str,
-  custom_name: Option<String>,
-  _first_prompt: Option<&str>,
-) -> Result<Option<String>, rusqlite::Error> {
-  Ok(custom_name)
 }
 
 pub(super) fn parse_lifecycle_state(value: Option<String>) -> SessionLifecycleState {

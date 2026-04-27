@@ -8,9 +8,8 @@ use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionContro
 
 use super::{
   chrono_now, control_mode_to_integration_mode, infer_codex_config_mode,
-  load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state,
-  resolve_custom_name_from_first_prompt, snapshot_kind_from_str, ActiveSessionRow, RestoredSession,
-  StoredCodexConfigRow,
+  load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state, snapshot_kind_from_str,
+  ActiveSessionRow, RestoredSession, StoredCodexConfigRow,
 };
 use super::{
   extract_summary_from_transcript, load_latest_completed_conversation_message_from_db,
@@ -238,7 +237,7 @@ async fn load_sessions_for_startup_with_db_path(
                             ELSE 'passive'
                         END),
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
-                        s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                        s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, 0),
@@ -290,23 +289,21 @@ async fn load_sessions_for_startup_with_db_path(
           model: row.get(9)?,
           custom_name: row.get(10)?,
           first_prompt: row.get(11)?,
-          summary: row.get(12)?,
-          codex_integration_mode: row.get(13)?,
-          codex_thread_id: row.get(14)?,
-          started_at: row.get(15)?,
-          last_activity_at: row.get(16)?,
-          last_progress_at: row.get(17)?,
-          approval_policy: row.get(18)?,
-          sandbox_mode: row.get(19)?,
-          permission_mode: row.get(20)?,
-          pending_tool_name: row.get(21)?,
-          pending_tool_input: row.get(22)?,
-          pending_question: row.get(23)?,
-          input_tokens: row.get(24)?,
-          output_tokens: row.get(25)?,
-          cached_tokens: row.get(26)?,
-          context_window: row.get(27)?,
-          token_usage_snapshot_kind_str: row.get(28)?,
+          codex_thread_id: row.get(12)?,
+          started_at: row.get(13)?,
+          last_activity_at: row.get(14)?,
+          last_progress_at: row.get(15)?,
+          approval_policy: row.get(16)?,
+          sandbox_mode: row.get(17)?,
+          permission_mode: row.get(18)?,
+          pending_tool_name: row.get(19)?,
+          pending_tool_input: row.get(20)?,
+          pending_question: row.get(21)?,
+          input_tokens: row.get(22)?,
+          output_tokens: row.get(23)?,
+          cached_tokens: row.get(24)?,
+          context_window: row.get(25)?,
+          token_usage_snapshot_kind_str: row.get(26)?,
         })
       })?
       .filter_map(|row| row.ok())
@@ -328,8 +325,6 @@ async fn load_sessions_for_startup_with_db_path(
         model,
         custom_name,
         first_prompt,
-        summary: _summary,
-        codex_integration_mode: raw_codex_integration_mode,
         codex_thread_id,
         started_at,
         last_activity_at,
@@ -348,13 +343,7 @@ async fn load_sessions_for_startup_with_db_path(
       } = row;
       let token_usage_snapshot_kind =
         snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
-      let control_mode = parse_control_mode(control_mode).unwrap_or_else(|| {
-        if provider == "codex" && raw_codex_integration_mode.as_deref() == Some("direct") {
-          SessionControlMode::Direct
-        } else {
-          SessionControlMode::Passive
-        }
-      });
+      let control_mode = parse_control_mode(control_mode).unwrap_or(SessionControlMode::Passive);
       let (codex_integration_mode, claude_integration_mode) =
         control_mode_to_integration_mode(&provider, control_mode);
 
@@ -379,13 +368,6 @@ async fn load_sessions_for_startup_with_db_path(
         }
         rows
       };
-      let custom_name = resolve_custom_name_from_first_prompt(
-        &conn,
-        &id,
-        custom_name,
-        first_prompt.as_deref(),
-      )?;
-
       let forked_from_session_id: Option<String> = conn
         .query_row(
           "SELECT forked_from_session_id FROM sessions WHERE id = ?1",
@@ -503,11 +485,7 @@ async fn load_sessions_for_startup_with_db_path(
           },
         )
         .unwrap_or((None, None, None, None, None, None, None, None, None, None));
-      let codex_config_mode = infer_codex_config_mode(
-        codex_config_mode_raw.as_deref(),
-        codex_config_profile.as_deref(),
-        codex_model_provider.as_deref(),
-      );
+      let codex_config_mode = infer_codex_config_mode(codex_config_mode_raw.as_deref());
       let codex_config_source = match codex_config_source_raw.as_deref() {
         Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
         Some("user") => Some(CodexConfigSource::User),
