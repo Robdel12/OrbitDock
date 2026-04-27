@@ -43,15 +43,12 @@ enum ServerToClientMessage: Codable {
   )
   case promptSuggestion(sessionId: String, suggestion: String)
   case filesPersisted(sessionId: String, files: [String])
-  case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
   case rateLimitEvent(sessionId: String, info: ServerRateLimitInfo)
   case steerOutcome(sessionId: String, messageId: String, outcome: String)
 
   // MARK: Approvals and review
 
   case approvalRequested(sessionId: String, request: ServerApprovalRequest, approvalVersion: UInt64?)
-  case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
-  case approvalDeleted(approvalId: Int64)
   case approvalDecisionResult(
     sessionId: String,
     requestId: String,
@@ -79,7 +76,6 @@ enum ServerToClientMessage: Codable {
     tools: [String],
     models: [ServerClaudeModelOption]
   )
-  case claudeModelsList(models: [ServerClaudeModelOption])
   case skillsList(sessionId: String, skills: [ServerSkillsListEntry], errors: [ServerSkillErrorInfo])
   case skillsUpdateAvailable(sessionId: String)
   case mcpToolsList(
@@ -91,7 +87,6 @@ enum ServerToClientMessage: Codable {
   )
   case mcpStartupUpdate(sessionId: String, server: String, status: ServerMcpStartupStatus)
   case mcpStartupComplete(sessionId: String, ready: [String], failed: [ServerMcpStartupFailure], cancelled: [String])
-  case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
 
   // MARK: Shell, files, and usage
 

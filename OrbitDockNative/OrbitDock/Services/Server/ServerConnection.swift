@@ -34,8 +34,6 @@ enum ServerEvent: Sendable {
     sessionId: String, requestId: String, outcome: String,
     activeRequestId: String?, approvalVersion: UInt64
   )
-  case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
-  case approvalDeleted(approvalId: Int64)
 
   /// Tokens
   case tokensUpdated(
@@ -44,7 +42,6 @@ enum ServerEvent: Sendable {
 
   // Models / Codex account
   case modelsList([ServerCodexModelOption])
-  case claudeModelsList([ServerClaudeModelOption])
   case codexAccountStatus(ServerCodexAccountStatus)
   case codexLoginChatgptStarted(loginId: String, authUrl: String)
   case codexLoginChatgptCompleted(loginId: String, success: Bool, error: String?)
@@ -94,9 +91,6 @@ enum ServerEvent: Sendable {
   case reviewCommentDeleted(sessionId: String, reviewRevision: UInt64, commentId: String)
   case reviewCommentsList(sessionId: String, reviewRevision: UInt64, comments: [ServerReviewComment])
 
-  /// Subagent
-  case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
-
   // Shell
   case shellStarted(sessionId: String, requestId: String, command: String)
   case shellOutput(
@@ -131,9 +125,6 @@ enum ServerEvent: Sendable {
 
   /// Error
   case error(code: String, message: String, sessionId: String?)
-
-  /// Permission rules
-  case permissionRules(sessionId: String, rules: ServerSessionPermissionRules)
 
   // Mission Control
   case missionHeartbeat(missionId: String, tickStartedAt: String, nextTickAt: String)
@@ -928,8 +919,6 @@ final class ServerConnection {
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         emit(.tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind))
       case let .sessionEnded(sessionId, reason): emit(.sessionEnded(sessionId: sessionId, reason: reason))
-      case let .approvalsList(sessionId, approvals): emit(.approvalsList(sessionId: sessionId, approvals: approvals))
-      case let .approvalDeleted(approvalId): emit(.approvalDeleted(approvalId: approvalId))
       case let .modelsList(models): emit(.modelsList(models))
       case let .codexAccountStatus(status): emit(.codexAccountStatus(status))
       case let .codexLoginChatgptStarted(loginId, authUrl):
@@ -962,7 +951,6 @@ final class ServerConnection {
           tools: tools,
           models: models
         ))
-      case let .claudeModelsList(models): emit(.claudeModelsList(models))
       case let .contextCompacted(sessionId): emit(.contextCompacted(sessionId: sessionId))
       case let .undoStarted(sessionId, message): emit(.undoStarted(sessionId: sessionId, message: message))
       case let .undoCompleted(sessionId, success, message):
@@ -1003,8 +991,6 @@ final class ServerConnection {
         emit(.reviewCommentDeleted(sessionId: sessionId, reviewRevision: reviewRevision, commentId: commentId))
       case let .reviewCommentsList(sessionId, reviewRevision, comments):
         emit(.reviewCommentsList(sessionId: sessionId, reviewRevision: reviewRevision, comments: comments))
-      case let .subagentToolsList(sessionId, subagentId, tools):
-        emit(.subagentToolsList(sessionId: sessionId, subagentId: subagentId, tools: tools))
       case let .shellStarted(sessionId, requestId, command):
         emit(.shellStarted(sessionId: sessionId, requestId: requestId, command: command))
       case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
@@ -1047,7 +1033,6 @@ final class ServerConnection {
         emit(.promptSuggestion(sessionId: sessionId, suggestion: suggestion))
       case let .filesPersisted(sessionId, files): emit(.filesPersisted(sessionId: sessionId, files: files))
       case let .serverInfo(isPrimary, claims): emit(.serverInfo(isPrimary: isPrimary, claims: claims))
-      case let .permissionRules(sessionId, rules): emit(.permissionRules(sessionId: sessionId, rules: rules))
       case let .error(code, message, sessionId): emit(.error(code: code, message: message, sessionId: sessionId))
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         emit(.missionHeartbeat(missionId: missionId, tickStartedAt: tickStartedAt, nextTickAt: nextTickAt))

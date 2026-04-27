@@ -77,15 +77,6 @@ pub enum ServerMessage {
     outcome: crate::types::SteerOutcome,
   },
 
-  // Approval history
-  ApprovalsList {
-    session_id: Option<String>,
-    approvals: Vec<ApprovalHistoryItem>,
-  },
-  ApprovalDeleted {
-    approval_id: i64,
-  },
-
   // Codex models
   ModelsList {
     models: Vec<CodexModelOption>,
@@ -209,13 +200,6 @@ pub enum ServerMessage {
     comments: Vec<ReviewComment>,
   },
 
-  // Subagent tools
-  SubagentToolsList {
-    session_id: String,
-    subagent_id: String,
-    tools: Vec<SubagentTool>,
-  },
-
   // Interactive terminal sessions
   TerminalCreated {
     terminal_id: String,
@@ -331,12 +315,6 @@ pub enum ServerMessage {
   FilesPersisted {
     session_id: String,
     files: Vec<String>,
-  },
-
-  // Permission rules snapshot
-  PermissionRules {
-    session_id: String,
-    rules: crate::SessionPermissionRules,
   },
 
   // Mission Control

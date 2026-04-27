@@ -67,15 +67,6 @@ extension ServerToClientMessage {
         let reason = try container.decode(String.self, forKey: .reason)
         self = .sessionEnded(sessionId: sessionId, reason: reason)
 
-      case "approvals_list":
-        let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
-        let approvals = try container.decode([ServerApprovalHistoryItem].self, forKey: .approvals)
-        self = .approvalsList(sessionId: sessionId, approvals: approvals)
-
-      case "approval_deleted":
-        let approvalId = try container.decode(Int64.self, forKey: .approvalId)
-        self = .approvalDeleted(approvalId: approvalId)
-
       case "models_list":
         let models = try container.decode([ServerCodexModelOption].self, forKey: .models)
         self = .modelsList(models: models)
@@ -158,10 +149,6 @@ extension ServerToClientMessage {
           models: models
         )
 
-      case "claude_models_list":
-        let models = try container.decode([ServerClaudeModelOption].self, forKey: .models)
-        self = .claudeModelsList(models: models)
-
       case "context_compacted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         self = .contextCompacted(sessionId: sessionId)
@@ -236,12 +223,6 @@ extension ServerToClientMessage {
         let reviewRevision = try container.decode(UInt64.self, forKey: .reviewRevision)
         let comments = try container.decode([ServerReviewComment].self, forKey: .comments)
         self = .reviewCommentsList(sessionId: sessionId, reviewRevision: reviewRevision, comments: comments)
-
-      case "subagent_tools_list":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let subagentId = try container.decode(String.self, forKey: .subagentId)
-        let tools = try container.decode([ServerSubagentTool].self, forKey: .tools)
-        self = .subagentToolsList(sessionId: sessionId, subagentId: subagentId, tools: tools)
 
       case "shell_started":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -336,11 +317,6 @@ extension ServerToClientMessage {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let files = try container.decodeIfPresent([String].self, forKey: .files) ?? []
         self = .filesPersisted(sessionId: sessionId, files: files)
-
-      case "permission_rules":
-        let sessionId = try container.decode(String.self, forKey: .sessionId)
-        let rules = try container.decode(ServerSessionPermissionRules.self, forKey: .rules)
-        self = .permissionRules(sessionId: sessionId, rules: rules)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)

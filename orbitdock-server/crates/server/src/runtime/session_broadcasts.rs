@@ -108,10 +108,9 @@ pub(crate) fn invalidated_surfaces(msg: &ServerMessage) -> &'static [SessionSurf
     | ServerMessage::ReviewCommentUpdated { .. }
     | ServerMessage::ReviewCommentDeleted { .. }
     | ServerMessage::ReviewCommentsList { .. } => &[SessionSurface::Review],
-    ServerMessage::SubagentToolsList { .. } => &[SessionSurface::Detail],
-    ServerMessage::RateLimitEvent { .. }
-    | ServerMessage::PromptSuggestion { .. }
-    | ServerMessage::PermissionRules { .. } => &[SessionSurface::Detail],
+    ServerMessage::RateLimitEvent { .. } | ServerMessage::PromptSuggestion { .. } => {
+      &[SessionSurface::Detail]
+    }
     ServerMessage::FilesPersisted { .. } => &[SessionSurface::Detail, SessionSurface::Review],
     ServerMessage::SkillsList { .. }
     | ServerMessage::SkillsUpdateAvailable { .. }

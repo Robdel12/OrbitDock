@@ -60,15 +60,6 @@ extension ServerToClientMessage {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(reason, forKey: .reason)
 
-      case let .approvalsList(sessionId, approvals):
-        try container.encode("approvals_list", forKey: .type)
-        try container.encodeIfPresent(sessionId, forKey: .sessionId)
-        try container.encode(approvals, forKey: .approvals)
-
-      case let .approvalDeleted(approvalId):
-        try container.encode("approval_deleted", forKey: .type)
-        try container.encode(approvalId, forKey: .approvalId)
-
       case let .modelsList(models):
         try container.encode("models_list", forKey: .type)
         try container.encode(models, forKey: .models)
@@ -134,10 +125,6 @@ extension ServerToClientMessage {
         try container.encode(slashCommands, forKey: .slashCommands)
         try container.encode(skills, forKey: .skills)
         try container.encode(tools, forKey: .tools)
-        try container.encode(models, forKey: .models)
-
-      case let .claudeModelsList(models):
-        try container.encode("claude_models_list", forKey: .type)
         try container.encode(models, forKey: .models)
 
       case let .contextCompacted(sessionId):
@@ -209,12 +196,6 @@ extension ServerToClientMessage {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(reviewRevision, forKey: .reviewRevision)
         try container.encode(comments, forKey: .comments)
-
-      case let .subagentToolsList(sessionId, subagentId, tools):
-        try container.encode("subagent_tools_list", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(subagentId, forKey: .subagentId)
-        try container.encode(tools, forKey: .tools)
 
       case let .shellStarted(sessionId, requestId, command):
         try container.encode("shell_started", forKey: .type)
@@ -294,11 +275,6 @@ extension ServerToClientMessage {
         try container.encode("files_persisted", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(files, forKey: .files)
-
-      case let .permissionRules(sessionId, rules):
-        try container.encode("permission_rules", forKey: .type)
-        try container.encode(sessionId, forKey: .sessionId)
-        try container.encode(rules, forKey: .rules)
 
       case let .missionHeartbeat(missionId, tickStartedAt, nextTickAt):
         try container.encode("mission_heartbeat", forKey: .type)
