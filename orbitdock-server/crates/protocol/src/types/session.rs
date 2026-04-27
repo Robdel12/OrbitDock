@@ -281,47 +281,6 @@ impl SessionSummary {
     }
   }
 
-  pub fn to_list_item(&self) -> SessionListItem {
-    SessionListItem {
-      id: self.id.clone(),
-      provider: self.provider,
-      project_path: self.project_path.clone(),
-      project_name: self.project_name.clone(),
-      git_branch: self.git_branch.clone(),
-      model: self.model.clone(),
-      status: self.status,
-      work_status: self.work_status,
-      control_mode: self.control_mode,
-      lifecycle_state: self.lifecycle_state,
-      codex_integration_mode: self.codex_integration_mode,
-      claude_integration_mode: self.claude_integration_mode,
-      started_at: self.started_at.clone(),
-      last_activity_at: self.last_activity_at.clone(),
-      last_progress_at: self.last_progress_at.clone(),
-      unread_count: self.unread_count,
-      has_turn_diff: self.has_turn_diff,
-      pending_tool_name: self.pending_tool_name.clone(),
-      repository_root: self.repository_root.clone(),
-      is_worktree: self.is_worktree,
-      worktree_id: self.worktree_id.clone(),
-      total_tokens: self.token_usage.input_tokens + self.token_usage.output_tokens,
-      total_cost_usd: 0.0,
-      input_tokens: self.token_usage.input_tokens,
-      output_tokens: self.token_usage.output_tokens,
-      cached_tokens: self.token_usage.cached_tokens,
-      display_title: self.display_title.clone(),
-      context_line: self.context_line.clone(),
-      list_status: self.list_status,
-      effort: self.effort.clone(),
-      summary_revision: self.summary_revision,
-      active_worker_count: self.active_worker_count,
-      pending_tool_family: self.pending_tool_family,
-      forked_from_session_id: self.forked_from_session_id.clone(),
-      mission_id: self.mission_id.clone(),
-      steerable: self.steerable,
-      issue_identifier: self.issue_identifier.clone(),
-    }
-  }
 }
 
 fn clean_display_text(value: &str) -> String {
