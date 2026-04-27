@@ -169,7 +169,7 @@ fn ledger_recompute_handles_out_of_order_lifetime_turns() {
 }
 
 #[test]
-fn repair_usage_accounting_backfills_missing_ledger_rows_and_normalizes_legacy_kinds() {
+fn repair_usage_accounting_backfills_missing_ledger_rows() {
   let conn = Connection::open_in_memory().expect("open sqlite");
   create_usage_ledger_test_schema(&conn);
   conn
@@ -194,7 +194,7 @@ fn repair_usage_accounting_backfills_missing_ledger_rows_and_normalizes_legacy_k
         1_i64,
         "claude",
         "claude-sonnet-4",
-        "mixed_legacy",
+        "mixed",
         100_i64,
         20_i64,
         40_i64,

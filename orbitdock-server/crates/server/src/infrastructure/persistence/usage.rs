@@ -79,7 +79,6 @@ pub(crate) fn snapshot_kind_from_str(kind: Option<&str>) -> TokenUsageSnapshotKi
     Some("context_turn") => TokenUsageSnapshotKind::ContextTurn,
     Some("lifetime_totals") => TokenUsageSnapshotKind::LifetimeTotals,
     Some("mixed") => TokenUsageSnapshotKind::Mixed,
-    Some("mixed_legacy") => TokenUsageSnapshotKind::Mixed,
     Some("compaction_reset") => TokenUsageSnapshotKind::CompactionReset,
     _ => TokenUsageSnapshotKind::Unknown,
   }
@@ -663,24 +662,6 @@ fn usage_accounting_repair_needed(conn: &Connection) -> Result<bool, rusqlite::E
     conn,
     "SELECT 1
        FROM usage_turns
-       WHERE snapshot_kind = 'mixed_legacy'",
-  )? {
-    return Ok(true);
-  }
-
-  if query_exists(
-    conn,
-    "SELECT 1
-       FROM usage_ledger_entries
-       WHERE snapshot_kind = 'mixed_legacy'",
-  )? {
-    return Ok(true);
-  }
-
-  if query_exists(
-    conn,
-    "SELECT 1
-       FROM usage_turns
        WHERE provider IS NULL
           OR trim(provider) = ''
           OR model IS NULL",
@@ -752,12 +733,6 @@ pub(crate) fn repair_usage_accounting(conn: &Connection) -> Result<(), rusqlite:
 
   conn.execute(
     "UPDATE usage_turns
-     SET snapshot_kind = 'mixed'
-     WHERE snapshot_kind = 'mixed_legacy'",
-    [],
-  )?;
-  conn.execute(
-    "UPDATE usage_turns
      SET provider = COALESCE(NULLIF(provider, ''), (
            SELECT COALESCE(s.provider, 'claude')
            FROM sessions s
@@ -769,14 +744,8 @@ pub(crate) fn repair_usage_accounting(conn: &Connection) -> Result<(), rusqlite:
            WHERE s.id = usage_turns.session_id
          ))
      WHERE provider IS NULL
-        OR trim(provider) = ''
-        OR model IS NULL",
-    [],
-  )?;
-  conn.execute(
-    "UPDATE usage_ledger_entries
-     SET snapshot_kind = 'mixed'
-     WHERE snapshot_kind = 'mixed_legacy'",
+       OR trim(provider) = ''
+       OR model IS NULL",
     [],
   )?;
 
