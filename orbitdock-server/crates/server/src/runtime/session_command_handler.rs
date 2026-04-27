@@ -636,10 +636,6 @@ pub async fn handle_session_command(
       persist_and_broadcast_mark_read(handle, persist_tx).await;
       let _ = reply.send(handle.unread_count());
     }
-
-    SessionCommand::IncrementToolCount => {
-      handle.increment_tool_count();
-    }
   }
 
   // Unconditional snapshot refresh — ensures the ArcSwap is always current

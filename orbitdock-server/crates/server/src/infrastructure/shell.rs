@@ -145,18 +145,6 @@ impl ShellService {
   }
 }
 
-/// Execute a shell command and optionally stream incremental output chunks.
-#[allow(dead_code)]
-pub async fn execute_with_stream(
-  command: &str,
-  cwd: &str,
-  timeout_secs: u64,
-  chunk_tx: Option<mpsc::UnboundedSender<ShellChunk>>,
-) -> ShellResult {
-  let (_cancel_tx, cancel_rx) = watch::channel(false);
-  execute_with_stream_cancelable(command, cwd, timeout_secs, chunk_tx, cancel_rx).await
-}
-
 async fn execute_with_stream_cancelable(
   command: &str,
   cwd: &str,

@@ -1,9 +1,19 @@
-use super::{execute_with_stream, ShellCancelStatus, ShellOutcome, ShellService, ShellStartError};
+use super::{ShellCancelStatus, ShellOutcome, ShellService, ShellStartError};
 use tokio::time::{timeout, Duration};
 
 #[tokio::test]
 async fn execute_with_stream_completes_successfully() {
-  let result = execute_with_stream("printf 'hello'", "/tmp", 5, None).await;
+  let service = ShellService::new();
+  let execution = service
+    .start(
+      "req-success".to_string(),
+      "sess-success".to_string(),
+      "printf 'hello'".to_string(),
+      "/tmp".to_string(),
+      5,
+    )
+    .expect("start");
+  let result = execution.completion_rx.await.expect("completion result");
   assert_eq!(result.stdout, "hello");
   assert_eq!(result.exit_code, Some(0));
   assert_eq!(result.outcome, ShellOutcome::Completed);
@@ -11,7 +21,20 @@ async fn execute_with_stream_completes_successfully() {
 
 #[tokio::test]
 async fn execute_with_stream_times_out() {
-  let result = execute_with_stream("sleep 2", "/tmp", 1, None).await;
+  let service = ShellService::new();
+  let execution = service
+    .start(
+      "req-timeout".to_string(),
+      "sess-timeout".to_string(),
+      "sleep 2".to_string(),
+      "/tmp".to_string(),
+      1,
+    )
+    .expect("start");
+  let result = timeout(Duration::from_secs(3), execution.completion_rx)
+    .await
+    .expect("completion timeout")
+    .expect("completion result");
   assert_eq!(result.exit_code, None);
   assert_eq!(result.outcome, ShellOutcome::TimedOut);
   assert!(result.stderr.contains("timed out"));
