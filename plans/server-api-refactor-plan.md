@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 6 / Wave 1 reorganization`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 lane 1 is landed in commit a46f1117, Wave 1 lane 2 is landed in commit 0e847e40, and Wave 1 lane 3 is landed in commit a0ef78e0. The next active lane is protocol/native mirrors. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 lane 1 is landed in commit a46f1117, Wave 1 lane 2 is landed in commit 0e847e40, Wave 1 lane 3 is landed in commit a0ef78e0, and the protocol lane's delete-first slice is landed in commit ec30c4ba. The next active step is the protocol lane's structural split after the dead push-event prune. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -879,7 +879,7 @@ Tasks:
 | Transition / `connector-core/src/transition.rs` | landed | `a46f1117` | Extracted `approval_preview.rs`, rewired the reducer to use it, deleted the duplicate approval prompt parser in `server/src/domain/sessions/approval_state.rs`, and dropped the dead `subagent_lists_match` wrapper. |
 | Codex app-server / `connector-codex/src/app_server.rs` | landed | `0e847e40` | Split the app-server lane into `host`, `router`, `request_mapping`, `notification_mapping`, `item_mapping`, `response_codec`, and `compat`, while deleting the stale generic-tool helper and narrowing path conversion. |
 | Claude connector / `connector-claude/src/lib.rs` | landed | `a0ef78e0` | Split the lane into `connector`, `protocol`, `images`, `rows`, and `stdout`, and deleted the dead `ClaudeAction::Resume` / `ClaudeAction::Fork` variants without changing shadow/replay behavior. |
-| Protocol + native mirrors | next | — | Delete hard-dead WS event leaves first, then split message/session contract groups with matching Swift mirror updates. |
+| Protocol + native mirrors | in progress | `ec30c4ba` | Deleted the dead WS-only `ApprovalsList`, `ApprovalDeleted`, `SubagentToolsList`, `PermissionRules`, and stale Swift-only `claude_models_list` push-event mirrors while keeping the live REST permission-rules path intact. |
 
 ### Wave 1 validation notes
 
@@ -891,6 +891,12 @@ Tasks:
   `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml`
 - Shared integration check after landing the first three lanes:
   `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`
+- Protocol delete-first slice:
+  `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`
+- Protocol/native integration check after the dead-leaf prune:
+  `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`
+- Native mirror validation after the dead-leaf prune:
+  `xcodebuild -project OrbitDockNative/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`
 
 Done when:
 
