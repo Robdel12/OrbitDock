@@ -1,4 +1,4 @@
-use orbitdock_protocol::{SessionListItem, SessionSummary};
+use orbitdock_protocol::SessionSummary;
 
 use crate::domain::sessions::session::{accepts_user_input_from_parts, SessionHandle};
 use crate::runtime::session_actor::SessionActorHandle;
@@ -98,16 +98,6 @@ impl SessionRegistry {
       })
       .collect()
   }
-
-  #[allow(dead_code)]
-  pub fn get_session_list_items(&self) -> Vec<SessionListItem> {
-    self
-      .get_session_summaries()
-      .into_iter()
-      .map(SessionListItem::from)
-      .collect()
-  }
-
   pub fn iter_sessions(&self) -> dashmap::iter::Iter<'_, String, SessionActorHandle> {
     self.sessions.iter()
   }

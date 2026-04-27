@@ -803,7 +803,6 @@ pub(crate) fn spawn_connector_cleanup_monitor(
 
   ConnectorCleanupGuard {
     drop_tx: Some(drop_tx),
-    session_id,
   }
 }
 
@@ -815,8 +814,6 @@ enum ConnectorCleanupDisposition {
 /// connector event loop.
 pub(crate) struct ConnectorCleanupGuard {
   drop_tx: Option<oneshot::Sender<ConnectorCleanupDisposition>>,
-  #[allow(dead_code)]
-  session_id: String,
 }
 
 impl ConnectorCleanupGuard {

@@ -170,7 +170,6 @@ pub struct SessionRegistry {
 
 impl SessionRegistry {
   #[cfg(test)]
-  #[allow(dead_code)]
   pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
     Self::new_with_primary_and_db_path(
       persist_tx,

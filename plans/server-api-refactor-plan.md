@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slices 3A, 3B, 3C, 3D, and 3E are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, and the dead CLI completions/pair leftovers are gone`
+- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, and 3F are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, and the first low-risk dead-code prune landed cleanly`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -596,6 +596,7 @@ Current slice status:
 - `Slice 3C`: complete. Removed definition-only protocol and native leaves: `ConversationDisplayMode`, `ToolPayloadReference`, `SessionComposerSnapshot`, `ServerSessionComposerSnapshotPayload`, `ServerSessionRuntimeSnapshot`, `SessionRuntimeClient.fetchRuntimeSnapshot(_:)`, and the unused native Codex-preferences request/response methods.
 - `Slice 3D`: complete. Inventory confirmed the hidden bridge commands `hook-forward`, `managed-session-start`, and `mcp-mission-tools` are still live, and the dev console is still the supported interactive `make rust-run*` UX, so they stayed. The actual dead CLI leftovers inside that lane are now gone instead: the ignored `pair --no-qr` flag, the non-dispatched `completions` command, the unused completion-generator helpers, the stale `clap_complete` dependency entries, and the matching README mention.
 - `Slice 3E`: complete. Removed the orphaned WebSocket utility payloads `DirectoryListing`, `RecentProjectsList`, `CodexUsageResult`, `ClaudeUsageResult`, and `OpenAiKeyStatus` from the server protocol, protocol roundtrip tests, CLI event labeling, and native WebSocket mirrors after confirming they had no live server producers. Shared HTTP payload structs remain in place, and `SteerOutcome` was intentionally left alone because the runtime still emits it.
+- `Slice 3F`: complete. Landed the first low-risk `dead_code` prune by deleting the unused `reset_data_dir()` helper, deleting the unused `get_session_list_items()` registry helper, removing the unused `session_id` field from `ConnectorCleanupGuard`, and dropping stale `#[allow(dead_code)]` suppressions that survived the test extraction pass.
 
 Next queued slices:
 

@@ -94,11 +94,3 @@ fn secure_dir_permissions(path: &Path) -> io::Result<()> {
 fn secure_dir_permissions(_path: &Path) -> io::Result<()> {
   Ok(())
 }
-
-/// Reset data dir — for test isolation only.
-#[cfg(test)]
-#[allow(dead_code)]
-pub fn reset_data_dir() {
-  let mut guard = DATA_DIR.write().expect("DATA_DIR lock poisoned");
-  *guard = None;
-}
