@@ -5,10 +5,10 @@ use orbitdock_protocol::{
 };
 use tracing::warn;
 
-use crate::domain::sessions::session::{
-  SessionConfig, SessionDisplay, SessionEnvironment, SessionHandle, SessionIdentity,
-  SessionRestoreData, SessionTimestamps,
+use crate::domain::sessions::facets::{
+  SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
+use crate::domain::sessions::session::{SessionHandle, SessionRestoreData};
 use crate::infrastructure::persistence::{
   load_messages_from_transcript_path, load_session_by_id, RestoredSession,
 };

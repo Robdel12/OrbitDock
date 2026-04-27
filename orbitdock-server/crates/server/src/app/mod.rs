@@ -23,9 +23,10 @@ use tracing::{info, warn};
 
 use anyhow::Context;
 
-use crate::domain::sessions::session::{
+use crate::domain::sessions::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
+use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
@@ -283,8 +284,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
               .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
           });
 
-        let mut handle = crate::domain::sessions::session::SessionHandle::restore(
-          crate::domain::sessions::session::SessionRestoreData {
+        let mut handle =
+          SessionHandle::restore(crate::domain::sessions::session::SessionRestoreData {
             identity: SessionIdentity {
               id: id.clone(),
               provider,
@@ -392,8 +393,7 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
             terminal_app,
             approval_version,
             unread_count,
-          },
-        );
+          });
         let is_codex = matches!(provider, Provider::Codex);
         let is_claude = matches!(provider, Provider::Claude);
         let is_direct = control_mode == SessionControlMode::Direct;

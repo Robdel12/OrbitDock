@@ -23,7 +23,7 @@ use super::conversation_state::{
   is_actively_streaming_message_row_summary, is_message_row_summary,
   streaming_message_row_summary_content_len, ConversationState,
 };
-pub use super::facets::{
+use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
 use super::state::SessionCoreState;

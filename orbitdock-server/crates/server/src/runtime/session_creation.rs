@@ -7,7 +7,8 @@ use orbitdock_protocol::{
   CodexSessionOverrides, Provider, SessionSummary,
 };
 
-use crate::domain::sessions::session::{SessionConfig, SessionHandle};
+use crate::domain::sessions::facets::SessionConfig;
+use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
 use crate::runtime::session_direct_start::{
   start_direct_claude_session, start_direct_codex_session, StartDirectCodexRequest,

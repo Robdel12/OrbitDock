@@ -8,7 +8,8 @@ use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session::{SessionConfig, SessionHandle};
+use crate::domain::sessions::facets::SessionConfig;
+use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
   load_session_permission_mode, PersistCommand,
