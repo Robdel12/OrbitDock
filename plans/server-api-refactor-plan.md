@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, 3F, 3G, 3H, 3I, 3J, 3K, 3L, 3M, 3N, 3O, 3P, 3R, 3S, 3T, 3U, 3V, 3X, 3Y, and 3Z are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, the low-risk dead-code/test-support prune lane has continued landing cleanly, the persistence lane has dropped stale duplicate subagent writes plus unused mission/session-read helpers, the session domain has shed dead `SessionHandle`/`SessionCoreState` pass-throughs, the remaining test-only session/startup helpers are now compile-gated instead of shipping behind stale `dead_code` allowances, the persistence façade has dropped stale type/function re-exports that no live caller uses, the mixed helper slice removed an uncalled tunnel flow while test-gating or deleting dead retry/tool-PTY utilities, the mission-control read/tracker models have been pruned down to fields the runtime and HTTP surfaces actually consume, the remaining stale session mutators/accessors have been either deleted, test-gated, or relabeled as live, the parked conversation-semantics provider-event materialization path has been deleted instead of lingering behind comments and dead-code suppression, the lock-free `SessionSnapshot` shape has been tightened to fields production code actually reads, the post-migration `mixed_legacy` usage-accounting compatibility alias/checks have been removed from live server code so that legacy naming survives only in immutable migrations, the persistence read/restore path has shed redundant startup projections plus compatibility no-ops that no longer influence restored session state, startup recovery no longer carries a duplicate restore-select Claude shadow exclusion after the earlier startup cleanup already ends those direct-owned passive rows, restored sessions no longer carry stringified provider-mode transit fields that runtime code can derive directly from provider plus persisted control mode, the dashboard/session summary projection no longer selects dead raw integration-mode or tool-count columns that runtime code immediately recomputed or ignored, `session_reads.rs` no longer re-exports sibling-only helper glue that its child modules can import directly from the owning persistence submodules, the fake `SessionConfigPatch` concept is gone so the runtime/session domain now uses `SessionConfig` directly for both stored config and partial config updates, the remaining facet structs are imported from `facets.rs` directly instead of traveling through `session.rs` as a compatibility surface, and another read-only compatibility seam now trusts the migrated `control_mode` column directly in ownership lookups, light session hydration, dashboard/session projections, and usage summary filters instead of re-deriving direct/passive mode from legacy integration columns`
+- Current phase: `Phase 6 / Wave 1 reorganization`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, and Phase 5 evaluation packets have been integrated. Wave 1 will execute in this order: transition lane first, Codex app-server second, Claude connector third, and protocol/native mirrors fourth. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, and single-writer conversation persistence.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -667,17 +667,17 @@ Target design:
 
 Tasks:
 
-- [ ] Freeze the reorganization rule: every lane deletes stale code first, then splits what remains.
-- [ ] Freeze the redesign rule: no worker may “clean up” a proven-live compatibility seam without a named invariant and targeted tests.
-- [ ] Group hotspot files into disjoint worker-owned lanes.
-- [ ] Require each worker to produce an evaluation packet before large code movement starts.
-- [ ] Require a parent regroup checkpoint after evaluation packets and after each implementation wave.
+- [x] Freeze the reorganization rule: every lane deletes stale code first, then splits what remains.
+- [x] Freeze the redesign rule: no worker may “clean up” a proven-live compatibility seam without a named invariant and targeted tests.
+- [x] Group hotspot files into disjoint worker-owned lanes.
+- [x] Require each worker to produce an evaluation packet before large code movement starts.
+- [x] Require a parent regroup checkpoint after evaluation packets and after each implementation wave.
 
 Done when:
 
-- [ ] The next phase is organized by ownership boundary, not by generic cleanup.
-- [ ] Every large-file lane has a worker, scope, and validation contract.
-- [ ] The plan clearly distinguishes safe split work from redesign-required seams.
+- [x] The next phase is organized by ownership boundary, not by generic cleanup.
+- [x] Every large-file lane has a worker, scope, and validation contract.
+- [x] The plan clearly distinguishes safe split work from redesign-required seams.
 
 ## Phase 5: Parallel Evaluation Packets
 
@@ -710,16 +710,124 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch all evaluation workers with disjoint write scopes and read-only instructions.
-- [ ] Require exact file paths and proposed submodule names in every worker packet.
-- [ ] Require every packet to classify its lane as `split now`, `delete first`, `needs product call`, or `needs redesign`.
-- [ ] Integrate the evaluation results into this plan before any worker starts implementation.
+- [x] Launch all evaluation workers with disjoint write scopes and read-only instructions.
+- [x] Require exact file paths and proposed submodule names in every worker packet.
+- [x] Require every packet to classify its lane as `split now`, `delete first`, `needs product call`, or `needs redesign`.
+- [x] Integrate the evaluation results into this plan before any worker starts implementation.
 
 Done when:
 
-- [ ] Every hotspot lane has a concrete split map.
-- [ ] Every lane has explicit safe deletions listed up front.
-- [ ] The parent agent has recut the implementation waves using the evaluation packets.
+- [x] Every hotspot lane has a concrete split map.
+- [x] Every lane has explicit safe deletions listed up front.
+- [x] The parent agent has recut the implementation waves using the evaluation packets.
+
+### Phase 5 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd014-b283-7e62-ba2d-42ab39039faa` (`Arendt`) | completed |
+| Worker B | `019dd014-b609-7422-b18a-b3e6623c9c0a` (`Herschel`) | completed |
+| Worker C | `019dd014-b924-7990-8673-e4bf2c31b1d1` (`Linnaeus`) | completed |
+| Worker D | `019dd014-bc53-79f0-81e8-a90da83f0081` (`Hilbert`) | completed |
+| Worker E | `019dd015-0317-7a90-a971-fb780a00f707` (`Halley`) | completed |
+| Worker F | `019dd015-0648-76b1-ad37-c0140057db98` (`Mendel`) | completed |
+| Worker G | `019dd015-09ac-73d3-bbc6-92b93e563e13` (`Goodall`) | completed |
+| Worker H | `019dd015-0d05-7ab0-a4de-fc953664f556` (`Leibniz`) | completed |
+
+### Phase 5 evaluation recut
+
+| Lane | Classification | Safe delete-first work | Target split map | Notes |
+| --- | --- | --- | --- | --- |
+| Claude connector | `split now` | remove dead `Resume`/`Fork`, review ignored per-message `model`/`effort`, trim small wrapper helpers | `session.rs`, `connector.rs`, `protocol.rs`, `images.rs`, `rows.rs`, `stdout.rs` | keep shadow ownership, replay suppression, approval echo, and token accounting intact |
+| connector-core transition | `split now` | delete dead reducer wrappers and duplicate approval parser/preview logic after extraction | `transition.rs` plus new `approval_preview.rs` | best first lane because the approval subsystem is pure and the split map is crisp |
+| Codex app server | `split now` | delete `path_bufs`, inline `map_generic_tool` after route/mapping extraction | `app_server/{host,router,request_mapping,notification_mapping,item_mapping,response_codec,compat}.rs` | preserve singleton host ownership and request-resolution bijection |
+| protocol + native mirrors | `split now` | remove dead WS event leaves in Rust and Swift before module breakup | Rust `messages/client/*`, `messages/server/*`, `types/session/*`; matching native event/session groups | keep `Option<Option<T>>` / `T??` patch semantics and `SessionSurface` invalidation contract |
+| CLI session surfaces | `delete first` | remove duplicate bootstrap/subscription helpers and dead local DTO fields | `commands/session/{mod,http,live,bootstrap,watch,presentation,managed}.rs` | public CLI stays stable during Wave 1 |
+| runtime session core | `split now` | centralize duplicate status/control/provider parsing and later drop repeated loader fallbacks | `session_queries/*`, `session_restore/*`, `session_command_handler/*`, `session_runtime_launch/*` | do not weaken direct-session ownership or DB-authoritative row ordering |
+| persistence restore/hydration | `split now` | extract codecs, remove duplicated hydration assembly, then reuse shared builder | `session_reads/{codecs,projection,hydrator,startup_cleanup}.rs` | do not reopen startup/write-side `control_mode` or Claude shadow guards |
+| transport + product surfaces | `needs product call` | no obvious dead routes; safe target is shared mission-session bootstrap extraction | split `session_actions.rs` by controls/conversation/attachments and thin `create.rs` | `/controls` vs `/runtime` remains a product-surface decision, admin is frozen |
+
+### Phase 5 lane packets
+
+#### Worker A: Claude connector
+
+- Current responsibilities: process/bootstrap ownership, outbound Claude protocol shaping, conversation-row shaping, stdout parsing, and the stateful event dispatch/hook/shadow seam.
+- Safe delete-first work: dead `ClaudeAction::Resume` and `ClaudeAction::Fork` in `connector-claude/src/session.rs`, plus a review pass on ignored per-message `model` and `effort` fields and tiny wrapper helpers.
+- Target split map: keep `session.rs` for public types and carve `connector.rs`, `protocol.rs`, `images.rs`, `rows.rs`, and `stdout.rs` out of `connector-claude/src/lib.rs`.
+- Live seam warning: keep replay suppression, managed shadow ownership, approval echo semantics, tool remapping, stream/final dedupe, and token accounting unchanged.
+- Lane order: delete dead API first, then extract pure helpers, then the stdout state machine, and only then connector transport.
+
+#### Worker B: connector-core transition
+
+- Current responsibilities: reducer input/type mapping, pure transition reducer, row repair/finalization helpers, and the embedded approval preview/question/risk/rendering subsystem.
+- Safe delete-first work: remove the dead `subagent_lists_match` wrapper, likely remove `approval_question_prompts`, and delete the duplicated approval parsing/preview logic parked in `server/src/domain/sessions/approval_state.rs` once the pure approval module exists.
+- Target split map: keep `transition.rs` focused on reducer state/types/effects/transition and move approval preview helpers into `connector-core/src/approval_preview.rs`.
+- Live seam warning: `Input::ApprovalRequested` remains the one reducer truth path and still owns pending-approval persistence and broadcast semantics.
+- Lane order: extract approval subsystem, repoint reducer and external callers, delete dead wrappers/duplication, then move approval-focused tests.
+
+#### Worker C: Codex app server
+
+- Current responsibilities: shared host bootstrap, per-thread route orchestration, connector translation, compatibility shaping, and response encoding.
+- Safe delete-first work: remove or inline `path_bufs` and `map_generic_tool` after the route/mapping split clarifies ownership.
+- Target split map: thin `app_server.rs` or `app_server/mod.rs` facade with `host.rs`, `router.rs`, `request_mapping.rs`, `notification_mapping.rs`, `item_mapping.rs`, `response_codec.rs`, and `compat.rs`.
+- Live seam warning: preserve first-caller-wins host ownership, request/response resolution, route-local stream buffers, and pending-turn context semantics.
+- Lane order: response codec first, host second, route orchestration third, request/notification/item mapping fourth, compat last, then cleanup deletes.
+
+#### Worker D: protocol + native mirrors
+
+- Current responsibilities: `types.rs` mixes provider/config/session/approval/worktree/review concerns, while `client.rs` and `server.rs` still aggregate unrelated event families; Swift mirrors carry the same jumbo contract shape.
+- Safe delete-first work: delete hard-dead WS leaves such as `ApprovalsList`, `ApprovalDeleted`, `SubagentToolsList`, `PermissionRules`, and the stale Swift-only `claude_models_list`.
+- Target split map: Rust `messages/client/*`, `messages/server/*`, `types/session/*`, and smaller topical modules for approvals, providers, inputs, skills, MCP, auth, usage, review, worktrees, and missions; Swift mirrors grouped by event family and shared contracts.
+- Live seam warning: preserve Rust `Option<Option<T>>` to Swift `T??` patch semantics, duplicated session field parity, and `SessionSurface` invalidation behavior.
+- Lane order: delete dead leaves first, split message envelopes with stable `lib.rs` re-exports, extract session type cluster, then mirror the grouping in Swift.
+
+#### Worker E: CLI session surfaces
+
+- Current responsibilities: CLI parse entrypoints in `cli.rs` and a large `commands/session.rs` that bundles DTOs, bootstrap helpers, REST reads, WS mutations, and presentation/watch behavior.
+- Safe delete-first work: delete duplicate `subscribe_session_surface()` and redundant `bootstrap_session_subscription()` calls, remove dead request DTO fields `approval_policy` and `sandbox_mode`, and drop unused response/session list fields.
+- Target split map: `commands/session/{mod,http,live,bootstrap,watch,presentation,managed}.rs`, with session-specific CLI parsing split out of `cli.rs` later if still worth it.
+- Live seam warning: keep the hidden `managed-session-start` path and the `WsClient` contract stable until a broader product decision says otherwise.
+- Lane order: prune dead internals first, then split the command module while keeping the public CLI surface unchanged.
+
+#### Worker F: runtime session core
+
+- Current responsibilities: `session_command_handler.rs` mixes actor routing, persistence mapping, row sync, connector classification, transition execution, and watchdogs; `session_queries.rs`, `session_creation.rs`, `session_takeover.rs`, and `restored_sessions.rs` each carry multiple concerns too.
+- Safe delete-first work: centralize duplicated status/control/provider parsing, remove loader fallbacks after a unified load path exists, and delete repeated direct-runtime attach boilerplate once shared launch helpers are in place.
+- Target split map: `runtime/session_queries/{library,conversation,state,live_overlay}.rs`, `runtime/session_restore/{mapping,transcript,resume_prep}.rs`, `runtime/session_command_handler/{commands,rows,transitions,connector,persistence}.rs`, and `runtime/session_runtime_launch/*`.
+- Live seam warning: keep single direct-session ownership, DB-authoritative row sequencing, immutable provider-session identity, and server-authoritative live overlays.
+- Lane order: split restore/parsing/transcript helpers first, then queries, then command handling, and direct-runtime launch last.
+
+#### Worker G: persistence restore/hydration
+
+- Current responsibilities: `session_reads.rs`, `session_hydration.rs`, `startup_recovery.rs`, `ownership_reads.rs`, and `usage.rs` still mix codecs, projections, hydration assembly, startup cleanup, and write-side compatibility logic.
+- Safe delete-first work: move codecs into pure helpers, delete duplicated hydration assembly between restore and startup, remove `ActiveSessionRow` after shared projections exist, and pull snapshot-kind decoding out of `usage.rs`.
+- Target split map: `session_reads/{mod,codecs,projection,hydrator,startup_cleanup}.rs`, with `ownership_reads.rs` and write-side `usage.rs` staying focused.
+- Live seam warning: do not delete startup `control_mode` backfill, `preserve_direct_owned_claude_shadow`, or `persist_set_integration_mode` in this wave.
+- Lane order: pure codecs first, shared hydration builder second, startup reuse third, repeated per-session selects fourth, and ownership SQL centralization only if still worth it later.
+
+#### Worker H: transport + product surfaces
+
+- Current responsibilities: `transport/http/session_actions.rs` still mixes controls, conversation mutations, and attachment handling; `session_lifecycle/create.rs` mixes HTTP create flow with mission bootstrap, direct-launch, initial prompt, and mission issue state updates.
+- Safe delete-first work: no dead routes proved safe here; the best immediate simplification is extracting the shared mission-session bootstrap from `create.rs` and `runtime/workspace_dispatch/local.rs`.
+- Target split map: split `session_actions.rs` into controls query, controls mutations, conversation mutations, and attachments; keep one public `create` handler but move mission/bootstrap helpers under a clearer shared seam.
+- Live seam warning: `admin/` is frozen for now, mission/workspace runtime is still strategic, and `/controls` versus `/runtime` remains a product-surface decision rather than a pure refactor.
+- Lane order: resolve the product call, thin `session_actions.rs`, extract shared mission bootstrap, then only reorganize mission/workspace code if the surface is still actively strategic.
+
+### Phase 5 implementation recut
+
+Wave 1 implementation order:
+
+1. `connector-core/src/transition.rs`
+2. `connector-codex/src/app_server.rs`
+3. `connector-claude/src/lib.rs`
+4. `protocol/src/{types,client,server}.rs` plus native mirrors
+
+Wave 2 implementation order:
+
+1. runtime session core
+2. persistence restore/hydration
+3. CLI session surfaces
+4. transport + product-surface decisions
 
 ## Phase 6: Wave 1 Reorganization
 
