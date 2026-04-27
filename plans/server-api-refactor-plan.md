@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 10 / Wave 3 execution`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2. After the temporary file-descriptor exhaustion issue was cleared, Wave 3A resumed and the protocol tiny delete-first lane landed cleanly with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml` passing. The Claude lane has now advanced through both the delete-first cut and three structural splits: the dead write-only `ClaudeEventLoopState.last_turn_input` / `turn_output` bookkeeping is gone, the control/approval request cluster now lives in `connector-claude/src/stdout/control.rs`, the system-event cluster now lives in `connector-claude/src/stdout/system.rs`, and the shared row/value/flush helpers now live in `connector-claude/src/stdout/helpers.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml` passing after the latest split in commit `ded6f107`. The domain session core lane has landed its helper extraction: shared session-mode and transcript-sync helpers now live in `domain/sessions/support.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-server domain::sessions --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1` passing. Wave 3B is now landed through its defined implementation set: commits `2e66bdbd`, `0a7c1a6a`, `7ee569be`, and `fdd1c2a3` cover the Codex config/policy helper split, the runtime dispatch/takeover helper split, the CLI binary/dev-console split, and the persistence-accounting plus Codex-hook operational split. Validation passed with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `env RUSTC_WRAPPER= make rust-check`. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 11 / regroup and redesign recut`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2, and the full Phase 10 implementation wave is now complete. Wave 3A landed the protocol tiny delete-first cleanup, the domain session helper extraction, and the Claude stdout delete-plus-split series across commits ending in `ff10701c`, which moved the control, system, shared helper, and message-handler clusters out of `connector-claude/src/stdout.rs` and left a smaller orchestration facade. Wave 3B landed in commits `2e66bdbd`, `0a7c1a6a`, `7ee569be`, and `fdd1c2a3`, covering the Codex config/policy helper split, runtime dispatch/takeover helper split, CLI binary/dev-console split, and persistence-accounting plus Codex-hook operational split. Validation passed with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `env RUSTC_WRAPPER= make rust-check`. The next move is no longer another obvious split-now sweep; it is a deliberate redesign recut around the remaining live hotspots: `connector-codex/src/rollout_parser.rs`, `connector-core/src/transition.rs`, `protocol/src/types.rs`, `protocol/src/conversation_contracts/tool_display.rs`, `server/src/runtime/session_runtime_helpers.rs`, and `server/src/connectors/codex_session.rs`. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1283,20 +1283,22 @@ Tasks:
 - The follow-on Wave 3 slices are now integrated and committed too:
   - `ded6f107` `♻️ Split Claude stdout helper cluster`
   - `fdd1c2a3` `♻️ Split Codex hook session and persistence accounting`
-- The defined Wave 3 split-now lanes are now landed. The next decision is whether `connector-claude/src/stdout.rs` still has one more obvious low-risk helper extraction worth doing inside Phase 10, or whether we close this phase and regroup around the parked redesign hotspots.
+- The final low-risk Claude stdout split is now landed too:
+  - `ff10701c` `♻️ Split Claude stdout message handlers`
+- Phase 10 is complete: the defined Wave 3 split-now lanes are landed, the parked redesign seams are still isolated, and the next regroup is now about true live-system redesign rather than obvious module breakup work.
 
 Done when:
 
 - [x] The remaining split-now and delete-first lanes from Phase 9 are either landed or explicitly reclassified.
-- [ ] The parked redesign seams are still isolated and documented.
-- [ ] The next regroup is about true redesign, not obvious module breakup work we should have already done.
+- [x] The parked redesign seams are still isolated and documented.
+- [x] The next regroup is about true redesign, not obvious module breakup work we should have already done.
 
 ## Verification
 
 Run per slice:
 
 - [x] `make rust-check`
-- [ ] Targeted `make rust-test` or crate test command for affected modules.
+- [x] Targeted `make rust-test` or crate test command for affected modules.
 - [ ] Native build/test command for Swift API contract changes.
 - [ ] Session smoke: create, detail, send message, subscribe, usage summary, startup restore.
 - [ ] Database restore smoke when persistence/compatibility code changes.
@@ -1325,3 +1327,39 @@ Concrete command defaults:
 - [x] Connector event vocabulary is smaller and easier to trace.
 - [ ] Remaining tests prove user outcomes and durable server truth.
 - [x] Line-count audit is regenerated and compared to baseline.
+
+## Phase 11: Regroup And Recut The Remaining Live Hotspots
+
+Objective: turn the finished delete-plus-split work into the next focused redesign plan, using parallel evaluation packets to separate safe tail cleanup from genuinely coupled architectural seams.
+
+Primary targets:
+
+- `orbitdock-server/crates/connector-codex/src/rollout_parser.rs`
+- `orbitdock-server/crates/connector-core/src/transition.rs`
+- `orbitdock-server/crates/protocol/src/types.rs`
+- `orbitdock-server/crates/protocol/src/conversation_contracts/tool_display.rs`
+- `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs`
+- `orbitdock-server/crates/server/src/connectors/codex_session.rs`
+
+Parallel evaluation workers:
+
+| Worker | Model | Ownership | Evaluation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-codex/src/rollout_parser.rs` plus adjacent Codex parser helpers only if required | Separate pure rollout parsing from filesystem/process tail helpers, identify what is still deletable, and propose the next split map without broadening runtime authority. |
+| Worker B | `gpt-5.4-mini` | `connector-core/src/transition.rs` | Recut the remaining reducer/helper seams after the approval-preview extraction and call out any remaining delete-first reductions before another structural split. |
+| Worker C | `gpt-5.4-mini` | `protocol/src/types.rs`, `protocol/src/conversation_contracts/tool_display.rs`, native mirrors only if forced | Map the remaining active protocol clusters, identify dead or duplicate contract leaves, and propose a split order that preserves Rust/Swift contract parity. |
+| Worker D | `gpt-5.4-mini` | `server/src/runtime/session_runtime_helpers.rs` plus direct startup/control-mode touchpoints | Document the real authority boundaries, isolate what is pure helper noise versus live startup semantics, and define what must stay parked until a dedicated redesign. |
+| Worker E | `gpt-5.4-mini` | `server/src/connectors/codex_session.rs` plus adjacent session/bootstrap helpers only if needed | Separate bootstrap, hook coordination, transcript sync, and ownership logic into a redesign map, with explicit warnings around any single-writer or shadow-session risks. |
+
+Execution rules:
+
+- Phase 11 starts with read-only evaluation packets only. Do not implement before the packets are integrated back into this plan.
+- Continue using delete-first logic inside each lane, but do not force deletions across seams that already proved live in Phase 3 or Phase 10.
+- Treat startup/write-side `control_mode`, direct-session ownership, and single-writer conversation persistence as design boundaries until a dedicated implementation phase is written.
+
+Tasks:
+
+- [ ] Launch the five Phase 11 evaluation workers with disjoint ownership.
+- [ ] Integrate the worker notes into one recut map with implementation waves.
+- [ ] Mark each remaining hotspot as `delete-first`, `split-now`, or `redesign-first`.
+- [ ] Write the next implementation phase before touching the parked redesign seams.
