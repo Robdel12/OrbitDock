@@ -1,7 +1,6 @@
 use std::borrow::ToOwned;
 use std::sync::Arc;
 
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
   SessionControlMode, SessionLifecycleState, SessionStatus, TokenUsage, TokenUsageSnapshotKind,
   TurnDiff, WorkStatus,
@@ -28,7 +27,6 @@ pub struct SessionRestoreSnapshotInput<'a> {
   pub permission_mode: Option<&'a str>,
   pub token_usage: &'a TokenUsage,
   pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
-  pub rows: &'a [ConversationRowEntry],
   pub current_diff: Option<&'a str>,
   pub current_plan: Option<&'a str>,
   pub turn_diffs: &'a [TurnDiff],
@@ -36,8 +34,6 @@ pub struct SessionRestoreSnapshotInput<'a> {
   pub pending_tool_input: Option<&'a str>,
   pub pending_question: Option<&'a str>,
   pub pending_approval_id: Option<&'a str>,
-  pub terminal_session_id: Option<&'a str>,
-  pub terminal_app: Option<&'a str>,
   pub approval_version: u64,
   pub unread_count: u64,
 }
@@ -50,11 +46,6 @@ pub fn restored_has_pending_approval(
   pending_approval_id: Option<&str>,
 ) -> bool {
   pending_tool_name.is_some() || pending_question.is_some() || pending_approval_id.is_some()
-}
-
-/// Returns the row count represented by persisted conversation rows.
-pub fn restored_message_count(rows: &[ConversationRowEntry]) -> usize {
-  rows.len()
 }
 
 /// Build the restored transport snapshot that seeds a rehydrated session.
@@ -106,7 +97,6 @@ pub fn build_restored_session_snapshot(input: SessionRestoreSnapshotInput<'_>) -
     pending_tool_input: input.pending_tool_input.map(ToOwned::to_owned),
     pending_question: input.pending_question.map(ToOwned::to_owned),
     pending_approval_id: input.pending_approval_id.map(ToOwned::to_owned),
-    message_count: restored_message_count(input.rows),
     active_worker_count: 0,
     tool_count: 0,
     token_usage: input.token_usage.clone(),
@@ -116,13 +106,10 @@ pub fn build_restored_session_snapshot(input: SessionRestoreSnapshotInput<'_>) -
     last_progress_at: input.timestamps.last_progress_at.clone(),
     revision: 0,
     current_plan: input.current_plan.map(Arc::from),
-    current_diff: input.current_diff.map(Arc::from),
     git_branch: input.environment.git_branch.clone(),
     git_sha: input.environment.git_sha.clone(),
     current_cwd: input.environment.current_cwd.clone(),
     effort: input.config.effort.clone(),
-    terminal_session_id: input.terminal_session_id.map(ToOwned::to_owned),
-    terminal_app: input.terminal_app.map(ToOwned::to_owned),
     approval_version: input.approval_version,
     repository_root: None,
     is_worktree: false,

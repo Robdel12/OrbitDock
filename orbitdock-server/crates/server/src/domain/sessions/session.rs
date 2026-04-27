@@ -83,7 +83,6 @@ pub(crate) fn steerable_from_parts(
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
 /// the actor.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SessionSnapshot {
   pub id: String,
   pub provider: Provider,
@@ -122,7 +121,6 @@ pub struct SessionSnapshot {
   pub pending_tool_input: Option<String>,
   pub pending_question: Option<String>,
   pub pending_approval_id: Option<String>,
-  pub message_count: usize,
   /// Number of active sub-agents.
   pub active_worker_count: u32,
   pub tool_count: u64,
@@ -133,13 +131,10 @@ pub struct SessionSnapshot {
   pub last_progress_at: Option<String>,
   pub revision: u64,
   pub current_plan: Option<Arc<str>>,
-  pub current_diff: Option<Arc<str>>,
   pub git_branch: Option<String>,
   pub git_sha: Option<String>,
   pub current_cwd: Option<String>,
   pub effort: Option<String>,
-  pub terminal_session_id: Option<String>,
-  pub terminal_app: Option<String>,
   pub approval_version: u64,
   pub repository_root: Option<String>,
   pub is_worktree: bool,

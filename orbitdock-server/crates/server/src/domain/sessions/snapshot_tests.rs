@@ -68,8 +68,6 @@ fn build_session_snapshot_projects_live_state() {
   let mission_id = "mission-1";
   let issue_identifier = "ISSUE-1";
   let newest_synced_row_id = "row-1";
-  let terminal_session_id = "terminal-1";
-  let terminal_app = "Terminal";
   let repository_root = "/tmp";
   let worktree_id = "wt-1";
   let turn_diffs: Vec<TurnDiff> = vec![];
@@ -93,7 +91,6 @@ fn build_session_snapshot_projects_live_state() {
     pending_question: None,
     pending_approval_id: Some(pending_approval_id),
     permission_mode: Some("acceptEdits"),
-    message_count: 7,
     active_worker_count: 2,
     tool_count: 11,
     token_usage: &TokenUsage::default(),
@@ -102,8 +99,6 @@ fn build_session_snapshot_projects_live_state() {
     current_plan: Some("plan"),
     current_diff: Some("diff"),
     approval_version: 3,
-    terminal_session_id: Some(terminal_session_id),
-    terminal_app: Some(terminal_app),
     repository_root: Some(repository_root),
     is_worktree: true,
     worktree_id: Some(worktree_id),
@@ -117,15 +112,11 @@ fn build_session_snapshot_projects_live_state() {
   });
 
   assert_eq!(snapshot.id, "session-1");
-  assert_eq!(snapshot.message_count, 7);
   assert_eq!(snapshot.active_worker_count, 2);
   assert_eq!(snapshot.tool_count, 11);
   assert_eq!(snapshot.current_plan.as_deref(), Some("plan"));
-  assert_eq!(snapshot.current_diff.as_deref(), Some("diff"));
   assert_eq!(snapshot.pending_approval_id.as_deref(), Some("approval-1"));
   assert_eq!(snapshot.permission_mode.as_deref(), Some("acceptEdits"));
-  assert_eq!(snapshot.terminal_session_id.as_deref(), Some("terminal-1"));
-  assert_eq!(snapshot.terminal_app.as_deref(), Some("Terminal"));
   assert_eq!(snapshot.repository_root.as_deref(), Some("/tmp"));
   assert!(snapshot.is_worktree);
   assert_eq!(snapshot.worktree_id.as_deref(), Some("wt-1"));

@@ -62,7 +62,6 @@ fn timestamps() -> SessionTimestamps {
 
 #[test]
 fn build_restored_session_snapshot_uses_restored_defaults() {
-  let rows: Vec<ConversationRowEntry> = vec![];
   let turn_diffs = vec![TurnDiff {
     turn_id: "turn-1".to_string(),
     diff: "diff --git a/app.rs b/app.rs\n--- a/app.rs\n+++ b/app.rs\n@@ -1,1 +1,2 @@\n-old\n+new\n+extra".to_string(),
@@ -83,7 +82,6 @@ fn build_restored_session_snapshot_uses_restored_defaults() {
     permission_mode: Some("acceptEdits"),
     token_usage: &TokenUsage::default(),
     token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
-    rows: &rows,
     current_diff: None,
     current_plan: Some("plan"),
     turn_diffs: &turn_diffs,
@@ -91,13 +89,10 @@ fn build_restored_session_snapshot_uses_restored_defaults() {
     pending_tool_input: Some("ls"),
     pending_question: None,
     pending_approval_id: Some("approval-1"),
-    terminal_session_id: Some("terminal-1"),
-    terminal_app: Some("Terminal"),
     approval_version: 12,
     unread_count: 3,
   });
 
-  assert_eq!(snapshot.message_count, 0);
   assert!(snapshot.has_turn_diff);
   assert_eq!(
     snapshot.diff_preview.as_ref().map(|preview| (
@@ -113,9 +108,6 @@ fn build_restored_session_snapshot_uses_restored_defaults() {
   assert_eq!(snapshot.worktree_id, None);
   assert_eq!(snapshot.pending_tool_name.as_deref(), Some("Bash"));
   assert_eq!(snapshot.current_plan.as_deref(), Some("plan"));
-  assert_eq!(snapshot.current_diff.as_deref(), None);
-  assert_eq!(snapshot.terminal_session_id.as_deref(), Some("terminal-1"));
-  assert_eq!(snapshot.terminal_app.as_deref(), Some("Terminal"));
   assert_eq!(snapshot.approval_version, 12);
   assert_eq!(snapshot.unread_count, 3);
 }

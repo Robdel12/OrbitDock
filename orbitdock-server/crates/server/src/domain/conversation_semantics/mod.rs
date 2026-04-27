@@ -2,7 +2,6 @@ mod codex;
 mod shared;
 
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
-use orbitdock_protocol::provider_normalization::shared::ProviderEventEnvelope;
 use orbitdock_protocol::Provider;
 use tracing::warn;
 
@@ -21,14 +20,6 @@ pub(crate) fn upgrade_row(provider: Provider, row: ConversationRow) -> Conversat
   log_unhandled_wrapper(provider, &original, &upgraded);
 
   upgraded
-}
-
-#[allow(dead_code)] // Wired when provider event materialization is turned on for semantic rows.
-pub(crate) fn materialize_provider_event(event: ProviderEventEnvelope) -> Vec<ConversationRow> {
-  match event.provider {
-    Provider::Codex => codex::materialize_provider_event(event),
-    Provider::Claude => vec![],
-  }
 }
 
 fn log_unhandled_wrapper(

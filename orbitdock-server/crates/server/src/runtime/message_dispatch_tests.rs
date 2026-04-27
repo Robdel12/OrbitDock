@@ -52,9 +52,10 @@ async fn failed_send_does_not_create_a_ghost_accepted_row() {
     Err(DispatchMessageError::ConnectorUnavailable)
   ));
 
-  let snapshot = state.get_session(session_id).expect("session actor");
-  let snapshot = snapshot.snapshot();
-  assert_eq!(snapshot.message_count, 0);
+  let actor = state.get_session(session_id).expect("session actor");
+  let retained_state = actor.retained_state().await.expect("retained state");
+  assert_eq!(retained_state.total_row_count, 0);
+  let snapshot = actor.snapshot();
   assert_eq!(snapshot.first_prompt.as_deref(), None);
   assert!(state.get_codex_action_tx(session_id).is_none());
 }
@@ -95,8 +96,8 @@ async fn steer_rejects_idle_sessions_without_creating_a_fallback_row() {
   assert!(action_rx.try_recv().is_err());
 
   let actor = state.get_session(session_id).expect("session actor");
-  let snapshot = actor.snapshot();
-  assert_eq!(snapshot.message_count, 0);
+  let retained_state = actor.retained_state().await.expect("retained state");
+  assert_eq!(retained_state.total_row_count, 0);
 }
 
 #[tokio::test]

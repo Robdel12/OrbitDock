@@ -555,7 +555,6 @@ impl SessionCoreState {
       pending_question: self.pending_question.as_deref(),
       pending_approval_id: self.pending_approval_id.as_deref(),
       permission_mode: self.permission_mode.as_deref(),
-      message_count: self.total_row_count as usize,
       active_worker_count: self
         .subagents
         .iter()
@@ -568,8 +567,6 @@ impl SessionCoreState {
       current_plan: self.current_plan.as_deref(),
       current_diff: self.current_diff.as_deref(),
       approval_version: self.approval_version,
-      terminal_session_id: self.terminal_session_id.as_deref(),
-      terminal_app: self.terminal_app.as_deref(),
       repository_root: self.environment.repository_root.as_deref(),
       is_worktree: self.environment.is_worktree,
       worktree_id: self.environment.worktree_id.as_deref(),
@@ -597,7 +594,6 @@ impl SessionCoreState {
       permission_mode: self.permission_mode.as_deref(),
       token_usage: &self.token_usage,
       token_usage_snapshot_kind: self.token_usage_snapshot_kind,
-      rows: &self.rows,
       current_diff: self.current_diff.as_deref(),
       current_plan: self.current_plan.as_deref(),
       turn_diffs: &self.turn_diffs,
@@ -605,8 +601,6 @@ impl SessionCoreState {
       pending_tool_input: self.pending_tool_input.as_deref(),
       pending_question: self.pending_question.as_deref(),
       pending_approval_id: self.pending_approval_id.as_deref(),
-      terminal_session_id: self.terminal_session_id.as_deref(),
-      terminal_app: self.terminal_app.as_deref(),
       approval_version: self.approval_version,
       unread_count: self.unread_count,
     })
