@@ -4,18 +4,17 @@ use std::path::PathBuf;
 use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
 
-use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
-
 use super::super::chrono_now;
 use super::super::messages::{
   load_latest_completed_conversation_message_from_db, load_messages_from_db,
 };
 use super::super::transcripts::{extract_summary_from_transcript, load_messages_from_transcript};
 use super::super::usage::snapshot_kind_from_str;
-use super::{
-  infer_codex_config_mode, load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state,
-  ActiveSessionRow, RestoredSession, StoredCodexConfigRow,
-};
+use super::codecs::{infer_codex_config_mode, parse_control_mode, parse_lifecycle_state};
+use super::hydration::{build_restored_session, load_latest_usage_turn_seq};
+use super::projections::{ActiveSessionRow, RestoredSessionParts, StoredCodexConfigRow};
+use super::RestoredSession;
+use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
 
 #[cfg(test)]
 pub async fn load_session_lifecycle_state(
@@ -259,37 +258,7 @@ async fn load_sessions_for_startup_with_db_path(
     )?;
 
     let session_rows: Vec<ActiveSessionRow> = stmt
-      .query_map([], |row| {
-        Ok(ActiveSessionRow {
-          id: row.get(0)?,
-          provider: row.get(1)?,
-          status: row.get(2)?,
-          work_status: row.get(3)?,
-          control_mode: row.get(4)?,
-          lifecycle_state: parse_lifecycle_state(row.get(5)?),
-          project_path: row.get(6)?,
-          transcript_path: row.get(7)?,
-          project_name: row.get(8)?,
-          model: row.get(9)?,
-          custom_name: row.get(10)?,
-          first_prompt: row.get(11)?,
-          codex_thread_id: row.get(12)?,
-          started_at: row.get(13)?,
-          last_activity_at: row.get(14)?,
-          last_progress_at: row.get(15)?,
-          approval_policy: row.get(16)?,
-          sandbox_mode: row.get(17)?,
-          permission_mode: row.get(18)?,
-          pending_tool_name: row.get(19)?,
-          pending_tool_input: row.get(20)?,
-          pending_question: row.get(21)?,
-          input_tokens: row.get(22)?,
-          output_tokens: row.get(23)?,
-          cached_tokens: row.get(24)?,
-          context_window: row.get(25)?,
-          token_usage_snapshot_kind_str: row.get(26)?,
-        })
-      })?
+      .query_map([], ActiveSessionRow::from_row)?
       .filter_map(|row| row.ok())
       .collect();
 
@@ -328,6 +297,7 @@ async fn load_sessions_for_startup_with_db_path(
       let token_usage_snapshot_kind =
         snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
       let control_mode = parse_control_mode(control_mode).unwrap_or(SessionControlMode::Passive);
+      let lifecycle_state = parse_lifecycle_state(Some(lifecycle_state));
       let end_reason_val: Option<String> = conn
         .query_row(
           "SELECT end_reason FROM sessions WHERE id = ?1",
@@ -435,44 +405,32 @@ async fn load_sessions_for_startup_with_db_path(
         )
         .unwrap_or(None);
 
-      let (
-        codex_config_mode_raw,
-        codex_config_profile,
-        codex_model_provider,
-        collaboration_mode,
-        multi_agent,
-        personality,
-        service_tier,
-        developer_instructions,
-        codex_config_source_raw,
-        codex_config_overrides_raw,
-      ): StoredCodexConfigRow = conn
+      let config_row: StoredCodexConfigRow = conn
         .query_row(
           "SELECT codex_config_mode, codex_config_profile, codex_model_provider, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
           params![id],
-          |row| {
-            Ok((
-              row.get(0)?,
-              row.get(1)?,
-              row.get(2)?,
-              row.get(3)?,
-              row.get(4)?,
-              row.get(5)?,
-              row.get(6)?,
-              row.get(7)?,
-              row.get(8)?,
-              row.get(9)?,
-            ))
-          },
+          StoredCodexConfigRow::from_row,
         )
-        .unwrap_or((None, None, None, None, None, None, None, None, None, None));
-      let codex_config_mode = infer_codex_config_mode(codex_config_mode_raw.as_deref());
-      let codex_config_source = match codex_config_source_raw.as_deref() {
+        .unwrap_or(StoredCodexConfigRow {
+          codex_config_mode_raw: None,
+          codex_config_profile: None,
+          codex_model_provider: None,
+          collaboration_mode: None,
+          multi_agent: None,
+          personality: None,
+          service_tier: None,
+          developer_instructions: None,
+          codex_config_source_raw: None,
+          codex_config_overrides_raw: None,
+        });
+      let codex_config_mode = infer_codex_config_mode(config_row.codex_config_mode_raw.as_deref());
+      let codex_config_source = match config_row.codex_config_source_raw.as_deref() {
         Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
         Some("user") => Some(CodexConfigSource::User),
         _ => None,
       };
-      let codex_config_overrides = codex_config_overrides_raw
+      let codex_config_overrides = config_row
+        .codex_config_overrides_raw
         .and_then(|value| serde_json::from_str::<CodexSessionOverrides>(&value).ok());
       let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
         .query_row(
@@ -538,7 +496,7 @@ async fn load_sessions_for_startup_with_db_path(
         }
       }
 
-      sessions.push(RestoredSession {
+      sessions.push(build_restored_session(RestoredSessionParts {
         id,
         provider,
         status,
@@ -559,14 +517,14 @@ async fn load_sessions_for_startup_with_db_path(
         approval_policy,
         sandbox_mode,
         permission_mode,
-        collaboration_mode,
-        multi_agent,
-        personality,
-        service_tier,
-        developer_instructions,
+        collaboration_mode: config_row.collaboration_mode,
+        multi_agent: config_row.multi_agent,
+        personality: config_row.personality,
+        service_tier: config_row.service_tier,
+        developer_instructions: config_row.developer_instructions,
         codex_config_mode,
-        codex_config_profile,
-        codex_model_provider,
+        codex_config_profile: config_row.codex_config_profile,
+        codex_model_provider: config_row.codex_model_provider,
         codex_config_source,
         codex_config_overrides,
         input_tokens,
@@ -598,7 +556,7 @@ async fn load_sessions_for_startup_with_db_path(
         mission_id,
         issue_identifier,
         allow_bypass_permissions,
-      });
+      }));
     }
 
     Ok(sessions)
