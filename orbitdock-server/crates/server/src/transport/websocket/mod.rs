@@ -8,8 +8,6 @@ pub(crate) mod handlers;
 mod message_groups;
 mod router;
 mod server_info;
-#[cfg(test)]
-pub(crate) mod test_support;
 mod transport;
 
 pub use connection::ws_handler;

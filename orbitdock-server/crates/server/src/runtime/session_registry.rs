@@ -170,16 +170,6 @@ pub struct SessionRegistry {
 
 impl SessionRegistry {
   #[cfg(test)]
-  pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
-    Self::new_with_primary_and_db_path(
-      persist_tx,
-      crate::infrastructure::paths::db_path(),
-      true,
-      WorkspaceProviderKind::default(),
-    )
-  }
-
-  #[cfg(test)]
   pub fn new_with_primary(persist_tx: mpsc::Sender<PersistCommand>, is_primary: bool) -> Self {
     Self::new_with_primary_and_db_path(
       persist_tx,
