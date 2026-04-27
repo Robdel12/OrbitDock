@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, 3F, 3G, and 3H are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, the low-risk dead-code/test-support prune lane has continued landing cleanly, the persistence lane has dropped stale duplicate subagent writes plus unused mission/session-read helpers, and the session domain has shed dead `SessionHandle`/`SessionCoreState` pass-throughs while keeping the remaining test-only mutators behind `#[cfg(test)]``
+- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, 3F, 3G, 3H, and 3I are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, the low-risk dead-code/test-support prune lane has continued landing cleanly, the persistence lane has dropped stale duplicate subagent writes plus unused mission/session-read helpers, the session domain has shed dead `SessionHandle`/`SessionCoreState` pass-throughs, and the remaining test-only session/startup helpers are now compile-gated instead of shipping behind stale `dead_code` allowances`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -599,10 +599,11 @@ Current slice status:
 - `Slice 3F`: complete. The low-risk `dead_code` prune lane now includes the unused `reset_data_dir()` helper, the unused `get_session_list_items()` registry helper, the unused `session_id` field from `ConnectorCleanupGuard`, stale `#[allow(dead_code)]` suppressions from the test extraction pass, the unreferenced `SessionActorHandle` convenience methods `try_send`, `snapshot_swap`, and `command_tx`, the dead `IncrementToolCount` session command, the test-only `execute_with_stream` shell wrapper that was replaced by testing the real `ShellService` surface directly, deleted unused HTTP/WebSocket test helper functions, removed stale dead-code suppressions in shared test support, removed the stale dead-code suppression on `resolve_claude_thread`, compile-gated `SetWorkStatus` to tests instead of shipping it in production, deleted the now-orphaned WebSocket test-support module, and removed the now-unused `SessionRegistry::new` test constructor it depended on.
 - `Slice 3G`: complete. Removed the stale duplicate `persist_subagent_upsert` still parked in `infrastructure/persistence/mod.rs` after the real implementation moved to `subagent_writes.rs`, deleted the orphaned `load_all_active_mission_issues` mission-control reader, and pruned the unused test-only `*_from_db_path` session-read helpers that had no callers left (`load_session_lifecycle_state_from_db_path`, `load_session_by_id_from_db_path`, `load_direct_claude_owner_by_sdk_session_id_from_db_path`, and `load_direct_codex_owner_by_thread_id_from_db_path`).
 - `Slice 3H`: complete. Removed the uncalled `SessionHandle` pass-through helpers `subagents`, `first_prompt`, `transcript_path`, `update_tokens`, `update_diff`, and `update_plan`, then deleted the matching dead `SessionCoreState` helpers they were forwarding into. The remaining session mutators that are still only used by test modules (`set_subagents`, `set_pending_attention`, and `set_first_prompt`) are now correctly compile-gated behind `#[cfg(test)]` instead of shipping in production.
+- `Slice 3I`: complete. Tightened the remaining test-only session helpers by compile-gating `config`, `newest_synced_row_id`, `set_newest_synced_row_id`, and `set_last_tool` in both `SessionHandle` and `SessionCoreState`, removed the stale `#[allow(dead_code)]` marker from the still-live `has_user_row_with_content` dedup helper, and dropped stale dead-code suppressions from the test-only startup recovery helpers that are already exercised by persistence tests.
 
 Next queued slices:
 
-- `Slice 3I`: continue the one-by-one dead helper pass in session/runtime/mission-control lanes, with extra care to distinguish true zero-caller helpers from test-only affordances that should just be `#[cfg(test)]`.
+- `Slice 3J`: continue the one-by-one dead helper pass in mission-control/runtime/tool-PTY lanes, with extra care to separate honest future-facing placeholders from code that should now either be deleted or test-gated.
 
 Search targets:
 
@@ -613,6 +614,7 @@ Search targets:
 - WebSocket handlers that exist only to reject or redirect REST-only mutations.
 - `SessionHandle` pass-through methods that forward to `SessionCoreState` but are no longer called anywhere.
 - Remaining `#[allow(dead_code)]` pockets in mission control, conversation semantics, and tool PTY/session runtime.
+- `#[allow(unused_imports)]` re-exports in persistence that may have gone stale after the recent delete slices.
 
 Tasks:
 

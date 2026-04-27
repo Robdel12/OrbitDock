@@ -334,7 +334,7 @@ impl SessionHandle {
   }
 
   /// Get a reference to the grouped config.
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn config(&self) -> &SessionConfig {
     self.state.config()
   }
@@ -458,19 +458,18 @@ impl SessionHandle {
   }
 
   /// Get the newest synced row ID (for transcript sync comparison).
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn newest_synced_row_id(&self) -> Option<&str> {
     self.state.newest_synced_row_id()
   }
 
   /// Update the newest synced row ID after a successful transcript sync.
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn set_newest_synced_row_id(&mut self, id: Option<String>) {
     self.state.set_newest_synced_row_id(id);
   }
 
   /// Check if a user row with this content already exists (dedup for connector echo)
-  #[allow(dead_code)]
   pub fn has_user_row_with_content(&self, content: &str) -> bool {
     self.state.has_user_row_with_content(content)
   }
@@ -566,7 +565,7 @@ impl SessionHandle {
   }
 
   /// Set last tool name
-  #[allow(dead_code)]
+  #[cfg(test)]
   pub fn set_last_tool(&mut self, tool: Option<String>) {
     self.state.set_last_tool(tool);
   }

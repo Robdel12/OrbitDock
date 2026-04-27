@@ -172,6 +172,7 @@ impl SessionCoreState {
     self.identity.provider
   }
 
+  #[cfg(test)]
   pub fn config(&self) -> &SessionConfig {
     &self.config
   }
@@ -184,6 +185,7 @@ impl SessionCoreState {
     self.total_row_count as usize
   }
 
+  #[cfg(test)]
   pub fn newest_synced_row_id(&self) -> Option<&str> {
     self.newest_synced_row_id.as_deref()
   }
@@ -702,6 +704,7 @@ impl SessionCoreState {
     self.identity.transcript_path = transcript_path;
   }
 
+  #[cfg(test)]
   pub fn set_newest_synced_row_id(&mut self, id: Option<String>) {
     self.newest_synced_row_id = id;
   }
@@ -810,6 +813,7 @@ impl SessionCoreState {
     }
   }
 
+  #[cfg(test)]
   pub fn set_last_tool(&mut self, tool: Option<String>) {
     self.last_tool = tool;
   }

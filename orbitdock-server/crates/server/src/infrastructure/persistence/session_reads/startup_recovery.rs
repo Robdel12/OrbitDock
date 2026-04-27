@@ -18,7 +18,6 @@ use super::{
 };
 
 #[cfg(test)]
-#[allow(dead_code)]
 pub async fn load_session_lifecycle_state(
   id: &str,
 ) -> Result<Option<orbitdock_protocol::SessionLifecycleState>, anyhow::Error> {
@@ -63,7 +62,6 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 pub async fn load_sessions_for_startup_from_db_path(
   db_path: PathBuf,
 ) -> Result<Vec<RestoredSession>, anyhow::Error> {
