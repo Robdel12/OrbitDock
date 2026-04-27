@@ -42,6 +42,7 @@ fn is_session_ended(msg: &ServerMessage) -> bool {
   matches!(msg, ServerMessage::SessionEnded { .. })
 }
 
+#[cfg(test)]
 pub use super::support::control_mode_from_parts;
 pub(crate) use super::support::{accepts_user_input_from_parts, steerable_from_parts};
 

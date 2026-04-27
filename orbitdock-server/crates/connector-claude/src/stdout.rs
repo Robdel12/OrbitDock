@@ -27,8 +27,8 @@ use crate::rows::{
 mod control;
 mod system;
 
-pub(crate) use control::{handle_cli_control_request, handle_control_response, PendingApproval};
 use control::patch_diff_for_approval;
+pub(crate) use control::{handle_cli_control_request, handle_control_response, PendingApproval};
 use system::handle_system_message;
 
 /// Groups all shared references and mutable local state for the stdout event

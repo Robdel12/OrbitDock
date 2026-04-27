@@ -1,7 +1,7 @@
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
-  ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionControlMode,
-  SessionLifecycleState, SessionStatus, WorkStatus,
+  ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState,
+  SessionStatus, WorkStatus,
 };
 
 pub fn control_mode_from_parts(

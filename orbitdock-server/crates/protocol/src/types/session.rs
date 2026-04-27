@@ -280,7 +280,6 @@ impl SessionSummary {
       WorkStatus::Waiting | WorkStatus::Reply | WorkStatus::Ended => SessionListStatus::Reply,
     }
   }
-
 }
 
 fn clean_display_text(value: &str) -> String {

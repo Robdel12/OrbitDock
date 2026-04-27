@@ -12,11 +12,11 @@ use super::facets::{
 };
 use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInput};
 use super::session::{SessionRestoreData, SessionSnapshot};
+use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use super::support::{
   accepts_user_input_from_parts, control_mode_from_parts, is_local_http_row_id,
   latest_transcript_synced_row_id, steerable_from_parts,
 };
-use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
 use orbitdock_protocol::conversation_contracts::{
   ConversationRow, ConversationRowEntry, RowEntrySummary, TurnStatus,

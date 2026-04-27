@@ -657,8 +657,15 @@ async fn library_snapshot_sorts_mixed_timestamp_formats_by_activity() {
       .await
       .expect("library snapshot should succeed");
 
-  let returned_ids: Vec<&str> = snapshot.sessions.iter().map(|session| session.id.as_str()).collect();
-  assert_eq!(returned_ids, vec![newer_session_id.as_str(), older_session_id.as_str()]);
+  let returned_ids: Vec<&str> = snapshot
+    .sessions
+    .iter()
+    .map(|session| session.id.as_str())
+    .collect();
+  assert_eq!(
+    returned_ids,
+    vec![newer_session_id.as_str(), older_session_id.as_str()]
+  );
 }
 
 #[tokio::test]

@@ -288,7 +288,8 @@ async fn load_library_projections(
         .get()
         .map_err(|err| SessionLoadError::Db(err.to_string()))?;
 
-      let search_query = query.map(|value| format!("%{}%", escape_like_query(&value.to_lowercase())));
+      let search_query =
+        query.map(|value| format!("%{}%", escape_like_query(&value.to_lowercase())));
       let filter_sql = "\
         WHERE :query IS NULL
            OR LOWER(s.id) LIKE :query ESCAPE '\\'
@@ -456,14 +457,13 @@ pub(crate) async fn load_library_snapshot(
   offset: usize,
   query: Option<&str>,
 ) -> Result<LibrarySnapshot, SessionLoadError> {
-  let (projections, total_count) =
-    load_library_projections(
-      Arc::clone(state.read_pool()),
-      limit,
-      offset,
-      query.map(str::to_string),
-    )
-    .await?;
+  let (projections, total_count) = load_library_projections(
+    Arc::clone(state.read_pool()),
+    limit,
+    offset,
+    query.map(str::to_string),
+  )
+  .await?;
 
   let sessions: Vec<SessionSummary> = projections
     .iter()

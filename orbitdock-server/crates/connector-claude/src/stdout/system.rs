@@ -1,8 +1,6 @@
 use serde_json::Value;
 
-use orbitdock_connector_core::{
-  ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent,
-};
+use orbitdock_connector_core::{ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent};
 use orbitdock_protocol::conversation_contracts::ConversationRow;
 use orbitdock_protocol::domain_events::ToolStatus;
 
