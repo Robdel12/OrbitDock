@@ -5,7 +5,7 @@ use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRow, ConversationRowEntry, MessageRowContent,
 };
 use orbitdock_protocol::domain_events::AgentType;
-use orbitdock_protocol::{Provider, SessionLifecycleState, SessionStatus};
+use orbitdock_protocol::{Provider, SessionControlMode, SessionLifecycleState, SessionStatus};
 
 use super::commands::{PersistCommand, SessionCreateParams};
 use super::messages::load_messages_from_db;
@@ -818,7 +818,7 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
     ))
     .unwrap()
     .unwrap();
-  assert_eq!(restored.codex_integration_mode.as_deref(), Some("direct"));
+  assert_eq!(restored.control_mode, SessionControlMode::Direct);
 
   let sessions = runtime
     .block_on(super::session_reads::load_sessions_for_startup())
@@ -827,7 +827,7 @@ fn load_session_by_id_and_startup_restore_use_persisted_control_mode() {
     .into_iter()
     .find(|session| session.id == "control-mode-session")
     .expect("startup session should be loaded");
-  assert_eq!(startup.codex_integration_mode.as_deref(), Some("direct"));
+  assert_eq!(startup.control_mode, SessionControlMode::Direct);
 
   let conn = Connection::open(&db_path).unwrap();
   assert_eq!(

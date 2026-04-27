@@ -5,9 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
 
 use super::{
-  control_mode_to_integration_mode, infer_codex_config_mode, load_latest_usage_turn_seq,
-  parse_control_mode, parse_lifecycle_state, snapshot_kind_from_str, RestoredSession,
-  StoredCodexConfigRow,
+  infer_codex_config_mode, load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state,
+  snapshot_kind_from_str, RestoredSession, StoredCodexConfigRow,
 };
 use super::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
 
@@ -139,9 +138,6 @@ async fn load_session_by_id_with_db_path(
     let token_usage_snapshot_kind =
       snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
     let control_mode = parse_control_mode(control_mode).unwrap_or(SessionControlMode::Passive);
-    let (codex_integration_mode, claude_integration_mode) =
-      control_mode_to_integration_mode(&provider, control_mode);
-
     let rows = if include_rows {
       load_messages_from_db(&conn, &id)?
     } else {
@@ -315,8 +311,6 @@ async fn load_session_by_id_with_db_path(
       model,
       custom_name,
       summary,
-      codex_integration_mode,
-      claude_integration_mode,
       codex_thread_id,
       claude_sdk_session_id,
       started_at,

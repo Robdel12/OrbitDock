@@ -209,8 +209,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
           model,
           custom_name,
           summary,
-          codex_integration_mode: _,
-          claude_integration_mode: _,
           codex_thread_id: _,
           claude_sdk_session_id: _,
           started_at,

@@ -1,7 +1,7 @@
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode, CodexConfigSource,
-  CodexIntegrationMode, CodexSessionOverrides, Provider, SessionState, SessionStatus,
-  SessionSummary, TokenUsage, TurnDiff, WorkStatus,
+  CodexIntegrationMode, CodexSessionOverrides, Provider, SessionControlMode, SessionState,
+  SessionStatus, SessionSummary, TokenUsage, TurnDiff, WorkStatus,
 };
 use tracing::warn;
 
@@ -208,8 +208,18 @@ pub(crate) fn restored_session_to_state(restored: RestoredSession) -> SessionSta
     current_diff: restored.current_diff,
     cumulative_diff: None,
     current_plan: restored.current_plan,
-    codex_integration_mode: parse_codex_integration_mode(restored.codex_integration_mode),
-    claude_integration_mode: parse_claude_integration_mode(restored.claude_integration_mode),
+    codex_integration_mode: matches!(provider, Provider::Codex).then_some(
+      match restored.control_mode {
+        SessionControlMode::Direct => CodexIntegrationMode::Direct,
+        SessionControlMode::Passive => CodexIntegrationMode::Passive,
+      },
+    ),
+    claude_integration_mode: matches!(provider, Provider::Claude).then_some(
+      match restored.control_mode {
+        SessionControlMode::Direct => ClaudeIntegrationMode::Direct,
+        SessionControlMode::Passive => ClaudeIntegrationMode::Passive,
+      },
+    ),
     approval_policy_details,
     approval_policy: restored.approval_policy,
     sandbox_mode: restored.sandbox_mode,
@@ -465,22 +475,6 @@ pub(crate) async fn load_prepared_resume_session(
     restored,
     transcript_loaded,
   )))
-}
-
-fn parse_codex_integration_mode(value: Option<String>) -> Option<CodexIntegrationMode> {
-  match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
-    Some("direct") => Some(CodexIntegrationMode::Direct),
-    Some("passive") => Some(CodexIntegrationMode::Passive),
-    _ => None,
-  }
-}
-
-fn parse_claude_integration_mode(value: Option<String>) -> Option<ClaudeIntegrationMode> {
-  match value.as_deref().map(str::to_ascii_lowercase).as_deref() {
-    Some("direct") => Some(ClaudeIntegrationMode::Direct),
-    Some("passive") => Some(ClaudeIntegrationMode::Passive),
-    _ => None,
-  }
 }
 
 #[cfg(test)]

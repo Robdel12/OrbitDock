@@ -89,8 +89,6 @@ pub struct RestoredSession {
   pub model: Option<String>,
   pub custom_name: Option<String>,
   pub summary: Option<String>,
-  pub codex_integration_mode: Option<String>,
-  pub claude_integration_mode: Option<String>,
   pub codex_thread_id: Option<String>,
   pub claude_sdk_session_id: Option<String>,
   pub started_at: Option<String>,
@@ -174,28 +172,6 @@ pub(super) fn parse_control_mode(value: Option<String>) -> Option<SessionControl
     Some("direct") => Some(SessionControlMode::Direct),
     Some("passive") => Some(SessionControlMode::Passive),
     _ => None,
-  }
-}
-
-pub(super) fn control_mode_to_integration_mode(
-  provider: &str,
-  control_mode: SessionControlMode,
-) -> (Option<String>, Option<String>) {
-  match provider.to_ascii_lowercase().as_str() {
-    "claude" => (
-      None,
-      Some(match control_mode {
-        SessionControlMode::Direct => "direct".to_string(),
-        SessionControlMode::Passive => "passive".to_string(),
-      }),
-    ),
-    _ => (
-      Some(match control_mode {
-        SessionControlMode::Direct => "direct".to_string(),
-        SessionControlMode::Passive => "passive".to_string(),
-      }),
-      None,
-    ),
   }
 }
 

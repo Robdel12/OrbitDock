@@ -83,8 +83,6 @@ fn fixture_restored_session() -> RestoredSession {
     model: None,
     custom_name: None,
     summary: None,
-    codex_integration_mode: None,
-    claude_integration_mode: None,
     codex_thread_id: None,
     claude_sdk_session_id: None,
     started_at: None,
