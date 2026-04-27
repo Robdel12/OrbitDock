@@ -1,6 +1,8 @@
 use super::*;
 use crate::approval_preview::{approval_preview, shell_segments_for_preview, ApprovalPreviewInput};
 use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
+use orbitdock_protocol::conversation_contracts::ToolRow;
+use orbitdock_protocol::domain_events::ToolKind;
 use orbitdock_protocol::{ApprovalPreviewType, ApprovalRiskLevel, TokenUsage};
 use serde_json::json;
 
