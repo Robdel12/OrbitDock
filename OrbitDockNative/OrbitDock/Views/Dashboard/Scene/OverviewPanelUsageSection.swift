@@ -72,6 +72,17 @@ struct UsageCenterView: View {
           }
         }
       }
+    #else
+      .navigationBarBackButtonHidden(true)
+      .toolbar {
+        ToolbarItem(placement: .topBarLeading) {
+          Button {
+            router.goToDashboard(source: .dashboardStream)
+          } label: {
+            Label("Active", systemImage: "chevron.left")
+          }
+        }
+      }
     #endif
     .task(id: usageRefreshIdentity) {
       await usageRegistry.refreshIfNeeded(todayStart: Calendar.current.startOfDay(for: Date()))
