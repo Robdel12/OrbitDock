@@ -8,6 +8,7 @@ struct StatusBarStatsTests {
     let summary = ServerUsageSummarySnapshotPayload(
       today: ServerUsageSummaryBucketPayload(
         sessionCount: 2,
+        distinctSessionCount: 2,
         totalTokens: 1_234,
         inputTokens: 800,
         outputTokens: 434,
@@ -20,6 +21,7 @@ struct StatusBarStatsTests {
       ),
       allTime: ServerUsageSummaryBucketPayload(
         sessionCount: 4,
+        distinctSessionCount: 4,
         totalTokens: 8_765,
         inputTokens: 5_000,
         outputTokens: 3_765,
@@ -39,7 +41,7 @@ struct StatusBarStatsTests {
     #expect(resolved.today.sessionCount == 2)
     #expect(resolved.today.tokens == 1_234)
     #expect(resolved.today.cost == 8.5)
-    #expect(resolved.today.costByModel.map(\.model) == ["GPT-5", "Opus"])
+    #expect(resolved.today.costByModel.map { $0.model } == ["GPT-5", "Opus"])
     #expect(resolved.allTime.sessionCount == 4)
     #expect(resolved.allTime.tokens == 8_765)
     #expect(resolved.allTime.cost == 27.25)

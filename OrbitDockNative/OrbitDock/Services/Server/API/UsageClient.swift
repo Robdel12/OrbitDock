@@ -32,9 +32,11 @@ struct UsageClient: Sendable {
   }
 
   private let http: ServerHTTPClient
+  private let requestBuilder: HTTPRequestBuilder
 
-  init(http: ServerHTTPClient) {
+  init(http: ServerHTTPClient, requestBuilder: HTTPRequestBuilder) {
     self.http = http
+    self.requestBuilder = requestBuilder
   }
 
   func fetchCodexUsage() async throws -> CodexUsageResponse {
@@ -51,6 +53,79 @@ struct UsageClient: Sendable {
       query.append(URLQueryItem(name: "today_start_unix", value: String(todayStartUnix)))
     }
     return try await http.get("/api/usage/summary", query: query)
+  }
+
+  func fetchUsageOverview(
+    todayStartUnix: UInt64?,
+    rangeStartUnix: UInt64? = nil,
+    rangeEndUnix: UInt64? = nil
+  ) async throws -> ServerUsageOverviewSnapshotPayload {
+    var query: [URLQueryItem] = []
+    if let todayStartUnix {
+      query.append(URLQueryItem(name: "today_start_unix", value: String(todayStartUnix)))
+    }
+    if let rangeStartUnix {
+      query.append(URLQueryItem(name: "range_start_unix", value: String(rangeStartUnix)))
+    }
+    if let rangeEndUnix {
+      query.append(URLQueryItem(name: "range_end_unix", value: String(rangeEndUnix)))
+    }
+    return try await http.get("/api/usage/overview", query: query)
+  }
+
+  func fetchUsageBreakdown(
+    groupBy: ServerUsageBreakdownGroupBy,
+    startUnix: UInt64? = nil,
+    endUnix: UInt64? = nil
+  ) async throws -> ServerUsageBreakdownSnapshotPayload {
+    var query = [URLQueryItem(name: "group_by", value: groupBy.rawValue)]
+    if let startUnix {
+      query.append(URLQueryItem(name: "start_unix", value: String(startUnix)))
+    }
+    if let endUnix {
+      query.append(URLQueryItem(name: "end_unix", value: String(endUnix)))
+    }
+    return try await http.get("/api/usage/breakdown", query: query)
+  }
+
+  func fetchUsageSessions(
+    startUnix: UInt64? = nil,
+    endUnix: UInt64? = nil,
+    limit: Int? = nil,
+    offset: UInt64? = nil
+  ) async throws -> ServerUsageSessionsSnapshotPayload {
+    var query: [URLQueryItem] = []
+    if let startUnix {
+      query.append(URLQueryItem(name: "start_unix", value: String(startUnix)))
+    }
+    if let endUnix {
+      query.append(URLQueryItem(name: "end_unix", value: String(endUnix)))
+    }
+    if let limit {
+      query.append(URLQueryItem(name: "limit", value: String(limit)))
+    }
+    if let offset {
+      query.append(URLQueryItem(name: "offset", value: String(offset)))
+    }
+    return try await http.get("/api/usage/sessions", query: query)
+  }
+
+  func fetchSessionUsageTurns(
+    sessionId: String,
+    beforeTurnSeq: UInt64? = nil,
+    limit: Int? = nil
+  ) async throws -> ServerSessionUsageTurnsPagePayload {
+    var query: [URLQueryItem] = []
+    if let beforeTurnSeq {
+      query.append(URLQueryItem(name: "before_turn_seq", value: String(beforeTurnSeq)))
+    }
+    if let limit {
+      query.append(URLQueryItem(name: "limit", value: String(limit)))
+    }
+    return try await http.get(
+      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/usage/turns",
+      query: query
+    )
   }
 
   func listCodexModels(

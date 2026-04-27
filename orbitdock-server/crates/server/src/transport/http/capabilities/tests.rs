@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-  get_session_instructions, install_plugin, list_collaboration_modes_endpoint,
+  get_session_instructions, get_session_runtime, install_plugin, list_collaboration_modes_endpoint,
   list_mcp_tools_endpoint, list_plugins_endpoint, list_skills_endpoint, uninstall_plugin,
   PluginsQuery, SkillsQuery,
 };
@@ -682,4 +682,54 @@ async fn instructions_endpoint_returns_codex_developer_instructions() {
     Some("Stay focused and verify outputs")
   );
   assert!(response.0.instructions.claude_md.is_none());
+}
+
+#[tokio::test]
+async fn runtime_endpoint_combines_controls_instructions_and_collaboration_modes() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_codex_session(
+    &db_path,
+    &session_id,
+    "/tmp/orbitdock-runtime-test",
+    Some("Stay focused and verify outputs"),
+  );
+  let (action_tx, mut action_rx) = mpsc::channel(8);
+  state.set_codex_action_tx(&session_id, action_tx);
+
+  let task = tokio::spawn(async move {
+    let action = action_rx
+      .recv()
+      .await
+      .expect("runtime endpoint should dispatch collaboration mode query");
+    match action {
+      CodexAction::ListCollaborationModes { reply_tx } => {
+        let _ = reply_tx.send(Ok(CollaborationModeListResponse {
+          data: vec![CollaborationModeMask {
+            name: "plan".to_string(),
+            mode: Some(ModeKind::Plan),
+            model: Some("gpt-5".to_string()),
+            reasoning_effort: Some(None),
+          }],
+        }));
+      }
+      other => panic!("expected ListCollaborationModes action, got {:?}", other),
+    }
+  });
+
+  let response = get_session_runtime(Path(session_id.clone()), State(state))
+    .await
+    .expect("runtime endpoint should succeed");
+
+  task.await.expect("runtime helper task should complete");
+
+  assert_eq!(response.0.session_id, session_id);
+  assert_eq!(response.0.provider, Provider::Codex);
+  assert!(response.0.controls.shell_command.supported);
+  assert_eq!(
+    response.0.instructions.developer_instructions.as_deref(),
+    Some("Stay focused and verify outputs")
+  );
+  assert_eq!(response.0.collaboration_modes.len(), 1);
+  assert_eq!(response.0.collaboration_modes[0].name, "plan");
 }

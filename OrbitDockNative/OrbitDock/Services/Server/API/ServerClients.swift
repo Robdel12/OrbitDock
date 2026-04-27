@@ -65,7 +65,7 @@ final class ServerClients: Sendable {
     self.capabilities = CapabilitiesClient(http: http, requestBuilder: requestBuilder)
     self.runtime = SessionRuntimeClient(http: http, requestBuilder: requestBuilder)
     self.controls = SessionControlsClient(http: http, requestBuilder: requestBuilder)
-    self.usage = UsageClient(http: http)
+    self.usage = UsageClient(http: http, requestBuilder: requestBuilder)
     self.activeSessions = ActiveSessionsClient(http: http)
     self.archivedSessions = ArchivedSessionsClient(http: http)
     self.sessions = SessionsClient(http: http, requestBuilder: requestBuilder)

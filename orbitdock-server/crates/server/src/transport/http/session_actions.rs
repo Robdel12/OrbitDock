@@ -190,7 +190,7 @@ fn direct_connector_available(session: &orbitdock_protocol::SessionState) -> boo
     && session.lifecycle_state != orbitdock_protocol::SessionLifecycleState::Ended
 }
 
-fn session_controls_for_state(
+pub(crate) fn session_controls_for_state(
   session: &orbitdock_protocol::SessionState,
 ) -> SessionControlsPayload {
   let provider = session.provider;

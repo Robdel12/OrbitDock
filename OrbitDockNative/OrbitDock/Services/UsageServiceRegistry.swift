@@ -1,13 +1,33 @@
 import Foundation
 
+struct UsageEndpointSnapshot: Identifiable {
+  let endpointId: UUID
+  let endpointName: String
+  let overview: ServerUsageOverviewSnapshotPayload
+  let usageSessions: ServerUsageSessionsSnapshotPayload
+  let claudeWindows: [RateLimitWindow]
+  let codexWindows: [RateLimitWindow]
+  let claudeErrorMessage: String?
+  let codexErrorMessage: String?
+  let codexRateLimitReachedType: ServerCodexRateLimitReachedType?
+
+  var id: UUID { endpointId }
+}
+
 @Observable
 @MainActor
 final class UsageServiceRegistry {
   private static let warmCacheLifetime: TimeInterval = 30
 
   private let runtimeRegistry: ServerRuntimeRegistry
+  private static let recentDayWindow: UInt64 = 6 * 86_400
 
   private(set) var summary: ServerUsageSummarySnapshotPayload?
+  private(set) var endpointSnapshots: [UsageEndpointSnapshot] = []
+  private(set) var providerBreakdown: ServerUsageBreakdownSnapshotPayload?
+  private(set) var modelBreakdown: ServerUsageBreakdownSnapshotPayload?
+  private(set) var topSessions: ServerUsageSessionsSnapshotPayload?
+  private(set) var recentDayBreakdown: ServerUsageBreakdownSnapshotPayload?
   private(set) var summaryTodayStartUnix: UInt64?
   private(set) var claudeWindows: [RateLimitWindow] = []
   private(set) var codexWindows: [RateLimitWindow] = []
@@ -99,6 +119,9 @@ final class UsageServiceRegistry {
     todayStartUnix: UInt64,
     signature: String
   ) async {
+    let recentDayStartUnix = todayStartUnix >= Self.recentDayWindow
+      ? todayStartUnix - Self.recentDayWindow
+      : 0
     let enabledRuntimes = runtimeRegistry.runtimes.filter { $0.endpoint.isEnabled && $0.isStarted }
     let runtimes = if enabledRuntimes.isEmpty {
       [runtimeRegistry.primaryRuntime ?? runtimeRegistry.activeRuntime]
@@ -109,75 +132,133 @@ final class UsageServiceRegistry {
     guard !runtimes.isEmpty else { return }
 
     summaryLoading = true
-    var snapshots: [ServerUsageSummarySnapshotPayload] = []
+    claudeLoading = true
+    codexLoading = true
+    var endpointSnapshots: [UsageEndpointSnapshot] = []
     var errors: [String] = []
     for runtime in runtimes {
       do {
-        let snapshot = try await runtime.clients.usage.fetchUsageSummary(todayStartUnix: todayStartUnix)
-        snapshots.append(snapshot)
+        let snapshot = try await fetchEndpointSnapshot(runtime: runtime, todayStartUnix: todayStartUnix)
+        endpointSnapshots.append(snapshot)
       } catch {
-        errors.append(error.localizedDescription)
+        errors.append("\(runtime.endpoint.name): \(error.localizedDescription)")
       }
     }
 
-    if !snapshots.isEmpty {
-      summary = mergeUsageSummaries(snapshots)
+    if !endpointSnapshots.isEmpty {
+      self.endpointSnapshots = endpointSnapshots
+      summary = mergeUsageSummaries(endpointSnapshots.map(\.overview.summary))
+      providerBreakdown = mergeUsageBreakdowns(
+        endpointSnapshots.map(\.overview.todayProviderBreakdown),
+        groupBy: .provider,
+        startUnix: todayStartUnix
+      )
+      modelBreakdown = mergeUsageBreakdowns(
+        endpointSnapshots.map(\.overview.todayModelBreakdown),
+        groupBy: .model,
+        startUnix: todayStartUnix
+      )
+      topSessions = mergeUsageSessions(endpointSnapshots.map(\.usageSessions))
+      recentDayBreakdown = mergeUsageBreakdowns(
+        endpointSnapshots.map(\.overview.dayBreakdown),
+        groupBy: .day,
+        startUnix: recentDayStartUnix
+      )
       summaryTodayStartUnix = todayStartUnix
       summaryError = errors.isEmpty
         ? nil
         : UsageFetchError(message: "Some usage endpoints failed:\n\(errors.joined(separator: "\n"))")
     } else {
+      self.endpointSnapshots = []
+      providerBreakdown = nil
+      modelBreakdown = nil
+      topSessions = nil
+      recentDayBreakdown = nil
       let message = errors.isEmpty ? "No usage endpoints are available." : errors.joined(separator: "\n")
       summaryError = UsageFetchError(message: message)
     }
+
+    let selectedEndpointId = (
+      runtimeRegistry.primaryRuntime
+        ?? runtimeRegistry.activeRuntime
+        ?? runtimeRegistry.runtimes.first(where: { $0.endpoint.isEnabled })
+    )?.endpoint.id
+    let selectedSnapshot = endpointSnapshots.first(where: { $0.endpointId == selectedEndpointId }) ?? endpointSnapshots.first
+
+    claudeWindows = selectedSnapshot?.claudeWindows ?? []
+    codexWindows = selectedSnapshot?.codexWindows ?? []
+    claudeError = selectedSnapshot?.claudeErrorMessage.map(UsageFetchError.init(message:))
+    codexError = selectedSnapshot?.codexErrorMessage.map(UsageFetchError.init(message:))
+    codexRateLimitReachedType = selectedSnapshot?.codexRateLimitReachedType
     summaryLoading = false
-
-    let usageRuntime = runtimeRegistry.primaryRuntime
-      ?? runtimeRegistry.activeRuntime
-      ?? runtimeRegistry.runtimes.first(where: { $0.endpoint.isEnabled })
-    guard let usageRuntime else { return }
-    let clients = usageRuntime.clients
-
-    // Fetch Claude usage
-    claudeLoading = true
-    do {
-      let response = try await clients.usage.fetchClaudeUsage()
-      if let usage = response.usage {
-        claudeWindows = claudeUsageToWindows(usage)
-        claudeError = nil
-      } else if let errorInfo = response.errorInfo {
-        claudeError = UsageFetchError(message: errorInfo.message)
-      } else {
-        claudeError = nil
-      }
-    } catch {
-      claudeError = UsageFetchError(message: error.localizedDescription)
-    }
     claudeLoading = false
-
-    // Fetch Codex usage
-    codexLoading = true
-    do {
-      let response = try await clients.usage.fetchCodexUsage()
-      if let usage = response.usage {
-        codexWindows = codexUsageToWindows(usage)
-        codexRateLimitReachedType = usage.rateLimitReachedType
-        codexError = nil
-      } else if let errorInfo = response.errorInfo {
-        codexRateLimitReachedType = nil
-        codexError = UsageFetchError(message: errorInfo.message)
-      } else {
-        codexRateLimitReachedType = nil
-        codexError = nil
-      }
-    } catch {
-      codexRateLimitReachedType = nil
-      codexError = UsageFetchError(message: error.localizedDescription)
-    }
     codexLoading = false
 
     lastRefreshCompletedAt = Date()
     lastRefreshSignature = signature
+  }
+
+  private func fetchEndpointSnapshot(
+    runtime: ServerRuntime,
+    todayStartUnix: UInt64
+  ) async throws -> UsageEndpointSnapshot {
+    let clients = runtime.clients.usage
+    let recentDayStartUnix = todayStartUnix >= Self.recentDayWindow
+      ? todayStartUnix - Self.recentDayWindow
+      : 0
+    let overview = try await clients.fetchUsageOverview(
+      todayStartUnix: todayStartUnix,
+      rangeStartUnix: recentDayStartUnix
+    )
+    let usageSessions = try await clients.fetchUsageSessions(
+      startUnix: todayStartUnix,
+      limit: 12
+    )
+    let claudeState = await fetchClaudeState(clients: clients)
+    let codexState = await fetchCodexState(clients: clients)
+    return UsageEndpointSnapshot(
+      endpointId: runtime.endpoint.id,
+      endpointName: runtime.endpoint.name,
+      overview: overview,
+      usageSessions: usageSessions,
+      claudeWindows: claudeState.windows,
+      codexWindows: codexState.windows,
+      claudeErrorMessage: claudeState.errorMessage,
+      codexErrorMessage: codexState.errorMessage,
+      codexRateLimitReachedType: codexState.rateLimitReachedType
+    )
+  }
+
+  private func fetchClaudeState(
+    clients: UsageClient
+  ) async -> (windows: [RateLimitWindow], errorMessage: String?) {
+    do {
+      let response = try await clients.fetchClaudeUsage()
+      if let usage = response.usage {
+        return (claudeUsageToWindows(usage), nil)
+      }
+      return ([], response.errorInfo?.message)
+    } catch {
+      return ([], error.localizedDescription)
+    }
+  }
+
+  private func fetchCodexState(
+    clients: UsageClient
+  ) async -> (
+    windows: [RateLimitWindow],
+    errorMessage: String?,
+    rateLimitReachedType: ServerCodexRateLimitReachedType?
+  ) {
+    do {
+      let response = try await clients.fetchCodexUsage()
+      if let usage = response.usage {
+        return (codexUsageToWindows(usage), nil, usage.rateLimitReachedType)
+      }
+      return ([], response.errorInfo?.message, nil)
+    } catch {
+      return ([], error.localizedDescription, nil)
+    }
   }
 
   private func currentRefreshSignature(todayStartUnix: UInt64) -> String {
@@ -207,45 +288,141 @@ final class UsageServiceRegistry {
   private func mergeUsageSummaries(_ snapshots: [ServerUsageSummarySnapshotPayload]) -> ServerUsageSummarySnapshotPayload? {
     guard !snapshots.isEmpty else { return nil }
 
-    func mergeBuckets(_ buckets: [ServerUsageSummaryBucketPayload]) -> ServerUsageSummaryBucketPayload {
-      var sessionCount: UInt64 = 0
-      var totalTokens: UInt64 = 0
-      var inputTokens: UInt64 = 0
-      var outputTokens: UInt64 = 0
-      var cachedTokens: UInt64 = 0
-      var totalCostUSD = 0.0
-      var modelCosts: [String: Double] = [:]
-
-      for bucket in buckets {
-        sessionCount += bucket.sessionCount
-        totalTokens += bucket.totalTokens
-        inputTokens += bucket.inputTokens
-        outputTokens += bucket.outputTokens
-        cachedTokens += bucket.cachedTokens
-        totalCostUSD += bucket.totalCostUSD
-        for modelCost in bucket.costByModel {
-          modelCosts[modelCost.model, default: 0] += modelCost.costUSD
-        }
-      }
-
-      let mergedCosts = modelCosts
-        .map { ServerUsageSummaryModelCostPayload(model: $0.key, costUSD: $0.value) }
-        .sorted { $0.costUSD > $1.costUSD }
-
-      return ServerUsageSummaryBucketPayload(
-        sessionCount: sessionCount,
-        totalTokens: totalTokens,
-        inputTokens: inputTokens,
-        outputTokens: outputTokens,
-        cachedTokens: cachedTokens,
-        totalCostUSD: totalCostUSD,
-        costByModel: mergedCosts
-      )
-    }
-
     let today = mergeBuckets(snapshots.map(\.today))
     let allTime = mergeBuckets(snapshots.map(\.allTime))
     return ServerUsageSummarySnapshotPayload(today: today, allTime: allTime)
+  }
+
+  private func mergeUsageBreakdowns(
+    _ snapshots: [ServerUsageBreakdownSnapshotPayload],
+    groupBy: ServerUsageBreakdownGroupBy,
+    startUnix: UInt64?
+  ) -> ServerUsageBreakdownSnapshotPayload? {
+    guard !snapshots.isEmpty else { return nil }
+
+    var grouped: [String: ServerUsageBreakdownEntryPayload] = [:]
+    for entry in snapshots.flatMap(\.groups) {
+      let existing = grouped[entry.groupKey]
+      grouped[entry.groupKey] = ServerUsageBreakdownEntryPayload(
+        groupKey: entry.groupKey,
+        provider: entry.provider ?? existing?.provider,
+        model: entry.model ?? existing?.model,
+        sessionId: entry.sessionId ?? existing?.sessionId,
+        dayStartUnix: entry.dayStartUnix ?? existing?.dayStartUnix,
+        turnCount: (existing?.turnCount ?? 0) + entry.turnCount,
+        sessionCount: (existing?.sessionCount ?? 0) + entry.sessionCount,
+        distinctSessionCount: (existing?.distinctSessionCount ?? 0) + entry.distinctSessionCount,
+        inputTokens: (existing?.inputTokens ?? 0) + entry.inputTokens,
+        outputTokens: (existing?.outputTokens ?? 0) + entry.outputTokens,
+        cachedTokens: (existing?.cachedTokens ?? 0) + entry.cachedTokens,
+        totalTokens: (existing?.totalTokens ?? 0) + entry.totalTokens,
+        totalCostUSD: (existing?.totalCostUSD ?? 0) + entry.totalCostUSD
+      )
+    }
+
+    let totals = mergeBuckets(snapshots.map(\.totals))
+    let groups = grouped.values.sorted { lhs, rhs in
+      if lhs.totalCostUSD == rhs.totalCostUSD {
+        return lhs.totalTokens > rhs.totalTokens
+      }
+      return lhs.totalCostUSD > rhs.totalCostUSD
+    }
+
+    return ServerUsageBreakdownSnapshotPayload(
+      groupBy: groupBy,
+      startUnix: startUnix,
+      endUnix: nil,
+      totals: totals,
+      groups: groups
+    )
+  }
+
+  private func mergeBuckets(_ buckets: [ServerUsageSummaryBucketPayload]) -> ServerUsageSummaryBucketPayload {
+    var sessionCount: UInt64 = 0
+    var distinctSessionCount: UInt64 = 0
+    var totalTokens: UInt64 = 0
+    var inputTokens: UInt64 = 0
+    var outputTokens: UInt64 = 0
+    var cachedTokens: UInt64 = 0
+    var totalCostUSD = 0.0
+    var modelCosts: [String: Double] = [:]
+
+    for bucket in buckets {
+      sessionCount += bucket.sessionCount
+      distinctSessionCount += bucket.distinctSessionCount
+      totalTokens += bucket.totalTokens
+      inputTokens += bucket.inputTokens
+      outputTokens += bucket.outputTokens
+      cachedTokens += bucket.cachedTokens
+      totalCostUSD += bucket.totalCostUSD
+      for modelCost in bucket.costByModel {
+        modelCosts[modelCost.model, default: 0] += modelCost.costUSD
+      }
+    }
+
+    let mergedCosts = modelCosts
+      .map { ServerUsageSummaryModelCostPayload(model: $0.key, costUSD: $0.value) }
+      .sorted { $0.costUSD > $1.costUSD }
+
+    return ServerUsageSummaryBucketPayload(
+      sessionCount: sessionCount,
+      distinctSessionCount: distinctSessionCount,
+      totalTokens: totalTokens,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens,
+      totalCostUSD: totalCostUSD,
+      costByModel: mergedCosts
+    )
+  }
+
+  private func mergeUsageSessions(
+    _ snapshots: [ServerUsageSessionsSnapshotPayload]
+  ) -> ServerUsageSessionsSnapshotPayload? {
+    guard !snapshots.isEmpty else { return nil }
+
+    var merged: [String: ServerUsageSessionSummaryPayload] = [:]
+    for session in snapshots.flatMap(\.sessions) {
+      if let existing = merged[session.sessionId] {
+        merged[session.sessionId] = ServerUsageSessionSummaryPayload(
+          sessionId: session.sessionId,
+          provider: session.provider,
+          displayName: existing.displayName,
+          projectName: existing.projectName ?? session.projectName,
+          projectPath: existing.projectPath,
+          model: existing.model ?? session.model,
+          startedAt: existing.startedAt ?? session.startedAt,
+          lastActivityAt: max(existing.lastActivityAt ?? "", session.lastActivityAt ?? "").nilIfEmpty,
+          contextLine: existing.contextLine ?? session.contextLine,
+          turnCount: existing.turnCount + session.turnCount,
+          inputTokens: existing.inputTokens + session.inputTokens,
+          outputTokens: existing.outputTokens + session.outputTokens,
+          cachedTokens: existing.cachedTokens + session.cachedTokens,
+          totalTokens: existing.totalTokens + session.totalTokens,
+          totalCostUSD: existing.totalCostUSD + session.totalCostUSD
+        )
+      } else {
+        merged[session.sessionId] = session
+      }
+    }
+
+    let orderedSessions = merged.values.sorted { lhs, rhs in
+      if lhs.totalCostUSD == rhs.totalCostUSD {
+        if lhs.totalTokens == rhs.totalTokens {
+          return lhs.displayName < rhs.displayName
+        }
+        return lhs.totalTokens > rhs.totalTokens
+      }
+      return lhs.totalCostUSD > rhs.totalCostUSD
+    }
+
+    return ServerUsageSessionsSnapshotPayload(
+      startUnix: snapshots.compactMap(\.startUnix).min(),
+      endUnix: snapshots.compactMap(\.endUnix).max(),
+      nextOffset: nil,
+      totalCount: UInt64(orderedSessions.count),
+      sessions: Array(orderedSessions.prefix(12))
+    )
   }
 
   // MARK: - Conversion

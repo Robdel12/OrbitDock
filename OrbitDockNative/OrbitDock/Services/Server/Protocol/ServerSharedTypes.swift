@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum ServerProvider: String, Codable {
+enum ServerProvider: String, Codable, Sendable {
   case claude
   case codex
 }

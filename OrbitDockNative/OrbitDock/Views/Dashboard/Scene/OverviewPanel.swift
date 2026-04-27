@@ -39,13 +39,14 @@ struct OverviewPanel: View {
   private var usageEntries: [OverviewUsageProviderEntry] {
     usageRegistry.allProviders.compactMap { provider in
       let windows = usageRegistry.windows(for: provider)
-      let isLoading = usageRegistry.isLoading(for: provider)
-      guard !windows.isEmpty || isLoading else { return nil }
+      let errorMessage = usageRegistry.error(for: provider)?.errorDescription
+      let rateLimitReachedType = provider == .codex ? usageRegistry.codexRateLimitReachedType : nil
+      guard !windows.isEmpty || errorMessage != nil || rateLimitReachedType != nil else { return nil }
       return OverviewUsageProviderEntry(
         provider: provider,
-        planName: usageRegistry.planName(for: provider),
         windows: windows,
-        isLoading: isLoading
+        errorMessage: errorMessage,
+        rateLimitReachedType: rateLimitReachedType
       )
     }
   }
@@ -66,7 +67,9 @@ struct OverviewPanel: View {
         OverviewUsageSection(
           entries: usageEntries,
           todayStats: usageRegistry.summary?.today,
-          layoutMode: layoutMode
+          endpointSnapshots: usageRegistry.endpointSnapshots,
+          providerBreakdown: usageRegistry.providerBreakdown,
+          modelBreakdown: usageRegistry.modelBreakdown
         )
 
         if !attentionSessions.isEmpty {

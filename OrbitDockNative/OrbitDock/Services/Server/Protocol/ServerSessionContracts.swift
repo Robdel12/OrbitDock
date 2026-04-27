@@ -253,7 +253,7 @@ struct ServerCodexSessionOverrides: Codable, Equatable, Hashable, Sendable {
   }
 }
 
-struct ServerTokenUsage: Codable, Equatable {
+struct ServerTokenUsage: Codable, Equatable, Sendable {
   let inputTokens: UInt64
   let outputTokens: UInt64
   let cachedTokens: UInt64
@@ -629,6 +629,7 @@ struct ServerUsageSummaryModelCostPayload: Codable, Sendable {
 
 struct ServerUsageSummaryBucketPayload: Codable, Sendable {
   let sessionCount: UInt64
+  let distinctSessionCount: UInt64
   let totalTokens: UInt64
   let inputTokens: UInt64
   let outputTokens: UInt64
@@ -638,12 +639,46 @@ struct ServerUsageSummaryBucketPayload: Codable, Sendable {
 
   enum CodingKeys: String, CodingKey {
     case sessionCount = "session_count"
+    case distinctSessionCount = "distinct_session_count"
     case totalTokens = "total_tokens"
     case inputTokens = "input_tokens"
     case outputTokens = "output_tokens"
     case cachedTokens = "cached_tokens"
     case totalCostUSD = "total_cost_usd"
     case costByModel = "cost_by_model"
+  }
+
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    sessionCount = try container.decode(UInt64.self, forKey: .sessionCount)
+    distinctSessionCount = try container.decodeIfPresent(UInt64.self, forKey: .distinctSessionCount)
+      ?? sessionCount
+    totalTokens = try container.decode(UInt64.self, forKey: .totalTokens)
+    inputTokens = try container.decode(UInt64.self, forKey: .inputTokens)
+    outputTokens = try container.decode(UInt64.self, forKey: .outputTokens)
+    cachedTokens = try container.decode(UInt64.self, forKey: .cachedTokens)
+    totalCostUSD = try container.decode(Double.self, forKey: .totalCostUSD)
+    costByModel = try container.decode([ServerUsageSummaryModelCostPayload].self, forKey: .costByModel)
+  }
+
+  init(
+    sessionCount: UInt64,
+    distinctSessionCount: UInt64,
+    totalTokens: UInt64,
+    inputTokens: UInt64,
+    outputTokens: UInt64,
+    cachedTokens: UInt64,
+    totalCostUSD: Double,
+    costByModel: [ServerUsageSummaryModelCostPayload]
+  ) {
+    self.sessionCount = sessionCount
+    self.distinctSessionCount = distinctSessionCount
+    self.totalTokens = totalTokens
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.cachedTokens = cachedTokens
+    self.totalCostUSD = totalCostUSD
+    self.costByModel = costByModel
   }
 }
 
@@ -1218,6 +1253,22 @@ struct ServerSessionCollaborationMode: Decodable, Identifiable, Sendable {
 
 struct ServerSessionCollaborationModesResponse: Decodable, Sendable {
   let data: [ServerSessionCollaborationMode]
+}
+
+struct ServerSessionRuntimeSnapshot: Decodable, Sendable {
+  let sessionId: String
+  let provider: ServerProvider
+  let controls: ServerSessionControlsPayload
+  let instructions: ServerSessionInstructionsPayload
+  let collaborationModes: [ServerSessionCollaborationMode]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case provider
+    case controls
+    case instructions
+    case collaborationModes = "collaboration_modes"
+  }
 }
 
 struct ServerSessionControlCapability: Decodable, Sendable {

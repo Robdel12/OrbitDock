@@ -1,6 +1,6 @@
 # OrbitDock Server API
 
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 
 This file is the route-level contract for OrbitDock's Rust server.
 
@@ -370,6 +370,26 @@ Each control advertises:
 - optional `max_count`
 
 This is the preferred bootstrap path for control availability. Clients should use it instead of inferring support from provider names.
+
+### `GET /api/sessions/{session_id}/runtime`
+
+Returns the normalized session runtime snapshot for the active provider.
+
+Returns:
+
+- `session_id`
+- `provider`
+- `controls`
+- `instructions`
+- `collaboration_modes`
+
+This is the preferred bootstrap path when the UI needs the session's control surface, prompt/instruction state, and collaboration preset catalog together.
+
+Use the narrower routes when only one slice is needed:
+
+- `GET /api/sessions/{session_id}/controls`
+- `GET /api/sessions/{session_id}/instructions`
+- `GET /api/sessions/{session_id}/collaboration-modes`
 
 ### `POST /api/sessions/{session_id}/controls/stop-active-turn`
 
@@ -895,6 +915,76 @@ Sets the update channel and returns the same shape.
 
 Returns the combined usage summary snapshot for direct OrbitDock sessions. Passive hook sessions
 are intentionally excluded so dashboard totals track sessions created and controlled by OrbitDock.
+
+Summary buckets include both:
+
+- `session_count` for backward compatibility
+- `distinct_session_count` as the server-authored unique session count for that scope
+
+Clients should prefer `distinct_session_count` for new UI.
+
+### `GET /api/usage/breakdown?group_by=<provider|model>&start_unix=<unix>&end_unix=<unix>`
+
+Returns grouped usage entries for the requested time range.
+
+Each entry includes:
+
+- `key`
+- `label`
+- `cost_usd`
+- `input_tokens`
+- `output_tokens`
+- `cached_tokens`
+- `turn_count`
+- `session_count`
+- `distinct_session_count`
+
+This is the narrow grouped read. Use it when a surface needs one filtered breakdown only.
+
+### `GET /api/usage/overview?today_start_unix=<unix>&range_start_unix=<unix>&range_end_unix=<unix>`
+
+Returns a composite usage snapshot for a single time scope without requiring the client to stitch several separate reads together.
+
+Returns:
+
+- `today_start_unix`
+- `summary`
+- `today_provider_breakdown`
+- `today_model_breakdown`
+- `day_breakdown`
+
+This is a general REST resource, not a dashboard-specific endpoint. It exists so any client can fetch one authoritative usage overview snapshot for a given scope.
+
+### `GET /api/usage/sessions?start_unix=<unix>&end_unix=<unix>&limit=<n>&offset=<n>`
+
+Returns the top session usage collection for the requested range.
+
+Returns:
+
+- `start_unix`
+- `end_unix`
+- `next_offset`
+- `total_count`
+- `sessions`
+
+Each session item includes stable usage plus display metadata:
+
+- `session_id`
+- `provider`
+- `display_name`
+- `context_line`
+- `project_name`
+- `project_path`
+- `model`
+- `started_at`
+- `last_activity_at`
+- `cost_usd`
+- `input_tokens`
+- `output_tokens`
+- `cached_tokens`
+- `turn_count`
+
+This is the preferred session-list surface for usage UIs. Clients should not infer top sessions by re-grouping lower-level summary buckets on their own.
 
 ### `GET /api/usage/codex`
 

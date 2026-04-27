@@ -236,6 +236,10 @@ fn session_support_routes() -> Router<Arc<SessionRegistry>> {
       get(super::list_subagent_messages_endpoint),
     )
     .route(
+      "/api/sessions/{session_id}/runtime",
+      get(super::get_session_runtime),
+    )
+    .route(
       "/api/sessions/{session_id}/collaboration-modes",
       get(super::list_collaboration_modes_endpoint),
     )
@@ -350,6 +354,8 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
     )
     .route("/api/usage/summary", get(super::fetch_usage_summary))
     .route("/api/usage/breakdown", get(super::fetch_usage_breakdown))
+    .route("/api/usage/overview", get(super::fetch_usage_overview))
+    .route("/api/usage/sessions", get(super::fetch_usage_sessions))
     .route("/api/usage/codex", get(super::fetch_codex_usage))
     .route("/api/usage/claude", get(super::fetch_claude_usage))
     .route("/api/models/codex", get(super::list_codex_models))

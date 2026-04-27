@@ -36,9 +36,10 @@ pub use approvals::{
   respond_to_permission_request,
 };
 pub use capabilities::{
-  apply_flag_settings, get_session_instructions, install_plugin, list_collaboration_modes_endpoint,
-  list_mcp_tools_endpoint, list_plugins_endpoint, list_skills_endpoint, mcp_authenticate,
-  mcp_clear_auth, mcp_set_servers, refresh_mcp_servers, toggle_mcp_server, uninstall_plugin,
+  apply_flag_settings, get_session_instructions, get_session_runtime, install_plugin,
+  list_collaboration_modes_endpoint, list_mcp_tools_endpoint, list_plugins_endpoint,
+  list_skills_endpoint, mcp_authenticate, mcp_clear_auth, mcp_set_servers, refresh_mcp_servers,
+  toggle_mcp_server, uninstall_plugin,
 };
 pub use codex_auth::{codex_login_cancel, codex_login_start, codex_logout, read_codex_account};
 pub(crate) use connector_actions::{
@@ -71,8 +72,8 @@ pub use server_info::{
   set_workspace_provider_config_value, test_workspace_provider,
 };
 pub use server_meta::{
-  fetch_claude_usage, fetch_codex_usage, fetch_usage_breakdown, fetch_usage_summary,
-  list_claude_models, list_codex_models,
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_breakdown, fetch_usage_overview,
+  fetch_usage_sessions, fetch_usage_summary, list_claude_models, list_codex_models,
 };
 pub use session_actions::{
   compact_context, compact_context_control, get_session_controls, get_session_image_attachment,

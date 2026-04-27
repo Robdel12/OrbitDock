@@ -115,6 +115,8 @@ struct OrbitDockWindowRoot: View {
     switch router.workspaceSelection {
       case .overview, .missions, .library:
         DashboardView(viewModel: dashboardViewModel)
+      case .usage:
+        UsageCenterView()
       case let .session(ref):
         SessionDetailView(
           sessionId: ref.sessionId,

@@ -5,7 +5,8 @@ use axum::{
   Json,
 };
 use orbitdock_protocol::{
-  Provider, UsageBreakdownEntry, UsageBreakdownGroupBy, UsageBreakdownSnapshot, UsageSummaryBucket,
+  Provider, SessionSummary, UsageBreakdownEntry, UsageBreakdownGroupBy, UsageBreakdownSnapshot,
+  UsageOverviewSnapshot, UsageSessionSummary, UsageSessionsSnapshot, UsageSummaryBucket,
   UsageSummaryModelCost, UsageSummarySnapshot,
 };
 use rusqlite::Connection;
@@ -17,7 +18,7 @@ use crate::{
 
 use super::{
   ClaudeUsageResponse, CodexUsageResponse, SessionSummaryRow, UsageBreakdownQuery, UsageLedgerRow,
-  UsageSummaryQuery,
+  UsageOverviewQuery, UsageSessionsQuery, UsageSummaryQuery,
 };
 use crate::transport::http::errors::{internal, ApiResult};
 
@@ -101,58 +102,72 @@ pub async fn fetch_usage_breakdown(
   Ok(Json(breakdown))
 }
 
+pub async fn fetch_usage_overview(
+  Query(query): Query<UsageOverviewQuery>,
+) -> ApiResult<UsageOverviewSnapshot> {
+  let db_path = crate::infrastructure::paths::db_path();
+  let overview = tokio::task::spawn_blocking(move || {
+    load_usage_overview(
+      &db_path,
+      query.today_start_unix,
+      query.range_start_unix,
+      query.range_end_unix,
+    )
+  })
+  .await
+  .map_err(|err| {
+    internal(
+      "usage_overview_failed",
+      format!("Usage overview task failed: {err}"),
+    )
+  })?
+  .map_err(|err| internal("usage_overview_failed", err.to_string()))?;
+
+  Ok(Json(overview))
+}
+
+pub async fn fetch_usage_sessions(
+  Query(query): Query<UsageSessionsQuery>,
+) -> ApiResult<UsageSessionsSnapshot> {
+  let db_path = crate::infrastructure::paths::db_path();
+  let limit = query.limit.clamp(1, 100);
+  let sessions = tokio::task::spawn_blocking(move || {
+    load_usage_sessions(
+      &db_path,
+      query.start_unix,
+      query.end_unix,
+      limit,
+      query.offset,
+    )
+  })
+  .await
+  .map_err(|err| {
+    internal(
+      "usage_sessions_failed",
+      format!("Usage sessions task failed: {err}"),
+    )
+  })?
+  .map_err(|err| internal("usage_sessions_failed", err.to_string()))?;
+
+  Ok(Json(sessions))
+}
+
 pub(super) fn load_usage_summary(
   db_path: &std::path::Path,
   today_start_unix: Option<u64>,
 ) -> anyhow::Result<UsageSummarySnapshot> {
-  if !db_path.exists() {
-    return Ok(UsageSummarySnapshot::default());
-  }
-
-  let conn = Connection::open(db_path)?;
-  conn.execute_batch(
-    "PRAGMA journal_mode = WAL;
-     PRAGMA busy_timeout = 5000;",
-  )?;
+  let conn = match open_usage_connection(db_path)? {
+    Some(conn) => conn,
+    None => return Ok(UsageSummarySnapshot::default()),
+  };
 
   let sessions = load_direct_sessions(&conn)?;
-
   let ledger_rows = load_usage_ledger_rows(&conn)?;
-  let mut today = UsageSummaryBucket::default();
-  let mut all_time = UsageSummaryBucket::default();
-  let mut today_session_ids = std::collections::HashSet::new();
-
-  all_time.session_count = sessions.len() as u64;
-
-  for aggregate in ledger_rows {
-    apply_usage_aggregate(&mut all_time, &aggregate);
-    if aggregate
-      .observed_at_unix
-      .zip(today_start_unix)
-      .is_some_and(|(observed, boundary)| observed >= boundary)
-    {
-      apply_usage_aggregate(&mut today, &aggregate);
-      today_session_ids.insert(aggregate.session_id.clone());
-    }
-  }
-
-  if let Some(boundary) = today_start_unix {
-    for session in &sessions {
-      if session
-        .started_at_unix
-        .is_some_and(|started| started >= boundary)
-      {
-        today_session_ids.insert(session.id.clone());
-      }
-    }
-  }
-
-  today.session_count = today_session_ids.len() as u64;
-
-  sort_model_costs(&mut today);
-  sort_model_costs(&mut all_time);
-
-  Ok(UsageSummarySnapshot { today, all_time })
+  Ok(build_usage_summary(
+    &sessions,
+    &ledger_rows,
+    today_start_unix,
+  ))
 }
 
 pub(super) fn load_usage_breakdown(
@@ -161,13 +176,181 @@ pub(super) fn load_usage_breakdown(
   start_unix: Option<u64>,
   end_unix: Option<u64>,
 ) -> anyhow::Result<UsageBreakdownSnapshot> {
+  let conn = match open_usage_connection(db_path)? {
+    Some(conn) => conn,
+    None => {
+      return Ok(UsageBreakdownSnapshot {
+        group_by,
+        start_unix,
+        end_unix,
+        ..UsageBreakdownSnapshot::default()
+      });
+    }
+  };
+
+  let filtered_rows = filter_rows(load_usage_ledger_rows(&conn)?, start_unix, end_unix);
+  Ok(build_usage_breakdown_snapshot(
+    group_by,
+    start_unix,
+    end_unix,
+    &filtered_rows,
+  ))
+}
+
+pub(super) fn load_usage_overview(
+  db_path: &std::path::Path,
+  today_start_unix: Option<u64>,
+  range_start_unix: Option<u64>,
+  range_end_unix: Option<u64>,
+) -> anyhow::Result<UsageOverviewSnapshot> {
+  let conn = match open_usage_connection(db_path)? {
+    Some(conn) => conn,
+    None => return Ok(UsageOverviewSnapshot::default()),
+  };
+
+  let sessions = load_direct_sessions(&conn)?;
+  let ledger_rows = load_usage_ledger_rows(&conn)?;
+  let summary_rows = ledger_rows.clone();
+  let today_rows = filter_rows(ledger_rows.clone(), today_start_unix, None);
+  let day_rows = filter_rows(ledger_rows, range_start_unix, range_end_unix);
+
+  Ok(UsageOverviewSnapshot {
+    today_start_unix,
+    summary: build_usage_summary(&sessions, &summary_rows, today_start_unix),
+    today_provider_breakdown: build_usage_breakdown_snapshot(
+      UsageBreakdownGroupBy::Provider,
+      today_start_unix,
+      None,
+      &today_rows,
+    ),
+    today_model_breakdown: build_usage_breakdown_snapshot(
+      UsageBreakdownGroupBy::Model,
+      today_start_unix,
+      None,
+      &today_rows,
+    ),
+    day_breakdown: build_usage_breakdown_snapshot(
+      UsageBreakdownGroupBy::Day,
+      range_start_unix,
+      range_end_unix,
+      &day_rows,
+    ),
+  })
+}
+
+pub(super) fn load_usage_sessions(
+  db_path: &std::path::Path,
+  start_unix: Option<u64>,
+  end_unix: Option<u64>,
+  limit: u64,
+  offset: u64,
+) -> anyhow::Result<UsageSessionsSnapshot> {
+  let conn = match open_usage_connection(db_path)? {
+    Some(conn) => conn,
+    None => {
+      return Ok(UsageSessionsSnapshot {
+        start_unix,
+        end_unix,
+        next_offset: None,
+        total_count: 0,
+        sessions: Vec::new(),
+      });
+    }
+  };
+
+  let session_rows = load_direct_sessions(&conn)?;
+  let session_lookup: std::collections::HashMap<String, SessionSummaryRow> = session_rows
+    .into_iter()
+    .map(|row| (row.id.clone(), row))
+    .collect();
+  let filtered_rows = filter_rows(load_usage_ledger_rows(&conn)?, start_unix, end_unix);
+
+  #[derive(Default)]
+  struct UsageSessionAccumulator {
+    turn_count: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_tokens: u64,
+    total_cost_usd: f64,
+  }
+
+  let mut grouped: std::collections::BTreeMap<String, UsageSessionAccumulator> =
+    std::collections::BTreeMap::new();
+  for row in filtered_rows {
+    let session = grouped.entry(row.session_id).or_default();
+    session.turn_count = session.turn_count.saturating_add(1);
+    session.input_tokens = session.input_tokens.saturating_add(row.input_tokens);
+    session.output_tokens = session.output_tokens.saturating_add(row.output_tokens);
+    session.cached_tokens = session.cached_tokens.saturating_add(row.cached_tokens);
+    session.total_cost_usd += row.cost_usd;
+  }
+
+  let mut sessions: Vec<UsageSessionSummary> = grouped
+    .into_iter()
+    .filter_map(|(session_id, usage)| {
+      let metadata = session_lookup.get(&session_id)?;
+      Some(UsageSessionSummary {
+        session_id: session_id.clone(),
+        provider: metadata.provider,
+        display_name: SessionSummary::display_title_from_parts(
+          metadata.custom_name.as_deref(),
+          metadata.summary.as_deref(),
+          metadata.first_prompt.as_deref(),
+          metadata.project_name.as_deref(),
+          &metadata.project_path,
+        ),
+        project_name: metadata.project_name.clone(),
+        project_path: metadata.project_path.clone(),
+        model: metadata.model.clone(),
+        started_at: metadata.started_at.clone(),
+        last_activity_at: metadata.last_activity_at.clone(),
+        context_line: SessionSummary::context_line_from_parts(
+          metadata.summary.as_deref(),
+          metadata.first_prompt.as_deref(),
+          metadata.last_message.as_deref(),
+        ),
+        turn_count: usage.turn_count,
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cached_tokens: usage.cached_tokens,
+        total_tokens: usage.input_tokens.saturating_add(usage.output_tokens),
+        total_cost_usd: usage.total_cost_usd,
+      })
+    })
+    .collect();
+
+  sessions.sort_by(|lhs, rhs| {
+    rhs
+      .total_cost_usd
+      .total_cmp(&lhs.total_cost_usd)
+      .then_with(|| rhs.total_tokens.cmp(&lhs.total_tokens))
+      .then_with(|| rhs.turn_count.cmp(&lhs.turn_count))
+      .then_with(|| rhs.last_activity_at.cmp(&lhs.last_activity_at))
+      .then_with(|| lhs.display_name.cmp(&rhs.display_name))
+  });
+
+  let total_count = sessions.len() as u64;
+  let start_index = usize::try_from(offset).unwrap_or(usize::MAX);
+  let limit = usize::try_from(limit).unwrap_or(100);
+  let paged_sessions: Vec<UsageSessionSummary> =
+    sessions.into_iter().skip(start_index).take(limit).collect();
+  let next_offset = start_index
+    .checked_add(paged_sessions.len())
+    .map(|next| next as u64)
+    .filter(|next| *next < total_count);
+
+  Ok(UsageSessionsSnapshot {
+    start_unix,
+    end_unix,
+    next_offset,
+    total_count,
+    sessions: paged_sessions,
+  })
+}
+
+fn open_usage_connection(db_path: &std::path::Path) -> anyhow::Result<Option<Connection>> {
   if !db_path.exists() {
-    return Ok(UsageBreakdownSnapshot {
-      group_by,
-      start_unix,
-      end_unix,
-      ..UsageBreakdownSnapshot::default()
-    });
+    return Ok(None);
   }
 
   let conn = Connection::open(db_path)?;
@@ -175,34 +358,42 @@ pub(super) fn load_usage_breakdown(
     "PRAGMA journal_mode = WAL;
      PRAGMA busy_timeout = 5000;",
   )?;
-
-  let filtered_rows: Vec<UsageLedgerRow> = load_usage_ledger_rows(&conn)?
-    .into_iter()
-    .filter(|row| row_in_range(row, start_unix, end_unix))
-    .collect();
-
-  let totals = build_totals_bucket(&filtered_rows);
-  let groups = build_breakdown_groups(&filtered_rows, group_by);
-
-  Ok(UsageBreakdownSnapshot {
-    group_by,
-    start_unix,
-    end_unix,
-    totals,
-    groups,
-  })
+  Ok(Some(conn))
 }
 
 fn load_direct_sessions(conn: &Connection) -> anyhow::Result<Vec<SessionSummaryRow>> {
   conn
     .prepare(&format!(
-      "SELECT s.id, s.started_at FROM sessions s WHERE {DIRECT_SESSION_PREDICATE}"
+      "SELECT
+         s.id,
+         s.provider,
+         s.project_path,
+         s.project_name,
+         s.model,
+         s.custom_name,
+         s.summary,
+         s.first_prompt,
+         s.last_message,
+         s.started_at,
+         s.last_activity_at
+       FROM sessions s
+       WHERE {DIRECT_SESSION_PREDICATE}"
     ))?
     .query_map([], |row| {
-      let session_id: String = row.get(0)?;
-      let started_at: Option<String> = row.get(1)?;
+      let provider_raw: String = row.get(1)?;
+      let started_at: Option<String> = row.get(9)?;
       Ok(SessionSummaryRow {
-        id: session_id,
+        id: row.get(0)?,
+        provider: provider_raw.parse().unwrap_or(Provider::Claude),
+        project_path: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+        project_name: row.get(3)?,
+        model: row.get(4)?,
+        custom_name: row.get(5)?,
+        summary: row.get(6)?,
+        first_prompt: row.get(7)?,
+        last_message: row.get(8)?,
+        started_at: started_at.clone(),
+        last_activity_at: row.get(10)?,
         started_at_unix: parse_timestamp_to_unix(started_at.as_deref()),
       })
     })?
@@ -255,6 +446,76 @@ fn parse_timestamp_to_unix(value: Option<&str>) -> Option<u64> {
     .map(|parsed| parsed.timestamp().max(0) as u64)
 }
 
+fn filter_rows(
+  rows: Vec<UsageLedgerRow>,
+  start_unix: Option<u64>,
+  end_unix: Option<u64>,
+) -> Vec<UsageLedgerRow> {
+  rows
+    .into_iter()
+    .filter(|row| row_in_range(row, start_unix, end_unix))
+    .collect()
+}
+
+fn build_usage_summary(
+  sessions: &[SessionSummaryRow],
+  ledger_rows: &[UsageLedgerRow],
+  today_start_unix: Option<u64>,
+) -> UsageSummarySnapshot {
+  let mut today = UsageSummaryBucket::default();
+  let mut all_time = UsageSummaryBucket::default();
+  let mut today_session_ids = std::collections::HashSet::new();
+
+  all_time.session_count = sessions.len() as u64;
+  all_time.distinct_session_count = all_time.session_count;
+
+  for aggregate in ledger_rows {
+    apply_usage_aggregate(&mut all_time, aggregate);
+    if aggregate
+      .observed_at_unix
+      .zip(today_start_unix)
+      .is_some_and(|(observed, boundary)| observed >= boundary)
+    {
+      apply_usage_aggregate(&mut today, aggregate);
+      today_session_ids.insert(aggregate.session_id.clone());
+    }
+  }
+
+  if let Some(boundary) = today_start_unix {
+    for session in sessions {
+      if session
+        .started_at_unix
+        .is_some_and(|started| started >= boundary)
+      {
+        today_session_ids.insert(session.id.clone());
+      }
+    }
+  }
+
+  today.session_count = today_session_ids.len() as u64;
+  today.distinct_session_count = today.session_count;
+
+  sort_model_costs(&mut today);
+  sort_model_costs(&mut all_time);
+
+  UsageSummarySnapshot { today, all_time }
+}
+
+fn build_usage_breakdown_snapshot(
+  group_by: UsageBreakdownGroupBy,
+  start_unix: Option<u64>,
+  end_unix: Option<u64>,
+  rows: &[UsageLedgerRow],
+) -> UsageBreakdownSnapshot {
+  UsageBreakdownSnapshot {
+    group_by,
+    start_unix,
+    end_unix,
+    totals: build_totals_bucket(rows),
+    groups: build_breakdown_groups(rows, group_by),
+  }
+}
+
 fn apply_usage_aggregate(bucket: &mut UsageSummaryBucket, aggregate: &UsageLedgerRow) {
   bucket.input_tokens = bucket.input_tokens.saturating_add(aggregate.input_tokens);
   bucket.output_tokens = bucket.output_tokens.saturating_add(aggregate.output_tokens);
@@ -303,6 +564,7 @@ fn build_totals_bucket(rows: &[UsageLedgerRow]) -> UsageSummaryBucket {
   }
 
   bucket.session_count = session_ids.len() as u64;
+  bucket.distinct_session_count = bucket.session_count;
   sort_model_costs(&mut bucket);
   bucket
 }
@@ -394,6 +656,7 @@ fn build_breakdown_groups(
       day_start_unix: accumulator.day_start_unix,
       turn_count: accumulator.turn_count,
       session_count: accumulator.session_ids.len() as u64,
+      distinct_session_count: accumulator.session_ids.len() as u64,
       input_tokens: accumulator.input_tokens,
       output_tokens: accumulator.output_tokens,
       cached_tokens: accumulator.cached_tokens,

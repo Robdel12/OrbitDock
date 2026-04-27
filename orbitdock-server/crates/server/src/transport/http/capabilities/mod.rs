@@ -20,7 +20,7 @@ pub use mcp::{
   toggle_mcp_server,
 };
 pub use plugins::{install_plugin, list_plugins_endpoint, uninstall_plugin};
-pub use runtime::list_collaboration_modes_endpoint;
+pub use runtime::{get_session_runtime, list_collaboration_modes_endpoint};
 pub use skills::list_skills_endpoint;
 
 #[derive(Debug, Serialize)]
@@ -70,6 +70,15 @@ pub struct SessionCollaborationMode {
 #[derive(Debug, Serialize)]
 pub struct SessionCollaborationModesResponse {
   pub data: Vec<SessionCollaborationMode>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionRuntimeResponse {
+  pub session_id: String,
+  pub provider: orbitdock_protocol::Provider,
+  pub controls: crate::transport::http::session_actions::SessionControlsPayload,
+  pub instructions: SessionInstructionsPayload,
+  pub collaboration_modes: Vec<SessionCollaborationMode>,
 }
 
 #[derive(Debug, Serialize, Default)]

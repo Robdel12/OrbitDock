@@ -201,9 +201,12 @@ The control deck is the current SwiftUI composer component name. It is not an AP
 
 For session runtime/controls specifically, the bootstrap should come from explicit support/state reads such as:
 
+- `GET /api/sessions/{id}/runtime`
 - `GET /api/sessions/{id}/controls`
 - `GET /api/sessions/{id}/instructions`
 - `GET /api/sessions/{id}/collaboration-modes`
+
+`GET /api/sessions/{id}/runtime` is the preferred single read when a surface needs controls, instructions, and collaboration presets together. The narrower routes still exist for focused refreshes and lighter follow-up reads.
 
 Session-scoped shell commands are conversation mutations, not a terminal bootstrap surface:
 
@@ -239,6 +242,8 @@ Library should not be treated like an always-hot global cache.
 4. The session transport records the returned replay cursor/revision.
 5. The selected-session route subscribes to conversation/detail follow-up immediately.
 6. Slower selected-session detail/support refreshes, such as runtime controls, capabilities, skills, review, and project-file support data, run after realtime is attached.
+
+When the selected-session UI needs the full runtime support surface, that follow-up should usually be one `GET /api/sessions/{id}/runtime` read rather than several parallel capability requests.
 
 If one intentional selected-session bootstrap hydrates multiple closely related surfaces, that is fine.
 

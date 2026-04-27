@@ -16,6 +16,7 @@ enum DashboardTab: String, CaseIterable {
 
 enum WorkspaceSelection: Hashable {
   case overview
+  case usage
   case session(SessionRef)
   case mission(MissionRef)
   case missions
@@ -39,6 +40,7 @@ enum NavigationSource: String, Sendable {
 
 enum AppRoute: Equatable {
   case dashboard(DashboardTab)
+  case usage
   case session(SessionRef)
   case mission(MissionRef)
   case terminal(terminalId: String)
@@ -132,6 +134,7 @@ final class AppRouter {
   var route: AppRoute {
     switch workspaceSelection {
       case .overview: .dashboard(.missionControl)
+      case .usage: .usage
       case let .session(ref): .session(ref)
       case let .mission(ref): .mission(ref)
       case .missions: .dashboard(.missions)
@@ -183,6 +186,7 @@ final class AppRouter {
     guard let prev = previousSelection else { return "Overview" }
     switch prev {
       case .overview: return "Overview"
+      case .usage: return "Usage"
       case .session: return "Session"
       case .mission: return "Mission"
       case .missions: return "Missions"
@@ -205,6 +209,11 @@ final class AppRouter {
   func goToDashboard(source _: NavigationSource = .unspecified) {
     guard workspaceSelection != .overview else { return }
     updateSelectionWithoutAnimation(.overview)
+  }
+
+  func goToUsage(source _: NavigationSource = .unspecified) {
+    guard workspaceSelection != .usage else { return }
+    workspaceSelection = .usage
   }
 
   func goToLibrary() {

@@ -374,6 +374,7 @@ struct StoredTurnUsageSnapshot {
   turn_seq: u64,
   provider: String,
   model: Option<String>,
+  created_at: String,
   usage: TokenUsage,
   snapshot_kind: TokenUsageSnapshotKind,
 }
@@ -392,23 +393,24 @@ pub(super) fn recompute_usage_ledger_for_session(
 
   let turns = conn
     .prepare(
-      "SELECT turn_id, turn_seq, provider, model, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind
+      "SELECT turn_id, turn_seq, provider, model, created_at, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind
        FROM usage_turns
        WHERE session_id = ?1
        ORDER BY turn_seq ASC, rowid ASC",
     )?
     .query_map(params![session_id], |row| {
-      let snapshot_kind: String = row.get(8)?;
+      let snapshot_kind: String = row.get(9)?;
       Ok(StoredTurnUsageSnapshot {
         turn_id: row.get(0)?,
         turn_seq: row.get::<_, i64>(1)?.max(0) as u64,
         provider: row.get(2)?,
         model: row.get(3)?,
+        created_at: row.get(4)?,
         usage: TokenUsage {
-          input_tokens: row.get::<_, i64>(4)?.max(0) as u64,
-          output_tokens: row.get::<_, i64>(5)?.max(0) as u64,
-          cached_tokens: row.get::<_, i64>(6)?.max(0) as u64,
-          context_window: row.get::<_, i64>(7)?.max(0) as u64,
+          input_tokens: row.get::<_, i64>(5)?.max(0) as u64,
+          output_tokens: row.get::<_, i64>(6)?.max(0) as u64,
+          cached_tokens: row.get::<_, i64>(7)?.max(0) as u64,
+          context_window: row.get::<_, i64>(8)?.max(0) as u64,
         },
         snapshot_kind: snapshot_kind_from_str(Some(snapshot_kind.as_str())),
       })
@@ -474,7 +476,7 @@ pub(super) fn recompute_usage_ledger_for_session(
         provider = excluded.provider,
         model = excluded.model,
         session_started_at = excluded.session_started_at,
-        observed_at = COALESCE(usage_ledger_entries.observed_at, excluded.observed_at),
+        observed_at = excluded.observed_at,
         snapshot_kind = excluded.snapshot_kind,
         billable_input_tokens = excluded.billable_input_tokens,
         billable_output_tokens = excluded.billable_output_tokens,
@@ -497,7 +499,7 @@ pub(super) fn recompute_usage_ledger_for_session(
         &turn.provider,
         &turn.model,
         &session_started_at,
-        chrono_now(),
+        &turn.created_at,
         snapshot_kind_to_str(turn.snapshot_kind),
         normalized.billable_input_tokens as i64,
         normalized.billable_output_tokens as i64,
@@ -705,6 +707,18 @@ fn usage_accounting_repair_needed(conn: &Connection) -> Result<bool, rusqlite::E
        WHERE pricing_model_key IS NULL
           OR input_cost_per_token = 0
           OR output_cost_per_token = 0",
+  )? {
+    return Ok(true);
+  }
+
+  if query_exists(
+    conn,
+    "SELECT 1
+       FROM usage_turns ut
+       JOIN usage_ledger_entries ule
+         ON ule.session_id = ut.session_id
+        AND ule.turn_id = ut.turn_id
+      WHERE COALESCE(NULLIF(ule.observed_at, ''), '') != COALESCE(NULLIF(ut.created_at, ''), '')",
   )? {
     return Ok(true);
   }
@@ -1055,6 +1069,90 @@ mod tests {
         40,
       )
     );
+  }
+
+  #[test]
+  fn repair_usage_accounting_restores_original_turn_timestamps_in_ledger() {
+    let conn = Connection::open_in_memory().expect("open sqlite");
+    create_usage_ledger_test_schema(&conn);
+    conn
+      .execute(
+        "INSERT INTO sessions (id, provider, model, started_at) VALUES (?1, ?2, ?3, ?4)",
+        params!["session-1", "codex", "gpt-5.4", "2026-03-29T00:00:00Z"],
+      )
+      .expect("insert session");
+    conn
+      .execute(
+        "INSERT INTO usage_turns (
+           session_id, turn_id, turn_seq, provider, model, snapshot_kind, input_tokens, output_tokens, cached_tokens, context_window, input_delta_tokens, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![
+          "session-1",
+          "turn-1",
+          1_i64,
+          "codex",
+          "gpt-5.4",
+          "lifetime_totals",
+          100_i64,
+          20_i64,
+          10_i64,
+          200_000_i64,
+          100_i64,
+          "2026-03-29T00:05:00Z",
+        ],
+      )
+      .expect("insert usage turn");
+    conn
+      .execute(
+        "INSERT INTO usage_ledger_entries (
+           session_id, turn_id, turn_seq, provider, model, session_started_at, observed_at,
+           snapshot_kind, billable_input_tokens, billable_output_tokens, cache_read_tokens,
+           cache_write_tokens, context_input_tokens, context_window, estimated_cost_usd,
+           pricing_source, pricing_version, pricing_model_key, input_cost_per_token,
+           output_cost_per_token, cache_read_cost_per_token, cache_write_cost_per_token
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+        params![
+          "session-1",
+          "turn-1",
+          1_i64,
+          "codex",
+          "gpt-5.4",
+          "2026-03-29T00:00:00Z",
+          "2026-04-26T18:08:32Z",
+          "lifetime_totals",
+          100_i64,
+          20_i64,
+          10_i64,
+          0_i64,
+          100_i64,
+          200_000_i64,
+          0.25_f64,
+          "orbitdock_builtin",
+          "2026-04-backbone-v1",
+          "gpt-5.4",
+          0.0_f64,
+          0.0_f64,
+          0.0_f64,
+          0.0_f64,
+        ],
+      )
+      .expect("insert stale ledger row");
+
+    assert!(usage_accounting_repair_needed(&conn).expect("detect repair need"));
+
+    repair_usage_accounting(&conn).expect("repair usage accounting");
+
+    let observed_at: String = conn
+      .query_row(
+        "SELECT observed_at
+         FROM usage_ledger_entries
+         WHERE session_id = ?1 AND turn_id = ?2",
+        params!["session-1", "turn-1"],
+        |row| row.get(0),
+      )
+      .expect("read repaired observed_at");
+
+    assert_eq!(observed_at, "2026-03-29T00:05:00Z");
   }
 
   #[test]

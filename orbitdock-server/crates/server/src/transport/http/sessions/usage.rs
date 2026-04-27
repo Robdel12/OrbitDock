@@ -227,8 +227,10 @@ fn build_session_usage_summary(
   rows: &[(Option<String>, u64, u64, u64, f64)],
   total_turn_count: u64,
 ) -> UsageSummaryBucket {
+  let distinct_session_count = if total_turn_count > 0 { 1 } else { 0 };
   let mut bucket = UsageSummaryBucket {
-    session_count: if total_turn_count > 0 { 1 } else { 0 },
+    session_count: distinct_session_count,
+    distinct_session_count,
     ..UsageSummaryBucket::default()
   };
   let mut by_model: std::collections::BTreeMap<String, f64> = std::collections::BTreeMap::new();

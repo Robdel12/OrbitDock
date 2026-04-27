@@ -2046,6 +2046,8 @@ pub struct UsageSummaryModelCost {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UsageSummaryBucket {
   pub session_count: u64,
+  #[serde(default)]
+  pub distinct_session_count: u64,
   pub total_tokens: u64,
   pub input_tokens: u64,
   pub output_tokens: u64,
@@ -2059,6 +2061,16 @@ pub struct UsageSummaryBucket {
 pub struct UsageSummarySnapshot {
   pub today: UsageSummaryBucket,
   pub all_time: UsageSummaryBucket,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageOverviewSnapshot {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub today_start_unix: Option<u64>,
+  pub summary: UsageSummarySnapshot,
+  pub today_provider_breakdown: UsageBreakdownSnapshot,
+  pub today_model_breakdown: UsageBreakdownSnapshot,
+  pub day_breakdown: UsageBreakdownSnapshot,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -2084,6 +2096,8 @@ pub struct UsageBreakdownEntry {
   pub day_start_unix: Option<u64>,
   pub turn_count: u64,
   pub session_count: u64,
+  #[serde(default)]
+  pub distinct_session_count: u64,
   pub input_tokens: u64,
   pub output_tokens: u64,
   pub cached_tokens: u64,
@@ -2101,6 +2115,43 @@ pub struct UsageBreakdownSnapshot {
   pub totals: UsageSummaryBucket,
   #[serde(default)]
   pub groups: Vec<UsageBreakdownEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageSessionSummary {
+  pub session_id: String,
+  pub provider: Provider,
+  pub display_name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub project_name: Option<String>,
+  pub project_path: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub started_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_activity_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub context_line: Option<String>,
+  pub turn_count: u64,
+  pub input_tokens: u64,
+  pub output_tokens: u64,
+  pub cached_tokens: u64,
+  pub total_tokens: u64,
+  pub total_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UsageSessionsSnapshot {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub start_unix: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub end_unix: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub next_offset: Option<u64>,
+  pub total_count: u64,
+  #[serde(default)]
+  pub sessions: Vec<UsageSessionSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

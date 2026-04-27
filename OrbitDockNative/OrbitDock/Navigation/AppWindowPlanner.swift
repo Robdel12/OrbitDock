@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppContentDestination: Equatable {
   case setup
+  case usage
   case session(SessionRef)
   case mission(MissionRef)
   case terminal(terminalId: String)
@@ -43,6 +44,8 @@ enum AppWindowPlanner {
     switch route {
       case .dashboard:
         return .dashboard
+      case .usage:
+        return .usage
       case let .session(ref):
         return .session(ref)
       case let .mission(ref):
