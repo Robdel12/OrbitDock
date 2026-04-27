@@ -24,11 +24,6 @@ pub(crate) fn ensure_bind_addr_available(
   }
 }
 
-#[cfg(test)]
-pub(crate) fn bind_conflict_message(bind_addr: SocketAddr, data_dir: &Path) -> String {
-  describe_bind_conflict(bind_addr, data_dir)
-}
-
 fn describe_bind_conflict(bind_addr: SocketAddr, data_dir: &Path) -> String {
   let mut lines = vec![format!(
     "OrbitDock could not start because {} is already in use.",
@@ -89,18 +84,5 @@ fn process_alive(pid: u32) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-  use std::net::{IpAddr, Ipv4Addr};
-
-  #[test]
-  fn conflict_message_always_mentions_bind_address() {
-    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 4000);
-    let data_dir = std::env::temp_dir();
-    let message = bind_conflict_message(bind_addr, &data_dir);
-
-    assert!(message.contains("127.0.0.1:4000"));
-    assert!(message.contains("already in use"));
-    assert!(message.contains("Stop the existing OrbitDock/dev server"));
-  }
-}
+#[path = "bind_guard_tests.rs"]
+mod tests;

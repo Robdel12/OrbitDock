@@ -38,17 +38,6 @@ pub enum ExposureMode {
   Direct,
 }
 
-impl ExposureMode {
-  #[cfg(test)]
-  fn desired_bind(self) -> SocketAddr {
-    match self {
-      Self::Cloudflare | Self::ReverseProxy => "127.0.0.1:4000".parse().unwrap(),
-      Self::Tailscale => "127.0.0.1:4000".parse().unwrap(),
-      Self::Direct => "0.0.0.0:4000".parse().unwrap(),
-    }
-  }
-}
-
 // ── Existing-state detection ────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -732,70 +721,5 @@ fn print_tailscale_stop_instructions() {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn cloudflare_exposure_binds_localhost() {
-    assert_eq!(
-      ExposureMode::Cloudflare.desired_bind().to_string(),
-      "127.0.0.1:4000"
-    );
-  }
-
-  #[test]
-  fn tailscale_exposure_binds_all_interfaces() {
-    assert_eq!(
-      ExposureMode::Tailscale.desired_bind().to_string(),
-      "127.0.0.1:4000"
-    );
-  }
-
-  #[test]
-  fn reverse_proxy_exposure_binds_localhost() {
-    assert_eq!(
-      ExposureMode::ReverseProxy.desired_bind().to_string(),
-      "127.0.0.1:4000"
-    );
-  }
-
-  #[test]
-  fn direct_exposure_binds_all_interfaces() {
-    assert_eq!(
-      ExposureMode::Direct.desired_bind().to_string(),
-      "0.0.0.0:4000"
-    );
-  }
-
-  #[test]
-  fn parse_launchd_bind_reads_bind_address() {
-    let content = r#"
-        <string>start</string>
-        <string>--bind</string>
-        <string>127.0.0.1:4000</string>
-        "#;
-    let bind = parse_launchd_bind(content).expect("bind");
-    assert_eq!(bind.to_string(), "127.0.0.1:4000");
-  }
-
-  #[test]
-  fn parse_systemd_bind_reads_bind_address() {
-    let content = r#"ExecStart=/Users/test/.orbitdock/bin/orbitdock start --bind 0.0.0.0:4000 --data-dir /Users/test/.orbitdock"#;
-    let bind = parse_systemd_bind(content).expect("bind");
-    assert_eq!(bind.to_string(), "0.0.0.0:4000");
-  }
-
-  #[test]
-  fn tailscale_status_json_prefers_https_dns_name() {
-    let json = br#"{
-      "Self": {
-        "DNSName": "orbitdock-mac.penguin.ts.net."
-      }
-    }"#;
-
-    assert_eq!(
-      tailscale_https_url_from_status_json(json),
-      Some("https://orbitdock-mac.penguin.ts.net".to_string())
-    );
-  }
-}
+#[path = "setup_tests.rs"]
+mod tests;

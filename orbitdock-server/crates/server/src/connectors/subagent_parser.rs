@@ -230,57 +230,5 @@ fn shorten_path(path: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-  use super::*;
-
-  #[test]
-  fn test_shorten_path() {
-    assert_eq!(shorten_path("/a/b/c/d/e.rs"), ".../d/e.rs");
-    assert_eq!(shorten_path("a/b/c"), "a/b/c");
-    assert_eq!(shorten_path("file.rs"), "file.rs");
-  }
-
-  #[test]
-  fn test_create_tool_summary_read() {
-    let input = serde_json::json!({"file_path": "/Users/me/project/src/main.rs"});
-    assert_eq!(create_tool_summary("Read", Some(&input)), ".../src/main.rs");
-  }
-
-  #[test]
-  fn test_create_tool_summary_bash() {
-    let input = serde_json::json!({"command": "echo hello"});
-    assert_eq!(create_tool_summary("Bash", Some(&input)), "echo hello");
-  }
-
-  #[test]
-  fn test_create_tool_summary_grep() {
-    let input = serde_json::json!({"pattern": "fn main"});
-    assert_eq!(
-      create_tool_summary("Grep", Some(&input)),
-      "Pattern: fn main"
-    );
-  }
-
-  #[test]
-  fn test_create_tool_summary_no_input() {
-    assert_eq!(create_tool_summary("Unknown", None), "Unknown");
-  }
-
-  #[test]
-  fn test_extract_tool_result_string() {
-    let item = serde_json::json!({"content": "hello world", "type": "tool_result"});
-    assert_eq!(extract_tool_result_content(&item), "hello world");
-  }
-
-  #[test]
-  fn test_extract_tool_result_array() {
-    let item = serde_json::json!({
-        "type": "tool_result",
-        "content": [
-            {"type": "text", "text": "line 1"},
-            {"type": "text", "text": "line 2"}
-        ]
-    });
-    assert_eq!(extract_tool_result_content(&item), "line 1\nline 2");
-  }
-}
+#[path = "subagent_parser_tests.rs"]
+mod tests;
