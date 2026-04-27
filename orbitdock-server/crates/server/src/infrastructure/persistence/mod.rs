@@ -16,6 +16,7 @@ pub(crate) mod mission_control;
 mod mission_writes;
 mod review_comments;
 mod review_writes;
+mod session_accounting_writes;
 mod session_reads;
 mod session_writes;
 mod startup_cleanup;
@@ -196,7 +197,7 @@ fn execute_command_by_family(
       viewer_present,
       assigned_sequence,
       sequence_tx,
-    } => session_writes::persist_row_append(
+    } => session_accounting_writes::persist_row_append(
       conn,
       session_id,
       entry,
@@ -210,7 +211,7 @@ fn execute_command_by_family(
       viewer_present,
       assigned_sequence,
       sequence_tx,
-    } => session_writes::persist_row_upsert(
+    } => session_accounting_writes::persist_row_upsert(
       conn,
       session_id,
       entry,
@@ -222,12 +223,12 @@ fn execute_command_by_family(
       session_id,
       usage,
       snapshot_kind,
-    } => session_writes::persist_tokens_update(conn, session_id, usage, snapshot_kind)?,
+    } => session_accounting_writes::persist_tokens_update(conn, session_id, usage, snapshot_kind)?,
     PersistCommand::TurnStateUpdate {
       session_id,
       diff,
       plan,
-    } => session_writes::persist_turn_state_update(conn, session_id, diff, plan)?,
+    } => session_accounting_writes::persist_turn_state_update(conn, session_id, diff, plan)?,
     PersistCommand::TurnDiffInsert {
       session_id,
       turn_id,
@@ -238,9 +239,9 @@ fn execute_command_by_family(
       cached_tokens,
       context_window,
       snapshot_kind,
-    } => session_writes::persist_turn_diff_insert(
+    } => session_accounting_writes::persist_turn_diff_insert(
       conn,
-      session_writes::TurnDiffInsertRecord {
+      session_accounting_writes::TurnDiffInsertRecord {
         session_id,
         turn_id,
         turn_seq,
@@ -344,7 +345,7 @@ fn execute_command_by_family(
     PersistCommand::MarkSessionRead {
       session_id,
       up_to_sequence,
-    } => session_writes::persist_mark_session_read(conn, session_id, up_to_sequence)?,
+    } => session_accounting_writes::persist_mark_session_read(conn, session_id, up_to_sequence)?,
     PersistCommand::ReactivateSession { id } => {
       session_writes::persist_reactivate_session(conn, id)?
     }
