@@ -619,7 +619,7 @@ Current slice status:
 Next queued slices:
 
 - `Slice 3Q`: review the remaining Claude direct/passive shadow-session preservation and cleanup branches, but treat the persistence guard and hook suppression paths as live unless we redesign the direct-ownership race. Current analysis says `preserve_direct_owned_claude_shadow` still protects real runtime and workspace-sync replay ordering.
-- `Slice 3AA`: review the remaining write/startup-side `control_mode` compatibility fallbacks now that the read path has been tightened. Start with `startup_recovery.rs`, `runtime/session_registry/ownership.rs` callers that still depend on startup-populated ownership rows, and `infrastructure/persistence/mod.rs` only if we can prove the direct-owner write guard still has enough coverage without integration-column fallback.
+- `Slice 3AA`: parked for now, not an automatic delete. A broader startup/write-side `control_mode` conversion changed behavior in `load_session_by_id_and_startup_restore_use_persisted_control_mode`, which proves we still support rows where `control_mode = 'direct'` while the legacy integration-mode column remains passive. Do not reopen this lane without a dedicated design pass and new invariants.
 
 Search targets:
 
