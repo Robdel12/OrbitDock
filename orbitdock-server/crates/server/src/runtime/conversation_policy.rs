@@ -1,21 +1,12 @@
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 
 use crate::domain::sessions::conversation::ConversationPage;
+use crate::runtime::session_runtime_helpers::normalize_row_sequences;
 
 const COHERENT_HISTORY_MIN_TURNS: usize = 4;
 // Keep bootstrap cheap for tool-heavy sessions. Full command output is loaded
 // through the row-content endpoint, not by widening initial conversation pages.
 pub(crate) const COHERENT_HISTORY_MAX_ROWS: usize = 100;
-
-pub(crate) fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
-  let mut next_sequence = 0_u64;
-  for entry in rows {
-    if entry.sequence == 0 && next_sequence > 0 {
-      entry.sequence = next_sequence;
-    }
-    next_sequence = entry.sequence + 1;
-  }
-}
 
 pub(crate) fn conversation_page_from_rows(
   mut rows: Vec<ConversationRowEntry>,

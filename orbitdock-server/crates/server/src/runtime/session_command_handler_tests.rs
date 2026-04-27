@@ -1,9 +1,14 @@
 use super::*;
 use crate::infrastructure::persistence::PersistCommand;
+use orbitdock_connector_core::{
+  ConnectorOutput, ConnectorRuntimeDirective, ConnectorTransportEffect,
+};
 use orbitdock_protocol::conversation_contracts::{
   rows::MessageDeliveryStatus, ConversationRowEntry, MessageRowContent,
 };
-use orbitdock_protocol::{SessionLifecycleState, SessionSurface, SteerOutcome};
+use orbitdock_protocol::{
+  CodexIntegrationMode, Provider, SessionLifecycleState, SessionSurface, SteerOutcome,
+};
 use tokio::sync::mpsc;
 
 fn user_entry(session_id: &str, row_id: &str, content: &str) -> ConversationRowEntry {

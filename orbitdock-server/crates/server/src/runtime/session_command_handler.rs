@@ -4,21 +4,22 @@
 //! mutations, persistence effects, and broadcasts. Used by both provider
 //! event loops (Claude, Codex) and the passive session actor.
 
+#[path = "session_command_persistence.rs"]
+mod session_command_persistence;
+#[path = "session_connector_dispatch.rs"]
+mod session_connector_dispatch;
+
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Duration;
 
-use orbitdock_connector_core::{
-  ConnectorOutput, ConnectorRuntimeDirective, ConnectorStateEvent, ConnectorTransportEffect,
-};
+use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::conversation_contracts::{
   compute_tool_display, ConversationRow, ToolDisplayInput,
 };
 use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
 use orbitdock_protocol::{
-  CodexIntegrationMode, Provider, ServerMessage, SessionState, SessionStatus, SessionSurface,
-  StateChanges, WorkStatus,
+  ServerMessage, SessionState, SessionStatus, SessionSurface, StateChanges, WorkStatus,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -28,90 +29,22 @@ use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
-  inject_approval_version, latest_completed_conversation_row, row_append_delta, transition_delta,
+  inject_approval_version, latest_completed_conversation_row, transition_delta,
 };
 use crate::runtime::session_commands::{
   PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
 };
 use crate::support::session_time::chrono_now;
 
-async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistCommand>) {
-  let cmd = match op {
-    PersistOp::SessionUpdate {
-      id,
-      status,
-      work_status,
-      lifecycle_state,
-      last_activity_at,
-      last_progress_at,
-    } => PersistCommand::SessionUpdate {
-      id,
-      status,
-      work_status,
-      control_mode: None,
-      lifecycle_state,
-      last_activity_at,
-      last_progress_at,
-    },
-    PersistOp::SetCustomName { session_id, name } => PersistCommand::SetCustomName {
-      session_id,
-      custom_name: name,
-    },
-    PersistOp::SetSessionConfig(cfg) => PersistCommand::SetSessionConfig {
-      session_id: cfg.session_id,
-      approval_policy: cfg.approval_policy,
-      sandbox_mode: cfg.sandbox_mode,
-      permission_mode: cfg.permission_mode,
-      collaboration_mode: cfg.collaboration_mode,
-      multi_agent: cfg.multi_agent,
-      personality: cfg.personality,
-      service_tier: cfg.service_tier,
-      developer_instructions: cfg.developer_instructions,
-      model: cfg.model,
-      effort: cfg.effort,
-      codex_config_mode: cfg.codex_config_mode,
-      codex_config_profile: cfg.codex_config_profile,
-      codex_model_provider: cfg.codex_model_provider,
-      codex_config_source: cfg.codex_config_source,
-      codex_config_overrides_json: cfg.codex_config_overrides_json,
-    },
-  };
-  let _ = persist_tx.send(cmd).await;
-}
-
-async fn apply_delta_and_broadcast(
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  changes: StateChanges,
-  persist_op: Option<PersistOp>,
-) {
-  let session_id = handle.id().to_string();
-  handle.apply_changes(&changes);
-  if let Some(op) = persist_op {
-    execute_persist_op(op, persist_tx).await;
-  }
-  let mut changes = changes;
-  include_derived_affordances_for_state_delta(&mut changes, handle);
-  handle.broadcast(ServerMessage::SessionDelta {
-    session_id,
-    changes: Box::new(changes),
-  });
-}
-
-fn include_derived_affordances_for_state_delta(changes: &mut StateChanges, handle: &SessionHandle) {
-  if changes.status.is_none()
-    && changes.work_status.is_none()
-    && changes.control_mode.is_none()
-    && changes.lifecycle_state.is_none()
-  {
-    return;
-  }
-
-  let snapshot = handle.to_snapshot();
-  let retained = handle.retained_state();
-  changes.steerable = Some(snapshot.steerable);
-  changes.accepts_user_input = Some(retained.accepts_user_input);
-}
+pub(crate) use self::session_command_persistence::{
+  apply_delta_and_broadcast, execute_session_persist_op, persist_mark_read,
+  persist_row_append_and_broadcast, persist_row_upsert_and_broadcast,
+};
+pub(crate) use self::session_connector_dispatch::{
+  classify_connector_output, handle_connector_transport_effect,
+  include_derived_affordances_for_state_delta, should_suppress_connector_user_echo,
+  upgrade_connector_row_event, ConnectorDispatch,
+};
 
 fn include_snapshot_delta_changes(
   changes: &mut StateChanges,
@@ -155,213 +88,6 @@ fn include_snapshot_delta_changes(
   changed
 }
 
-async fn persist_and_broadcast_mark_read(
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-) {
-  let prev = handle.mark_read();
-  if prev == 0 {
-    return;
-  }
-
-  let session_id = handle.id().to_string();
-  let _ = persist_tx
-    .send(PersistCommand::MarkSessionRead {
-      session_id: session_id.clone(),
-      up_to_sequence: handle.latest_row_sequence() as i64,
-    })
-    .await;
-
-  // When the user reads a session in Reply state, transition to Waiting.
-  // Reply means "has unread response"; once read, it becomes "idle/waiting."
-  let mut changes = StateChanges {
-    unread_count: Some(0),
-    ..Default::default()
-  };
-  if handle.work_status() == WorkStatus::Reply {
-    changes.work_status = Some(WorkStatus::Waiting);
-    handle.set_work_status(WorkStatus::Waiting);
-    let _ = persist_tx
-      .send(PersistCommand::SessionUpdate {
-        id: session_id.clone(),
-        status: None,
-        work_status: Some(WorkStatus::Waiting),
-        control_mode: None,
-        lifecycle_state: None,
-        last_activity_at: None,
-        last_progress_at: None,
-      })
-      .await;
-  }
-
-  handle.broadcast(ServerMessage::SessionDelta {
-    session_id: session_id.clone(),
-    changes: Box::new(changes),
-  });
-}
-
-async fn persist_upserted_row_and_broadcast(
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
-) {
-  let session_id = handle.id().to_string();
-  let row_id = entry.id().to_string();
-  let entry = handle.upsert_row(entry);
-
-  let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-  let _ = persist_tx
-    .send(PersistCommand::RowUpsert {
-      session_id: session_id.clone(),
-      entry: entry.clone(),
-      viewer_present: handle.has_active_viewers(),
-      assigned_sequence: None,
-      sequence_tx: Some(seq_tx),
-    })
-    .await;
-
-  if let Ok(db_seq) = seq_rx.await {
-    handle.set_row_sequence(&row_id, db_seq);
-  }
-
-  let summary = handle
-    .row_by_id(&row_id)
-    .map(|row| row.to_transport_summary())
-    .unwrap_or_else(|| entry.to_transport_summary());
-  handle.broadcast(ServerMessage::ConversationRowsChanged {
-    session_id,
-    upserted: vec![summary],
-    removed_row_ids: vec![],
-    total_row_count: handle.message_count() as u64,
-  });
-}
-
-async fn append_row_and_broadcast(
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-  entry: orbitdock_protocol::conversation_contracts::ConversationRowEntry,
-) -> orbitdock_protocol::conversation_contracts::ConversationRowEntry {
-  let session_id = handle.id().to_string();
-  let previous_last_message = handle.to_snapshot().last_message.clone();
-
-  let entry = handle.add_row(entry);
-  let row_id = entry.id().to_string();
-  let viewer_present = handle.has_active_viewers();
-  let unread_count_delta = handle.unread_count_after_row_append(&entry);
-
-  let (seq_tx, seq_rx) = tokio::sync::oneshot::channel();
-  let _ = persist_tx
-    .send(PersistCommand::RowAppend {
-      session_id: session_id.clone(),
-      entry: entry.clone(),
-      viewer_present,
-      assigned_sequence: None,
-      sequence_tx: Some(seq_tx),
-    })
-    .await;
-
-  if let Ok(db_seq) = seq_rx.await {
-    handle.set_row_sequence(&row_id, db_seq);
-  }
-
-  let final_entry = handle.row_by_id(&row_id).cloned().unwrap_or(entry);
-  let observability_changes = row_append_delta(
-    previous_last_message.as_deref(),
-    &final_entry,
-    unread_count_delta,
-  );
-  let summary = final_entry.to_transport_summary();
-  let upserted = vec![summary];
-  if handle.should_emit_streaming_row_update(&upserted) {
-    handle.broadcast(ServerMessage::ConversationRowsChanged {
-      session_id: session_id.clone(),
-      upserted,
-      removed_row_ids: vec![],
-      total_row_count: handle.message_count() as u64,
-    });
-  }
-  if let Some(changes) = observability_changes {
-    handle.broadcast(ServerMessage::SessionDelta {
-      session_id: handle.id().to_string(),
-      changes: Box::new(changes),
-    });
-  }
-
-  final_entry
-}
-
-fn should_suppress_connector_user_echo(
-  handle: &SessionHandle,
-  event: &ConnectorStateEvent,
-) -> bool {
-  if handle.provider() != Provider::Codex
-    || handle.to_snapshot().codex_integration_mode != Some(CodexIntegrationMode::Direct)
-  {
-    return false;
-  }
-
-  let ConnectorStateEvent::ConversationRowCreated(entry) = event else {
-    return false;
-  };
-
-  let ConversationRow::User(message) = &entry.row else {
-    return false;
-  };
-
-  handle.has_user_row_with_content(&message.content)
-}
-
-fn upgrade_connector_row_event(
-  provider: Provider,
-  event: ConnectorStateEvent,
-) -> ConnectorStateEvent {
-  match event {
-    ConnectorStateEvent::ConversationRowCreated(mut entry) => {
-      entry.row = crate::domain::conversation_semantics::upgrade_row(provider, entry.row);
-      ConnectorStateEvent::ConversationRowCreated(entry)
-    }
-    ConnectorStateEvent::ConversationRowUpdated { row_id, mut entry } => {
-      entry.row = crate::domain::conversation_semantics::upgrade_row(provider, entry.row);
-      ConnectorStateEvent::ConversationRowUpdated { row_id, entry }
-    }
-    other => other,
-  }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) enum ConnectorDispatch {
-  State(Box<ConnectorStateEvent>),
-  RuntimeDirective(ConnectorRuntimeDirective),
-  TransportEffect(ConnectorTransportEffect),
-}
-
-pub(crate) fn classify_connector_output(output: ConnectorOutput) -> ConnectorDispatch {
-  match output {
-    ConnectorOutput::State(event) => ConnectorDispatch::State(event),
-    ConnectorOutput::Runtime(directive) => ConnectorDispatch::RuntimeDirective(directive),
-    ConnectorOutput::Transport(effect) => ConnectorDispatch::TransportEffect(effect),
-  }
-}
-
-pub(crate) async fn handle_connector_transport_effect(
-  effect: ConnectorTransportEffect,
-  state: &Arc<crate::runtime::session_registry::SessionRegistry>,
-  session_id: &str,
-) {
-  let tool_pty = state.tool_pty_service();
-  match effect {
-    ConnectorTransportEffect::ToolPtyCreated { tool_id } => {
-      tool_pty.create_for_tool(tool_id, session_id.to_string());
-    }
-    ConnectorTransportEffect::ToolPtyOutput { tool_id, bytes } => {
-      tool_pty.feed_output(&tool_id, &bytes);
-    }
-    ConnectorTransportEffect::ToolPtyExited { tool_id, exit_code } => {
-      tool_pty.finish(&tool_id, exit_code);
-    }
-  }
-}
-
 /// Handle a SessionCommand on the owned SessionHandle.
 /// This is used by both the CodexSession event loop and the passive SessionActor.
 pub async fn handle_session_command(
@@ -387,13 +113,13 @@ pub async fn handle_session_command(
 
       if let Some(events) = replay_events {
         let rx = handle.subscribe();
-        persist_and_broadcast_mark_read(handle, persist_tx).await;
+        persist_mark_read(handle, persist_tx).await;
         let _ = reply.send(SubscribeResult::Replay { events, rx });
         return;
       }
 
       let rx = handle.subscribe();
-      persist_and_broadcast_mark_read(handle, persist_tx).await;
+      persist_mark_read(handle, persist_tx).await;
       let _ = reply.send(SubscribeResult::ResyncRequired { rx });
     }
     SessionCommand::GetLastTool { reply } => {
@@ -474,7 +200,7 @@ pub async fn handle_session_command(
       let session_id = handle.id().to_string();
       handle.set_custom_name(name.clone());
       if let Some(op) = persist_op {
-        execute_persist_op(op, persist_tx).await;
+        execute_session_persist_op(op, persist_tx).await;
       }
       handle.broadcast(ServerMessage::SessionDelta {
         session_id,
@@ -497,10 +223,10 @@ pub async fn handle_session_command(
       });
     }
     SessionCommand::AddRowAndBroadcast { entry } => {
-      let _ = append_row_and_broadcast(handle, persist_tx, entry).await;
+      let _ = persist_row_append_and_broadcast(handle, persist_tx, entry).await;
     }
     SessionCommand::AddRowAndBroadcastAndReply { entry, reply } => {
-      let final_entry = append_row_and_broadcast(handle, persist_tx, entry).await;
+      let final_entry = persist_row_append_and_broadcast(handle, persist_tx, entry).await;
       let _ = reply.send(final_entry);
     }
     SessionCommand::UpdateSteerOutcome {
@@ -525,7 +251,7 @@ pub async fn handle_session_command(
         return;
       }
 
-      persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
+      persist_row_upsert_and_broadcast(handle, persist_tx, entry).await;
       handle.broadcast(ServerMessage::SteerOutcome {
         session_id: handle.id().to_string(),
         message_id,
@@ -574,7 +300,7 @@ pub async fn handle_session_command(
           }));
         }
 
-        persist_upserted_row_and_broadcast(handle, persist_tx, entry).await;
+        persist_row_upsert_and_broadcast(handle, persist_tx, entry).await;
       }
     }
     SessionCommand::ResolvePendingApproval {
@@ -634,7 +360,7 @@ pub async fn handle_session_command(
       );
     }
     SessionCommand::MarkRead { reply } => {
-      persist_and_broadcast_mark_read(handle, persist_tx).await;
+      persist_mark_read(handle, persist_tx).await;
       let _ = reply.send(handle.unread_count());
     }
   }

@@ -144,7 +144,7 @@ fn next_transcript_sync_guard_state(
   }
 }
 
-fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
+pub(crate) fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
   let mut next_sequence = 0_u64;
   for entry in rows {
     if entry.sequence == 0 && next_sequence > 0 {
