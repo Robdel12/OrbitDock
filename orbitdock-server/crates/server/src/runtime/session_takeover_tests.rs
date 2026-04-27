@@ -4,7 +4,7 @@ use orbitdock_protocol::{
   TokenUsageSnapshotKind, WorkStatus,
 };
 
-use super::codex_runtime_overrides_from_summary;
+use super::session_takeover_support::codex_runtime_overrides_from_summary;
 
 #[test]
 fn codex_takeover_preserves_approvals_reviewer_from_overrides() {

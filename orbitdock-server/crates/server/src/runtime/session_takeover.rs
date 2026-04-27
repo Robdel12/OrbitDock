@@ -14,7 +14,7 @@ use crate::infrastructure::persistence::{
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
   load_session_permission_mode, PersistCommand,
 };
-use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
+use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
@@ -23,23 +23,12 @@ use crate::runtime::session_runtime_helpers::{
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
 
-fn codex_runtime_overrides_from_summary(
-  summary: &orbitdock_protocol::SessionSummary,
-) -> orbitdock_connector_codex::CodexRuntimeOverrides {
-  orbitdock_connector_codex::CodexRuntimeOverrides {
-    approvals_reviewer: summary
-      .codex_config_overrides
-      .as_ref()
-      .and_then(|overrides| overrides.approvals_reviewer)
-      .map(|value| value.as_str().to_string()),
-    collaboration_mode: summary.collaboration_mode.clone(),
-    multi_agent: summary.multi_agent,
-    personality: summary.personality.clone(),
-    service_tier: summary.service_tier.clone(),
-    developer_instructions: summary.developer_instructions.clone(),
-    effort: summary.effort.clone(),
-  }
-}
+#[path = "session_takeover_support.rs"]
+mod session_takeover_support;
+
+use self::session_takeover_support::{
+  codex_runtime_overrides_from_summary, takeover_permission_persist_op,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TakeoverSessionInputs {
@@ -583,37 +572,6 @@ struct ClaudeTakeoverRequest {
   persist_permission_mode: bool,
   allowed_tools: Vec<String>,
   disallowed_tools: Vec<String>,
-}
-
-fn takeover_permission_persist_op(
-  session_id: &str,
-  persist_permission_mode: bool,
-  permission_mode: Option<String>,
-) -> Option<PersistOp> {
-  if !persist_permission_mode {
-    return None;
-  }
-
-  permission_mode.map(|permission_mode| {
-    PersistOp::SetSessionConfig(Box::new(SessionConfigPersist {
-      session_id: session_id.to_string(),
-      approval_policy: None,
-      sandbox_mode: None,
-      permission_mode: Some(Some(permission_mode)),
-      collaboration_mode: None,
-      multi_agent: None,
-      personality: None,
-      service_tier: None,
-      developer_instructions: None,
-      model: None,
-      effort: None,
-      codex_config_mode: None,
-      codex_config_profile: None,
-      codex_model_provider: None,
-      codex_config_source: None,
-      codex_config_overrides_json: None,
-    }))
-  })
 }
 
 #[cfg(test)]

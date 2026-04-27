@@ -8,8 +8,8 @@ use tracing::debug;
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
 use orbitdock_protocol::PermissionGrantScope;
 use orbitdock_protocol::{
-  ImageInput, MentionInput, Provider, SessionControlMode, SessionLifecycleState, SessionStatus,
-  SkillInput, WorkStatus,
+  ImageInput, MentionInput, SessionControlMode, SessionLifecycleState, SessionStatus, SkillInput,
+  WorkStatus,
 };
 
 use crate::connectors::claude_session::ClaudeAction;
@@ -24,6 +24,11 @@ use crate::runtime::session_runtime_helpers::mark_session_working_after_send;
 use crate::support::normalization::{
   build_question_answers, normalize_non_empty, normalize_permission_response,
 };
+
+#[path = "message_dispatch_flow.rs"]
+mod message_dispatch_flow;
+
+use self::message_dispatch_flow::{send_steer_turn_to_connector, send_user_message_to_connector};
 
 #[derive(Debug)]
 pub(crate) enum DispatchMessageError {
@@ -111,50 +116,21 @@ pub(crate) async fn dispatch_send_message(
   let first_prompt = plan.first_prompt.clone();
   let session_effort_update = plan.session_effort_update.clone();
 
-  if let Some(tx) = codex_tx {
-    if tx
-      .send(CodexAction::SendMessage {
-        content,
-        model: action_model.clone(),
-        effort: connector_effort.clone(),
-        skills,
-        images: connector_images,
-        mentions,
-      })
-      .await
-      .is_ok()
-    {
-    } else {
-      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
-        state,
-        &session_id,
-        Provider::Codex,
-      )
-      .await;
-      state.remove_codex_action_tx(&session_id);
-      return Err(DispatchMessageError::ConnectorUnavailable);
-    }
-  } else if let Some(tx) = claude_tx {
-    if tx
-      .send(ClaudeAction::SendMessage {
-        content,
-        model: plan.action_model,
-        effort: plan.connector_effort,
-        images: connector_images,
-      })
-      .await
-      .is_ok()
-    {
-    } else {
-      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
-        state,
-        &session_id,
-        Provider::Claude,
-      )
-      .await;
-      state.remove_claude_action_tx(&session_id);
-      return Err(DispatchMessageError::ConnectorUnavailable);
-    }
+  if let Err(error) = send_user_message_to_connector(
+    state,
+    &session_id,
+    codex_tx,
+    claude_tx,
+    content,
+    action_model.clone(),
+    connector_effort,
+    skills,
+    connector_images,
+    mentions,
+  )
+  .await
+  {
+    return Err(error);
   }
 
   let user_entry = build_user_row_entry(
@@ -278,45 +254,19 @@ pub(crate) async fn dispatch_steer_turn(
     Some(MessageDeliveryStatus::Pending),
   );
 
-  if let Some(tx) = codex_tx {
-    if tx
-      .send(CodexAction::SteerTurn {
-        content: content.clone(),
-        message_id: message_id.clone(),
-        images: connector_images.clone(),
-        mentions: mentions.clone(),
-      })
-      .await
-      .is_err()
-    {
-      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
-        state,
-        &session_id,
-        Provider::Codex,
-      )
-      .await;
-      state.remove_codex_action_tx(&session_id);
-      return Err(DispatchMessageError::ConnectorUnavailable);
-    }
-  } else if let Some(tx) = claude_tx {
-    if tx
-      .send(ClaudeAction::SteerTurn {
-        content: content.clone(),
-        message_id: message_id.clone(),
-        images: connector_images,
-      })
-      .await
-      .is_err()
-    {
-      crate::runtime::session_runtime_helpers::mark_direct_session_connector_detached(
-        state,
-        &session_id,
-        Provider::Claude,
-      )
-      .await;
-      state.remove_claude_action_tx(&session_id);
-      return Err(DispatchMessageError::ConnectorUnavailable);
-    }
+  if let Err(error) = send_steer_turn_to_connector(
+    state,
+    &session_id,
+    codex_tx,
+    claude_tx,
+    content,
+    message_id,
+    connector_images,
+    mentions,
+  )
+  .await
+  {
+    return Err(error);
   }
 
   let (reply_tx, reply_rx) = oneshot::channel();
