@@ -1359,7 +1359,61 @@ Execution rules:
 
 Tasks:
 
-- [ ] Launch the five Phase 11 evaluation workers with disjoint ownership.
-- [ ] Integrate the worker notes into one recut map with implementation waves.
-- [ ] Mark each remaining hotspot as `delete-first`, `split-now`, or `redesign-first`.
-- [ ] Write the next implementation phase before touching the parked redesign seams.
+- [x] Launch the five Phase 11 evaluation workers with disjoint ownership.
+- [x] Integrate the worker notes into one recut map with implementation waves.
+- [x] Mark each remaining hotspot as `delete-first`, `split-now`, or `redesign-first`.
+- [x] Write the next implementation phase before touching the parked redesign seams.
+
+### Phase 11 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd14b-f0a6-77b1-94dd-1456d13f0e61` (`Planck`) | completed - rollout parser helper/tail split map, delete-first tail candidates |
+| Worker B | `019dd14b-f415-7082-8cb2-7ec671742f53` (`Heisenberg`) | completed - transition row/status/approval cluster recut |
+| Worker C | `019dd14b-f73b-7ef2-9d3b-7c8ec7d4be89` (`Volta`) | completed - protocol cluster map and parity constraints |
+| Worker D | `019dd14b-fac2-72d2-a141-b7e53446931c` (`Nash`) | completed - runtime helper authority map and pure history-helper split |
+| Worker E | `019dd14b-fe15-7251-8a58-98ce2daa7983` (`Meitner`) | completed - Codex ownership/bootstrap seam warning and parked-lane recommendation |
+
+### Phase 11 integration note
+
+- `connector-codex/src/rollout_parser.rs`: `split-now`, with a delete-first tail. The safe first cut is pure helper extraction (`content`, `subagents`, state helpers), followed by tail deletion/extraction for unused FS/git utilities. Do not touch `parse_event_msg` until the pure helper split lands.
+- `connector-core/src/transition.rs`: `split-now`, no meaningful delete-first win remains. The best next slice is the `RowCreated` / `RowUpdated` cluster, then status/lifecycle and metadata clusters afterward.
+- `protocol/src/types.rs`: `split-now`, with parity constraints. Start with the approval/policy seam, keep `tool_display.rs` intact as its own parity cluster, and defer deletion of legacy string policy leaves until all readers are migrated.
+- `server/src/runtime/session_runtime_helpers.rs`: mixed classification. The pure row/history helpers are `split-now`; startup readiness, transcript-sync guards, and cleanup/detach flows remain `redesign-first`.
+- `server/src/connectors/codex_session.rs`: `redesign-first`. The only safe delete-first tail called out in this lane is the unused `_persist_tx` / `_session_id` parameter pair in `codex_hooks/codex_hook_session.rs`; the core `codex_session.rs` file should stay parked until ownership routing is centralized.
+
+## Phase 12: Remaining Hotspot Implementation
+
+Objective: land the next safe set of split-now and tiny delete-first slices identified by the Phase 11 recut, while continuing to keep the true Codex ownership/startup seams parked.
+
+Implementation order:
+
+1. Codex rollout parser helper/tail lane
+2. Connector-core transition row-cluster lane
+3. Runtime row/history helper lane
+4. Protocol approval/policy split lane
+5. Tiny Codex hook parameter delete if still unclaimed by the parked lane
+
+Parallel workers:
+
+| Worker | Model | Ownership | Implementation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-codex/src/rollout_parser.rs` | Extract the pure helper clusters first, delete any proven-unused tail helpers that fall out cleanly, and leave `parse_event_msg` semantics untouched. |
+| Worker B | `gpt-5.4-mini` | `connector-core/src/transition.rs` | Extract the `RowCreated` / `RowUpdated` reducer cluster into focused helpers or sibling modules while preserving dedupe, upsert, placeholder, and emit behavior exactly. |
+| Worker C | `gpt-5.4-mini` | `server/src/runtime/session_runtime_helpers.rs` | Extract only the pure row/history helpers into a dedicated module and leave startup, transcript-sync, and cleanup authority in place. |
+| Worker D | `gpt-5.4-mini` | `protocol/src/types.rs` plus required local Rust modules only | Split the approval/policy core out of `types.rs` while preserving legacy decoding paths and Rust-side contract shape. |
+| Worker E | `gpt-5.4-mini` | `server/src/connectors/codex_hooks/codex_hook_session.rs` only | Delete or tighten the unused metadata parameters if still safe, and otherwise leave the broader Codex ownership seam untouched. |
+
+Execution rules:
+
+- Launch Wave 12 workers with disjoint write sets.
+- Land the rollout parser, transition, and runtime helper lanes before attempting the protocol approval split.
+- Do not open `codex_session.rs` structural work inside Phase 12.
+- Keep Swift/native contract mirrors untouched unless the protocol split proves they must move in the same commit.
+
+Tasks:
+
+- [ ] Launch the five Phase 12 implementation workers with disjoint ownership.
+- [ ] Integrate landed worker commits in order of dependency and validation confidence.
+- [ ] Re-run targeted crate/server tests after each landed slice.
+- [ ] Regroup again before any direct-session ownership redesign or startup/control-mode rewrite.
