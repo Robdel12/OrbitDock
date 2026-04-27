@@ -47,11 +47,7 @@ async fn load_session_by_id_with_db_path(
                         COALESCE(uss.snapshot_output_tokens, 0),
                         COALESCE(uss.snapshot_cached_tokens, 0),
                         COALESCE(uss.snapshot_context_window, 0),
-                        s.provider, COALESCE(s.control_mode, CASE
-                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-                            WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
-                            ELSE 'passive'
-                        END),
+                        s.provider, s.control_mode,
                         s.claude_sdk_session_id, s.codex_thread_id, s.end_reason,
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                         s.terminal_session_id, s.terminal_app,

@@ -23,11 +23,7 @@ use super::{
 use crate::transport::http::errors::{internal, ApiResult};
 
 const DIRECT_SESSION_PREDICATE: &str = "
-COALESCE(s.control_mode, CASE
-  WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-  WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
-  ELSE 'passive'
-END) = 'direct'";
+s.control_mode = 'direct'";
 
 pub async fn fetch_codex_usage(
   State(state): State<Arc<SessionRegistry>>,

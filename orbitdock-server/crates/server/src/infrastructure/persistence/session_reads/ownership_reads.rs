@@ -38,10 +38,7 @@ async fn load_direct_claude_owner_by_sdk_session_id_with_db_path(
                  FROM sessions s
                  WHERE s.provider = 'claude'
                    AND s.claude_sdk_session_id = ?1
-                   AND COALESCE(s.control_mode, CASE
-                        WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-                        ELSE 'passive'
-                   END) = 'direct'
+                   AND s.control_mode = 'direct'
                  ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
                           COALESCE(s.last_activity_at, s.started_at, '') DESC
                  LIMIT 1",
@@ -97,10 +94,7 @@ async fn load_direct_codex_owner_by_thread_id_with_db_path(
                  FROM sessions s
                  WHERE s.provider = 'codex'
                    AND s.codex_thread_id = ?1
-                   AND COALESCE(s.control_mode, CASE
-                        WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
-                        ELSE 'passive'
-                   END) = 'direct'
+                   AND s.control_mode = 'direct'
                  ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
                           COALESCE(s.last_activity_at, s.started_at, '') DESC
                  LIMIT 1",

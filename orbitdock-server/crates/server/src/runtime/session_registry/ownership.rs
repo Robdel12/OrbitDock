@@ -99,11 +99,7 @@ impl SessionRegistry {
            FROM sessions s
           WHERE s.provider = 'claude'
             AND s.claude_sdk_session_id = ?1
-            AND COALESCE(s.control_mode, CASE
-                  WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct'
-                    THEN 'direct'
-                  ELSE 'passive'
-                END) = 'direct'
+            AND s.control_mode = 'direct'
           ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
                    COALESCE(s.last_activity_at, s.started_at, '') DESC
           LIMIT 1",
@@ -145,11 +141,7 @@ impl SessionRegistry {
            FROM sessions s
           WHERE s.provider = 'codex'
             AND s.codex_thread_id = ?1
-            AND COALESCE(s.control_mode, CASE
-                  WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct'
-                    THEN 'direct'
-                  ELSE 'passive'
-                END) = 'direct'
+            AND s.control_mode = 'direct'
           ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
                    COALESCE(s.last_activity_at, s.started_at, '') DESC
           LIMIT 1",
@@ -182,11 +174,7 @@ impl SessionRegistry {
           WHERE provider = 'claude'
             AND project_path = ?1
             AND status = 'active'
-            AND COALESCE(control_mode, CASE
-                  WHEN provider = 'claude' AND claude_integration_mode = 'direct'
-                    THEN 'direct'
-                  ELSE 'passive'
-                END) = 'direct'
+            AND control_mode = 'direct'
             AND claude_sdk_session_id IS NULL
           ORDER BY COALESCE(last_activity_at, started_at, '') DESC
           LIMIT 1",
@@ -211,11 +199,7 @@ impl SessionRegistry {
           WHERE provider = 'codex'
             AND project_path = ?1
             AND status = 'active'
-            AND COALESCE(control_mode, CASE
-                  WHEN provider = 'codex' AND codex_integration_mode = 'direct'
-                    THEN 'direct'
-                  ELSE 'passive'
-                END) = 'direct'
+            AND control_mode = 'direct'
             AND codex_thread_id IS NULL
           ORDER BY COALESCE(last_activity_at, started_at, '') DESC
           LIMIT 1",

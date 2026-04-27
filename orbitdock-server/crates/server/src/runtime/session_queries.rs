@@ -163,11 +163,7 @@ const PROJECTION_SELECT: &str = "SELECT s.id,
                   s.provider,
                   s.status,
                   s.work_status,
-                  COALESCE(s.control_mode, CASE
-                      WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-                      WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
-                      ELSE 'passive'
-                  END),
+                  s.control_mode,
                   COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                   s.project_path,
                   s.project_name,
