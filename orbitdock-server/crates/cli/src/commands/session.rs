@@ -5,7 +5,9 @@ mod presentation;
 mod watch;
 
 pub use http::run_managed_session_start;
+#[cfg(test)]
 pub(crate) use presentation::{build_session_list_json_response, session_json_overview_from_state};
+#[cfg(test)]
 pub(crate) use watch::stream_turn_should_exit;
 
 use crate::cli::{resolve_stdin, SessionAction};
