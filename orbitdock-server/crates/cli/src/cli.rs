@@ -1,4 +1,4 @@
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use orbitdock_protocol::WorkspaceProviderKind;
 
 #[derive(Parser, Debug)]
@@ -206,9 +206,6 @@ pub enum BinaryCommand {
   Pair {
     #[arg(long)]
     tunnel_url: Option<String>,
-
-    #[arg(long, hide = true)]
-    no_qr: bool,
   },
 
   /// Check server health
@@ -319,9 +316,6 @@ pub enum BinaryCommand {
     #[arg(long)]
     restart: bool,
   },
-
-  /// Generate shell completions
-  Completions { shell: clap_complete::Shell },
 }
 
 pub fn binary_to_client_command(command: &BinaryCommand) -> Option<Command> {
@@ -478,12 +472,6 @@ pub enum Command {
   Shell {
     #[command(subcommand)]
     action: ShellAction,
-  },
-
-  /// Generate shell completions
-  Completions {
-    /// Shell to generate completions for
-    shell: clap_complete::Shell,
   },
 }
 
@@ -1189,17 +1177,6 @@ pub enum ShellAction {
     #[arg(long, default_value = "30")]
     timeout: u64,
   },
-}
-
-/// Generate shell completions to stdout.
-pub fn generate_completions(shell: clap_complete::Shell) {
-  let mut cmd = Cli::command();
-  clap_complete::generate(shell, &mut cmd, "orbitdock", &mut std::io::stdout());
-}
-
-pub fn generate_binary_completions(shell: clap_complete::Shell) {
-  let mut cmd = BinaryCli::command();
-  clap_complete::generate(shell, &mut cmd, "orbitdock", &mut std::io::stdout());
 }
 
 /// Read content from stdin if the value is "-", otherwise return as-is.

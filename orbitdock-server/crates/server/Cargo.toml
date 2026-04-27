@@ -43,7 +43,6 @@ ring = { workspace = true }
 libc = { workspace = true }
 nix = { version = "0.29", features = ["term", "process", "signal", "ioctl", "fs"] }
 console = "0.15"
-clap_complete = "4"
 refinery = { version = "0.9.0", features = ["rusqlite-bundled"] }
 liquid = { workspace = true }
 serde_yaml = { workspace = true }

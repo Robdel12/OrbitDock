@@ -27,7 +27,6 @@ console = "0.15"
 toml = "0.8"
 futures = { workspace = true }
 urlencoding = "2"
-clap_complete = "4"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 libc = { workspace = true }

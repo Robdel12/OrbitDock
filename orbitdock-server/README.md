@@ -172,7 +172,6 @@ orbitdock [--data-dir PATH] <command>
 | `mcp ...` | Inspect MCP tools and resources |
 | `fs ...` | Browse files through the server |
 | `shell ...` | Execute a shell command through a session |
-| `completions <shell>` | Generate shell completions |
 
 `--data-dir` is global — it applies to every subcommand. You can also set it via `ORBITDOCK_DATA_DIR`.
 

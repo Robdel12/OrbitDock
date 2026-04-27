@@ -41,10 +41,6 @@ pub async fn dispatch(command: &Command, config: &ClientConfig) -> i32 {
     Command::Mcp { action } => mcp::run(action, &rest, &output).await,
     Command::Fs { action } => fs::run(action, &rest, &output).await,
     Command::Shell { action } => shell::run(action, &output, config).await,
-    Command::Completions { shell } => {
-      crate::cli::generate_completions(*shell);
-      crate::error::EXIT_SUCCESS
-    }
   }
 }
 
