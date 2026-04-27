@@ -13,9 +13,8 @@ use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
 use crate::runtime::session_fork_policy::remap_rows_for_fork;
 use crate::runtime::session_registry::SessionRegistry;
-use crate::runtime::session_runtime_helpers::{
-  claim_codex_thread_for_direct_session, hydrate_full_row_history,
-};
+use crate::runtime::session_row_history::hydrate_full_row_history;
+use crate::runtime::session_runtime_helpers::claim_codex_thread_for_direct_session;
 
 pub(crate) struct ForkedSessionStart {
   pub new_session_id: String,

@@ -1,7 +1,7 @@
 use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 
 use crate::domain::sessions::conversation::ConversationPage;
-use crate::runtime::session_runtime_helpers::normalize_row_sequences;
+use crate::runtime::session_row_history::normalize_row_sequences;
 
 const COHERENT_HISTORY_MIN_TURNS: usize = 4;
 // Keep bootstrap cheap for tool-heavy sessions. Full command output is loaded

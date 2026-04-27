@@ -1,9 +1,10 @@
 //! Session runtime utility functions.
 //!
 //! Shared helpers for runtime-side state transitions and transcript
-//! synchronization. Pure time/path helpers live in `support/`.
+//! synchronization. Pure row/history helpers live in `session_row_history.rs`
+//! and pure time/path helpers live in `support/`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -21,8 +22,8 @@ use orbitdock_protocol::{
 
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
-  load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
-  load_token_usage_from_transcript_path, PersistCommand,
+  load_messages_from_transcript_path, load_session_by_id, load_token_usage_from_transcript_path,
+  PersistCommand,
 };
 use crate::runtime::restored_sessions::{
   hydrate_restored_rows_if_missing, parse_session_status, parse_work_status,
@@ -141,49 +142,6 @@ fn next_transcript_sync_guard_state(
     usage,
     file_size: candidate.file_size,
     modified_at_nanos: candidate.modified_at_nanos,
-  }
-}
-
-pub(crate) fn normalize_row_sequences(rows: &mut [ConversationRowEntry]) {
-  let mut next_sequence = 0_u64;
-  for entry in rows {
-    if entry.sequence == 0 && next_sequence > 0 {
-      entry.sequence = next_sequence;
-    }
-    next_sequence = entry.sequence + 1;
-  }
-}
-
-pub(crate) fn merge_rows_by_sequence(
-  mut base: Vec<ConversationRowEntry>,
-  mut overlay: Vec<ConversationRowEntry>,
-) -> Vec<ConversationRowEntry> {
-  normalize_row_sequences(&mut base);
-  normalize_row_sequences(&mut overlay);
-
-  let mut merged = BTreeMap::<u64, ConversationRowEntry>::new();
-  for entry in base {
-    merged.insert(entry.sequence, entry);
-  }
-  for entry in overlay {
-    merged.insert(entry.sequence, entry);
-  }
-  merged.into_values().collect()
-}
-
-pub(crate) async fn hydrate_full_row_history(
-  session_id: &str,
-  retained_rows: Vec<ConversationRowEntry>,
-  total_row_count: Option<u64>,
-) -> Vec<ConversationRowEntry> {
-  let expected_count = total_row_count.unwrap_or(retained_rows.len() as u64);
-  if retained_rows.len() as u64 >= expected_count {
-    return retained_rows;
-  }
-
-  match load_messages_for_session(session_id).await {
-    Ok(db_rows) if !db_rows.is_empty() => merge_rows_by_sequence(db_rows, retained_rows),
-    _ => retained_rows,
   }
 }
 
