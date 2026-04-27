@@ -47,10 +47,9 @@ pub(crate) use config::load_config_value;
 pub(crate) use messages::{
   load_message_page_for_session, load_messages_for_session, load_row_by_id_async,
 };
-#[allow(unused_imports)]
 pub(crate) use mission_control::{
   load_mission_by_id, load_mission_cleanup_candidates, load_mission_issues,
-  load_mission_tracker_key, load_missions, load_missions_with_counts, MissionIssueRow, MissionRow,
+  load_mission_tracker_key, load_missions_with_counts, MissionIssueRow, MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use session_reads::{
@@ -70,12 +69,10 @@ pub(crate) use sync_outbox::{
   load_pending_sync_envelopes,
 };
 pub(crate) use sync_writer::{create_sync_shutdown_channel, SyncWriter, SyncWriterConfig};
-#[allow(unused_imports)]
 pub(crate) use transcripts::{
-  extract_summary_from_transcript, extract_summary_from_transcript_path,
-  load_capabilities_from_transcript_path,
+  extract_summary_from_transcript_path, load_capabilities_from_transcript_path,
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
-  load_token_usage_from_transcript_path, TranscriptCapabilities,
+  load_token_usage_from_transcript_path,
 };
 use usage::{
   persist_usage_event, recompute_usage_ledger_for_session, upsert_usage_session_state,
@@ -89,8 +86,6 @@ pub(crate) use workspaces::{
   insert_workspace_record, load_workspace_record, update_workspace_record, WorkspaceRecord,
   WorkspaceRecordInsert, WorkspaceRecordUpdate,
 };
-#[allow(unused_imports)]
-pub(crate) use worktrees::WorktreeRow;
 pub(crate) use worktrees::{
   load_all_worktrees, load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
 };

@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, 3F, 3G, 3H, and 3I are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, the low-risk dead-code/test-support prune lane has continued landing cleanly, the persistence lane has dropped stale duplicate subagent writes plus unused mission/session-read helpers, the session domain has shed dead `SessionHandle`/`SessionCoreState` pass-throughs, and the remaining test-only session/startup helpers are now compile-gated instead of shipping behind stale `dead_code` allowances`
+- Current phase detail: `Slices 3A, 3B, 3C, 3D, 3E, 3F, 3G, 3H, 3I, and 3J are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, orphaned websocket utility payloads are gone, the dead CLI completions/pair leftovers are gone, the low-risk dead-code/test-support prune lane has continued landing cleanly, the persistence lane has dropped stale duplicate subagent writes plus unused mission/session-read helpers, the session domain has shed dead `SessionHandle`/`SessionCoreState` pass-throughs, the remaining test-only session/startup helpers are now compile-gated instead of shipping behind stale `dead_code` allowances, and the persistence façade has dropped stale type/function re-exports that no live caller uses`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -600,10 +600,11 @@ Current slice status:
 - `Slice 3G`: complete. Removed the stale duplicate `persist_subagent_upsert` still parked in `infrastructure/persistence/mod.rs` after the real implementation moved to `subagent_writes.rs`, deleted the orphaned `load_all_active_mission_issues` mission-control reader, and pruned the unused test-only `*_from_db_path` session-read helpers that had no callers left (`load_session_lifecycle_state_from_db_path`, `load_session_by_id_from_db_path`, `load_direct_claude_owner_by_sdk_session_id_from_db_path`, and `load_direct_codex_owner_by_thread_id_from_db_path`).
 - `Slice 3H`: complete. Removed the uncalled `SessionHandle` pass-through helpers `subagents`, `first_prompt`, `transcript_path`, `update_tokens`, `update_diff`, and `update_plan`, then deleted the matching dead `SessionCoreState` helpers they were forwarding into. The remaining session mutators that are still only used by test modules (`set_subagents`, `set_pending_attention`, and `set_first_prompt`) are now correctly compile-gated behind `#[cfg(test)]` instead of shipping in production.
 - `Slice 3I`: complete. Tightened the remaining test-only session helpers by compile-gating `config`, `newest_synced_row_id`, `set_newest_synced_row_id`, and `set_last_tool` in both `SessionHandle` and `SessionCoreState`, removed the stale `#[allow(dead_code)]` marker from the still-live `has_user_row_with_content` dedup helper, and dropped stale dead-code suppressions from the test-only startup recovery helpers that are already exercised by persistence tests.
+- `Slice 3J`: complete. Trimmed the persistence façade by dropping the stale `load_missions`, `extract_summary_from_transcript`, `TranscriptCapabilities`, and `WorktreeRow` re-exports, then removed the now-unnecessary `#[allow(unused_imports)]` shields around those re-export blocks once compile-check confirmed which exports were genuinely unused.
 
 Next queued slices:
 
-- `Slice 3J`: continue the one-by-one dead helper pass in mission-control/runtime/tool-PTY lanes, with extra care to separate honest future-facing placeholders from code that should now either be deleted or test-gated.
+- `Slice 3K`: continue the one-by-one dead helper pass in mission-control/runtime/tool-PTY lanes, with extra care to separate honest future-facing placeholders from code that should now either be deleted or test-gated.
 
 Search targets:
 
