@@ -8,10 +8,12 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 1 / commit and regroup`
-- Current phase detail: `All Phase 1 worker lanes integrated; workspace validation complete; Phase 1 commit pending`
+- Current phase: `Phase 3 / first deletion slice`
+- Current phase detail: `Slice 3A is implemented and validated: legacy HTTP conversation control shims are removed, along with their unused native leftovers`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
+- Wave 2 launched: yes
+- Phase 1 commit: `94ea8c58` (`♻️ Extract Rust tests into sibling modules`)
 
 ## Context
 
@@ -230,6 +232,12 @@ Parent validation notes after Wave 2:
 - `cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1` passed.
 - The default parallel `cargo test -p orbitdock-server --lib` still shows shared-test-state interference in older persistence tests; that is a pre-existing test-harness constraint surfaced during parent validation, not a production regression from Phase 1.
 
+Phase 1 closeout:
+
+- Phase 1 landed as commit `94ea8c58` (`♻️ Extract Rust tests into sibling modules`).
+- The branch is clean after the Phase 1 commit.
+- `orbitdock-server/crates` now contains 128 dedicated Rust test files.
+
 ### Worker A: connector-core
 
 - `orbitdock-server/crates/connector-core/src/transition.rs`
@@ -445,7 +453,7 @@ Done when:
 - [x] Phase 1 changes are behavior-preserving.
 - [x] `make rust-check` passes.
 - [x] Targeted Rust tests for touched crates/modules pass.
-- [ ] The Phase 1 test-structure-only commit is created before deletion work starts.
+- [x] The Phase 1 test-structure-only commit is created before deletion work starts.
 
 ## Phase 1.5: Regroup And Recut The Deletion Plan
 
@@ -455,18 +463,43 @@ This is a deliberate checkpoint. Once the tests are out of the way, production f
 
 Tasks:
 
-- [ ] Rerun the line-count audit after the Phase 1 commit.
-- [ ] Compare top hotspots against the baseline in [server-api-line-audit.md](server-api-line-audit.md).
+- [x] Rerun the line-count audit after the Phase 1 commit.
+- [x] Compare top hotspots against the baseline in [server-api-line-audit.md](server-api-line-audit.md).
 - [ ] Review every worker’s follow-up deletion candidates.
-- [ ] Update this plan with the highest-confidence deletion targets.
-- [ ] Split deletion targets into `safe mechanical`, `needs product decision`, and `needs migration/restore decision`.
-- [ ] Choose the next parallel-worker breakdown based on the refreshed production-only shape.
+- [x] Update this plan with the highest-confidence deletion targets.
+- [x] Split deletion targets into `safe mechanical`, `needs product decision`, and `needs migration/restore decision`.
+- [x] Choose the next parallel-worker breakdown based on the refreshed production-only shape.
+
+Post-Phase-1 evidence:
+
+- Post-Phase-1 Rust totals from [server-api-line-audit.md](server-api-line-audit.md): `122,802` Rust lines across `489` files under `orbitdock-server/crates`.
+- Production-only Rust now measures `97,663` lines across `361` non-test `.rs` files, with `128` dedicated test files carrying extracted coverage.
+- Production-only server crate code now measures `64,817` lines, which means the next hotspot list is finally describing real production complexity rather than production-plus-test mass.
+- Largest remaining production-only hotspots are still `connector-claude/src/lib.rs` (`3,157`), `connector-core/src/transition.rs` (`2,858`), `protocol/src/types.rs` (`2,643`), `connector-codex/src/app_server.rs` (`2,635`), and `cli/src/commands/session.rs` (`2,198`).
+
+Highest-confidence deletion buckets:
+
+- `safe mechanical`
+  - Sweep `#[allow(dead_code)]` and now-unused private helpers in connector, runtime, and persistence areas one at a time behind compile checks.
+  - Remove WebSocket reject-only or REST-only policy glue once the route inventory confirms there is no active mutation client depending on it.
+  - Delete test-only boundary-piercing helpers that survived Phase 1 once their callers are rewritten around domain/runtime/persistence outcomes.
+  - Delete DTOs and protocol fields that are neither sent by the server nor decoded by native once the cross-reference pass proves they are dead.
+- `needs product decision`
+  - CLI bulk session surface in `orbitdock-server/crates/cli/src/commands/session.rs` and adjacent CLI entry wiring.
+  - Admin/install/service flows under `orbitdock-server/crates/server/src/admin/`.
+  - Mission Control server surface across domain/runtime/http/persistence.
+  - Daytona workspace paths and related infrastructure.
+  - Linear or GitHub-release-adjacent operational surfaces that may no longer be strategic.
+- `needs migration/restore decision`
+  - `mixed_legacy` usage repair and related accounting compatibility in `infrastructure/persistence/usage.rs`.
+  - Claude passive shadow-session preservation and cleanup branches.
+  - Startup restore and session hydration compatibility branches in `session_reads/startup_recovery.rs`, `session_reads/session_hydration.rs`, and adjacent persistence restore paths.
 
 Done when:
 
-- [ ] The deletion queue is updated from fresh post-test-refactor evidence.
-- [ ] The next phase has explicit worker ownership and commit boundaries.
-- [ ] We have agreed which surfaces are fair game for aggressive deletion.
+- [x] The deletion queue is updated from fresh post-test-refactor evidence.
+- [x] The next phase has explicit worker ownership and commit boundaries.
+- [x] We have agreed which surfaces are fair game for aggressive deletion.
 
 ## Phase 2: Inventory Active Surface
 
@@ -478,28 +511,93 @@ Parallel workers:
 
 | Worker | Model | Ownership | Mission |
 | --- | --- | --- | --- |
-| Worker A | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/transport/http/` | Produce route inventory and tag handlers as active/compat/delete-candidate. |
-| Worker B | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/transport/websocket/` | Produce WebSocket message inventory and identify REST-only duplicates. |
-| Worker C | `gpt-5.4-mini` | `OrbitDockNative/OrbitDock/Services/Server/API/` and `Protocol/` | Map native API calls and decoded protocol fields. |
-| Worker D | `gpt-5.4-mini` | `orbitdock-server/crates/cli/src/commands/` | Map CLI command usage and likely delete/freeze candidates. |
-| Worker E | `gpt-5.4-mini` | `orbitdock-server/crates/protocol/src/` | Cross-reference protocol types and fields against server/native usage. |
-| Worker F | `gpt-5.4-mini` | `orbitdock-server/crates/connector-*` and `orbitdock-server/crates/server/src/connectors/` | Map emitted connector events and obsolete connector paths. |
+| Worker A | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/transport/http/` | Produce an HTTP route inventory, map each route to runtime/domain ownership, and tag it `active`, `compatibility`, `freeze`, or `delete-candidate`. |
+| Worker B | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/transport/websocket/` | Produce a WebSocket message and handler inventory, identify REST overlap, and call out reject-only or policy-only surfaces. |
+| Worker C | `gpt-5.4-mini` | `OrbitDockNative/OrbitDock/Services/Server/API/` and `OrbitDockNative/OrbitDock/Services/Server/Protocol/` | Map native HTTP calls, WebSocket decode paths, and protocol fields the app actually consumes. |
+| Worker D | `gpt-5.4-mini` | `orbitdock-server/crates/cli/src/commands/`, `cli/src/cli.rs`, `cli/src/dev_console.rs` | Inventory CLI surfaces and tag commands as `active`, `freeze`, or `delete-candidate`. |
+| Worker E | `gpt-5.4-mini` | `orbitdock-server/crates/protocol/src/` | Cross-reference protocol structs, enums, and fields against server producers and native consumers. |
+| Worker F | `gpt-5.4-mini` | `orbitdock-server/crates/connector-*` and `orbitdock-server/crates/server/src/connectors/` | Map emitted connector events, control paths, and old connector-specific compatibility branches. |
+| Worker G | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/infrastructure/persistence/` | Inventory restore, hydration, usage-repair, shadow-session, and compatibility branches that gate aggressive deletion. |
+| Worker H | `gpt-5.4-mini` | `orbitdock-server/crates/server/src/admin/`, `domain/mission_control/`, `runtime/mission_*`, `runtime/workspace_*`, `infrastructure/daytona.rs` | Inventory admin, mission, and workspace surfaces and tag them `keep`, `freeze`, `delete-candidate`, or `needs product call`. |
+
+Phase 2 worker output contract:
+
+- Every worker returns a file/path inventory with one status per route, message, command, type, or compatibility path: `active`, `compatibility`, `freeze`, `delete-candidate`, or `needs product call`.
+- Every worker must include concrete evidence: source file paths, entrypoints, and caller/callee references.
+- Every worker must list the top 5 highest-confidence deletion candidates in its lane.
+- Every worker must call out blockers separately when deletion would require native client changes, persistence compatibility decisions, or product sign-off.
+- Workers are read-only in Phase 2 unless the parent agent asks for a follow-up patch.
+
+Phase 2 commit boundaries:
+
+- Inventory and planning updates can land as a docs-only commit if they materially improve the deletion map.
+- The first actual deletion commit should remove one coherent surface end-to-end rather than mixing unrelated small cuts.
+
+Phase 2 launch ledger:
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dccc5-d6bd-7032-b894-b883c5f1b4f0` (`Tesla`) | completed |
+| Worker B | `019dccc5-da67-7d71-8323-7f9cb29a2c6a` (`Faraday`) | completed |
+| Worker C | `019dccc5-ddc0-7811-9a5a-0461524fb7c9` (`James`) | completed |
+| Worker D | `019dccc5-e195-7791-adb3-269536f083aa` (`Franklin`) | completed |
+| Worker E | `019dccc5-e612-72c1-82d4-5bb7b30201d4` (`Bohr`) | completed |
+| Worker F | `019dccc5-e942-7691-ac02-fefb5feaf7cc` (`Bernoulli`) | completed |
+| Worker G | `019dccc5-ecce-7080-8169-9715fabd0a1f` (`Euler`) | completed |
+| Worker H | `019dccc5-f052-7943-948b-a2c7a860c5af` (`Locke`) | completed |
+
+Phase 2 findings summary:
+
+- HTTP is mostly live, but the `/api/sessions/{session_id}/conversation/{interrupt,compact,undo,rollback,stop,rewind}` family is a compatibility shim over `/controls/*`.
+- Native already routes the live control-deck and session actions through `SessionControlsClient`; the matching `ConversationClient` control methods are unused leftovers.
+- WebSocket still carries a large `rest_only_policy.rs` redirect/reject layer plus a few reject-only handlers. That is a strong follow-up deletion slice after we finish the HTTP shim removal.
+- CLI has real delete candidates in hidden bridge commands and the dev console, but many session/worktree/mission flows are still compatibility mirrors of active server surfaces.
+- Protocol has a few clear dead leaves such as `ConversationDisplayMode`, `ToolPayloadReference`, native-unused typed payloads, and compatibility-only websocket result cases, but those should be pruned with cross-layer confirmation.
+- Persistence and connector complexity are not good first-cut deletion targets. `mixed_legacy`, shadow-session cleanup, startup recovery, and direct/passive ownership paths are migration/restore decisions, not free simplifications.
+
+First deletion slice:
+
+- Remove the legacy HTTP conversation control shim family:
+  - `POST /api/sessions/{session_id}/conversation/interrupt`
+  - `POST /api/sessions/{session_id}/conversation/compact`
+  - `POST /api/sessions/{session_id}/conversation/undo`
+  - `POST /api/sessions/{session_id}/conversation/rollback`
+  - `POST /api/sessions/{session_id}/conversation/stop`
+  - `POST /api/sessions/{session_id}/conversation/rewind`
+- Remove the matching unused native leftovers in `OrbitDockNative/OrbitDock/Services/Server/API/ConversationClient.swift`.
+- Update server docs that still advertise the shim routes and mark them as compatibility surfaces.
+- Leave the canonical `/controls/*` HTTP routes in place.
+- Leave WebSocket compatibility mutations alone in this slice because the CLI still uses them.
 
 Tasks:
 
-- [ ] Inventory HTTP routes from `orbitdock-server/crates/server/src/transport/http/router.rs` and subrouters.
-- [ ] Inventory WebSocket messages from `orbitdock-server/crates/server/src/transport/websocket/router.rs` and handlers.
-- [ ] Inventory native API calls from `OrbitDockNative/OrbitDock/Services/Server/API/`.
-- [ ] Inventory CLI commands from `orbitdock-server/crates/cli/src/commands/`.
-- [ ] Cross-reference protocol structs from `orbitdock-server/crates/protocol/src/types.rs`, `client.rs`, and `server.rs`.
+- [x] Inventory HTTP routes from `orbitdock-server/crates/server/src/transport/http/router.rs` and subrouters.
+- [x] Inventory WebSocket messages from `orbitdock-server/crates/server/src/transport/websocket/router.rs` and handlers.
+- [x] Inventory native API calls from `OrbitDockNative/OrbitDock/Services/Server/API/`.
+- [x] Inventory CLI commands from `orbitdock-server/crates/cli/src/commands/`.
+- [x] Cross-reference protocol structs from `orbitdock-server/crates/protocol/src/types.rs`, `client.rs`, and `server.rs`.
 
-Done when each route/message/command/type is tagged as `active`, `compatibility`, `test-only`, or `delete-candidate`.
+Done when each route/message/command/type/compatibility path is tagged as `active`, `compatibility`, `freeze`, `delete-candidate`, or `needs product call`.
+
+Status: complete. The inventory is complete enough to start deletion by coherent surface rather than by file.
 
 ## Phase 3: Delete Dead Compatibility Paths
 
 Objective: remove old behavior before reorganizing current behavior.
 
 This phase should use parallel workers for research and patch prep, but deletion commits are integrated centrally by concept.
+
+Current slice status:
+
+- `Slice 3A`: complete. Removed the legacy HTTP conversation control shim family under `/api/sessions/{session_id}/conversation/*` for interrupt, compact, undo, rollback, stop, and rewind.
+- Native cleanup in the same slice: complete. Removed the unused `ConversationClient` compatibility methods that still targeted those deleted routes.
+- Docs cleanup in the same slice: complete. `API.md` no longer advertises the shim endpoints, and `SPEC.md` now states that those compatibility routes were removed.
+
+Next queued slices:
+
+- `Slice 3B`: WebSocket `rest_only_policy.rs` and reject-only handler cleanup, plus any now-dead protocol variants that only supported REST-only redirects.
+- `Slice 3C`: native-unused protocol and API leaves such as `SessionRuntimeClient.fetchRuntimeSnapshot(_:)`, `ServerSessionRuntimeSnapshot`, `ConversationDisplayMode`, and `ToolPayloadReference`, pending cross-layer verification.
+- `Slice 3D`: CLI hidden bridge commands and dev-console cleanup, if we confirm replacement paths or choose to drop them.
 
 Search targets:
 

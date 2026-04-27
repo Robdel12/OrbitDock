@@ -452,7 +452,7 @@ Optional fields: `model`, `effort`, `approval_policy`, `sandbox_mode`, `permissi
 | Rename | `PATCH /api/sessions/{id}/detail/name` | Body: `{"name": "..."}` |
 | Update config | `PATCH /api/sessions/{id}/detail/config` | Partial update of session settings |
 
-The older `/conversation/interrupt`, `/conversation/undo`, `/conversation/rollback`, `/conversation/compact`, `/conversation/stop`, and `/conversation/rewind` routes remain as compatibility shims. New clients should prefer `/controls/*`.
+The older `/conversation/interrupt`, `/conversation/undo`, `/conversation/rollback`, `/conversation/compact`, `/conversation/stop`, and `/conversation/rewind` compatibility shims were removed. Clients should use `/controls/*`.
 
 ### 5.8 Worktree Management
 

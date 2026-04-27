@@ -96,16 +96,6 @@ pub struct RollbackTurnsRequest {
   pub num_turns: u32,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct StopTaskRequest {
-  pub task_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RewindFilesRequest {
-  pub user_message_id: String,
-}
-
 #[derive(Debug, Serialize)]
 pub struct SessionControlsResponse {
   pub session_id: String,
@@ -440,16 +430,6 @@ pub async fn post_steer_turn(
   ))
 }
 
-pub async fn interrupt_session(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  crate::runtime::message_dispatch::dispatch_interrupt(&state, &session_id)
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
 pub async fn stop_active_turn(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -494,16 +474,6 @@ pub async fn post_session_shell_command(
   ))
 }
 
-pub async fn compact_context(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  crate::runtime::message_dispatch::dispatch_compact(&state, &session_id)
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
 pub async fn compact_context_control(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -514,41 +484,11 @@ pub async fn compact_context_control(
   accepted_response(&state, &session_id).await
 }
 
-pub async fn undo_last_turn(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  crate::runtime::message_dispatch::dispatch_undo(&state, &session_id)
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
 pub async fn undo_last_turn_control(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
 ) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
   crate::runtime::message_dispatch::dispatch_undo_last_turn(&state, &session_id)
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
-pub async fn rollback_turns(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-  Json(body): Json<RollbackTurnsRequest>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  if body.num_turns < 1 {
-    return Err((
-      StatusCode::BAD_REQUEST,
-      Json(ApiErrorResponse {
-        code: "invalid_argument",
-        error: "num_turns must be >= 1".to_string(),
-      }),
-    ));
-  }
-  crate::runtime::message_dispatch::dispatch_rollback(&state, &session_id, body.num_turns)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
   accepted_response(&state, &session_id).await
@@ -574,17 +514,6 @@ pub async fn rollback_turns_control(
   accepted_response(&state, &session_id).await
 }
 
-pub async fn stop_task(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-  Json(body): Json<StopTaskRequest>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  crate::runtime::message_dispatch::dispatch_stop_task(&state, &session_id, body.task_id)
-    .await
-    .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
 pub async fn stop_target(
   Path(session_id): Path<String>,
   State(state): State<Arc<SessionRegistry>>,
@@ -593,21 +522,6 @@ pub async fn stop_target(
   crate::runtime::message_dispatch::dispatch_stop_target(&state, &session_id, body.target_id)
     .await
     .map_err(|code| dispatch_error_response(code, &session_id))?;
-  accepted_response(&state, &session_id).await
-}
-
-pub async fn rewind_files(
-  Path(session_id): Path<String>,
-  State(state): State<Arc<SessionRegistry>>,
-  Json(body): Json<RewindFilesRequest>,
-) -> Result<Json<AcceptedResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  crate::runtime::message_dispatch::dispatch_rewind_files(
-    &state,
-    &session_id,
-    body.user_message_id,
-  )
-  .await
-  .map_err(|code| dispatch_error_response(code, &session_id))?;
   accepted_response(&state, &session_id).await
 }
 

@@ -168,30 +168,6 @@ fn session_action_routes() -> Router<Arc<SessionRegistry>> {
       post(super::rewind_to_message),
     )
     .route(
-      "/api/sessions/{session_id}/conversation/interrupt",
-      post(super::interrupt_session),
-    )
-    .route(
-      "/api/sessions/{session_id}/conversation/compact",
-      post(super::compact_context),
-    )
-    .route(
-      "/api/sessions/{session_id}/conversation/undo",
-      post(super::undo_last_turn),
-    )
-    .route(
-      "/api/sessions/{session_id}/conversation/rollback",
-      post(super::rollback_turns),
-    )
-    .route(
-      "/api/sessions/{session_id}/conversation/stop",
-      post(super::stop_task),
-    )
-    .route(
-      "/api/sessions/{session_id}/conversation/rewind",
-      post(super::rewind_files),
-    )
-    .route(
       "/api/sessions/{session_id}/approvals/requests/{request_id}/decision",
       post(super::approve_tool),
     )

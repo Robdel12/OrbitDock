@@ -1,16 +1,6 @@
 import Foundation
 
 struct ConversationClient: Sendable {
-  struct CommandAcceptedResponse: Decodable {
-    let accepted: Bool
-    let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
-
-    enum CodingKeys: String, CodingKey {
-      case accepted
-      case sessionDetailSnapshot = "session_detail_snapshot"
-    }
-  }
-
   struct SendMessageResponse: Decodable {
     let accepted: Bool
     let row: ServerConversationRowEntry
@@ -150,51 +140,6 @@ struct ConversationClient: Sendable {
     try await http.post(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/shell-command",
       body: SessionShellCommandRequest(command: command)
-    )
-  }
-
-  func interruptSession(_ sessionId: String) async throws -> CommandAcceptedResponse {
-    try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/interrupt",
-      body: ServerEmptyBody()
-    )
-  }
-
-  func compactContext(_ sessionId: String) async throws -> CommandAcceptedResponse {
-    try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/compact",
-      body: ServerEmptyBody()
-    )
-  }
-
-  func undoLastTurn(_ sessionId: String) async throws -> CommandAcceptedResponse {
-    try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/undo",
-      body: ServerEmptyBody()
-    )
-  }
-
-  func rollbackTurns(_ sessionId: String, numTurns: UInt32) async throws -> CommandAcceptedResponse {
-    struct Body: Encodable { let numTurns: UInt32 }
-    return try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/rollback",
-      body: Body(numTurns: numTurns)
-    )
-  }
-
-  func stopTask(_ sessionId: String, taskId: String) async throws -> CommandAcceptedResponse {
-    struct Body: Encodable { let taskId: String }
-    return try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/stop",
-      body: Body(taskId: taskId)
-    )
-  }
-
-  func rewindFiles(_ sessionId: String, userMessageId: String) async throws -> CommandAcceptedResponse {
-    struct Body: Encodable { let userMessageId: String }
-    return try await http.post(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/rewind",
-      body: Body(userMessageId: userMessageId)
     )
   }
 

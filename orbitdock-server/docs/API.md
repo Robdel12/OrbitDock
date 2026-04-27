@@ -449,56 +449,6 @@ Returns `AcceptedResponse`.
 
 If the current provider does not support message-targeted rewind, the route returns `422 unsupported_control`.
 
-### Compatibility action routes
-
-The older `/conversation/*` action routes remain available as compatibility shims. New clients should prefer `/controls/*`.
-
-### `POST /api/sessions/{session_id}/conversation/interrupt`
-
-Returns `AcceptedResponse`.
-
-### `POST /api/sessions/{session_id}/conversation/compact`
-
-Returns `AcceptedResponse`.
-
-### `POST /api/sessions/{session_id}/conversation/undo`
-
-Returns `AcceptedResponse`.
-
-### `POST /api/sessions/{session_id}/conversation/rollback`
-
-Returns `AcceptedResponse`.
-
-Request body:
-
-```json
-{"num_turns": 2}
-```
-
-### `POST /api/sessions/{session_id}/conversation/stop`
-
-Stops a running task.
-
-Request body:
-
-```json
-{"task_id":"task-..."}
-```
-
-Returns `AcceptedResponse`.
-
-### `POST /api/sessions/{session_id}/conversation/rewind`
-
-Rewinds files to a user message boundary.
-
-Request body:
-
-```json
-{"user_message_id":"msg-..."}
-```
-
-Returns `AcceptedResponse`.
-
 ### Session attachments and shell
 
 ### `POST /api/sessions/{session_id}/conversation/attachments/images`
