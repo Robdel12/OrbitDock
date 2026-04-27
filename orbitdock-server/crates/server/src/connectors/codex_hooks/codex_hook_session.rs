@@ -116,8 +116,8 @@ pub(super) async fn resolve_codex_hook_routing(
 
 pub(super) async fn apply_codex_hook_metadata(
   actor: &SessionActorHandle,
-  _persist_tx: &mpsc::Sender<PersistCommand>,
-  _session_id: &str,
+  _: &mpsc::Sender<PersistCommand>,
+  _: &str,
   model: Option<&String>,
   transcript_path: Option<&String>,
 ) {

@@ -7,9 +7,7 @@ use tokio::sync::mpsc;
 use orbitdock_protocol::{ClientMessage, Provider, WorkStatus};
 
 use crate::domain::sessions::transition::Input;
-use crate::infrastructure::persistence::{
-  extract_summary_from_transcript_path, PersistCommand,
-};
+use crate::infrastructure::persistence::{extract_summary_from_transcript_path, PersistCommand};
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingCodexSession, PendingHookSession, SessionRegistry};
@@ -19,9 +17,9 @@ use crate::runtime::session_runtime_helpers::sync_transcript_messages;
 mod codex_hook_session;
 
 use self::codex_hook_session::{
-  apply_codex_hook_metadata, cleanup_codex_shadow_session, maybe_claim_direct_codex_session,
-  resolve_codex_hook_routing, CodexHookHandlingOptions, CodexHookRoutingDecision,
-  ensure_passive_codex_session,
+  apply_codex_hook_metadata, cleanup_codex_shadow_session, ensure_passive_codex_session,
+  maybe_claim_direct_codex_session, resolve_codex_hook_routing, CodexHookHandlingOptions,
+  CodexHookRoutingDecision,
 };
 
 async fn mark_passive_turn_started(actor: &SessionActorHandle, session_id: &str) {
