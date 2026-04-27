@@ -10,7 +10,8 @@ use orbitdock_connector_core::{ApprovalType, ConnectorOutput, ConnectorStateEven
 use crate::connector::is_accept_edits_tool;
 use crate::protocol::{ControlResponsePayload, StdinMessage};
 
-use super::{state_output, string_field, value_field};
+use super::helpers::{string_field, value_field};
+use super::state_output;
 
 pub(crate) struct PendingApproval {
   pub(crate) tool_name: Option<String>,
