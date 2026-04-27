@@ -590,11 +590,6 @@ struct ServerSessionDetailSnapshotPayload: Codable, Sendable {
   let session: ServerSessionState
 }
 
-struct ServerSessionComposerSnapshotPayload: Codable, Sendable {
-  let revision: UInt64
-  let session: ServerSessionState
-}
-
 struct ServerConversationSnapshotPayload: Codable, Sendable {
   let revision: UInt64
   let sessionId: String
@@ -1253,22 +1248,6 @@ struct ServerSessionCollaborationMode: Decodable, Identifiable, Sendable {
 
 struct ServerSessionCollaborationModesResponse: Decodable, Sendable {
   let data: [ServerSessionCollaborationMode]
-}
-
-struct ServerSessionRuntimeSnapshot: Decodable, Sendable {
-  let sessionId: String
-  let provider: ServerProvider
-  let controls: ServerSessionControlsPayload
-  let instructions: ServerSessionInstructionsPayload
-  let collaborationModes: [ServerSessionCollaborationMode]
-
-  enum CodingKeys: String, CodingKey {
-    case sessionId = "session_id"
-    case provider
-    case controls
-    case instructions
-    case collaborationModes = "collaboration_modes"
-  }
 }
 
 struct ServerSessionControlCapability: Decodable, Sendable {

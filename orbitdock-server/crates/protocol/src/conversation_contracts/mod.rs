@@ -13,7 +13,7 @@ pub mod workers;
 
 pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowSummary};
 pub use approvals::{ApprovalRow, QuestionRow};
-pub use render_hints::{ConversationDisplayMode, RenderHints};
+pub use render_hints::RenderHints;
 pub use rows::{
   compute_shell_preview, extract_row_content_str, extract_row_content_str_summary,
   shell_terminal_snapshot, shell_terminal_transcript, AssistantRow, ContextRow, ContextRowKind,

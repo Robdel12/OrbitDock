@@ -2213,12 +2213,6 @@ pub struct SessionDetailSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionComposerSnapshot {
-  pub revision: u64,
-  pub session: SessionState,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSnapshotPage {
   pub replay_cursor: u64,
   pub session_id: String,

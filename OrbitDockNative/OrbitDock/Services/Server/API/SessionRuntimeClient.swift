@@ -9,12 +9,6 @@ struct SessionRuntimeClient: Sendable {
     self.requestBuilder = requestBuilder
   }
 
-  func fetchRuntimeSnapshot(_ sessionId: String) async throws -> ServerSessionRuntimeSnapshot {
-    try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/runtime"
-    )
-  }
-
   func fetchSessionInstructions(_ sessionId: String) async throws -> ServerSessionInstructions {
     try await http.get(
       "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/instructions"

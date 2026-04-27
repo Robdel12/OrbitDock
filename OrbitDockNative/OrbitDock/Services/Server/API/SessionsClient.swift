@@ -53,22 +53,6 @@ struct SessionsClient: Sendable {
     var codexConfigProfile: String?
   }
 
-  struct CodexPreferencesResponse: Decodable {
-    let defaultConfigSource: ServerCodexConfigSource
-
-    enum CodingKeys: String, CodingKey {
-      case defaultConfigSource = "default_config_source"
-    }
-  }
-
-  struct UpdateCodexPreferencesRequest: Encodable {
-    let defaultConfigSource: ServerCodexConfigSource
-
-    enum CodingKeys: String, CodingKey {
-      case defaultConfigSource = "default_config_source"
-    }
-  }
-
   struct CodexInspectRequest: Encodable {
     let cwd: String
     var codexConfigSource: ServerCodexConfigSource?
@@ -541,18 +525,6 @@ struct SessionsClient: Sendable {
 
   func createSession(_ request: CreateSessionRequest) async throws -> CreateSessionResponse {
     try await http.post("/api/sessions", body: request)
-  }
-
-  func fetchCodexPreferences() async throws -> CodexPreferencesResponse {
-    try await http.get("/api/server/codex-preferences")
-  }
-
-  func updateCodexPreferences(_ request: UpdateCodexPreferencesRequest) async throws -> CodexPreferencesResponse {
-    try await http.request(
-      path: "/api/server/codex-preferences",
-      method: "PUT",
-      body: request
-    )
   }
 
   func inspectCodexConfig(_ request: CodexInspectRequest) async throws -> CodexInspectorResponse {

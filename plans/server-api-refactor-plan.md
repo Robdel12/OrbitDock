@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slice 3A is implemented and validated: legacy HTTP conversation control shims are removed, along with their unused native leftovers`
+- Current phase detail: `Slices 3A and 3C are implemented and validated: legacy HTTP conversation control shims are gone, and a set of native/protocol dead leaves has been pruned`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -592,11 +592,11 @@ Current slice status:
 - `Slice 3A`: complete. Removed the legacy HTTP conversation control shim family under `/api/sessions/{session_id}/conversation/*` for interrupt, compact, undo, rollback, stop, and rewind.
 - Native cleanup in the same slice: complete. Removed the unused `ConversationClient` compatibility methods that still targeted those deleted routes.
 - Docs cleanup in the same slice: complete. `API.md` no longer advertises the shim endpoints, and `SPEC.md` now states that those compatibility routes were removed.
+- `Slice 3C`: complete. Removed definition-only protocol and native leaves: `ConversationDisplayMode`, `ToolPayloadReference`, `SessionComposerSnapshot`, `ServerSessionComposerSnapshotPayload`, `ServerSessionRuntimeSnapshot`, `SessionRuntimeClient.fetchRuntimeSnapshot(_:)`, and the unused native Codex-preferences request/response methods.
 
 Next queued slices:
 
 - `Slice 3B`: WebSocket `rest_only_policy.rs` and reject-only handler cleanup, plus any now-dead protocol variants that only supported REST-only redirects.
-- `Slice 3C`: native-unused protocol and API leaves such as `SessionRuntimeClient.fetchRuntimeSnapshot(_:)`, `ServerSessionRuntimeSnapshot`, `ConversationDisplayMode`, and `ToolPayloadReference`, pending cross-layer verification.
 - `Slice 3D`: CLI hidden bridge commands and dev-console cleanup, if we confirm replacement paths or choose to drop them.
 
 Search targets:
