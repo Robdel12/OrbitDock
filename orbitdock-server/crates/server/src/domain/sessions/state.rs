@@ -190,18 +190,6 @@ impl SessionCoreState {
     self.newest_synced_row_id.as_deref()
   }
 
-  pub fn repository_root(&self) -> Option<&str> {
-    self.environment.repository_root.as_deref()
-  }
-
-  pub fn is_worktree(&self) -> bool {
-    self.environment.is_worktree
-  }
-
-  pub fn worktree_id(&self) -> Option<&str> {
-    self.environment.worktree_id.as_deref()
-  }
-
   pub fn work_status(&self) -> WorkStatus {
     self.work_status
   }
@@ -791,6 +779,7 @@ impl SessionCoreState {
     self.environment.worktree_id = worktree_id;
   }
 
+  #[cfg(test)]
   pub fn set_status(&mut self, status: SessionStatus) {
     self.status = status;
     if status == SessionStatus::Ended {
@@ -798,10 +787,7 @@ impl SessionCoreState {
     }
   }
 
-  pub fn set_started_at(&mut self, started_at: Option<String>) {
-    self.timestamps.started_at = started_at;
-  }
-
+  #[cfg(test)]
   pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
     self.timestamps.last_activity_at = last_activity_at;
   }

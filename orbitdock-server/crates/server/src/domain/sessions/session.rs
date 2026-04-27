@@ -509,7 +509,6 @@ impl SessionHandle {
   }
 
   /// Set worktree-related fields
-  #[allow(dead_code)] // Used in Phase 6 (hook_handler enrichment)
   pub fn set_worktree_info(
     &mut self,
     repository_root: Option<String>,
@@ -521,35 +520,14 @@ impl SessionHandle {
       .set_worktree_info(repository_root, is_worktree, worktree_id);
   }
 
-  #[allow(dead_code)] // Used in Phase 6+
-  pub fn repository_root(&self) -> Option<&str> {
-    self.state.repository_root()
-  }
-
-  #[allow(dead_code)] // Used in Phase 6+
-  pub fn is_worktree(&self) -> bool {
-    self.state.is_worktree()
-  }
-
-  #[allow(dead_code)] // Used in Phase 6+
-  pub fn worktree_id(&self) -> Option<&str> {
-    self.state.worktree_id()
-  }
-
   /// Set status
-  #[allow(dead_code)] // Used by apply_changes; kept for direct mutation paths (e.g. connector detach).
+  #[cfg(test)]
   pub fn set_status(&mut self, status: SessionStatus) {
     self.state.set_status(status);
   }
 
-  /// Set started_at timestamp
-  #[allow(dead_code)] // Reserved for follow-up session timing plumbing.
-  pub fn set_started_at(&mut self, started_at: Option<String>) {
-    self.state.set_started_at(started_at);
-  }
-
   /// Set last_activity_at timestamp
-  #[allow(dead_code)] // Used by apply_changes; kept for direct mutation paths (e.g. connector detach).
+  #[cfg(test)]
   pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
     self.state.set_last_activity_at(last_activity_at);
   }
