@@ -247,24 +247,7 @@ async fn load_sessions_for_startup_with_db_path(
                         COALESCE(uss.snapshot_kind, 'unknown')
                  FROM sessions s
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id
-                 WHERE (s.status = 'active'
-                    AND NOT (
-                      s.provider = 'claude'
-                      AND COALESCE(s.control_mode, CASE
-                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-                            ELSE 'passive'
-                          END) != 'direct'
-                      AND EXISTS (
-                          SELECT 1
-                          FROM sessions direct
-                          WHERE direct.provider = 'claude'
-                            AND direct.claude_sdk_session_id = s.id
-                            AND COALESCE(direct.control_mode, CASE
-                                  WHEN direct.provider = 'claude' AND direct.claude_integration_mode = 'direct' THEN 'direct'
-                                  ELSE 'passive'
-                                END) = 'direct'
-                      )
-                    ))
+                 WHERE (s.status = 'active')
                     OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
                  ORDER BY
                    COALESCE(
