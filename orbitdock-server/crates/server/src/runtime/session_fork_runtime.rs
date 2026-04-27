@@ -8,7 +8,7 @@ use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider, 
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
+use crate::domain::sessions::session::{SessionConfig, SessionHandle};
 use crate::infrastructure::persistence::{PersistCommand, SessionCreateParams};
 use crate::runtime::session_fork_policy::remap_rows_for_fork;
 use crate::runtime::session_registry::SessionRegistry;
@@ -153,7 +153,7 @@ pub(crate) async fn finalize_codex_fork_session(
   );
   handle.set_git_branch(fork_branch.clone());
   handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-  handle.set_config(SessionConfigPatch {
+  handle.set_config(SessionConfig {
     approval_policy: effective_approval_policy.map(ToOwned::to_owned),
     sandbox_mode: effective_sandbox_mode.map(ToOwned::to_owned),
     ..Default::default()

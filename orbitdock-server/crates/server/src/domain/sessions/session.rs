@@ -195,10 +195,6 @@ pub struct SessionHandle {
   snapshot_handle: Arc<ArcSwap<SessionSnapshot>>,
 }
 
-/// A config patch is structurally identical to `SessionConfig` — `None` fields
-/// mean "don't change" when applied via `set_config`.
-pub type SessionConfigPatch = SessionConfig;
-
 /// All fields needed to reconstruct a `SessionHandle` from persisted DB state.
 pub struct SessionRestoreData {
   pub identity: SessionIdentity,
@@ -482,7 +478,7 @@ impl SessionHandle {
   }
 
   /// Set autonomy configuration
-  pub fn set_config(&mut self, patch: SessionConfigPatch) {
+  pub fn set_config(&mut self, patch: SessionConfig) {
     self.state.set_config(patch);
     self.refresh_snapshot();
   }

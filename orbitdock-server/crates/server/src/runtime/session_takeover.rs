@@ -8,7 +8,7 @@ use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, Provider};
 
 use crate::connectors::claude_session::{ClaudeSession, ClaudeSessionConfig};
 use crate::connectors::codex_session::CodexSession;
-use crate::domain::sessions::session::{SessionConfigPatch, SessionHandle};
+use crate::domain::sessions::session::{SessionConfig, SessionHandle};
 use crate::infrastructure::persistence::{
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
   load_session_permission_mode, PersistCommand,
@@ -268,7 +268,7 @@ async fn complete_codex_takeover(
   if let Some(ref model) = effective_model {
     handle.set_model(Some(model.clone()));
   }
-  handle.set_config(SessionConfigPatch {
+  handle.set_config(SessionConfig {
     approval_policy: effective_approval.clone(),
     approval_policy_details: None,
     sandbox_mode: effective_sandbox.clone(),

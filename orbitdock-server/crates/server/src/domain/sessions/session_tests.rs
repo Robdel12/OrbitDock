@@ -213,7 +213,7 @@ fn replay_since_current_revision_without_event_log_returns_empty_replay() {
 fn set_config_syncs_sandbox_summary_from_explicit_details() {
   let mut session = session_handle(Provider::Codex);
 
-  session.set_config(SessionConfigPatch {
+  session.set_config(SessionConfig {
     sandbox_policy_details: CodexSandboxPolicy::from_storage_text("workspace-write-network"),
     ..Default::default()
   });
@@ -228,7 +228,7 @@ fn set_config_syncs_sandbox_summary_from_explicit_details() {
 fn set_config_syncs_approval_policy_summary_from_explicit_details() {
   let mut session = session_handle(Provider::Codex);
 
-  session.set_config(SessionConfigPatch {
+  session.set_config(SessionConfig {
     approval_policy_details: orbitdock_protocol::CodexApprovalPolicy::from_storage_text("never"),
     ..Default::default()
   });

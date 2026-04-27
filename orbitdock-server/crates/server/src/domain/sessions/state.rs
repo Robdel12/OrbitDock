@@ -12,8 +12,8 @@ use super::facets::{
 };
 use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInput};
 use super::session::{
-  accepts_user_input_from_parts, control_mode_from_parts, steerable_from_parts, SessionConfigPatch,
-  SessionRestoreData, SessionSnapshot,
+  accepts_user_input_from_parts, control_mode_from_parts, steerable_from_parts, SessionRestoreData,
+  SessionSnapshot,
 };
 use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
@@ -712,7 +712,7 @@ impl SessionCoreState {
     self.config.effort = effort;
   }
 
-  pub fn set_config(&mut self, patch: SessionConfigPatch) {
+  pub fn set_config(&mut self, patch: SessionConfig) {
     let has_approval_policy = patch.approval_policy.is_some();
     let has_sandbox_mode = patch.sandbox_mode.is_some();
     let has_codex_config_overrides = patch.codex_config_overrides.is_some();

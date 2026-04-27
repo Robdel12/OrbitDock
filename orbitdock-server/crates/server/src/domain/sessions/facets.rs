@@ -21,9 +21,8 @@ pub struct SessionIdentity {
 /// Durable, mutable configuration — the fields that `set_config` can change.
 ///
 /// All fields are `Option` because every config value is optional at creation
-/// and nullable in the database.  A `SessionConfig` with all-`None` fields is
-/// valid (empty config).  `SessionConfigPatch` is a type alias for this same
-/// struct — when used as a patch, `None` means "don't change".
+/// and nullable in the database. A `SessionConfig` with all-`None` fields is
+/// valid (empty config), and when used as a patch `None` means "don't change".
 #[derive(Debug, Default, Clone)]
 pub struct SessionConfig {
   pub model: Option<String>,
