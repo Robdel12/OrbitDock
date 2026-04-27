@@ -26,15 +26,6 @@ pub async fn load_session_lifecycle_state(
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-pub async fn load_session_lifecycle_state_from_db_path(
-  db_path: PathBuf,
-  id: &str,
-) -> Result<Option<orbitdock_protocol::SessionLifecycleState>, anyhow::Error> {
-  load_session_lifecycle_state_with_db_path(db_path, id).await
-}
-
-#[cfg(test)]
 async fn load_session_lifecycle_state_with_db_path(
   db_path: PathBuf,
   id: &str,

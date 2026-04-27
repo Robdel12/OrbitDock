@@ -14,15 +14,6 @@ pub async fn load_direct_claude_owner_by_sdk_session_id(
   .await
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-pub async fn load_direct_claude_owner_by_sdk_session_id_from_db_path(
-  db_path: PathBuf,
-  sdk_session_id: &str,
-) -> Result<Option<DirectClaudeOwner>, anyhow::Error> {
-  load_direct_claude_owner_by_sdk_session_id_with_db_path(db_path, sdk_session_id).await
-}
-
 async fn load_direct_claude_owner_by_sdk_session_id_with_db_path(
   db_path: PathBuf,
   sdk_session_id: &str,
@@ -80,15 +71,6 @@ pub async fn load_direct_codex_owner_by_thread_id(
     thread_id,
   )
   .await
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-pub async fn load_direct_codex_owner_by_thread_id_from_db_path(
-  db_path: PathBuf,
-  thread_id: &str,
-) -> Result<Option<DirectCodexOwner>, anyhow::Error> {
-  load_direct_codex_owner_by_thread_id_with_db_path(db_path, thread_id).await
 }
 
 async fn load_direct_codex_owner_by_thread_id_with_db_path(

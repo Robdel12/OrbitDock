@@ -21,15 +21,6 @@ pub async fn load_session_metadata_by_id(
   load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id, false).await
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-pub async fn load_session_by_id_from_db_path(
-  db_path: PathBuf,
-  id: &str,
-) -> Result<Option<RestoredSession>, anyhow::Error> {
-  load_session_by_id_with_db_path(db_path, id, true).await
-}
-
 async fn load_session_by_id_with_db_path(
   db_path: PathBuf,
   id: &str,

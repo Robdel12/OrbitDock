@@ -466,31 +466,6 @@ pub fn update_mission_issue_state_sync(
   Ok(())
 }
 
-#[allow(dead_code)]
-pub fn load_all_active_mission_issues(conn: &Connection) -> Result<Vec<MissionIssueRow>> {
-  let mut stmt = conn
-        .prepare(
-            "SELECT mi.id, mi.mission_id, mi.issue_id, mi.issue_identifier, mi.issue_title,
-                    mi.issue_state, mi.orchestration_state, mi.session_id, mi.provider,
-                    mi.attempt, mi.last_error, mi.retry_due_at, mi.started_at,
-                    mi.completed_at, mi.url, mi.workspace_id, mi.created_at, mi.updated_at, mi.pr_url
-             FROM mission_issues mi
-             JOIN missions m ON m.id = mi.mission_id
-             WHERE m.enabled = 1
-               AND mi.orchestration_state NOT IN ('completed', 'failed')
-             ORDER BY mi.created_at ASC",
-        )
-        .context("prepare load_all_active_mission_issues")?;
-
-  let rows = stmt
-    .query_map([], MissionIssueRow::from_row)
-    .context("query load_all_active_mission_issues")?
-    .filter_map(|r| r.ok())
-    .collect();
-
-  Ok(rows)
-}
-
 #[cfg(test)]
 #[path = "mission_control_tests.rs"]
 mod tests;
