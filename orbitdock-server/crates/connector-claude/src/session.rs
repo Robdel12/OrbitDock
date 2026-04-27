@@ -99,12 +99,6 @@ pub enum ClaudeAction {
   },
   Compact,
   Undo,
-  Resume {
-    session_id: String,
-  },
-  Fork {
-    session_id: Option<String>,
-  },
   SetModel {
     model: String,
   },
@@ -186,14 +180,6 @@ impl std::fmt::Debug for ClaudeAction {
         .finish(),
       Self::Compact => write!(f, "Compact"),
       Self::Undo => write!(f, "Undo"),
-      Self::Resume { session_id } => f
-        .debug_struct("Resume")
-        .field("session_id", session_id)
-        .finish(),
-      Self::Fork { session_id } => f
-        .debug_struct("Fork")
-        .field("session_id", session_id)
-        .finish(),
       Self::SetModel { model } => f.debug_struct("SetModel").field("model", model).finish(),
       Self::SetMaxThinking { tokens } => f
         .debug_struct("SetMaxThinking")
@@ -309,22 +295,6 @@ impl ClaudeSession {
       ClaudeAction::Undo => {
         // Send /undo as a slash command
         connector.send_message("/undo", None, None, &[]).await?;
-      }
-      ClaudeAction::Resume { .. } => {
-        // Resume is handled at spawn time via --resume flag.
-        tracing::warn!(
-          component = "claude_connector",
-          event = "claude.action.resume_noop",
-          "Resume action received but resume is handled at spawn time"
-        );
-      }
-      ClaudeAction::Fork { .. } => {
-        // Fork is handled at spawn time via --resume --fork-session flags.
-        tracing::warn!(
-          component = "claude_connector",
-          event = "claude.action.fork_noop",
-          "Fork action received but fork is handled at spawn time"
-        );
       }
       ClaudeAction::SetModel { model } => {
         connector.set_model(&model).await?;

@@ -5,9 +5,11 @@ use std::time::Instant;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
-use super::{
-  parse_data_uri_base64, transform_image, ClaudeConnector, ImageSource, PendingApproval,
-  UserContentBlock,
+use super::images::{parse_data_uri_base64, transform_image};
+use super::protocol::{ImageSource, UserContentBlock};
+use super::stdout::{
+  handle_assistant_message, handle_cli_control_request, handle_stream_event, ClaudeEventLoopState,
+  PendingApproval,
 };
 use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::ConversationRow;
@@ -82,8 +84,7 @@ async fn handle_cli_control_request_accepts_camel_case_permission_fields() {
   });
 
   let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
-  let events =
-    ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
+  let events = handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
   assert_eq!(events.len(), 1);
   match events[0].as_state_event() {
     Some(ConnectorStateEvent::ApprovalRequested {
@@ -135,8 +136,7 @@ async fn handle_cli_control_request_uses_top_level_permission_suggestions_fallba
   });
 
   let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
-  let events =
-    ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
+  let events = handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
   assert_eq!(events.len(), 1);
 
   let pending = pending_approvals.lock().await;
@@ -168,8 +168,7 @@ async fn handle_cli_control_request_emits_plan_update_for_exit_plan_mode() {
   });
 
   let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
-  let events =
-    ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
+  let events = handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
   assert_eq!(events.len(), 2);
 
   match events[0].as_state_event() {
@@ -207,16 +206,15 @@ async fn handle_cli_control_request_rejects_missing_request_id() {
   });
 
   let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
-  let events =
-    ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
+  let events = handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
   assert!(events.is_empty(), "missing request id should be ignored");
   assert!(pending_approvals.lock().await.is_empty());
 }
 
 /// Build a minimal `ClaudeEventLoopState` for tests that call sub-handlers.
-fn test_event_loop_state() -> super::ClaudeEventLoopState {
+fn test_event_loop_state() -> ClaudeEventLoopState {
   let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
-  super::ClaudeEventLoopState::new(
+  ClaudeEventLoopState::new(
     Arc::new(Mutex::new(None)),
     Arc::new(Mutex::new(HashMap::new())),
     Arc::new(Mutex::new(HashMap::new())),
@@ -249,7 +247,7 @@ fn handle_assistant_message_emits_diff_for_edit_tool_use() {
   let mut state = test_event_loop_state();
   state.last_context_window = 200_000;
 
-  let events = ClaudeConnector::handle_assistant_message(&raw, "sess-1", &mut state);
+  let events = handle_assistant_message(&raw, "sess-1", &mut state);
 
   let has_diff = events.iter().any(|event| {
     matches!(
@@ -303,9 +301,9 @@ fn handle_assistant_message_aggregates_patch_diffs_across_events() {
   let mut state = test_event_loop_state();
   state.last_context_window = 200_000;
 
-  let _ = ClaudeConnector::handle_assistant_message(&raw_edit, "sess-1", &mut state);
+  let _ = handle_assistant_message(&raw_edit, "sess-1", &mut state);
 
-  let second_events = ClaudeConnector::handle_assistant_message(&raw_write, "sess-1", &mut state);
+  let second_events = handle_assistant_message(&raw_write, "sess-1", &mut state);
 
   let aggregated = second_events.iter().find_map(|event| {
     if let Some(ConnectorStateEvent::DiffUpdated(diff)) = event.as_state_event() {
@@ -346,7 +344,7 @@ fn handle_assistant_message_infers_agent_tool_when_name_missing() {
   let mut state = test_event_loop_state();
   state.last_context_window = 200_000;
 
-  let events = ClaudeConnector::handle_assistant_message(&raw, "sess-1", &mut state);
+  let events = handle_assistant_message(&raw, "sess-1", &mut state);
 
   // Should create a tool row with Agent classification
   let tool_row = events.iter().find_map(|e| match e.as_state_event() {
@@ -386,7 +384,7 @@ fn handle_stream_event_recovers_when_streaming_row_id_is_missing() {
   state.streaming_content = "hello world".to_string();
   state.streaming_last_broadcast = Some(Instant::now() - std::time::Duration::from_millis(100));
 
-  let events = ClaudeConnector::handle_stream_event(&raw, "sess-1", &mut state);
+  let events = handle_stream_event(&raw, "sess-1", &mut state);
 
   assert!(
     matches!(
