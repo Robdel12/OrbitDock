@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 10 / Wave 3A execution`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2. After the temporary file-descriptor exhaustion issue was cleared, Wave 3A resumed and the protocol tiny delete-first lane landed cleanly with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml` passing. The Claude lane has now advanced through both the delete-first cut and two structural splits: the dead write-only `ClaudeEventLoopState.last_turn_input` / `turn_output` bookkeeping is gone, the control/approval request cluster now lives in `connector-claude/src/stdout/control.rs`, and the system-event cluster now lives in `connector-claude/src/stdout/system.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml` passing after the latest split. The domain session core lane has now landed its first helper extraction too: shared session-mode and transcript-sync helpers now live in `domain/sessions/support.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-server domain::sessions --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1` passing. Wave 3B is no longer just launched; its first defined slices are now landed as commits `2e66bdbd`, `0a7c1a6a`, and `7ee569be`, covering the Codex config/policy helper split, the runtime dispatch/takeover helper split, and the CLI binary/dev-console split. Validation passed with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `env RUSTC_WRAPPER= make rust-check`. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 10 / Wave 3 execution`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2. After the temporary file-descriptor exhaustion issue was cleared, Wave 3A resumed and the protocol tiny delete-first lane landed cleanly with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml` passing. The Claude lane has now advanced through both the delete-first cut and three structural splits: the dead write-only `ClaudeEventLoopState.last_turn_input` / `turn_output` bookkeeping is gone, the control/approval request cluster now lives in `connector-claude/src/stdout/control.rs`, the system-event cluster now lives in `connector-claude/src/stdout/system.rs`, and the shared row/value/flush helpers now live in `connector-claude/src/stdout/helpers.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml` passing after the latest split in commit `ded6f107`. The domain session core lane has landed its helper extraction: shared session-mode and transcript-sync helpers now live in `domain/sessions/support.rs`, with `env RUSTC_WRAPPER= cargo test -p orbitdock-server domain::sessions --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1` passing. Wave 3B is now landed through its defined implementation set: commits `2e66bdbd`, `0a7c1a6a`, `7ee569be`, and `fdd1c2a3` cover the Codex config/policy helper split, the runtime dispatch/takeover helper split, the CLI binary/dev-console split, and the persistence-accounting plus Codex-hook operational split. Validation passed with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `env RUSTC_WRAPPER= make rust-check`. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1270,7 +1270,7 @@ Tasks:
 | Worker D1 | `019dd104-c660-78a2-a622-95803ca0e22c` (`McClintock`) | completed - blocked by environment, no edits |
 | Worker A2 | `019dd130-1409-7bf1-bbd0-25a44d82a61c` (`Arendt`) | completed - landed in `2e66bdbd` |
 | Worker E1 | `019dd130-18b0-7da1-86c3-05e13dbfa9df` (`Noether`) | completed - landed in `7ee569be` |
-| Worker F1 | `019dd130-1c09-71e1-86dd-f442dafae87e` (`McClintock`) | completed - landed in `0a7c1a6a` |
+| Worker F1 | `019dd130-1c09-71e1-86dd-f442dafae87e` (`McClintock`) | completed - landed in `0a7c1a6a` and `fdd1c2a3` |
 
 ### Phase 10 execution note
 
@@ -1280,11 +1280,14 @@ Tasks:
   - `2e66bdbd` `♻️ Split Codex config policy helpers`
   - `0a7c1a6a` `♻️ Split runtime dispatch and takeover helpers`
   - `7ee569be` `♻️ Split CLI binary and dev console modules`
-- The remaining Wave 3 work is now narrower: more `connector-claude/src/stdout.rs` decomposition if still justified, plus the still-planned server operational follow-ons in `persistence/mod.rs`, `session_writes.rs`, and `connectors/codex_hooks/mod.rs` before we declare the split-now wave complete.
+- The follow-on Wave 3 slices are now integrated and committed too:
+  - `ded6f107` `♻️ Split Claude stdout helper cluster`
+  - `fdd1c2a3` `♻️ Split Codex hook session and persistence accounting`
+- The defined Wave 3 split-now lanes are now landed. The next decision is whether `connector-claude/src/stdout.rs` still has one more obvious low-risk helper extraction worth doing inside Phase 10, or whether we close this phase and regroup around the parked redesign hotspots.
 
 Done when:
 
-- [ ] The remaining split-now and delete-first lanes from Phase 9 are either landed or explicitly reclassified.
+- [x] The remaining split-now and delete-first lanes from Phase 9 are either landed or explicitly reclassified.
 - [ ] The parked redesign seams are still isolated and documented.
 - [ ] The next regroup is about true redesign, not obvious module breakup work we should have already done.
 
