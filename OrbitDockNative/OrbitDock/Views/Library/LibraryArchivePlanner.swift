@@ -192,11 +192,13 @@ enum LibraryArchivePlanner {
     sessions: [RootSessionNode],
     query: String
   ) -> [RootSessionNode] {
-    guard !query.isEmpty else { return sessions }
+    let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !normalizedQuery.isEmpty else { return sessions }
 
-    let loweredQuery = query.lowercased()
     return sessions.filter { session in
       let fields = [
+        session.sessionId,
+        session.scopedID,
         session.displayName,
         session.projectName,
         session.projectPath,
@@ -205,10 +207,11 @@ enum LibraryArchivePlanner {
         session.endpointName,
         session.model,
         session.displaySearchText,
+        session.issueIdentifier,
       ]
       .compactMap { $0?.lowercased() }
 
-      return fields.contains { $0.contains(loweredQuery) }
+      return fields.contains { $0.contains(normalizedQuery) }
     }
   }
 

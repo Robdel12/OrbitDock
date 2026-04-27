@@ -29,6 +29,7 @@ impl SessionRegistry {
       self,
       SESSIONS_SUMMARY_RECENT_LIMIT,
       0,
+      None,
     )
     .await
     .ok();

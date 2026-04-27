@@ -14,6 +14,7 @@ struct LibraryView: View {
   let sessions: [RootSessionNode]
   let hasMoreSessions: Bool
   let onLoadMoreSessions: () async -> Void
+  let onSearchQueryChanged: (String) async -> Void
   var containerWidth: CGFloat?
 
   @State private var searchText = ""
@@ -33,6 +34,10 @@ struct LibraryView: View {
 
   private var hasActiveFilters: Bool {
     !searchText.isEmpty || providerFilter != .all || selectedEndpointId != nil
+  }
+
+  private var normalizedSearchText: String {
+    searchText.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   var body: some View {
@@ -117,6 +122,9 @@ struct LibraryView: View {
         onReset: resetFilters
       )
       .platformSheetChrome(detents: [.height(320), .medium])
+    }
+    .task(id: normalizedSearchText) {
+      await onSearchQueryChanged(normalizedSearchText)
     }
   }
 

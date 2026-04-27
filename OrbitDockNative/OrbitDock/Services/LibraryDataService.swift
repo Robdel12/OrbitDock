@@ -7,6 +7,7 @@ final class LibraryDataService {
   private struct EndpointState {
     let identity: String
     let isDefault: Bool
+    var query: String? = nil
     var sessionsByScopedID: [String: RootSessionNode] = [:]
     var nextOffset: UInt64?
     var revision: UInt64?
@@ -26,9 +27,20 @@ final class LibraryDataService {
   @ObservationIgnored private let refreshRunner = CoalescedRefreshRunner()
   @ObservationIgnored private var pendingFullRefresh = false
   @ObservationIgnored private var liveConsumerCount = 0
+  @ObservationIgnored private var searchQuery: String?
 
   func refreshNow(runtimeRegistry: ServerRuntimeRegistry) async {
     self.runtimeRegistry = runtimeRegistry
+    pendingFullRefresh = true
+    scheduleRefreshIfNeeded()
+    await refreshRunner.waitForCurrentRefresh()
+  }
+
+  func setSearchQuery(_ query: String, runtimeRegistry: ServerRuntimeRegistry) async {
+    self.runtimeRegistry = runtimeRegistry
+    let normalizedQuery = Self.normalizedSearchQuery(query)
+    guard normalizedQuery != searchQuery else { return }
+    searchQuery = normalizedQuery
     pendingFullRefresh = true
     scheduleRefreshIfNeeded()
     await refreshRunner.waitForCurrentRefresh()
@@ -54,6 +66,7 @@ final class LibraryDataService {
     topologyObserver.stop()
     refreshRunner.cancel()
     pendingFullRefresh = false
+    searchQuery = nil
     runtimeRegistry = nil
     listenerHub.clear { _, connection in
       connection.unsubscribeArchivedSessions()
@@ -173,6 +186,7 @@ final class LibraryDataService {
       client: ArchivedSessionsClient,
       identity: String,
       isDefault: Bool,
+      query: String?,
       currentState: EndpointState,
       offset: UInt64?,
       pagesToLoad: Int
@@ -182,10 +196,13 @@ final class LibraryDataService {
     let descriptors: [EndpointDescriptor] = activeRuntimes.compactMap { runtime in
       let endpointId = runtime.endpoint.id
       let identity = ServerEndpointIdentityPlanner.identity(for: runtime)
+      let query = searchQuery
       let currentState = endpointStates[endpointId]
         ?? EndpointState(identity: identity, isDefault: runtime.endpoint.isDefault)
       let offset = reset ? 0 : currentState.nextOffset
-      let pagesToLoad = reset ? max(currentState.loadedPageCount, 1) : 1
+      let pagesToLoad = reset
+        ? (currentState.query == query ? max(currentState.loadedPageCount, 1) : 1)
+        : 1
       guard reset || offset != nil else { return nil }
       return (
         endpointId: endpointId,
@@ -194,6 +211,7 @@ final class LibraryDataService {
         client: runtime.clients.archivedSessions,
         identity: identity,
         isDefault: runtime.endpoint.isDefault,
+        query: query,
         currentState: currentState,
         offset: offset,
         pagesToLoad: pagesToLoad
@@ -209,6 +227,7 @@ final class LibraryDataService {
           let client = descriptor.client
           let identity = descriptor.identity
           let isDefault = descriptor.isDefault
+          let query = descriptor.query
           let currentState = descriptor.currentState
           let pagesToLoad = descriptor.pagesToLoad
 
@@ -219,12 +238,14 @@ final class LibraryDataService {
               updatedState.nextOffset = nil
               updatedState.loadedPageCount = 0
             }
+            updatedState.query = query
 
             var nextOffset = descriptor.offset
             for _ in 0..<pagesToLoad {
               let page = try await client.fetchSnapshot(
                 limit: Self.defaultPageSize,
-                offset: Int(nextOffset ?? 0)
+                offset: Int(nextOffset ?? 0),
+                query: query
               )
               let mappedSessions = page.sessions.map { item in
                 RootSessionNode(
@@ -251,6 +272,7 @@ final class LibraryDataService {
               EndpointState(
                 identity: identity,
                 isDefault: isDefault,
+                query: updatedState.query,
                 sessionsByScopedID: updatedState.sessionsByScopedID,
                 nextOffset: updatedState.nextOffset,
                 revision: updatedState.revision,
@@ -304,5 +326,10 @@ final class LibraryDataService {
 
     return identityOrder.compactMap { keptByIdentity[$0] }
   }
-}
 
+  private nonisolated static func normalizedSearchQuery(_ query: String) -> String? {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    return trimmed
+  }
+}

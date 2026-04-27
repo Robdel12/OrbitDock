@@ -235,11 +235,52 @@ fn map_projection_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedDash
   })
 }
 
+fn normalized_timestamp_sql(column: &str) -> String {
+  format!(
+    "CASE
+       WHEN {column} IS NULL OR TRIM({column}) = '' THEN NULL
+       WHEN INSTR({column}, 'T') > 0 THEN CAST(strftime('%s', {column}) AS INTEGER)
+       ELSE CAST(REPLACE({column}, 'Z', '') AS INTEGER)
+     END"
+  )
+}
+
+fn library_activity_sort_sql() -> String {
+  let last_activity = normalized_timestamp_sql("s.last_activity_at");
+  let ended_at = normalized_timestamp_sql("s.ended_at");
+  let last_progress = normalized_timestamp_sql("s.last_progress_at");
+  let started_at = normalized_timestamp_sql("s.started_at");
+
+  format!(
+    "MAX(
+       COALESCE({last_activity}, 0),
+       COALESCE({ended_at}, 0),
+       COALESCE({last_progress}, 0),
+       COALESCE({started_at}, 0)
+     )"
+  )
+}
+
+fn escape_like_query(value: &str) -> String {
+  let mut escaped = String::with_capacity(value.len());
+  for ch in value.chars() {
+    match ch {
+      '%' | '_' | '\\' => {
+        escaped.push('\\');
+        escaped.push(ch);
+      }
+      _ => escaped.push(ch),
+    }
+  }
+  escaped
+}
+
 /// Load a page of all sessions for the library view, with SQL-level pagination.
 async fn load_library_projections(
   pool: Arc<ReadPool>,
   limit: usize,
   offset: usize,
+  query: Option<String>,
 ) -> Result<(Vec<PersistedDashboardProjection>, u64), SessionLoadError> {
   tokio::task::spawn_blocking(
     move || -> Result<(Vec<PersistedDashboardProjection>, u64), SessionLoadError> {
@@ -247,14 +288,35 @@ async fn load_library_projections(
         .get()
         .map_err(|err| SessionLoadError::Db(err.to_string()))?;
 
+      let search_query = query.map(|value| format!("%{}%", escape_like_query(&value.to_lowercase())));
+      let filter_sql = "\
+        WHERE :query IS NULL
+           OR LOWER(s.id) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.custom_name, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.summary, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.first_prompt, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.last_message, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.project_name, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.project_path, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.repository_root, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.git_branch, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.model, '')) LIKE :query ESCAPE '\\'
+           OR LOWER(COALESCE(s.issue_identifier, '')) LIKE :query ESCAPE '\\'";
+      let count_sql = format!("SELECT COUNT(*) FROM sessions s {filter_sql}");
       let total: u64 = conn
-        .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+        .query_row(
+          &count_sql,
+          rusqlite::named_params! { ":query": search_query.as_deref() },
+          |row| row.get(0),
+        )
         .map_err(|err| SessionLoadError::Db(err.to_string()))?;
 
+      let activity_sort_sql = library_activity_sort_sql();
       let sql = format!(
         "{PROJECTION_SELECT}
-         ORDER BY COALESCE(s.last_activity_at, s.started_at) DESC
-         LIMIT ?1 OFFSET ?2"
+         {filter_sql}
+         ORDER BY {activity_sort_sql} DESC, s.id DESC
+         LIMIT :limit OFFSET :offset"
       );
       let mut stmt = conn
         .prepare(&sql)
@@ -262,7 +324,11 @@ async fn load_library_projections(
 
       let rows = stmt
         .query_map(
-          rusqlite::params![limit as i64, offset as i64],
+          rusqlite::named_params! {
+            ":query": search_query.as_deref(),
+            ":limit": limit as i64,
+            ":offset": offset as i64,
+          },
           map_projection_row,
         )
         .map_err(|err| SessionLoadError::Db(err.to_string()))?;
@@ -388,9 +454,16 @@ pub(crate) async fn load_library_snapshot(
   state: &Arc<SessionRegistry>,
   limit: usize,
   offset: usize,
+  query: Option<&str>,
 ) -> Result<LibrarySnapshot, SessionLoadError> {
   let (projections, total_count) =
-    load_library_projections(Arc::clone(state.read_pool()), limit, offset).await?;
+    load_library_projections(
+      Arc::clone(state.read_pool()),
+      limit,
+      offset,
+      query.map(str::to_string),
+    )
+    .await?;
 
   let sessions: Vec<SessionSummary> = projections
     .iter()

@@ -23,6 +23,9 @@ struct DashboardView: View {
               onLoadMoreSessions: {
                 await libraryDataService.loadMore(runtimeRegistry: runtimeRegistry)
               },
+              onSearchQueryChanged: { query in
+                await libraryDataService.setSearchQuery(query, runtimeRegistry: runtimeRegistry)
+              },
               containerWidth: containerWidth
             )
         }

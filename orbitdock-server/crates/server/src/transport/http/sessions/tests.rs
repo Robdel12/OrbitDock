@@ -75,6 +75,34 @@ fn persist_session_fixture(
   flush_batch_for_test(db_path, batch).expect("persist session fixture");
 }
 
+fn update_session_timestamps(
+  db_path: &PathBuf,
+  session_id: &str,
+  started_at: Option<&str>,
+  last_activity_at: Option<&str>,
+  last_progress_at: Option<&str>,
+  ended_at: Option<&str>,
+) {
+  let conn = Connection::open(db_path).expect("open sqlite");
+  conn
+    .execute(
+      "UPDATE sessions
+         SET started_at = ?1,
+             last_activity_at = ?2,
+             last_progress_at = ?3,
+             ended_at = ?4
+       WHERE id = ?5",
+      rusqlite::params![
+        started_at,
+        last_activity_at,
+        last_progress_at,
+        ended_at,
+        session_id,
+      ],
+    )
+    .expect("update session timestamps");
+}
+
 fn test_tool_row(
   session_id: &str,
   id: &str,
@@ -562,6 +590,7 @@ async fn library_snapshot_paginates_with_offset_and_next_offset() {
     Query(LibrarySnapshotQuery {
       limit: Some(1),
       offset: Some(0),
+      q: None,
     }),
     State(state.clone()),
   )
@@ -576,6 +605,7 @@ async fn library_snapshot_paginates_with_offset_and_next_offset() {
     Query(LibrarySnapshotQuery {
       limit: Some(1),
       offset: Some(1),
+      q: None,
     }),
     State(state),
   )
@@ -585,6 +615,83 @@ async fn library_snapshot_paginates_with_offset_and_next_offset() {
   assert_eq!(second_page.sessions.len(), 1);
   assert_eq!(second_page.total_count, 2);
   assert_eq!(second_page.next_offset, None);
+}
+
+#[tokio::test]
+async fn library_snapshot_sorts_mixed_timestamp_formats_by_activity() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let older_session_id = orbitdock_protocol::new_session_id();
+  let newer_session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(
+    &db_path,
+    &older_session_id,
+    "/tmp/orbitdock-library-sort-older",
+    vec![],
+  );
+  persist_session_fixture(
+    &db_path,
+    &newer_session_id,
+    "/tmp/orbitdock-library-sort-newer",
+    vec![],
+  );
+
+  update_session_timestamps(
+    &db_path,
+    &older_session_id,
+    Some("2026-04-26T08:00:00Z"),
+    Some("2026-04-26T09:00:00Z"),
+    Some("2026-04-26T09:00:00Z"),
+    Some("2026-04-26T09:00:00Z"),
+  );
+  update_session_timestamps(
+    &db_path,
+    &newer_session_id,
+    Some("2026-04-26T10:00:00Z"),
+    Some("1777328742Z"),
+    Some("1777328728Z"),
+    Some("2026-04-27T22:25:42Z"),
+  );
+
+  let Json(snapshot) =
+    get_archived_sessions_snapshot(Query(LibrarySnapshotQuery::default()), State(state))
+      .await
+      .expect("library snapshot should succeed");
+
+  let returned_ids: Vec<&str> = snapshot.sessions.iter().map(|session| session.id.as_str()).collect();
+  assert_eq!(returned_ids, vec![newer_session_id.as_str(), older_session_id.as_str()]);
+}
+
+#[tokio::test]
+async fn library_snapshot_filters_by_session_id_query() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let matched_session_id = orbitdock_protocol::new_session_id();
+  let other_session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(
+    &db_path,
+    &matched_session_id,
+    "/tmp/orbitdock-library-filter-match",
+    vec![],
+  );
+  persist_session_fixture(
+    &db_path,
+    &other_session_id,
+    "/tmp/orbitdock-library-filter-other",
+    vec![],
+  );
+
+  let Json(snapshot) = get_archived_sessions_snapshot(
+    Query(LibrarySnapshotQuery {
+      q: Some(matched_session_id.clone()),
+      ..LibrarySnapshotQuery::default()
+    }),
+    State(state),
+  )
+  .await
+  .expect("library snapshot search should succeed");
+
+  assert_eq!(snapshot.total_count, 1);
+  assert_eq!(snapshot.sessions.len(), 1);
+  assert_eq!(snapshot.sessions[0].id, matched_session_id);
 }
 
 #[tokio::test]
@@ -602,6 +709,7 @@ async fn library_snapshot_offset_past_end_returns_empty_page() {
     Query(LibrarySnapshotQuery {
       limit: Some(50),
       offset: Some(5),
+      q: None,
     }),
     State(state),
   )

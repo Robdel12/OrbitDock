@@ -47,6 +47,8 @@ pub struct LibrarySnapshotQuery {
   pub limit: Option<usize>,
   #[serde(default)]
   pub offset: Option<usize>,
+  #[serde(default)]
+  pub q: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

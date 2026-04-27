@@ -29,8 +29,16 @@ pub async fn get_archived_sessions_snapshot(
 ) -> ApiResult<LibrarySnapshot> {
   let limit = clamp_library_limit(query.limit);
   let offset = query.offset.unwrap_or(0);
+  let search_query = query.q.and_then(|value| {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+      None
+    } else {
+      Some(trimmed.to_string())
+    }
+  });
 
-  match load_library_snapshot(&state, limit, offset).await {
+  match load_library_snapshot(&state, limit, offset, search_query.as_deref()).await {
     Ok(snapshot) => Ok(Json(snapshot)),
     Err(crate::runtime::session_queries::SessionLoadError::NotFound) => Ok(Json(LibrarySnapshot {
       revision: state.current_library_revision(),

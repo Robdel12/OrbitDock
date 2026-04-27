@@ -83,7 +83,7 @@ struct LibraryToolbar: View {
         .font(.system(size: TypeScale.micro, weight: .medium))
         .foregroundStyle(Color.textTertiary)
 
-      TextField("Search sessions…", text: $searchText)
+      TextField("Search sessions or ID…", text: $searchText)
         .font(.system(size: isPhoneCompact ? TypeScale.caption : TypeScale.body))
         .textFieldStyle(.plain)
 
