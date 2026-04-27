@@ -4,11 +4,14 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
 
+use super::super::messages::{
+  load_latest_completed_conversation_message_from_db, load_messages_from_db,
+};
+use super::super::usage::snapshot_kind_from_str;
 use super::{
   infer_codex_config_mode, load_latest_usage_turn_seq, parse_control_mode, parse_lifecycle_state,
-  snapshot_kind_from_str, RestoredSession, StoredCodexConfigRow,
+  RestoredSession, StoredCodexConfigRow,
 };
-use super::{load_latest_completed_conversation_message_from_db, load_messages_from_db};
 
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
   load_session_by_id_with_db_path(crate::infrastructure::paths::db_path(), id, true).await
