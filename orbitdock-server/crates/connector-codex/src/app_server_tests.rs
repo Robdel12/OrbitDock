@@ -1,12 +1,31 @@
-use super::*;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use super::item_mapping::{
+  command_execution_tool_status, file_change_tool_row, guardian_review_tool_row,
+  map_collab_agent_tool, map_dynamic_tool, map_item, map_terminal_interaction,
+  CollabAgentToolCallArgs, DynamicToolCallArgs,
+};
+use super::notification_mapping::{map_notification, map_token_usage, map_warning};
+use super::{AppServerEventState, AppServerSessionRoute};
 use codex_app_server_protocol::{
   CollabAgentState, CollabAgentStatus, CollabAgentTool, CollabAgentToolCallStatus,
   CommandExecutionOutputDeltaNotification, CommandExecutionStatus,
   DynamicToolCallOutputContentItem, FileUpdateChange, GuardianApprovalReview,
   GuardianApprovalReviewAction, GuardianApprovalReviewStatus, GuardianCommandSource,
   GuardianRiskLevel, ItemCompletedNotification, PatchApplyStatus, PatchChangeKind,
-  TerminalInteractionNotification, ThreadTokenUsage, TokenUsageBreakdown,
+  ServerNotification, TerminalInteractionNotification, ThreadItem, ThreadTokenUsage,
+  TokenUsageBreakdown,
 };
+use codex_utils_absolute_path::AbsolutePathBuf;
+use orbitdock_connector_core::{ConnectorOutput, ConnectorStateEvent, ConnectorTransportEffect};
+use orbitdock_protocol::conversation_contracts::ConversationRow;
+use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
+use orbitdock_protocol::{SubagentStatus, TokenUsageSnapshotKind};
+use serde_json::json;
+use tokio::sync::{mpsc, Mutex};
+
+use crate::row_mapping::tool_row_entry;
 
 fn absolute_test_path(path: &str) -> AbsolutePathBuf {
   AbsolutePathBuf::from_absolute_path(path).expect("absolute test path")

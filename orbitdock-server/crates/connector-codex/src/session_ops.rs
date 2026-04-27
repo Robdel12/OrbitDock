@@ -410,7 +410,7 @@ impl CodexConnector {
     let response = self
       .app_server_session()?
       .skills_list(codex_app_server_protocol::SkillsListParams {
-        cwds: crate::app_server::path_bufs(cwds),
+        cwds: crate::app_server::compat::strings_to_path_bufs(cwds),
         force_reload,
         per_cwd_extra_user_roots: None,
       })
@@ -588,7 +588,7 @@ impl CodexConnector {
       .app_server_session()?
       .resolve_server_request(
         server_request_id,
-        crate::app_server::exec_approval_response(decision),
+        crate::app_server::response_codec::exec_approval_response(decision),
       )
       .await?;
 
@@ -605,7 +605,7 @@ impl CodexConnector {
       .app_server_session()?
       .resolve_server_request(
         server_request_id,
-        crate::app_server::patch_approval_response(decision),
+        crate::app_server::response_codec::patch_approval_response(decision),
       )
       .await?;
 
@@ -622,7 +622,7 @@ impl CodexConnector {
       .app_server_session()?
       .resolve_server_request(
         server_request_id,
-        crate::app_server::question_response(answers),
+        crate::app_server::response_codec::question_response(answers),
       )
       .await?;
 
@@ -636,7 +636,7 @@ impl CodexConnector {
     scope: orbitdock_protocol::PermissionGrantScope,
   ) -> Result<(), ConnectorError> {
     let server_request_id = take_pending_request(self, request_id).await;
-    let response = crate::app_server::permissions_response(permissions, scope)?;
+    let response = crate::app_server::response_codec::permissions_response(permissions, scope)?;
     self
       .app_server_session()?
       .resolve_server_request(server_request_id, response)
@@ -749,7 +749,7 @@ impl CodexConnector {
     response: codex_protocol::dynamic_tools::DynamicToolResponse,
   ) -> Result<(), ConnectorError> {
     let server_request_id = take_pending_request(self, &call_id).await;
-    let response = crate::app_server::dynamic_tool_response(response)?;
+    let response = crate::app_server::response_codec::dynamic_tool_response(response)?;
     self
       .app_server_session()?
       .resolve_server_request(server_request_id, response)
