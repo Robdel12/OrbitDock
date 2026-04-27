@@ -1,34 +1,41 @@
 use codex_app_server_protocol::{
-  DynamicToolSpec as AppServerDynamicToolSpec, SandboxMode as AppServerSandboxMode,
-  ThreadResumeParams, ThreadStartParams, ThreadStartSource,
+  DynamicToolSpec as AppServerDynamicToolSpec, ThreadResumeParams, ThreadStartParams,
+  ThreadStartSource,
 };
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_exec_server::{EnvironmentManager, EnvironmentManagerArgs, ExecServerRuntimePaths};
 use codex_features::Feature;
 use codex_model_provider_info::ModelProviderInfo;
-use codex_protocol::config_types::{ApprovalsReviewer, Personality, ReasoningSummary, ServiceTier};
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::{
   default_input_modalities, ApplyPatchToolType, ConfigShellToolType, ModelInfo,
   ModelInstructionsVariables, ModelMessages, ModelVisibility, ModelsResponse,
   TruncationPolicyConfig, WebSearchToolType,
 };
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::collections::HashMap;
 use tracing::warn;
 
 use super::policy_bridge::parse_approval_policy_with_details;
 use super::{CodexConfigOverrides, CodexConnector, CodexRuntimeOverrides};
+mod bridge;
+mod policy;
+
+pub(crate) use bridge::{convert_app_server_type, convert_optional};
 use orbitdock_connector_core::ConnectorError;
-use orbitdock_protocol::{CodexSandboxMode, CodexSandboxPolicy};
+use orbitdock_protocol::CodexSandboxPolicy;
+pub(crate) use policy::{
+  app_server_sandbox_mode, model_rejects_reasoning_summary, parse_approvals_reviewer,
+  parse_personality, parse_service_tier_override, preferred_reasoning_summary,
+  reasoning_summary_for_model, reasoning_summary_storage_text,
+};
+pub use policy::{config_loader_sandbox_mode, requested_sandbox_policy_details};
+#[cfg(test)]
+pub(crate) use policy::{parse_reasoning_summary, should_disable_reasoning_summary};
 
 const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
 const DEFAULT_CODEX_HIDE_REASONING: bool = false;
-const DEFAULT_CODEX_REASONING_SUMMARY: &str = "detailed";
-const REASONING_SUMMARY_NONE: &str = "none";
 const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
 const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
-const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 const ENV_CODEX_ENABLE_APP_CONNECTORS: &str = "ORBITDOCK_CODEX_ENABLE_APP_CONNECTORS";
 const ORBITDOCK_OPENROUTER_SITE_URL: &str = "https://orbitdock.dev";
 const ORBITDOCK_OPENROUTER_TITLE: &str = "OrbitDock";
@@ -40,34 +47,6 @@ const ORBITDOCK_EXTERNAL_MODEL_FRIENDLY_TEMPLATE: &str =
 const ORBITDOCK_EXTERNAL_MODEL_PRAGMATIC_TEMPLATE: &str =
   "You are a deeply pragmatic, effective software engineer.";
 
-pub fn requested_sandbox_policy_details(
-  sandbox_mode: Option<&str>,
-  sandbox_policy_details: Option<&CodexSandboxPolicy>,
-) -> Option<CodexSandboxPolicy> {
-  sandbox_policy_details
-    .cloned()
-    .or_else(|| sandbox_mode.and_then(CodexSandboxPolicy::from_storage_text))
-}
-
-pub fn config_loader_sandbox_mode(
-  sandbox_mode: Option<&str>,
-  sandbox_policy_details: Option<&CodexSandboxPolicy>,
-) -> Option<String> {
-  if let Some(details) = requested_sandbox_policy_details(sandbox_mode, sandbox_policy_details) {
-    return match details.mode {
-      CodexSandboxMode::DangerFullAccess => Some("danger-full-access".to_string()),
-      CodexSandboxMode::ReadOnly => Some("read-only".to_string()),
-      CodexSandboxMode::WorkspaceWrite => Some("workspace-write".to_string()),
-      CodexSandboxMode::ExternalSandbox => None,
-    };
-  }
-
-  sandbox_mode
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(ToOwned::to_owned)
-}
-
 #[cfg(test)]
 fn override_cwd(cwd: &str) -> Option<std::path::PathBuf> {
   let trimmed = cwd.trim();
@@ -76,58 +55,6 @@ fn override_cwd(cwd: &str) -> Option<std::path::PathBuf> {
   } else {
     Some(std::path::PathBuf::from(trimmed))
   }
-}
-
-fn convert_app_server_type<T, U>(value: T, label: &str) -> Result<U, ConnectorError>
-where
-  T: Serialize,
-  U: DeserializeOwned,
-{
-  serde_json::from_value(serde_json::to_value(value).map_err(|error| {
-    ConnectorError::ProviderError(format!("Failed to encode Codex {label}: {error}"))
-  })?)
-  .map_err(|error| {
-    ConnectorError::ProviderError(format!(
-      "Failed to convert Codex {label} for app-server: {error}"
-    ))
-  })
-}
-
-fn convert_optional<T, U>(value: Option<T>, label: &str) -> Result<Option<U>, ConnectorError>
-where
-  T: Serialize,
-  U: DeserializeOwned,
-{
-  value
-    .map(|inner| convert_app_server_type(inner, label))
-    .transpose()
-}
-
-fn app_server_sandbox_mode(
-  sandbox_mode: Option<&str>,
-  sandbox_policy_details: Option<&CodexSandboxPolicy>,
-) -> Option<AppServerSandboxMode> {
-  requested_sandbox_policy_details(sandbox_mode, sandbox_policy_details)
-    .map(|details| match details.mode {
-      CodexSandboxMode::DangerFullAccess => AppServerSandboxMode::DangerFullAccess,
-      CodexSandboxMode::ReadOnly => AppServerSandboxMode::ReadOnly,
-      CodexSandboxMode::WorkspaceWrite => AppServerSandboxMode::WorkspaceWrite,
-      CodexSandboxMode::ExternalSandbox => AppServerSandboxMode::WorkspaceWrite,
-    })
-    .or_else(|| {
-      match sandbox_mode
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-      {
-        Some("danger-full-access") => Some(AppServerSandboxMode::DangerFullAccess),
-        Some("read-only") | Some("read-only-network") => Some(AppServerSandboxMode::ReadOnly),
-        Some("workspace-write")
-        | Some("workspace-write-network")
-        | Some("external-sandbox")
-        | Some("external-sandbox-network") => Some(AppServerSandboxMode::WorkspaceWrite),
-        _ => None,
-      }
-    })
 }
 
 pub struct ResumeConnectorWithToolsConfig<'a> {
@@ -601,10 +528,10 @@ impl CodexConnector {
         parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING).unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
       let hide_reasoning =
         parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
-      let mut reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
-        .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
+      let mut reasoning_summary =
+        reasoning_summary_storage_text(preferred_reasoning_summary()).to_string();
       if model_rejects_reasoning_summary(model) {
-        reasoning_summary = REASONING_SUMMARY_NONE.to_string();
+        reasoning_summary = reasoning_summary_storage_text(ReasoningSummary::None).to_string();
       }
 
       cli_overrides.push((
@@ -730,13 +657,6 @@ pub async fn discover_models_for_context(
   Ok(models)
 }
 
-pub(crate) fn parse_approvals_reviewer(value: Option<&str>) -> Option<ApprovalsReviewer> {
-  match value.map(str::trim).filter(|value| !value.is_empty()) {
-    Some("user") => Some(ApprovalsReviewer::User),
-    Some("guardian_subagent") | Some("auto_review") => Some(ApprovalsReviewer::AutoReview),
-    _ => None,
-  }
-}
 pub(crate) fn apply_orbitdock_embedded_runtime_defaults(
   config: &mut Config,
   app_connectors_enabled: bool,
@@ -975,90 +895,6 @@ pub(crate) fn parse_bool_env(name: &str) -> Option<bool> {
       None
     }
   }
-}
-
-pub(crate) fn parse_reasoning_summary_env(name: &str) -> Option<String> {
-  let raw = std::env::var(name).ok()?;
-  let value = raw.trim().to_ascii_lowercase();
-  match value.as_str() {
-    "auto" | "concise" | "detailed" | REASONING_SUMMARY_NONE => Some(value),
-    other => {
-      warn!(
-        "Ignoring invalid reasoning summary env {}={} (expected auto|concise|detailed|none)",
-        name, other
-      );
-      None
-    }
-  }
-}
-
-pub(crate) fn parse_reasoning_summary(value: &str) -> Option<ReasoningSummary> {
-  match value.trim().to_ascii_lowercase().as_str() {
-    "auto" => Some(ReasoningSummary::Auto),
-    "concise" => Some(ReasoningSummary::Concise),
-    "detailed" => Some(ReasoningSummary::Detailed),
-    REASONING_SUMMARY_NONE => Some(ReasoningSummary::None),
-    _ => None,
-  }
-}
-
-pub(crate) fn preferred_reasoning_summary() -> ReasoningSummary {
-  parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
-    .as_deref()
-    .and_then(parse_reasoning_summary)
-    .unwrap_or(ReasoningSummary::Detailed)
-}
-
-pub(crate) fn model_rejects_reasoning_summary(model: Option<&str>) -> bool {
-  model
-    .map(|value| value.trim().to_ascii_lowercase().contains("codex-spark"))
-    .unwrap_or(false)
-}
-
-pub(crate) fn reasoning_summary_for_model(
-  model: Option<&str>,
-  preferred: ReasoningSummary,
-) -> ReasoningSummary {
-  if model_rejects_reasoning_summary(model) {
-    ReasoningSummary::None
-  } else {
-    preferred
-  }
-}
-
-#[cfg(test)]
-pub(crate) fn should_disable_reasoning_summary(
-  model: Option<&str>,
-  supports_reasoning_summaries: bool,
-) -> bool {
-  !supports_reasoning_summaries || model_rejects_reasoning_summary(model)
-}
-
-pub(crate) fn parse_personality(value: Option<&str>) -> Option<Personality> {
-  value
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(str::to_ascii_lowercase)
-    .as_deref()
-    .and_then(|value| match value {
-      "none" => Some(Personality::None),
-      "friendly" => Some(Personality::Friendly),
-      "pragmatic" => Some(Personality::Pragmatic),
-      _ => None,
-    })
-}
-
-pub(crate) fn parse_service_tier_override(value: Option<&str>) -> Option<Option<ServiceTier>> {
-  value
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-    .map(str::to_ascii_lowercase)
-    .and_then(|value| match value.as_str() {
-      "none" | "off" => Some(None),
-      "fast" => Some(Some(ServiceTier::Fast)),
-      "flex" => Some(Some(ServiceTier::Flex)),
-      _ => None,
-    })
 }
 
 #[cfg(test)]

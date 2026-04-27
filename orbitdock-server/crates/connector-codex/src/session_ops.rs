@@ -15,8 +15,8 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use tracing::warn;
 
 use super::config::{
-  parse_approvals_reviewer, parse_personality, parse_service_tier_override,
-  preferred_reasoning_summary, reasoning_summary_for_model,
+  convert_app_server_type, convert_optional, parse_approvals_reviewer, parse_personality,
+  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
 };
 use super::policy_bridge::{parse_approval_policy_with_details, parse_sandbox_policy_with_details};
 use super::{
@@ -50,31 +50,6 @@ fn collaboration_mode_name(mode: ModeKind) -> &'static str {
     ModeKind::Plan => "plan",
     ModeKind::Default | ModeKind::PairProgramming | ModeKind::Execute => "default",
   }
-}
-
-fn convert_app_server_type<T, U>(value: T, label: &str) -> Result<U, ConnectorError>
-where
-  T: serde::Serialize,
-  U: serde::de::DeserializeOwned,
-{
-  serde_json::from_value(serde_json::to_value(value).map_err(|error| {
-    ConnectorError::ProviderError(format!("Failed to encode Codex {label}: {error}"))
-  })?)
-  .map_err(|error| {
-    ConnectorError::ProviderError(format!(
-      "Failed to convert Codex {label} for app-server: {error}"
-    ))
-  })
-}
-
-fn convert_optional<T, U>(value: Option<T>, label: &str) -> Result<Option<U>, ConnectorError>
-where
-  T: serde::Serialize,
-  U: serde::de::DeserializeOwned,
-{
-  value
-    .map(|inner| convert_app_server_type(inner, label))
-    .transpose()
 }
 
 fn flatten_mcp_tools(
