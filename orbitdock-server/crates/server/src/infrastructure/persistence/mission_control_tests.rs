@@ -232,7 +232,8 @@ fn load_mission_issues_returns_only_matching_mission() {
 
   let issues = load_mission_issues(&conn, "m1").unwrap();
   assert_eq!(issues.len(), 2);
-  assert!(issues.iter().all(|i| i.mission_id == "m1"));
+  let issue_ids: Vec<&str> = issues.iter().map(|i| i.issue_id.as_str()).collect();
+  assert_eq!(issue_ids, vec!["iss-1", "iss-2"]);
 }
 
 #[test]
@@ -258,8 +259,8 @@ fn load_mission_issues_returns_ascending_created_at() {
   );
 
   let issues = load_mission_issues(&conn, "m1").unwrap();
-  let ids: Vec<&str> = issues.iter().map(|i| i.id.as_str()).collect();
-  assert_eq!(ids, vec!["i-early", "i-late"]);
+  let issue_ids: Vec<&str> = issues.iter().map(|i| i.issue_id.as_str()).collect();
+  assert_eq!(issue_ids, vec!["iss-1", "iss-2"]);
 }
 
 #[test]
@@ -404,7 +405,7 @@ fn load_retry_ready_issues_only_returns_eligible_rows() {
 
   let ready = load_retry_ready_issues(&conn, "m1", now, max_retries).unwrap();
   assert_eq!(ready.len(), 1);
-  assert_eq!(ready[0].id, "i1");
+  assert_eq!(ready[0].issue_id, "iss-1");
 }
 
 #[test]
@@ -428,8 +429,8 @@ fn load_retry_ready_issues_orders_by_retry_due_at_asc() {
     .unwrap();
 
   let ready = load_retry_ready_issues(&conn, "m1", "2026-03-15T00:00:00.000Z", 3).unwrap();
-  let ids: Vec<&str> = ready.iter().map(|i| i.id.as_str()).collect();
-  assert_eq!(ids, vec!["i-earlier", "i-later"]);
+  let issue_ids: Vec<&str> = ready.iter().map(|i| i.issue_id.as_str()).collect();
+  assert_eq!(issue_ids, vec!["iss-1", "iss-2"]);
 }
 
 #[test]

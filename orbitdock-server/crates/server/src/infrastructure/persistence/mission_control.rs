@@ -8,7 +8,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 /// A mission row loaded from the database.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct MissionRow {
   pub id: String,
   pub name: String,
@@ -19,13 +18,8 @@ pub struct MissionRow {
   pub prompt_template: Option<String>,
   pub enabled: bool,
   pub paused: bool,
-  pub last_parsed_at: Option<String>,
   pub parse_error: Option<String>,
   pub mission_file_path: Option<String>,
-  pub created_at: String,
-  pub updated_at: String,
-  /// Mission-scoped tracker API key (decrypted). `None` means fall through to global.
-  pub tracker_api_key: Option<String>,
 }
 
 impl MissionRow {
@@ -39,10 +33,8 @@ impl MissionRow {
     std::path::Path::new(&self.repo_root).join(file_name)
   }
 
-  /// Map a row whose SELECT list matches the 15-column missions schema.
+  /// Map a row whose SELECT list matches the 11-column missions projection.
   pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
-    let raw_tracker_key: Option<String> = row.get(14)?;
-    let tracker_api_key = raw_tracker_key.and_then(|v| crate::infrastructure::crypto::decrypt(&v));
     Ok(Self {
       id: row.get(0)?,
       name: row.get(1)?,
@@ -53,22 +45,15 @@ impl MissionRow {
       prompt_template: row.get(6)?,
       enabled: row.get::<_, i64>(7)? != 0,
       paused: row.get::<_, i64>(8)? != 0,
-      last_parsed_at: row.get(9)?,
-      parse_error: row.get(10)?,
-      mission_file_path: row.get(11)?,
-      created_at: row.get(12)?,
-      updated_at: row.get(13)?,
-      tracker_api_key,
+      parse_error: row.get(9)?,
+      mission_file_path: row.get(10)?,
     })
   }
 }
 
 /// A mission issue row loaded from the database.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct MissionIssueRow {
-  pub id: String,
-  pub mission_id: String,
   pub issue_id: String,
   pub issue_identifier: String,
   pub issue_title: Option<String>,
@@ -78,13 +63,11 @@ pub struct MissionIssueRow {
   pub provider: Option<String>,
   pub attempt: u32,
   pub last_error: Option<String>,
-  pub retry_due_at: Option<String>,
   pub started_at: Option<String>,
   pub completed_at: Option<String>,
   pub url: Option<String>,
   pub workspace_id: Option<String>,
   pub created_at: String,
-  pub updated_at: String,
   pub pr_url: Option<String>,
 }
 
@@ -96,28 +79,24 @@ pub struct MissionCleanupCandidateRow {
 }
 
 impl MissionIssueRow {
-  /// Map a row whose SELECT list matches the 19-column mission_issues schema.
+  /// Map a row whose SELECT list matches the 15-column mission_issues projection.
   pub fn from_row(row: &rusqlite::Row) -> rusqlite::Result<Self> {
     Ok(Self {
-      id: row.get(0)?,
-      mission_id: row.get(1)?,
-      issue_id: row.get(2)?,
-      issue_identifier: row.get(3)?,
-      issue_title: row.get(4)?,
-      issue_state: row.get(5)?,
-      orchestration_state: row.get(6)?,
-      session_id: row.get(7)?,
-      provider: row.get(8)?,
-      attempt: row.get::<_, u32>(9)?,
-      last_error: row.get(10)?,
-      retry_due_at: row.get(11)?,
-      started_at: row.get(12)?,
-      completed_at: row.get(13)?,
-      url: row.get(14)?,
-      workspace_id: row.get(15)?,
-      created_at: row.get(16)?,
-      updated_at: row.get(17)?,
-      pr_url: row.get(18)?,
+      issue_id: row.get(0)?,
+      issue_identifier: row.get(1)?,
+      issue_title: row.get(2)?,
+      issue_state: row.get(3)?,
+      orchestration_state: row.get(4)?,
+      session_id: row.get(5)?,
+      provider: row.get(6)?,
+      attempt: row.get::<_, u32>(7)?,
+      last_error: row.get(8)?,
+      started_at: row.get(9)?,
+      completed_at: row.get(10)?,
+      url: row.get(11)?,
+      workspace_id: row.get(12)?,
+      created_at: row.get(13)?,
+      pr_url: row.get(14)?,
     })
   }
 }
@@ -126,8 +105,7 @@ pub fn load_missions(conn: &Connection) -> Result<Vec<MissionRow>> {
   let mut stmt = conn
     .prepare(
       "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
-                    enabled, paused, last_parsed_at, parse_error, mission_file_path,
-                    created_at, updated_at, tracker_api_key
+                    enabled, paused, parse_error, mission_file_path
              FROM missions
              ORDER BY created_at DESC",
     )
@@ -151,8 +129,8 @@ pub fn load_missions_with_counts(
   let mut stmt = conn
         .prepare(
             "SELECT m.id, m.name, m.repo_root, m.tracker_kind, m.provider, m.config_json,
-                    m.prompt_template, m.enabled, m.paused, m.last_parsed_at, m.parse_error,
-                    m.mission_file_path, m.created_at, m.updated_at, m.tracker_api_key,
+                    m.prompt_template, m.enabled, m.paused, m.parse_error,
+                    m.mission_file_path,
                     COUNT(CASE WHEN mi.orchestration_state IN ('running','claimed','provisioning') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state IN ('queued','retry_queued') THEN 1 END),
                     COUNT(CASE WHEN mi.orchestration_state = 'completed' THEN 1 END),
@@ -167,10 +145,10 @@ pub fn load_missions_with_counts(
   let rows = stmt
     .query_map([], |row| {
       let mission = MissionRow::from_row(row)?;
-      let active: u32 = row.get::<_, Option<u32>>(15)?.unwrap_or(0);
-      let queued: u32 = row.get::<_, Option<u32>>(16)?.unwrap_or(0);
-      let completed: u32 = row.get::<_, Option<u32>>(17)?.unwrap_or(0);
-      let failed: u32 = row.get::<_, Option<u32>>(18)?.unwrap_or(0);
+      let active: u32 = row.get::<_, Option<u32>>(11)?.unwrap_or(0);
+      let queued: u32 = row.get::<_, Option<u32>>(12)?.unwrap_or(0);
+      let completed: u32 = row.get::<_, Option<u32>>(13)?.unwrap_or(0);
+      let failed: u32 = row.get::<_, Option<u32>>(14)?.unwrap_or(0);
       Ok((mission, (active, queued, completed, failed)))
     })
     .context("query load_missions_with_counts")?
@@ -184,8 +162,7 @@ pub fn load_mission_by_id(conn: &Connection, id: &str) -> Result<Option<MissionR
   let row = conn
     .query_row(
       "SELECT id, name, repo_root, tracker_kind, provider, config_json, prompt_template,
-                    enabled, paused, last_parsed_at, parse_error, mission_file_path,
-                    created_at, updated_at, tracker_api_key
+                    enabled, paused, parse_error, mission_file_path
              FROM missions WHERE id = ?1",
       params![id],
       MissionRow::from_row,
@@ -238,15 +215,15 @@ pub fn count_missions_by_repo_root(conn: &Connection, repo_root: &str) -> Result
 
 pub fn load_mission_issues(conn: &Connection, mission_id: &str) -> Result<Vec<MissionIssueRow>> {
   let mut stmt = conn
-        .prepare(
-            "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
+    .prepare(
+      "SELECT issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
+                    started_at, completed_at, url, workspace_id, created_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
              ORDER BY created_at ASC",
-        )
-        .context("prepare load_mission_issues")?;
+    )
+    .context("prepare load_mission_issues")?;
 
   let rows = stmt
     .query_map(params![mission_id], MissionIssueRow::from_row)
@@ -302,10 +279,10 @@ pub fn load_retry_ready_issues(
   max_retries: u32,
 ) -> Result<Vec<MissionIssueRow>> {
   let mut stmt = conn
-        .prepare(
-            "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
+    .prepare(
+      "SELECT issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
+                    started_at, completed_at, url, workspace_id, created_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
                AND orchestration_state = 'retry_queued'
@@ -313,8 +290,8 @@ pub fn load_retry_ready_issues(
                AND retry_due_at <= ?2
                AND attempt <= ?3
              ORDER BY retry_due_at ASC",
-        )
-        .context("prepare load_retry_ready_issues")?;
+    )
+    .context("prepare load_retry_ready_issues")?;
 
   let rows = stmt
     .query_map(params![mission_id, now, max_retries], |row| {
@@ -335,9 +312,9 @@ pub fn load_manually_queued_issues(
   exclude_ids: &[String],
 ) -> Result<Vec<MissionIssueRow>> {
   // Build a set of placeholders for the exclusion list
-  let base_query = "SELECT id, mission_id, issue_id, issue_identifier, issue_title, issue_state,
+  let base_query = "SELECT issue_id, issue_identifier, issue_title, issue_state,
                     orchestration_state, session_id, provider, attempt, last_error,
-                    retry_due_at, started_at, completed_at, url, workspace_id, created_at, updated_at, pr_url
+                    started_at, completed_at, url, workspace_id, created_at, pr_url
              FROM mission_issues
              WHERE mission_id = ?1
                AND orchestration_state = 'queued'";

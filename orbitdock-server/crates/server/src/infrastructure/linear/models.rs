@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::domain::mission_control::tracker::{BlockerRef, TrackerIssue};
+use crate::domain::mission_control::tracker::TrackerIssue;
 
 #[derive(Debug, Deserialize)]
 pub struct GraphQLResponse<T> {
@@ -45,7 +45,6 @@ pub struct LinearIssue {
   pub created_at: Option<String>,
   pub state: LinearState,
   pub labels: LabelConnection,
-  pub relations: RelationConnection,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,25 +60,6 @@ pub struct LabelConnection {
 #[derive(Debug, Deserialize)]
 pub struct LinearLabel {
   pub name: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RelationConnection {
-  pub nodes: Vec<LinearRelation>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LinearRelation {
-  #[serde(rename = "type")]
-  pub relation_type: String,
-  #[serde(rename = "relatedIssue")]
-  pub related_issue: RelatedIssue,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RelatedIssue {
-  pub id: String,
-  pub identifier: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,16 +220,6 @@ pub struct IssueTeamRef {
 impl LinearIssue {
   pub fn into_tracker_issue(self) -> TrackerIssue {
     let labels = self.labels.nodes.into_iter().map(|l| l.name).collect();
-    let blocked_by = self
-      .relations
-      .nodes
-      .into_iter()
-      .filter(|r| r.relation_type == "blocks")
-      .map(|r| BlockerRef {
-        id: r.related_issue.id,
-        identifier: r.related_issue.identifier,
-      })
-      .collect();
 
     TrackerIssue {
       id: self.id,
@@ -260,7 +230,6 @@ impl LinearIssue {
       state: self.state.name,
       url: Some(self.url),
       labels,
-      blocked_by,
       created_at: self.created_at,
     }
   }

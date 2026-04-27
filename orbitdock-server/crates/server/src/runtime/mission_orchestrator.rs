@@ -437,7 +437,6 @@ async fn process_mission(
       state: queued_row.issue_state.clone().unwrap_or_default(),
       url: queued_row.url.clone(),
       labels: vec![],
-      blocked_by: vec![],
       created_at: Some(queued_row.created_at.clone()),
     };
 
@@ -517,7 +516,6 @@ async fn process_mission(
       state: retry_row.issue_state.clone().unwrap_or_default(),
       url: retry_row.url.clone(),
       labels: vec![],
-      blocked_by: vec![],
       created_at: Some(retry_row.created_at.clone()),
     };
 

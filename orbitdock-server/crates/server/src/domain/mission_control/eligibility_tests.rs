@@ -11,7 +11,6 @@ fn make_issue(id: &str, priority: Option<i32>, created_at: Option<&str>) -> Trac
     state: "todo".to_string(),
     url: None,
     labels: vec![],
-    blocked_by: vec![],
     created_at: created_at.map(|s| s.to_string()),
   }
 }

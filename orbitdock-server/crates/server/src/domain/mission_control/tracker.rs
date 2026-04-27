@@ -1,17 +1,9 @@
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
-
-/// A reference to an issue that blocks another issue.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockerRef {
-  pub id: String,
-  pub identifier: String,
-}
 
 /// Normalized issue from any tracker.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct TrackerIssue {
   pub id: String,
   pub identifier: String,
@@ -21,7 +13,6 @@ pub struct TrackerIssue {
   pub state: String,
   pub url: Option<String>,
   pub labels: Vec<String>,
-  pub blocked_by: Vec<BlockerRef>,
   pub created_at: Option<String>,
 }
 
@@ -48,7 +39,6 @@ pub struct TrackerCreatedIssue {
 /// - **Linear**: `project_key` = project slug ID, `team_key` = team key (e.g. "VIZ")
 /// - **GitHub**: `project_key` = project number (e.g. "1"), `team_key` = `owner/repo`
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct TrackerConfig {
   pub project_key: Option<String>,
   pub team_key: Option<String>,

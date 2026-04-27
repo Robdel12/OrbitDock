@@ -296,7 +296,6 @@ impl GitHubIssueNode {
       state,
       url: Some(self.url),
       labels,
-      blocked_by: vec![],
       created_at: self.created_at,
     }
   }
