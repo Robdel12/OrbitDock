@@ -158,7 +158,7 @@ fn has_turn_diff(diff: Option<&str>) -> bool {
 }
 
 /// Shared SELECT columns for dashboard/library projection queries.
-/// Column indexes 0–47 are stable — row mappers depend on this order.
+/// Column indexes 0–44 are stable — row mappers depend on this order.
 const PROJECTION_SELECT: &str = "SELECT s.id,
                   s.provider,
                   s.status,
@@ -176,8 +176,6 @@ const PROJECTION_SELECT: &str = "SELECT s.id,
                   COALESCE(s.is_worktree, 0),
                   s.worktree_id,
                   s.model,
-                  s.codex_integration_mode,
-                  s.claude_integration_mode,
                   s.custom_name,
                   s.summary,
                   s.first_prompt,
@@ -189,7 +187,6 @@ const PROJECTION_SELECT: &str = "SELECT s.id,
                   s.pending_tool_name,
                   s.pending_tool_input,
                   s.pending_question,
-                  COALESCE(s.tool_count, 0),
                   COALESCE(sa.cnt, 0),
                   s.issue_identifier,
                   s.effort,
@@ -228,12 +225,12 @@ fn map_projection_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedDash
   let (codex_integration_mode, claude_integration_mode) =
     normalize_integration_modes(provider, control_mode);
 
-  let multi_agent: Option<i64> = row.get(34)?;
-  let input_tokens: i64 = row.get(38)?;
-  let output_tokens: i64 = row.get(39)?;
-  let cached_tokens: i64 = row.get(40)?;
-  let context_window: i64 = row.get(41)?;
-  let snapshot_kind: String = row.get(42)?;
+  let multi_agent: Option<i64> = row.get(31)?;
+  let input_tokens: i64 = row.get(35)?;
+  let output_tokens: i64 = row.get(36)?;
+  let cached_tokens: i64 = row.get(37)?;
+  let context_window: i64 = row.get(38)?;
+  let snapshot_kind: String = row.get(39)?;
 
   Ok(PersistedDashboardProjection {
     id: row.get(0)?,
@@ -251,29 +248,28 @@ fn map_projection_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedDash
     model: row.get(12)?,
     codex_integration_mode,
     claude_integration_mode,
-    custom_name: row.get(15)?,
-    summary: row.get(16)?,
-    first_prompt: row.get(17)?,
-    last_message: row.get(18)?,
-    started_at: row.get(19)?,
-    last_activity_at: row.get(20)?,
-    unread_count: row.get::<_, i64>(21)?.max(0) as u64,
-    current_diff: row.get(22)?,
-    pending_tool_name: row.get(23)?,
-    pending_tool_input: row.get(24)?,
-    pending_question: row.get(25)?,
-    // index 26 (tool_count) consumed but not stored — only used by in-memory dashboard now
-    active_worker_count: row.get::<_, i64>(27)?.max(0) as u32,
-    issue_identifier: row.get(28)?,
-    effort: row.get(29)?,
-    approval_policy: row.get(30)?,
-    sandbox_mode: row.get(31)?,
-    permission_mode: row.get(32)?,
-    collaboration_mode: row.get(33)?,
+    custom_name: row.get(13)?,
+    summary: row.get(14)?,
+    first_prompt: row.get(15)?,
+    last_message: row.get(16)?,
+    started_at: row.get(17)?,
+    last_activity_at: row.get(18)?,
+    unread_count: row.get::<_, i64>(19)?.max(0) as u64,
+    current_diff: row.get(20)?,
+    pending_tool_name: row.get(21)?,
+    pending_tool_input: row.get(22)?,
+    pending_question: row.get(23)?,
+    active_worker_count: row.get::<_, i64>(24)?.max(0) as u32,
+    issue_identifier: row.get(25)?,
+    effort: row.get(26)?,
+    approval_policy: row.get(27)?,
+    sandbox_mode: row.get(28)?,
+    permission_mode: row.get(29)?,
+    collaboration_mode: row.get(30)?,
     multi_agent: multi_agent.map(|value| value != 0),
-    personality: row.get(35)?,
-    service_tier: row.get(36)?,
-    developer_instructions: row.get(37)?,
+    personality: row.get(32)?,
+    service_tier: row.get(33)?,
+    developer_instructions: row.get(34)?,
     token_usage: TokenUsage {
       input_tokens: input_tokens.max(0) as u64,
       output_tokens: output_tokens.max(0) as u64,
@@ -281,11 +277,11 @@ fn map_projection_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedDash
       context_window: context_window.max(0) as u64,
     },
     token_usage_snapshot_kind: snapshot_kind_from_str(Some(snapshot_kind.as_str())),
-    pending_approval_id: row.get(43)?,
-    mission_id: row.get(44)?,
-    allow_bypass_permissions: row.get::<_, i64>(45)? != 0,
-    forked_from_session_id: row.get(46)?,
-    approval_version: row.get::<_, i64>(47)?.max(0) as u64,
+    pending_approval_id: row.get(40)?,
+    mission_id: row.get(41)?,
+    allow_bypass_permissions: row.get::<_, i64>(42)? != 0,
+    forked_from_session_id: row.get(43)?,
+    approval_version: row.get::<_, i64>(44)?.max(0) as u64,
   })
 }
 
