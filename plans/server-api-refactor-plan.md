@@ -639,89 +639,183 @@ Tasks:
 
 Done when compatibility code is either removed or explicitly documented as supported.
 
-## Phase 4: Cut Whole Surfaces
+## Phase 4: Regroup For Reorganization
 
-Objective: get real simplification by deleting complete product or tooling surfaces, not nibbling helpers.
+Objective: switch from pure deletion to delete-plus-split work without losing the discipline that made Phase 3 safe.
 
-Decision candidates:
+Why this phase exists:
 
-- CLI bulk session surface: `orbitdock-server/crates/cli/src/commands/session.rs` and `cli.rs`.
-- Admin/install/service flows in `orbitdock-server/crates/server/src/admin/`.
-- Mission Control server surface.
-- Daytona workspace dispatch and infrastructure.
-- Linear/GitHub release infrastructure.
-- Legacy direct Codex runtime/session paths if app-server fully owns Codex sessions.
+- The obvious dead code has already been harvested.
+- The next complexity is mostly live code with too many responsibilities per file.
+- The failed startup/write-side `control_mode` conversion proved that some remaining mess is behavioral, not just clutter.
+- We now need architecture-first reorganization, but every lane should still delete stale helpers, duplicate derived values, and compatibility glue inside the file before splitting.
 
-Tasks:
+Target design:
 
-- [ ] Mark each candidate `keep`, `delete`, or `freeze`.
-- [ ] For every `delete`, remove route, runtime command, persistence path, protocol type, native client, CLI command, docs, and tests together.
-- [ ] For every `freeze`, stop adding new coverage except smoke tests.
-- [ ] For every `keep`, name the active user workflow and owning layer.
-
-Done when at least one whole obsolete surface is removed end-to-end.
-
-## Phase 5: Protocol Pruning
-
-Objective: make protocol reflect active contracts only.
-
-Targets:
-
-- `orbitdock-server/crates/protocol/src/types.rs`: 2,911 lines.
-- `orbitdock-server/crates/protocol/src/client.rs`: 1,695 lines.
-- `orbitdock-server/crates/protocol/src/server.rs`: 1,002 lines.
-- Native mirrors in `OrbitDockNative/OrbitDock/Services/Server/Protocol/`.
+- Each hotspot file should shrink by responsibility, not by arbitrary chunking.
+- Each reorganization lane should have one obvious ownership boundary:
+  - connector translation
+  - runtime orchestration
+  - persistence restore/hydration
+  - transport mapping
+  - protocol contracts
+  - CLI/admin/product surfaces
+- We keep the known live compatibility seams intact unless a lane explicitly redesigns the invariant:
+  - Claude shadow ownership and replay ordering
+  - startup/write-side `control_mode` semantics
+  - single-writer conversation persistence
 
 Tasks:
 
-- [ ] Delete unused types and fields before splitting modules.
-- [ ] Remove WebSocket client-to-server variants that duplicate REST mutations.
-- [ ] Group active protocol by surface after deletion: sessions, conversation, usage, permissions, capabilities, missions if kept.
-- [ ] Update native protocol mirrors in the same slice.
+- [ ] Freeze the reorganization rule: every lane deletes stale code first, then splits what remains.
+- [ ] Freeze the redesign rule: no worker may “clean up” a proven-live compatibility seam without a named invariant and targeted tests.
+- [ ] Group hotspot files into disjoint worker-owned lanes.
+- [ ] Require each worker to produce an evaluation packet before large code movement starts.
+- [ ] Require a parent regroup checkpoint after evaluation packets and after each implementation wave.
 
-Done when protocol modules contain current contracts and compile-time dead fields are gone.
+Done when:
 
-## Phase 6: Connector Simplification
+- [ ] The next phase is organized by ownership boundary, not by generic cleanup.
+- [ ] Every large-file lane has a worker, scope, and validation contract.
+- [ ] The plan clearly distinguishes safe split work from redesign-required seams.
 
-Objective: reduce provider-specific translation to the current runtime paths.
+## Phase 5: Parallel Evaluation Packets
 
-Targets:
+Objective: evaluate each hotspot lane in parallel before we start cutting production files apart.
 
-- `orbitdock-server/crates/connector-claude/src/lib.rs`: 3,560 lines.
-- `orbitdock-server/crates/connector-core/src/transition.rs`: 4,412 lines.
-- `orbitdock-server/crates/connector-codex/src/app_server.rs`: 3,090 lines.
-- `orbitdock-server/crates/server/src/connectors/codex_hooks/mod.rs`: 1,197 lines.
-- `orbitdock-server/crates/server/src/connectors/codex_session.rs`: 964 lines.
+Worker output contract:
+
+- Each worker returns one short evaluation packet for its lane.
+- Each packet must include:
+  - current file/module responsibilities
+  - what can be deleted safely before splitting
+  - proposed target module layout
+  - cross-file dependencies or ownership seams
+  - specific risks and tests
+  - an implementation order inside the lane
+- Workers are read-only in this phase.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Evaluation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `orbitdock-server/crates/connector-claude/src/lib.rs` and adjacent Claude connector files | Map create/session lifecycle/event translation responsibilities, list safe deletions first, and propose the Claude split boundary. |
+| Worker B | `gpt-5.4-mini` | `orbitdock-server/crates/connector-core/src/transition.rs` | Separate reducer truth from preview/risk/diff/rendering helpers and identify what can be deleted before any module split. |
+| Worker C | `gpt-5.4-mini` | `orbitdock-server/crates/connector-codex/src/app_server.rs` and adjacent Codex connector/session files | Map app-server responsibilities, old runtime/control paths, and propose the split between transport, orchestration, and connector translation. |
+| Worker D | `gpt-5.4-mini` | `orbitdock-server/crates/protocol/src/{types,client,server}.rs` plus native protocol mirrors | Identify dead protocol leaves, current active contract groups, and the target protocol module tree after pruning. |
+| Worker E | `gpt-5.4-mini` | `orbitdock-server/crates/cli/src/commands/session.rs`, `cli.rs`, and related CLI session surfaces | Decide what is active, what should be frozen or deleted, and what the remaining CLI/session structure should look like. |
+| Worker F | `gpt-5.4-mini` | server runtime session core: `runtime/session_command_handler.rs`, `runtime/session_queries.rs`, `runtime/session_creation.rs`, `runtime/session_takeover.rs`, `runtime/restored_sessions.rs` | Map direct-session lifecycle, query/loading, and command handling responsibilities before any split. |
+| Worker G | `gpt-5.4-mini` | persistence restore/hydration lane: `infrastructure/persistence/{mod.rs,usage.rs,session_reads/,tests.rs}` | Separate safe read-path simplification from redesign-required startup/write compatibility seams and propose a persistence module breakdown. |
+| Worker H | `gpt-5.4-mini` | transport + product-surface lane: `transport/http/session_actions.rs`, `transport/http/session_lifecycle/create.rs`, `admin/`, `runtime/workspace_*`, `runtime/mission_*` | Identify which surfaces should be reorganized, which should be deleted whole, and which should be explicitly frozen. |
 
 Tasks:
 
-- [ ] Confirm whether old direct Codex runtime/session paths are reachable.
-- [ ] Delete obsolete control requests and message handlers.
-- [ ] Delete transition inputs/effects no provider emits.
-- [ ] Move approval preview/risk/diff rendering out of the reducer after unused preview types are gone.
-- [ ] Split remaining connector files by responsibility only after deletion.
+- [ ] Launch all evaluation workers with disjoint write scopes and read-only instructions.
+- [ ] Require exact file paths and proposed submodule names in every worker packet.
+- [ ] Require every packet to classify its lane as `split now`, `delete first`, `needs product call`, or `needs redesign`.
+- [ ] Integrate the evaluation results into this plan before any worker starts implementation.
 
-Done when provider connectors emit fewer event types and the core reducer handles fewer cases.
+Done when:
 
-## Phase 7: Transport Cleanup
+- [ ] Every hotspot lane has a concrete split map.
+- [ ] Every lane has explicit safe deletions listed up front.
+- [ ] The parent agent has recut the implementation waves using the evaluation packets.
 
-Objective: enforce the API transport contract.
+## Phase 6: Wave 1 Reorganization
 
-Targets:
+Objective: attack the biggest isolated hotspots first, combining deletion and structural breakup in the same slice.
 
-- `orbitdock-server/crates/server/src/transport/http/session_actions.rs`: 826 lines.
-- `orbitdock-server/crates/server/src/transport/http/session_lifecycle/create.rs`: 489 lines.
-- `orbitdock-server/crates/server/src/transport/websocket/handlers/`.
-- `orbitdock-server/crates/server/src/transport/websocket/rest_only_policy.rs`.
+Wave 1 lanes:
+
+- `connector-claude/src/lib.rs`
+- `connector-core/src/transition.rs`
+- `connector-codex/src/app_server.rs`
+- `protocol/src/{types,client,server}.rs`
+
+Wave 1 worker rules:
+
+- Each worker owns one lane and its explicitly assigned sibling files.
+- Delete safe dead helpers, duplicate transit fields, and local compatibility glue first.
+- Split only after the lane’s target boundaries are agreed in the evaluation packet.
+- Do not change cross-lane contracts without parent approval.
+
+Implementation goals by lane:
+
+- Claude lane:
+  - split create/control/event/session glue
+  - keep live shadow-ownership rules intact
+  - delete stale helper clusters inside the file before carving modules
+- Transition lane:
+  - keep one authoritative reducer path
+  - move preview/risk/diff/rendering helpers out of the reducer module
+  - delete cases/helpers no provider emits
+- Codex app-server lane:
+  - separate transport/app-server bootstrap from direct-session/runtime orchestration
+  - delete stale compatibility paths first
+- Protocol lane:
+  - delete dead types and fields first
+  - split active contracts by surface
+  - keep native mirror changes in the same lane
 
 Tasks:
 
-- [ ] Delete WebSocket mutation handlers now covered by REST.
-- [ ] Delete HTTP response fields duplicated by subscription snapshots unless needed for immediate mutation results.
-- [ ] Delete transport DTOs that duplicate domain/protocol types without adding transport meaning.
-- [ ] Keep session create/actions as thin mapping layers over runtime/domain commands.
+- [ ] Land each Wave 1 lane as one coherent commit or a very small series of commits.
+- [ ] Run parent validation after each lane, not just at wave end.
+- [ ] Normalize naming/module layout after the first successful lane so the remaining workers follow the same pattern.
+- [ ] Update this plan after every Wave 1 lane lands.
 
-Done when transport maps requests/responses and no longer repairs business state.
+Done when:
+
+- [ ] The top connector/protocol hotspots are materially smaller and more legible.
+- [ ] At least one lane proves the “delete first, split second” pattern works in practice.
+- [ ] Cross-lane contracts are still stable after Wave 1 validation.
+
+## Phase 7: Wave 2 Reorganization And Surface Decisions
+
+Objective: reorganize the server crate hotspots and decide which broader surfaces should be kept, frozen, or removed.
+
+Wave 2 lanes:
+
+- runtime session core
+- persistence restore/hydration/usage
+- transport HTTP session surfaces
+- CLI/admin/product surfaces
+
+Parallel workers:
+
+| Worker | Model | Ownership | Implementation mission |
+| --- | --- | --- | --- |
+| Worker F1 | `gpt-5.4-mini` | runtime session core query/load path | Split read/query/bootstrap responsibilities out of `session_queries.rs`, `restored_sessions.rs`, and adjacent load helpers while preserving direct-session invariants. |
+| Worker F2 | `gpt-5.4-mini` | runtime session command/lifecycle path | Break `session_command_handler.rs` and adjacent lifecycle files along command classification, persistence sync, and connector dispatch boundaries. |
+| Worker G1 | `gpt-5.4-mini` | persistence read path | Continue safe delete-plus-split work in `session_reads/`, `usage.rs`, and related read-only helpers, but keep parked startup/write compatibility seams intact. |
+| Worker G2 | `gpt-5.4-mini` | transport mapping | Thin `session_actions.rs`, `session_lifecycle/create.rs`, and related HTTP mapping files down to transport concerns only. |
+| Worker H1 | `gpt-5.4-mini` | CLI/admin | Reorganize active CLI/admin code and prepare delete decisions for any clearly obsolete session/admin surfaces. |
+| Worker H2 | `gpt-5.4-mini` | mission/workspace/product surfaces | Decide `keep`, `freeze`, or `delete` for mission/workspace/admin-adjacent surfaces before we spend more reorganization effort on them. |
+
+Decision rules:
+
+- `keep`
+  - Name the active user workflow.
+  - Reorganize only if the surface is still strategic.
+- `freeze`
+  - Stop investing in cleanup beyond smoke-level stability.
+  - Avoid spreading its abstractions into newer lanes.
+- `delete`
+  - Remove route/runtime/protocol/native/CLI/docs/tests together in one surface slice.
+
+Tasks:
+
+- [ ] Split runtime session files by lifecycle, query/load, and connector-dispatch responsibility.
+- [ ] Split persistence files by restore/hydration/usage ownership where safe.
+- [ ] Keep startup/write-side `control_mode` compatibility parked unless a dedicated redesign begins.
+- [ ] Mark mission/workspace/admin/CLI surfaces `keep`, `freeze`, or `delete`.
+- [ ] Land whole-surface deletions only after the owning worker packet and parent review agree.
+
+Done when:
+
+- [ ] The main server hotspots are smaller and responsibility-aligned.
+- [ ] We have explicit keep/freeze/delete calls for the broad product/tooling surfaces.
+- [ ] Remaining complexity is concentrated in named live seams, not spread across giant files.
 
 ## Verification
 
@@ -732,6 +826,7 @@ Run per slice:
 - [ ] Native build/test command for Swift API contract changes.
 - [ ] Session smoke: create, detail, send message, subscribe, usage summary, startup restore.
 - [ ] Database restore smoke when persistence/compatibility code changes.
+- [ ] Re-run the isolated regression test that justified any parked seam before reopening that lane.
 
 Phase 1-specific verification:
 
@@ -749,9 +844,10 @@ Concrete command defaults:
 ## Definition Of Done
 
 - [ ] Top hotspot files no longer carry large inline test blocks.
-- [ ] At least one obsolete surface is deleted end-to-end.
-- [ ] Unsupported compatibility code is gone.
+- [ ] The top production hotspots are split by responsibility, not just shortened.
+- [ ] Obsolete surfaces are either deleted end-to-end or explicitly marked `freeze` with rationale.
+- [ ] Unsupported compatibility code is gone, and proven-live seams are explicitly documented instead of “cleaned up” by guesswork.
 - [ ] Protocol files contain active contracts only.
-- [ ] Connector event vocabulary is smaller.
+- [ ] Connector event vocabulary is smaller and easier to trace.
 - [ ] Remaining tests prove user outcomes and durable server truth.
 - [ ] Line-count audit is regenerated and compared to baseline.
