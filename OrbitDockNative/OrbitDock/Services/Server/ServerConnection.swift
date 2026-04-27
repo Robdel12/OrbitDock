@@ -1066,9 +1066,6 @@ final class ServerConnection {
         emit(.toolPtyExited(toolId: toolId, exitCode: exitCode))
       case .steerOutcome:
         break // Outcome is informational; steerable state flows via session_delta
-      case .directoryListing, .recentProjectsList, .openAiKeyStatus,
-           .codexUsageResult, .claudeUsageResult:
-        break
       case .unknown:
         break // Already logged at decode time
     }

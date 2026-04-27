@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 3 / first deletion slice`
-- Current phase detail: `Slices 3A, 3B, and 3C are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, and native/protocol dead leaves have been pruned`
+- Current phase detail: `Slices 3A, 3B, 3C, and 3E are implemented and validated: HTTP conversation shims are gone, the WebSocket REST-only layer is gone, native/protocol dead leaves have been pruned, and orphaned websocket utility payloads are gone`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -594,11 +594,12 @@ Current slice status:
 - Docs cleanup in the same slice: complete. `API.md` no longer advertises the shim endpoints, and `SPEC.md` now states that those compatibility routes were removed.
 - `Slice 3B`: complete. Removed the WebSocket `rest_only` redirect/reject layer, the matching REST-only `ClientMessage` variants, and the reject-only approval/config/Claude-hook branches that only existed to point callers back to HTTP.
 - `Slice 3C`: complete. Removed definition-only protocol and native leaves: `ConversationDisplayMode`, `ToolPayloadReference`, `SessionComposerSnapshot`, `ServerSessionComposerSnapshotPayload`, `ServerSessionRuntimeSnapshot`, `SessionRuntimeClient.fetchRuntimeSnapshot(_:)`, and the unused native Codex-preferences request/response methods.
+- `Slice 3E`: complete. Removed the orphaned WebSocket utility payloads `DirectoryListing`, `RecentProjectsList`, `CodexUsageResult`, `ClaudeUsageResult`, and `OpenAiKeyStatus` from the server protocol, protocol roundtrip tests, CLI event labeling, and native WebSocket mirrors after confirming they had no live server producers. Shared HTTP payload structs remain in place, and `SteerOutcome` was intentionally left alone because the runtime still emits it.
 
 Next queued slices:
 
-- `Slice 3E`: orphaned server-to-client utility payload cleanup for websocket cases that native decodes and drops, if they no longer have live producers after Slice 3B.
 - `Slice 3D`: CLI hidden bridge commands and dev-console cleanup, if we confirm replacement paths or choose to drop them.
+- `Slice 3F`: one-by-one `#[allow(dead_code)]` and unused private helper pruning in protocol/runtime/connector lanes after the larger user-facing compatibility cuts are done.
 
 Search targets:
 

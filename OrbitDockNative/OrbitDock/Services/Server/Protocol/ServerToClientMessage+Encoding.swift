@@ -232,34 +232,6 @@ extension ServerToClientMessage {
         try container.encode(durationMs, forKey: .durationMs)
         try container.encode(outcome, forKey: .outcome)
 
-      case let .directoryListing(requestId, path, entries):
-        try container.encode("directory_listing", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(path, forKey: .path)
-        try container.encode(entries, forKey: .entries)
-
-      case let .recentProjectsList(requestId, projects):
-        try container.encode("recent_projects_list", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(projects, forKey: .projects)
-
-      case let .codexUsageResult(requestId, usage, errorInfo):
-        try container.encode("codex_usage_result", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encodeIfPresent(usage, forKey: .usage)
-        try container.encodeIfPresent(errorInfo, forKey: .errorInfo)
-
-      case let .claudeUsageResult(requestId, usage, errorInfo):
-        try container.encode("claude_usage_result", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encodeIfPresent(usage, forKey: .usage)
-        try container.encodeIfPresent(errorInfo, forKey: .errorInfo)
-
-      case let .openAiKeyStatus(requestId, configured):
-        try container.encode("open_ai_key_status", forKey: .type)
-        try container.encode(requestId, forKey: .requestId)
-        try container.encode(configured, forKey: .configured)
-
       case let .serverInfo(isPrimary, clientPrimaryClaims):
         try container.encode("server_info", forKey: .type)
         try container.encode(isPrimary, forKey: .isPrimary)

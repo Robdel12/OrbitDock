@@ -105,12 +105,6 @@ enum ServerToClientMessage: Codable {
     durationMs: UInt64,
     outcome: ServerShellExecutionOutcome
   )
-  case directoryListing(requestId: String, path: String, entries: [ServerDirectoryEntry])
-  case recentProjectsList(requestId: String, projects: [ServerRecentProject])
-  case codexUsageResult(requestId: String, usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
-  case claudeUsageResult(requestId: String, usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
-  case openAiKeyStatus(requestId: String, configured: Bool)
-
   // MARK: Server and worktrees
 
   case serverInfo(isPrimary: Bool, clientPrimaryClaims: [ServerClientPrimaryClaim])

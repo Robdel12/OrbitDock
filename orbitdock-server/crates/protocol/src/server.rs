@@ -260,36 +260,6 @@ pub enum ServerMessage {
     outcome: ShellExecutionOutcome,
   },
 
-  // Remote filesystem browsing
-  DirectoryListing {
-    request_id: String,
-    path: String,
-    entries: Vec<DirectoryEntry>,
-  },
-  RecentProjectsList {
-    request_id: String,
-    projects: Vec<RecentProject>,
-  },
-  CodexUsageResult {
-    request_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    usage: Option<CodexUsageSnapshot>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_info: Option<UsageErrorInfo>,
-  },
-  ClaudeUsageResult {
-    request_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    usage: Option<ClaudeUsageSnapshot>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_info: Option<UsageErrorInfo>,
-  },
-
-  // Server config
-  OpenAiKeyStatus {
-    request_id: String,
-    configured: bool,
-  },
   ServerInfo {
     is_primary: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

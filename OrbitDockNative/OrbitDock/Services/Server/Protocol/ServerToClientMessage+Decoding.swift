@@ -263,34 +263,6 @@ extension ServerToClientMessage {
           stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs, outcome: outcome
         )
 
-      case "directory_listing":
-        let requestId = try container.decode(String.self, forKey: .requestId)
-        let path = try container.decode(String.self, forKey: .path)
-        let entries = try container.decode([ServerDirectoryEntry].self, forKey: .entries)
-        self = .directoryListing(requestId: requestId, path: path, entries: entries)
-
-      case "recent_projects_list":
-        let requestId = try container.decode(String.self, forKey: .requestId)
-        let projects = try container.decode([ServerRecentProject].self, forKey: .projects)
-        self = .recentProjectsList(requestId: requestId, projects: projects)
-
-      case "codex_usage_result":
-        let requestId = try container.decode(String.self, forKey: .requestId)
-        let usage = try container.decodeIfPresent(ServerCodexUsageSnapshot.self, forKey: .usage)
-        let errorInfo = try container.decodeIfPresent(ServerUsageErrorInfo.self, forKey: .errorInfo)
-        self = .codexUsageResult(requestId: requestId, usage: usage, errorInfo: errorInfo)
-
-      case "claude_usage_result":
-        let requestId = try container.decode(String.self, forKey: .requestId)
-        let usage = try container.decodeIfPresent(ServerClaudeUsageSnapshot.self, forKey: .usage)
-        let errorInfo = try container.decodeIfPresent(ServerUsageErrorInfo.self, forKey: .errorInfo)
-        self = .claudeUsageResult(requestId: requestId, usage: usage, errorInfo: errorInfo)
-
-      case "open_ai_key_status":
-        let requestId = try container.decode(String.self, forKey: .requestId)
-        let configured = try container.decode(Bool.self, forKey: .configured)
-        self = .openAiKeyStatus(requestId: requestId, configured: configured)
-
       case "server_info":
         let isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
         let clientPrimaryClaims =
