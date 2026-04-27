@@ -48,11 +48,6 @@ pub(crate) struct ClaudeEventLoopState {
   pub(crate) streaming_last_broadcast: Option<Instant>,
   pub(crate) in_turn: bool,
   pub(crate) turn_patch_diff: String,
-  /// Per-call (input_tokens, cached_tokens) from the latest assistant message.
-  pub(crate) last_turn_input: Option<(u64, u64)>,
-  /// Per-turn output accumulator — sum of output_tokens from each API call
-  /// within the current turn. Reset on turn completion for accurate billing.
-  pub(crate) turn_output: u64,
   pub(crate) last_context_window: u64,
   /// Maps tool_use_id → task_id so we can finalize task cards when the Agent
   /// tool_result arrives.
@@ -85,8 +80,6 @@ impl ClaudeEventLoopState {
       streaming_last_broadcast: None,
       in_turn: false,
       turn_patch_diff: String::new(),
-      last_turn_input: None,
-      turn_output: 0,
       last_context_window: 1_000_000,
       task_tool_use_map: HashMap::new(),
       compacting_msg_id: None,
@@ -868,9 +861,6 @@ pub(crate) fn handle_assistant_message(
     let cached = value_to_u64(usage.get("cache_read_input_tokens"))
       + value_to_u64(usage.get("cache_creation_input_tokens"));
     let call_output = value_to_u64(usage.get("output_tokens"));
-    state.last_turn_input = Some((input, cached));
-    state.turn_output += call_output;
-
     events.push(state_output(ConnectorStateEvent::TokensUpdated {
       usage: orbitdock_protocol::TokenUsage {
         input_tokens: input,
@@ -1181,8 +1171,6 @@ fn handle_result_message(
     &mut state.streaming_last_broadcast,
     session_id,
   );
-
-  state.turn_output = 0;
 
   if let Some(model_usage) = raw.get("modelUsage").and_then(Value::as_object) {
     if let Some(context_window) = model_usage

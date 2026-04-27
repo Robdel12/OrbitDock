@@ -9,7 +9,7 @@ Execution branch: `refactor/server-api-plan-execution`
 Execution status:
 
 - Current phase: `Phase 10 / Wave 3A execution`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2. After the temporary file-descriptor exhaustion issue was cleared, Wave 3A resumed and the protocol tiny delete-first lane landed cleanly: the redundant `SessionSummary::to_list_item` path is gone and `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml` passed. The next active cuts remain the Claude `stdout.rs` lane and the domain session core helper lane. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets have been integrated, all four Wave 1 lanes are landed, and the defined Wave 2 implementation lanes are landed in commits 04760925, 9d8fb3f7, f1765ded, 6fb0e350, and ba633b99. The Wave 3 regroup and evaluation recut landed in commit 618703d2. After the temporary file-descriptor exhaustion issue was cleared, Wave 3A resumed and two delete-first slices are now landed cleanly: the redundant `SessionSummary::to_list_item` path is gone with `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml` passing, and the dead write-only `ClaudeEventLoopState.last_turn_input` / `turn_output` bookkeeping is gone with `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-claude --manifest-path orbitdock-server/Cargo.toml` passing. The next active cuts remain the Claude `stdout.rs` helper split and the domain session core helper lane. The currently parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1274,9 +1274,9 @@ Tasks:
 
 ### Phase 10 execution note
 
-- The first Wave 3A slice is now landed locally: the protocol lane removed the redundant `SessionSummary::to_list_item` constructor and passed the focused protocol crate test suite.
+- The first two Wave 3A slices are now landed locally: the protocol lane removed the redundant `SessionSummary::to_list_item` constructor, and the Claude lane removed the dead write-only `last_turn_input` / `turn_output` bookkeeping from `stdout.rs`.
 - The temporary workspace-wide file-descriptor exhaustion (`Too many open files`) is resolved for now, but the blocked worker notes remain useful context for the next two lanes.
-- Resume order remains: Claude `stdout.rs`, then the domain session helper extraction, then Wave 3B if those conventions stay clean.
+- Resume order remains: Claude `stdout.rs` helper extraction, then the domain session helper extraction, then Wave 3B if those conventions stay clean.
 
 Done when:
 
