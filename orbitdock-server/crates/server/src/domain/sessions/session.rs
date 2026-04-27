@@ -42,42 +42,8 @@ fn is_session_ended(msg: &ServerMessage) -> bool {
   matches!(msg, ServerMessage::SessionEnded { .. })
 }
 
-pub fn control_mode_from_parts(
-  provider: Provider,
-  codex_integration_mode: Option<CodexIntegrationMode>,
-  claude_integration_mode: Option<ClaudeIntegrationMode>,
-) -> SessionControlMode {
-  match provider {
-    Provider::Codex => match codex_integration_mode {
-      Some(CodexIntegrationMode::Direct) => SessionControlMode::Direct,
-      Some(CodexIntegrationMode::Passive) | None => SessionControlMode::Passive,
-    },
-    Provider::Claude => match claude_integration_mode {
-      Some(ClaudeIntegrationMode::Direct) => SessionControlMode::Direct,
-      Some(ClaudeIntegrationMode::Passive) | None => SessionControlMode::Passive,
-    },
-  }
-}
-
-pub(crate) fn accepts_user_input_from_parts(
-  status: SessionStatus,
-  control_mode: SessionControlMode,
-  lifecycle_state: SessionLifecycleState,
-) -> bool {
-  status == SessionStatus::Active
-    && control_mode == SessionControlMode::Direct
-    && lifecycle_state == SessionLifecycleState::Open
-}
-
-pub(crate) fn steerable_from_parts(
-  status: SessionStatus,
-  work_status: WorkStatus,
-  control_mode: SessionControlMode,
-  lifecycle_state: SessionLifecycleState,
-) -> bool {
-  accepts_user_input_from_parts(status, control_mode, lifecycle_state)
-    && work_status == WorkStatus::Working
-}
+pub use super::support::control_mode_from_parts;
+pub(crate) use super::support::{accepts_user_input_from_parts, steerable_from_parts};
 
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block

@@ -11,9 +11,10 @@ use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
 use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInput};
-use super::session::{
-  accepts_user_input_from_parts, control_mode_from_parts, steerable_from_parts, SessionRestoreData,
-  SessionSnapshot,
+use super::session::{SessionRestoreData, SessionSnapshot};
+use super::support::{
+  accepts_user_input_from_parts, control_mode_from_parts, is_local_http_row_id,
+  latest_transcript_synced_row_id, steerable_from_parts,
 };
 use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
@@ -29,18 +30,6 @@ use orbitdock_protocol::{
 // Keep actor-retained timeline state small. Heavy row bodies remain persisted
 // and are fetched on demand through row-content HTTP endpoints.
 const RETAINED_FINALIZED_ROW_LIMIT: usize = 100;
-
-fn is_local_http_row_id(row_id: &str) -> bool {
-  row_id.starts_with("user-http-") || row_id.starts_with("steer-http-")
-}
-
-fn latest_transcript_synced_row_id(rows: &[ConversationRowEntry]) -> Option<String> {
-  rows
-    .iter()
-    .rev()
-    .find(|row| !is_local_http_row_id(row.id()))
-    .map(|row| row.id().to_string())
-}
 
 #[derive(Debug, Clone)]
 pub(super) struct SessionCoreState {
