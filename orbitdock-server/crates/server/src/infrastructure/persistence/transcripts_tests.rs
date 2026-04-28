@@ -1,4 +1,7 @@
 use super::*;
+use orbitdock_protocol::conversation_contracts::ConversationRow;
+use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
+use serde_json::Value;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
