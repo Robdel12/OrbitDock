@@ -18,7 +18,8 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  activate_direct_session_runtime, claim_codex_thread_for_direct_session,
+  activate_direct_session_runtime, attach_claude_direct_runtime,
+  claim_codex_thread_for_direct_session, AttachClaudeDirectRuntimeRequest,
 };
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
@@ -489,45 +490,22 @@ async fn complete_claude_takeover(
   match tokio::time::timeout(Duration::from_secs(15), connector_task).await {
     Ok(Ok(Ok(claude_session))) => {
       // claude_sdk_session_id is already in DB — no registration needed on takeover.
-
-      let persist_tx = state.persist().clone();
-      let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
-        claude_session,
-        handle,
-        persist_tx.clone(),
-        state.list_tx(),
-        state.clone(),
-      );
-      state.add_session_actor(actor_handle);
-      state.set_claude_action_tx(&session_id, action_tx);
-
-      if let Some(ref mode) = effective_permission {
-        if let Some(actor) = state.get_session(&session_id) {
-          actor
-            .send(SessionCommand::ApplyDelta {
-              changes: Box::new(orbitdock_protocol::StateChanges {
-                permission_mode: Some(Some(mode.clone())),
-                ..Default::default()
-              }),
-              persist_op: takeover_permission_persist_op(
-                &session_id,
-                persist_permission_mode,
-                Some(mode.clone()),
-              ),
-            })
-            .await;
-        }
-      }
-
-      activate_direct_session_runtime(state, &session_id, Provider::Claude).await;
-
-      let _ = persist_tx
-        .send(PersistCommand::SetIntegrationMode {
+      attach_claude_direct_runtime(
+        state,
+        AttachClaudeDirectRuntimeRequest {
           session_id: session_id.clone(),
-          codex_mode: None,
-          claude_mode: Some("direct".into()),
-        })
-        .await;
+          handle,
+          claude_session,
+          permission_mode: effective_permission.clone(),
+          permission_persist_op: takeover_permission_persist_op(
+            &session_id,
+            persist_permission_mode,
+            effective_permission.clone(),
+          ),
+          apply_permission_before_activate: true,
+        },
+      )
+      .await;
 
       info!(
           component = "session",

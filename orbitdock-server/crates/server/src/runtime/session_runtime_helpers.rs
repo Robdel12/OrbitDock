@@ -18,6 +18,7 @@ use orbitdock_protocol::{
   StateChanges, WorkStatus,
 };
 
+use crate::connectors::claude_session::ClaudeSession;
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{
   load_messages_from_transcript_path, load_session_by_id, load_token_usage_from_transcript_path,
@@ -304,6 +305,91 @@ pub(crate) async fn activate_direct_session_runtime(
         last_activity_at: None,
         last_progress_at: None,
       }),
+    })
+    .await;
+}
+
+pub(crate) struct AttachClaudeDirectRuntimeRequest {
+  pub session_id: String,
+  pub handle: SessionHandle,
+  pub claude_session: ClaudeSession,
+  pub permission_mode: Option<String>,
+  pub permission_persist_op: Option<PersistCommand>,
+  pub apply_permission_before_activate: bool,
+}
+
+async fn apply_claude_permission_mode_update(
+  state: &Arc<SessionRegistry>,
+  session_id: &str,
+  permission_mode: Option<String>,
+  permission_persist_op: Option<PersistCommand>,
+) {
+  let Some(mode) = permission_mode else {
+    return;
+  };
+  let Some(actor) = state.get_session(session_id) else {
+    return;
+  };
+
+  actor
+    .send(SessionCommand::ApplyDelta {
+      changes: Box::new(StateChanges {
+        permission_mode: Some(Some(mode)),
+        ..Default::default()
+      }),
+      persist_op: permission_persist_op,
+    })
+    .await;
+}
+
+pub(crate) async fn attach_claude_direct_runtime(
+  state: &Arc<SessionRegistry>,
+  request: AttachClaudeDirectRuntimeRequest,
+) {
+  let AttachClaudeDirectRuntimeRequest {
+    session_id,
+    mut handle,
+    claude_session,
+    permission_mode,
+    permission_persist_op,
+    apply_permission_before_activate,
+  } = request;
+
+  state.prepare_session_handle(&mut handle);
+  let persist_tx = state.persist().clone();
+  let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
+    claude_session,
+    handle,
+    persist_tx.clone(),
+    state.list_tx(),
+    state.clone(),
+  );
+  state.add_session_actor(actor_handle);
+  state.set_claude_action_tx(&session_id, action_tx);
+
+  let mut pending_persist_op = permission_persist_op;
+  if apply_permission_before_activate {
+    apply_claude_permission_mode_update(
+      state,
+      &session_id,
+      permission_mode.clone(),
+      pending_persist_op.take(),
+    )
+    .await;
+  }
+
+  activate_direct_session_runtime(state, &session_id, Provider::Claude).await;
+
+  if !apply_permission_before_activate {
+    apply_claude_permission_mode_update(state, &session_id, permission_mode, pending_persist_op)
+      .await;
+  }
+
+  let _ = persist_tx
+    .send(PersistCommand::SetIntegrationMode {
+      session_id,
+      codex_mode: None,
+      claude_mode: Some("direct".into()),
     })
     .await;
 }

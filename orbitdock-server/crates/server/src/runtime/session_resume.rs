@@ -13,11 +13,11 @@ use crate::connectors::codex_session::CodexSession;
 use crate::infrastructure::persistence::{load_session_permission_mode, PersistCommand};
 use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection};
 use crate::runtime::restored_sessions::PreparedResumeSession;
-use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  activate_direct_session_runtime, claim_codex_thread_for_direct_session,
-  direct_resume_failure_changes,
+  activate_direct_session_runtime, attach_claude_direct_runtime,
+  claim_codex_thread_for_direct_session, direct_resume_failure_changes,
+  AttachClaudeDirectRuntimeRequest,
 };
 use crate::support::session_paths::resolve_claude_resume_cwd;
 
@@ -249,39 +249,18 @@ async fn spawn_claude_resume(
     match tokio::time::timeout(connector_timeout, connector_task).await {
       Ok(Ok(Ok(claude_session))) => {
         // claude_sdk_session_id is already in DB — no registration needed on resume.
-        state.prepare_session_handle(&mut handle);
-        let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
-          claude_session,
-          handle,
-          persist_tx.clone(),
-          state.list_tx(),
-          state.clone(),
-        );
-        state.add_session_actor(actor_handle);
-        state.set_claude_action_tx(&session_id, action_tx);
-        activate_direct_session_runtime(&state, &session_id, Provider::Claude).await;
-
-        if let Some(ref mode) = restored_permission_mode {
-          if let Some(actor) = state.get_session(&session_id) {
-            actor
-              .send(SessionCommand::ApplyDelta {
-                changes: Box::new(orbitdock_protocol::StateChanges {
-                  permission_mode: Some(Some(mode.clone())),
-                  ..Default::default()
-                }),
-                persist_op: None,
-              })
-              .await;
-          }
-        }
-
-        let _ = persist_tx
-          .send(PersistCommand::SetIntegrationMode {
+        attach_claude_direct_runtime(
+          &state,
+          AttachClaudeDirectRuntimeRequest {
             session_id: session_id.clone(),
-            codex_mode: None,
-            claude_mode: Some("direct".into()),
-          })
-          .await;
+            handle,
+            claude_session,
+            permission_mode: restored_permission_mode.clone(),
+            permission_persist_op: None,
+            apply_permission_before_activate: false,
+          },
+        )
+        .await;
 
         info!(
             component = "session",
