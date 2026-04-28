@@ -1,4 +1,3 @@
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionControlMode, SessionLifecycleState,
   SessionStatus, WorkStatus,
@@ -39,16 +38,4 @@ pub(crate) fn steerable_from_parts(
 ) -> bool {
   accepts_user_input_from_parts(status, control_mode, lifecycle_state)
     && work_status == WorkStatus::Working
-}
-
-pub(crate) fn is_local_http_row_id(row_id: &str) -> bool {
-  row_id.starts_with("user-http-") || row_id.starts_with("steer-http-")
-}
-
-pub(crate) fn latest_transcript_synced_row_id(rows: &[ConversationRowEntry]) -> Option<String> {
-  rows
-    .iter()
-    .rev()
-    .find(|row| !is_local_http_row_id(row.id()))
-    .map(|row| row.id().to_string())
 }

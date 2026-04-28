@@ -5,7 +5,6 @@ use super::approval_state::{
   pending_tool_family_from_state, resolve_approval_policy_details, resolve_sandbox_policy_details,
   ApprovalQueueState, PendingApprovalEntry, PendingApprovalMutation,
 };
-use super::conversation_state::{is_non_user_row, is_non_user_row_summary, ConversationState};
 use super::diff_preview::has_turn_diff;
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
@@ -14,18 +13,24 @@ use super::restore::{build_restored_session_snapshot, SessionRestoreSnapshotInpu
 use super::session::{SessionRestoreData, SessionSnapshot};
 use super::snapshot::{build_session_snapshot, SessionSnapshotInput};
 use super::support::{
-  accepts_user_input_from_parts, control_mode_from_parts, is_local_http_row_id,
-  latest_transcript_synced_row_id, steerable_from_parts,
+  accepts_user_input_from_parts, control_mode_from_parts, steerable_from_parts,
 };
 use crate::domain::sessions::transition::{TransitionState, WorkPhase};
-use orbitdock_protocol::conversation_contracts::{
-  ConversationRow, ConversationRowEntry, RowEntrySummary, TurnStatus,
-};
+use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::{
   ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, SessionControlMode,
   SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo,
   TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
+
+#[path = "row_history.rs"]
+mod row_history;
+#[path = "row_sequence.rs"]
+mod row_sequence;
+#[path = "transcript_anchor.rs"]
+mod transcript_anchor;
+
+use self::transcript_anchor::latest_transcript_synced_row_id;
 
 // Keep actor-retained timeline state small. Heavy row bodies remain persisted
 // and are fetched on demand through row-content HTTP endpoints.
@@ -174,11 +179,6 @@ impl SessionCoreState {
     self.total_row_count as usize
   }
 
-  #[cfg(test)]
-  pub fn newest_synced_row_id(&self) -> Option<&str> {
-    self.newest_synced_row_id.as_deref()
-  }
-
   pub fn work_status(&self) -> WorkStatus {
     self.work_status
   }
@@ -308,33 +308,6 @@ impl SessionCoreState {
     state.trim_retained_rows();
     state.bootstrap_pending_approval_from_persisted_fields();
     state
-  }
-
-  pub fn conversation_state(&self) -> ConversationState {
-    ConversationState::new(self.rows.clone(), self.total_row_count)
-  }
-
-  fn next_row_sequence(&self) -> u64 {
-    self
-      .rows
-      .last()
-      .map(|entry| entry.sequence + 1)
-      .unwrap_or(self.total_row_count)
-  }
-
-  pub fn latest_row_sequence(&self) -> u64 {
-    self
-      .rows
-      .last()
-      .map(|entry| entry.sequence)
-      .unwrap_or_else(|| self.total_row_count.saturating_sub(1))
-  }
-
-  fn trim_retained_rows(&mut self) {
-    let state = ConversationState::new(std::mem::take(&mut self.rows), self.total_row_count)
-      .trim_retained_rows(RETAINED_FINALIZED_ROW_LIMIT);
-    self.rows = state.rows;
-    self.total_row_count = state.total_row_count;
   }
 
   fn sync_control_mode_from_integrations(&mut self) {
@@ -639,16 +612,6 @@ impl SessionCoreState {
     self.display.last_message = message;
   }
 
-  pub fn set_row_sequence(&mut self, row_id: &str, sequence: u64) {
-    if let Some(entry) = self.rows.iter_mut().find(|e| e.id() == row_id) {
-      entry.sequence = sequence;
-    }
-  }
-
-  pub fn row_by_id(&self, row_id: &str) -> Option<&ConversationRowEntry> {
-    self.rows.iter().find(|e| e.id() == row_id)
-  }
-
   pub fn set_codex_integration_mode(&mut self, mode: Option<CodexIntegrationMode>) {
     self.codex_integration_mode = mode;
     self.sync_control_mode_from_integrations();
@@ -673,24 +636,6 @@ impl SessionCoreState {
 
   pub fn set_transcript_path(&mut self, transcript_path: Option<String>) {
     self.identity.transcript_path = transcript_path;
-  }
-
-  #[cfg(test)]
-  pub fn set_newest_synced_row_id(&mut self, id: Option<String>) {
-    self.newest_synced_row_id = id;
-  }
-
-  pub fn has_user_row_with_content(&self, content: &str) -> bool {
-    self
-      .rows
-      .iter()
-      .rev()
-      .take(5)
-      .any(|entry| match &entry.row {
-        ConversationRow::User(row) => row.content == content,
-        ConversationRow::Steer(_) => false,
-        _ => false,
-      })
   }
 
   pub fn set_model(&mut self, model: Option<String>) {
@@ -785,142 +730,6 @@ impl SessionCoreState {
   #[cfg(test)]
   pub fn set_last_tool(&mut self, tool: Option<String>) {
     self.last_tool = tool;
-  }
-
-  pub fn add_row(
-    &mut self,
-    mut entry: ConversationRowEntry,
-    has_active_viewers: bool,
-  ) -> ConversationRowEntry {
-    let counts_as_progress = is_non_user_row(&entry);
-    if entry.sequence == 0
-      && self
-        .rows
-        .last()
-        .is_none_or(|last| last.sequence >= entry.sequence)
-    {
-      entry.sequence = self.next_row_sequence();
-    }
-    if is_non_user_row(&entry) && !has_active_viewers {
-      self.unread_count += 1;
-    }
-    if !is_local_http_row_id(entry.id()) {
-      self.newest_synced_row_id = Some(entry.id().to_string());
-    }
-    self.rows.push(entry.clone());
-    self.total_row_count = self.total_row_count.saturating_add(1);
-    self.trim_retained_rows();
-    let now = crate::support::session_time::chrono_now();
-    self.timestamps.last_activity_at = Some(now.clone());
-    if counts_as_progress {
-      self.timestamps.last_progress_at = Some(now);
-    }
-    entry
-  }
-
-  pub fn unread_count_after_row_append(
-    &self,
-    entry: &ConversationRowEntry,
-    has_active_viewers: bool,
-  ) -> Option<u64> {
-    (is_non_user_row(entry) && !has_active_viewers).then_some(self.unread_count)
-  }
-
-  pub fn upsert_row(&mut self, mut entry: ConversationRowEntry) -> ConversationRowEntry {
-    let entry_id = entry.id().to_string();
-    let counts_as_progress = is_non_user_row(&entry);
-    if let Some(pos) = self.rows.iter().position(|r| r.id() == entry_id) {
-      if entry.sequence == 0 {
-        entry.sequence = self.rows[pos].sequence;
-      }
-      self.rows[pos] = entry.clone();
-      if pos == self.rows.len() - 1 && !is_local_http_row_id(&entry_id) {
-        self.newest_synced_row_id = Some(entry_id);
-      }
-      let now = crate::support::session_time::chrono_now();
-      self.timestamps.last_activity_at = Some(now.clone());
-      if counts_as_progress {
-        self.timestamps.last_progress_at = Some(now);
-      }
-      entry
-    } else {
-      if entry.sequence == 0
-        && self
-          .rows
-          .last()
-          .is_none_or(|last| last.sequence >= entry.sequence)
-      {
-        entry.sequence = self.next_row_sequence();
-      }
-      if !is_local_http_row_id(entry.id()) {
-        self.newest_synced_row_id = Some(entry.id().to_string());
-      }
-      self.rows.push(entry.clone());
-      if self.rows.len() as u64 > self.total_row_count {
-        self.total_row_count = self.rows.len() as u64;
-      }
-      self.trim_retained_rows();
-      let now = crate::support::session_time::chrono_now();
-      self.timestamps.last_activity_at = Some(now.clone());
-      if counts_as_progress {
-        self.timestamps.last_progress_at = Some(now);
-      }
-      entry
-    }
-  }
-
-  pub fn note_transition_row_append(
-    &mut self,
-    entry: &RowEntrySummary,
-    has_active_viewers: bool,
-  ) -> Option<u64> {
-    if !is_non_user_row_summary(entry) || has_active_viewers {
-      return None;
-    }
-    self.unread_count += 1;
-    Some(self.unread_count)
-  }
-
-  pub fn mark_read(&mut self) -> u64 {
-    let prev = self.unread_count;
-    self.unread_count = 0;
-    prev
-  }
-
-  pub fn mark_last_turns_status(&mut self, num_turns: u32, status: TurnStatus) -> Vec<String> {
-    if self.rows.is_empty() || num_turns == 0 {
-      return vec![];
-    }
-
-    let mut user_rows_seen: u32 = 0;
-    let mut cut_index = self.rows.len();
-    for (i, entry) in self.rows.iter().enumerate().rev() {
-      if matches!(entry.row, ConversationRow::User(_)) {
-        user_rows_seen += 1;
-        if user_rows_seen >= num_turns {
-          cut_index = i;
-          break;
-        }
-      }
-    }
-
-    let mut affected_ids = Vec::new();
-    for entry in &mut self.rows[cut_index..] {
-      if entry.turn_status != status {
-        entry.turn_status = status;
-        affected_ids.push(entry.id().to_string());
-      }
-    }
-    affected_ids
-  }
-
-  pub fn replace_rows(&mut self, rows: Vec<ConversationRowEntry>) {
-    let rows = ConversationState::normalize_row_sequences(rows);
-    self.newest_synced_row_id = latest_transcript_synced_row_id(&rows);
-    self.total_row_count = rows.len() as u64;
-    self.rows = rows;
-    self.trim_retained_rows();
-    self.timestamps.last_progress_at = Some(crate::support::session_time::chrono_now());
   }
 
   pub(crate) fn approval_queue_state(&self) -> ApprovalQueueState {

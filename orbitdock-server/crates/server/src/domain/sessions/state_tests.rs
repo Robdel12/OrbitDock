@@ -1,5 +1,5 @@
 use super::*;
-use orbitdock_protocol::conversation_contracts::MessageRowContent;
+use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent, TurnStatus};
 use orbitdock_protocol::Provider;
 
 fn user_row(id: &str, sequence: u64) -> ConversationRowEntry {
