@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 15 landed / Phase 16 regroup pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, and the Phase 15 pure contract/mapping breakup wave is now landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`. Phase 15 finished the remaining clearly safe pure renderer/mapping cuts: `tool_display.rs` is down to 265 lines with classification/diff/input/preview/shared helpers extracted; `rows.rs` is down to 673 lines with shell and transport helper seams extracted; `item_mapping.rs` is down to 408 lines with collab-agent, dynamic-tool, and tool-row helpers split out; and `approval_preview.rs` is down to 484 lines with risk/question/patch-diff/shell helpers extracted. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining size is now concentrated in a smaller set of domain/config/persistence files such as `server/src/domain/sessions/state.rs`, `server/src/domain/sessions/session.rs`, `connector-codex/src/config.rs`, `server/src/infrastructure/github/client.rs`, `server/src/infrastructure/persistence/{mod.rs,transcripts.rs,usage.rs}`, `server/src/app/mod.rs`, `server/src/runtime/session_command_handler.rs`, plus the already-parked redesign seams. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 16 landed / Phase 17 implementation pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, and the Phase 16 domain/config/persistence recut is now landed through `a936d75d` and `36f8489b`. Phase 16 finished the next clearly safe helper-density cuts: `connector-codex/src/config.rs` is down to 60 lines with `constructor.rs` (570), `runtime_defaults.rs` (222), `discovery.rs` (60), and `provider_defaults.rs` (37) split out; `infrastructure/persistence/transcripts.rs` is down to 24 lines with `transcripts_messages.rs` (514), `transcripts_capabilities.rs` (151), `transcripts_usage.rs` (112), and `transcripts_summary.rs` (44) extracted. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server infrastructure::persistence::transcripts::tests --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining size is now concentrated in `server/src/domain/sessions/state.rs` (1323), `server/src/domain/sessions/session.rs` (854), `server/src/infrastructure/github/client.rs` (833), `server/src/infrastructure/persistence/mod.rs` (806), `server/src/app/mod.rs` (786), `server/src/infrastructure/persistence/usage.rs` (782), and `server/src/runtime/session_command_handler.rs` (691), plus the already-parked redesign seams. The Phase 16 seam-map verdicts are now explicit: `state.rs` row/history logic is the next `split-now` lane; `usage.rs` is still `split-now`; `session.rs`, `persistence/mod.rs`, and `app/mod.rs` stay as spines for now; and the parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1561,3 +1561,93 @@ Tasks:
 - Worker C’s `item_mapping.rs` split landed cleanly once the parent reran formatting and workspace validation.
 - Worker D’s `approval_preview.rs` split landed with a tiny parent-side fix in `approval_preview_patch_diff.rs` and the already-related test import fallout in `transition.rs`.
 - Worker A’s `tool_display.rs` lane stalled mid-refactor, so the parent reconstructed the last committed facade, completed the helper extraction locally, and validated the full protocol crate before landing.
+
+## Phase 16: Domain, Config, And Persistence Recut
+
+Objective: keep reducing the remaining catch-all files by landing the next two obvious pure-ish splits while producing seam maps for the central domain/session files that are large but not yet safe to carve blindly.
+
+Implementation order:
+
+1. `connector-codex/src/config.rs`
+2. `server/src/infrastructure/persistence/transcripts.rs`
+3. `server/src/domain/sessions/state.rs` + `server/src/domain/sessions/session.rs` seam map
+4. `server/src/infrastructure/persistence/{mod.rs,usage.rs}` + `server/src/app/mod.rs` regroup notes
+
+Execution rules:
+
+- Keep `server/src/connectors/codex_session.rs`, `server/src/runtime/session_runtime_helpers.rs`, and startup/write-side `control_mode` semantics parked.
+- Treat `state.rs` and `session.rs` as one authority cluster: do not land structural edits there until the seam map clearly separates projections/accessors from mutation/approval/runtime boundaries.
+- Prefer implementation in crates with pure helper density first (`config.rs`, `transcripts.rs`) so we keep paying down line mass without destabilizing session ownership.
+- Any evaluation worker must end with a concrete `split-now`, `needs redesign`, or `leave as spine` verdict for each candidate seam.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-codex/src/config.rs` plus new sibling modules beside it only | Split constructor/runtime-default/discovery/provider-default helpers into focused modules while preserving Codex config behavior and public constructor surface. |
+| Worker B | `gpt-5.4-mini` | `server/src/infrastructure/persistence/transcripts.rs` plus new sibling modules beside it only | Split transcript message parsing, summary extraction, token-usage parsing, and capability/context extraction into focused helpers while preserving transcript-read behavior. |
+| Worker C | `gpt-5.4-mini` | `server/src/domain/sessions/state.rs` and `server/src/domain/sessions/session.rs` read-only | Produce a seam map for projections/snapshots, row mutation, approval queue, and transition bridging. Call out what can split now versus what must stay authoritative. No code edits. |
+| Worker D | `gpt-5.4-mini` | `server/src/infrastructure/persistence/{mod.rs,usage.rs}` and `server/src/app/mod.rs` read-only | Identify the next realistic low-risk breakup lanes in persistence/app bootstrap, and call out anything that should be left as a spine. No code edits. |
+
+Tasks:
+
+- [x] Launch the Phase 16 workers with disjoint ownership.
+- [x] Land the `config.rs` breakup slice.
+- [x] Land the `transcripts.rs` breakup slice.
+- [x] Integrate the `state.rs` / `session.rs` seam map into the plan.
+- [x] Integrate the persistence/app regroup verdicts into the plan.
+- [x] Re-run connector, persistence, and server validation after the landed slices.
+
+### Phase 16 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd1ce-6b77-7580-aefe-36fd48cdb918` (`Mill`) | completed - landed in `a936d75d` |
+| Worker B | `019dd1ce-6efe-7692-8bb8-f3eff0295a35` (`Plato`) | completed - landed in `36f8489b` |
+| Worker C | `019dd1ce-7252-7020-b486-3e343cde6e49` (`Gauss`) | completed - seam map integrated |
+| Worker D | `019dd1ce-7616-7323-83b7-f5d75434be23` (`Kepler`) | completed - regroup verdicts integrated |
+
+### Phase 16 execution note
+
+- `a936d75d` `♻️ Split Codex config helpers`
+- `36f8489b` `♻️ Split transcript persistence helpers`
+- `connector-codex/src/config.rs` is now a thin facade that delegates constructor shaping, runtime defaults, provider defaults, and discovery helpers into sibling modules without widening the public connector surface.
+- `infrastructure/persistence/transcripts.rs` is now a thin facade over focused transcript readers for messages, summary extraction, token usage, and capability/context hydration.
+- `state.rs` and `session.rs` are no longer “mystery big files.” The Phase 16 seam map makes the boundary explicit: row mutation/history logic is the next clean `split-now` lane in `state.rs`; projections/snapshots and approval queue semantics stay authoritative; config/integration setters and transition extract/apply bridging remain redesign territory.
+- `persistence/usage.rs` is still the next realistic persistence breakup lane. `persistence/mod.rs` and `app/mod.rs` should stay orchestration spines for now, with only tiny pure helper peel-offs allowed if a later lane forces them.
+
+## Phase 17: Domain State And Usage Accounting Wave
+
+Objective: keep shrinking the remaining server catch-all files by landing the two clearest `split-now` lanes from the Phase 16 regroup while producing the next evaluation map for the remaining spines.
+
+Implementation order:
+
+1. `server/src/domain/sessions/state.rs` row/history and sequence helpers
+2. `server/src/infrastructure/persistence/usage.rs` snapshot-kind and normalization helpers
+3. `server/src/infrastructure/persistence/usage.rs` write-path versus maintenance helpers
+4. `server/src/infrastructure/persistence/mod.rs`, `server/src/app/mod.rs`, `server/src/infrastructure/github/client.rs`, and `server/src/runtime/session_command_handler.rs` regroup notes
+
+Execution rules:
+
+- Keep `server/src/domain/sessions/session.rs` as the runtime shell and authority spine for broadcast, replay, and snapshot behavior in this wave.
+- Do not open the `state.rs` config/integration setters, `extract_state` / `apply_state` bridging, or startup/write-side `control_mode` seams here.
+- Treat `persistence/usage.rs` as the primary persistence breakup target; leave `persistence/mod.rs` and `app/mod.rs` as spines unless a tiny pure helper peel-off falls out naturally.
+- Start `github/client.rs` and `runtime/session_command_handler.rs` as read-only evaluation lanes before any implementation work there.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `server/src/domain/sessions/state.rs` plus new sibling modules beside it only | Extract row mutation, row-history, row-sequence, and transcript-anchor helpers into focused modules while preserving authoritative domain state behavior. |
+| Worker B | `gpt-5.4-mini` | `server/src/infrastructure/persistence/usage.rs` plus new sibling modules beside it only | Split snapshot-kind decoding, usage normalization, write-path helpers, and repair/maintenance helpers into focused modules while preserving ledger semantics exactly. |
+| Worker C | `gpt-5.4-mini` | `server/src/infrastructure/persistence/mod.rs` and `server/src/app/mod.rs` read-only | Confirm which tiny pure helper peel-offs are safe and which orchestration responsibilities must stay as spines. No code edits. |
+| Worker D | `gpt-5.4-mini` | `server/src/infrastructure/github/client.rs` and `server/src/runtime/session_command_handler.rs` read-only | Produce the next breakup map for these remaining operational hotspots and classify each seam as `split-now`, `leave as spine`, or `needs redesign`. No code edits. |
+
+Tasks:
+
+- [ ] Launch the Phase 17 workers with disjoint ownership.
+- [ ] Land the `state.rs` row/history breakup slice.
+- [ ] Land the `usage.rs` breakup slice.
+- [ ] Integrate the `persistence/mod.rs` and `app/mod.rs` regroup verdicts into the plan.
+- [ ] Integrate the `github/client.rs` and `session_command_handler.rs` regroup verdicts into the plan.
+- [ ] Re-run domain, persistence, and server validation after the landed slices.
