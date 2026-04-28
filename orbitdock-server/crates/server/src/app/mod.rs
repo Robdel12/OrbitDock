@@ -3,10 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{extract::DefaultBodyLimit, routing::get, Router};
-use orbitdock_protocol::{
-  ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
-  SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
-};
+use orbitdock_protocol::{SessionStatus, WorkspaceProviderKind};
 use tokio::sync::{mpsc, watch};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -17,16 +14,13 @@ mod config_policy;
 mod http_surface;
 mod pid;
 
-use crate::domain::sessions::facets::{
-  SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
-};
-use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::logging::{init_logging, ServerLoggingOptions};
 use crate::infrastructure::persistence::{
   cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
   create_persistence_channel, create_sync_shutdown_channel, load_sessions_for_startup,
   PersistCommand, PersistenceWriter, SyncWriter, SyncWriterConfig,
 };
+use crate::runtime::restored_sessions::restored_session_to_persisted_handle;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
 
@@ -197,236 +191,18 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     Ok(restored) if !restored.is_empty() => {
       let mut backfill_tasks: Vec<(String, String)> = Vec::new();
       for rs in restored {
-        let crate::infrastructure::persistence::RestoredSession {
-          id,
-          provider,
-          status,
-          work_status,
-          control_mode,
-          lifecycle_state,
-          project_path,
-          transcript_path,
-          project_name,
-          model,
-          custom_name,
-          summary,
-          codex_thread_id: _,
-          claude_sdk_session_id: _,
-          started_at,
-          last_activity_at,
-          approval_policy,
-          sandbox_mode,
-          permission_mode,
-          collaboration_mode,
-          multi_agent,
-          personality,
-          service_tier,
-          developer_instructions,
-          codex_config_mode,
-          codex_config_profile,
-          codex_model_provider,
-          codex_config_source,
-          codex_config_overrides,
-          input_tokens,
-          output_tokens,
-          cached_tokens,
-          context_window,
-          token_usage_snapshot_kind,
-          pending_tool_name,
-          pending_tool_input,
-          pending_question,
-          pending_approval_id,
-          rows,
-          forked_from_session_id,
-          current_diff,
-          current_plan,
-          turn_count,
-          turn_diffs: restored_turn_diffs,
-          git_branch,
-          git_sha,
-          current_cwd,
-          first_prompt,
-          last_message,
-          end_reason: _,
-          effort,
-          terminal_session_id,
-          terminal_app,
-          approval_version,
-          unread_count,
-          last_progress_at,
-          mission_id,
-          issue_identifier,
-          allow_bypass_permissions,
-        } = rs;
-        let msg_count = rows.len();
+        let msg_count = rs.rows.len();
 
-        if msg_count == 0 && provider == "claude" {
-          if let Some(ref transcript_path) = transcript_path {
-            backfill_tasks.push((id.clone(), transcript_path.clone()));
+        if msg_count == 0 && rs.provider == "claude" {
+          if let Some(ref transcript_path) = rs.transcript_path {
+            backfill_tasks.push((rs.id.clone(), transcript_path.clone()));
           }
-        }
-
-        let provider: Provider = provider.parse().unwrap();
-        let approval_policy_details = codex_config_overrides
-          .as_ref()
-          .and_then(|overrides| overrides.approval_policy_details.clone())
-          .or_else(|| {
-            approval_policy
-              .as_deref()
-              .and_then(CodexApprovalPolicy::from_storage_text)
-          });
-        let sandbox_policy_details = codex_config_overrides
-          .as_ref()
-          .and_then(|overrides| overrides.sandbox_policy_details.clone())
-          .or_else(|| {
-            sandbox_mode
-              .as_deref()
-              .and_then(orbitdock_protocol::CodexSandboxPolicy::from_storage_text)
-          });
-
-        let mut handle =
-          SessionHandle::restore(crate::domain::sessions::session::SessionRestoreData {
-            identity: SessionIdentity {
-              id: id.clone(),
-              provider,
-              project_path: project_path.clone(),
-              transcript_path,
-              project_name,
-            },
-            config: SessionConfig {
-              model: model.clone(),
-              approval_policy: approval_policy.clone(),
-              approval_policy_details,
-              sandbox_mode: sandbox_mode.clone(),
-              sandbox_policy_details,
-              collaboration_mode,
-              multi_agent,
-              personality,
-              service_tier,
-              developer_instructions,
-              codex_config_mode,
-              codex_config_profile,
-              codex_model_provider,
-              codex_config_source,
-              codex_config_overrides,
-              effort,
-            },
-            display: SessionDisplay {
-              custom_name,
-              summary,
-              first_prompt,
-              last_message,
-            },
-            environment: SessionEnvironment {
-              git_branch,
-              git_sha,
-              current_cwd,
-              ..Default::default()
-            },
-            timestamps: SessionTimestamps {
-              started_at,
-              last_activity_at,
-              last_progress_at,
-            },
-            status: match status.as_str() {
-              "ended" => SessionStatus::Ended,
-              _ => SessionStatus::Active,
-            },
-            work_status: match work_status.as_str() {
-              "working" => WorkStatus::Working,
-              "permission" => WorkStatus::Permission,
-              "question" => WorkStatus::Question,
-              "reply" => WorkStatus::Reply,
-              "ended" => WorkStatus::Ended,
-              _ => WorkStatus::Waiting,
-            },
-            control_mode,
-            lifecycle_state,
-            permission_mode,
-            token_usage: TokenUsage {
-              input_tokens: input_tokens.max(0) as u64,
-              output_tokens: output_tokens.max(0) as u64,
-              cached_tokens: cached_tokens.max(0) as u64,
-              context_window: context_window.max(0) as u64,
-            },
-            token_usage_snapshot_kind,
-            rows,
-            current_diff,
-            current_plan,
-            turn_count,
-            turn_diffs: restored_turn_diffs
-              .into_iter()
-              .map(
-                |(
-                  turn_id,
-                  diff,
-                  input_tokens,
-                  output_tokens,
-                  cached_tokens,
-                  context_window,
-                  snapshot_kind,
-                )| {
-                  let has_tokens = input_tokens > 0 || output_tokens > 0 || context_window > 0;
-                  TurnDiff {
-                    turn_id,
-                    diff,
-                    token_usage: if has_tokens {
-                      Some(TokenUsage {
-                        input_tokens: input_tokens as u64,
-                        output_tokens: output_tokens as u64,
-                        cached_tokens: cached_tokens as u64,
-                        context_window: context_window as u64,
-                      })
-                    } else {
-                      None
-                    },
-                    snapshot_kind: Some(snapshot_kind),
-                  }
-                },
-              )
-              .collect(),
-            pending_tool_name,
-            pending_tool_input,
-            pending_question,
-            pending_approval_id,
-            terminal_session_id,
-            terminal_app,
-            approval_version,
-            unread_count,
-          });
-        let is_codex = matches!(provider, Provider::Codex);
-        let is_claude = matches!(provider, Provider::Claude);
-        let is_direct = control_mode == SessionControlMode::Direct;
-        handle.set_codex_integration_mode(if is_codex {
-          Some(if is_direct {
-            CodexIntegrationMode::Direct
-          } else {
-            CodexIntegrationMode::Passive
-          })
-        } else {
-          None
-        });
-        if is_claude {
-          handle.set_claude_integration_mode(Some(if is_direct {
-            ClaudeIntegrationMode::Direct
-          } else {
-            ClaudeIntegrationMode::Passive
-          }));
-        }
-        if let Some(source_id) = forked_from_session_id {
-          handle.set_forked_from(source_id);
-        }
-        if mission_id.is_some() || issue_identifier.is_some() {
-          handle.set_mission_context(mission_id, issue_identifier);
-        }
-        if allow_bypass_permissions {
-          handle.set_allow_bypass_permissions(true);
         }
 
         // Provider session IDs (claude_sdk_session_id, codex_thread_id) are already in DB.
         // No registration needed on restore — DB is source of truth.
 
-        state.add_session(handle);
+        state.add_session(restored_session_to_persisted_handle(rs));
       }
 
       if !backfill_tasks.is_empty() {

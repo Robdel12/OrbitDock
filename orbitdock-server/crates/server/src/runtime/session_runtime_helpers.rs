@@ -25,8 +25,7 @@ use crate::infrastructure::persistence::{
   PersistCommand,
 };
 use crate::runtime::restored_sessions::{
-  hydrate_restored_rows_if_missing, parse_session_status, parse_work_status,
-  restored_session_to_handle,
+  hydrate_restored_rows_if_missing, restored_session_to_persisted_handle,
 };
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
@@ -527,12 +526,7 @@ pub(crate) async fn restore_passive_session_actor_from_persistence(
 
   let mut restored = restored;
   hydrate_restored_rows_if_missing(&mut restored, session_id).await;
-  let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
-  let work_status = parse_work_status(status, &restored.work_status);
-  rebind_session_as_passive_actor(
-    state,
-    restored_session_to_handle(restored, status, work_status),
-  );
+  rebind_session_as_passive_actor(state, restored_session_to_persisted_handle(restored));
   true
 }
 

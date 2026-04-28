@@ -231,7 +231,8 @@ pub(crate) fn restored_session_to_handle(
   work_status: WorkStatus,
 ) -> SessionHandle {
   let provider = parse_provider(&restored.provider);
-
+  let control_mode = restored.control_mode;
+  let forked_from_session_id = restored.forked_from_session_id.clone();
   let mission_id = restored.mission_id.clone();
   let issue_identifier = restored.issue_identifier.clone();
   let allow_bypass = restored.allow_bypass_permissions;
@@ -284,7 +285,7 @@ pub(crate) fn restored_session_to_handle(
     },
     status,
     work_status,
-    control_mode: restored.control_mode,
+    control_mode,
     lifecycle_state: restored.lifecycle_state,
     permission_mode: restored.permission_mode,
     token_usage: TokenUsage {
@@ -308,10 +309,31 @@ pub(crate) fn restored_session_to_handle(
     approval_version: restored.approval_version,
     unread_count: restored.unread_count,
   });
-  handle.set_control_mode(restored.control_mode);
+  handle.set_control_mode(control_mode);
+  handle.set_codex_integration_mode(matches!(provider, Provider::Codex).then_some(
+    match control_mode {
+      SessionControlMode::Direct => CodexIntegrationMode::Direct,
+      SessionControlMode::Passive => CodexIntegrationMode::Passive,
+    },
+  ));
+  handle.set_claude_integration_mode(matches!(provider, Provider::Claude).then_some(
+    match control_mode {
+      SessionControlMode::Direct => ClaudeIntegrationMode::Direct,
+      SessionControlMode::Passive => ClaudeIntegrationMode::Passive,
+    },
+  ));
+  if let Some(source_id) = forked_from_session_id {
+    handle.set_forked_from(source_id);
+  }
   handle.set_mission_context(mission_id, issue_identifier);
   if allow_bypass {
     handle.set_allow_bypass_permissions(true);
   }
   handle
+}
+
+pub(crate) fn restored_session_to_persisted_handle(restored: RestoredSession) -> SessionHandle {
+  let status = parse_session_status(restored.end_reason.as_ref(), &restored.status);
+  let work_status = parse_work_status(status, &restored.work_status);
+  restored_session_to_handle(restored, status, work_status)
 }

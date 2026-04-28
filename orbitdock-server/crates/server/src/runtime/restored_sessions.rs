@@ -15,7 +15,7 @@ use orbitdock_protocol::Provider;
 pub(crate) use direct_resume::{load_prepared_resume_session, PreparedResumeSession};
 pub(crate) use hydration::hydrate_restored_rows_if_missing;
 pub(crate) use parsing::{parse_provider, parse_session_status, parse_work_status};
-pub(crate) use state::{restored_session_to_handle, restored_session_to_state};
+pub(crate) use state::{restored_session_to_persisted_handle, restored_session_to_state};
 
 #[cfg(test)]
 #[path = "restored_sessions_tests.rs"]
