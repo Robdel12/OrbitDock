@@ -53,8 +53,6 @@ func makeRootSessionNode(
     outputTokens: UInt64(max(session.outputTokens ?? 0, 0)),
     cachedTokens: UInt64(max(session.cachedTokens ?? 0, 0)),
     displayTitle: session.displayName,
-    displayTitleSortKey: session.normalizedDisplayName,
-    displaySearchText: session.displaySearchText,
     contextLine: session.summary,
     listStatus: resolvedListStatus,
     summaryRevision: 0,

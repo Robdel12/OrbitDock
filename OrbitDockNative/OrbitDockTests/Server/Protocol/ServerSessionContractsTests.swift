@@ -48,44 +48,49 @@ struct ServerSessionContractsTests {
     #expect(item.summaryRevision == 17)
   }
 
-  @Test func sessionSummaryDecodesSummaryRevision() throws {
+  @Test func sessionDetailSnapshotDecodesRevision() throws {
     let data = Data(
       """
       {
-        "id": "session-2",
-        "provider": "codex",
-        "project_path": "/tmp/orbitdock",
-        "project_name": "OrbitDock",
-        "status": "active",
-        "work_status": "reply",
-        "control_mode": "passive",
-        "lifecycle_state": "open",
-        "accepts_user_input": true,
-        "steerable": false,
-        "token_usage": {
-          "input_tokens": 10,
-          "output_tokens": 20,
-          "cached_tokens": 0,
-          "context_window": 200000
-        },
-        "token_usage_snapshot_kind": "lifetime_totals",
-        "has_pending_approval": false,
-        "allow_bypass_permissions": false,
-        "is_worktree": false,
-        "unread_count": 0,
-        "display_title": "OrbitDock",
-        "display_title_sort_key": "orbitdock",
-        "display_search_text": "orbitdock",
-        "list_status": "reply",
-        "summary_revision": 29
+        "revision": 29,
+        "session": {
+          "id": "session-2",
+          "provider": "codex",
+          "project_path": "/tmp/orbitdock",
+          "project_name": "OrbitDock",
+          "status": "active",
+          "work_status": "reply",
+          "control_mode": "passive",
+          "lifecycle_state": "open",
+          "accepts_user_input": true,
+          "steerable": false,
+          "rows": [],
+          "total_row_count": 0,
+          "has_more_before": false,
+          "token_usage": {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "cached_tokens": 0,
+            "context_window": 200000
+          },
+          "token_usage_snapshot_kind": "lifetime_totals",
+          "allow_bypass_permissions": false,
+          "turn_count": 0,
+          "turn_diffs": [],
+          "subagents": [],
+          "is_worktree": false,
+          "unread_count": 0,
+          "revision": 29
+        }
       }
       """.utf8
     )
 
-    let summary = try JSONDecoder().decode(ServerSessionSummary.self, from: data)
+    let payload = try JSONDecoder().decode(ServerSessionDetailSnapshotPayload.self, from: data)
 
-    #expect(summary.id == "session-2")
-    #expect(summary.summaryRevision == 29)
+    #expect(payload.revision == 29)
+    #expect(payload.session.id == "session-2")
+    #expect(payload.session.acceptsUserInput == true)
   }
 
   @Test func conversationBootstrapDecodesWorkerRowsFromSessionPayload() throws {

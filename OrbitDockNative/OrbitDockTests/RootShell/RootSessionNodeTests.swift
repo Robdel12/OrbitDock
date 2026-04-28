@@ -35,8 +35,6 @@ struct RootSessionNodeTests {
       outputTokens: 0,
       cachedTokens: 0,
       displayTitle: "OrbitDock",
-      displayTitleSortKey: nil,
-      displaySearchText: nil,
       contextLine: "<task>Investigate root perf</task>",
       listStatus: .reply,
       summaryRevision: 0,
@@ -63,7 +61,7 @@ struct RootSessionNodeTests {
     #expect(node.allowsUserNotifications == false)
   }
 
-  @Test func listItemAdapterUsesServerAuthoredRootFieldsWhenPresent() throws {
+  @Test func listItemAdapterDerivesRootFieldsFromCurrentPayload() throws {
     let endpointId = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
 
     let item = ServerSessionListItem(
@@ -94,8 +92,6 @@ struct RootSessionNodeTests {
       outputTokens: 1_024,
       cachedTokens: 0,
       displayTitle: "Server Title",
-      displayTitleSortKey: "server title",
-      displaySearchText: "server title feature/root-rewrite claude-sonnet-4",
       contextLine: "Ready for review",
       listStatus: .working,
       summaryRevision: 0,
@@ -116,7 +112,7 @@ struct RootSessionNodeTests {
 
     #expect(node.displayTitle == "Server Title")
     #expect(node.displayTitleSortKey == "server title")
-    #expect(node.displaySearchText == "server title feature/root-rewrite claude-sonnet-4")
+    #expect(node.displaySearchText == "Server Title Ready for review Project feature/root-rewrite claude-sonnet-4")
     #expect(node.contextLine == "Ready for review")
     #expect(node.listStatus == RootSessionListStatus.working)
     #expect(node.isWorktree == true)
@@ -153,8 +149,6 @@ struct RootSessionNodeTests {
       outputTokens: 0,
       cachedTokens: 0,
       displayTitle: "OrbitDock agent spawn testing",
-      displayTitleSortKey: "orbitdock agent spawn testing",
-      displaySearchText: "orbitdock agent spawn testing main",
       contextLine: "Latest worker state fix",
       listStatus: .reply,
       summaryRevision: 0,

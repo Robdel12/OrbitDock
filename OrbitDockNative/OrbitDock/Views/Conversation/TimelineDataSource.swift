@@ -293,7 +293,7 @@ enum TimelineDataSource {
     return entriesByID
   }
 
-  private static func shouldDisplayInTimeline(_ entry: ServerConversationRowEntry) -> Bool {
+  nonisolated private static func shouldDisplayInTimeline(_ entry: ServerConversationRowEntry) -> Bool {
     guard case let .notice(notice) = entry.row else { return true }
     return notice.id != "warning-thread-start-skills-trimmed"
       && notice.title != "Some skills are outside the model-visible list"

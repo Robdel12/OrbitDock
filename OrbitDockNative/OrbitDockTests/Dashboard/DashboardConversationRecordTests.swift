@@ -267,8 +267,6 @@ struct DashboardConversationRecordTests {
       outputTokens: 0,
       cachedTokens: 0,
       displayTitle: "Updated Worktree",
-      displayTitleSortKey: nil,
-      displaySearchText: nil,
       contextLine: "Updated context",
       listStatus: .working,
       summaryRevision: 1,

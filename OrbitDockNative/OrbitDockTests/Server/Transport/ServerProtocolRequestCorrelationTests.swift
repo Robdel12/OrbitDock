@@ -49,147 +49,75 @@ struct ServerProtocolRequestCorrelationTests {
     #expect(payload["since_revision"] == nil)
   }
 
-  @Test func subscribeActiveSessionsSupportsReplayOnlyEncodingAndDecoding() throws {
+  @Test func subscribeActiveSessionsSupportsReplayOnlyEncoding() throws {
     let message = ClientToServerMessage.subscribeActiveSessions(sinceRevision: 91)
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "subscribe_active_sessions")
     #expect(payload["since_revision"] as? UInt64 == 91)
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .subscribeActiveSessions(sinceRevision):
-        #expect(sinceRevision == 91)
-      default:
-        Issue.record("Expected subscribe_active_sessions")
-    }
   }
 
-  @Test func subscribeArchivedSessionsSupportsReplayOnlyEncodingAndDecoding() throws {
+  @Test func subscribeArchivedSessionsSupportsReplayOnlyEncoding() throws {
     let message = ClientToServerMessage.subscribeArchivedSessions(sinceRevision: 17)
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "subscribe_archived_sessions")
     #expect(payload["since_revision"] as? UInt64 == 17)
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .subscribeArchivedSessions(sinceRevision):
-        #expect(sinceRevision == 17)
-      default:
-        Issue.record("Expected subscribe_archived_sessions")
-    }
   }
 
-  @Test func subscribeSessionsSummarySupportsReplayOnlyEncodingAndDecoding() throws {
+  @Test func subscribeSessionsSummarySupportsReplayOnlyEncoding() throws {
     let message = ClientToServerMessage.subscribeSessionsSummary(sinceRevision: 9)
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "subscribe_sessions_summary")
     #expect(payload["since_revision"] as? UInt64 == 9)
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .subscribeSessionsSummary(sinceRevision):
-        #expect(sinceRevision == 9)
-      default:
-        Issue.record("Expected subscribe_sessions_summary")
-    }
   }
 
-  @Test func subscribeMissionRoundTripsMissionIdentity() throws {
+  @Test func subscribeMissionEncodesMissionIdentity() throws {
     let message = ClientToServerMessage.subscribeMission(missionId: "mission-1")
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "subscribe_mission")
     #expect(payload["mission_id"] as? String == "mission-1")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .subscribeMission(missionId):
-        #expect(missionId == "mission-1")
-      default:
-        Issue.record("Expected subscribe_mission")
-    }
   }
 
-  @Test func unsubscribeMissionsRoundTrips() throws {
+  @Test func unsubscribeMissionsEncodesType() throws {
     let message = ClientToServerMessage.unsubscribeMissions
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "unsubscribe_missions")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case .unsubscribeMissions:
-        break
-      default:
-        Issue.record("Expected unsubscribe_missions")
-    }
   }
 
-  @Test func unsubscribeMissionRoundTripsMissionIdentity() throws {
+  @Test func unsubscribeMissionEncodesMissionIdentity() throws {
     let message = ClientToServerMessage.unsubscribeMission(missionId: "mission-1")
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "unsubscribe_mission")
     #expect(payload["mission_id"] as? String == "mission-1")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .unsubscribeMission(missionId):
-        #expect(missionId == "mission-1")
-      default:
-        Issue.record("Expected unsubscribe_mission")
-    }
   }
 
-  @Test func unsubscribeSessionsSummaryRoundTrips() throws {
+  @Test func unsubscribeSessionsSummaryEncodesType() throws {
     let message = ClientToServerMessage.unsubscribeSessionsSummary
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "unsubscribe_sessions_summary")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case .unsubscribeSessionsSummary:
-        break
-      default:
-        Issue.record("Expected unsubscribe_sessions_summary")
-    }
   }
 
-  @Test func unsubscribeActiveSessionsRoundTrips() throws {
+  @Test func unsubscribeActiveSessionsEncodesType() throws {
     let message = ClientToServerMessage.unsubscribeActiveSessions
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "unsubscribe_active_sessions")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case .unsubscribeActiveSessions:
-        break
-      default:
-        Issue.record("Expected unsubscribe_active_sessions")
-    }
   }
 
-  @Test func unsubscribeArchivedSessionsRoundTrips() throws {
+  @Test func unsubscribeArchivedSessionsEncodesType() throws {
     let message = ClientToServerMessage.unsubscribeArchivedSessions
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "unsubscribe_archived_sessions")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case .unsubscribeArchivedSessions:
-        break
-      default:
-        Issue.record("Expected unsubscribe_archived_sessions")
-    }
   }
 
-  @Test func subscribeSessionSurfaceSupportsReplayOnlyEncodingAndDecoding() throws {
+  @Test func subscribeSessionSurfaceSupportsReplayOnlyEncoding() throws {
     let message = ClientToServerMessage.subscribeSessionSurface(
       sessionId: "session-2",
       surface: .conversation,
@@ -198,20 +126,12 @@ struct ServerProtocolRequestCorrelationTests {
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "subscribe_session_surface")
+    #expect(payload["session_id"] as? String == "session-2")
     #expect(payload["surface"] as? String == "conversation")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .subscribeSessionSurface(sessionId, surface, sinceRevision):
-        #expect(sessionId == "session-2")
-        #expect(surface == .conversation)
-        #expect(sinceRevision == 100)
-      default:
-        Issue.record("Expected subscribe_session_surface")
-    }
+    #expect(payload["since_revision"] as? UInt64 == 100)
   }
 
-  @Test func unsubscribeSessionSurfaceRoundTripsSessionIdentity() throws {
+  @Test func unsubscribeSessionSurfaceEncodesSessionIdentity() throws {
     let message = ClientToServerMessage.unsubscribeSessionSurface(
       sessionId: "session-9",
       surface: .detail
@@ -222,22 +142,18 @@ struct ServerProtocolRequestCorrelationTests {
     #expect(payload["type"] as? String == "unsubscribe_session_surface")
     #expect(payload["session_id"] as? String == "session-9")
     #expect(payload["surface"] as? String == "detail")
-
-    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
-    switch parsed {
-      case let .unsubscribeSessionSurface(sessionId, surface):
-        #expect(sessionId == "session-9")
-        #expect(surface == .detail)
-      default:
-        Issue.record("Expected unsubscribe_session_surface")
-    }
   }
 
-  @Test func subscribeSessionSurfaceRejectsMissingFields() {
-    let payload = #"{"type":"subscribe_session_surface"}"#
-    #expect(throws: DecodingError.self) {
-      _ = try JSONDecoder().decode(ClientToServerMessage.self, from: Data(payload.utf8))
-    }
+  @Test func subscribeToolPtyEncodesToolAndSessionIdentifiers() throws {
+    let message = ClientToServerMessage.subscribeToolPty(
+      toolId: "tool-1",
+      sessionId: "session-3"
+    )
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "subscribe_tool_pty")
+    #expect(payload["tool_id"] as? String == "tool-1")
+    #expect(payload["session_id"] as? String == "session-3")
   }
 
   @Test func serverInfoMessageDecodesPrimaryFlag() throws {
