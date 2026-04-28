@@ -4,20 +4,18 @@
 //! synchronization. Pure row/history helpers live in `session_row_history.rs`
 //! and pure time/path helpers live in `support/`.
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::Duration;
 
 use futures::FutureExt;
 use tokio::sync::{mpsc, oneshot};
 
-use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 use orbitdock_protocol::ServerMessage;
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus,
-  StateChanges, TokenUsage, WorkStatus,
+  StateChanges, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -32,11 +30,23 @@ use crate::runtime::restored_sessions::{
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::{PersistOp, SessionCommand};
 use crate::runtime::session_registry::SessionRegistry;
+use crate::runtime::transcript_sync_guard::{
+  build_transcript_sync_guard_state, cached_transcript_sync_matches,
+  next_transcript_sync_guard_state, remember_transcript_sync_guard,
+};
 use crate::runtime::transcript_sync_policy::{
   plan_transcript_sync, TranscriptMessageSyncDecision, TranscriptSyncInputs,
 };
 use crate::support::session_time::parse_unix_z;
 use orbitdock_connector_core::panic_payload_message;
+#[cfg(test)]
+pub(crate) use crate::runtime::transcript_sync_guard::{
+  transcript_sync_guard_cache, TranscriptSyncGuardState, TranscriptSyncUsageSignature,
+};
+#[cfg(test)]
+pub(crate) use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
+#[cfg(test)]
+pub(crate) use orbitdock_protocol::TokenUsage;
 
 pub(crate) const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 pub(crate) const DIRECT_RUNTIME_STARTUP_GRACE: Duration = Duration::from_millis(250);
@@ -45,104 +55,6 @@ pub(crate) const DIRECT_RUNTIME_STARTUP_GRACE: Duration = Duration::from_millis(
 pub(crate) enum ConnectorLoopControl {
   Continue,
   Break,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TranscriptSyncUsageSignature {
-  input_tokens: u64,
-  output_tokens: u64,
-  cached_tokens: u64,
-  context_window: u64,
-}
-
-impl From<&TokenUsage> for TranscriptSyncUsageSignature {
-  fn from(value: &TokenUsage) -> Self {
-    Self {
-      input_tokens: value.input_tokens,
-      output_tokens: value.output_tokens,
-      cached_tokens: value.cached_tokens,
-      context_window: value.context_window,
-    }
-  }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TranscriptSyncGuardState {
-  transcript_path: String,
-  newest_known_id: Option<String>,
-  usage: TranscriptSyncUsageSignature,
-  file_size: u64,
-  modified_at_nanos: Option<u128>,
-}
-
-static TRANSCRIPT_SYNC_GUARD_CACHE: OnceLock<Mutex<HashMap<String, TranscriptSyncGuardState>>> =
-  OnceLock::new();
-
-fn transcript_sync_guard_cache() -> &'static Mutex<HashMap<String, TranscriptSyncGuardState>> {
-  TRANSCRIPT_SYNC_GUARD_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-async fn build_transcript_sync_guard_state(
-  transcript_path: &str,
-  newest_known_id: Option<String>,
-  usage: &TokenUsage,
-) -> Option<TranscriptSyncGuardState> {
-  let metadata = tokio::fs::metadata(transcript_path).await.ok()?;
-  let modified_at_nanos = metadata
-    .modified()
-    .ok()
-    .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-    .map(|value| value.as_nanos());
-
-  Some(TranscriptSyncGuardState {
-    transcript_path: transcript_path.to_string(),
-    newest_known_id,
-    usage: usage.into(),
-    file_size: metadata.len(),
-    modified_at_nanos,
-  })
-}
-
-fn cached_transcript_sync_matches(session_id: &str, candidate: &TranscriptSyncGuardState) -> bool {
-  transcript_sync_guard_cache()
-    .lock()
-    .ok()
-    .and_then(|cache| cache.get(session_id).cloned())
-    .is_some_and(|previous| previous == *candidate)
-}
-
-fn remember_transcript_sync_guard(session_id: &str, state: TranscriptSyncGuardState) {
-  if let Ok(mut cache) = transcript_sync_guard_cache().lock() {
-    cache.insert(session_id.to_string(), state);
-  }
-}
-
-fn next_transcript_sync_guard_state(
-  candidate: &TranscriptSyncGuardState,
-  current_usage: &TokenUsage,
-  plan: &crate::runtime::transcript_sync_policy::TranscriptSyncPlan,
-  transcript_rows: &[ConversationRowEntry],
-) -> TranscriptSyncGuardState {
-  let newest_known_id = match plan.message_sync_decision {
-    TranscriptMessageSyncDecision::AppendNewMessages
-    | TranscriptMessageSyncDecision::ForceResync => {
-      transcript_rows.last().map(|row| row.id().to_string())
-    }
-    TranscriptMessageSyncDecision::SkipNoNewMessages => candidate.newest_known_id.clone(),
-  };
-  let usage = plan
-    .usage_update
-    .as_ref()
-    .map(|update| TranscriptSyncUsageSignature::from(&update.usage))
-    .unwrap_or_else(|| current_usage.into());
-
-  TranscriptSyncGuardState {
-    transcript_path: candidate.transcript_path.clone(),
-    newest_known_id,
-    usage,
-    file_size: candidate.file_size,
-    modified_at_nanos: candidate.modified_at_nanos,
-  }
 }
 
 pub(crate) async fn mark_session_working_after_send(
