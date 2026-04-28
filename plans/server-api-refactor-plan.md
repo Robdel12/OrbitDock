@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 21 regroup complete / Phase 22 redesign slice pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, and the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`. Phase 21 regroup confirms that the broad catch-all cleanup is effectively done. `state.rs`, `session.rs`, `app/mod.rs`, `persistence/mod.rs`, `session_command_handler.rs`, and `github/client.rs` are now accepted authority/facade spines, with only optional polish left. The first honest redesign seam to open is `session_runtime_helpers.rs`: the transcript-sync/cache knot around the advisory cache, fingerprinting, and sync orchestration. `codex_session.rs` remains the next redesign candidate after that, centered on dynamic-tool routing and side-effect application.`
+- Current phase: `Phase 22 landed / Phase 23 codex redesign pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, and the first deliberate redesign slice is now landed through `3f53f556`. Phase 22 extracted the advisory transcript-sync guard/cache state out of `session_runtime_helpers.rs`, moving `TranscriptSyncUsageSignature`, `TranscriptSyncGuardState`, the cache storage, and the guard helper flow into `runtime/transcript_sync_guard.rs`. Validation passed with `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server session_runtime_helpers --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. `session_runtime_helpers.rs` is now down to 699 lines, and the broad catch-all cleanup remains complete. The main remaining heavy seam is now `codex_session.rs` at 862 lines, specifically its dynamic-tool routing and post-response side-effect application path.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1909,7 +1909,51 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch the Phase 22 worker.
-- [ ] Land the transcript-sync guard/cache extraction slice.
-- [ ] Re-run focused runtime/server validation.
-- [ ] Regroup again before opening the broader `codex_session.rs` redesign seam.
+- [x] Launch the Phase 22 worker.
+- [x] Land the transcript-sync guard/cache extraction slice.
+- [x] Re-run focused runtime/server validation.
+- [x] Regroup again before opening the broader `codex_session.rs` redesign seam.
+
+### Phase 22 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd200-1401-76a2-9d80-2bb1a84efec3` (`Sagan`) | completed - landed in `3f53f556` |
+
+### Phase 22 execution note
+
+- `3f53f556` `♻️ Split transcript sync guard state`
+- `session_runtime_helpers.rs` is now narrower around real runtime orchestration instead of cache-state plumbing.
+- The advisory transcript-sync guard/cache boundary is explicit and isolated in `transcript_sync_guard.rs`.
+- `plan_transcript_sync(...)` stayed untouched as the pure source of sync decisions, and the actor/persist authority boundaries stayed intact.
+
+## Phase 23: Codex Dynamic Tool Outcome Redesign Slice
+
+Objective: open the remaining obvious heavy seam by separating post-response mission/session side effects from dynamic-tool execution results in `codex_session.rs`.
+
+Implementation order:
+
+1. Introduce a more explicit dynamic-tool outcome shape in place of the current boolean `has_mission_side_effects`.
+2. Split the post-response side-effect application block out of `handle_dynamic_tool_call(...)`.
+3. Keep connector response submission and session-ending ownership semantics intact.
+
+Execution rules:
+
+- Keep `SessionHandle` as the snapshot/read boundary.
+- Keep all durable mission changes flowing through `PersistCommand` and runtime/session mutation paths.
+- Keep `state.publish_mission_invalidation(...)` as an invalidation signal only, not a source of truth.
+- Keep `crate::runtime::session_mutations::end_session(...)` as the owning session-termination path.
+- Do not reopen `session_runtime_helpers.rs` in the same wave unless a tiny import fix is forced.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `server/src/connectors/codex_session.rs` plus new sibling modules beside it only | Replace the boolean mission-side-effect flag with a more explicit outcome shape and peel the post-response side-effect application block out of `handle_dynamic_tool_call(...)` while preserving connector response semantics and session termination ownership. |
+
+Tasks:
+
+- [ ] Launch the Phase 23 worker.
+- [ ] Land the Codex dynamic-tool outcome redesign slice.
+- [ ] Re-run focused Codex/server validation.
+- [ ] Regroup again and decide whether any remaining large files are still real catch-alls or just accepted spines.
