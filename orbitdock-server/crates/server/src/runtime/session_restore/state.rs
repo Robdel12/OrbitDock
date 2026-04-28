@@ -309,6 +309,22 @@ pub(crate) fn restored_session_to_handle(
     approval_version: restored.approval_version,
     unread_count: restored.unread_count,
   });
+  apply_restored_handle_control_mode(&mut handle, provider, control_mode);
+  if let Some(source_id) = forked_from_session_id {
+    handle.set_forked_from(source_id);
+  }
+  handle.set_mission_context(mission_id, issue_identifier);
+  if allow_bypass {
+    handle.set_allow_bypass_permissions(true);
+  }
+  handle
+}
+
+pub(crate) fn apply_restored_handle_control_mode(
+  handle: &mut SessionHandle,
+  provider: Provider,
+  control_mode: SessionControlMode,
+) {
   handle.set_control_mode(control_mode);
   handle.set_codex_integration_mode(matches!(provider, Provider::Codex).then_some(
     match control_mode {
@@ -322,14 +338,6 @@ pub(crate) fn restored_session_to_handle(
       SessionControlMode::Passive => ClaudeIntegrationMode::Passive,
     },
   ));
-  if let Some(source_id) = forked_from_session_id {
-    handle.set_forked_from(source_id);
-  }
-  handle.set_mission_context(mission_id, issue_identifier);
-  if allow_bypass {
-    handle.set_allow_bypass_permissions(true);
-  }
-  handle
 }
 
 pub(crate) fn restored_session_to_persisted_handle(restored: RestoredSession) -> SessionHandle {

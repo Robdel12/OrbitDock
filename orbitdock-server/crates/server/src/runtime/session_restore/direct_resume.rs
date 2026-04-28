@@ -1,13 +1,12 @@
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::{load_session_by_id, RestoredSession};
 use orbitdock_protocol::{
-  ClaudeIntegrationMode, CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider,
-  SessionSummary,
+  CodexConfigMode, CodexConfigSource, CodexSessionOverrides, Provider, SessionSummary,
 };
 
 use super::hydration::hydrate_restored_rows_if_missing;
 use super::parsing::parse_provider;
-use super::state::restored_session_to_handle;
+use super::state::{apply_restored_handle_control_mode, restored_session_to_handle};
 
 pub(crate) struct PreparedResumeSession {
   pub provider: Provider,
@@ -76,12 +75,11 @@ pub(crate) fn prepare_restored_session_for_direct_resume(
     orbitdock_protocol::SessionStatus::Active,
     orbitdock_protocol::WorkStatus::Waiting,
   );
-  match provider {
-    Provider::Claude => handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct)),
-    Provider::Codex => {
-      handle.set_codex_integration_mode(Some(orbitdock_protocol::CodexIntegrationMode::Direct))
-    }
-  }
+  apply_restored_handle_control_mode(
+    &mut handle,
+    provider,
+    orbitdock_protocol::SessionControlMode::Direct,
+  );
   let summary = handle.summary();
 
   PreparedResumeSession {
