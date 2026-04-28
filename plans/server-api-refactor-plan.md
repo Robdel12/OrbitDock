@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 24 reevaluation landed / next phase pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 is a fresh post-refactor audit rather than another implementation wave. It re-ran the macro counts from the current tree, launched new read-only lane evaluations for connectors/protocol, runtime/persistence, transport/CLI/admin, and the native mirror surface, and recut the remaining work into `leave alone`, `optional polish`, `delete candidate`, and `redesign candidate`. The broad accidental catch-all cleanup is complete. The remaining debt is now concentrated in contract drift, duplicate authority seams, and a few old compatibility/mutation paths, not in undefined giant files.`
+- Current phase: `Phase 25A landed / next phase pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 reclassified the remaining debt. Phase 25A then landed the lowest-risk follow-through from that audit: the dead `protocol/provider_normalization/shared.rs` sidecar is gone, the tiny `transport/http/sessions_summary.rs` and `transport/websocket/server_info.rs` shims are collapsed, the CLI fork path now uses `/api/sessions/{id}/lifecycle/fork`, and the native server layer dropped its outbound-only `ClientToServerMessage` decode implementation plus the duplicate `ConversationClient.fetchSessionInstructions(...)` helper. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `make rust-check`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo check -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock --lib --tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `xcodebuild -project OrbitDockNative/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -2077,3 +2077,56 @@ The next phase should not be “more random file shrinking.” The next honest i
    - tackle startup recovery, takeover/resume/materialization, and duplicate persistence translation
 4. `Phase 25D`: protocol/native contract convergence
    - narrow the session mirror, reduce approval/tool-payload duplication, and tighten WS parity
+
+## Phase 25A: Low-Risk Cleanup Lane
+
+Objective: land the clear delete and drift-fix work from the fresh reevaluation before opening any broader transport or runtime redesign wave.
+
+Scope for this slice:
+
+- Remove obviously dead sidecars or exports with no live call sites.
+- Collapse tiny transport shim files that no longer justify their own module.
+- Fix confirmed client drift where the server contract already changed.
+- Delete duplicate native helpers that no longer match actual usage.
+
+In-scope candidates:
+
+- `protocol/src/provider_normalization/shared.rs`
+- `server/src/transport/websocket/server_info.rs`
+- `server/src/transport/http/sessions_summary.rs`
+- `cli/src/commands/session/http.rs` stale fork route
+- native duplicate/dead helpers:
+  - `ClientToServerMessage.init(from:)`
+  - `ConversationClient.fetchSessionInstructions(...)`
+
+Explicitly out of scope for this slice:
+
+- `server/src/runtime/session_command_persistence.rs`
+- `server/src/runtime/session_runtime_helpers.rs`
+- `server/src/infrastructure/persistence/session_reads/startup_recovery.rs`
+- WebSocket mutation convergence
+- native WS parity expansion
+
+Tasks:
+
+- [x] Confirm the low-risk candidates still have the expected live references.
+- [x] Land the dead-sidecar and tiny-shim removals.
+- [x] Land the confirmed CLI route drift fix.
+- [x] Land the native duplicate/dead helper cleanup.
+- [x] Re-run focused validation.
+- [x] Commit the Phase 25A cleanup slice.
+
+### Phase 25A execution note
+
+- Landed removals:
+  - `protocol/src/provider_normalization/shared.rs`
+  - `server/src/transport/http/sessions_summary.rs`
+  - `server/src/transport/websocket/server_info.rs`
+- Landed drift fixes:
+  - `cli/src/commands/session/http.rs` now targets `/api/sessions/{id}/lifecycle/fork`
+  - `OrbitDockNative/.../ClientToServerMessage.swift` is now outbound-only `Encodable`
+  - `OrbitDockNative/.../ConversationClient.swift` no longer carries the unused `fetchSessionInstructions(...)` duplicate
+- Intentionally left out of this slice:
+  - `server/src/runtime/session_command_persistence.rs`
+  - any WebSocket mutation convergence work
+  - any runtime recovery/materialization redesign

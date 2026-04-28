@@ -15,7 +15,6 @@ mod server_meta;
 mod session_actions;
 mod session_lifecycle;
 mod sessions;
-mod sessions_summary;
 mod shell;
 mod sync;
 #[cfg(test)]
@@ -91,9 +90,9 @@ pub use session_lifecycle::{
 pub use sessions::{
   get_active_sessions_snapshot, get_archived_sessions_snapshot, get_conversation_history,
   get_conversation_snapshot, get_row_content, get_session_detail, get_session_review,
-  get_session_stats, get_session_usage_turns, mark_session_read, search_conversation_rows,
+  get_session_stats, get_session_usage_turns, get_sessions_summary, mark_session_read,
+  search_conversation_rows,
 };
-pub use sessions_summary::get_sessions_summary;
 pub use shell::{cancel_shell_endpoint, execute_shell_endpoint};
 pub use sync::post_sync_batch;
 pub use update::{

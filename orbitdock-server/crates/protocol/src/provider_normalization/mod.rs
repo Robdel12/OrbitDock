@@ -10,7 +10,6 @@ use crate::Provider;
 
 pub mod claude;
 pub mod codex;
-pub mod shared;
 
 /// Top-level normalized provider event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

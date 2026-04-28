@@ -338,7 +338,10 @@ pub(crate) async fn fork(
   };
 
   match rest
-    .post_json::<_, ForkSessionResponse>(&format!("/api/sessions/{session_id}/fork"), &request)
+    .post_json::<_, ForkSessionResponse>(
+      &format!("/api/sessions/{session_id}/lifecycle/fork"),
+      &request,
+    )
     .await
     .into_result()
   {

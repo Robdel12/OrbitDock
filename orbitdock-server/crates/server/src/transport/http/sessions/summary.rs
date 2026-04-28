@@ -4,7 +4,7 @@ use axum::{
   extract::{Query, State},
   Json,
 };
-use orbitdock_protocol::{DashboardSnapshot, LibrarySnapshot};
+use orbitdock_protocol::{DashboardSnapshot, LibrarySnapshot, SessionsSummarySnapshot};
 
 use crate::{
   runtime::{session_queries::load_library_snapshot, session_registry::SessionRegistry},
@@ -21,6 +21,12 @@ pub async fn get_active_sessions_snapshot(
 ) -> ApiResult<DashboardSnapshot> {
   let cached = state.cached_dashboard_snapshot();
   Ok(Json(cached.1.clone()))
+}
+
+pub async fn get_sessions_summary(
+  State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<SessionsSummarySnapshot> {
+  Ok(Json(state.current_sessions_summary_snapshot().await))
 }
 
 pub async fn get_archived_sessions_snapshot(

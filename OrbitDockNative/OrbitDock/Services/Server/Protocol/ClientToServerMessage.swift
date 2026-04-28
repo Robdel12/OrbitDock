@@ -11,7 +11,7 @@ import Foundation
 
 /// WebSocket-only outbound messages.
 /// All reads and mutations go via typed HTTP server clients. Only subscription management uses WS.
-enum ClientToServerMessage: Codable, Sendable {
+enum ClientToServerMessage: Encodable, Sendable {
   case subscribeSessionsSummary(sinceRevision: UInt64? = nil)
   case unsubscribeSessionsSummary
   case subscribeActiveSessions(sinceRevision: UInt64? = nil)
@@ -95,73 +95,6 @@ enum ClientToServerMessage: Codable, Sendable {
       case let .unsubscribeToolPty(toolId):
         try container.encode("unsubscribe_tool_pty", forKey: .type)
         try container.encode(toolId, forKey: .toolId)
-    }
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    let type = try container.decode(String.self, forKey: .type)
-
-    switch type {
-      case "subscribe_sessions_summary":
-        self = try .subscribeSessionsSummary(
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
-        )
-      case "unsubscribe_sessions_summary":
-        self = .unsubscribeSessionsSummary
-      case "subscribe_active_sessions":
-        self = try .subscribeActiveSessions(
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
-        )
-      case "unsubscribe_active_sessions":
-        self = .unsubscribeActiveSessions
-      case "subscribe_archived_sessions":
-        self = try .subscribeArchivedSessions(
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
-        )
-      case "unsubscribe_archived_sessions":
-        self = .unsubscribeArchivedSessions
-      case "subscribe_missions":
-        self = try .subscribeMissions(
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
-        )
-      case "unsubscribe_missions":
-        self = .unsubscribeMissions
-      case "subscribe_mission":
-        self = try .subscribeMission(
-          missionId: container.decode(String.self, forKey: .missionId)
-        )
-      case "unsubscribe_mission":
-        self = try .unsubscribeMission(
-          missionId: container.decode(String.self, forKey: .missionId)
-        )
-      case "subscribe_session_surface":
-        self = try .subscribeSessionSurface(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          surface: container.decode(ServerSessionSurface.self, forKey: .surface),
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
-        )
-      case "unsubscribe_session_surface":
-        self = try .unsubscribeSessionSurface(
-          sessionId: container.decode(String.self, forKey: .sessionId),
-          surface: container.decode(ServerSessionSurface.self, forKey: .surface)
-        )
-      case "subscribe_tool_pty":
-        self = try .subscribeToolPty(
-          toolId: container.decode(String.self, forKey: .toolId),
-          sessionId: container.decode(String.self, forKey: .sessionId)
-        )
-      case "unsubscribe_tool_pty":
-        self = try .unsubscribeToolPty(
-          toolId: container.decode(String.self, forKey: .toolId)
-        )
-      default:
-        throw DecodingError.dataCorrupted(
-          DecodingError.Context(
-            codingPath: container.codingPath,
-            debugDescription: "Unknown message type: \(type)"
-          )
-        )
     }
   }
 }

@@ -34,15 +34,15 @@ use crate::runtime::transcript_sync_guard::{
   build_transcript_sync_guard_state, cached_transcript_sync_matches,
   next_transcript_sync_guard_state, remember_transcript_sync_guard,
 };
+#[cfg(test)]
+pub(crate) use crate::runtime::transcript_sync_guard::{
+  transcript_sync_guard_cache, TranscriptSyncGuardState, TranscriptSyncUsageSignature,
+};
 use crate::runtime::transcript_sync_policy::{
   plan_transcript_sync, TranscriptMessageSyncDecision, TranscriptSyncInputs,
 };
 use crate::support::session_time::parse_unix_z;
 use orbitdock_connector_core::panic_payload_message;
-#[cfg(test)]
-pub(crate) use crate::runtime::transcript_sync_guard::{
-  transcript_sync_guard_cache, TranscriptSyncGuardState, TranscriptSyncUsageSignature,
-};
 #[cfg(test)]
 pub(crate) use orbitdock_protocol::conversation_contracts::ConversationRowEntry;
 #[cfg(test)]

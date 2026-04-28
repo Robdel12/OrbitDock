@@ -115,12 +115,6 @@ struct ConversationClient: Sendable {
     )
   }
 
-  func fetchSessionInstructions(_ sessionId: String) async throws -> ServerSessionInstructions {
-    try await http.get(
-      "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/instructions"
-    )
-  }
-
   func sendMessage(_ sessionId: String, request: SendMessageRequest) async throws -> SendMessageResponse {
     let path = "/api/sessions/\(requestBuilder.encodePathComponent(sessionId))/conversation/messages"
     return try await http.post(path, body: request)

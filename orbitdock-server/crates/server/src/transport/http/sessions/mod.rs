@@ -16,7 +16,9 @@ pub use conversation::{
 pub use detail::get_session_detail;
 pub use review::get_session_review;
 pub use row_content::get_row_content;
-pub use summary::{get_active_sessions_snapshot, get_archived_sessions_snapshot};
+pub use summary::{
+  get_active_sessions_snapshot, get_archived_sessions_snapshot, get_sessions_summary,
+};
 pub use usage::get_session_usage_turns;
 
 const DEFAULT_CONVERSATION_PAGE_SIZE: usize = 50;
