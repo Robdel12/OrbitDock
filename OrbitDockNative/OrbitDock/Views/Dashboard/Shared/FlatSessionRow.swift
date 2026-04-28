@@ -487,8 +487,6 @@ private func previewRootSession(_ session: Session) -> RootSessionNode {
     outputTokens: UInt64(max(session.outputTokens ?? 0, 0)),
     cachedTokens: UInt64(max(session.cachedTokens ?? 0, 0)),
     displayTitle: session.displayName,
-    displayTitleSortKey: session.normalizedDisplayName,
-    displaySearchText: session.displaySearchText,
     contextLine: session.summary,
     listStatus: .ended,
     summaryRevision: 0,

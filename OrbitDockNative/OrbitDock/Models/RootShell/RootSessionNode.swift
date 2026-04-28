@@ -334,11 +334,11 @@ extension RootSessionNode {
       maxCharacters: RootSessionNode.contextLineCharacterLimit
     )
     let titleSortKey = RootSessionNode.sortKey(
-      explicit: session.displayTitleSortKey,
+      explicit: nil,
       title: title
     )
     let searchText = RootSessionNode.searchText(
-      explicit: session.displaySearchText,
+      explicit: nil,
       title: title,
       contextLine: trimmedContextLine,
       projectName: session.projectName,

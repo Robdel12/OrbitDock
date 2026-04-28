@@ -218,8 +218,6 @@ struct PreviewRuntime {
         outputTokens: UInt64(max($0.outputTokens ?? 0, 0)),
         cachedTokens: UInt64(max($0.cachedTokens ?? 0, 0)),
         displayTitle: $0.displayName,
-        displayTitleSortKey: $0.normalizedDisplayName,
-        displaySearchText: $0.displaySearchText,
         contextLine: $0.summary ?? $0.firstPrompt,
         listStatus: .ended,
         summaryRevision: 0,

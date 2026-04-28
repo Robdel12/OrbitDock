@@ -315,8 +315,6 @@ struct ServerSessionListItem: Codable, Identifiable {
   let outputTokens: UInt64
   let cachedTokens: UInt64
   let displayTitle: String
-  let displayTitleSortKey: String?
-  let displaySearchText: String?
   let contextLine: String?
   let listStatus: ServerSessionListStatus
   let summaryRevision: UInt64
@@ -355,8 +353,6 @@ struct ServerSessionListItem: Codable, Identifiable {
     case outputTokens = "output_tokens"
     case cachedTokens = "cached_tokens"
     case displayTitle = "display_title"
-    case displayTitleSortKey = "display_title_sort_key"
-    case displaySearchText = "display_search_text"
     case contextLine = "context_line"
     case listStatus = "list_status"
     case summaryRevision = "summary_revision"
