@@ -235,13 +235,14 @@ async fn load_sessions_for_startup_with_db_path(
                             ELSE 'passive'
                         END),
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
-                        s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.codex_thread_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                        s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_thread_id, s.claude_sdk_session_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
                         COALESCE(uss.snapshot_input_tokens, 0),
                         COALESCE(uss.snapshot_output_tokens, 0),
                         COALESCE(uss.snapshot_cached_tokens, 0),
                         COALESCE(uss.snapshot_context_window, 0),
-                        COALESCE(uss.snapshot_kind, 'unknown')
+                        COALESCE(uss.snapshot_kind, 'unknown'),
+                        s.end_reason
                  FROM sessions s
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id
                  WHERE (s.status = 'active')
@@ -276,7 +277,9 @@ async fn load_sessions_for_startup_with_db_path(
         model,
         custom_name,
         first_prompt,
+        summary,
         codex_thread_id,
+        claude_sdk_session_id,
         started_at,
         last_activity_at,
         last_progress_at,
@@ -291,20 +294,14 @@ async fn load_sessions_for_startup_with_db_path(
         cached_tokens,
         context_window,
         token_usage_snapshot_kind_str,
+        end_reason,
       } = row;
       let token_usage_snapshot_kind =
         snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
       let control_mode = parse_control_mode(control_mode).unwrap_or(SessionControlMode::Passive);
       let lifecycle_state = parse_lifecycle_state(Some(lifecycle_state));
-      let end_reason_val: Option<String> = conn
-        .query_row(
-          "SELECT end_reason FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
       let is_ended_history =
-        status == "ended" && !matches!(end_reason_val.as_deref(), Some("server_shutdown"));
+        status == "ended" && !matches!(end_reason.as_deref(), Some("server_shutdown"));
 
       let rows = if is_ended_history {
         Vec::new()
@@ -317,20 +314,6 @@ async fn load_sessions_for_startup_with_db_path(
         }
         rows
       };
-      let claude_sdk_session_id: Option<String> = conn
-        .query_row(
-          "SELECT claude_sdk_session_id FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
-      let summary: Option<String> = conn
-        .query_row(
-          "SELECT summary FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
       let supplement = load_restored_session_supplement(
         &conn,
         &id,
@@ -391,7 +374,7 @@ async fn load_sessions_for_startup_with_db_path(
         current_cwd: supplement.current_cwd,
         first_prompt,
         last_message: supplement.last_message,
-        end_reason: end_reason_val,
+        end_reason,
         effort: supplement.effort,
         terminal_session_id: supplement.terminal_session_id,
         terminal_app: supplement.terminal_app,
