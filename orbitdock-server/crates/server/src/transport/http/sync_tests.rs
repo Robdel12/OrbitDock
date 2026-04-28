@@ -127,6 +127,22 @@ async fn post_sync_batch_applies_batch_and_returns_ack() {
 }
 
 #[tokio::test]
+async fn post_sync_batch_requires_a_bearer_token() {
+  let (state, _token, _guard) = setup_state_with_workspace().await;
+
+  let error = post_sync_batch(
+    State(state),
+    HeaderMap::new(),
+    Json(SyncBatchRequest { commands: vec![] }),
+  )
+  .await
+  .unwrap_err();
+
+  assert_eq!(error.0, StatusCode::UNAUTHORIZED);
+  assert_eq!(error.1.code, "missing_bearer_token");
+}
+
+#[tokio::test]
 async fn post_sync_batch_rejects_sequence_gap() {
   let (state, token, _guard) = setup_state_with_workspace().await;
   let mut headers = HeaderMap::new();

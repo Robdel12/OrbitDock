@@ -48,7 +48,7 @@ fn non_active_states_rejected() {
 
 #[test]
 fn stall_detected_when_past_timeout() {
-  let now = chrono::Utc::now().timestamp() as u64;
+  let now = 1_700_000_000;
   let old = format!("{}Z", now - 600);
 
   let result = stall_elapsed_secs(Some(&old), now, 300);
@@ -59,7 +59,7 @@ fn stall_detected_when_past_timeout() {
 
 #[test]
 fn no_stall_when_within_timeout() {
-  let now = chrono::Utc::now().timestamp() as u64;
+  let now = 1_700_000_000;
   let recent = format!("{}Z", now - 60);
 
   let result = stall_elapsed_secs(Some(&recent), now, 300);
@@ -67,15 +67,24 @@ fn no_stall_when_within_timeout() {
 }
 
 #[test]
+fn stall_returns_none_at_exact_timeout_boundary() {
+  let now = 1_700_000_000;
+  let boundary = format!("{}Z", now - 300);
+
+  let result = stall_elapsed_secs(Some(&boundary), now, 300);
+  assert!(result.is_none());
+}
+
+#[test]
 fn stall_returns_none_when_no_timestamps() {
-  let now = chrono::Utc::now().timestamp() as u64;
+  let now = 1_700_000_000;
   let result = stall_elapsed_secs(None, now, 300);
   assert!(result.is_none());
 }
 
 #[test]
 fn stall_returns_none_when_timeout_is_zero() {
-  let now = chrono::Utc::now().timestamp() as u64;
+  let now = 1_700_000_000;
   let old = format!("{}Z", now - 600);
 
   let result = stall_elapsed_secs(Some(&old), now, 0);
@@ -84,7 +93,7 @@ fn stall_returns_none_when_timeout_is_zero() {
 
 #[test]
 fn stall_returns_none_when_timestamp_malformed() {
-  let now = chrono::Utc::now().timestamp() as u64;
+  let now = 1_700_000_000;
   let result = stall_elapsed_secs(Some("not-a-timestamp"), now, 300);
   assert!(result.is_none());
 }

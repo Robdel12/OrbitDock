@@ -69,6 +69,19 @@ fn restored_state_preserves_usage_only_turn_count() {
   assert_eq!(state.turn_diffs.len(), 1);
 }
 
+#[test]
+fn restored_state_marks_ended_sessions_ended() {
+  let mut restored = fixture_restored_session();
+  restored.status = "active".to_string();
+  restored.work_status = "working".to_string();
+  restored.end_reason = Some("completed".to_string());
+
+  let state = restored_session_to_state(restored);
+
+  assert_eq!(state.status, orbitdock_protocol::SessionStatus::Ended);
+  assert_eq!(state.work_status, orbitdock_protocol::WorkStatus::Ended);
+}
+
 fn fixture_restored_session() -> RestoredSession {
   RestoredSession {
     id: "session-1".to_string(),

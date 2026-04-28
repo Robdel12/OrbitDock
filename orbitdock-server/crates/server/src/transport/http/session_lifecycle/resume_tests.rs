@@ -23,6 +23,7 @@ async fn resume_session_returns_ok_when_runtime_session_is_already_active() {
   assert_eq!(response.session_id, session_id);
   assert_eq!(response.session.id, response.session_id);
   assert_eq!(response.session.status, SessionStatus::Active);
+  assert!(response.session_detail_snapshot.is_some());
 }
 
 #[tokio::test]
@@ -43,10 +44,11 @@ async fn resume_session_falls_back_to_persisted_resume_when_direct_runtime_is_no
   });
   state.add_session(handle);
 
-  let (status, Json(error)) = resume_session(Path(session_id), State(state))
+  let (status, Json(error)) = resume_session(Path(session_id.clone()), State(state.clone()))
     .await
     .expect_err("non-ready direct runtime should not short-circuit resume");
 
   assert_eq!(status, StatusCode::NOT_FOUND);
   assert_eq!(error.code, "not_found");
+  assert!(state.get_session(&session_id).is_none());
 }

@@ -51,6 +51,18 @@ pub async fn create_mission(
     ));
   }
 
+  let provider = req.provider.trim().to_ascii_lowercase();
+  let primary_provider = match provider.as_str() {
+    "claude" => Provider::Claude,
+    "codex" => Provider::Codex,
+    _ => {
+      return Err(bad_request(
+        "invalid_provider",
+        format!("Invalid provider: {}", req.provider),
+      ));
+    }
+  };
+
   let id = orbitdock_protocol::new_id();
   let repo_for_count = req.repo_root.clone();
   let existing_count = db_read(&registry, move |conn| {
@@ -74,7 +86,7 @@ pub async fn create_mission(
       name: req.name.clone(),
       repo_root: req.repo_root.clone(),
       tracker_kind: req.tracker_kind.clone(),
-      provider: req.provider.clone(),
+      provider: provider.clone(),
       config_json: None,
       prompt_template: None,
       mission_file_path: mission_file_path.clone(),
@@ -90,13 +102,6 @@ pub async fn create_mission(
     repo_root = %req.repo_root,
     "Mission created"
   );
-
-  let primary_provider = req.provider.parse::<Provider>().map_err(|_| {
-    bad_request(
-      "invalid_provider",
-      format!("Invalid provider: {}", req.provider),
-    )
-  })?;
 
   let orchestrator_status =
     if crate::support::api_keys::resolve_tracker_api_key_for_mission(&id, &req.tracker_kind)

@@ -176,14 +176,6 @@ pub async fn get_row_content(
 }
 
 #[cfg(test)]
-pub(super) fn test_shell_execution_row_content(
-  row_id: String,
-  shell: &ShellExecutionPayload,
-) -> RowContentResponse {
-  shell_execution_row_content(row_id, shell)
-}
-
-#[cfg(test)]
 mod tests {
   use super::image_inputs_for_tool;
   use crate::support::test_support::ensure_server_test_data_dir;

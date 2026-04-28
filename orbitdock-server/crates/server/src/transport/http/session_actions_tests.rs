@@ -196,3 +196,47 @@ async fn session_shell_command_returns_unsupported_for_claude_sessions() {
     }
   }
 }
+
+#[tokio::test]
+async fn rollback_turns_rejects_zero_turns_before_dispatching() {
+  let state = crate::support::test_support::new_test_session_registry(true);
+  let session_id = orbitdock_protocol::new_session_id();
+
+  let response = rollback_turns_control(
+    Path(session_id),
+    State(state),
+    Json(super::common::RollbackTurnsRequest { num_turns: 0 }),
+  )
+  .await;
+
+  match response {
+    Ok(_) => panic!("expected rollback_turns_control to reject zero turns"),
+    Err((status, body)) => {
+      assert_eq!(status, StatusCode::BAD_REQUEST);
+      assert_eq!(body.code, "invalid_argument");
+    }
+  }
+}
+
+#[tokio::test]
+async fn session_shell_command_rejects_whitespace_commands_before_dispatching() {
+  let state = crate::support::test_support::new_test_session_registry(true);
+  let session_id = orbitdock_protocol::new_session_id();
+
+  let response = post_session_shell_command(
+    Path(session_id),
+    State(state),
+    Json(SessionShellCommandRequest {
+      command: "   ".to_string(),
+    }),
+  )
+  .await;
+
+  match response {
+    Ok(_) => panic!("expected shell command endpoint to reject blank commands"),
+    Err((status, body)) => {
+      assert_eq!(status, StatusCode::BAD_REQUEST);
+      assert_eq!(body.code, "invalid_request");
+    }
+  }
+}

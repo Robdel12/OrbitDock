@@ -1,4 +1,4 @@
-use super::{collect_active_primary_claims, ConnectionState};
+use super::ConnectionState;
 
 #[test]
 fn orchestrator_first_start_succeeds() {
@@ -25,17 +25,18 @@ fn orchestrator_can_restart_after_stop() {
 }
 
 #[test]
-fn collect_active_primary_claims_dedup_by_client_and_ignore_non_primary() {
-  let claims = collect_active_primary_claims([
-    (
-      1,
-      String::from("client-a"),
-      String::from("MacBook Pro"),
-      true,
-    ),
-    (2, String::from("client-a"), String::from("iPhone"), true),
-    (3, String::from("client-b"), String::from("Studio"), false),
-  ]);
+fn active_primary_claims_dedup_by_client_and_ignore_non_primary() {
+  let state = ConnectionState::new(true);
+  state.set_client_primary_claim(
+    1,
+    String::from("client-a"),
+    String::from("MacBook Pro"),
+    true,
+  );
+  state.set_client_primary_claim(2, String::from("client-a"), String::from("iPhone"), true);
+  state.set_client_primary_claim(3, String::from("client-b"), String::from("Studio"), false);
+
+  let claims = state.active_client_primary_claims();
 
   assert_eq!(claims.len(), 1);
   assert_eq!(claims[0].client_id, "client-a");

@@ -19,3 +19,11 @@ fn workspace_provider_defaults_to_local_when_missing() {
 
   assert_eq!(resolved, WorkspaceProviderKind::Local);
 }
+
+#[test]
+fn invalid_persisted_workspace_provider_value_errors() {
+  let error = resolve_workspace_provider_kind(None, Some("bogus".to_string()))
+    .expect_err("invalid workspace provider should fail");
+
+  assert!(error.to_string().contains("bogus"));
+}

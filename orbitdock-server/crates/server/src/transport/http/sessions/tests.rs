@@ -4,28 +4,31 @@ use axum::{
   extract::{Path, Query, State},
   Json,
 };
-use orbitdock_protocol::conversation_contracts::render_hints::RenderHints;
-use orbitdock_protocol::conversation_contracts::{
-  shell_terminal_snapshot, ConversationRow, ConversationRowEntry, ShellAction,
-  ShellExecutionPayload, ToolRow,
-};
+use orbitdock_protocol::conversation_contracts::{render_hints::RenderHints, MessageRowContent};
+use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry, ToolRow};
 use orbitdock_protocol::domain_events::{ToolFamily, ToolKind, ToolStatus};
-use orbitdock_protocol::{Provider, SessionControlMode};
+use orbitdock_protocol::{
+  Provider, ReviewCommentStatus, ReviewCommentTag, SessionControlMode, WorkStatus,
+};
 use rusqlite::Connection;
 
 use crate::{
   domain::sessions::session::SessionHandle,
   infrastructure::persistence::{flush_batch_for_test, PersistCommand, SessionCreateParams},
-  transport::http::test_support::new_persist_test_state,
+  transport::http::test_support::{flush_next_persist_command, new_persist_test_state},
 };
 
 use super::{
   common::clamp_library_limit,
-  conversation::{get_conversation_snapshot, get_session_stats, search_conversation_rows},
-  get_session_usage_turns,
-  row_content::test_shell_execution_row_content,
+  conversation::{
+    get_conversation_history, get_conversation_snapshot, get_session_stats, mark_session_read,
+    search_conversation_rows,
+  },
+  detail::get_session_detail,
+  get_session_review, get_session_usage_turns, get_sessions_summary,
   summary::{get_active_sessions_snapshot, get_archived_sessions_snapshot},
-  ConversationPageQuery, ConversationSearchQuery, LibrarySnapshotQuery, SessionUsageTurnsQuery,
+  ConversationPageQuery, ConversationSearchQuery, LibrarySnapshotQuery, SessionSnapshotQuery,
+  SessionUsageTurnsQuery,
 };
 
 fn persist_session_fixture(
@@ -103,6 +106,72 @@ fn update_session_timestamps(
     .expect("update session timestamps");
 }
 
+fn update_session_diff_fixture(
+  db_path: &PathBuf,
+  session_id: &str,
+  current_diff: &str,
+  turn_id: &str,
+  turn_diff: &str,
+) {
+  let conn = Connection::open(db_path).expect("open sqlite");
+  conn
+    .execute(
+      "UPDATE sessions SET current_diff = ?1 WHERE id = ?2",
+      rusqlite::params![current_diff, session_id],
+    )
+    .expect("update session current diff");
+  conn
+    .execute(
+      "INSERT OR REPLACE INTO turn_diffs (
+         session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window
+       ) VALUES (?1, ?2, ?3, 0, 0, 0, 0)",
+      rusqlite::params![session_id, turn_id, turn_diff],
+    )
+    .expect("insert turn diff");
+}
+
+fn insert_review_comment_fixture(
+  db_path: &PathBuf,
+  session_id: &str,
+  comment_id: &str,
+  turn_id: Option<&str>,
+  body: &str,
+  tag: Option<ReviewCommentTag>,
+  status: ReviewCommentStatus,
+) {
+  let conn = Connection::open(db_path).expect("open sqlite");
+  let tag = tag.map(|value| match value {
+    ReviewCommentTag::Clarity => "clarity",
+    ReviewCommentTag::Scope => "scope",
+    ReviewCommentTag::Risk => "risk",
+    ReviewCommentTag::Nit => "nit",
+  });
+  let status = match status {
+    ReviewCommentStatus::Open => "open",
+    ReviewCommentStatus::Resolved => "resolved",
+  };
+
+  conn
+    .execute(
+      "INSERT INTO review_comments (
+         id, session_id, turn_id, file_path, line_start, line_end, body, tag, status, created_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+      rusqlite::params![
+        comment_id,
+        session_id,
+        turn_id,
+        "src/main.rs",
+        12_i64,
+        Some(14_i64),
+        body,
+        tag,
+        status,
+        "2026-04-26T10:10:00Z",
+      ],
+    )
+    .expect("insert review comment");
+}
+
 fn test_tool_row(
   session_id: &str,
   id: &str,
@@ -145,53 +214,21 @@ fn test_tool_row(
   }
 }
 
-fn test_shell_tool_row(
-  session_id: &str,
-  id: &str,
-  sequence: u64,
-  output: Option<&str>,
-) -> ConversationRowEntry {
+fn test_user_row(session_id: &str, id: &str, sequence: u64, content: &str) -> ConversationRowEntry {
   ConversationRowEntry {
     session_id: session_id.to_string(),
     sequence,
-    turn_id: Some("turn-1".to_string()),
+    turn_id: Some(id.to_string()),
     turn_status: Default::default(),
-    row: ConversationRow::Tool(ToolRow {
+    row: ConversationRow::User(MessageRowContent {
       id: id.to_string(),
-      provider: Provider::Codex,
-      family: ToolFamily::Shell,
-      kind: ToolKind::Bash,
-      status: ToolStatus::Completed,
-      title: "sed -n '1,40p' docs/design-system.md".to_string(),
-      subtitle: Some("/tmp/orbitdock-shell-execution".to_string()),
-      summary: None,
-      preview: None,
-      started_at: None,
-      ended_at: None,
-      duration_ms: Some(18),
-      grouping_key: None,
-      invocation: serde_json::json!({
-        "command": "sed -n '1,40p' docs/design-system.md",
-        "cwd": "/tmp/orbitdock-shell-execution",
-      }),
-      result: None,
-      render_hints: RenderHints::default(),
-      tool_display: None,
-      shell_execution: Some(ShellExecutionPayload {
-        command: "sed -n '1,40p' docs/design-system.md".to_string(),
-        cwd: "/tmp/orbitdock-shell-execution".to_string(),
-        process_id: Some("pty-42".to_string()),
-        actions: vec![ShellAction::Read {
-          command: "sed -n '1,40p' docs/design-system.md".to_string(),
-          name: "design-system.md".to_string(),
-          path: "docs/design-system.md".to_string(),
-        }],
-        live_output_preview: None,
-        aggregated_output: output.map(ToString::to_string),
-        terminal_snapshot: None,
-        preview: None,
-        exit_code: Some(0),
-      }),
+      content: content.to_string(),
+      turn_id: Some(id.to_string()),
+      timestamp: None,
+      is_streaming: false,
+      images: Vec::new(),
+      memory_citation: None,
+      delivery_status: None,
     }),
   }
 }
@@ -357,6 +394,261 @@ async fn search_conversation_rows_filters_by_query_and_tool_metadata() {
     response.0.rows.first().map(|entry| entry.id()),
     Some("tool-1")
   );
+}
+
+#[tokio::test]
+async fn session_detail_trims_messages_and_diffs_by_default_then_returns_full_payloads_when_requested(
+) {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(
+    &db_path,
+    &session_id,
+    "/tmp/orbitdock-detail-test",
+    vec![test_tool_row(
+      &session_id,
+      "tool-1",
+      1,
+      "Inspect deployment logs",
+      ToolStatus::Completed,
+      Some(42),
+    )],
+  );
+  update_session_diff_fixture(
+    &db_path,
+    &session_id,
+    "diff --git a/src/main.rs b/src/main.rs",
+    "turn-1",
+    "diff --git a/src/main.rs b/src/main.rs",
+  );
+
+  let mut live = SessionHandle::new(
+    session_id.clone(),
+    Provider::Codex,
+    "/tmp/orbitdock-detail-runtime".to_string(),
+  );
+  live.set_work_status(WorkStatus::Working);
+  live.refresh_snapshot();
+  state.add_session(live);
+
+  let Json(default_detail) = get_session_detail(
+    Path(session_id.clone()),
+    Query(SessionSnapshotQuery::default()),
+    State(state.clone()),
+  )
+  .await
+  .expect("default detail snapshot should succeed");
+
+  assert_eq!(default_detail.session.work_status, WorkStatus::Working);
+  assert!(default_detail.session.rows.is_empty());
+  assert!(default_detail.session.current_diff.is_none());
+  assert!(default_detail.session.turn_diffs.is_empty());
+
+  let Json(expanded_detail) = get_session_detail(
+    Path(session_id),
+    Query(SessionSnapshotQuery {
+      include_messages: true,
+      include_diffs: true,
+    }),
+    State(state),
+  )
+  .await
+  .expect("expanded detail snapshot should succeed");
+
+  assert_eq!(expanded_detail.session.work_status, WorkStatus::Working);
+  assert_eq!(expanded_detail.session.rows.len(), 1);
+  assert_eq!(expanded_detail.session.rows[0].id(), "tool-1");
+  assert_eq!(
+    expanded_detail.session.current_diff.as_deref(),
+    Some("diff --git a/src/main.rs b/src/main.rs")
+  );
+  assert_eq!(expanded_detail.session.turn_diffs.len(), 1);
+  assert_eq!(expanded_detail.session.turn_diffs[0].turn_id, "turn-1");
+}
+
+#[tokio::test]
+async fn conversation_history_returns_rows_in_sequence_order_with_pagination() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(
+    &db_path,
+    &session_id,
+    "/tmp/orbitdock-history-test",
+    vec![
+      test_user_row(&session_id, "user-1", 1, "Prepare release"),
+      test_user_row(&session_id, "user-2", 2, "Ship release"),
+      test_user_row(&session_id, "user-3", 3, "Verify release"),
+      test_user_row(&session_id, "user-4", 4, "Tag release"),
+      test_user_row(&session_id, "user-5", 5, "Announce release"),
+    ],
+  );
+
+  let Json(first_page) = get_conversation_history(
+    Path(session_id.clone()),
+    Query(ConversationPageQuery {
+      limit: Some(4),
+      before_sequence: None,
+    }),
+    State(state.clone()),
+  )
+  .await
+  .expect("first history page should succeed");
+
+  assert_eq!(first_page.total_row_count, 5);
+  assert_eq!(first_page.rows.len(), 4);
+  assert_eq!(
+    first_page
+      .rows
+      .iter()
+      .map(|entry| entry.id())
+      .collect::<Vec<_>>(),
+    vec!["user-2", "user-3", "user-4", "user-5"]
+  );
+
+  let Json(second_page) = get_conversation_history(
+    Path(session_id),
+    Query(ConversationPageQuery {
+      limit: Some(1),
+      before_sequence: first_page.oldest_sequence,
+    }),
+    State(state),
+  )
+  .await
+  .expect("second history page should succeed");
+
+  assert_eq!(second_page.total_row_count, 5);
+  assert_eq!(second_page.rows.len(), 1);
+  assert_eq!(second_page.rows[0].id(), "user-1");
+}
+
+#[tokio::test]
+async fn session_review_returns_persisted_diffs_and_comments() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(&db_path, &session_id, "/tmp/orbitdock-review-test", vec![]);
+  update_session_diff_fixture(
+    &db_path,
+    &session_id,
+    "diff --git a/src/lib.rs b/src/lib.rs",
+    "turn-1",
+    "diff --git a/src/lib.rs b/src/lib.rs",
+  );
+  insert_review_comment_fixture(
+    &db_path,
+    &session_id,
+    "comment-1",
+    Some("turn-1"),
+    "Please keep this API-level test.",
+    Some(ReviewCommentTag::Risk),
+    ReviewCommentStatus::Open,
+  );
+
+  let Json(review) = get_session_review(Path(session_id), State(state))
+    .await
+    .expect("review snapshot should succeed");
+
+  assert_eq!(
+    review.current_diff.as_deref(),
+    Some("diff --git a/src/lib.rs b/src/lib.rs")
+  );
+  assert_eq!(review.turn_diffs.len(), 1);
+  assert_eq!(review.turn_diffs[0].turn_id, "turn-1");
+  assert_eq!(review.comments.len(), 1);
+  assert_eq!(review.comments[0].body, "Please keep this API-level test.");
+  assert_eq!(review.comments[0].tag, Some(ReviewCommentTag::Risk));
+  assert_eq!(review.comments[0].status, ReviewCommentStatus::Open);
+}
+
+#[tokio::test]
+async fn sessions_summary_counts_active_sessions_and_recent_archive() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let archived_session_id = orbitdock_protocol::new_session_id();
+  persist_session_fixture(
+    &db_path,
+    &archived_session_id,
+    "/tmp/orbitdock-summary-archive",
+    vec![],
+  );
+
+  let active_session_id = orbitdock_protocol::new_session_id();
+  let mut active_session = SessionHandle::new(
+    active_session_id.clone(),
+    Provider::Codex,
+    "/tmp/orbitdock-summary-active".to_string(),
+  );
+  active_session.set_work_status(WorkStatus::Reply);
+  active_session.refresh_snapshot();
+  state.add_session(active_session);
+
+  let Json(summary) = get_sessions_summary(State(state))
+    .await
+    .expect("sessions summary should succeed");
+
+  assert_eq!(summary.counts.total, 1);
+  assert_eq!(summary.counts.active, 1);
+  assert_eq!(summary.counts.ready, 1);
+  assert_eq!(summary.active_sessions.len(), 1);
+  assert_eq!(summary.active_sessions[0].id, active_session_id);
+  assert_eq!(summary.recent_sessions.len(), 1);
+  assert_eq!(summary.recent_sessions[0].id, archived_session_id);
+}
+
+#[tokio::test]
+async fn mark_session_read_returns_reset_unread_count_and_persists_reset() {
+  let (state, mut persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  let unread_row = test_tool_row(
+    &session_id,
+    "tool-1",
+    1,
+    "Inspect release notes",
+    ToolStatus::Completed,
+    Some(15),
+  );
+  persist_session_fixture(
+    &db_path,
+    &session_id,
+    "/tmp/orbitdock-mark-read-test",
+    vec![unread_row.clone()],
+  );
+
+  let mut session = SessionHandle::new(
+    session_id.clone(),
+    Provider::Codex,
+    "/tmp/orbitdock-mark-read-runtime".to_string(),
+  );
+  session.set_work_status(WorkStatus::Reply);
+  session.add_row(unread_row);
+  assert_eq!(session.unread_count(), 1);
+  state.add_session(session);
+
+  let Json(response) = mark_session_read(Path(session_id.clone()), State(state.clone()))
+    .await
+    .expect("mark read should succeed");
+
+  assert_eq!(response.session_id, session_id);
+  assert_eq!(response.unread_count, 0);
+
+  let actor = state
+    .get_session(&response.session_id)
+    .expect("live session should still exist");
+  let retained = actor.retained_state().await.expect("retained state");
+  assert_eq!(retained.unread_count, 0);
+  assert_eq!(retained.work_status, WorkStatus::Waiting);
+
+  flush_next_persist_command(&mut persist_rx, &db_path).await;
+  flush_next_persist_command(&mut persist_rx, &db_path).await;
+
+  let conn = Connection::open(&db_path).expect("open sqlite");
+  let (db_unread_count, db_last_read_sequence): (i64, i64) = conn
+    .query_row(
+      "SELECT unread_count, last_read_sequence FROM sessions WHERE id = ?1",
+      rusqlite::params![response.session_id],
+      |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .expect("query marked session");
+  assert_eq!(db_unread_count, 0);
+  assert_eq!(db_last_read_sequence, 1);
 }
 
 #[tokio::test]
@@ -755,44 +1047,4 @@ async fn search_and_stats_return_not_found_for_runtime_only_sessions() {
 
   assert_eq!(stats_status, axum::http::StatusCode::NOT_FOUND);
   assert_eq!(stats_error.code, "not_found");
-}
-
-#[tokio::test]
-async fn shell_execution_row_content_returns_full_output() {
-  let entry = test_shell_tool_row("session-1", "cmd-1", 1, Some("22pt Bold\n18pt Semibold"));
-  let ConversationRow::Tool(row) = &entry.row else {
-    panic!("expected tool row");
-  };
-  let shell = row.shell_execution.as_ref().expect("shell_execution");
-
-  let response = test_shell_execution_row_content("cmd-1".to_string(), shell);
-
-  assert_eq!(response.row_id, "cmd-1");
-  assert_eq!(
-    response.input_display.as_deref(),
-    Some("sed -n '1,40p' docs/design-system.md")
-  );
-  assert_eq!(
-    response.output_display.as_deref(),
-    Some("22pt Bold\n18pt Semibold")
-  );
-  assert!(response.diff_display.is_none());
-}
-
-#[tokio::test]
-async fn shell_execution_row_content_falls_back_to_terminal_snapshot_output() {
-  let entry = test_shell_tool_row("session-1", "cmd-1", 1, None);
-  let ConversationRow::Tool(row) = &entry.row else {
-    panic!("expected tool row");
-  };
-  let mut shell = row.shell_execution.clone().expect("shell_execution");
-  shell.terminal_snapshot = shell_terminal_snapshot(
-    "sed -n '1,40p' docs/design-system.md",
-    "/tmp/orbitdock-shell-execution",
-    Some("snapshot only\n"),
-  );
-
-  let response = test_shell_execution_row_content("cmd-1".to_string(), &shell);
-
-  assert_eq!(response.output_display.as_deref(), Some("snapshot only\n"));
 }

@@ -13,20 +13,28 @@ fn test_handle() -> SessionHandle {
 }
 
 #[tokio::test]
-async fn actor_processes_commands_sequentially() {
+async fn actor_applies_back_to_back_commands_in_order() {
   let (persist_tx, _persist_rx) = mpsc::channel(64);
   let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
+  let (reply_tx, _reply_rx) = tokio::sync::oneshot::channel();
 
-  let (tx, rx) = tokio::sync::oneshot::channel();
   actor_handle
     .send(SessionCommand::SetCustomNameAndNotify {
       name: Some("Test Session".to_string()),
       persist_op: None,
-      reply: tx,
+      reply: reply_tx,
     })
     .await;
-  let summary = rx.await.unwrap();
+
+  actor_handle
+    .send(SessionCommand::SetWorkStatus {
+      status: WorkStatus::Working,
+    })
+    .await;
+
+  let summary = actor_handle.summary().await.unwrap();
   assert_eq!(summary.custom_name.as_deref(), Some("Test Session"));
+  assert_eq!(summary.work_status, WorkStatus::Working);
 }
 
 #[tokio::test]
@@ -43,16 +51,15 @@ async fn actor_snapshot_updates_after_mutation() {
     })
     .await;
 
-  tokio::task::yield_now().await;
-  tokio::task::yield_now().await;
+  let _ = actor_handle.summary().await.unwrap();
 
   let snap = actor_handle.snapshot();
   assert_eq!(snap.work_status, WorkStatus::Working);
 }
 
 #[tokio::test]
-async fn actor_subscribe_without_revision_returns_replay() {
-  let (persist_tx, _persist_rx) = mpsc::channel(64);
+async fn actor_subscribe_without_revision_streams_live_updates() {
+  let (persist_tx, _writer_handle) = spawn_mock_writer();
   let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
 
   let (tx, rx) = tokio::sync::oneshot::channel();
@@ -64,20 +71,50 @@ async fn actor_subscribe_without_revision_returns_replay() {
     .await;
 
   let result = rx.await.unwrap();
-  match result {
-    crate::runtime::session_commands::SubscribeResult::Replay { events, .. } => {
+  let mut rx = match result {
+    crate::runtime::session_commands::SubscribeResult::Replay { events, rx } => {
       assert!(events.is_empty());
+      rx
     }
     crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {
       panic!("expected replay, got resync-required")
+    }
+  };
+
+  actor_handle
+    .send(SessionCommand::AddRowAndBroadcast {
+      entry: user_row("row-live"),
+    })
+    .await;
+
+  loop {
+    if let ServerMessage::ConversationRowsChanged {
+      upserted,
+      total_row_count,
+      ..
+    } = rx.recv().await.expect("live update after subscribe")
+    {
+      let row = upserted.iter().find(|entry| entry.id() == "row-live");
+      assert!(row.is_some());
+      assert_eq!(total_row_count, 1);
+      break;
     }
   }
 }
 
 #[tokio::test]
-async fn actor_subscribe_with_current_revision_returns_empty_replay() {
-  let (persist_tx, _persist_rx) = mpsc::channel(64);
+async fn actor_subscribe_with_revision_replays_existing_rows_and_stays_live() {
+  let (persist_tx, _writer_handle) = spawn_mock_writer();
   let actor_handle = SessionActorHandle::spawn(test_handle(), persist_tx);
+
+  actor_handle
+    .send(SessionCommand::AddRowAndBroadcast {
+      entry: user_row("row-replayed"),
+    })
+    .await;
+
+  let page = actor_handle.conversation_page(None, 10).await.unwrap();
+  assert_eq!(page.rows.len(), 1);
 
   let (tx, rx) = tokio::sync::oneshot::channel();
   actor_handle
@@ -89,11 +126,37 @@ async fn actor_subscribe_with_current_revision_returns_empty_replay() {
 
   let result = rx.await.unwrap();
   match result {
-    crate::runtime::session_commands::SubscribeResult::Replay { events, .. } => {
-      assert!(events.is_empty());
+    crate::runtime::session_commands::SubscribeResult::Replay { events, rx } => {
+      let row_event = events
+        .iter()
+        .find(|event| event.contains("row-replayed"))
+        .expect("expected replay to include the row append event");
+      let replay: serde_json::Value =
+        serde_json::from_str(row_event).expect("replay event should be valid json");
+      assert_eq!(
+        replay.get("revision").and_then(|value| value.as_u64()),
+        Some(1)
+      );
+      assert!(row_event.contains("row-replayed"));
+
+      actor_handle
+        .send(SessionCommand::AddRowAndBroadcast {
+          entry: user_row("row-follow-up"),
+        })
+        .await;
+
+      let mut rx = rx;
+      loop {
+        if let ServerMessage::ConversationRowsChanged { upserted, .. } =
+          rx.recv().await.expect("live update after replay")
+        {
+          assert!(upserted.iter().any(|entry| entry.id() == "row-follow-up"));
+          break;
+        }
+      }
     }
     crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {
-      panic!("expected empty replay, got resync-required")
+      panic!("expected replay, got resync-required")
     }
   }
 }
@@ -109,8 +172,7 @@ async fn actor_processes_connector_events_via_transition() {
     })
     .await;
 
-  tokio::task::yield_now().await;
-  tokio::task::yield_now().await;
+  let _ = actor_handle.summary().await.unwrap();
 
   let snap = actor_handle.snapshot();
   assert_eq!(snap.work_status, WorkStatus::Working);
@@ -359,7 +421,9 @@ async fn actor_emits_detail_invalidation_for_state_only_transition() {
 
   let mut rx = match reply_rx.await.unwrap() {
     crate::runtime::session_commands::SubscribeResult::Replay { rx, .. } => rx,
-    crate::runtime::session_commands::SubscribeResult::ResyncRequired { rx } => rx,
+    crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {
+      panic!("fresh actor subscribe should not require resync")
+    }
   };
 
   actor_handle
@@ -368,8 +432,7 @@ async fn actor_emits_detail_invalidation_for_state_only_transition() {
     })
     .await;
 
-  tokio::task::yield_now().await;
-  tokio::task::yield_now().await;
+  let _ = actor_handle.summary().await.unwrap();
 
   let mut emitted_detail_invalidation = false;
   while let Ok(message) = rx.try_recv() {
@@ -398,7 +461,9 @@ async fn actor_skips_tiny_initial_streaming_broadcasts_and_emits_final_row() {
 
   let mut rx = match reply_rx.await.unwrap() {
     crate::runtime::session_commands::SubscribeResult::Replay { rx, .. } => rx,
-    crate::runtime::session_commands::SubscribeResult::ResyncRequired { rx } => rx,
+    crate::runtime::session_commands::SubscribeResult::ResyncRequired { .. } => {
+      panic!("fresh actor subscribe should not require resync")
+    }
   };
 
   actor_handle
@@ -455,8 +520,7 @@ async fn actor_skips_tiny_initial_streaming_broadcasts_and_emits_final_row() {
     })
     .await;
 
-  tokio::task::yield_now().await;
-  tokio::task::yield_now().await;
+  let _ = actor_handle.summary().await.unwrap();
 
   let mut emitted_contents = Vec::new();
   let mut invalidated_surfaces = Vec::new();

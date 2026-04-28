@@ -287,7 +287,7 @@ async fn duplicate_row_created_does_not_refresh_activity_or_unread() {
 
 #[tokio::test]
 async fn subscribe_without_cursor_attaches_live_stream_without_resync() {
-  let (persist_tx, _persist_rx) = mpsc::channel(8);
+  let (persist_tx, mut persist_rx) = mpsc::channel(8);
   let mut handle = SessionHandle::new(
     "session-1".to_string(),
     Provider::Codex,
@@ -306,12 +306,46 @@ async fn subscribe_without_cursor_attaches_live_stream_without_resync() {
   .await;
 
   let result = reply_rx.await.expect("subscribe result");
-  match result {
-    SubscribeResult::Replay { events, .. } => assert!(events.is_empty()),
+  let mut rx = match result {
+    SubscribeResult::Replay { events, rx } => {
+      assert!(events.is_empty());
+      rx
+    }
     SubscribeResult::ResyncRequired { .. } => {
       panic!("fresh subscribe without cursor should not require resync")
     }
+  };
+
+  let persist_task = tokio::spawn(async move {
+    while let Some(cmd) = persist_rx.recv().await {
+      if let PersistCommand::RowAppend { sequence_tx, .. } = cmd {
+        if let Some(sequence_tx) = sequence_tx {
+          let _ = sequence_tx.send(0);
+        }
+        return;
+      }
+    }
+  });
+
+  handle_session_command(
+    SessionCommand::AddRowAndBroadcast {
+      entry: user_entry("session-1", "row-live", "hello world"),
+    },
+    &mut handle,
+    &persist_tx,
+  )
+  .await;
+
+  loop {
+    if let ServerMessage::ConversationRowsChanged { upserted, .. } =
+      rx.recv().await.expect("live update after subscribe")
+    {
+      assert!(upserted.iter().any(|entry| entry.id() == "row-live"));
+      break;
+    }
   }
+
+  persist_task.await.expect("persist task should complete");
 }
 
 #[tokio::test]

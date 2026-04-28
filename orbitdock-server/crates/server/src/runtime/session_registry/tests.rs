@@ -220,6 +220,40 @@ async fn dashboard_snapshot_reflects_in_memory_tool_count() {
 }
 
 #[tokio::test]
+async fn cached_dashboard_snapshot_refreshes_after_registry_revision_changes() {
+  ensure_server_test_data_dir();
+  let (persist_tx, _persist_rx) = mpsc::channel(8);
+  let registry = SessionRegistry::new_with_primary(persist_tx, true);
+
+  let initial = registry.cached_dashboard_snapshot();
+  assert_eq!(initial.0, 0);
+  assert!(initial.1.conversations.is_empty());
+
+  let mut session = SessionHandle::new(
+    "cached-dashboard-session".to_string(),
+    Provider::Codex,
+    "/tmp/orbitdock-cached-dashboard".to_string(),
+  );
+  session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+  session.set_status(SessionStatus::Active);
+  session.set_work_status(WorkStatus::Reply);
+  session.refresh_snapshot();
+  registry.add_session(session);
+
+  let updated = registry.cached_dashboard_snapshot();
+  assert_eq!(updated.0, 1);
+  assert_eq!(updated.1.conversations.len(), 1);
+  assert_eq!(
+    updated.1.conversations[0].session_id,
+    "cached-dashboard-session"
+  );
+
+  let repeated = registry.cached_dashboard_snapshot();
+  assert_eq!(repeated.0, 1);
+  assert_eq!(repeated.1.conversations.len(), 1);
+}
+
+#[tokio::test]
 async fn runtime_owner_registration_resolves_before_sqlite_flush() {
   ensure_server_test_data_dir();
   let (persist_tx, _persist_rx) = mpsc::channel(8);

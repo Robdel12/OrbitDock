@@ -216,7 +216,9 @@ async fn verify_direct_runtime_ready_with_startup_grace_rejects_early_channel_cl
   let (tx, rx) = mpsc::channel::<CodexAction>(1);
   state.set_codex_action_tx(session_id, tx);
   tokio::spawn(async move {
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Let the readiness probe reach the grace-period wait before the channel closes.
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
     drop(rx);
   });
 

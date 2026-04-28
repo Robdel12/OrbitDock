@@ -1,14 +1,16 @@
-use axum::{extract::State, Json};
+use axum::{
+  extract::{Query, State},
+  Json,
+};
 use rusqlite::Connection;
 
-use crate::transport::http::test_support::new_test_state;
+use crate::transport::http::test_support::{new_persist_test_state, new_test_state};
 
 use super::{
-  fetch_claude_usage, fetch_codex_usage, list_claude_models,
-  usage::{
-    load_usage_breakdown, load_usage_overview, load_usage_sessions, load_usage_summary,
-    sort_model_costs,
-  },
+  fetch_claude_usage, fetch_codex_usage, fetch_usage_sessions, fetch_usage_summary,
+  list_claude_models,
+  usage::{load_usage_breakdown, load_usage_overview, load_usage_summary, sort_model_costs},
+  UsageSessionsQuery, UsageSummaryQuery,
 };
 use orbitdock_protocol::{UsageBreakdownGroupBy, UsageSummaryBucket, UsageSummaryModelCost};
 
@@ -63,65 +65,33 @@ fn usage_summary_costs_sort_descending() {
   assert_eq!(bucket.cost_by_model[1].model, "Sonnet");
 }
 
-#[test]
-fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
-  let db_path = std::env::temp_dir().join(format!(
-    "orbitdock-usage-summary-{}-{}.db",
-    std::process::id(),
-    std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .expect("unix epoch")
-      .as_nanos()
-  ));
+#[tokio::test]
+async fn usage_summary_endpoint_uses_observed_at_for_sessions_spanning_midnight() {
+  let (_state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
   let conn = Connection::open(&db_path).expect("open sqlite db");
 
   conn
     .execute_batch(
-      "CREATE TABLE sessions (
-         id TEXT PRIMARY KEY,
-         provider TEXT,
-         project_path TEXT,
-         project_name TEXT,
-         model TEXT,
-         custom_name TEXT,
-         summary TEXT,
-         first_prompt TEXT,
-         last_message TEXT,
-         started_at TEXT,
-         last_activity_at TEXT,
-         control_mode TEXT,
-         codex_integration_mode TEXT,
-         claude_integration_mode TEXT
-       );
-       CREATE TABLE usage_ledger_entries (
-         session_id TEXT NOT NULL,
-         turn_id TEXT NOT NULL,
-         provider TEXT NOT NULL,
-         model TEXT,
-         session_started_at TEXT,
-         observed_at TEXT NOT NULL,
-         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
-         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
-         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-         estimated_cost_usd REAL NOT NULL DEFAULT 0,
-         PRIMARY KEY (session_id, turn_id)
-       );",
+      "DELETE FROM usage_ledger_entries;
+       DELETE FROM sessions;",
     )
-    .expect("create schema");
+    .expect("clear usage fixtures");
 
   conn
     .execute(
       "INSERT INTO sessions (
          id,
          provider,
+         project_path,
          model,
          started_at,
          control_mode,
          codex_integration_mode
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       rusqlite::params![
         "session-1",
         "codex",
+        "/tmp/orbitdock-usage-summary",
         "gpt-5.4",
         "2026-03-28T23:55:00Z",
         "direct",
@@ -186,15 +156,17 @@ fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
     )
     .expect("insert next-day ledger entry");
 
-  let summary = load_usage_summary(
-    &db_path,
-    Some(
+  drop(conn);
+
+  let Json(summary) = fetch_usage_summary(Query(UsageSummaryQuery {
+    today_start_unix: Some(
       chrono::DateTime::parse_from_rfc3339("2026-03-29T00:00:00Z")
         .expect("parse boundary")
         .timestamp() as u64,
     ),
-  )
-  .expect("load usage summary");
+  }))
+  .await
+  .expect("fetch usage summary");
 
   assert_eq!(summary.today.session_count, 1);
   assert_eq!(summary.today.input_tokens, 200);
@@ -204,7 +176,6 @@ fn today_usage_uses_observed_at_for_sessions_spanning_midnight() {
   assert_eq!(summary.all_time.input_tokens, 320);
   assert_eq!(summary.all_time.output_tokens, 110);
 
-  drop(conn);
   let _ = std::fs::remove_file(db_path);
 }
 
@@ -378,64 +349,27 @@ fn usage_summary_only_counts_direct_sessions() {
   let _ = std::fs::remove_file(db_path);
 }
 
-#[test]
-fn usage_breakdown_groups_direct_usage_by_provider() {
-  let db_path = std::env::temp_dir().join(format!(
-    "orbitdock-usage-breakdown-{}-{}.db",
-    std::process::id(),
-    std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .expect("unix epoch")
-      .as_nanos()
-  ));
+#[tokio::test]
+async fn usage_breakdown_groups_direct_usage_by_provider() {
+  let (_state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
   let conn = Connection::open(&db_path).expect("open sqlite db");
 
   conn
     .execute_batch(
-      "CREATE TABLE sessions (
-         id TEXT PRIMARY KEY,
-         provider TEXT,
-         project_path TEXT,
-         project_name TEXT,
-         model TEXT,
-         custom_name TEXT,
-         summary TEXT,
-         first_prompt TEXT,
-         last_message TEXT,
-         started_at TEXT,
-         last_activity_at TEXT,
-         control_mode TEXT,
-         codex_integration_mode TEXT,
-         claude_integration_mode TEXT
-       );
-       CREATE TABLE usage_ledger_entries (
-         session_id TEXT NOT NULL,
-         turn_id TEXT NOT NULL,
-         turn_seq INTEGER NOT NULL DEFAULT 0,
-         provider TEXT NOT NULL,
-         model TEXT,
-         session_started_at TEXT,
-         observed_at TEXT NOT NULL,
-         snapshot_kind TEXT NOT NULL DEFAULT 'unknown',
-         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
-         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
-         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-         cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-         context_input_tokens INTEGER NOT NULL DEFAULT 0,
-         context_window INTEGER NOT NULL DEFAULT 0,
-         estimated_cost_usd REAL NOT NULL DEFAULT 0,
-         PRIMARY KEY (session_id, turn_id)
-       );",
+      "DELETE FROM usage_ledger_entries;
+       DELETE FROM sessions;",
     )
-    .expect("create schema");
+    .expect("clear usage fixtures");
 
   conn
     .execute(
-      "INSERT INTO sessions (id, provider, model, started_at, control_mode, codex_integration_mode)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      "INSERT INTO sessions (
+         id, provider, project_path, model, started_at, control_mode, codex_integration_mode
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       rusqlite::params![
         "codex-session",
         "codex",
+        "/tmp/orbitdock-usage-codex",
         "gpt-5.4",
         "2026-04-26T10:00:00Z",
         "direct",
@@ -445,11 +379,13 @@ fn usage_breakdown_groups_direct_usage_by_provider() {
     .expect("insert codex session");
   conn
     .execute(
-      "INSERT INTO sessions (id, provider, model, started_at, control_mode, claude_integration_mode)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+      "INSERT INTO sessions (
+         id, provider, project_path, model, started_at, control_mode, claude_integration_mode
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
       rusqlite::params![
         "claude-session",
         "claude",
+        "/tmp/orbitdock-usage-claude",
         "claude-sonnet-4",
         "2026-04-26T10:00:00Z",
         "direct",
@@ -804,56 +740,17 @@ fn usage_overview_returns_scoped_breakdowns() {
   let _ = std::fs::remove_file(db_path);
 }
 
-#[test]
-fn usage_sessions_return_display_metadata() {
-  let db_path = std::env::temp_dir().join(format!(
-    "orbitdock-usage-sessions-{}-{}.db",
-    std::process::id(),
-    std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .expect("unix epoch")
-      .as_nanos()
-  ));
+#[tokio::test]
+async fn usage_sessions_endpoint_returns_display_metadata() {
+  let (_state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
   let conn = Connection::open(&db_path).expect("open sqlite db");
 
   conn
     .execute_batch(
-      "CREATE TABLE sessions (
-         id TEXT PRIMARY KEY,
-         provider TEXT,
-         project_path TEXT,
-         project_name TEXT,
-         model TEXT,
-         custom_name TEXT,
-         summary TEXT,
-         first_prompt TEXT,
-         last_message TEXT,
-         started_at TEXT,
-         last_activity_at TEXT,
-         control_mode TEXT,
-         codex_integration_mode TEXT,
-         claude_integration_mode TEXT
-       );
-       CREATE TABLE usage_ledger_entries (
-         session_id TEXT NOT NULL,
-         turn_id TEXT NOT NULL,
-         turn_seq INTEGER NOT NULL DEFAULT 0,
-         provider TEXT NOT NULL,
-         model TEXT,
-         session_started_at TEXT,
-         observed_at TEXT NOT NULL,
-         snapshot_kind TEXT NOT NULL DEFAULT 'unknown',
-         billable_input_tokens INTEGER NOT NULL DEFAULT 0,
-         billable_output_tokens INTEGER NOT NULL DEFAULT 0,
-         cache_read_tokens INTEGER NOT NULL DEFAULT 0,
-         cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-         context_input_tokens INTEGER NOT NULL DEFAULT 0,
-         context_window INTEGER NOT NULL DEFAULT 0,
-         estimated_cost_usd REAL NOT NULL DEFAULT 0,
-         PRIMARY KEY (session_id, turn_id)
-       );",
+      "DELETE FROM usage_ledger_entries;
+       DELETE FROM sessions;",
     )
-    .expect("create schema");
+    .expect("clear usage fixtures");
 
   conn
     .execute(
@@ -905,11 +802,19 @@ fn usage_sessions_return_display_metadata() {
     )
     .expect("insert ledger row");
 
+  drop(conn);
+
   let today_start_unix = chrono::DateTime::parse_from_rfc3339("2026-04-26T00:00:00Z")
     .expect("parse today start")
     .timestamp() as u64;
-  let sessions = load_usage_sessions(&db_path, Some(today_start_unix), None, 10, 0)
-    .expect("load usage sessions");
+  let Json(sessions) = fetch_usage_sessions(Query(UsageSessionsQuery {
+    start_unix: Some(today_start_unix),
+    end_unix: None,
+    limit: 10,
+    offset: 0,
+  }))
+  .await
+  .expect("fetch usage sessions");
 
   assert_eq!(sessions.total_count, 1);
   assert_eq!(sessions.sessions[0].display_name, "API cleanup");
@@ -923,6 +828,5 @@ fn usage_sessions_return_display_metadata() {
   );
   assert_eq!(sessions.sessions[0].turn_count, 1);
 
-  drop(conn);
   let _ = std::fs::remove_file(db_path);
 }

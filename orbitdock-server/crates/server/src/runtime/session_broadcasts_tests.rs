@@ -1,4 +1,4 @@
-use orbitdock_protocol::{ServerMessage, SessionSurface};
+use orbitdock_protocol::{ServerMessage, SessionSurface, StateChanges};
 
 use super::invalidated_surfaces;
 
@@ -28,6 +28,16 @@ fn context_compacted_still_invalidates_conversation_detail_and_review() {
       SessionSurface::Review,
     ]
   );
+}
+
+#[test]
+fn session_delta_invalidates_detail_surface() {
+  let invalidations = invalidated_surfaces(&ServerMessage::SessionDelta {
+    session_id: "session-1".to_string(),
+    changes: Box::new(StateChanges::default()),
+  });
+
+  assert_eq!(invalidations, &[SessionSurface::Detail]);
 }
 
 #[test]

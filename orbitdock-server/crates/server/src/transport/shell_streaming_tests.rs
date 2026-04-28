@@ -7,11 +7,12 @@ fn combined_preview_retains_recent_tail() {
   state.append_stderr("stderr");
 
   let stdout = state.stdout_preview().expect("stdout preview");
-  assert!(stdout.len() <= 8 * 1024);
-  assert!(stdout.ends_with(&"a".repeat(128)));
+  assert_eq!(stdout.len(), 8 * 1024);
+  assert_eq!(stdout, "a".repeat(8 * 1024));
 
   let combined = state.combined_preview().expect("combined preview");
-  assert!(combined.contains("stderr"));
+  assert_eq!(combined.len(), 8 * 1024);
+  assert_eq!(combined, format!("{}stderr", "a".repeat(8 * 1024 - 6)));
 }
 
 #[test]
@@ -48,4 +49,15 @@ fn falls_back_to_non_empty_stream_when_only_one_is_present() {
     prefer_streamed_shell_output("", "stderr-only", Some("ignored")),
     "stderr-only"
   );
+}
+
+#[test]
+fn preview_trims_multibyte_chunks_without_splitting_characters() {
+  let mut state = ShellStreamPreviewState::default();
+  state.append_stdout(&"🚀".repeat(3_000));
+
+  let preview = state.stdout_preview().expect("stdout preview");
+
+  assert_eq!(preview, "🚀".repeat(2_048));
+  assert_eq!(state.combined_preview().as_deref(), Some(preview.as_str()));
 }

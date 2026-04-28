@@ -100,3 +100,30 @@ pub fn collect_permission_rules(permissions: Option<&serde_json::Value>) -> Vec<
 
   rules
 }
+
+#[cfg(test)]
+mod tests {
+  use super::collect_permission_rules;
+  use serde_json::json;
+
+  #[test]
+  fn collect_permission_rules_dedupes_and_preserves_behavior_order() {
+    let permissions = json!({
+      "allow": ["git status", "git status"],
+      "deny": ["git status", "rm -rf", "rm -rf"],
+      "ask": ["deploy", "deploy"],
+    });
+
+    let rules = collect_permission_rules(Some(&permissions));
+
+    assert_eq!(rules.len(), 4);
+    assert_eq!(rules[0].pattern, "git status");
+    assert_eq!(rules[0].behavior, "allow");
+    assert_eq!(rules[1].pattern, "git status");
+    assert_eq!(rules[1].behavior, "deny");
+    assert_eq!(rules[2].pattern, "rm -rf");
+    assert_eq!(rules[2].behavior, "deny");
+    assert_eq!(rules[3].pattern, "deploy");
+    assert_eq!(rules[3].behavior, "ask");
+  }
+}

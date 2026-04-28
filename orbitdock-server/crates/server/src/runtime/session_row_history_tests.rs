@@ -60,12 +60,5 @@ async fn hydrate_full_row_history_returns_retained_rows_when_history_is_complete
 
   let hydrated = hydrate_full_row_history("session-1", retained_rows.clone(), Some(2)).await;
 
-  assert_eq!(hydrated.len(), retained_rows.len());
-  assert_eq!(
-    hydrated
-      .iter()
-      .map(|row| row.sequence)
-      .collect::<Vec<u64>>(),
-    vec![0, 1]
-  );
+  assert_eq!(hydrated, retained_rows);
 }

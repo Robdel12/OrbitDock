@@ -1,11 +1,14 @@
 use axum::{extract::Path, extract::State, Json};
 
+use crate::runtime::session_registry::CachedUpdateStatus;
 use crate::transport::http::test_support::new_persist_test_state;
 
 use super::{
-  get_workspace_provider, get_workspace_provider_config_value, set_workspace_provider,
-  set_workspace_provider_config_value, test_workspace_provider,
-  SetWorkspaceProviderConfigValueRequest, SetWorkspaceProviderRequest,
+  check_open_ai_key, get_server_meta, get_workspace_provider, get_workspace_provider_config_value,
+  set_client_primary_claim, set_open_ai_key, set_server_role, set_workspace_provider,
+  set_workspace_provider_config_value, test_workspace_provider, SetClientPrimaryClaimRequest,
+  SetOpenAiKeyRequest, SetServerRoleRequest, SetWorkspaceProviderConfigValueRequest,
+  SetWorkspaceProviderRequest,
 };
 
 struct EnvVarGuard {
@@ -190,4 +193,130 @@ async fn workspace_provider_config_endpoint_treats_blank_values_as_clear() {
     crate::infrastructure::persistence::PersistCommand::SetConfig { ref key, ref value }
       if key == "daytona_target" && value.is_empty()
   ));
+}
+
+#[tokio::test]
+async fn server_meta_endpoint_reflects_runtime_state() {
+  let (state, _persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+  state.set_primary(false);
+  state.set_server_instance_id("server-123".to_string());
+  state.set_client_primary_claim(7, "client-a".to_string(), "MacBook Pro".to_string(), true);
+  state.set_update_status(CachedUpdateStatus {
+    update_available: true,
+    latest_version: Some("v9.9.9".to_string()),
+    release_url: Some("https://example.test/releases/v9.9.9".to_string()),
+    channel: "beta".to_string(),
+    checked_at: chrono::Utc::now(),
+  });
+
+  let Json(meta) = get_server_meta(State(state)).await;
+
+  assert_eq!(meta.server_version, crate::VERSION);
+  assert_eq!(meta.minimum_client_version, crate::MINIMUM_CLIENT_VERSION);
+  assert_eq!(meta.server_instance_id.as_deref(), Some("server-123"));
+  assert!(!meta.is_primary);
+  assert_eq!(meta.client_primary_claims.len(), 1);
+  assert_eq!(
+    meta.client_primary_claims[0],
+    orbitdock_protocol::ClientPrimaryClaim {
+      client_id: "client-a".to_string(),
+      device_name: "MacBook Pro".to_string(),
+    }
+  );
+  assert_eq!(
+    meta
+      .update_status
+      .as_ref()
+      .map(|status| status.channel.as_str()),
+    Some("beta")
+  );
+  assert_eq!(
+    meta
+      .update_status
+      .as_ref()
+      .and_then(|status| status.latest_version.as_deref()),
+    Some("v9.9.9")
+  );
+  assert!(meta
+    .capabilities
+    .contains(&orbitdock_protocol::CAPABILITY_SESSION_DETAIL_SURFACE_V1.to_string()));
+  assert_eq!(meta.capabilities.len(), 5);
+}
+
+#[tokio::test]
+async fn openai_key_endpoint_reads_env_and_persists_updates() {
+  let _env_guard = EnvVarGuard::set("OPENAI_API_KEY", "env-openai-key");
+  let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+
+  let Json(initial) = check_open_ai_key().await;
+  assert!(initial.configured);
+
+  let Json(updated) = set_open_ai_key(
+    State(state),
+    Json(SetOpenAiKeyRequest {
+      key: "persisted-openai-key".to_string(),
+    }),
+  )
+  .await
+  .expect("set openai key should succeed");
+
+  assert!(updated.configured);
+  let command = persist_rx
+    .recv()
+    .await
+    .expect("openai key update should enqueue persistence");
+  assert!(matches!(
+    command,
+    crate::infrastructure::persistence::PersistCommand::SetConfig { ref key, ref value }
+      if key == "openai_api_key" && value == "persisted-openai-key"
+  ));
+}
+
+#[tokio::test]
+async fn server_role_endpoint_updates_primary_state_and_persists_config() {
+  let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+
+  let Json(response) = set_server_role(
+    State(state.clone()),
+    Json(SetServerRoleRequest { is_primary: false }),
+  )
+  .await
+  .expect("set server role should succeed");
+
+  assert!(!response.is_primary);
+  assert!(!state.is_primary());
+
+  let command = persist_rx
+    .recv()
+    .await
+    .expect("server role update should enqueue persistence");
+  assert!(matches!(
+    command,
+    crate::infrastructure::persistence::PersistCommand::SetConfig { ref key, ref value }
+      if key == "server_role" && value == "secondary"
+  ));
+}
+
+#[tokio::test]
+async fn client_primary_claim_endpoint_registers_claim() {
+  let (state, _persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
+
+  let Json(response) = set_client_primary_claim(
+    State(state.clone()),
+    Json(SetClientPrimaryClaimRequest {
+      client_id: "client-b".to_string(),
+      device_name: "Mac Studio".to_string(),
+      is_primary: true,
+    }),
+  )
+  .await;
+
+  assert!(response.accepted);
+  assert_eq!(
+    state.active_client_primary_claims(),
+    vec![orbitdock_protocol::ClientPrimaryClaim {
+      client_id: "client-b".to_string(),
+      device_name: "Mac Studio".to_string(),
+    }]
+  );
 }

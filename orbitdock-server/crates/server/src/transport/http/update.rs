@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
@@ -89,9 +90,38 @@ pub async fn set_update_channel(
 }
 
 /// GET /api/server/update-channel — returns the current update channel.
-pub async fn get_update_channel() -> Json<serde_json::Value> {
-  let channel = UpdateChannel::resolve(None).unwrap_or_default();
+pub async fn get_update_channel(
+  State(state): State<Arc<SessionRegistry>>,
+) -> Json<serde_json::Value> {
+  let channel = UpdateChannel::resolve(load_update_channel_from_db(state.db_path()).as_deref())
+    .unwrap_or_default();
   Json(serde_json::json!({ "channel": channel.to_string() }))
+}
+
+fn load_update_channel_from_db(db_path: &std::path::Path) -> Option<String> {
+  if !db_path.exists() {
+    return None;
+  }
+
+  let conn = rusqlite::Connection::open(db_path).ok()?;
+  conn
+    .execute_batch(
+      "PRAGMA journal_mode = WAL;
+       PRAGMA busy_timeout = 5000;",
+    )
+    .ok()?;
+
+  let raw: String = conn
+    .query_row(
+      "SELECT value FROM config WHERE key = ?1",
+      ["update_channel"],
+      |row| row.get(0),
+    )
+    .optional()
+    .ok()
+    .flatten()?;
+
+  crate::infrastructure::crypto::decrypt(&raw)
 }
 
 fn default_restart_requested() -> bool {

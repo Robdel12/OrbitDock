@@ -134,6 +134,15 @@ async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
     load_review_comment_row(&db_path, &created.comment_id).expect("created comment should exist");
   assert_eq!(stored_after_create.0, "Initial review comment");
 
+  let Json(list_after_create) = list_review_comments_endpoint(
+    Path(session_id.clone()),
+    Query(ReviewCommentsQuery::default()),
+  )
+  .await;
+  assert_eq!(list_after_create.comments.len(), 1);
+  assert_eq!(list_after_create.comments[0].id, created.comment_id);
+  assert_eq!(list_after_create.comments[0].body, "Initial review comment");
+
   let Json(updated) = update_review_comment(
     Path(created.comment_id.clone()),
     State(state.clone()),
@@ -166,6 +175,23 @@ async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
   assert_eq!(stored_after_update.1, Some(ReviewCommentTag::Risk));
   assert_eq!(stored_after_update.2, ReviewCommentStatus::Resolved);
 
+  let Json(list_after_update) = list_review_comments_endpoint(
+    Path(session_id.clone()),
+    Query(ReviewCommentsQuery::default()),
+  )
+  .await;
+  assert_eq!(list_after_update.comments.len(), 1);
+  assert_eq!(list_after_update.comments[0].id, created.comment_id);
+  assert_eq!(list_after_update.comments[0].body, "Updated review comment");
+  assert_eq!(
+    list_after_update.comments[0].tag,
+    Some(ReviewCommentTag::Risk)
+  );
+  assert_eq!(
+    list_after_update.comments[0].status,
+    ReviewCommentStatus::Resolved
+  );
+
   let Json(deleted) =
     delete_review_comment_by_id(Path(created.comment_id.clone()), State(state.clone()))
       .await
@@ -181,4 +207,11 @@ async fn review_comment_mutations_return_authoritative_payloads_and_persist() {
 
   let stored_after_delete = load_review_comment_row(&db_path, &created.comment_id);
   assert!(stored_after_delete.is_none());
+
+  let Json(list_after_delete) = list_review_comments_endpoint(
+    Path(session_id.clone()),
+    Query(ReviewCommentsQuery::default()),
+  )
+  .await;
+  assert!(list_after_delete.comments.is_empty());
 }

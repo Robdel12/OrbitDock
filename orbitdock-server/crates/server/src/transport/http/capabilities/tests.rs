@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -15,9 +16,11 @@ use orbitdock_protocol::{
 };
 use serde_json::json;
 use tempfile::NamedTempFile;
+use tempfile::TempDir;
 use tokio::sync::mpsc;
 
 use crate::{
+  connectors::claude_session::ClaudeAction,
   connectors::codex_session::CodexAction,
   domain::sessions::session::SessionHandle,
   infrastructure::persistence::{flush_batch_for_test, PersistCommand, SessionCreateParams},
@@ -26,9 +29,9 @@ use crate::{
 };
 
 use super::{
-  get_session_instructions, get_session_runtime, install_plugin, list_collaboration_modes_endpoint,
-  list_mcp_tools_endpoint, list_plugins_endpoint, list_skills_endpoint, uninstall_plugin,
-  PluginsQuery, SkillsQuery,
+  apply_flag_settings, get_session_instructions, get_session_runtime, install_plugin,
+  list_collaboration_modes_endpoint, list_mcp_tools_endpoint, list_plugins_endpoint,
+  list_skills_endpoint, mcp_authenticate, uninstall_plugin, PluginsQuery, SkillsQuery,
 };
 
 fn persist_codex_session(
@@ -100,6 +103,34 @@ fn persist_claude_session(
     }],
   )
   .expect("persist claude session fixture");
+}
+
+struct EnvVarGuard {
+  key: &'static str,
+  original: Option<String>,
+}
+
+impl EnvVarGuard {
+  fn set(key: &'static str, value: &str) -> Self {
+    let original = std::env::var(key).ok();
+    unsafe {
+      std::env::set_var(key, value);
+    }
+    Self { key, original }
+  }
+}
+
+impl Drop for EnvVarGuard {
+  fn drop(&mut self) {
+    match &self.original {
+      Some(value) => unsafe {
+        std::env::set_var(self.key, value);
+      },
+      None => unsafe {
+        std::env::remove_var(self.key);
+      },
+    }
+  }
 }
 
 #[tokio::test]
@@ -732,4 +763,201 @@ async fn runtime_endpoint_combines_controls_instructions_and_collaboration_modes
   );
   assert_eq!(response.0.collaboration_modes.len(), 1);
   assert_eq!(response.0.collaboration_modes[0].name, "plan");
+}
+
+#[tokio::test]
+async fn list_mcp_tools_endpoint_falls_back_to_claude_when_codex_connector_missing() {
+  let state = new_test_state(true);
+  let session_id = orbitdock_protocol::new_session_id();
+  state.add_session(SessionHandle::new(
+    session_id.clone(),
+    Provider::Claude,
+    "/tmp/orbitdock-api-test".to_string(),
+  ));
+  let actor = state
+    .get_session(&session_id)
+    .expect("session should exist for claude mcp tools test");
+  let (action_tx, mut action_rx) = mpsc::channel(8);
+  state.set_claude_action_tx(&session_id, action_tx);
+
+  let session_id_for_task = session_id.clone();
+  let task = tokio::spawn(async move {
+    let action = action_rx
+      .recv()
+      .await
+      .expect("mcp tools endpoint should dispatch claude action");
+    match action {
+      ClaudeAction::ListMcpTools => {}
+      other => panic!("expected ListMcpTools action, got {:?}", other),
+    }
+
+    let mut tools = HashMap::new();
+    tools.insert(
+      "docs__search".to_string(),
+      McpTool {
+        name: "search".to_string(),
+        title: Some("Search Docs".to_string()),
+        description: Some("Searches docs".to_string()),
+        input_schema: json!({"type": "object"}),
+        output_schema: None,
+        annotations: None,
+      },
+    );
+
+    actor
+      .send(SessionCommand::Broadcast {
+        msg: ServerMessage::McpToolsList {
+          session_id: session_id_for_task.clone(),
+          tools,
+          resources: HashMap::new(),
+          resource_templates: HashMap::new(),
+          auth_statuses: HashMap::new(),
+        },
+      })
+      .await;
+  });
+
+  let response = list_mcp_tools_endpoint(Path(session_id.clone()), State(state)).await;
+
+  task
+    .await
+    .expect("claude mcp tools helper task should complete");
+
+  match response {
+    Ok(Json(payload)) => {
+      assert_eq!(payload.session_id, session_id);
+      assert_eq!(payload.tools.len(), 1);
+      assert_eq!(
+        payload
+          .tools
+          .get("docs__search")
+          .map(|tool| tool.name.as_str()),
+        Some("search")
+      );
+    }
+    Err((status, body)) => panic!(
+      "expected successful claude mcp tools response, got status {:?} with error {:?}",
+      status, body.error
+    ),
+  }
+}
+
+#[tokio::test]
+async fn apply_flag_settings_endpoint_dispatches_action_and_returns_payload() {
+  let state = new_test_state(true);
+  let session_id = orbitdock_protocol::new_session_id();
+  let (action_tx, mut action_rx) = mpsc::channel(8);
+  state.set_claude_action_tx(&session_id, action_tx);
+
+  let task = tokio::spawn(async move {
+    let action = action_rx
+      .recv()
+      .await
+      .expect("apply flag settings endpoint should dispatch claude action");
+    match action {
+      ClaudeAction::ApplyFlagSettings { settings } => {
+        assert_eq!(settings, json!({"experimentalMode": true}));
+      }
+      other => panic!("expected ApplyFlagSettings action, got {:?}", other),
+    }
+  });
+
+  let (status, Json(payload)) = apply_flag_settings(
+    Path(session_id),
+    State(state),
+    Json(super::ApplyFlagSettingsRequest {
+      settings: json!({"experimentalMode": true}),
+    }),
+  )
+  .await
+  .expect("apply flag settings should succeed");
+
+  task
+    .await
+    .expect("apply flag settings helper task should complete");
+
+  assert_eq!(status, StatusCode::ACCEPTED);
+  assert!(payload.accepted);
+}
+
+#[tokio::test]
+async fn mcp_authenticate_endpoint_returns_authorization_url_for_codex_sessions() {
+  let state = new_test_state(true);
+  let session_id = orbitdock_protocol::new_session_id();
+  let (action_tx, mut action_rx) = mpsc::channel(8);
+  state.set_codex_action_tx(&session_id, action_tx);
+
+  let task = tokio::spawn(async move {
+    let action = action_rx
+      .recv()
+      .await
+      .expect("mcp authenticate endpoint should dispatch codex action");
+    match action {
+      CodexAction::AuthenticateMcpServer {
+        server_name,
+        reply_tx,
+      } => {
+        assert_eq!(server_name, "docs");
+        let _ = reply_tx.send(Ok(codex_app_server_protocol::McpServerOauthLoginResponse {
+          authorization_url: "https://auth.example.com/start".to_string(),
+        }));
+      }
+      other => panic!("expected AuthenticateMcpServer action, got {:?}", other),
+    }
+  });
+
+  let (status, Json(payload)) = mcp_authenticate(
+    Path(session_id),
+    State(state),
+    Json(super::McpServerNameRequest {
+      server_name: "docs".to_string(),
+    }),
+  )
+  .await
+  .expect("mcp authenticate should succeed");
+
+  task
+    .await
+    .expect("mcp authenticate helper task should complete");
+
+  assert_eq!(status, StatusCode::ACCEPTED);
+  assert!(payload.accepted);
+  assert_eq!(
+    payload.authorization_url.as_deref(),
+    Some("https://auth.example.com/start")
+  );
+}
+
+#[tokio::test]
+async fn instructions_endpoint_returns_combined_claude_md_from_global_and_project_files() {
+  let (state, _persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  let session_id = orbitdock_protocol::new_session_id();
+  let project_dir = TempDir::new().expect("project temp dir");
+  let home_dir = TempDir::new().expect("home temp dir");
+  let global_claude_md = home_dir.path().join(".claude/CLAUDE.md");
+  let project_claude_md = project_dir.path().join("CLAUDE.md");
+  fs::create_dir_all(global_claude_md.parent().expect("global claude parent"))
+    .expect("create global claude dir");
+  fs::write(&global_claude_md, "Global guidance").expect("write global CLAUDE.md");
+  fs::write(&project_claude_md, "Project guidance").expect("write project CLAUDE.md");
+  let transcript = NamedTempFile::new().expect("claude transcript temp file");
+  let _home_guard = EnvVarGuard::set("HOME", home_dir.path().to_str().expect("home temp path"));
+  persist_claude_session(
+    &db_path,
+    &session_id,
+    project_dir.path().to_str().expect("project temp path"),
+    transcript.path().to_str().expect("transcript path"),
+  );
+
+  let response = get_session_instructions(Path(session_id.clone()), State(state))
+    .await
+    .expect("instructions endpoint should succeed");
+
+  assert_eq!(response.0.session_id, session_id);
+  assert_eq!(response.0.provider, Provider::Claude);
+  assert_eq!(
+    response.0.instructions.claude_md.as_deref(),
+    Some("Global guidance\n\nProject guidance")
+  );
+  assert!(response.0.instructions.system_prompt.is_some());
 }

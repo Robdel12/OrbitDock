@@ -175,7 +175,3 @@ struct ProjectGroupBuilder {
   session_ids: Vec<String>,
   last_activity_at: Option<String>,
 }
-
-#[cfg(test)]
-#[path = "dashboard_tests.rs"]
-mod dashboard_tests;
