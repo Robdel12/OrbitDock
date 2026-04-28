@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 22 landed / Phase 23 codex redesign pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, and the first deliberate redesign slice is now landed through `3f53f556`. Phase 22 extracted the advisory transcript-sync guard/cache state out of `session_runtime_helpers.rs`, moving `TranscriptSyncUsageSignature`, `TranscriptSyncGuardState`, the cache storage, and the guard helper flow into `runtime/transcript_sync_guard.rs`. Validation passed with `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server session_runtime_helpers --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. `session_runtime_helpers.rs` is now down to 699 lines, and the broad catch-all cleanup remains complete. The main remaining heavy seam is now `codex_session.rs` at 862 lines, specifically its dynamic-tool routing and post-response side-effect application path.`
+- Current phase: `Phase 23 landed / catch-all refactor complete`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 23 extracted the post-response mission/session side-effect block out of `codex_session.rs`, replacing the boolean `has_mission_side_effects` with an explicit `DynamicToolPostResponseEffects` outcome shape in `codex_session_dynamic_tools.rs`. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml` and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. `codex_session.rs` is now down to 767 lines, `session_runtime_helpers.rs` is 699, `session.rs` is 639, `app/mod.rs` is 651, `persistence/mod.rs` is 616, `session_command_handler.rs` is 589, and `github/client.rs` is 522. At this point the repo no longer has broad accidental mega catch-all files in the main server/API refactor set. The remaining larger files are accepted authority/facade spines or explicitly bounded future redesign targets, not undefined cleanup debt.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1953,7 +1953,20 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch the Phase 23 worker.
-- [ ] Land the Codex dynamic-tool outcome redesign slice.
-- [ ] Re-run focused Codex/server validation.
-- [ ] Regroup again and decide whether any remaining large files are still real catch-alls or just accepted spines.
+- [x] Launch the Phase 23 worker.
+- [x] Land the Codex dynamic-tool outcome redesign slice.
+- [x] Re-run focused Codex/server validation.
+- [x] Regroup again and decide whether any remaining large files are still real catch-alls or just accepted spines.
+
+### Phase 23 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd206-5703-7513-a401-cd7f1d9f8631` (`Mencius`) | completed - landed in `f763dbe7` |
+
+### Phase 23 execution note
+
+- `f763dbe7` `♻️ Split Codex dynamic tool outcomes`
+- `codex_session.rs` now keeps connector event-loop routing, diff tracking, dynamic-tool execution, and connector response submission, while `codex_session_dynamic_tools.rs` owns the explicit post-response side-effect application path.
+- The mission/session side-effect seam is no longer represented as a vague boolean. It now has an explicit outcome shape, which makes the remaining file shape much more honest.
+- After this slice, the remaining larger files in the server/API refactor set read as accepted spines or clearly bounded future redesign candidates, not as accidental catch-alls.
