@@ -23,6 +23,8 @@ use tracing::{info, warn};
 
 use anyhow::Context;
 
+mod config_policy;
+
 use crate::domain::sessions::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -36,6 +38,11 @@ use crate::infrastructure::persistence::{
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
 use crate::VERSION;
+
+use self::config_policy::{
+  load_trimmed_config_value, normalize_auth_token, parse_server_role_value,
+  resolve_workspace_provider_kind,
+};
 
 /// Per-request body budget for REST uploads. Image attachments are uploaded
 /// one at a time, so this should comfortably exceed the client-side single-image limit.
@@ -626,36 +633,6 @@ fn describe_bind_failure(error: std::io::Error, bind_addr: SocketAddr) -> anyhow
   anyhow::Error::new(error)
 }
 
-fn parse_server_role_value(value: &str) -> Option<bool> {
-  match value.trim().to_ascii_lowercase().as_str() {
-    "primary" | "true" | "1" => Some(true),
-    "secondary" | "false" | "0" => Some(false),
-    _ => None,
-  }
-}
-
-fn normalize_auth_token(auth_token: Option<String>) -> Option<String> {
-  auth_token
-    .map(|token| token.trim().to_string())
-    .filter(|token| !token.is_empty())
-}
-
-fn resolve_workspace_provider_kind(
-  override_kind: Option<WorkspaceProviderKind>,
-  persisted_value: Option<String>,
-) -> anyhow::Result<WorkspaceProviderKind> {
-  if let Some(override_kind) = override_kind {
-    return Ok(override_kind);
-  }
-
-  match persisted_value {
-    Some(value) => value
-      .parse::<WorkspaceProviderKind>()
-      .map_err(|error| anyhow::anyhow!(error)),
-    None => Ok(WorkspaceProviderKind::default()),
-  }
-}
-
 fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
   let raw = match std::env::var("ORBITDOCK_CORS_ALLOWED_ORIGINS") {
     Ok(value) => value,
@@ -768,17 +745,6 @@ async fn health_handler() -> impl IntoResponse {
       "version": VERSION,
   })
   .to_string()
-}
-
-fn load_trimmed_config_value(key: &str) -> Option<String> {
-  crate::infrastructure::persistence::load_config_value(key).and_then(|value| {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-      None
-    } else {
-      Some(trimmed.to_string())
-    }
-  })
 }
 
 #[cfg(test)]
