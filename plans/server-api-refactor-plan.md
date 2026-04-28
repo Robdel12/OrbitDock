@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 17 landed / Phase 18 implementation pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, and the Phase 17 domain-state and usage-accounting wave is now landed through `1f24ef19` and `37114bb3`. Phase 17 finished the next two `split-now` lanes: `server/src/domain/sessions/state.rs` is down to 1132 lines with `row_history.rs` (172), `row_sequence.rs` (44), and `transcript_anchor.rs` (27) extracted, and `infrastructure/persistence/usage.rs` is down to 25 lines with `usage_kind.rs` (21), `usage_normalization.rs` (64), `usage_writes.rs` (455), and `usage_maintenance.rs` (245) split out. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server usage::tests --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server state_tests --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining size is now concentrated in `server/src/domain/sessions/state.rs` (1132), `server/src/domain/sessions/session.rs` (854), `server/src/infrastructure/github/client.rs` (833), `server/src/infrastructure/persistence/mod.rs` (806), `server/src/app/mod.rs` (786), and `server/src/runtime/session_command_handler.rs` (691), plus the already-parked redesign seams. The regroup verdicts are sharper now: `github/client.rs` is `split-now`; `session_command_handler.rs` remains the runtime spine with only helper peel-offs; `persistence/mod.rs` stays a spine with tiny helper peel-offs; `app/mod.rs` needs a helper-first redesign approach; and the parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, `state.rs` config/transition bridging, and `codex_session.rs`.`
+- Current phase: `Phase 18 landed / Phase 19 regroup pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, and the Phase 18 operational hotspot wave is now landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`. Phase 18 finished the remaining clearly safe operational helper splits: `infrastructure/github/client.rs` is down to 522 lines with `helpers.rs` (66), `transport.rs` (145), and `project_status.rs` (151) extracted; `infrastructure/persistence/mod.rs` is down to 635 lines with `claude_shadow.rs` (60), `row_turn_codecs.rs` (58), and `timestamps.rs` (61) extracted; `runtime/session_command_handler.rs` is down to 589 lines with `session_command_snapshot_delta.rs` (45), `session_command_watchdog.rs` (58), and `session_connector_error.rs` (22) extracted; and `app/mod.rs` is down to 752 lines with `config_policy.rs` (42) extracted. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server parse_identifier_accepts_valid_inputs_and_rejects_invalid_ones --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining size is now concentrated in `server/src/domain/sessions/state.rs` (1132), `server/src/domain/sessions/session.rs` (854), `server/src/app/mod.rs` (752), `server/src/infrastructure/persistence/mod.rs` (635), `server/src/runtime/session_command_handler.rs` (589), and `server/src/infrastructure/github/client.rs` (522), plus the already-parked redesign seams. The easy helper-density wins are mostly gone now. What remains is mostly authoritative spines, orchestration roots, or redesign-first seams.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1701,9 +1701,67 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch the Phase 18 workers with disjoint ownership.
-- [ ] Land the `github/client.rs` breakup slice.
-- [ ] Land the `persistence/mod.rs` helper peel-off slice.
-- [ ] Land the `session_command_handler.rs` helper peel-off slice.
-- [ ] Land the `app/mod.rs` helper peel-off slice.
-- [ ] Re-run server, persistence, and operational validation after the landed slices.
+- [x] Launch the Phase 18 workers with disjoint ownership.
+- [x] Land the `github/client.rs` breakup slice.
+- [x] Land the `persistence/mod.rs` helper peel-off slice.
+- [x] Land the `session_command_handler.rs` helper peel-off slice.
+- [x] Land the `app/mod.rs` helper peel-off slice.
+- [x] Re-run server, persistence, and operational validation after the landed slices.
+
+### Phase 18 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd1e5-7dc8-7130-b018-4b4c3ac1e6dc` (`Hubble`) | completed - landed in `6c4f1934` |
+| Worker B | `019dd1e5-815e-7173-9ed0-5ba5b7b86d3d` (`Dewey`) | completed - landed in `417c90dd` |
+| Worker C | `019dd1e5-8492-7ea0-ac68-9d0388254403` (`Herschel`) | completed - landed in `c2812dd6` |
+| Worker D | `019dd1e5-88ea-7cc1-b6f8-2ea1b6c51d17` (`Newton`) | completed - landed in `2ec0c67b` |
+
+### Phase 18 execution note
+
+- `6c4f1934` `♻️ Split GitHub client helpers`
+- `417c90dd` `♻️ Split persistence spine helpers`
+- `c2812dd6` `♻️ Split session command helpers`
+- `2ec0c67b` `♻️ Split app config policy helpers`
+- `github/client.rs` is no longer a giant everything-file. The remaining 522-line facade is mostly the actual `GitHubClient` owner and tracker-specific orchestration.
+- `persistence/mod.rs` now reads more honestly as the persistence dispatch spine instead of a dispatch file plus a pile of helper utilities.
+- `session_command_handler.rs` is now closer to its real job: runtime command orchestration and transition application, not watchdog and delta-helper storage.
+- `app/mod.rs` is still large, but the pure config/policy parsing cluster is gone, which makes the remaining size more obviously “startup composition root” size rather than accidental helper sprawl.
+
+## Phase 19: Authority Spine Regroup
+
+Objective: now that the easy helper-density cuts are mostly done, recut the remaining large files into three categories: truly acceptable spines, still-safe helper opportunities, and redesign-first seams that need a more deliberate plan.
+
+Primary regroup targets:
+
+1. `server/src/domain/sessions/state.rs`
+2. `server/src/domain/sessions/session.rs`
+3. `server/src/app/mod.rs`
+4. `server/src/infrastructure/persistence/mod.rs`
+5. `server/src/runtime/session_command_handler.rs`
+6. parked redesign seams: `server/src/runtime/session_runtime_helpers.rs` and `server/src/connectors/codex_session.rs`
+
+Execution rules:
+
+- Phase 19 is read-only evaluation first. Do not force more splits until the regroup says they are real wins.
+- Be explicit about which files are now acceptable spines even if they are still comparatively large.
+- Separate “still large because it owns real authority” from “still large because we missed safe helper peel-offs.”
+- Keep startup/write-side `control_mode`, single-writer conversation persistence, and Codex ownership routing in the redesign bucket unless the evaluation proves otherwise.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `server/src/domain/sessions/{state.rs,session.rs}` read-only | Re-evaluate the session core after the row/history split and classify what remains as acceptable spine, still-safe helper peel, or redesign-first. |
+| Worker B | `gpt-5.4-mini` | `server/src/app/mod.rs` and `server/src/infrastructure/persistence/mod.rs` read-only | Decide whether the remaining size is now acceptable orchestration-spine size or whether there is one more safe helper wave worth doing. |
+| Worker C | `gpt-5.4-mini` | `server/src/runtime/session_command_handler.rs` and `server/src/infrastructure/github/client.rs` read-only | Decide whether those remaining facades are now in good shape or still deserve another small implementation wave. |
+| Worker D | `gpt-5.4-mini` | `server/src/runtime/session_runtime_helpers.rs` and `server/src/connectors/codex_session.rs` read-only | Refresh the redesign map for the parked runtime/Codex ownership seams now that the surrounding helper clutter is reduced. |
+
+Tasks:
+
+- [ ] Launch the Phase 19 evaluation workers with disjoint ownership.
+- [ ] Integrate the `state.rs` / `session.rs` regroup verdicts into the plan.
+- [ ] Integrate the app/persistence regroup verdicts into the plan.
+- [ ] Integrate the runtime/GitHub regroup verdicts into the plan.
+- [ ] Integrate the parked redesign seam refresh into the plan.
+- [ ] Write the next honest implementation or redesign phase from those results.
