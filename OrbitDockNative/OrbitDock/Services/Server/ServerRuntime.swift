@@ -114,7 +114,11 @@ final class ServerRuntime: Identifiable {
   }
 
   func suspendInactive() {
-    stop()
+    guard isStarted else { return }
+    stopToolPtyEventRouting()
+    connection.disconnect()
+    endpointStore.suspendProcessingEventsForBackground()
+    isStarted = false
   }
 
   private func refreshServerIdentity() {

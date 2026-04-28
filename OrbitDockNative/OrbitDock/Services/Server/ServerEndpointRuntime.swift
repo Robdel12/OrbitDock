@@ -146,16 +146,14 @@ final class ServerEndpointRuntime {
   }
 
   func stopProcessingEvents() {
-    eventProcessingTask?.cancel()
-    eventProcessingTask = nil
-    for session in activeSessions {
-      session.transport.stopProcessingEvents()
-    }
-    if let connectionListenerToken {
-      connection.removeListener(connectionListenerToken)
-      self.connectionListenerToken = nil
-    }
-    netLog(.info, cat: .store, "Stopped endpoint event processing", data: ["endpointId": endpointId.uuidString])
+    teardownEventProcessing(resetSessions: true, logMessage: "Stopped endpoint event processing")
+  }
+
+  func suspendProcessingEventsForBackground() {
+    teardownEventProcessing(
+      resetSessions: false,
+      logMessage: "Suspended endpoint event processing for background"
+    )
   }
 
   func routeEvent(_ event: ServerEvent) {
@@ -264,6 +262,21 @@ final class ServerEndpointRuntime {
     for session in activeSessions {
       session.transport.handleConnectionStatusChanged(status)
     }
+  }
+
+  private func teardownEventProcessing(resetSessions: Bool, logMessage: String) {
+    eventProcessingTask?.cancel()
+    eventProcessingTask = nil
+    if resetSessions {
+      for session in activeSessions {
+        session.transport.stopProcessingEvents()
+      }
+    }
+    if let connectionListenerToken {
+      connection.removeListener(connectionListenerToken)
+      self.connectionListenerToken = nil
+    }
+    netLog(.info, cat: .store, logMessage, data: ["endpointId": endpointId.uuidString])
   }
 
   private var activeSessions: [ServerSessionContext] {

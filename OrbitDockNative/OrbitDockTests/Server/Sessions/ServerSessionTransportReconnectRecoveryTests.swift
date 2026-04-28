@@ -145,6 +145,48 @@ struct ServerSessionTransportReconnectRecoveryTests {
     #expect(connection.subscribeCalls.first?.sinceRevision == 17)
   }
 
+  @Test func backgroundSuspendPreservesSessionRealtimeLifecycleAcrossResume() async throws {
+    let connection = EndpointRuntimeConnectionSpy()
+    let harness = try makeSessionHarness(
+      loader: { request in try await SimpleTransportFixture().loader(request) },
+      connection: connection
+    )
+    let session = harness.session
+    harness.runtime.startProcessingEvents()
+    let (events, id) = session.transport.events()
+
+    session.transport.subscribe(surfaces: [.detail])
+    #expect(connection.subscribeCalls.count == 1)
+
+    harness.runtime.suspendProcessingEventsForBackground()
+    #expect(connection.unsubscribeCalls.isEmpty)
+
+    connection.clearSubscribeCalls()
+    async let invalidationCounts = ConversationEventRecorder.collectInvalidationCounts(
+      from: events,
+      until: (.detail, 1)
+    )
+
+    harness.runtime.startProcessingEvents()
+    harness.runtime.routeEvent(.connectionStatusChanged(.connected))
+
+    #expect(connection.subscribeCalls.count == 1)
+    #expect(connection.subscribeCalls.first?.surface == .detail)
+
+    harness.runtime.routeEvent(
+      .sessionSurfaceInvalidated(
+        sessionId: "session-1",
+        surface: .detail,
+        revision: 21
+      )
+    )
+
+    let counts = await invalidationCounts
+    session.transport.removeEventListener(id: id)
+
+    #expect(counts[.detail, default: 0] == 1)
+  }
+
   @Test func conversationRowDeltasDoNotTriggerAnotherBootstrapFetch() async throws {
     let fixture = ConversationBootstrapFixture()
     let harness = try makeSessionHarness(
