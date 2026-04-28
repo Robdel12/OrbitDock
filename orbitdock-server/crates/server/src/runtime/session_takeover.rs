@@ -18,8 +18,8 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  activate_direct_session_runtime, attach_claude_direct_runtime,
-  claim_codex_thread_for_direct_session, AttachClaudeDirectRuntimeRequest,
+  attach_claude_direct_runtime, attach_codex_direct_runtime, AttachClaudeDirectRuntimeRequest,
+  AttachCodexDirectRuntimeRequest,
 };
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
@@ -339,27 +339,17 @@ async fn complete_codex_takeover(
 
   match tokio::time::timeout(Duration::from_secs(15), &mut connector_task).await {
     Ok(Ok(Ok(codex))) => {
-      let persist_tx = state.persist().clone();
-      let new_thread_id = codex.thread_id().to_string();
-      claim_codex_thread_for_direct_session(
+      attach_codex_direct_runtime(
         state,
-        &persist_tx,
-        &session_id,
-        &new_thread_id,
-        "http_takeover_thread_cleanup",
+        AttachCodexDirectRuntimeRequest {
+          session_id: session_id.clone(),
+          handle,
+          codex_session: codex,
+          thread_cleanup_reason: "http_takeover_thread_cleanup",
+          persist_integration_mode: true,
+        },
       )
       .await;
-
-      let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-        codex,
-        handle,
-        persist_tx.clone(),
-        state.clone(),
-      );
-      state.add_session_actor(actor_handle);
-      state.set_codex_action_tx(&session_id, action_tx);
-
-      activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
 
       if let Some(actor) = state.get_session(&session_id) {
         if let Some(ref model_name) = effective_model {
@@ -379,14 +369,6 @@ async fn complete_codex_takeover(
             .await;
         }
       }
-
-      let _ = persist_tx
-        .send(PersistCommand::SetIntegrationMode {
-          session_id: session_id.clone(),
-          codex_mode: Some("direct".into()),
-          claude_mode: None,
-        })
-        .await;
 
       info!(
           component = "session",

@@ -317,6 +317,14 @@ pub(crate) struct AttachClaudeDirectRuntimeRequest {
   pub apply_permission_before_activate: bool,
 }
 
+pub(crate) struct AttachCodexDirectRuntimeRequest {
+  pub session_id: String,
+  pub handle: SessionHandle,
+  pub codex_session: crate::connectors::codex_session::CodexSession,
+  pub thread_cleanup_reason: &'static str,
+  pub persist_integration_mode: bool,
+}
+
 async fn apply_claude_permission_mode_update(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -391,6 +399,51 @@ pub(crate) async fn attach_claude_direct_runtime(
       claude_mode: Some("direct".into()),
     })
     .await;
+}
+
+pub(crate) async fn attach_codex_direct_runtime(
+  state: &Arc<SessionRegistry>,
+  request: AttachCodexDirectRuntimeRequest,
+) {
+  let AttachCodexDirectRuntimeRequest {
+    session_id,
+    mut handle,
+    codex_session,
+    thread_cleanup_reason,
+    persist_integration_mode,
+  } = request;
+
+  let persist_tx = state.persist().clone();
+  let thread_id = codex_session.thread_id().to_string();
+  claim_codex_thread_for_direct_session(
+    state,
+    &persist_tx,
+    &session_id,
+    &thread_id,
+    thread_cleanup_reason,
+  )
+  .await;
+
+  state.prepare_session_handle(&mut handle);
+  let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
+    codex_session,
+    handle,
+    persist_tx.clone(),
+    state.clone(),
+  );
+  state.add_session_actor(actor_handle);
+  state.set_codex_action_tx(&session_id, action_tx);
+  activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
+
+  if persist_integration_mode {
+    let _ = persist_tx
+      .send(PersistCommand::SetIntegrationMode {
+        session_id,
+        codex_mode: Some("direct".into()),
+        claude_mode: None,
+      })
+      .await;
+  }
 }
 
 pub(crate) async fn mark_direct_session_connector_detached(

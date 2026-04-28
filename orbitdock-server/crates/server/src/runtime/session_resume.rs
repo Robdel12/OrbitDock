@@ -15,9 +15,8 @@ use crate::runtime::codex_config::{resolve_codex_settings, CodexConfigSelection}
 use crate::runtime::restored_sessions::PreparedResumeSession;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  activate_direct_session_runtime, attach_claude_direct_runtime,
-  claim_codex_thread_for_direct_session, direct_resume_failure_changes,
-  AttachClaudeDirectRuntimeRequest,
+  attach_claude_direct_runtime, attach_codex_direct_runtime, direct_resume_failure_changes,
+  AttachClaudeDirectRuntimeRequest, AttachCodexDirectRuntimeRequest,
 };
 use crate::support::session_paths::resolve_claude_resume_cwd;
 
@@ -341,7 +340,6 @@ async fn spawn_codex_resume(
     ..
   } = request;
   let session_id = session_id.to_string();
-  let persist_tx = state.persist().clone();
   let state = state.clone();
   let (startup_ready_tx, startup_ready_rx) = oneshot::channel();
 
@@ -463,26 +461,17 @@ async fn spawn_codex_resume(
     match codex_start {
       Ok(codex_session) => {
         handle.set_model(resumed_session_model);
-        let thread_id = codex_session.thread_id().to_string();
-        claim_codex_thread_for_direct_session(
+        attach_codex_direct_runtime(
           &state,
-          &persist_tx,
-          &session_id,
-          &thread_id,
-          "http_resume_thread_cleanup",
+          AttachCodexDirectRuntimeRequest {
+            session_id: session_id.clone(),
+            handle,
+            codex_session,
+            thread_cleanup_reason: "http_resume_thread_cleanup",
+            persist_integration_mode: false,
+          },
         )
         .await;
-
-        state.prepare_session_handle(&mut handle);
-        let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-          codex_session,
-          handle,
-          persist_tx,
-          state.clone(),
-        );
-        state.add_session_actor(actor_handle);
-        state.set_codex_action_tx(&session_id, action_tx);
-        activate_direct_session_runtime(&state, &session_id, Provider::Codex).await;
         info!(
             component = "session",
             event = "session.resume.http.codex_connected",

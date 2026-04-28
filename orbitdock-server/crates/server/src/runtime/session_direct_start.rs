@@ -9,7 +9,7 @@ use crate::domain::sessions::session::SessionHandle;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  activate_direct_session_runtime, claim_codex_thread_for_direct_session,
+  activate_direct_session_runtime, attach_codex_direct_runtime, AttachCodexDirectRuntimeRequest,
 };
 use orbitdock_connector_codex::{CodexConfigOverrides, CodexRuntimeOverrides};
 use orbitdock_protocol::Provider;
@@ -37,7 +37,7 @@ pub(crate) async fn start_direct_codex_session(
   request: StartDirectCodexRequest<'_>,
 ) -> Result<(), String> {
   let StartDirectCodexRequest {
-    mut handle,
+    handle,
     session_id,
     cwd,
     model,
@@ -65,7 +65,6 @@ pub(crate) async fn start_direct_codex_session(
   let developer_instructions = developer_instructions.map(ToOwned::to_owned);
   let config_profile = config_profile.map(ToOwned::to_owned);
   let model_provider = model_provider.map(ToOwned::to_owned);
-  let persist_tx = state.persist().clone();
   let connector_timeout = Duration::from_secs(15);
   let task_session_id = session_id.clone();
 
@@ -112,26 +111,17 @@ pub(crate) async fn start_direct_codex_session(
     }
   };
 
-  let thread_id = codex_session.thread_id().to_string();
-  claim_codex_thread_for_direct_session(
+  attach_codex_direct_runtime(
     state,
-    &persist_tx,
-    &session_id,
-    &thread_id,
-    "direct_codex_thread_claim",
+    AttachCodexDirectRuntimeRequest {
+      session_id: session_id.clone(),
+      handle,
+      codex_session,
+      thread_cleanup_reason: "direct_codex_thread_claim",
+      persist_integration_mode: false,
+    },
   )
   .await;
-
-  state.prepare_session_handle(&mut handle);
-  let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
-    codex_session,
-    handle,
-    persist_tx,
-    state.clone(),
-  );
-  state.add_session_actor(actor_handle);
-  state.set_codex_action_tx(&session_id, action_tx);
-  activate_direct_session_runtime(state, &session_id, Provider::Codex).await;
 
   info!(
       component = "session",
