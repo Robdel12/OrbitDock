@@ -2175,3 +2175,145 @@ Tasks:
   - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock --lib --tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`
   - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`
   - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`
+
+## Phase 25C: Runtime Authority Convergence
+
+Objective: collapse the remaining duplicate runtime authority seams so session startup, recovery, takeover, and resume all flow through one honest set of ownership rules instead of layered compatibility paths.
+
+Why this phase is next:
+
+- The transport contract is now converged, so the biggest remaining debt is no longer request-path duplication.
+- The next concentrated risk is runtime truth: startup recovery, takeover/resume, session materialization, and the persistence-to-runtime handoff still carry overlapping authority.
+- This is the highest-value remaining server cleanup before we tighten protocol/native mirrors.
+
+Scope for this slice:
+
+- `server/src/runtime/session_command_persistence.rs`
+- `server/src/infrastructure/persistence/session_reads/startup_recovery.rs`
+- `server/src/runtime/session_takeover.rs`
+- `server/src/runtime/session_resume.rs`
+- any directly-adjacent runtime helper/read path needed to collapse duplicate authority
+
+Execution rules:
+
+- Keep server-authoritative state on the server.
+- Do not reintroduce WebSocket write ownership.
+- Do not casually disturb the known-live Claude shadow preservation boundary.
+- Do not reopen single-writer persistence guarantees.
+- Prefer deleting duplicate translation/mapping paths over layering one more abstraction on top.
+
+Tasks:
+
+- [ ] Re-audit `session_command_persistence.rs` and decide whether it can be deleted outright or collapsed into one canonical runtime-to-persist transition path.
+- [ ] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
+- [ ] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
+- [ ] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
+- [ ] Re-run focused runtime, persistence, and server validation.
+- [ ] Commit the Phase 25C runtime-authority slice.
+
+Done when:
+
+- [ ] There is one obvious owning path for startup recovery and one obvious owning path for takeover/resume behavior.
+- [ ] `session_command_persistence.rs` is either gone or clearly justified as a thin canonical adapter instead of a second authority lane.
+- [ ] The runtime/persistence relationship is easier to explain than “it depends which path woke the session up.”
+
+## Phase 25D: Protocol And Native Contract Convergence
+
+Objective: narrow the remaining protocol/native mirror sprawl so the Rust protocol, HTTP/WS payloads, and native client contracts represent the same current product surface rather than historical aggregate shapes.
+
+Why this phase is next:
+
+- Once runtime authority is clearer, we can safely remove contract duplication without guessing which path still owns behavior.
+- The remaining debt here is not giant files anymore; it is mirrored over-modeling and parity pressure.
+
+Scope for this slice:
+
+- `protocol/src/conversation_contracts/tool_payloads.rs`
+- `protocol/src/types/approvals.rs`
+- `protocol/src/domain_events/approvals.rs`
+- `protocol/src/types/session.rs`
+- Native mirrors under `OrbitDockNative/OrbitDock/Services/Server`
+
+Execution rules:
+
+- Preserve real client-visible contracts until the native side changes in the same slice.
+- Prefer deleting duplicate mirrors and old summary/payload paths over inventing another compatibility layer.
+- Keep HTTP as the authoritative heavy/read/write contract and WebSocket as the lightweight realtime contract.
+
+Tasks:
+
+- [ ] Re-audit approval, session, and tool-payload protocol surfaces for duplicate representations.
+- [ ] Delete or collapse redundant Rust protocol types that no longer carry distinct behavior.
+- [ ] Update native mirror types and decoding so they match the narrowed protocol surface in the same slice.
+- [ ] Verify that no active native or web surface still expects the removed contract shapes.
+- [ ] Re-run focused protocol, native build, and server validation.
+- [ ] Commit the Phase 25D protocol/native convergence slice.
+
+Done when:
+
+- [ ] Approval/session/tool payloads have one current representation each, or a clearly-justified split with active consumers.
+- [ ] Native server contract mirrors feel current, not archival.
+- [ ] No dead parity-only protocol surface remains just because it was once convenient.
+
+## Phase 26: Final Fresh-Eyes Reevaluation
+
+Objective: stop cutting long enough to re-audit the post-convergence codebase with fresh eyes and make one final decision about what is truly done, what is accepted, and what is intentionally parked.
+
+Why this phase exists:
+
+- We do not want to drift from “executing a plan” into “continuing forever.”
+- After 25C and 25D, the right move is a deliberate final reevaluation, not more instinctive trimming.
+
+Tasks:
+
+- [ ] Re-run the macro line/file audit from the current tree.
+- [ ] Reclassify the remaining server/API/native surfaces into `leave alone`, `accepted spine`, `future redesign`, or `must-fix before closeout`.
+- [ ] Confirm there are no remaining mega catch-alls that violate the bar we set for this refactor.
+- [ ] Write the final honest recommendation: either one tiny last implementation slice or move directly to closeout.
+
+Done when:
+
+- [ ] We have a final current-state audit based on the refactored tree, not earlier assumptions.
+- [ ] Any remaining debt is explicitly accepted or explicitly parked.
+- [ ] The plan no longer contains “open momentum” phases.
+
+## Phase 27: Docs And Plan Closeout
+
+Objective: finish the refactor properly by leaving the durable docs accurate, deleting or archiving planning debris that no longer serves execution, and recording the final state clearly.
+
+Why this must be the last phase:
+
+- A “done” refactor is not just code passing tests.
+- The repo should not keep stale plan branches, outdated audit assumptions, or docs that describe pre-convergence architecture as if it were current.
+
+Scope for this slice:
+
+- `plans/server-api-refactor-plan.md`
+- `plans/server-api-line-audit.md`
+- any older server/API planning docs in `plans/` that are fully superseded
+- any docs under `docs/` or repo-local API documentation that drifted during the refactor
+
+Execution rules:
+
+- Keep the final durable documents that still help future engineers.
+- Delete or archive plan docs only when their purpose is fully superseded by the final source-of-truth document or final docs.
+- Prefer tightening docs over expanding them.
+
+Tasks:
+
+- [ ] Update durable docs to match the final server/API architecture and transport model.
+- [ ] Decide which temporary planning docs should be deleted, which should be collapsed into one final summary, and which should remain as durable reference.
+- [ ] Remove fully superseded plan/audit debris from `plans/`.
+- [ ] Convert the main refactor plan from an in-progress execution tracker into a finished record, or archive it if a cleaner durable doc replaces it.
+- [ ] Run one final verification sweep on the final tree.
+- [ ] Commit the Phase 27 docs/plan closeout slice.
+
+Definition of done:
+
+- [ ] The server/API codebase is organized, current, and no longer dominated by mega catch-all modules.
+- [ ] Remaining larger files are accepted spines or explicitly parked redesign seams, not accidental junk drawers.
+- [ ] HTTP owns the authoritative mutation/bootstrap contract and WebSocket is limited to lightweight realtime/subscription work.
+- [ ] Runtime authority and protocol/native contract seams have been deliberately converged or explicitly parked.
+- [ ] Docs describe the codebase we actually have now.
+- [ ] Temporary planning debris has been deleted or archived intentionally.
+- [ ] The branch can be considered complete without “one more cleanup pass.”
