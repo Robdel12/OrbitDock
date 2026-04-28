@@ -67,8 +67,6 @@ pub(crate) struct RestoredSessionRow {
   pub codex_thread_id: Option<String>,
   pub end_reason: Option<String>,
   pub lifecycle_state: String,
-  pub terminal_session_id: Option<String>,
-  pub terminal_app: Option<String>,
   pub token_usage_snapshot_kind_str: String,
 }
 
@@ -104,9 +102,7 @@ impl RestoredSessionRow {
       codex_thread_id: row.get(26)?,
       end_reason: row.get(27)?,
       lifecycle_state: row.get(28)?,
-      terminal_session_id: row.get(29)?,
-      terminal_app: row.get(30)?,
-      token_usage_snapshot_kind_str: row.get(31)?,
+      token_usage_snapshot_kind_str: row.get(29)?,
     })
   }
 }

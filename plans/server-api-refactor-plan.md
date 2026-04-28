@@ -2207,6 +2207,7 @@ Tasks:
 - [x] Re-audit `session_command_persistence.rs` and decide whether it can be deleted outright or collapsed into one canonical runtime-to-persist transition path.
   Landed as a narrow runtime-authority cleanup: the extra runtime `PersistOp` / `SessionConfigPersist` dialect is gone, `SessionCommand` now carries real `PersistCommand`s, and `session_command_persistence.rs` is reduced to a thin sender plus row/broadcast helpers instead of a second translation lane.
 - [ ] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
+  In progress: startup restore and by-id hydration now share one `load_restored_session_supplement(...)` path for config/usage/diff/summary/approval metadata materialization, while the startup repair SQL and row-loading policy remain caller-owned until the next cut.
 - [ ] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
 - [ ] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
   In progress: the shared `SessionHandle` registry wiring is now converged through `SessionRegistry::prepare_session_handle(...)`, so direct start, resume, takeover, and fork paths no longer hand-roll their own revision/list setup.

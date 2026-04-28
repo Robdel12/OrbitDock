@@ -5,16 +5,14 @@ use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
 
 use super::super::chrono_now;
-use super::super::messages::{
-  load_latest_completed_conversation_message_from_db, load_messages_from_db,
-};
-use super::super::transcripts::{extract_summary_from_transcript, load_messages_from_transcript};
+use super::super::messages::load_messages_from_db;
+use super::super::transcripts::load_messages_from_transcript;
 use super::super::usage::snapshot_kind_from_str;
-use super::codecs::{infer_codex_config_mode, parse_control_mode, parse_lifecycle_state};
-use super::hydration::{build_restored_session, load_latest_usage_turn_seq};
-use super::projections::{ActiveSessionRow, RestoredSessionParts, StoredCodexConfigRow};
+use super::codecs::{parse_control_mode, parse_lifecycle_state};
+use super::hydration::{build_restored_session, load_restored_session_supplement};
+use super::projections::{ActiveSessionRow, RestoredSessionParts};
 use super::RestoredSession;
-use orbitdock_protocol::{CodexConfigSource, CodexSessionOverrides, SessionControlMode};
+use orbitdock_protocol::SessionControlMode;
 
 #[cfg(test)]
 pub async fn load_session_lifecycle_state(
@@ -319,65 +317,6 @@ async fn load_sessions_for_startup_with_db_path(
         }
         rows
       };
-      let forked_from_session_id: Option<String> = conn
-        .query_row(
-          "SELECT forked_from_session_id FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
-
-      let (current_diff, current_plan): (Option<String>, Option<String>) = conn
-        .query_row(
-          "SELECT current_diff, current_plan FROM sessions WHERE id = ?1",
-          params![id],
-          |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap_or((None, None));
-
-      let turn_diffs = conn
-        .prepare(
-          "SELECT td.turn_id,
-                                td.diff,
-                                COALESCE(ut.input_tokens, td.input_tokens, 0),
-                                COALESCE(ut.output_tokens, td.output_tokens, 0),
-                                COALESCE(ut.cached_tokens, td.cached_tokens, 0),
-                                COALESCE(ut.context_window, td.context_window, 0),
-                                COALESCE(ut.snapshot_kind, 'unknown')
-                         FROM turn_diffs td
-                         LEFT JOIN usage_turns ut
-                           ON ut.session_id = td.session_id
-                          AND ut.turn_id = td.turn_id
-                         WHERE td.session_id = ?1
-                         ORDER BY COALESCE(ut.turn_seq, td.rowid)",
-        )
-        .and_then(|mut stmt| {
-          let rows = stmt.query_map(params![id], |row| {
-            let snapshot_kind: String = row.get(6)?;
-            Ok((
-              row.get::<_, String>(0)?,
-              row.get::<_, String>(1)?,
-              row.get::<_, i64>(2)?,
-              row.get::<_, i64>(3)?,
-              row.get::<_, i64>(4)?,
-              row.get::<_, i64>(5)?,
-              snapshot_kind_from_str(Some(snapshot_kind.as_str())),
-            ))
-          })?;
-          rows.collect::<Result<Vec<_>, _>>()
-        })
-        .unwrap_or_default();
-      let turn_count = load_latest_usage_turn_seq(&conn, &id).max(turn_diffs.len() as u64);
-
-      let (git_branch, git_sha, current_cwd): (Option<String>, Option<String>, Option<String>) =
-        conn
-          .query_row(
-            "SELECT git_branch, git_sha, current_cwd FROM sessions WHERE id = ?1",
-            params![id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-          )
-          .unwrap_or((None, None, None));
-
       let claude_sdk_session_id: Option<String> = conn
         .query_row(
           "SELECT claude_sdk_session_id FROM sessions WHERE id = ?1",
@@ -385,116 +324,21 @@ async fn load_sessions_for_startup_with_db_path(
           |row| row.get(0),
         )
         .unwrap_or(None);
-
-      let persisted_last_message: Option<String> = conn
-        .query_row(
-          "SELECT last_message FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
-      let last_message = load_latest_completed_conversation_message_from_db(&conn, &id)
-        .unwrap_or(None)
-        .or(persisted_last_message);
-
-      let effort: Option<String> = conn
-        .query_row(
-          "SELECT effort FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
-
-      let config_row: StoredCodexConfigRow = conn
-        .query_row(
-          "SELECT codex_config_mode, codex_config_profile, codex_model_provider, collaboration_mode, multi_agent, personality, service_tier, developer_instructions, codex_config_source, codex_config_overrides_json FROM sessions WHERE id = ?1",
-          params![id],
-          StoredCodexConfigRow::from_row,
-        )
-        .unwrap_or(StoredCodexConfigRow {
-          codex_config_mode_raw: None,
-          codex_config_profile: None,
-          codex_model_provider: None,
-          collaboration_mode: None,
-          multi_agent: None,
-          personality: None,
-          service_tier: None,
-          developer_instructions: None,
-          codex_config_source_raw: None,
-          codex_config_overrides_raw: None,
-        });
-      let codex_config_mode = infer_codex_config_mode(config_row.codex_config_mode_raw.as_deref());
-      let codex_config_source = match config_row.codex_config_source_raw.as_deref() {
-        Some("orbitdock") => Some(CodexConfigSource::Orbitdock),
-        Some("user") => Some(CodexConfigSource::User),
-        _ => None,
-      };
-      let codex_config_overrides = config_row
-        .codex_config_overrides_raw
-        .and_then(|value| serde_json::from_str::<CodexSessionOverrides>(&value).ok());
-      let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
-        .query_row(
-          "SELECT terminal_session_id, terminal_app FROM sessions WHERE id = ?1",
-          params![id],
-          |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap_or((None, None));
-
-      let pending_approval_id: Option<String> = conn
-        .query_row(
-          "SELECT pending_approval_id FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get(0),
-        )
-        .unwrap_or(None);
-
-      let approval_version: u64 = conn
-        .query_row(
-          "SELECT approval_version FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get::<_, i64>(0).map(|value| value as u64),
-        )
-        .unwrap_or(0);
-
-      let unread_count: u64 = conn
-        .query_row(
-          "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND sequence > (SELECT COALESCE(last_read_sequence, 0) FROM sessions WHERE id = ?1) AND type NOT IN ('user', 'steer')",
-          params![id],
-          |row| row.get::<_, i64>(0).map(|value| value as u64),
-        )
-        .unwrap_or(0);
-
-      let (mission_id, issue_identifier): (Option<String>, Option<String>) = conn
-        .query_row(
-          "SELECT mission_id, issue_identifier FROM sessions WHERE id = ?1",
-          params![id],
-          |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap_or((None, None));
-
-      let allow_bypass_permissions: bool = conn
-        .query_row(
-          "SELECT COALESCE(allow_bypass_permissions, 0) FROM sessions WHERE id = ?1",
-          params![id],
-          |row| row.get::<_, i64>(0).map(|v| v != 0),
-        )
-        .unwrap_or(false);
-
-      let mut summary: Option<String> = conn
+      let summary: Option<String> = conn
         .query_row(
           "SELECT summary FROM sessions WHERE id = ?1",
           params![id],
           |row| row.get(0),
         )
         .unwrap_or(None);
-
-      if summary.is_none() && provider == "claude" {
-        if let Some(path) = transcript_path.as_deref() {
-          if let Some(extracted) = extract_summary_from_transcript(path) {
-            summary = Some(extracted);
-          }
-        }
-      }
+      let supplement = load_restored_session_supplement(
+        &conn,
+        &id,
+        &provider,
+        transcript_path.as_deref(),
+        summary,
+        true,
+      );
 
       sessions.push(build_restored_session(RestoredSessionParts {
         id,
@@ -508,7 +352,7 @@ async fn load_sessions_for_startup_with_db_path(
         project_name,
         model,
         custom_name,
-        summary,
+        summary: supplement.summary,
         codex_thread_id,
         claude_sdk_session_id,
         started_at,
@@ -517,16 +361,16 @@ async fn load_sessions_for_startup_with_db_path(
         approval_policy,
         sandbox_mode,
         permission_mode,
-        collaboration_mode: config_row.collaboration_mode,
-        multi_agent: config_row.multi_agent,
-        personality: config_row.personality,
-        service_tier: config_row.service_tier,
-        developer_instructions: config_row.developer_instructions,
-        codex_config_mode,
-        codex_config_profile: config_row.codex_config_profile,
-        codex_model_provider: config_row.codex_model_provider,
-        codex_config_source,
-        codex_config_overrides,
+        collaboration_mode: supplement.collaboration_mode,
+        multi_agent: supplement.multi_agent,
+        personality: supplement.personality,
+        service_tier: supplement.service_tier,
+        developer_instructions: supplement.developer_instructions,
+        codex_config_mode: supplement.codex_config_mode,
+        codex_config_profile: supplement.codex_config_profile,
+        codex_model_provider: supplement.codex_model_provider,
+        codex_config_source: supplement.codex_config_source,
+        codex_config_overrides: supplement.codex_config_overrides,
         input_tokens,
         output_tokens,
         cached_tokens,
@@ -535,27 +379,27 @@ async fn load_sessions_for_startup_with_db_path(
         pending_tool_name,
         pending_tool_input,
         pending_question,
-        pending_approval_id,
+        pending_approval_id: supplement.pending_approval_id,
         rows,
-        forked_from_session_id,
-        current_diff,
-        current_plan,
-        turn_count,
-        turn_diffs,
-        git_branch,
-        git_sha,
-        current_cwd,
+        forked_from_session_id: supplement.forked_from_session_id,
+        current_diff: supplement.current_diff,
+        current_plan: supplement.current_plan,
+        turn_count: supplement.turn_count,
+        turn_diffs: supplement.turn_diffs,
+        git_branch: supplement.git_branch,
+        git_sha: supplement.git_sha,
+        current_cwd: supplement.current_cwd,
         first_prompt,
-        last_message,
+        last_message: supplement.last_message,
         end_reason: end_reason_val,
-        effort,
-        terminal_session_id,
-        terminal_app,
-        approval_version,
-        unread_count,
-        mission_id,
-        issue_identifier,
-        allow_bypass_permissions,
+        effort: supplement.effort,
+        terminal_session_id: supplement.terminal_session_id,
+        terminal_app: supplement.terminal_app,
+        approval_version: supplement.approval_version,
+        unread_count: supplement.unread_count,
+        mission_id: supplement.mission_id,
+        issue_identifier: supplement.issue_identifier,
+        allow_bypass_permissions: supplement.allow_bypass_permissions,
       }));
     }
 
