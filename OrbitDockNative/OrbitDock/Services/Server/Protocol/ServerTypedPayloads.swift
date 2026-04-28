@@ -388,42 +388,6 @@ enum ServerPermissionDescriptor: Codable {
   }
 }
 
-// MARK: - Permission Suggestion (Claude SDK PermissionUpdate format)
-
-/// Matches the Claude SDK `PermissionUpdate` wire format:
-/// `{"type": "addRules", "behavior": "allow", "destination": "localSettings", "rules": [...]}`
-struct ServerPermissionSuggestion: Codable {
-  let type: String
-  let behavior: String?
-  let destination: String?
-  let rules: [ServerPermissionSuggestionRule]
-
-  enum CodingKeys: String, CodingKey {
-    case type
-    case behavior
-    case destination
-    case rules
-  }
-
-  init(from decoder: Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    type = try container.decode(String.self, forKey: .type)
-    behavior = try container.decodeIfPresent(String.self, forKey: .behavior)
-    destination = try container.decodeIfPresent(String.self, forKey: .destination)
-    rules = try container.decodeIfPresent([ServerPermissionSuggestionRule].self, forKey: .rules) ?? []
-  }
-}
-
-struct ServerPermissionSuggestionRule: Codable {
-  let ruleContent: String?
-  let toolName: String?
-
-  enum CodingKeys: String, CodingKey {
-    case ruleContent
-    case toolName
-  }
-}
-
 // MARK: - Elicitation Mode (Part 4)
 
 enum ServerElicitationMode: String, Codable {

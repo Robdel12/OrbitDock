@@ -248,7 +248,6 @@ enum ApprovalCardModelBuilder {
       requestedPermissions: historyItem.requestedPermissions,
       grantedPermissions: historyItem.grantedPermissions,
       proposedAmendment: historyItem.proposedAmendment,
-      permissionSuggestions: historyItem.permissionSuggestions,
       elicitationMode: historyItem.elicitationMode,
       elicitationSchema: historyItem.elicitationSchema,
       elicitationUrl: historyItem.elicitationUrl,
@@ -280,7 +279,6 @@ enum ApprovalCardModelBuilder {
     let mergedRequestedPermissions = request.requestedPermissions ?? historyItem.requestedPermissions
     let mergedGrantedPermissions = request.grantedPermissions ?? historyItem.grantedPermissions
     let mergedProposedAmendment = request.proposedAmendment ?? historyItem.proposedAmendment
-    let mergedPermissionSuggestions = request.permissionSuggestions ?? historyItem.permissionSuggestions
 
     if mergedToolName == request.toolName,
        mergedToolInput == request.toolInput,
@@ -312,7 +310,6 @@ enum ApprovalCardModelBuilder {
       requestedPermissions: mergedRequestedPermissions,
       grantedPermissions: mergedGrantedPermissions,
       proposedAmendment: mergedProposedAmendment,
-      permissionSuggestions: mergedPermissionSuggestions,
       elicitationMode: request.elicitationMode ?? historyItem.elicitationMode,
       elicitationSchema: request.elicitationSchema ?? historyItem.elicitationSchema,
       elicitationUrl: request.elicitationUrl ?? historyItem.elicitationUrl,

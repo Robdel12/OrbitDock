@@ -164,9 +164,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let requestedPermissions: [ServerPermissionDescriptor]?
   let grantedPermissions: [ServerPermissionDescriptor]?
   let proposedAmendment: [String]?
-  /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
-  /// Opaque JSON — the SDK format doesn't match PermissionDescriptor.
-  let permissionSuggestions: [ServerPermissionSuggestion]?
   let elicitationMode: ServerElicitationMode?
   let elicitationSchema: AnyCodable?
   let elicitationUrl: String?
@@ -191,7 +188,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case requestedPermissions = "requested_permissions"
     case grantedPermissions = "granted_permissions"
     case proposedAmendment = "proposed_amendment"
-    case permissionSuggestions = "permission_suggestions"
     case elicitationMode = "elicitation_mode"
     case elicitationSchema = "elicitation_schema"
     case elicitationUrl = "elicitation_url"
@@ -217,7 +213,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
     requestedPermissions: [ServerPermissionDescriptor]? = nil,
     grantedPermissions: [ServerPermissionDescriptor]? = nil,
     proposedAmendment: [String]? = nil,
-    permissionSuggestions: [ServerPermissionSuggestion]? = nil,
     elicitationMode: ServerElicitationMode? = nil,
     elicitationSchema: AnyCodable? = nil,
     elicitationUrl: String? = nil,
@@ -241,7 +236,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
     self.requestedPermissions = requestedPermissions
     self.grantedPermissions = grantedPermissions
     self.proposedAmendment = proposedAmendment
-    self.permissionSuggestions = permissionSuggestions
     self.elicitationMode = elicitationMode
     self.elicitationSchema = elicitationSchema
     self.elicitationUrl = elicitationUrl
@@ -275,10 +269,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
       forKey: .grantedPermissions
     )
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try? container.decodeIfPresent(
-      [ServerPermissionSuggestion].self,
-      forKey: .permissionSuggestions
-    )
     elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
@@ -311,7 +301,6 @@ struct ServerApprovalRequest: Codable, Identifiable {
       try container.encode(perms, forKey: .grantedPermissions)
     }
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
-    try container.encodeIfPresent(permissionSuggestions, forKey: .permissionSuggestions)
     try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
     try container.encodeIfPresent(elicitationSchema, forKey: .elicitationSchema)
     try container.encodeIfPresent(elicitationUrl, forKey: .elicitationUrl)
@@ -364,9 +353,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
   let cwd: String?
   let decision: String?
   let proposedAmendment: [String]?
-  /// Raw permission suggestions from Claude SDK (PermissionUpdate[]).
-  /// Opaque JSON — the SDK format doesn't match PermissionDescriptor.
-  let permissionSuggestions: [ServerPermissionSuggestion]?
   let elicitationMode: ServerElicitationMode?
   let elicitationSchema: AnyCodable?
   let elicitationUrl: String?
@@ -396,7 +382,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     case cwd
     case decision
     case proposedAmendment = "proposed_amendment"
-    case permissionSuggestions = "permission_suggestions"
     case elicitationMode = "elicitation_mode"
     case elicitationSchema = "elicitation_schema"
     case elicitationUrl = "elicitation_url"
@@ -427,7 +412,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd: String? = nil,
     decision: String? = nil,
     proposedAmendment: [String]? = nil,
-    permissionSuggestions: [ServerPermissionSuggestion]? = nil,
     elicitationMode: ServerElicitationMode? = nil,
     elicitationSchema: AnyCodable? = nil,
     elicitationUrl: String? = nil,
@@ -456,7 +440,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     self.cwd = cwd
     self.decision = decision
     self.proposedAmendment = proposedAmendment
-    self.permissionSuggestions = permissionSuggestions
     self.elicitationMode = elicitationMode
     self.elicitationSchema = elicitationSchema
     self.elicitationUrl = elicitationUrl
@@ -495,10 +478,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
     decision = try container.decodeIfPresent(String.self, forKey: .decision)
     proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
-    permissionSuggestions = try? container.decodeIfPresent(
-      [ServerPermissionSuggestion].self,
-      forKey: .permissionSuggestions
-    )
     elicitationMode = try container.decodeIfPresent(ServerElicitationMode.self, forKey: .elicitationMode)
     elicitationSchema = try container.decodeIfPresent(AnyCodable.self, forKey: .elicitationSchema)
     elicitationUrl = try container.decodeIfPresent(String.self, forKey: .elicitationUrl)
@@ -536,9 +515,6 @@ struct ServerApprovalHistoryItem: Codable, Identifiable {
     try container.encodeIfPresent(cwd, forKey: .cwd)
     try container.encodeIfPresent(decision, forKey: .decision)
     try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
-    if let suggestions = permissionSuggestions, !suggestions.isEmpty {
-      try container.encode(suggestions, forKey: .permissionSuggestions)
-    }
     try container.encodeIfPresent(elicitationMode, forKey: .elicitationMode)
     try container.encodeIfPresent(elicitationSchema, forKey: .elicitationSchema)
     try container.encodeIfPresent(elicitationUrl, forKey: .elicitationUrl)
