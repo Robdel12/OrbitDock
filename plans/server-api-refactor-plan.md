@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 14 landed / Phase 15 regroup pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, and the Phase 14 final safe breakup wave is now landed through `aed1073e` and `2c059880`. Phase 14 finished the last clearly safe structural cuts before the parked redesign seams: `protocol/src/types.rs` is now a 29-line re-export hub with the remaining active type clusters moved into focused sibling modules, and `connector-core/src/transition.rs` is down to 929 lines with the lifecycle and metadata clusters extracted into `transition_lifecycle.rs` and `transition_metadata.rs` while keeping one authoritative reducer entrypoint. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining live hotspots are now more clearly redesign-leaning than cleanup-leaning: `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam; `server/src/runtime/session_runtime_helpers.rs` remains at 787 lines with the startup/cleanup/transcript authority boundary still live; and the densest surviving contract clusters are now smaller sibling modules like `protocol/src/types/session.rs` and `connector-core/src/transition_metadata.rs` rather than giant catch-all roots. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 15 landed / Phase 16 regroup pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, and the Phase 15 pure contract/mapping breakup wave is now landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`. Phase 15 finished the remaining clearly safe pure renderer/mapping cuts: `tool_display.rs` is down to 265 lines with classification/diff/input/preview/shared helpers extracted; `rows.rs` is down to 673 lines with shell and transport helper seams extracted; `item_mapping.rs` is down to 408 lines with collab-agent, dynamic-tool, and tool-row helpers split out; and `approval_preview.rs` is down to 484 lines with risk/question/patch-diff/shell helpers extracted. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining size is now concentrated in a smaller set of domain/config/persistence files such as `server/src/domain/sessions/state.rs`, `server/src/domain/sessions/session.rs`, `connector-codex/src/config.rs`, `server/src/infrastructure/github/client.rs`, `server/src/infrastructure/persistence/{mod.rs,transcripts.rs,usage.rs}`, `server/src/app/mod.rs`, `server/src/runtime/session_command_handler.rs`, plus the already-parked redesign seams. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1514,3 +1514,50 @@ Tasks:
 - Worker B landed the protocol slice directly and kept the public re-export surface in `types.rs` stable while moving the active Codex/platform/server-meta/review/filesystem/worktree/mission/approval clusters into focused sibling modules.
 - Worker A never landed code, so the transition slice was completed locally using the worker’s seam analysis as the map: `transition.rs` now delegates the lifecycle/status cluster to `transition_lifecycle.rs` and the metadata/pass-through cluster to `transition_metadata.rs`.
 - The reducer entrypoint stayed authoritative; we did not split ownership, persistence, or provider-specific business truth across new call paths.
+
+## Phase 15: Pure Contract And Mapping Breakup Wave
+
+Objective: keep shrinking mega catch-all files by attacking the largest remaining pure rendering, transport-mapping, and preview-building modules before we reopen any redesign-first runtime seams.
+
+Implementation order:
+
+1. `protocol/src/conversation_contracts/tool_display.rs`
+2. `protocol/src/conversation_contracts/rows.rs`
+3. `connector-codex/src/app_server/item_mapping.rs`
+4. `connector-core/src/approval_preview.rs`
+
+Execution rules:
+
+- Keep `server/src/connectors/codex_session.rs`, `server/src/runtime/session_runtime_helpers.rs`, `server/src/domain/sessions/{state.rs,session.rs}`, and startup/write-side `control_mode` touchpoints parked in this wave.
+- Prefer sibling helper modules with file-local `#[path]` wiring so each lane stays disjoint and can land independently.
+- Preserve all public protocol shapes, serde contracts, and reducer/runtime behavior; this wave is structural, not semantic.
+- Delete dead helper tails inside a lane when they are compiler-proven or callsite-proven dead, but do not “improve” ownership boundaries in the same patch.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Implementation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `protocol/src/conversation_contracts/tool_display.rs` plus new sibling modules beside it only | Split the tool display renderer into preview/diff/input/classification helpers while preserving the current Rust/Swift parity contract and pure function surface. |
+| Worker B | `gpt-5.4-mini` | `protocol/src/conversation_contracts/rows.rs` plus new sibling modules beside it only | Separate shell transcript/preview helpers from row type definitions and transport summary helpers without changing row wire shapes or summary behavior. |
+| Worker C | `gpt-5.4-mini` | `connector-codex/src/app_server/item_mapping.rs` plus new sibling modules beside it only | Split collab-agent mapping, dynamic-tool mapping, and tool-row/file-change/guardian mapping into focused helpers while preserving emitted `ConnectorOutput` sequences. |
+| Worker D | `gpt-5.4-mini` | `connector-core/src/approval_preview.rs` plus new sibling modules beside it only | Split risk analysis, question prompt parsing, patch diff rendering, and shell-segmentation helpers while preserving current approval preview output semantics. |
+
+Tasks:
+
+- [x] Launch the Phase 15 workers with disjoint ownership.
+- [x] Land the `tool_display.rs` breakup slice.
+- [x] Land the `rows.rs` breakup slice.
+- [x] Land the `item_mapping.rs` breakup slice.
+- [x] Land the `approval_preview.rs` breakup slice.
+- [x] Re-run protocol, connector, and server validation after the wave.
+- [x] Re-audit remaining large files before opening any redesign-first session/runtime seams.
+
+### Phase 15 execution note
+
+- `67a93372` `♻️ Split protocol conversation contracts`
+- `b3a9a2fc` `♻️ Split Codex item mapping helpers`
+- `9b9b99fd` `♻️ Split approval preview helpers`
+- Worker B’s `rows.rs` split landed with only a parent-side dead-code cleanup pass needed to remove duplicate shell helpers left behind in the root file.
+- Worker C’s `item_mapping.rs` split landed cleanly once the parent reran formatting and workspace validation.
+- Worker D’s `approval_preview.rs` split landed with a tiny parent-side fix in `approval_preview_patch_diff.rs` and the already-related test import fallout in `transition.rs`.
+- Worker A’s `tool_display.rs` lane stalled mid-refactor, so the parent reconstructed the last committed facade, completed the helper extraction locally, and validated the full protocol crate before landing.
