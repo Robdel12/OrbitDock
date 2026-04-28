@@ -6,11 +6,16 @@
 
 #[path = "session_command_persistence.rs"]
 mod session_command_persistence;
+#[path = "session_command_snapshot_delta.rs"]
+mod session_command_snapshot_delta;
+#[path = "session_command_watchdog.rs"]
+mod session_command_watchdog;
 #[path = "session_connector_dispatch.rs"]
 mod session_connector_dispatch;
+#[path = "session_connector_error.rs"]
+mod session_connector_error;
 
 use std::collections::HashSet;
-use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorStateEvent;
 use orbitdock_protocol::conversation_contracts::rows::MessageDeliveryStatus;
@@ -18,14 +23,11 @@ use orbitdock_protocol::conversation_contracts::{
   compute_tool_display, ConversationRow, ToolDisplayInput,
 };
 use orbitdock_protocol::domain_events::{ToolKind, ToolStatus};
-use orbitdock_protocol::{
-  ServerMessage, SessionState, SessionStatus, SessionSurface, StateChanges, WorkStatus,
-};
+use orbitdock_protocol::{ServerMessage, SessionStatus, SessionSurface, StateChanges, WorkStatus};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
-use crate::domain::sessions::session::{SessionHandle, SessionSnapshot};
+use crate::domain::sessions::session::SessionHandle;
 use crate::domain::sessions::transition;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::{
@@ -40,53 +42,16 @@ pub(crate) use self::session_command_persistence::{
   apply_delta_and_broadcast, execute_session_persist_op, persist_mark_read,
   persist_row_append_and_broadcast, persist_row_upsert_and_broadcast,
 };
+pub(crate) use self::session_command_snapshot_delta::include_snapshot_delta_changes;
+pub(crate) use self::session_command_watchdog::{
+  abort_interrupt_watchdog, is_turn_ending, restart_interrupt_watchdog,
+};
 pub(crate) use self::session_connector_dispatch::{
   classify_connector_output, handle_connector_transport_effect,
   include_derived_affordances_for_state_delta, should_suppress_connector_user_echo,
   upgrade_connector_row_event, ConnectorDispatch,
 };
-
-fn include_snapshot_delta_changes(
-  changes: &mut StateChanges,
-  previous_transport: &SessionSnapshot,
-  previous_state: &SessionState,
-  current_transport: &SessionSnapshot,
-  current_state: &SessionState,
-) -> bool {
-  let mut changed = false;
-
-  if current_transport.status != previous_transport.status {
-    changes.status = Some(current_transport.status);
-    changed = true;
-  }
-  if current_transport.work_status != previous_transport.work_status {
-    changes.work_status = Some(current_transport.work_status);
-    changes.steerable = Some(current_transport.steerable);
-    changed = true;
-  }
-  if current_transport.control_mode != previous_transport.control_mode {
-    changes.control_mode = Some(current_transport.control_mode);
-    changed = true;
-  }
-  if current_transport.lifecycle_state != previous_transport.lifecycle_state {
-    changes.lifecycle_state = Some(current_transport.lifecycle_state);
-    changed = true;
-  }
-  if current_state.accepts_user_input != previous_state.accepts_user_input {
-    changes.accepts_user_input = Some(current_state.accepts_user_input);
-    changed = true;
-  }
-  if current_transport.steerable != previous_transport.steerable {
-    changes.steerable = Some(current_transport.steerable);
-    changed = true;
-  }
-  if current_state.current_turn_id != previous_state.current_turn_id {
-    changes.current_turn_id = Some(current_state.current_turn_id.clone());
-    changed = true;
-  }
-
-  changed
-}
+pub(crate) use self::session_connector_error::emit_connector_error;
 
 /// Handle a SessionCommand on the owned SessionHandle.
 /// This is used by both the CodexSession event loop and the passive SessionActor.
@@ -619,73 +584,6 @@ pub(crate) async fn dispatch_transition_input(
 
 /// Returns `true` if the event signals the end of a turn (used to cancel
 /// interrupt watchdogs).
-pub(crate) fn is_turn_ending(event: &ConnectorStateEvent) -> bool {
-  matches!(
-    event,
-    ConnectorStateEvent::TurnAborted { .. }
-      | ConnectorStateEvent::TurnCompleted
-      | ConnectorStateEvent::SessionEnded { .. }
-  )
-}
-
-/// Spawn an interrupt watchdog that sends a synthetic `TurnAborted` after
-/// 10 seconds if no turn-ending event arrives.
-pub(crate) fn spawn_interrupt_watchdog(
-  tx: mpsc::Sender<ConnectorStateEvent>,
-  session_id: String,
-  component: &'static str,
-) -> JoinHandle<()> {
-  tokio::spawn(async move {
-    tokio::time::sleep(Duration::from_secs(10)).await;
-    warn!(
-        component = component,
-        event = format_args!("{component}.interrupt.watchdog_fired"),
-        session_id = %session_id,
-        "Interrupt watchdog fired — forcing TurnAborted"
-    );
-    let _ = tx
-      .send(ConnectorStateEvent::TurnAborted {
-        reason: "interrupt_timeout".to_string(),
-      })
-      .await;
-  })
-}
-
-pub(crate) fn abort_interrupt_watchdog(watchdog: &mut Option<JoinHandle<()>>) {
-  if let Some(handle) = watchdog.take() {
-    handle.abort();
-  }
-}
-
-pub(crate) fn restart_interrupt_watchdog(
-  watchdog: &mut Option<JoinHandle<()>>,
-  tx: mpsc::Sender<ConnectorStateEvent>,
-  session_id: &str,
-  component: &'static str,
-) {
-  abort_interrupt_watchdog(watchdog);
-  *watchdog = Some(spawn_interrupt_watchdog(
-    tx,
-    session_id.to_string(),
-    component,
-  ));
-}
-
-pub(crate) async fn emit_connector_error(
-  session_id: &str,
-  message: impl Into<String>,
-  handle: &mut SessionHandle,
-  persist_tx: &mpsc::Sender<PersistCommand>,
-) {
-  dispatch_connector_event(
-    session_id,
-    ConnectorStateEvent::Error(message.into()),
-    handle,
-    persist_tx,
-  )
-  .await;
-}
-
 #[cfg(test)]
 #[path = "session_command_handler_tests.rs"]
 mod session_command_handler_tests;
