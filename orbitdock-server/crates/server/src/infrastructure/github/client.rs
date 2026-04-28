@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use reqwest::{Client, Response};
+use reqwest::Client;
 use tracing::debug;
 
-use super::models::{
-  GraphQLResponse, IssueCommentsData, ProjectItem, ProjectItemContent, ProjectItemLookupData,
-  ProjectStatusFieldData, RepositoryIssueData, UpdateFieldValueData, UserProjectData,
-};
+use super::models::{IssueCommentsData, ProjectItem, RepositoryIssueData, UserProjectData};
+use super::{helpers, project_status, transport};
 use crate::domain::mission_control::tracker::{
   Tracker, TrackerComment, TrackerConfig, TrackerCreatedIssue, TrackerIssue,
 };
@@ -25,46 +23,12 @@ impl GitHubClient {
     }
   }
 
-  /// Check response headers for GitHub rate limit warnings and errors.
-  ///
-  /// Logs a warning when remaining requests are low and returns a
-  /// descriptive error when the response is a 403 rate limit block.
-  fn check_rate_limit(resp: &Response) -> anyhow::Result<()> {
-    let headers = resp.headers();
+  pub(super) fn http(&self) -> &Client {
+    &self.http
+  }
 
-    let remaining = headers
-      .get("x-ratelimit-remaining")
-      .and_then(|v| v.to_str().ok())
-      .and_then(|v| v.parse::<u64>().ok());
-
-    let reset = headers
-      .get("x-ratelimit-reset")
-      .and_then(|v| v.to_str().ok())
-      .and_then(|v| v.parse::<u64>().ok());
-
-    if let Some(rem) = remaining {
-      if rem < 10 {
-        tracing::warn!(
-          component = "github",
-          remaining = rem,
-          reset_epoch = reset.unwrap_or(0),
-          "GitHub API rate limit nearly exhausted"
-        );
-      }
-    }
-
-    if resp.status() == reqwest::StatusCode::FORBIDDEN {
-      if let Some(rem) = remaining {
-        if rem == 0 {
-          let reset_msg = reset
-            .map(|r| format!(" (resets at epoch {r})"))
-            .unwrap_or_default();
-          anyhow::bail!("GitHub API rate limit exceeded — 0 requests remaining{reset_msg}");
-        }
-      }
-    }
-
-    Ok(())
+  pub(super) fn token(&self) -> &str {
+    &self.token
   }
 
   async fn graphql<T: serde::de::DeserializeOwned>(
@@ -72,71 +36,12 @@ impl GitHubClient {
     query: &str,
     variables: serde_json::Value,
   ) -> anyhow::Result<T> {
-    let body = serde_json::json!({
-        "query": query,
-        "variables": variables,
-    });
-
-    let resp = self
-      .http
-      .post("https://api.github.com/graphql")
-      .header("Authorization", format!("Bearer {}", self.token))
-      .header("User-Agent", "OrbitDock")
-      .header("Content-Type", "application/json")
-      .json(&body)
-      .send()
-      .await?;
-
-    Self::check_rate_limit(&resp)?;
-
-    let status = resp.status();
-    if !status.is_success() {
-      let text = resp.text().await.unwrap_or_default();
-      anyhow::bail!("GitHub API returned {status}: {text}");
-    }
-
-    let gql: GraphQLResponse<T> = resp.json().await?;
-
-    // Return data even with partial errors — the dual user/org project
-    // query always produces one error branch for personal accounts.
-    if let Some(data) = gql.data {
-      if let Some(ref errors) = gql.errors {
-        let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-        tracing::debug!(
-            component = "github",
-            errors = %msgs.join("; "),
-            "GraphQL partial errors (data still returned)"
-        );
-      }
-      return Ok(data);
-    }
-
-    if let Some(errors) = gql.errors {
-      let msgs: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
-      anyhow::bail!("GitHub GraphQL errors: {}", msgs.join("; "));
-    }
-
-    anyhow::bail!("GitHub response contained no data")
+    transport::graphql(self.http(), self.token(), query, variables).await
   }
 
   /// Parse an identifier like `owner/repo#42` into (owner, repo, number).
   fn parse_identifier(identifier: &str) -> anyhow::Result<(String, String, u64)> {
-    // Accept: "owner/repo#42" or "#42" (but the latter needs repo context)
-    let parts: Vec<&str> = identifier.splitn(2, '#').collect();
-    if parts.len() != 2 {
-      anyhow::bail!("Invalid GitHub identifier format: {identifier}. Expected owner/repo#number");
-    }
-
-    let number: u64 = parts[1]
-      .parse()
-      .map_err(|_| anyhow::anyhow!("Invalid issue number in identifier: {identifier}"))?;
-
-    let repo_parts: Vec<&str> = parts[0].splitn(2, '/').collect();
-    if repo_parts.len() != 2 || repo_parts[0].is_empty() || repo_parts[1].is_empty() {
-      anyhow::bail!("Invalid GitHub identifier format: {identifier}. Expected owner/repo#number");
-    }
-
-    Ok((repo_parts[0].to_string(), repo_parts[1].to_string(), number))
+    helpers::parse_identifier(identifier)
   }
 
   /// Fetch project items from a GitHub Projects v2 project.
@@ -251,208 +156,11 @@ impl GitHubClient {
     status_filter: &[String],
     label_filter: &[String],
   ) -> Vec<TrackerIssue> {
-    let mut result = Vec::new();
-
-    for item in items {
-      let status = item
-        .field_value_by_name
-        .as_ref()
-        .and_then(|v| v.name.clone());
-
-      // Filter by status if filter is specified
-      if !status_filter.is_empty() {
-        if let Some(ref s) = status {
-          if !status_filter.iter().any(|f| f.eq_ignore_ascii_case(s)) {
-            continue;
-          }
-        } else {
-          continue; // No status set, skip
-        }
-      }
-
-      // Only process Issues (not PRs or DraftIssues)
-      let content = match item.content {
-        Some(ProjectItemContent::Issue(issue)) => *issue,
-        _ => continue,
-      };
-
-      // Filter by labels if filter is specified
-      if !label_filter.is_empty() {
-        let has_label = content
-          .labels
-          .nodes
-          .iter()
-          .any(|l| label_filter.iter().any(|f| f.eq_ignore_ascii_case(&l.name)));
-        if !has_label {
-          continue;
-        }
-      }
-
-      result.push(content.into_tracker_issue(status));
-    }
-
-    result
-  }
-
-  /// POST a comment on a GitHub issue via REST API.
-  async fn rest_create_comment(
-    &self,
-    owner: &str,
-    repo: &str,
-    number: u64,
-    body: &str,
-  ) -> anyhow::Result<()> {
-    let url = format!("https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments");
-
-    let resp = self
-      .http
-      .post(&url)
-      .header("Authorization", format!("Bearer {}", self.token))
-      .header("User-Agent", "OrbitDock")
-      .header("Accept", "application/vnd.github+json")
-      .json(&serde_json::json!({ "body": body }))
-      .send()
-      .await?;
-
-    Self::check_rate_limit(&resp)?;
-
-    let status = resp.status();
-    if !status.is_success() {
-      let text = resp.text().await.unwrap_or_default();
-      anyhow::bail!("GitHub REST API returned {status}: {text}");
-    }
-
-    Ok(())
-  }
-
-  /// Update a project Status field value for an issue.
-  ///
-  /// This involves three GraphQL operations:
-  /// 1. Look up the issue's project items to find the project ID and item ID
-  /// 2. Query the project's Status field to find the field ID and target option ID
-  /// 3. Call updateProjectV2ItemFieldValue to set the new value
-  async fn update_project_status_field(
-    &self,
-    issue_id: &str,
-    state_name: &str,
-  ) -> anyhow::Result<()> {
-    // Step 1: Find which project(s) this issue belongs to and get item IDs
-    let lookup_query = r#"
-            query($id: ID!) {
-                node(id: $id) {
-                    ... on Issue {
-                        projectItems(first: 10) {
-                            nodes {
-                                id
-                                project { id }
-                            }
-                        }
-                    }
-                }
-            }
-        "#;
-
-    let lookup: ProjectItemLookupData = self
-      .graphql(lookup_query, serde_json::json!({ "id": issue_id }))
-      .await?;
-
-    let project_items = lookup
-      .node
-      .ok_or_else(|| anyhow::anyhow!("Issue not found: {issue_id}"))?
-      .project_items
-      .nodes;
-
-    if project_items.is_empty() {
-      anyhow::bail!("Issue {issue_id} is not in any GitHub Project");
-    }
-
-    // Update status on all projects the issue belongs to
-    for item in &project_items {
-      let project_id = &item.project.id;
-      let item_id = &item.id;
-
-      // Step 2: Get the Status field ID and option IDs for this project
-      let field_query = r#"
-                query($projectId: ID!) {
-                    node(id: $projectId) {
-                        ... on ProjectV2 {
-                            field(name: "Status") {
-                                ... on ProjectV2SingleSelectField {
-                                    id
-                                    options { id name }
-                                }
-                            }
-                        }
-                    }
-                }
-            "#;
-
-      let field_data: ProjectStatusFieldData = self
-        .graphql(field_query, serde_json::json!({ "projectId": project_id }))
-        .await?;
-
-      let status_field = field_data
-        .node
-        .and_then(|n| n.field)
-        .ok_or_else(|| anyhow::anyhow!("Status field not found on project {project_id}"))?;
-
-      let option = status_field
-        .options
-        .iter()
-        .find(|o| o.name.eq_ignore_ascii_case(state_name))
-        .ok_or_else(|| {
-          let available: Vec<_> = status_field
-            .options
-            .iter()
-            .map(|o| o.name.as_str())
-            .collect();
-          anyhow::anyhow!(
-            "Status option '{state_name}' not found. Available: {}",
-            available.join(", ")
-          )
-        })?;
-
-      // Step 3: Update the field value
-      let mutation = r#"
-                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-                    updateProjectV2ItemFieldValue(input: {
-                        projectId: $projectId,
-                        itemId: $itemId,
-                        fieldId: $fieldId,
-                        value: { singleSelectOptionId: $optionId }
-                    }) {
-                        projectV2Item { id }
-                    }
-                }
-            "#;
-
-      let result: UpdateFieldValueData = self
-        .graphql(
-          mutation,
-          serde_json::json!({
-              "projectId": project_id,
-              "itemId": item_id,
-              "fieldId": status_field.id,
-              "optionId": option.id,
-          }),
-        )
-        .await?;
-
-      debug!(
-        component = "github",
-        project_id = project_id,
-        item_id = item_id,
-        updated_item = result.updated_item_id().unwrap_or("unknown"),
-        state = state_name,
-        "Updated project Status field"
-      );
-    }
-
-    Ok(())
+    helpers::filter_project_items(items, status_filter, label_filter)
   }
 
   /// Resolve owner/repo from a GitHub node ID by querying the issue.
-  async fn resolve_repo_from_issue_id(
+  pub(super) async fn resolve_repo_from_issue_id(
     &self,
     issue_id: &str,
   ) -> anyhow::Result<(String, String, u64)> {
@@ -608,7 +316,14 @@ impl Tracker for GitHubClient {
 
   async fn create_comment(&self, issue_id: &str, body: &str) -> anyhow::Result<()> {
     let (owner, repo, number) = self.resolve_repo_from_issue_id(issue_id).await?;
-    self.rest_create_comment(&owner, &repo, number, body).await
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments");
+    transport::rest_post_json(
+      self.http(),
+      self.token(),
+      &url,
+      serde_json::json!({ "body": body }),
+    )
+    .await
   }
 
   async fn update_issue_state(&self, issue_id: &str, state_name: &str) -> anyhow::Result<()> {
@@ -618,33 +333,7 @@ impl Tracker for GitHubClient {
     //
     // We handle both: if the state_name is "open"/"closed", update the issue state.
     // Otherwise, treat it as a project Status field update.
-    let lower = state_name.to_lowercase();
-    if lower == "open" || lower == "closed" {
-      let (owner, repo, number) = self.resolve_repo_from_issue_id(issue_id).await?;
-      let url = format!("https://api.github.com/repos/{owner}/{repo}/issues/{number}");
-
-      let resp = self
-        .http
-        .patch(&url)
-        .header("Authorization", format!("Bearer {}", self.token))
-        .header("User-Agent", "OrbitDock")
-        .header("Accept", "application/vnd.github+json")
-        .json(&serde_json::json!({ "state": lower }))
-        .send()
-        .await?;
-
-      Self::check_rate_limit(&resp)?;
-
-      let status = resp.status();
-      if !status.is_success() {
-        let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("GitHub REST API returned {status}: {text}");
-      }
-      return Ok(());
-    }
-
-    // Project Status field update (e.g. "In Progress", "Done")
-    self.update_project_status_field(issue_id, state_name).await
+    project_status::update_issue_state(self, issue_id, state_name).await
   }
 
   async fn fetch_issue_by_identifier(
