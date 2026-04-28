@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 20 landed / Phase 21 redesign prep pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, and the Phase 20 final safe spine-polish wave is now landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`. Phase 20 completed the last clearly safe helper peels: `domain/sessions/session.rs` is down to 639 lines with `session_broadcast.rs` (165) and `session_streaming.rs` (68) extracted; `infrastructure/persistence/mod.rs` is down to 616 lines with `rows_turn_status_writes.rs` (34) extracted; and `app/mod.rs` is down to 651 lines with `http_surface.rs` (68) and `pid.rs` (37) extracted. Validation passed with `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml` and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. At this point the remaining large files are no longer catch-alls in the old sense. `state.rs`, `session.rs`, `app/mod.rs`, `persistence/mod.rs`, `session_command_handler.rs`, and `github/client.rs` now read as accepted authority or facade spines. The remaining heavy redesign seams are `session_runtime_helpers.rs` (787 lines, transcript sync/cache policy) and `codex_session.rs` (862 lines, dynamic-tool routing and side effects), with `state.rs` projection helpers as only optional future polish.`
+- Current phase: `Phase 21 regroup complete / Phase 22 redesign slice pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, and the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`. Phase 21 regroup confirms that the broad catch-all cleanup is effectively done. `state.rs`, `session.rs`, `app/mod.rs`, `persistence/mod.rs`, `session_command_handler.rs`, and `github/client.rs` are now accepted authority/facade spines, with only optional polish left. The first honest redesign seam to open is `session_runtime_helpers.rs`: the transcript-sync/cache knot around the advisory cache, fingerprinting, and sync orchestration. `codex_session.rs` remains the next redesign candidate after that, centered on dynamic-tool routing and side-effect application.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1862,8 +1862,54 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch the Phase 21 evaluation workers with disjoint ownership.
-- [ ] Integrate the `session_runtime_helpers.rs` redesign map into the plan.
-- [ ] Integrate the `codex_session.rs` redesign map into the plan.
-- [ ] Verify that `state.rs` and `session.rs` really stay in the accepted-spine bucket.
-- [ ] Decide whether the next wave should open one redesign seam or stop with the current classification.
+- [x] Launch the Phase 21 evaluation workers with disjoint ownership.
+- [x] Integrate the `session_runtime_helpers.rs` redesign map into the plan.
+- [x] Integrate the `codex_session.rs` redesign map into the plan.
+- [x] Verify that `state.rs` and `session.rs` really stay in the accepted-spine bucket.
+- [x] Decide whether the next wave should open one redesign seam or stop with the current classification.
+
+### Phase 21 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd1fd-f576-72b0-ad95-48181dedc1d6` (`Socrates`) | completed - runtime redesign map integrated |
+| Worker B | `019dd1fd-f917-73f0-9e78-4f564b806f96` (`Goodall`) | completed - Codex redesign map integrated |
+| Worker C | `019dd1fd-fc4b-71c2-b737-8c80b88f13f6` (`Mendel`) | completed - session spine verification integrated |
+
+### Phase 21 execution note
+
+- `state.rs` and `session.rs` now stay in the accepted-spine bucket. The remaining work there is optional polish, not must-do refactor debt.
+- `session_runtime_helpers.rs` is the first real redesign target. The right first slice is the advisory transcript-sync guard/cache cluster: `TranscriptSyncUsageSignature`, `TranscriptSyncGuardState`, the `OnceLock<Mutex<HashMap<...>>>`, and the cache helper functions that currently influence `sync_transcript_messages`.
+- `codex_session.rs` remains redesign-first, but the first slice there is narrower now too: split the post-response side-effect application out of `handle_dynamic_tool_call` and replace the boolean `has_mission_side_effects` with a more explicit outcome shape.
+- The important boundary call is that we are no longer chasing arbitrary size. We are only reopening files now when there is a real ownership or routing seam to improve.
+
+## Phase 22: Transcript Sync Guard Redesign Slice
+
+Objective: open the first deliberate redesign seam by separating the advisory transcript-sync guard/cache state from the runtime transcript-sync orchestration in `session_runtime_helpers.rs`.
+
+Implementation order:
+
+1. Extract the advisory transcript-sync guard/cache cluster into a dedicated sibling module.
+2. Rewire `sync_transcript_messages(...)` to consume that module through a simpler fingerprint/skip/record flow.
+3. Keep `plan_transcript_sync(...)` unchanged as the pure source of sync decisions.
+
+Execution rules:
+
+- Do not redesign the direct-session lifecycle helpers in this wave.
+- Keep `SessionActorHandle` as the authoritative in-memory boundary.
+- Keep `PersistCommand` as the only durable write path.
+- Treat the transcript guard as advisory state only; it must not become durable truth.
+- Do not touch `codex_session.rs` in the same wave.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `server/src/runtime/session_runtime_helpers.rs` plus new sibling modules beside it only | Extract `TranscriptSyncUsageSignature`, `TranscriptSyncGuardState`, the cache storage, and the guard helper functions into a dedicated `transcript_sync_guard`-style module while preserving transcript-sync behavior exactly. |
+
+Tasks:
+
+- [ ] Launch the Phase 22 worker.
+- [ ] Land the transcript-sync guard/cache extraction slice.
+- [ ] Re-run focused runtime/server validation.
+- [ ] Regroup again before opening the broader `codex_session.rs` redesign seam.
