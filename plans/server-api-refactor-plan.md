@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 13 landed / Phase 14 regroup pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, and the Phase 13 dead rollout-path audit is now landed too. Phase 13 commit `246502e6` removed the orphaned Codex rollout parser and server jsonl tailer stacks, deleted the rollout-only Codex normalizer path and its test coverage, updated the remaining Codex session/lib comments to match the live thread-based resume path, and tightened the now-test-only timeline helpers behind `#[cfg(test)]`. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`. The remaining live hotspots are now narrower and better classified: `connector-core/src/transition.rs` is down to 1,573 lines with `transition_rows.rs` carved out and the next clear seams are status/lifecycle and metadata clusters; `protocol/src/types.rs` is down to 1,458 lines with `types/approval_policy.rs` split out; `server/src/runtime/session_runtime_helpers.rs` is down to 787 lines with `session_row_history.rs` extracted; `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; and `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 14 landed / Phase 15 regroup pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, and the Phase 14 final safe breakup wave is now landed through `aed1073e` and `2c059880`. Phase 14 finished the last clearly safe structural cuts before the parked redesign seams: `protocol/src/types.rs` is now a 29-line re-export hub with the remaining active type clusters moved into focused sibling modules, and `connector-core/src/transition.rs` is down to 929 lines with the lifecycle and metadata clusters extracted into `transition_lifecycle.rs` and `transition_metadata.rs` while keeping one authoritative reducer entrypoint. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining live hotspots are now more clearly redesign-leaning than cleanup-leaning: `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam; `server/src/runtime/session_runtime_helpers.rs` remains at 787 lines with the startup/cleanup/transcript authority boundary still live; and the densest surviving contract clusters are now smaller sibling modules like `protocol/src/types/session.rs` and `connector-core/src/transition_metadata.rs` rather than giant catch-all roots. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1473,3 +1473,44 @@ Tasks:
 - The rollout parser, its helper modules, its tests, and the dead `jsonl_tailer` stack are gone.
 - The rollout-only Codex normalizer path is gone too; hook normalization semantics remain intact.
 - The rollout naming that still represents active passive-session behavior was intentionally left alone.
+
+## Phase 14: Final Safe Breakup Wave
+
+Objective: finish the remaining clearly safe non-redesign structural splits before we stop and regroup for the parked ownership/startup seams.
+
+Implementation order:
+
+1. `connector-core/src/transition.rs` status/lifecycle cluster
+2. `connector-core/src/transition.rs` metadata cluster
+3. `protocol/src/types.rs` Codex boot/config/skills/MCP/account cluster
+4. `protocol/src/types.rs` server meta/usage cluster
+5. `protocol/src/types.rs` review/filesystem/worktree/mission cluster
+
+Execution rules:
+
+- Keep `protocol/src/conversation_contracts/tool_display.rs` intact in this wave; it remains an active parity-heavy cluster.
+- Keep `server/src/runtime/session_runtime_helpers.rs` and `server/src/connectors/codex_session.rs` parked until a dedicated redesign phase.
+- Preserve the public re-export surface in `types.rs` and the reducer contract surface in `transition.rs`.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Implementation mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-core/src/transition.rs` plus new sibling modules in that directory only | Extract the status/lifecycle and metadata clusters while preserving current reducer behavior and emitted effects. |
+| Worker B | `gpt-5.4-mini` | `protocol/src/types.rs` plus new sibling modules in that directory only | Split out the next active type clusters while preserving public re-exports, serde shape, and Swift parity-sensitive contract naming. |
+
+Tasks:
+
+- [x] Launch the Phase 14 workers with disjoint ownership.
+- [x] Land the transition breakup slice.
+- [x] Land the protocol cluster breakup slice.
+- [x] Re-run connector/protocol/server validation after the wave.
+- [x] Regroup before any `tool_display`, `session_runtime_helpers`, or `codex_session` redesign work.
+
+### Phase 14 execution note
+
+- `aed1073e` `♻️ Split protocol type clusters`
+- `2c059880` `♻️ Split connector-core transition helpers`
+- Worker B landed the protocol slice directly and kept the public re-export surface in `types.rs` stable while moving the active Codex/platform/server-meta/review/filesystem/worktree/mission/approval clusters into focused sibling modules.
+- Worker A never landed code, so the transition slice was completed locally using the worker’s seam analysis as the map: `transition.rs` now delegates the lifecycle/status cluster to `transition_lifecycle.rs` and the metadata/pass-through cluster to `transition_metadata.rs`.
+- The reducer entrypoint stayed authoritative; we did not split ownership, persistence, or provider-specific business truth across new call paths.
