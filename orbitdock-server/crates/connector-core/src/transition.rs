@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use crate::{ConnectorOutput, ConnectorStateEvent};
 use orbitdock_protocol::conversation_contracts::{ConversationRow, ConversationRowEntry};
 #[cfg(test)]
+use orbitdock_protocol::conversation_contracts::{MessageRowContent, TurnStatus};
+#[cfg(test)]
 use orbitdock_protocol::domain_events::ToolFamily;
 use orbitdock_protocol::domain_events::ToolStatus;
 use orbitdock_protocol::{
