@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 mod approvals;
+mod claude_shadow;
 mod commands;
 mod config;
 mod config_writes;
@@ -16,6 +17,7 @@ pub(crate) mod mission_control;
 mod mission_writes;
 mod review_comments;
 mod review_writes;
+mod row_turn_codecs;
 mod session_accounting_writes;
 mod session_reads;
 mod session_writes;
@@ -25,6 +27,7 @@ mod subagents;
 mod sync;
 mod sync_outbox;
 mod sync_writer;
+mod timestamps;
 mod transcripts;
 mod usage;
 mod workspace_sync;
@@ -36,13 +39,13 @@ mod writer;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
-use orbitdock_protocol::conversation_contracts::{ConversationRow, TurnStatus};
 use orbitdock_protocol::{
   ApprovalHistoryItem, ApprovalPreview, ApprovalQuestionPrompt, ApprovalType, TokenUsage,
   TokenUsageSnapshotKind,
 };
 
 pub(crate) use approvals::{delete_approval, list_approvals};
+pub(crate) use claude_shadow::preserve_direct_owned_claude_shadow;
 pub(crate) use commands::{ApprovalRequestedParams, PersistCommand, SessionCreateParams};
 pub(crate) use config::load_config_value;
 pub(crate) use messages::{
@@ -53,6 +56,7 @@ pub(crate) use mission_control::{
   load_mission_tracker_key, load_missions_with_counts, MissionIssueRow, MissionRow,
 };
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
+pub(crate) use row_turn_codecs::{extract_row_content, row_type_str, turn_status_str};
 pub(crate) use session_reads::{
   load_direct_claude_owner_by_sdk_session_id, load_direct_codex_owner_by_thread_id,
   load_session_by_id, load_session_metadata_by_id, load_session_permission_mode,
@@ -70,6 +74,7 @@ pub(crate) use sync_outbox::{
   load_pending_sync_envelopes,
 };
 pub(crate) use sync_writer::{create_sync_shutdown_channel, SyncWriter, SyncWriterConfig};
+pub(crate) use timestamps::chrono_now;
 pub(crate) use transcripts::{
   extract_summary_from_transcript_path, load_capabilities_from_transcript_path,
   load_latest_codex_turn_context_settings_from_transcript_path, load_messages_from_transcript_path,
@@ -93,63 +98,6 @@ pub(crate) use worktrees::{
 #[cfg(test)]
 pub(crate) use writer::flush_batch_for_test;
 pub(crate) use writer::{create_persistence_channel, PersistenceWriter};
-
-fn claude_shadow_is_owned_by_direct_session(
-  conn: &Connection,
-  session_id: &str,
-) -> Result<bool, rusqlite::Error> {
-  let exists: i64 = conn.query_row(
-    "SELECT EXISTS(
-            SELECT 1
-            FROM sessions direct
-            WHERE direct.provider = 'claude'
-              AND direct.claude_sdk_session_id = ?1
-              AND COALESCE(direct.control_mode, CASE
-                    WHEN direct.provider = 'claude'
-                         AND direct.claude_integration_mode = 'direct'
-                        THEN 'direct'
-                    ELSE 'passive'
-                  END) = 'direct'
-        )",
-    params![session_id],
-    |row| row.get(0),
-  )?;
-
-  Ok(exists == 1)
-}
-
-fn preserve_direct_owned_claude_shadow(
-  conn: &Connection,
-  session_id: &str,
-  reason: &str,
-) -> Result<bool, rusqlite::Error> {
-  if !claude_shadow_is_owned_by_direct_session(conn, session_id)? {
-    return Ok(false);
-  }
-
-  let now = chrono_now();
-  conn.execute(
-    "UPDATE sessions
-             SET status = 'ended',
-                 work_status = 'ended',
-                 lifecycle_state = 'ended',
-                 ended_at = COALESCE(ended_at, ?1),
-                 end_reason = COALESCE(end_reason, ?2),
-                 attention_reason = 'none',
-                 pending_tool_name = NULL,
-                 pending_tool_input = NULL,
-                 pending_question = NULL,
-                 pending_approval_id = NULL,
-                 active_subagent_id = NULL,
-                 active_subagent_type = NULL
-             WHERE id = ?3
-               AND provider = 'claude'
-               AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')",
-    params![now, reason, session_id],
-  )?;
-
-  Ok(true)
-}
 
 /// Execute a single persist command.
 ///
@@ -681,125 +629,6 @@ fn execute_command_by_family(
   }
 
   Ok(())
-}
-
-fn row_type_str(row: &ConversationRow) -> &'static str {
-  match row {
-    ConversationRow::User(_) => "user",
-    ConversationRow::Steer(_) => "steer",
-    ConversationRow::Assistant(_) => "assistant",
-    ConversationRow::Thinking(_) => "thinking",
-    ConversationRow::Context(_) => "context",
-    ConversationRow::Notice(_) => "notice",
-    ConversationRow::ShellCommand(_) => "shell_command",
-    ConversationRow::Task(_) => "task",
-    ConversationRow::Tool(_) => "tool",
-    ConversationRow::ActivityGroup(_) => "activity_group",
-    ConversationRow::Question(_) => "question",
-    ConversationRow::Approval(_) => "approval",
-    ConversationRow::Worker(_) => "worker",
-    ConversationRow::Plan(_) => "plan",
-    ConversationRow::Hook(_) => "hook",
-    ConversationRow::Handoff(_) => "handoff",
-    ConversationRow::System(_) => "system",
-  }
-}
-
-fn turn_status_str(status: TurnStatus) -> &'static str {
-  match status {
-    TurnStatus::Active => "active",
-    TurnStatus::Undone => "undone",
-    TurnStatus::RolledBack => "rolled_back",
-  }
-}
-
-fn extract_row_content(row: &ConversationRow) -> Option<String> {
-  match row {
-    ConversationRow::User(m)
-    | ConversationRow::Steer(m)
-    | ConversationRow::Assistant(m)
-    | ConversationRow::Thinking(m)
-    | ConversationRow::System(m) => Some(m.content.clone()),
-    ConversationRow::Context(c) => Some(c.summary.clone().unwrap_or_else(|| c.title.clone())),
-    ConversationRow::Notice(n) => Some(n.summary.clone().unwrap_or_else(|| n.title.clone())),
-    ConversationRow::ShellCommand(s) => Some(
-      s.summary
-        .clone()
-        .or_else(|| s.command.clone())
-        .unwrap_or_else(|| s.title.clone()),
-    ),
-    ConversationRow::Task(t) => Some(t.summary.clone().unwrap_or_else(|| t.title.clone())),
-    ConversationRow::Tool(t) => Some(t.title.clone()),
-    ConversationRow::Plan(p) => Some(p.title.clone()),
-    ConversationRow::Hook(h) => Some(h.title.clone()),
-    ConversationRow::Handoff(h) => Some(h.title.clone()),
-    ConversationRow::Worker(w) => Some(w.title.clone()),
-    ConversationRow::Approval(a) => Some(a.id.clone()),
-    ConversationRow::Question(q) => Some(q.id.clone()),
-    ConversationRow::ActivityGroup(g) => Some(g.title.clone()),
-  }
-}
-
-fn chrono_now() -> String {
-  use std::time::{SystemTime, UNIX_EPOCH};
-
-  let duration = SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .unwrap_or_default();
-
-  // Format as ISO 8601
-  let secs = duration.as_secs();
-  time_to_iso8601(secs)
-}
-
-/// Convert Unix timestamp to ISO 8601 string
-fn time_to_iso8601(secs: u64) -> String {
-  // Simple implementation - for production use chrono crate
-  let days_since_epoch = secs / 86400;
-  let time_of_day = secs % 86400;
-
-  let hours = time_of_day / 3600;
-  let minutes = (time_of_day % 3600) / 60;
-  let seconds = time_of_day % 60;
-
-  // Calculate year, month, day from days since epoch (1970-01-01)
-  let mut days = days_since_epoch as i64;
-  let mut year = 1970i64;
-
-  loop {
-    let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-    if days < days_in_year {
-      break;
-    }
-    days -= days_in_year;
-    year += 1;
-  }
-
-  let mut month = 1;
-  let days_in_months = if is_leap_year(year) {
-    [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  } else {
-    [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  };
-
-  for days_in_month in days_in_months {
-    if days < days_in_month {
-      break;
-    }
-    days -= days_in_month;
-    month += 1;
-  }
-
-  let day = days + 1;
-
-  format!(
-    "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-    year, month, day, hours, minutes, seconds
-  )
-}
-
-fn is_leap_year(year: i64) -> bool {
-  (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 #[cfg(test)]
