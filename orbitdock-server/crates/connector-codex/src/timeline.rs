@@ -1,7 +1,9 @@
+#[cfg(test)]
 use std::path::Path;
 
 #[cfg(test)]
 use codex_protocol::protocol::{CodexErrorInfo, StreamErrorEvent};
+#[cfg(test)]
 use codex_protocol::protocol::{
   HookOutputEntry, HookRunStatus, HookRunSummary, RealtimeHandoffRequested,
 };
@@ -19,6 +21,7 @@ pub(crate) fn stream_error_should_surface_to_timeline(event: &StreamErrorEvent) 
   )
 }
 
+#[cfg(test)]
 pub(crate) fn realtime_text_from_handoff_request(
   handoff: &RealtimeHandoffRequested,
 ) -> Option<String> {
@@ -49,6 +52,7 @@ pub(crate) fn realtime_text_from_handoff_request(
   }
 }
 
+#[cfg(test)]
 pub(crate) fn hook_started_text(run: &HookRunSummary) -> String {
   format!(
     "Running {} hook via {}",
@@ -57,6 +61,7 @@ pub(crate) fn hook_started_text(run: &HookRunSummary) -> String {
   )
 }
 
+#[cfg(test)]
 pub(crate) fn hook_completed_text(run: &HookRunSummary) -> String {
   let base = format!(
     "{} hook {} via {}",
@@ -70,6 +75,7 @@ pub(crate) fn hook_completed_text(run: &HookRunSummary) -> String {
   }
 }
 
+#[cfg(test)]
 pub(crate) fn hook_output_text(run: &HookRunSummary) -> Option<String> {
   let mut parts: Vec<String> = run.entries.iter().filter_map(hook_entry_text).collect();
   if let Some(message) = non_empty_trimmed(run.status_message.as_deref()) {
@@ -84,6 +90,7 @@ pub(crate) fn hook_output_text(run: &HookRunSummary) -> Option<String> {
   }
 }
 
+#[cfg(test)]
 pub(crate) fn hook_run_is_error(status: HookRunStatus) -> bool {
   matches!(
     status,
@@ -91,14 +98,17 @@ pub(crate) fn hook_run_is_error(status: HookRunStatus) -> bool {
   )
 }
 
+#[cfg(test)]
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
   value.map(str::trim).filter(|text| !text.is_empty())
 }
 
+#[cfg(test)]
 fn hook_entry_text(entry: &HookOutputEntry) -> Option<String> {
   non_empty_trimmed(Some(entry.text.as_str())).map(ToString::to_string)
 }
 
+#[cfg(test)]
 fn hook_event_label(run: &HookRunSummary) -> &'static str {
   match run.event_name {
     codex_protocol::protocol::HookEventName::PreToolUse => "pre_tool_use",
@@ -110,6 +120,7 @@ fn hook_event_label(run: &HookRunSummary) -> &'static str {
   }
 }
 
+#[cfg(test)]
 fn hook_source_label(path: &Path) -> String {
   path
     .file_name()
@@ -118,6 +129,7 @@ fn hook_source_label(path: &Path) -> String {
     .unwrap_or_else(|| path.display().to_string())
 }
 
+#[cfg(test)]
 fn hook_status_label(status: HookRunStatus) -> &'static str {
   match status {
     HookRunStatus::Running => "running",

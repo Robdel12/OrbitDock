@@ -493,7 +493,7 @@ impl CodexSession {
     })
   }
 
-  /// Resume an existing Codex session from its rollout file (preserves conversation history)
+  /// Resume an existing Codex session by thread ID (preserves conversation history).
   pub async fn resume(
     session_id: String,
     cwd: &str,

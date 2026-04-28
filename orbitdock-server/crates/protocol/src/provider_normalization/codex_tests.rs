@@ -1,6 +1,6 @@
 use super::{
-  normalize_protocol_event, normalize_response_item, normalize_rollout_event, CodexConcept,
-  CodexSourceKind, CodexThreadOperation,
+  normalize_protocol_event, normalize_response_item, CodexConcept, CodexSourceKind,
+  CodexThreadOperation,
 };
 use crate::provider_normalization::{
   ProviderEventAction, ProviderEventCorrelation, ProviderEventDomain, ProviderEventSource,
@@ -84,25 +84,4 @@ fn response_item_function_call_maps_to_started_tool() {
   assert_eq!(event.action, ProviderEventAction::Started);
   assert_eq!(event.status, Some(ProviderEventStatus::InProgress));
   assert_eq!(event.payload.tool_name.as_deref(), Some("function_call"));
-}
-
-#[test]
-fn rollout_session_end_maps_to_completed_thread_lifecycle() {
-  let event = normalize_rollout_event(
-    "SessionEnded",
-    ProviderEventCorrelation {
-      session_id: Some("session-3".into()),
-      ..Default::default()
-    },
-  );
-
-  assert_eq!(event.source, ProviderEventSource::Hook);
-  assert_eq!(event.domain, ProviderEventDomain::Session);
-  assert_eq!(event.action, ProviderEventAction::Completed);
-  assert_eq!(event.status, Some(ProviderEventStatus::Success));
-  assert_eq!(event.payload.concept, CodexConcept::ThreadLifecycle);
-  assert_eq!(
-    event.payload.thread_operation,
-    Some(CodexThreadOperation::End)
-  );
 }

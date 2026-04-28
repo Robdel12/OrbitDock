@@ -1,14 +1,13 @@
 //! Codex connector
 //!
 //! OrbitDock uses an embedded Codex app-server host as the first-class session
-//! runtime and keeps direct Codex crates only for setup, rollout
-//! parsing, and other surfaces the app-server does not own.
+//! runtime and keeps direct Codex crates only for setup and other surfaces the
+//! app-server does not own.
 
 pub mod app_server;
 pub mod auth;
 mod config;
 mod policy_bridge;
-pub mod rollout_parser;
 mod row_mapping;
 mod runtime;
 pub mod session;
