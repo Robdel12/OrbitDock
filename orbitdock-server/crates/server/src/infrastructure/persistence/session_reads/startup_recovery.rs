@@ -79,6 +79,20 @@ async fn load_sessions_for_startup_with_db_path(
                  PRAGMA busy_timeout = 5000;",
     )?;
 
+    // Normalize control_mode first so the rest of startup recovery can rely on
+    // one persisted authority instead of re-deriving direct/passive state from
+    // provider-specific integration columns at every call site.
+    conn.execute(
+      "UPDATE sessions
+                 SET control_mode = CASE
+                     WHEN provider = 'claude' AND claude_integration_mode = 'direct' THEN 'direct'
+                     WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
+                     ELSE 'passive'
+                 END
+                 WHERE control_mode IS NULL OR trim(control_mode) = ''",
+      [],
+    )?;
+
     conn.execute(
       "UPDATE sessions
                  SET status = 'ended',
@@ -106,10 +120,7 @@ async fn load_sessions_for_startup_with_db_path(
                      ended_at = COALESCE(ended_at, ?1),
                      end_reason = COALESCE(end_reason, 'startup_stale_passive')
                  WHERE provider = 'codex'
-                   AND COALESCE(control_mode, CASE
-                         WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
-                         ELSE 'passive'
-                       END) = 'passive'
+                   AND control_mode = 'passive'
                    AND status = 'active'
                    AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
                    AND last_activity_at IS NOT NULL
@@ -169,9 +180,7 @@ async fn load_sessions_for_startup_with_db_path(
                  SET work_status = 'reply'
                  WHERE status = 'active'
                    AND work_status = 'working'
-                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
-                     OR control_mode = 'direct')",
+                   AND control_mode = 'direct'",
       [],
     )?;
 
@@ -184,9 +193,7 @@ async fn load_sessions_for_startup_with_db_path(
                      end_reason = NULL
                  WHERE status = 'ended'
                    AND end_reason = 'server_shutdown'
-                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
-                     OR control_mode = 'direct')",
+                   AND control_mode = 'direct'",
       [],
     )?;
 
@@ -195,9 +202,7 @@ async fn load_sessions_for_startup_with_db_path(
                  SET lifecycle_state = 'resumable',
                      work_status = 'waiting'
                  WHERE status = 'active'
-                   AND ((provider = 'claude' AND claude_integration_mode = 'direct')
-                     OR (provider = 'codex' AND codex_integration_mode = 'direct')
-                     OR control_mode = 'direct')
+                   AND control_mode = 'direct'
                    AND COALESCE(lifecycle_state, 'open') != 'ended'",
       [],
     )?;
@@ -216,24 +221,9 @@ async fn load_sessions_for_startup_with_db_path(
       [],
     )?;
 
-    conn.execute(
-      "UPDATE sessions
-                 SET control_mode = CASE
-                     WHEN provider = 'claude' AND claude_integration_mode = 'direct' THEN 'direct'
-                     WHEN provider = 'codex' AND codex_integration_mode = 'direct' THEN 'direct'
-                     ELSE 'passive'
-                 END
-                 WHERE control_mode IS NULL OR trim(control_mode) = ''",
-      [],
-    )?;
-
     let mut stmt = conn.prepare(
       "SELECT s.id, s.provider, s.status, s.work_status,
-                        COALESCE(s.control_mode, CASE
-                            WHEN s.provider = 'claude' AND s.claude_integration_mode = 'direct' THEN 'direct'
-                            WHEN s.provider = 'codex' AND s.codex_integration_mode = 'direct' THEN 'direct'
-                            ELSE 'passive'
-                        END),
+                        s.control_mode,
                         COALESCE(s.lifecycle_state, CASE WHEN s.status = 'ended' THEN 'ended' ELSE 'open' END),
                         s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_thread_id, s.claude_sdk_session_id, s.started_at, s.last_activity_at, s.last_progress_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
                         s.pending_tool_name, s.pending_tool_input, s.pending_question,
