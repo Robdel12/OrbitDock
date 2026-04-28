@@ -18,6 +18,7 @@ mod mission_writes;
 mod review_comments;
 mod review_writes;
 mod row_turn_codecs;
+mod rows_turn_status_writes;
 mod session_accounting_writes;
 mod session_reads;
 mod session_writes;
@@ -603,27 +604,7 @@ fn execute_command_by_family(
       row_ids,
       status,
     } => {
-      if row_ids.is_empty() {
-        return Ok(());
-      }
-      let placeholders = std::iter::repeat_n("?", row_ids.len())
-        .collect::<Vec<_>>()
-        .join(", ");
-      let sql = format!(
-        "UPDATE messages
-             SET turn_status = ?1
-           WHERE session_id = ?2
-             AND id IN ({placeholders})"
-      );
-      let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::with_capacity(row_ids.len() + 2);
-      params_vec.push(Box::new(turn_status_str(status).to_string()));
-      params_vec.push(Box::new(session_id));
-      for row_id in row_ids {
-        params_vec.push(Box::new(row_id));
-      }
-      let params_refs: Vec<&dyn rusqlite::ToSql> =
-        params_vec.iter().map(|value| value.as_ref()).collect();
-      conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+      rows_turn_status_writes::persist_rows_turn_status_update(conn, session_id, row_ids, status)?
     }
     PersistCommand::Flush { .. } => {}
   }
