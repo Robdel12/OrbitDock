@@ -35,6 +35,11 @@ use crate::runtime::session_runtime_helpers::{
   should_detach_direct_connector_after_send_error, spawn_connector_cleanup_monitor,
   ConnectorLoopControl,
 };
+#[path = "codex_session_dynamic_tools.rs"]
+mod codex_session_dynamic_tools;
+use self::codex_session_dynamic_tools::{
+  apply_dynamic_tool_post_response_effects, DynamicToolExecutionResult,
+};
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_codex::session::{
@@ -44,43 +49,6 @@ pub use orbitdock_connector_codex::session::{
 struct MissionToolExecutionContext {
   tracker_kind: String,
   context: MissionToolContext,
-}
-
-struct DynamicToolExecutionResult {
-  success: bool,
-  output: String,
-  blocked: bool,
-  completed_state: Option<String>,
-  pr_url: Option<String>,
-  has_mission_side_effects: bool,
-}
-
-impl DynamicToolExecutionResult {
-  fn workspace(success: bool, output: String) -> Self {
-    Self {
-      success,
-      output,
-      blocked: false,
-      completed_state: None,
-      pr_url: None,
-      has_mission_side_effects: false,
-    }
-  }
-
-  fn mission(result: crate::domain::mission_control::executor::MissionToolResult) -> Self {
-    Self {
-      success: result.success,
-      output: result.output,
-      blocked: result.blocked,
-      completed_state: result.completed_state,
-      pr_url: result.pr_url,
-      has_mission_side_effects: true,
-    }
-  }
-
-  fn failure_json(message: String) -> Self {
-    Self::workspace(false, serde_json::json!({ "error": message }).to_string())
-  }
 }
 
 #[derive(Default)]
@@ -648,10 +616,7 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
   let DynamicToolExecutionResult {
     success,
     output,
-    blocked,
-    completed_state,
-    pr_url,
-    has_mission_side_effects,
+    post_response_effects,
   } = result;
 
   if let Err(error) = session
@@ -679,77 +644,17 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
     return;
   }
 
-  if !has_mission_side_effects {
-    return;
-  }
-
-  let mission_context = match load_mission_tool_execution_context(session_handle, state).await {
-    Ok(Some(context)) => context,
-    Ok(None) => return,
-    Err(error) => {
-      warn!(
-          component = "codex_connector",
-          event = "codex.dynamic_tool.side_effect_context_failed",
-          session_id = %session_id,
-          call_id = %call_id,
-          tool_name = %tool_name,
-          error = %error,
-          "Failed to load mission context for dynamic tool side effects"
-      );
-      return;
-    }
-  };
-
-  if let Some(pr_url) = pr_url {
-    let _ = persist_tx
-      .send(PersistCommand::MissionIssueSetPrUrl {
-        mission_id: mission_context.context.mission_id.clone(),
-        issue_id: mission_context.context.issue_id.clone(),
-        pr_url,
-      })
-      .await;
-    state.publish_mission_invalidation(&mission_context.context.mission_id);
-  }
-
-  if blocked {
-    let now = chrono::Utc::now().to_rfc3339();
-    let _ = persist_tx
-      .send(PersistCommand::MissionIssueUpdateState {
-        mission_id: mission_context.context.mission_id.clone(),
-        issue_id: mission_context.context.issue_id.clone(),
-        orchestration_state: "blocked".to_string(),
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(Some(output.clone())),
-        retry_due_at: None,
-        started_at: None,
-        completed_at: Some(Some(now)),
-      })
-      .await;
-    state.publish_mission_invalidation(&mission_context.context.mission_id);
-  }
-
-  if completed_state.is_some() {
-    let now = chrono::Utc::now().to_rfc3339();
-    let _ = persist_tx
-      .send(PersistCommand::MissionIssueUpdateState {
-        mission_id: mission_context.context.mission_id.clone(),
-        issue_id: mission_context.context.issue_id.clone(),
-        orchestration_state: "completed".to_string(),
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(None),
-        retry_due_at: Some(None),
-        started_at: None,
-        completed_at: Some(Some(now)),
-      })
-      .await;
-
-    crate::runtime::session_mutations::end_session(state, session_id).await;
-    state.publish_mission_invalidation(&mission_context.context.mission_id);
-  }
+  apply_dynamic_tool_post_response_effects(
+    session_handle,
+    state,
+    persist_tx,
+    session_id,
+    &call_id,
+    tool_name.as_str(),
+    output.as_str(),
+    post_response_effects,
+  )
+  .await;
 }
 
 async fn execute_dynamic_tool(
