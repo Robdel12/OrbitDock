@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 19 regroup complete / Phase 20 implementation pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, and the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`. Phase 19 regroup says the remaining large files are no longer one broad cleanup bucket. `state.rs` is now an acceptable authority spine, with only an optional projection peel left; `session.rs` still has one real helper wave left around streaming throttling and broadcast/event-log machinery; `app/mod.rs` is an acceptable composition root with optional PID and HTTP-surface helper peels; `persistence/mod.rs` has one clean remaining helper seam in the inline `RowsTurnStatusUpdate` write path; `session_command_handler.rs` is now an acceptable runtime spine; and by parent integration review after the Phase 18 split, `github/client.rs` now reads as an acceptable facade spine. The parked redesign seams are also clearer now: `session_runtime_helpers.rs` still needs a redesign around transcript sync/cache policy, and `codex_session.rs` still needs a redesign around dynamic-tool routing and side effects.`
+- Current phase: `Phase 20 landed / Phase 21 redesign prep pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, and the Phase 20 final safe spine-polish wave is now landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`. Phase 20 completed the last clearly safe helper peels: `domain/sessions/session.rs` is down to 639 lines with `session_broadcast.rs` (165) and `session_streaming.rs` (68) extracted; `infrastructure/persistence/mod.rs` is down to 616 lines with `rows_turn_status_writes.rs` (34) extracted; and `app/mod.rs` is down to 651 lines with `http_surface.rs` (68) and `pid.rs` (37) extracted. Validation passed with `env RUSTC_WRAPPER= cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml` and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. At this point the remaining large files are no longer catch-alls in the old sense. `state.rs`, `session.rs`, `app/mod.rs`, `persistence/mod.rs`, `session_command_handler.rs`, and `github/client.rs` now read as accepted authority or facade spines. The remaining heavy redesign seams are `session_runtime_helpers.rs` (787 lines, transcript sync/cache policy) and `codex_session.rs` (862 lines, dynamic-tool routing and side effects), with `state.rs` projection helpers as only optional future polish.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1812,9 +1812,58 @@ Parallel workers:
 
 Tasks:
 
-- [ ] Launch the Phase 20 workers with disjoint ownership.
-- [ ] Land the `session.rs` helper breakup slice.
-- [ ] Land the `persistence/mod.rs` write-helper slice.
-- [ ] Decide whether the `app/mod.rs` polish slice still feels worth landing after implementation.
-- [ ] Re-run server validation after the landed slices.
-- [ ] Regroup again and explicitly mark the remaining large files as accepted spines or redesign-first work.
+- [x] Launch the Phase 20 workers with disjoint ownership.
+- [x] Land the `session.rs` helper breakup slice.
+- [x] Land the `persistence/mod.rs` write-helper slice.
+- [x] Decide whether the `app/mod.rs` polish slice still feels worth landing after implementation.
+- [x] Re-run server validation after the landed slices.
+- [x] Regroup again and explicitly mark the remaining large files as accepted spines or redesign-first work.
+
+### Phase 20 launch ledger
+
+| Worker | Agent | Status |
+| --- | --- | --- |
+| Worker A | `019dd1f2-52ae-7d20-9cba-78fc9112da21` (`Halley`) | completed - landed in `3fbcaaaf` |
+| Worker B | `019dd1f2-55f0-7df2-a0b9-72c1a2ec7f1c` (`Goodall`) | completed - landed in `ee9ab2d7` |
+| Worker C | `019dd1f2-5603-7bb0-9a9f-b511e1bbe882` (`Anscombe`) | completed - landed in `94a90b76` |
+
+### Phase 20 execution note
+
+- `3fbcaaaf` `♻️ Split session runtime shell helpers`
+- `ee9ab2d7` `♻️ Split persistence row status writes`
+- `94a90b76` `♻️ Split app runtime surface helpers`
+- `session.rs` now reads like an actual runtime handle boundary instead of a handle plus every broadcast/streaming helper it ever needed.
+- `persistence/mod.rs` is now down to dispatch/orchestration duties with the last obvious inline SQL island removed.
+- `app/mod.rs` is now much more honestly a composition root: startup orchestration and shutdown semantics, not startup plus piles of pid/http helpers.
+
+## Phase 21: Redesign Prep For The Remaining Heavy Seams
+
+Objective: now that the safe structural cleanup is effectively done, prepare the first real redesign slice around the remaining heavy live seams instead of pretending they are just more helper-extraction work.
+
+Primary redesign candidates:
+
+1. `server/src/runtime/session_runtime_helpers.rs`
+2. `server/src/connectors/codex_session.rs`
+
+Execution rules:
+
+- Phase 21 is evaluation and design prep first. Do not open a large write set until the redesign boundary is explicit.
+- Treat the already-cleaned files as accepted spines unless a redesign slice directly forces a touch.
+- Separate “safe remaining helper peel” from “real ownership/routing redesign” inside each heavy file.
+- Keep startup/write-side `control_mode`, single-writer conversation persistence, and provider ownership semantics explicit in the redesign notes.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `server/src/runtime/session_runtime_helpers.rs` read-only | Turn the transcript-sync/cache knot into an explicit redesign map: what stays, what can peel, what the first implementation slice should be. |
+| Worker B | `gpt-5.4-mini` | `server/src/connectors/codex_session.rs` read-only | Turn the dynamic-tool routing/side-effect knot into an explicit redesign map: what stays, what can peel, what the first implementation slice should be. |
+| Worker C | `gpt-5.4-mini` | `server/src/domain/sessions/state.rs` and `server/src/domain/sessions/session.rs` read-only | Verify the newly accepted session spines and call out only optional future polish, not must-do work. |
+
+Tasks:
+
+- [ ] Launch the Phase 21 evaluation workers with disjoint ownership.
+- [ ] Integrate the `session_runtime_helpers.rs` redesign map into the plan.
+- [ ] Integrate the `codex_session.rs` redesign map into the plan.
+- [ ] Verify that `state.rs` and `session.rs` really stay in the accepted-spine bucket.
+- [ ] Decide whether the next wave should open one redesign seam or stop with the current classification.
