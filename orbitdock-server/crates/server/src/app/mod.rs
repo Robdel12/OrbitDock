@@ -2,28 +2,20 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::{
-  extract::DefaultBodyLimit,
-  http::{
-    header::{AUTHORIZATION, CONTENT_TYPE},
-    HeaderValue, Method,
-  },
-  response::IntoResponse,
-  routing::get,
-  Router,
-};
+use axum::{extract::DefaultBodyLimit, routing::get, Router};
 use orbitdock_protocol::{
   ClaudeIntegrationMode, CodexApprovalPolicy, CodexIntegrationMode, Provider, SessionControlMode,
   SessionStatus, TokenUsage, TurnDiff, WorkStatus, WorkspaceProviderKind,
 };
 use tokio::sync::{mpsc, watch};
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
 use anyhow::Context;
 
 mod config_policy;
+mod http_surface;
+mod pid;
 
 use crate::domain::sessions::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
@@ -37,12 +29,13 @@ use crate::infrastructure::persistence::{
 };
 use crate::runtime::session_registry::SessionRegistry;
 use crate::transport::websocket::ws_handler;
-use crate::VERSION;
 
 use self::config_policy::{
   load_trimmed_config_value, normalize_auth_token, parse_server_role_value,
   resolve_workspace_provider_kind,
 };
+use self::http_surface::{configured_cors_layer, describe_bind_failure, health_handler};
+use self::pid::{cleanup_stale_pid_file, remove_pid_file, write_pid_file, PidFileGuard};
 
 /// Per-request body budget for REST uploads. Image attachments are uploaded
 /// one at a time, so this should comfortably exceed the client-side single-image limit.
@@ -622,92 +615,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
   Ok(())
 }
 
-fn describe_bind_failure(error: std::io::Error, bind_addr: SocketAddr) -> anyhow::Error {
-  if error.kind() == std::io::ErrorKind::AddrInUse {
-    return anyhow::anyhow!(
-      "OrbitDock could not start because {} is already in use. Stop the existing OrbitDock/dev server or choose a different `--bind` address.",
-      bind_addr
-    );
-  }
-
-  anyhow::Error::new(error)
-}
-
-fn configured_cors_layer() -> anyhow::Result<Option<CorsLayer>> {
-  let raw = match std::env::var("ORBITDOCK_CORS_ALLOWED_ORIGINS") {
-    Ok(value) => value,
-    Err(_) => return Ok(None),
-  };
-
-  let mut origins = Vec::new();
-  for origin in raw.split(',') {
-    let trimmed = origin.trim();
-    if trimmed.is_empty() {
-      continue;
-    }
-    origins.push(
-      HeaderValue::from_str(trimmed)
-        .map_err(|error| anyhow::anyhow!("invalid CORS origin '{trimmed}': {error}"))?,
-    );
-  }
-
-  if origins.is_empty() {
-    return Ok(None);
-  }
-
-  Ok(Some(
-    CorsLayer::new()
-      .allow_origin(origins)
-      .allow_methods([
-        Method::GET,
-        Method::POST,
-        Method::PUT,
-        Method::PATCH,
-        Method::DELETE,
-        Method::OPTIONS,
-      ])
-      .allow_headers([AUTHORIZATION, CONTENT_TYPE]),
-  ))
-}
-
-fn write_pid_file() {
-  let pid_path = crate::infrastructure::paths::pid_file_path();
-  let _ = std::fs::write(&pid_path, std::process::id().to_string());
-}
-
-fn cleanup_stale_pid_file() {
-  let pid_path = crate::infrastructure::paths::pid_file_path();
-  let Ok(pid_str) = std::fs::read_to_string(&pid_path) else {
-    return;
-  };
-
-  let Ok(pid) = pid_str.trim().parse::<u32>() else {
-    remove_pid_file();
-    return;
-  };
-
-  if pid == 0 || !process_alive(pid) {
-    remove_pid_file();
-  }
-}
-
-fn remove_pid_file() {
-  let pid_path = crate::infrastructure::paths::pid_file_path();
-  let _ = std::fs::remove_file(&pid_path);
-}
-
-struct PidFileGuard;
-
-impl Drop for PidFileGuard {
-  fn drop(&mut self) {
-    remove_pid_file();
-  }
-}
-
-fn process_alive(pid: u32) -> bool {
-  unsafe { libc::kill(pid as i32, 0) == 0 }
-}
-
 async fn shutdown_signal(
   _state: Arc<SessionRegistry>,
   _persist_tx: mpsc::Sender<PersistCommand>,
@@ -737,14 +644,6 @@ async fn shutdown_signal(
   }
 
   remove_pid_file();
-}
-
-async fn health_handler() -> impl IntoResponse {
-  serde_json::json!({
-      "status": "ok",
-      "version": VERSION,
-  })
-  .to_string()
 }
 
 #[cfg(test)]
