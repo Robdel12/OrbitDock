@@ -74,6 +74,18 @@ pub(crate) async fn mark_session_working_after_send(
   .await;
 }
 
+pub(crate) fn restore_passive_takeover_handle(
+  state: &Arc<SessionRegistry>,
+  mut handle: SessionHandle,
+  provider: Provider,
+) {
+  match provider {
+    Provider::Codex => handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive)),
+    Provider::Claude => handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive)),
+  }
+  state.add_session(handle);
+}
+
 pub(crate) async fn claim_codex_thread_for_direct_session(
   state: &Arc<SessionRegistry>,
   persist_tx: &mpsc::Sender<PersistCommand>,

@@ -45,6 +45,24 @@ impl ResumeSessionError {
   }
 }
 
+async fn finish_direct_resume_failure(
+  state: &Arc<SessionRegistry>,
+  persist_tx: &tokio::sync::mpsc::Sender<PersistCommand>,
+  session_id: &str,
+  mut handle: crate::domain::sessions::session::SessionHandle,
+  provider: Provider,
+  flush_conversation: bool,
+) {
+  handle.apply_changes(&direct_resume_failure_changes(provider));
+  state.add_session(handle);
+  if flush_conversation {
+    crate::runtime::session_registry::flush_and_publish_conversation(persist_tx, state, session_id)
+      .await;
+  } else {
+    state.notify_active_session_updated(session_id);
+  }
+}
+
 pub(crate) async fn launch_resumed_session(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -83,13 +101,13 @@ pub(crate) async fn launch_resumed_session(
         .clone()
         .and_then(orbitdock_protocol::ProviderSessionId::new)
       else {
-        let mut handle = prepared.handle;
-        handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
-        state.add_session(handle);
-        crate::runtime::session_registry::flush_and_publish_conversation(
-          state.persist(),
+        finish_direct_resume_failure(
           state,
+          state.persist(),
           &session_id,
+          prepared.handle,
+          Provider::Claude,
+          true,
         )
         .await;
         return Err(ResumeSessionError::MissingClaudeResumeId);
@@ -272,9 +290,15 @@ async fn spawn_claude_resume(
         let _ = startup_ready_tx.send(());
       }
       Ok(Ok(Err(error))) => {
-        handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
-        state.add_session(handle);
-        state.notify_active_session_updated(&session_id);
+        finish_direct_resume_failure(
+          &state,
+          &persist_tx,
+          &session_id,
+          handle,
+          Provider::Claude,
+          false,
+        )
+        .await;
         let _ = startup_ready_tx.send(());
         error!(
             component = "session",
@@ -285,12 +309,13 @@ async fn spawn_claude_resume(
         );
       }
       Ok(Err(join_error)) => {
-        handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
-        state.add_session(handle);
-        crate::runtime::session_registry::flush_and_publish_conversation(
-          &persist_tx,
+        finish_direct_resume_failure(
           &state,
+          &persist_tx,
           &session_id,
+          handle,
+          Provider::Claude,
+          true,
         )
         .await;
         let _ = startup_ready_tx.send(());
@@ -303,12 +328,13 @@ async fn spawn_claude_resume(
         );
       }
       Err(_) => {
-        handle.apply_changes(&direct_resume_failure_changes(Provider::Claude));
-        state.add_session(handle);
-        crate::runtime::session_registry::flush_and_publish_conversation(
-          &persist_tx,
+        finish_direct_resume_failure(
           &state,
+          &persist_tx,
           &session_id,
+          handle,
+          Provider::Claude,
+          true,
         )
         .await;
         let _ = startup_ready_tx.send(());
@@ -335,7 +361,7 @@ async fn spawn_codex_resume(
     project_path,
     codex_thread_id,
     include_mission_tools,
-    mut handle,
+    handle,
     message_count,
     ..
   } = request;
@@ -483,9 +509,15 @@ async fn spawn_codex_resume(
         let _ = startup_ready_tx.send(());
       }
       Err(error) => {
-        handle.apply_changes(&direct_resume_failure_changes(Provider::Codex));
-        state.add_session(handle);
-        state.notify_active_session_updated(&session_id);
+        finish_direct_resume_failure(
+          &state,
+          state.persist(),
+          &session_id,
+          handle,
+          Provider::Codex,
+          false,
+        )
+        .await;
         let _ = startup_ready_tx.send(());
         error!(
             component = "session",

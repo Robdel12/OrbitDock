@@ -18,8 +18,8 @@ use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_lifecycle_policy::{plan_takeover_config, TakeoverConfigInputs};
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::session_runtime_helpers::{
-  attach_claude_direct_runtime, attach_codex_direct_runtime, AttachClaudeDirectRuntimeRequest,
-  AttachCodexDirectRuntimeRequest,
+  attach_claude_direct_runtime, attach_codex_direct_runtime, restore_passive_takeover_handle,
+  AttachClaudeDirectRuntimeRequest, AttachCodexDirectRuntimeRequest,
 };
 use crate::support::session_modes::is_takeover_eligible_passive_session;
 use crate::support::session_paths::resolve_claude_resume_cwd;
@@ -379,21 +379,18 @@ async fn complete_codex_takeover(
       Ok(())
     }
     Ok(Ok(Err(error))) => {
-      handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Codex);
       Err(TakeoverSessionError::ConnectorFailed(error.to_string()))
     }
     Ok(Err(join_error)) => {
-      handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Codex);
       Err(TakeoverSessionError::ConnectorFailed(format!(
         "Connector task panicked: {join_error}"
       )))
     }
     Err(_) => {
       connector_task.abort();
-      handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Codex);
       Err(TakeoverSessionError::ConnectorFailed(
         "Codex takeover connector failed or timed out".into(),
       ))
@@ -498,20 +495,17 @@ async fn complete_claude_takeover(
       Ok(())
     }
     Ok(Ok(Err(error))) => {
-      handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Claude);
       Err(TakeoverSessionError::ConnectorFailed(error.to_string()))
     }
     Ok(Err(join_error)) => {
-      handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Claude);
       Err(TakeoverSessionError::ConnectorFailed(format!(
         "Connector task panicked: {join_error}"
       )))
     }
     Err(_) => {
-      handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
-      state.add_session(handle);
+      restore_passive_takeover_handle(state, handle, Provider::Claude);
       Err(TakeoverSessionError::ConnectorFailed(
         "Claude takeover connector failed or timed out".into(),
       ))
