@@ -6,8 +6,9 @@
 
 use orbitdock_protocol::{StateChanges, WorkStatus};
 
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_commands::SessionCommand;
 use crate::support::session_time::chrono_now;
 
 /// Transition a session's work_status with guaranteed persist + broadcast.
@@ -31,10 +32,11 @@ pub(crate) async fn transition_work_status(
   actor
     .send(SessionCommand::ApplyDelta {
       changes: Box::new(changes),
-      persist_op: Some(PersistOp::SessionUpdate {
+      persist_op: Some(PersistCommand::SessionUpdate {
         id: session_id.to_string(),
         status: None,
         work_status: Some(next_status),
+        control_mode: None,
         lifecycle_state: None,
         last_activity_at: Some(now),
         last_progress_at: None,

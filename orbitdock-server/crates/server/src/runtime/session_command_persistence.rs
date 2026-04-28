@@ -5,69 +5,28 @@ use orbitdock_protocol::{ServerMessage, StateChanges, WorkStatus};
 use crate::domain::sessions::session::SessionHandle;
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_broadcasts::row_append_delta;
-use crate::runtime::session_commands::PersistOp;
 
-async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistCommand>) {
-  let cmd = match op {
-    PersistOp::SessionUpdate {
-      id,
-      status,
-      work_status,
-      lifecycle_state,
-      last_activity_at,
-      last_progress_at,
-    } => PersistCommand::SessionUpdate {
-      id,
-      status,
-      work_status,
-      control_mode: None,
-      lifecycle_state,
-      last_activity_at,
-      last_progress_at,
-    },
-    PersistOp::SetCustomName { session_id, name } => PersistCommand::SetCustomName {
-      session_id,
-      custom_name: name,
-    },
-    PersistOp::SetSessionConfig(cfg) => PersistCommand::SetSessionConfig {
-      session_id: cfg.session_id,
-      approval_policy: cfg.approval_policy,
-      sandbox_mode: cfg.sandbox_mode,
-      permission_mode: cfg.permission_mode,
-      collaboration_mode: cfg.collaboration_mode,
-      multi_agent: cfg.multi_agent,
-      personality: cfg.personality,
-      service_tier: cfg.service_tier,
-      developer_instructions: cfg.developer_instructions,
-      model: cfg.model,
-      effort: cfg.effort,
-      codex_config_mode: cfg.codex_config_mode,
-      codex_config_profile: cfg.codex_config_profile,
-      codex_model_provider: cfg.codex_model_provider,
-      codex_config_source: cfg.codex_config_source,
-      codex_config_overrides_json: cfg.codex_config_overrides_json,
-    },
-  };
+async fn execute_persist_command(cmd: PersistCommand, persist_tx: &mpsc::Sender<PersistCommand>) {
   let _ = persist_tx.send(cmd).await;
 }
 
 pub(crate) async fn execute_session_persist_op(
-  op: PersistOp,
+  cmd: PersistCommand,
   persist_tx: &mpsc::Sender<PersistCommand>,
 ) {
-  execute_persist_op(op, persist_tx).await;
+  execute_persist_command(cmd, persist_tx).await;
 }
 
 pub(crate) async fn apply_delta_and_broadcast(
   handle: &mut SessionHandle,
   persist_tx: &mpsc::Sender<PersistCommand>,
   changes: StateChanges,
-  persist_op: Option<PersistOp>,
+  persist_op: Option<PersistCommand>,
 ) {
   let session_id = handle.id().to_string();
   handle.apply_changes(&changes);
-  if let Some(op) = persist_op {
-    execute_persist_op(op, persist_tx).await;
+  if let Some(cmd) = persist_op {
+    execute_persist_command(cmd, persist_tx).await;
   }
   let mut changes = changes;
   include_derived_affordances_for_state_delta(&mut changes, handle);

@@ -455,10 +455,11 @@ async fn apply_delta_updates_actor_snapshot_and_persists_the_same_transition() {
         steerable: Some(false),
         ..Default::default()
       }),
-      persist_op: Some(PersistOp::SessionUpdate {
+      persist_op: Some(PersistCommand::SessionUpdate {
         id: "session-1".to_string(),
         status: None,
         work_status: Some(WorkStatus::Waiting),
+        control_mode: None,
         lifecycle_state: Some(SessionLifecycleState::Resumable),
         last_activity_at: None,
         last_progress_at: None,

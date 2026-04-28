@@ -28,7 +28,7 @@ use crate::runtime::restored_sessions::{
   restored_session_to_handle,
 };
 use crate::runtime::session_actor::SessionActorHandle;
-use crate::runtime::session_commands::{PersistOp, SessionCommand};
+use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 use crate::runtime::transcript_sync_guard::{
   build_transcript_sync_guard_state, cached_transcript_sync_matches,
@@ -174,10 +174,11 @@ async fn apply_connector_cleanup_transition(
   if let Err(error) = actor
     .send_checked(SessionCommand::ApplyDelta {
       changes: Box::new(connector_cleanup_changes(provider)),
-      persist_op: Some(PersistOp::SessionUpdate {
+      persist_op: Some(PersistCommand::SessionUpdate {
         id: session_id.to_string(),
         status: None,
         work_status: Some(WorkStatus::Waiting),
+        control_mode: None,
         lifecycle_state: Some(SessionLifecycleState::Resumable),
         last_activity_at: None,
         last_progress_at: None,
@@ -294,10 +295,11 @@ pub(crate) async fn activate_direct_session_runtime(
   actor
     .send(SessionCommand::ApplyDelta {
       changes: Box::new(direct_mode_activation_changes(provider)),
-      persist_op: Some(PersistOp::SessionUpdate {
+      persist_op: Some(PersistCommand::SessionUpdate {
         id: session_id.to_string(),
         status: Some(SessionStatus::Active),
         work_status: Some(WorkStatus::Waiting),
+        control_mode: None,
         lifecycle_state: Some(SessionLifecycleState::Open),
         last_activity_at: None,
         last_progress_at: None,

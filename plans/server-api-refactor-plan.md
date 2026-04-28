@@ -2204,7 +2204,8 @@ Execution rules:
 
 Tasks:
 
-- [ ] Re-audit `session_command_persistence.rs` and decide whether it can be deleted outright or collapsed into one canonical runtime-to-persist transition path.
+- [x] Re-audit `session_command_persistence.rs` and decide whether it can be deleted outright or collapsed into one canonical runtime-to-persist transition path.
+  Landed as a narrow runtime-authority cleanup: the extra runtime `PersistOp` / `SessionConfigPersist` dialect is gone, `SessionCommand` now carries real `PersistCommand`s, and `session_command_persistence.rs` is reduced to a thin sender plus row/broadcast helpers instead of a second translation lane.
 - [ ] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
 - [ ] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
 - [ ] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
@@ -2214,7 +2215,7 @@ Tasks:
 Done when:
 
 - [ ] There is one obvious owning path for startup recovery and one obvious owning path for takeover/resume behavior.
-- [ ] `session_command_persistence.rs` is either gone or clearly justified as a thin canonical adapter instead of a second authority lane.
+- [x] `session_command_persistence.rs` is either gone or clearly justified as a thin canonical adapter instead of a second authority lane.
 - [ ] The runtime/persistence relationship is easier to explain than “it depends which path woke the session up.”
 
 ## Phase 25D: Protocol And Native Contract Convergence

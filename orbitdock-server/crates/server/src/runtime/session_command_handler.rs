@@ -34,7 +34,7 @@ use crate::runtime::session_broadcasts::{
   inject_approval_version, latest_completed_conversation_row, transition_delta,
 };
 use crate::runtime::session_commands::{
-  PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
+  PendingApprovalResolution, SessionCommand, SubscribeResult,
 };
 use crate::support::session_time::chrono_now;
 
@@ -146,10 +146,11 @@ pub async fn handle_session_command(
           last_activity_at: Some(now.clone()),
           ..Default::default()
         },
-        Some(PersistOp::SessionUpdate {
+        Some(PersistCommand::SessionUpdate {
           id: handle.id().to_string(),
           status: Some(SessionStatus::Ended),
           work_status: Some(WorkStatus::Ended),
+          control_mode: None,
           lifecycle_state: None,
           last_activity_at: Some(now),
           last_progress_at: None,

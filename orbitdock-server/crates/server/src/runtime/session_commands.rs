@@ -2,49 +2,12 @@
 
 use orbitdock_protocol::{
   conversation_contracts::ConversationRowEntry, ApprovalRequest, ApprovalType, ServerMessage,
-  SessionLifecycleState, SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
+  SessionState, SessionSummary, StateChanges, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
 use crate::domain::sessions::conversation::ConversationPage;
-
-/// A persistence operation that the actor executes on behalf of the caller.
-/// The actor already holds `persist_tx`, so callers don't need to pass it.
-pub enum PersistOp {
-  SessionUpdate {
-    id: String,
-    status: Option<SessionStatus>,
-    work_status: Option<WorkStatus>,
-    lifecycle_state: Option<SessionLifecycleState>,
-    last_activity_at: Option<String>,
-    last_progress_at: Option<String>,
-  },
-  SetCustomName {
-    session_id: String,
-    name: Option<String>,
-  },
-  SetSessionConfig(Box<SessionConfigPersist>),
-}
-
-/// Payload for `PersistOp::SetSessionConfig`, boxed to keep the enum small.
-pub struct SessionConfigPersist {
-  pub session_id: String,
-  pub approval_policy: Option<Option<String>>,
-  pub sandbox_mode: Option<Option<String>>,
-  pub permission_mode: Option<Option<String>>,
-  pub collaboration_mode: Option<Option<String>>,
-  pub multi_agent: Option<Option<bool>>,
-  pub personality: Option<Option<String>>,
-  pub service_tier: Option<Option<String>>,
-  pub developer_instructions: Option<Option<String>>,
-  pub model: Option<Option<String>>,
-  pub effort: Option<Option<String>>,
-  pub codex_config_mode: Option<orbitdock_protocol::CodexConfigMode>,
-  pub codex_config_profile: Option<String>,
-  pub codex_model_provider: Option<String>,
-  pub codex_config_source: Option<orbitdock_protocol::CodexConfigSource>,
-  pub codex_config_overrides_json: Option<String>,
-}
+use crate::infrastructure::persistence::PersistCommand;
 
 /// A command that can be sent to a session actor.
 pub enum SessionCommand {
@@ -83,14 +46,14 @@ pub enum SessionCommand {
   /// Apply a StateChanges delta, optionally persist, and broadcast SessionDelta.
   ApplyDelta {
     changes: Box<StateChanges>,
-    persist_op: Option<PersistOp>,
+    persist_op: Option<PersistCommand>,
   },
 
   /// Apply a StateChanges delta, optionally persist, broadcast, and notify the
   /// caller once processing is complete.
   ApplyDeltaAndWait {
     changes: Box<StateChanges>,
-    persist_op: Option<PersistOp>,
+    persist_op: Option<PersistCommand>,
     reply: oneshot::Sender<()>,
   },
 
@@ -100,7 +63,7 @@ pub enum SessionCommand {
   /// Set custom name, optionally persist, broadcast delta, and return summary.
   SetCustomNameAndNotify {
     name: Option<String>,
-    persist_op: Option<PersistOp>,
+    persist_op: Option<PersistCommand>,
     reply: oneshot::Sender<SessionSummary>,
   },
 

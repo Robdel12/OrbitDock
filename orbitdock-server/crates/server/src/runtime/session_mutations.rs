@@ -6,8 +6,9 @@ use orbitdock_protocol::{
 
 use crate::connectors::claude_session::ClaudeAction;
 use crate::connectors::codex_session::CodexAction;
+use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::codex_config::serialize_codex_overrides;
-use crate::runtime::session_commands::{PersistOp, SessionCommand, SessionConfigPersist};
+use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 
 pub(crate) mod config_notices;
@@ -72,9 +73,9 @@ pub(crate) async fn rename_session(
   actor
     .send(SessionCommand::SetCustomNameAndNotify {
       name: name.clone(),
-      persist_op: Some(PersistOp::SetCustomName {
+      persist_op: Some(PersistCommand::SetCustomName {
         session_id: session_id.to_string(),
-        name: name.clone(),
+        custom_name: name.clone(),
       }),
       reply: reply_tx,
     })
@@ -291,28 +292,26 @@ pub(crate) async fn update_session_config(
         codex_config_overrides: codex_config_overrides.clone().map(Some),
         ..Default::default()
       }),
-      persist_op: Some(PersistOp::SetSessionConfig(Box::new(
-        SessionConfigPersist {
-          session_id: session_id.to_string(),
-          approval_policy: approval_policy.clone(),
-          sandbox_mode: sandbox_mode.clone(),
-          permission_mode: permission_mode.clone(),
-          collaboration_mode: collaboration_mode.clone(),
-          multi_agent,
-          personality: personality.clone(),
-          service_tier: service_tier.clone(),
-          developer_instructions: developer_instructions.clone(),
-          model: model.clone(),
-          effort: effort.clone(),
-          codex_config_mode: codex_config_mode.flatten(),
-          codex_config_profile: codex_config_profile.flatten(),
-          codex_model_provider: codex_model_provider.flatten(),
-          codex_config_source,
-          codex_config_overrides_json: codex_config_overrides
-            .as_ref()
-            .and_then(serialize_codex_overrides),
-        },
-      ))),
+      persist_op: Some(PersistCommand::SetSessionConfig {
+        session_id: session_id.to_string(),
+        approval_policy: approval_policy.clone(),
+        sandbox_mode: sandbox_mode.clone(),
+        permission_mode: permission_mode.clone(),
+        collaboration_mode: collaboration_mode.clone(),
+        multi_agent,
+        personality: personality.clone(),
+        service_tier: service_tier.clone(),
+        developer_instructions: developer_instructions.clone(),
+        model: model.clone(),
+        effort: effort.clone(),
+        codex_config_mode: codex_config_mode.flatten(),
+        codex_config_profile: codex_config_profile.flatten(),
+        codex_model_provider: codex_model_provider.flatten(),
+        codex_config_source,
+        codex_config_overrides_json: codex_config_overrides
+          .as_ref()
+          .and_then(serialize_codex_overrides),
+      }),
       reply: reply_tx,
     })
     .await;
