@@ -249,10 +249,7 @@ async fn spawn_claude_resume(
     match tokio::time::timeout(connector_timeout, connector_task).await {
       Ok(Ok(Ok(claude_session))) => {
         // claude_sdk_session_id is already in DB — no registration needed on resume.
-        handle.set_list_tx(state.list_tx());
-        handle.set_sessions_summary_revision_counter(state.sessions_summary_revision_counter());
-        handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
-        handle.set_library_revision_counter(state.library_revision_counter());
+        state.prepare_session_handle(&mut handle);
         let (actor_handle, action_tx) = crate::connectors::claude_session::start_event_loop(
           claude_session,
           handle,
@@ -497,10 +494,7 @@ async fn spawn_codex_resume(
         )
         .await;
 
-        handle.set_list_tx(state.list_tx());
-        handle.set_sessions_summary_revision_counter(state.sessions_summary_revision_counter());
-        handle.set_dashboard_revision_counter(state.dashboard_revision_counter());
-        handle.set_library_revision_counter(state.library_revision_counter());
+        state.prepare_session_handle(&mut handle);
         let (actor_handle, action_tx) = crate::connectors::codex_session::start_event_loop(
           codex_session,
           handle,

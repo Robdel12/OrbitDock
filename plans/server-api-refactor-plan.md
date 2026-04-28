@@ -2209,6 +2209,7 @@ Tasks:
 - [ ] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
 - [ ] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
 - [ ] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
+  In progress: the shared `SessionHandle` registry wiring is now converged through `SessionRegistry::prepare_session_handle(...)`, so direct start, resume, takeover, and fork paths no longer hand-roll their own revision/list setup.
 - [ ] Re-run focused runtime, persistence, and server validation.
 - [ ] Commit the Phase 25C runtime-authority slice.
 

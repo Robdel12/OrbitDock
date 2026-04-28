@@ -110,11 +110,15 @@ impl SessionRegistry {
     })
   }
 
-  pub fn add_session(&self, mut handle: SessionHandle) -> SessionActorHandle {
+  pub(crate) fn prepare_session_handle(&self, handle: &mut SessionHandle) {
     handle.set_list_tx(self.list_tx.clone());
     handle.set_sessions_summary_revision_counter(self.sessions_summary_revision.clone());
     handle.set_dashboard_revision_counter(self.dashboard_revision.clone());
     handle.set_library_revision_counter(self.library_revision.clone());
+  }
+
+  pub fn add_session(&self, mut handle: SessionHandle) -> SessionActorHandle {
+    self.prepare_session_handle(&mut handle);
     let id = handle.id().to_string();
     let actor = SessionActorHandle::spawn(handle, self.persist_tx.clone());
     self.sessions.insert(id, actor.clone());

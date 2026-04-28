@@ -17,10 +17,6 @@ impl SessionRegistry {
     self.sessions_summary_revision.load(Ordering::Relaxed)
   }
 
-  pub fn sessions_summary_revision_counter(&self) -> std::sync::Arc<std::sync::atomic::AtomicU64> {
-    self.sessions_summary_revision.clone()
-  }
-
   pub async fn current_sessions_summary_snapshot(
     self: &std::sync::Arc<Self>,
   ) -> SessionsSummarySnapshot {

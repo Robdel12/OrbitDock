@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use orbitdock_protocol::{DashboardSnapshot, RecentProject};
@@ -67,10 +67,6 @@ impl SessionRegistry {
 
   pub fn list_tx(&self) -> tokio::sync::broadcast::Sender<orbitdock_protocol::ServerMessage> {
     self.list_tx.clone()
-  }
-
-  pub fn dashboard_revision_counter(&self) -> Arc<AtomicU64> {
-    self.dashboard_revision.clone()
   }
 
   pub async fn list_recent_projects(&self) -> Vec<RecentProject> {
