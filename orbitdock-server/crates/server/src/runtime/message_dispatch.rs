@@ -325,13 +325,6 @@ pub(crate) async fn dispatch_stop_active_turn(
   }
 }
 
-pub(crate) async fn dispatch_interrupt(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-) -> Result<(), &'static str> {
-  dispatch_stop_active_turn(state, session_id).await
-}
-
 pub(crate) async fn dispatch_compact_context(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -349,13 +342,6 @@ pub(crate) async fn dispatch_compact_context(
   }
 }
 
-pub(crate) async fn dispatch_compact(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-) -> Result<(), &'static str> {
-  dispatch_compact_context(state, session_id).await
-}
-
 pub(crate) async fn dispatch_undo_last_turn(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -371,13 +357,6 @@ pub(crate) async fn dispatch_undo_last_turn(
   } else {
     Err("connector_unavailable")
   }
-}
-
-pub(crate) async fn dispatch_undo(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-) -> Result<(), &'static str> {
-  dispatch_undo_last_turn(state, session_id).await
 }
 
 pub(crate) async fn dispatch_rollback_turns(
@@ -405,14 +384,6 @@ pub(crate) async fn dispatch_rollback_turns(
   }
 }
 
-pub(crate) async fn dispatch_rollback(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  num_turns: u32,
-) -> Result<(), &'static str> {
-  dispatch_rollback_turns(state, session_id, num_turns).await
-}
-
 pub(crate) async fn dispatch_stop_target(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -430,14 +401,6 @@ pub(crate) async fn dispatch_stop_target(
   }
 }
 
-pub(crate) async fn dispatch_stop_task(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  task_id: String,
-) -> Result<(), &'static str> {
-  dispatch_stop_target(state, session_id, task_id).await
-}
-
 pub(crate) async fn dispatch_rewind_to_message(
   state: &Arc<SessionRegistry>,
   session_id: &str,
@@ -453,14 +416,6 @@ pub(crate) async fn dispatch_rewind_to_message(
   } else {
     Err("connector_unavailable")
   }
-}
-
-pub(crate) async fn dispatch_rewind_files(
-  state: &Arc<SessionRegistry>,
-  session_id: &str,
-  user_message_id: String,
-) -> Result<(), &'static str> {
-  dispatch_rewind_to_message(state, session_id, user_message_id).await
 }
 
 pub(crate) async fn dispatch_answer_question(

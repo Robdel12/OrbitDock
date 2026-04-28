@@ -1,14 +1,7 @@
 //! Client → Server messages
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::types::{
-  CodexApprovalPolicy, CodexApprovalsReviewer, CodexSandboxPolicy, ImageInput, MentionInput,
-  PermissionGrantScope, SkillInput, ToolApprovalDecision,
-};
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,120 +43,6 @@ pub enum ClientMessage {
   UnsubscribeSessionSurface {
     session_id: String,
     surface: crate::types::SessionSurface,
-  },
-
-  // Actions
-  SendMessage {
-    session_id: String,
-    content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    skills: Vec<SkillInput>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    images: Vec<ImageInput>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    mentions: Vec<MentionInput>,
-  },
-  ApproveTool {
-    session_id: String,
-    request_id: String,
-    decision: ToolApprovalDecision,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    interrupt: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    updated_input: Option<Value>,
-  },
-  AnswerQuestion {
-    session_id: String,
-    request_id: String,
-    answer: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    question_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    answers: Option<HashMap<String, Vec<String>>>,
-  },
-  RespondToPermissionRequest {
-    session_id: String,
-    request_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    permissions: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scope: Option<PermissionGrantScope>,
-  },
-  InterruptSession {
-    session_id: String,
-  },
-  EndSession {
-    session_id: String,
-  },
-
-  // Session config
-  UpdateSessionConfig {
-    session_id: String,
-    approval_policy: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approval_policy_details: Option<CodexApprovalPolicy>,
-    sandbox_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    sandbox_policy_details: Option<CodexSandboxPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    approvals_reviewer: Option<CodexApprovalsReviewer>,
-    permission_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    collaboration_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    multi_agent: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    personality: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    service_tier: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    developer_instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    model: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    effort: Option<String>,
-  },
-
-  // Session naming
-  RenameSession {
-    session_id: String,
-    name: Option<String>,
-  },
-
-  // Turn steering
-  SteerTurn {
-    session_id: String,
-    content: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    images: Vec<ImageInput>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    mentions: Vec<MentionInput>,
-  },
-
-  // Context management
-  CompactContext {
-    session_id: String,
-  },
-  UndoLastTurn {
-    session_id: String,
-  },
-  RollbackTurns {
-    session_id: String,
-    num_turns: u32,
-  },
-  StopTask {
-    session_id: String,
-    task_id: String,
-  },
-  RewindFiles {
-    session_id: String,
-    user_message_id: String,
   },
 
   // Claude hook transport (server-owned write path)

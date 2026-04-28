@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 25A landed / next phase pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 reclassified the remaining debt. Phase 25A then landed the lowest-risk follow-through from that audit: the dead `protocol/provider_normalization/shared.rs` sidecar is gone, the tiny `transport/http/sessions_summary.rs` and `transport/websocket/server_info.rs` shims are collapsed, the CLI fork path now uses `/api/sessions/{id}/lifecycle/fork`, and the native server layer dropped its outbound-only `ClientToServerMessage` decode implementation plus the duplicate `ConversationClient.fetchSessionInstructions(...)` helper. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `make rust-check`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo check -p orbitdock-protocol --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo check -p orbitdock-server --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock --lib --tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `xcodebuild -project OrbitDockNative/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`.`
+- Current phase: `Phase 25B landed / next phase pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 reclassified the remaining debt. Phase 25A then landed the lowest-risk follow-through from that audit: the dead `protocol/provider_normalization/shared.rs` sidecar is gone, the tiny `transport/http/sessions_summary.rs` and `transport/websocket/server_info.rs` shims are collapsed, the CLI fork path now uses `/api/sessions/{id}/lifecycle/fork`, and the native server layer dropped its outbound-only `ClientToServerMessage` decode implementation plus the duplicate `ConversationClient.fetchSessionInstructions(...)` helper. Phase 25B then converged the remaining repo-owned session mutation surface onto HTTP: the CLI session actions now post to the HTTP mutation endpoints and only keep WebSocket for follow-up streaming/subscriptions, the legacy WebSocket mutation `ClientMessage` variants are removed, the old `transport/websocket` mutation handler groups are deleted, and the runtime/CLI bootstrap layer dropped its now-dead alias and snapshot bootstrap helpers. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock --lib --tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, and `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -2130,3 +2130,48 @@ Tasks:
   - `server/src/runtime/session_command_persistence.rs`
   - any WebSocket mutation convergence work
   - any runtime recovery/materialization redesign
+
+## Phase 25B: Transport Contract Convergence
+
+Objective: finish the HTTP-authoritative transport cleanup by moving the last repo-owned session mutation client onto REST and deleting the now-unused WebSocket mutation contract.
+
+Scope for this slice:
+
+- Move CLI session mutations off WebSocket request messages and onto the existing HTTP mutation routes.
+- Keep WebSocket only for subscriptions and follow-up streaming where interactive waits still need live events.
+- Delete the legacy WebSocket mutation `ClientMessage` variants and the server handler groups that existed only for them.
+- Remove tiny alias/bootstrap helpers that became dead once the mutation path converged.
+
+Explicitly out of scope for this slice:
+
+- startup recovery / takeover / resume redesign
+- native contract mirror narrowing
+- approval or tool-payload protocol redesign
+- server-owned hook transport
+
+Tasks:
+
+- [x] Move CLI `send`, `approve`, `answer`, `interrupt`, `end`, `steer`, `compact`, `undo`, `rollback`, and `rename` to the HTTP mutation surface.
+- [x] Keep CLI watch-style follow-up on WebSocket only where the command still waits on live events.
+- [x] Remove the legacy WebSocket mutation `ClientMessage` variants.
+- [x] Delete the now-unused WebSocket mutation handler groups and routing arms.
+- [x] Remove dead runtime alias helpers and CLI bootstrap helpers exposed by the convergence.
+- [x] Re-run focused CLI, protocol, and server validation.
+- [x] Commit the Phase 25B convergence slice.
+
+### Phase 25B execution note
+
+- Landed transport convergence:
+  - `cli/src/commands/session/live.rs` now uses HTTP for repo-owned session mutations and keeps WebSocket only for follow-up detail/conversation streaming when interactive waits still need it.
+  - `cli/src/commands/session/bootstrap.rs` now owns only the minimal subscription helpers that remain live.
+  - `protocol/src/client.rs` dropped the old session-mutation WebSocket message variants.
+  - `transport/websocket/router.rs`, `message_groups.rs`, and `handlers/mod.rs` no longer carry the `SessionCrud`, `Messaging`, or `Approvals` mutation lanes.
+  - deleted `transport/websocket/handlers/{approvals,messaging,session_crud,session_management}.rs`
+- Landed cleanup follow-through:
+  - `runtime/message_dispatch.rs` dropped the dead alias verbs that only existed for the removed WebSocket mutation path.
+  - `runtime/message_dispatch_tests.rs` now targets the canonical HTTP-owned helper names directly.
+- Validation:
+  - `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`
+  - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock --lib --tests --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`
+  - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`
+  - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`

@@ -47,21 +47,6 @@ pub(crate) fn handle_client_message<'a>(
         .await;
       }
 
-      MessageGroup::SessionCrud => {
-        crate::transport::websocket::handlers::session_crud::handle(msg, client_tx, state, conn_id)
-          .await;
-      }
-
-      MessageGroup::Messaging => {
-        crate::transport::websocket::handlers::messaging::handle(msg, client_tx, state, conn_id)
-          .await;
-      }
-
-      MessageGroup::Approvals => {
-        crate::transport::websocket::handlers::approvals::handle(msg, client_tx, state, conn_id)
-          .await;
-      }
-
       MessageGroup::ClaudeHooks => {
         crate::transport::websocket::handlers::claude_hooks::handle(msg, client_tx, state).await;
       }

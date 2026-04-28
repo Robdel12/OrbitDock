@@ -3,9 +3,6 @@ use orbitdock_protocol::ClientMessage;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum MessageGroup {
   Subscribe,
-  SessionCrud,
-  Messaging,
-  Approvals,
   ClaudeHooks,
   Shell,
   Terminal,
@@ -26,23 +23,6 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
     | ClientMessage::UnsubscribeMission { .. }
     | ClientMessage::SubscribeSessionSurface { .. }
     | ClientMessage::UnsubscribeSessionSurface { .. } => MessageGroup::Subscribe,
-
-    ClientMessage::EndSession { .. }
-    | ClientMessage::RenameSession { .. }
-    | ClientMessage::UpdateSessionConfig { .. } => MessageGroup::SessionCrud,
-
-    ClientMessage::SendMessage { .. }
-    | ClientMessage::SteerTurn { .. }
-    | ClientMessage::AnswerQuestion { .. }
-    | ClientMessage::RespondToPermissionRequest { .. }
-    | ClientMessage::InterruptSession { .. }
-    | ClientMessage::CompactContext { .. }
-    | ClientMessage::UndoLastTurn { .. }
-    | ClientMessage::RollbackTurns { .. }
-    | ClientMessage::StopTask { .. }
-    | ClientMessage::RewindFiles { .. } => MessageGroup::Messaging,
-
-    ClientMessage::ApproveTool { .. } => MessageGroup::Approvals,
 
     ClientMessage::ClaudeSessionStart { .. }
     | ClientMessage::ClaudeSessionEnd { .. }

@@ -81,6 +81,7 @@ pub async fn run(
         }
       };
       live::send_message(
+        rest,
         config,
         output,
         session_id,
@@ -98,7 +99,7 @@ pub async fn run(
       request_id,
     } => {
       live::approve_tool(
-        config,
+        rest,
         output,
         session_id,
         decision,
@@ -119,10 +120,12 @@ pub async fn run(
           return crate::error::EXIT_CLIENT_ERROR;
         }
       };
-      live::answer_question(config, output, session_id, &resolved, request_id.as_deref()).await
+      live::answer_question(rest, output, session_id, &resolved, request_id.as_deref()).await
     }
-    SessionAction::Interrupt { session_id } => live::interrupt(config, output, session_id).await,
-    SessionAction::End { session_id } => live::end_session(config, output, session_id).await,
+    SessionAction::Interrupt { session_id } => {
+      live::interrupt(rest, config, output, session_id).await
+    }
+    SessionAction::End { session_id } => live::end_session(rest, config, output, session_id).await,
     SessionAction::Fork { session_id, model } => {
       http::fork(rest, output, session_id, model.as_deref()).await
     }
@@ -137,12 +140,12 @@ pub async fn run(
           return crate::error::EXIT_CLIENT_ERROR;
         }
       };
-      live::steer(config, output, session_id, &resolved).await
+      live::steer(rest, output, session_id, &resolved).await
     }
-    SessionAction::Compact { session_id } => live::compact(config, output, session_id).await,
-    SessionAction::Undo { session_id } => live::undo(config, output, session_id).await,
+    SessionAction::Compact { session_id } => live::compact(rest, config, output, session_id).await,
+    SessionAction::Undo { session_id } => live::undo(rest, config, output, session_id).await,
     SessionAction::Rollback { session_id, turns } => {
-      live::rollback(config, output, session_id, *turns).await
+      live::rollback(rest, config, output, session_id, *turns).await
     }
     SessionAction::Watch {
       session_id,
@@ -150,7 +153,7 @@ pub async fn run(
       timeout,
     } => watch::watch(rest, config, output, session_id, filter, *timeout).await,
     SessionAction::Rename { session_id, name } => {
-      live::rename(config, output, session_id, name).await
+      live::rename(rest, output, session_id, name).await
     }
     SessionAction::Resume { session_id } => http::resume(rest, output, session_id).await,
   }

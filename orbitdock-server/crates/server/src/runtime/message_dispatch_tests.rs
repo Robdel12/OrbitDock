@@ -101,7 +101,7 @@ async fn steer_rejects_idle_sessions_without_creating_a_fallback_row() {
 }
 
 #[tokio::test]
-async fn interrupt_reports_connector_unavailable_when_session_exists_without_connector() {
+async fn stop_active_turn_reports_connector_unavailable_when_session_exists_without_connector() {
   let state = new_test_session_registry(true);
   let session_id = "session-no-connector";
   state.add_session(SessionHandle::new(
@@ -110,14 +110,14 @@ async fn interrupt_reports_connector_unavailable_when_session_exists_without_con
     "/tmp/orbitdock-test".to_string(),
   ));
 
-  let result = dispatch_interrupt(&state, session_id).await;
+  let result = dispatch_stop_active_turn(&state, session_id).await;
   assert_eq!(result, Err("connector_unavailable"));
 }
 
 #[tokio::test]
-async fn interrupt_reports_session_not_found_when_actor_is_missing() {
+async fn stop_active_turn_reports_session_not_found_when_actor_is_missing() {
   let state = new_test_session_registry(true);
-  let result = dispatch_interrupt(&state, "missing-session").await;
+  let result = dispatch_stop_active_turn(&state, "missing-session").await;
   assert_eq!(result, Err("session_not_found"));
 }
 

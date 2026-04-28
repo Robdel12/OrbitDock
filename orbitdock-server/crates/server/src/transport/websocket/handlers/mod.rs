@@ -1,8 +1,4 @@
-pub(crate) mod approvals;
 pub(crate) mod claude_hooks;
-pub(crate) mod messaging;
-pub(crate) mod session_crud;
-pub(crate) mod session_management;
 pub(crate) mod shell;
 pub(crate) mod subscribe;
 pub(crate) mod terminal;
