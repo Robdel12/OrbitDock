@@ -30,6 +30,14 @@ pub(super) struct DynamicToolExecutionResult {
   pub post_response_effects: DynamicToolPostResponseEffects,
 }
 
+pub(super) struct DynamicToolPostResponseContext<'a> {
+  pub session_id: &'a str,
+  pub call_id: &'a str,
+  pub tool_name: &'a str,
+  pub output: &'a str,
+  pub post_response_effects: DynamicToolPostResponseEffects,
+}
+
 impl DynamicToolExecutionResult {
   pub(super) fn workspace(success: bool, output: String) -> Self {
     Self {
@@ -62,12 +70,15 @@ pub(super) async fn apply_dynamic_tool_post_response_effects(
   session_handle: &SessionHandle,
   state: &Arc<SessionRegistry>,
   persist_tx: &mpsc::Sender<PersistCommand>,
-  session_id: &str,
-  call_id: &str,
-  tool_name: &str,
-  output: &str,
-  post_response_effects: DynamicToolPostResponseEffects,
+  context: DynamicToolPostResponseContext<'_>,
 ) {
+  let DynamicToolPostResponseContext {
+    session_id,
+    call_id,
+    tool_name,
+    output,
+    post_response_effects,
+  } = context;
   let DynamicToolPostResponseEffects::Mission(mission_effects) = post_response_effects else {
     return;
   };

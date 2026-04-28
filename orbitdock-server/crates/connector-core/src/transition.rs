@@ -778,11 +778,13 @@ pub fn transition(
         &sid,
         now,
         &mut effects,
-        cwd,
-        git_branch,
-        git_sha,
-        repository_root,
-        is_worktree,
+        transition_metadata::EnvironmentChange {
+          cwd,
+          git_branch,
+          git_sha,
+          repository_root,
+          is_worktree,
+        },
       );
     }
 
@@ -809,11 +811,13 @@ pub fn transition(
         &sid,
         now,
         &mut effects,
-        attention_reason,
-        last_tool,
-        pending_tool_name,
-        pending_tool_input,
-        pending_question,
+        transition_metadata::AttentionUpdate {
+          attention_reason,
+          last_tool,
+          pending_tool_name,
+          pending_tool_input,
+          pending_question,
+        },
       );
     }
 

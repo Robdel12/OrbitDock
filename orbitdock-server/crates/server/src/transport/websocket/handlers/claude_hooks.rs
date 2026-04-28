@@ -18,8 +18,8 @@ pub(crate) async fn handle(
   match msg {
     ClientMessage::ClaudeSessionStart { .. }
     | ClientMessage::ClaudeSessionEnd { .. }
-    | ClientMessage::ClaudeStatusEvent { .. }
-    | ClientMessage::ClaudeToolEvent { .. }
+    | ClientMessage::ClaudeStatusEvent(_)
+    | ClientMessage::ClaudeToolEvent(_)
     | ClientMessage::ClaudeSubagentEvent { .. } => {
       crate::connectors::hook_handler::handle_hook_message(msg, state).await;
     }

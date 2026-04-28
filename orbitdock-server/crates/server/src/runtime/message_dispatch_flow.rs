@@ -9,18 +9,41 @@ use crate::connectors::codex_session::CodexAction;
 use crate::runtime::message_dispatch::DispatchMessageError;
 use crate::runtime::session_registry::SessionRegistry;
 
+pub(super) struct UserMessageConnectorRequest {
+  pub codex_tx: Option<mpsc::Sender<CodexAction>>,
+  pub claude_tx: Option<mpsc::Sender<ClaudeAction>>,
+  pub content: String,
+  pub action_model: Option<String>,
+  pub connector_effort: Option<String>,
+  pub skills: Vec<SkillInput>,
+  pub connector_images: Vec<ImageInput>,
+  pub mentions: Vec<MentionInput>,
+}
+
+pub(super) struct SteerTurnConnectorRequest {
+  pub codex_tx: Option<mpsc::Sender<CodexAction>>,
+  pub claude_tx: Option<mpsc::Sender<ClaudeAction>>,
+  pub content: String,
+  pub message_id: String,
+  pub connector_images: Vec<ImageInput>,
+  pub mentions: Vec<MentionInput>,
+}
+
 pub(super) async fn send_user_message_to_connector(
   state: &Arc<SessionRegistry>,
   session_id: &str,
-  codex_tx: Option<mpsc::Sender<CodexAction>>,
-  claude_tx: Option<mpsc::Sender<ClaudeAction>>,
-  content: String,
-  action_model: Option<String>,
-  connector_effort: Option<String>,
-  skills: Vec<SkillInput>,
-  connector_images: Vec<ImageInput>,
-  mentions: Vec<MentionInput>,
+  request: UserMessageConnectorRequest,
 ) -> Result<(), DispatchMessageError> {
+  let UserMessageConnectorRequest {
+    codex_tx,
+    claude_tx,
+    content,
+    action_model,
+    connector_effort,
+    skills,
+    connector_images,
+    mentions,
+  } = request;
   if let Some(tx) = codex_tx {
     if tx
       .send(CodexAction::SendMessage {
@@ -77,13 +100,16 @@ pub(super) async fn send_user_message_to_connector(
 pub(super) async fn send_steer_turn_to_connector(
   state: &Arc<SessionRegistry>,
   session_id: &str,
-  codex_tx: Option<mpsc::Sender<CodexAction>>,
-  claude_tx: Option<mpsc::Sender<ClaudeAction>>,
-  content: String,
-  message_id: String,
-  connector_images: Vec<ImageInput>,
-  mentions: Vec<MentionInput>,
+  request: SteerTurnConnectorRequest,
 ) -> Result<(), DispatchMessageError> {
+  let SteerTurnConnectorRequest {
+    codex_tx,
+    claude_tx,
+    content,
+    message_id,
+    connector_images,
+    mentions,
+  } = request;
   if let Some(tx) = codex_tx {
     if tx
       .send(CodexAction::SteerTurn {

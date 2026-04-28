@@ -71,68 +71,8 @@ pub enum ClientMessage {
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<String>,
   },
-  ClaudeStatusEvent {
-    session_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cwd: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transcript_path: Option<String>,
-    hook_event_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    notification_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stop_hook_active: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    trigger: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    custom_instructions: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_mode: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    last_assistant_message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    teammate_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    team_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    task_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    task_subject: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    task_description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "source")]
-    config_source: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", rename = "file_path")]
-    config_file_path: Option<String>,
-  },
-  ClaudeToolEvent {
-    session_id: String,
-    cwd: String,
-    hook_event_name: String,
-    tool_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_input: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_response: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_use_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_suggestions: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    is_interrupt: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    permission_mode: Option<String>,
-  },
+  ClaudeStatusEvent(Box<ClaudeStatusEventPayload>),
+  ClaudeToolEvent(Box<ClaudeToolEventPayload>),
   ClaudeSubagentEvent {
     session_id: String,
     hook_event_name: String,
@@ -246,6 +186,72 @@ pub enum ClientMessage {
   UnsubscribeToolPty {
     tool_id: String,
   },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeStatusEventPayload {
+  pub session_id: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub cwd: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub transcript_path: Option<String>,
+  pub hook_event_name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub notification_type: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub stop_hook_active: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub prompt: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub title: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub trigger: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub custom_instructions: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub permission_mode: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_assistant_message: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub teammate_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub team_name: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub task_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub task_subject: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub task_description: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", rename = "source")]
+  pub config_source: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none", rename = "file_path")]
+  pub config_file_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeToolEventPayload {
+  pub session_id: String,
+  pub cwd: String,
+  pub hook_event_name: String,
+  pub tool_name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_input: Option<Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_response: Option<Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tool_use_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub permission_suggestions: Option<Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub is_interrupt: Option<bool>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub permission_mode: Option<String>,
 }
 
 fn default_shell_timeout() -> u64 {

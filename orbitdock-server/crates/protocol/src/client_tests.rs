@@ -1,4 +1,4 @@
-use super::ClientMessage;
+use super::{ClaudeStatusEventPayload, ClaudeToolEventPayload, ClientMessage};
 use crate::types::SessionSurface;
 
 #[test]
@@ -14,14 +14,15 @@ fn deserializes_claude_status_event() {
 
   let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude status event");
   match parsed {
-    ClientMessage::ClaudeStatusEvent {
-      session_id,
-      cwd,
-      transcript_path,
-      hook_event_name,
-      prompt,
-      ..
-    } => {
+    ClientMessage::ClaudeStatusEvent(payload) => {
+      let ClaudeStatusEventPayload {
+        session_id,
+        cwd,
+        transcript_path,
+        hook_event_name,
+        prompt,
+        ..
+      } = *payload;
       assert_eq!(session_id, "sess-1");
       assert_eq!(cwd.as_deref(), Some("/tmp/project"));
       assert_eq!(
@@ -49,15 +50,16 @@ fn deserializes_claude_tool_event() {
 
   let parsed: ClientMessage = serde_json::from_str(json).expect("parse claude tool event");
   match parsed {
-    ClientMessage::ClaudeToolEvent {
-      session_id,
-      cwd,
-      hook_event_name,
-      tool_name,
-      tool_input,
-      tool_use_id,
-      ..
-    } => {
+    ClientMessage::ClaudeToolEvent(payload) => {
+      let ClaudeToolEventPayload {
+        session_id,
+        cwd,
+        hook_event_name,
+        tool_name,
+        tool_input,
+        tool_use_id,
+        ..
+      } = *payload;
       assert_eq!(session_id, "sess-2");
       assert_eq!(cwd, "/tmp/project");
       assert_eq!(hook_event_name, "PreToolUse");

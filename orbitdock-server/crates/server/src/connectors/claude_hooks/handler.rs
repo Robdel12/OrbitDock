@@ -30,7 +30,9 @@ mod tool_events;
 #[path = "transcript_sync.rs"]
 mod transcript_sync;
 
-use orbitdock_protocol::ClientMessage;
+use orbitdock_protocol::{
+  ClaudeStatusEventPayload, ClaudeToolEventPayload as ProtocolClaudeToolEventPayload, ClientMessage,
+};
 
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -89,29 +91,30 @@ pub async fn handle_hook_message_with_options(
       handle_claude_session_end(state, session_id, reason).await;
     }
 
-    ClientMessage::ClaudeStatusEvent {
-      session_id,
-      cwd,
-      transcript_path,
-      hook_event_name,
-      notification_type,
-      tool_name,
-      stop_hook_active: _,
-      prompt,
-      message: _,
-      title: _,
-      trigger: _,
-      custom_instructions: _,
-      permission_mode,
-      last_assistant_message: _,
-      teammate_name: _,
-      team_name: _,
-      task_id: _,
-      task_subject: _,
-      task_description: _,
-      config_source: _,
-      config_file_path: _,
-    } => {
+    ClientMessage::ClaudeStatusEvent(payload) => {
+      let ClaudeStatusEventPayload {
+        session_id,
+        cwd,
+        transcript_path,
+        hook_event_name,
+        notification_type,
+        tool_name,
+        stop_hook_active: _,
+        prompt,
+        message: _,
+        title: _,
+        trigger: _,
+        custom_instructions: _,
+        permission_mode,
+        last_assistant_message: _,
+        teammate_name: _,
+        team_name: _,
+        task_id: _,
+        task_subject: _,
+        task_description: _,
+        config_source: _,
+        config_file_path: _,
+      } = *payload;
       handle_claude_status_event(
         state,
         &options,
@@ -127,19 +130,20 @@ pub async fn handle_hook_message_with_options(
       .await;
     }
 
-    ClientMessage::ClaudeToolEvent {
-      session_id,
-      cwd,
-      hook_event_name,
-      tool_name,
-      tool_input,
-      tool_response: _,
-      tool_use_id,
-      permission_suggestions,
-      error: _,
-      is_interrupt,
-      permission_mode,
-    } => {
+    ClientMessage::ClaudeToolEvent(payload) => {
+      let ProtocolClaudeToolEventPayload {
+        session_id,
+        cwd,
+        hook_event_name,
+        tool_name,
+        tool_input,
+        tool_response: _,
+        tool_use_id,
+        permission_suggestions,
+        error: _,
+        is_interrupt,
+        permission_mode,
+      } = *payload;
       handle_claude_tool_event(
         state,
         &options,

@@ -91,16 +91,27 @@ struct RenameSessionRequest {
   name: Option<String>,
 }
 
+pub(crate) struct SendMessageArgs<'a> {
+  pub session_id: &'a str,
+  pub content: &'a str,
+  pub model: Option<&'a str>,
+  pub effort: Option<&'a Effort>,
+  pub no_wait: bool,
+}
+
 pub(crate) async fn send_message(
   rest: &RestClient,
   config: &ClientConfig,
   output: &Output,
-  session_id: &str,
-  content: &str,
-  model: Option<&str>,
-  effort: Option<&Effort>,
-  no_wait: bool,
+  args: SendMessageArgs<'_>,
 ) -> i32 {
+  let SendMessageArgs {
+    session_id,
+    content,
+    model,
+    effort,
+    no_wait,
+  } = args;
   let response = match rest
     .post_json::<_, SendMessageResponse>(
       &format!("/api/sessions/{session_id}/conversation/messages"),

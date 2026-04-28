@@ -39,6 +39,7 @@ use crate::runtime::session_runtime_helpers::{
 mod codex_session_dynamic_tools;
 use self::codex_session_dynamic_tools::{
   apply_dynamic_tool_post_response_effects, DynamicToolExecutionResult,
+  DynamicToolPostResponseContext,
 };
 
 // Re-export so existing server code doesn't break
@@ -648,11 +649,13 @@ async fn handle_dynamic_tool_call(request: DynamicToolCallRequest<'_>) {
     session_handle,
     state,
     persist_tx,
-    session_id,
-    &call_id,
-    tool_name.as_str(),
-    output.as_str(),
-    post_response_effects,
+    DynamicToolPostResponseContext {
+      session_id,
+      call_id: &call_id,
+      tool_name: tool_name.as_str(),
+      output: output.as_str(),
+      post_response_effects,
+    },
   )
   .await;
 }

@@ -9,6 +9,22 @@ use orbitdock_protocol::{
 };
 use std::collections::HashMap;
 
+pub(super) struct EnvironmentChange {
+  pub cwd: Option<String>,
+  pub git_branch: Option<String>,
+  pub git_sha: Option<String>,
+  pub repository_root: Option<String>,
+  pub is_worktree: Option<bool>,
+}
+
+pub(super) struct AttentionUpdate {
+  pub attention_reason: Option<Option<String>>,
+  pub last_tool: Option<String>,
+  pub pending_tool_name: Option<Option<String>>,
+  pub pending_tool_input: Option<Option<String>>,
+  pub pending_question: Option<Option<String>>,
+}
+
 pub(super) fn handle_error(
   state: &mut TransitionState,
   sid: &str,
@@ -186,12 +202,15 @@ pub(super) fn handle_environment_changed(
   sid: &str,
   now: &str,
   effects: &mut Vec<Effect>,
-  cwd: Option<String>,
-  git_branch: Option<String>,
-  git_sha: Option<String>,
-  repository_root: Option<String>,
-  is_worktree: Option<bool>,
+  change: EnvironmentChange,
 ) {
+  let EnvironmentChange {
+    cwd,
+    git_branch,
+    git_sha,
+    repository_root,
+    is_worktree,
+  } = change;
   let mut changed = false;
   if cwd.is_some() && cwd != state.current_cwd {
     state.current_cwd = cwd.clone();
@@ -282,12 +301,15 @@ pub(super) fn handle_attention_updated(
   sid: &str,
   now: &str,
   effects: &mut Vec<Effect>,
-  attention_reason: Option<Option<String>>,
-  last_tool: Option<String>,
-  pending_tool_name: Option<Option<String>>,
-  pending_tool_input: Option<Option<String>>,
-  pending_question: Option<Option<String>>,
+  update: AttentionUpdate,
 ) {
+  let AttentionUpdate {
+    attention_reason,
+    last_tool,
+    pending_tool_name,
+    pending_tool_input,
+    pending_question,
+  } = update;
   let has_last_tool = last_tool.is_some();
   if let Some(ref tool) = last_tool {
     state.last_tool = Some(tool.clone());

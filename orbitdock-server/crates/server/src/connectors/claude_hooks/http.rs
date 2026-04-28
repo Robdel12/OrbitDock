@@ -31,8 +31,8 @@ fn is_claude_hook(msg: &ClientMessage) -> bool {
     msg,
     ClientMessage::ClaudeSessionStart { .. }
       | ClientMessage::ClaudeSessionEnd { .. }
-      | ClientMessage::ClaudeStatusEvent { .. }
-      | ClientMessage::ClaudeToolEvent { .. }
+      | ClientMessage::ClaudeStatusEvent(_)
+      | ClientMessage::ClaudeToolEvent(_)
       | ClientMessage::ClaudeSubagentEvent { .. }
   )
 }

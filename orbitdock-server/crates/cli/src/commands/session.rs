@@ -84,11 +84,13 @@ pub async fn run(
         rest,
         config,
         output,
-        session_id,
-        &resolved,
-        model.as_deref(),
-        effort.as_ref(),
-        *no_wait,
+        live::SendMessageArgs {
+          session_id,
+          content: &resolved,
+          model: model.as_deref(),
+          effort: effort.as_ref(),
+          no_wait: *no_wait,
+        },
       )
       .await
     }

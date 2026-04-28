@@ -26,8 +26,8 @@ pub(crate) fn classify_client_message(message: &ClientMessage) -> MessageGroup {
 
     ClientMessage::ClaudeSessionStart { .. }
     | ClientMessage::ClaudeSessionEnd { .. }
-    | ClientMessage::ClaudeStatusEvent { .. }
-    | ClientMessage::ClaudeToolEvent { .. }
+    | ClientMessage::ClaudeStatusEvent(_)
+    | ClientMessage::ClaudeToolEvent(_)
     | ClientMessage::ClaudeSubagentEvent { .. } => MessageGroup::ClaudeHooks,
 
     ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => MessageGroup::Shell,

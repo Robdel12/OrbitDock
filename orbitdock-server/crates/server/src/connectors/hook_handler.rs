@@ -48,8 +48,8 @@ pub fn classify_hook_provider(msg: &ClientMessage) -> Option<Provider> {
   match msg {
     ClientMessage::ClaudeSessionStart { .. }
     | ClientMessage::ClaudeSessionEnd { .. }
-    | ClientMessage::ClaudeStatusEvent { .. }
-    | ClientMessage::ClaudeToolEvent { .. }
+    | ClientMessage::ClaudeStatusEvent(_)
+    | ClientMessage::ClaudeToolEvent(_)
     | ClientMessage::ClaudeSubagentEvent { .. } => Some(Provider::Claude),
     ClientMessage::CodexSessionStart { .. }
     | ClientMessage::CodexUserPromptSubmit { .. }

@@ -28,7 +28,10 @@ use crate::support::normalization::{
 #[path = "message_dispatch_flow.rs"]
 mod message_dispatch_flow;
 
-use self::message_dispatch_flow::{send_steer_turn_to_connector, send_user_message_to_connector};
+use self::message_dispatch_flow::{
+  send_steer_turn_to_connector, send_user_message_to_connector, SteerTurnConnectorRequest,
+  UserMessageConnectorRequest,
+};
 
 #[derive(Debug)]
 pub(crate) enum DispatchMessageError {
@@ -116,22 +119,21 @@ pub(crate) async fn dispatch_send_message(
   let first_prompt = plan.first_prompt.clone();
   let session_effort_update = plan.session_effort_update.clone();
 
-  if let Err(error) = send_user_message_to_connector(
+  send_user_message_to_connector(
     state,
     &session_id,
-    codex_tx,
-    claude_tx,
-    content,
-    action_model.clone(),
-    connector_effort,
-    skills,
-    connector_images,
-    mentions,
+    UserMessageConnectorRequest {
+      codex_tx,
+      claude_tx,
+      content,
+      action_model: action_model.clone(),
+      connector_effort,
+      skills,
+      connector_images,
+      mentions,
+    },
   )
-  .await
-  {
-    return Err(error);
-  }
+  .await?;
 
   let user_entry = build_user_row_entry(
     &session_id,
@@ -254,20 +256,19 @@ pub(crate) async fn dispatch_steer_turn(
     Some(MessageDeliveryStatus::Pending),
   );
 
-  if let Err(error) = send_steer_turn_to_connector(
+  send_steer_turn_to_connector(
     state,
     &session_id,
-    codex_tx,
-    claude_tx,
-    content,
-    message_id,
-    connector_images,
-    mentions,
+    SteerTurnConnectorRequest {
+      codex_tx,
+      claude_tx,
+      content,
+      message_id,
+      connector_images,
+      mentions,
+    },
   )
-  .await
-  {
-    return Err(error);
-  }
+  .await?;
 
   let (reply_tx, reply_rx) = oneshot::channel();
   actor

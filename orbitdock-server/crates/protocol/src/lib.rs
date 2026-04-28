@@ -15,7 +15,7 @@ pub mod provider_normalization;
 pub mod server;
 pub mod types;
 
-pub use client::ClientMessage;
+pub use client::{ClaudeStatusEventPayload, ClaudeToolEventPayload, ClientMessage};
 pub use server::ServerMessage;
 pub use types::*;
 
