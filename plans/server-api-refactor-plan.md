@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 25C and 25D in progress`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 reclassified the remaining debt. Phase 25A then landed the lowest-risk follow-through from that audit: the dead `protocol/provider_normalization/shared.rs` sidecar is gone, the tiny `transport/http/sessions_summary.rs` and `transport/websocket/server_info.rs` shims are collapsed, the CLI fork path now uses `/api/sessions/{id}/lifecycle/fork`, and the native server layer dropped its outbound-only `ClientToServerMessage` decode implementation plus the duplicate `ConversationClient.fetchSessionInstructions(...)` helper. Phase 25B then converged the remaining repo-owned session mutation surface onto HTTP: the CLI session actions now post to the HTTP mutation endpoints and only keep WebSocket for follow-up streaming/subscriptions, the legacy WebSocket mutation `ClientMessage` variants are removed, the old `transport/websocket` mutation handler groups are deleted, and the runtime/CLI bootstrap layer dropped its now-dead alias and snapshot bootstrap helpers. Phase 25C is now underway with eleven narrow authority-convergence cuts: the extra runtime `PersistOp` / `SessionConfigPersist` dialect is gone so `SessionCommand` carries real `PersistCommand`s directly, runtime handle bootstrapping is shared through `SessionRegistry::prepare_session_handle(...)`, startup recovery plus by-id hydration now share one restored-session supplement loader for config/usage/diff/summary/approval materialization, startup recovery now carries `summary`, `claude_sdk_session_id`, and `end_reason` on its primary restore projection instead of loop-back `SELECT`s, startup recovery now normalizes `control_mode` first and uses that persisted field as the authority for stale-passive detection, direct-session resumable cleanup, and the startup restore projection while still leaving ghost-direct detection on provider-owned integration markers, startup restore plus passive restore now share one `restored_session_to_persisted_handle(...)` path for `RestoredSession -> SessionHandle` materialization including provider/control-mode integration mapping, restored direct-resume preparation now reuses the same pure control-mode shaping helper instead of hand-writing its own direct-mode integration mapping, Claude resume/takeover now share one explicit post-connect direct-runtime attach path while still preserving their different top-level orchestration and failure semantics, Codex direct start plus resume/takeover now share one explicit `attach_codex_direct_runtime(...)` bootstrap path while still keeping the passive-to-direct persistence differences explicit at the call site, takeover failure fallback now routes through one shared passive rebind helper, and resume failure fallback now routes through one shared downgrade/rebind/publish helper instead of repeated provider branches. Phase 25D now has two confirmed contract-tightening cuts landed and one remaining audit-backed target: the stale `display_title_sort_key` and `display_search_text` transport mirrors are removed from `ServerSessionListItem`, preview/demo constructors now rely on the slimmer DTO shape, the root-shell list derives title sort/search locally instead of expecting those values from the wire, the native approval contracts no longer pretend `permission_suggestions` is a stable typed mirror now that the app only treats the approval payload as requested/granted permissions plus amendment metadata, and the native `ServerApprovalPreview` path has been re-audited as a live aligned mirror used by `ApprovalRisk`, `ApprovalCardModel`, and `ControlDeckSnapshotMapper`. The remaining 25D seam is therefore a public-contract redesign around the Rust approval event/public approval duplication boundary, not another low-risk cleanup slice. Validation for the in-flight 25C/25D work passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER make rust-check`, and `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`.` 
+- Current phase: `Complete`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 reclassified the remaining debt. Phase 25A landed the low-risk delete and drift fixes, Phase 25B converged repo-owned session mutations onto HTTP, Phase 25C finished the runtime authority convergence slices, Phase 25D finished the low-risk protocol/native convergence slices and parked the remaining approval-shape work as redesign, Phase 26 re-audited the final tree, and Phase 27 closed the docs/plans loop. The last implementation wave moved transcript sync out of `session_runtime_helpers.rs` into `runtime/session_transcript_sync.rs` so the runtime helper file is now a cleaner authority spine, and the native session delta decoder dropped the stale top-level `approvalsReviewer` patch field now that reviewer truth lives under Codex overrides. Final validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`, and `xcodebuild -project OrbitDockNative/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`.` 
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -2206,24 +2206,33 @@ Tasks:
 
 - [x] Re-audit `session_command_persistence.rs` and decide whether it can be deleted outright or collapsed into one canonical runtime-to-persist transition path.
   Landed as a narrow runtime-authority cleanup: the extra runtime `PersistOp` / `SessionConfigPersist` dialect is gone, `SessionCommand` now carries real `PersistCommand`s, and `session_command_persistence.rs` is reduced to a thin sender plus row/broadcast helpers instead of a second translation lane.
-- [ ] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
+- [x] Recut `startup_recovery.rs` around one explicit ownership model for restored direct/passive sessions.
   In progress: startup restore and by-id hydration now share one `load_restored_session_supplement(...)` path for config/usage/diff/summary/approval metadata materialization, startup recovery now carries `summary`, `claude_sdk_session_id`, and `end_reason` in its primary `ActiveSessionRow` projection instead of re-querying them inside the restore loop, startup recovery now normalizes `control_mode` first and uses that persisted field as the authority for stale-passive detection, direct-session resumable cleanup, and the startup restore projection while still leaving ghost-direct detection on provider-owned integration markers, startup restore plus passive restore now share one `restored_session_to_persisted_handle(...)` path for authoritative `RestoredSession -> SessionHandle` materialization including persisted status/work-status parsing plus provider/control-mode integration mapping, and restored direct-resume prep now reuses the same pure control-mode shaping helper instead of hand-writing direct-mode integration mapping. The startup repair SQL and row-loading policy remain caller-owned until the next cut.
-- [ ] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
+- [x] Rework `session_takeover.rs` and `session_resume.rs` so takeover/resume share one explicit authority model instead of near-parallel flows.
   In progress: Claude resume/takeover now share one post-connect direct-runtime attach helper, Codex direct start plus resume/takeover now share one explicit `attach_codex_direct_runtime(...)` bootstrap path, takeover failure fallback now routes through one shared passive rebind helper, resume failure fallback now routes through one shared downgrade/rebind/publish helper, and connector construction, passive fallback, startup notifications, and other top-level orchestration differences remain caller-owned.
-- [ ] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
+- [x] Remove any duplicate runtime helper or persistence projection code that only existed to support the older split authority paths.
   In progress: the shared `SessionHandle` registry wiring is now converged through `SessionRegistry::prepare_session_handle(...)`, so direct start, resume, takeover, and fork paths no longer hand-roll their own revision/list setup, passive restore no longer carries its own persisted-status/integration-mode materialization branch separate from startup restore, Codex direct-runtime bootstrap no longer carries three separate event-loop claim/attach/activate sequences, and takeover/resume no longer each carry their own repeated passive downgrade helpers.
 - [x] Re-run focused runtime, persistence, and server validation.
   Validated with:
   - `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`
   - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER make rust-check`
   - `env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`
-- [ ] Commit the Phase 25C runtime-authority slice.
+- [x] Commit the Phase 25C runtime-authority slice.
 
 Done when:
 
-- [ ] There is one obvious owning path for startup recovery and one obvious owning path for takeover/resume behavior.
+- [x] There is one obvious owning path for startup recovery and one obvious owning path for takeover/resume behavior.
 - [x] `session_command_persistence.rs` is either gone or clearly justified as a thin canonical adapter instead of a second authority lane.
-- [ ] The runtime/persistence relationship is easier to explain than “it depends which path woke the session up.”
+- [x] The runtime/persistence relationship is easier to explain than “it depends which path woke the session up.”
+
+### Phase 25C closeout note
+
+- `startup_recovery.rs` is now an accepted runtime authority spine, not a catch-all cleanup target.
+- `session_restore/state.rs`, `session_restore/direct_resume.rs`, `session_takeover.rs`, and `session_resume.rs` now share the important restore/attach/fallback boundaries without pretending the remaining provider differences are fake duplication.
+- `session_runtime_helpers.rs` got one last honest peel at the end of the phase: transcript sync now lives in `runtime/session_transcript_sync.rs`, which leaves the helper file focused on direct-runtime authority and cleanup.
+- The remaining runtime seams are redesign-first, not cleanup-first:
+  - deeper takeover/resume unification
+  - replacing provider-owned ghost-direct markers with `control_mode` everywhere
 
 ## Phase 25D: Protocol And Native Contract Convergence
 
@@ -2251,21 +2260,31 @@ Execution rules:
 Tasks:
 
 - [x] Re-audit approval, session, and tool-payload protocol surfaces for duplicate representations.
-- [ ] Delete or collapse redundant Rust protocol types that no longer carry distinct behavior.
+- [x] Delete or collapse redundant Rust protocol types that no longer carry distinct behavior.
   In progress: `protocol/src/conversation_contracts/tool_payloads.rs` is gone and its flat aliases now live beside the authoritative conversation row types in `rows.rs`, but the remaining approval-domain duplication was re-audited and reclassified as public-contract redesign rather than a low-risk cleanup.
-- [ ] Update native mirror types and decoding so they match the narrowed protocol surface in the same slice.
+- [x] Update native mirror types and decoding so they match the narrowed protocol surface in the same slice.
   In progress: the dead native `ServerConversationSnapshotPayload` and `ServerSessionSummary` mirrors are removed, lifecycle response DTOs only decode live fields, `ServerConversationApprovalRow` no longer carries the unused `request` mirror, `ServerSessionListItem` no longer mirrors the stale `display_title_sort_key` / `display_search_text` fields now that root-shell search/sort derive locally, and the native approval contracts no longer carry the unused typed `permission_suggestions` mirror. The native `ServerApprovalPreview` path was re-audited and kept: it matches the current Rust `ApprovalPreview` fields and is still used by `ApprovalRisk`, `ApprovalCardModel`, and `ControlDeckSnapshotMapper`.
-- [ ] Verify that no active native or web surface still expects the removed contract shapes.
-- [ ] Regroup Phase 25D around the remaining approval-contract redesign seam before making further protocol deletions.
+- [x] Verify that no active native or web surface still expects the removed contract shapes.
+- [x] Regroup Phase 25D around the remaining approval-contract redesign seam before making further protocol deletions.
 - [x] Re-run focused protocol, native build, and server validation.
-- [ ] Commit the Phase 25D protocol/native convergence slice.
+- [x] Commit the Phase 25D protocol/native convergence slice.
 
 Done when:
 
-- [ ] Approval/session/tool payloads have one current representation each, or a clearly-justified split with active consumers.
-- [ ] The remaining 25D work is narrowed to real contract duplication, not live native mirrors that were only suspicious by size.
-- [ ] Native server contract mirrors feel current, not archival.
-- [ ] No dead parity-only protocol surface remains just because it was once convenient.
+- [x] Approval/session/tool payloads have one current representation each, or a clearly-justified split with active consumers.
+- [x] The remaining 25D work is narrowed to real contract duplication, not live native mirrors that were only suspicious by size.
+- [x] Native server contract mirrors feel current, not archival.
+- [x] No dead parity-only protocol surface remains just because it was once convenient.
+
+### Phase 25D closeout note
+
+- The low-risk protocol/native convergence work is done.
+- Landed trims include the dead tool-payload sidecar collapse, stale list/search mirrors, dead native summary/snapshot shapes, the unused typed `permission_suggestions` mirror, and the final stale native top-level `approvalsReviewer` delta decode path.
+- Re-auditing confirmed that the remaining approval/session/tool seams are active public-surface boundaries, not stray junk:
+  - approval wire contracts are live
+  - session summary/detail/dashboard shapes are intentionally split by surface
+  - `tool_display` remains an active Rust-to-native render contract
+- The remaining approval-shape duplication is explicitly parked as redesign work rather than forced through this cleanup phase.
 
 ## Phase 26: Final Fresh-Eyes Reevaluation
 
@@ -2278,16 +2297,24 @@ Why this phase exists:
 
 Tasks:
 
-- [ ] Re-run the macro line/file audit from the current tree.
-- [ ] Reclassify the remaining server/API/native surfaces into `leave alone`, `accepted spine`, `future redesign`, or `must-fix before closeout`.
-- [ ] Confirm there are no remaining mega catch-alls that violate the bar we set for this refactor.
-- [ ] Write the final honest recommendation: either one tiny last implementation slice or move directly to closeout.
+- [x] Re-run the macro line/file audit from the current tree.
+- [x] Reclassify the remaining server/API/native surfaces into `leave alone`, `accepted spine`, `future redesign`, or `must-fix before closeout`.
+- [x] Confirm there are no remaining mega catch-alls that violate the bar we set for this refactor.
+- [x] Write the final honest recommendation: either one tiny last implementation slice or move directly to closeout.
 
 Done when:
 
-- [ ] We have a final current-state audit based on the refactored tree, not earlier assumptions.
-- [ ] Any remaining debt is explicitly accepted or explicitly parked.
-- [ ] The plan no longer contains “open momentum” phases.
+- [x] We have a final current-state audit based on the refactored tree, not earlier assumptions.
+- [x] Any remaining debt is explicitly accepted or explicitly parked.
+- [x] The plan no longer contains “open momentum” phases.
+
+### Phase 26 conclusion
+
+- The final fresh-eyes pass found exactly two honest last code cuts worth taking:
+  - transcript sync extracted from `session_runtime_helpers.rs`
+  - stale native top-level `approvalsReviewer` delta decode removed
+- After those landed, the remaining larger files no longer read like mega catch-alls.
+- What remains is either an accepted spine or a deliberate future redesign seam.
 
 ## Phase 27: Docs And Plan Closeout
 
@@ -2313,19 +2340,27 @@ Execution rules:
 
 Tasks:
 
-- [ ] Update durable docs to match the final server/API architecture and transport model.
-- [ ] Decide which temporary planning docs should be deleted, which should be collapsed into one final summary, and which should remain as durable reference.
-- [ ] Remove fully superseded plan/audit debris from `plans/`.
-- [ ] Convert the main refactor plan from an in-progress execution tracker into a finished record, or archive it if a cleaner durable doc replaces it.
-- [ ] Run one final verification sweep on the final tree.
-- [ ] Commit the Phase 27 docs/plan closeout slice.
+- [x] Update durable docs to match the final server/API architecture and transport model.
+- [x] Decide which temporary planning docs should be deleted, which should be collapsed into one final summary, and which should remain as durable reference.
+- [x] Remove fully superseded plan/audit debris from `plans/`.
+- [x] Convert the main refactor plan from an in-progress execution tracker into a finished record, or archive it if a cleaner durable doc replaces it.
+- [x] Run one final verification sweep on the final tree.
+- [x] Commit the Phase 27 docs/plan closeout slice.
+
+### Phase 27 closeout note
+
+- Durable docs already matched the refactored transport architecture, so the closeout doc work stayed small and honest.
+- `docs/GETTING_STARTED.md` now reinforces the HTTP-authoritative mutation model in the onboarding path.
+- `plans/server-aggressive-deletion-plan.md` is removed as superseded planning debris.
+- `plans/usage-accounting-backbone.md` remains because it records durable invariants, not temporary refactor choreography.
+- `plans/server-api-refactor-plan.md` and `plans/server-api-line-audit.md` remain as finished records of this refactor instead of open-ended trackers.
 
 Definition of done:
 
-- [ ] The server/API codebase is organized, current, and no longer dominated by mega catch-all modules.
-- [ ] Remaining larger files are accepted spines or explicitly parked redesign seams, not accidental junk drawers.
-- [ ] HTTP owns the authoritative mutation/bootstrap contract and WebSocket is limited to lightweight realtime/subscription work.
-- [ ] Runtime authority and protocol/native contract seams have been deliberately converged or explicitly parked.
-- [ ] Docs describe the codebase we actually have now.
-- [ ] Temporary planning debris has been deleted or archived intentionally.
-- [ ] The branch can be considered complete without “one more cleanup pass.”
+- [x] The server/API codebase is organized, current, and no longer dominated by mega catch-all modules.
+- [x] Remaining larger files are accepted spines or explicitly parked redesign seams, not accidental junk drawers.
+- [x] HTTP owns the authoritative mutation/bootstrap contract and WebSocket is limited to lightweight realtime/subscription work.
+- [x] Runtime authority and protocol/native contract seams have been deliberately converged or explicitly parked.
+- [x] Docs describe the codebase we actually have now.
+- [x] Temporary planning debris has been deleted or archived intentionally.
+- [x] The branch can be considered complete without “one more cleanup pass.”

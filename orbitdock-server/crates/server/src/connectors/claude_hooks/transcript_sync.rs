@@ -1,4 +1,4 @@
-use crate::runtime::session_runtime_helpers::sync_transcript_messages;
+use crate::runtime::session_transcript_sync::sync_transcript_messages;
 
 use super::routing::ClaudeHookHandlingOptions;
 

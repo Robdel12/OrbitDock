@@ -297,6 +297,126 @@ Best next implementation threads after the catch-all refactor:
 3. Runtime recovery/materialization authority convergence.
 4. Protocol and native contract narrowing.
 
+## Final Closeout Snapshot
+
+Reference context:
+
+- Final runtime/protocol cleanup wave on `refactor/server-api-plan-execution`
+- Closeout validation after the last transcript-sync and native delta trims
+
+Current snapshot:
+
+- `orbitdock-server` now has 661 tracked files from `rg --files`.
+- Rust source under `orbitdock-server/crates` now has 590 `.rs` files.
+- Production-only Rust under `orbitdock-server/crates` now has 93,521 lines across 461 non-test `.rs` files.
+- Production-only Rust under `orbitdock-server/crates/server/src` now has 62,837 lines across 327 non-test `.rs` files.
+- Native `Services/Server` now has 14,267 Swift lines across 64 files.
+
+What changed:
+
+- The final numbers are slightly lower than the Phase 24 snapshot, but the bigger win is structural: the remaining large files are now mostly real spines or active surface contracts.
+- The last implementation cuts were intentionally small:
+  - transcript sync moved out of `runtime/session_runtime_helpers.rs`
+  - the stale native top-level `approvalsReviewer` delta decode path was removed
+- There is no longer a credible “one more broad cleanup pass” case hiding in the tree.
+
+Current top production-only Rust files:
+
+| Lines | File |
+| ---: | --- |
+| 1132 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 938 | `orbitdock-server/crates/protocol/src/types/session.rs` |
+| 931 | `orbitdock-server/crates/connector-core/src/transition.rs` |
+| 877 | `orbitdock-server/crates/cli/src/cli/shared.rs` |
+| 867 | `orbitdock-server/crates/cli/src/commands/session/live.rs` |
+| 787 | `orbitdock-server/crates/connector-codex/src/session.rs` |
+| 767 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 757 | `orbitdock-server/crates/connector-codex/src/session_ops.rs` |
+| 725 | `orbitdock-server/crates/server/src/admin/setup.rs` |
+| 720 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 715 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 706 | `orbitdock-server/crates/server/src/transport/http/server_meta/usage.rs` |
+| 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
+| 674 | `orbitdock-server/crates/protocol/src/conversation_contracts/rows.rs` |
+| 668 | `orbitdock-server/crates/connector-claude/src/connector.rs` |
+| 639 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 631 | `orbitdock-server/crates/server/src/admin/doctor.rs` |
+| 616 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+| 613 | `orbitdock-server/crates/cli/src/commands/mission.rs` |
+| 610 | `orbitdock-server/crates/protocol/src/provider_normalization/codex.rs` |
+
+Current top production-only server crate files:
+
+| Lines | File |
+| ---: | --- |
+| 1132 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 767 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 725 | `orbitdock-server/crates/server/src/admin/setup.rs` |
+| 720 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 715 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 706 | `orbitdock-server/crates/server/src/transport/http/server_meta/usage.rs` |
+| 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
+| 639 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 631 | `orbitdock-server/crates/server/src/admin/doctor.rs` |
+| 616 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+| 599 | `orbitdock-server/crates/server/src/runtime/message_dispatch.rs` |
+| 599 | `orbitdock-server/crates/server/src/connectors/claude_session.rs` |
+| 590 | `orbitdock-server/crates/server/src/runtime/session_command_handler.rs` |
+| 590 | `orbitdock-server/crates/server/src/domain/conversation_semantics/shared.rs` |
+| 581 | `orbitdock-server/crates/server/src/runtime/workspace_dispatch/daytona.rs` |
+| 580 | `orbitdock-server/crates/server/src/runtime/mission_orchestrator.rs` |
+| 578 | `orbitdock-server/crates/server/src/domain/mission_control/config_model.rs` |
+| 574 | `orbitdock-server/crates/server/src/runtime/mission_reconciliation.rs` |
+| 561 | `orbitdock-server/crates/server/src/runtime/session_resume.rs` |
+| 533 | `orbitdock-server/crates/server/src/infrastructure/persistence/commands.rs` |
+
+Current top native API edge files:
+
+| Lines | File |
+| ---: | --- |
+| 1437 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerConversationContracts.swift` |
+| 1418 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerSessionContracts.swift` |
+| 1237 | `OrbitDockNative/OrbitDock/Services/Server/ServerConnection.swift` |
+| 659 | `OrbitDockNative/OrbitDock/Services/Server/API/SessionsClient.swift` |
+| 644 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerApprovalContracts.swift` |
+| 638 | `OrbitDockNative/OrbitDock/Services/Server/ServerSessionAPI.swift` |
+| 557 | `OrbitDockNative/OrbitDock/Services/Server/ServerEndpointStore.swift` |
+| 555 | `OrbitDockNative/OrbitDock/Services/Server/ServerRuntimeRegistry.swift` |
+| 439 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerCapabilitiesContracts.swift` |
+| 396 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerTypedPayloads.swift` |
+| 373 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerToClientMessage+Decoding.swift` |
+| 372 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerUsageContracts.swift` |
+
+Final classification read:
+
+- `accepted spine`
+  - `server/src/domain/sessions/state.rs`
+  - `server/src/domain/sessions/session.rs`
+  - `server/src/runtime/session_runtime_helpers.rs`
+  - `server/src/runtime/session_command_handler.rs`
+  - `server/src/infrastructure/persistence/mod.rs`
+  - `server/src/app/mod.rs`
+  - `server/src/infrastructure/github/client.rs`
+- `active surface contract`
+  - `protocol/src/types/session.rs`
+  - `protocol/src/conversation_contracts/rows.rs`
+  - `protocol/src/provider_normalization/codex.rs`
+  - `OrbitDockNative/.../ServerSessionContracts.swift`
+  - `OrbitDockNative/.../ServerConversationContracts.swift`
+  - `OrbitDockNative/.../ServerApprovalContracts.swift`
+- `future redesign`
+  - deeper provider-bootstrap unification in runtime resume/takeover
+  - approval domain-event versus public-wire contract simplification
+  - any future narrowing of typed permission/rule summary duality
+- `must-fix before closeout`
+  - none
+
+Closeout read:
+
+- The server/API mega catch-all refactor is done.
+- The remaining larger files are understandable by ownership and mostly align with the architecture docs.
+- Future work from here should be new design work or bounded product cleanup, not “finish the old mega-file breakup.”
+
 ## Baseline Refactor Pressure Read
 
 The section below is the original pre-Phase-1 hotspot read. Keep it for comparison against the refreshed production-only numbers above.

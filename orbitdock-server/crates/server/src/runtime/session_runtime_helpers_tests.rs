@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::infrastructure::persistence::PersistCommand;
 use crate::runtime::session_commands::SubscribeResult;
+use crate::runtime::transcript_sync_policy::TranscriptMessageSyncDecision;
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
 use orbitdock_protocol::{
   ClaudeIntegrationMode, SessionLifecycleState, SessionStatus, TokenUsageSnapshotKind, WorkStatus,

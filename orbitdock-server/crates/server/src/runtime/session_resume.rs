@@ -228,7 +228,7 @@ async fn spawn_claude_resume(
     project,
     model,
     provider_resume_id,
-    mut handle,
+    handle,
     message_count,
     allow_bypass_permissions,
   } = params;
@@ -361,7 +361,7 @@ async fn spawn_codex_resume(
     project_path,
     codex_thread_id,
     include_mission_tools,
-    handle,
+    mut handle,
     message_count,
     ..
   } = request;

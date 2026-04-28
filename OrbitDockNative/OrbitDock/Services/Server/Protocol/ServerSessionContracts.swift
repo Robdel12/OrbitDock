@@ -1166,7 +1166,6 @@ struct ServerStateChanges: Codable {
   let approvalPolicyDetails: ServerCodexApprovalPolicy??
   let sandboxMode: String??
   let sandboxPolicyDetails: ServerCodexSandboxPolicy??
-  let approvalsReviewer: ServerCodexApprovalsReviewer??
   let collaborationMode: String??
   let multiAgent: Bool??
   let personality: String??
@@ -1215,7 +1214,6 @@ struct ServerStateChanges: Codable {
     approvalPolicyDetails: ServerCodexApprovalPolicy?? = nil,
     sandboxMode: String?? = nil,
     sandboxPolicyDetails: ServerCodexSandboxPolicy?? = nil,
-    approvalsReviewer: ServerCodexApprovalsReviewer?? = nil,
     collaborationMode: String?? = nil,
     multiAgent: Bool?? = nil,
     personality: String?? = nil,
@@ -1263,7 +1261,6 @@ struct ServerStateChanges: Codable {
     self.approvalPolicyDetails = approvalPolicyDetails
     self.sandboxMode = sandboxMode
     self.sandboxPolicyDetails = sandboxPolicyDetails
-    self.approvalsReviewer = approvalsReviewer
     self.collaborationMode = collaborationMode
     self.multiAgent = multiAgent
     self.personality = personality
@@ -1313,7 +1310,6 @@ struct ServerStateChanges: Codable {
     case approvalPolicyDetails = "approval_policy_details"
     case sandboxMode = "sandbox_mode"
     case sandboxPolicyDetails = "sandbox_policy_details"
-    case approvalsReviewer = "approvals_reviewer"
     case collaborationMode = "collaboration_mode"
     case multiAgent = "multi_agent"
     case personality
@@ -1378,10 +1374,6 @@ struct ServerStateChanges: Codable {
     sandboxPolicyDetails = try container.decodePatchValue(
       ServerCodexSandboxPolicy.self,
       forKey: .sandboxPolicyDetails
-    )
-    approvalsReviewer = try container.decodePatchValue(
-      ServerCodexApprovalsReviewer.self,
-      forKey: .approvalsReviewer
     )
     collaborationMode = try container.decodePatchValue(String.self, forKey: .collaborationMode)
     multiAgent = try container.decodePatchValue(Bool.self, forKey: .multiAgent)

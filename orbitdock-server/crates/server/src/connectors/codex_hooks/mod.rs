@@ -11,7 +11,7 @@ use crate::infrastructure::persistence::{extract_summary_from_transcript_path, P
 use crate::runtime::session_actor::SessionActorHandle;
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::{PendingCodexSession, PendingHookSession, SessionRegistry};
-use crate::runtime::session_runtime_helpers::sync_transcript_messages;
+use crate::runtime::session_transcript_sync::sync_transcript_messages;
 
 #[path = "codex_hook_session.rs"]
 mod codex_hook_session;
