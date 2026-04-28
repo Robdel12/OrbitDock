@@ -179,6 +179,124 @@ Current top production-only server crate files:
 | 621 | `orbitdock-server/crates/server/src/runtime/session_takeover.rs` |
 | 599 | `orbitdock-server/crates/server/src/connectors/claude_session.rs` |
 
+## Post-Phase-24 Reevaluation
+
+Reference context:
+
+- Catch-all refactor closeout: `1451ea6b` (`📝 Close out the server catch-all refactor`)
+- Fresh-eyes reevaluation: current tree on `refactor/server-api-plan-execution`
+
+Current snapshot:
+
+- `orbitdock-server` now has 668 tracked files from `rg --files`.
+- Rust source under `orbitdock-server/crates` now has 597 `.rs` files.
+- Production-only Rust under `orbitdock-server/crates` now has 94,734 lines across 468 non-test `.rs` files.
+- Production-only Rust under `orbitdock-server/crates/server/src` now has 63,840 lines across 332 non-test `.rs` files.
+- Native `Services/Server` now has 14,571 Swift lines across 64 files.
+
+What changed:
+
+- Production-only Rust dropped again from the prior 95,869-line snapshot, but the more important change is qualitative: the remaining size is now concentrated in accepted spines and contract seams instead of broad accidental junk drawers.
+- The fresh read is that file count is no longer the problem by itself. The remaining debt is mostly:
+  - duplicate authority or recovery/materialization seams
+  - protocol typing escape hatches
+  - WebSocket mutation drift versus HTTP authority
+  - native mirror/parity sprawl
+
+Current top production-only Rust files:
+
+| Lines | File |
+| ---: | --- |
+| 1132 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 938 | `orbitdock-server/crates/protocol/src/types/session.rs` |
+| 931 | `orbitdock-server/crates/connector-core/src/transition.rs` |
+| 877 | `orbitdock-server/crates/cli/src/cli/shared.rs` |
+| 787 | `orbitdock-server/crates/connector-codex/src/session.rs` |
+| 767 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 757 | `orbitdock-server/crates/connector-codex/src/session_ops.rs` |
+| 725 | `orbitdock-server/crates/server/src/admin/setup.rs` |
+| 720 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 706 | `orbitdock-server/crates/server/src/transport/http/server_meta/usage.rs` |
+| 702 | `orbitdock-server/crates/cli/src/commands/session/live.rs` |
+| 699 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
+| 673 | `orbitdock-server/crates/protocol/src/conversation_contracts/rows.rs` |
+| 668 | `orbitdock-server/crates/connector-claude/src/connector.rs` |
+| 651 | `orbitdock-server/crates/server/src/app/mod.rs` |
+| 644 | `orbitdock-server/crates/server/src/runtime/message_dispatch.rs` |
+| 639 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 631 | `orbitdock-server/crates/server/src/admin/doctor.rs` |
+| 616 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+
+Current top production-only server crate files:
+
+| Lines | File |
+| ---: | --- |
+| 1132 | `orbitdock-server/crates/server/src/domain/sessions/state.rs` |
+| 767 | `orbitdock-server/crates/server/src/connectors/codex_session.rs` |
+| 725 | `orbitdock-server/crates/server/src/admin/setup.rs` |
+| 720 | `orbitdock-server/crates/server/src/infrastructure/persistence/session_writes.rs` |
+| 706 | `orbitdock-server/crates/server/src/transport/http/server_meta/usage.rs` |
+| 699 | `orbitdock-server/crates/server/src/runtime/session_runtime_helpers.rs` |
+| 683 | `orbitdock-server/crates/server/src/admin/install_service.rs` |
+| 651 | `orbitdock-server/crates/server/src/app/mod.rs` |
+| 644 | `orbitdock-server/crates/server/src/runtime/message_dispatch.rs` |
+| 639 | `orbitdock-server/crates/server/src/domain/sessions/session.rs` |
+| 631 | `orbitdock-server/crates/server/src/admin/doctor.rs` |
+| 616 | `orbitdock-server/crates/server/src/infrastructure/persistence/mod.rs` |
+| 599 | `orbitdock-server/crates/server/src/connectors/claude_session.rs` |
+| 590 | `orbitdock-server/crates/server/src/domain/conversation_semantics/shared.rs` |
+| 589 | `orbitdock-server/crates/server/src/runtime/session_command_handler.rs` |
+| 581 | `orbitdock-server/crates/server/src/runtime/workspace_dispatch/daytona.rs` |
+| 580 | `orbitdock-server/crates/server/src/runtime/mission_orchestrator.rs` |
+| 579 | `orbitdock-server/crates/server/src/runtime/session_takeover.rs` |
+| 578 | `orbitdock-server/crates/server/src/domain/mission_control/config_model.rs` |
+| 574 | `orbitdock-server/crates/server/src/runtime/mission_reconciliation.rs` |
+
+Current top native API edge files:
+
+| Lines | File |
+| ---: | --- |
+| 1579 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerSessionContracts.swift` |
+| 1439 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerConversationContracts.swift` |
+| 1237 | `OrbitDockNative/OrbitDock/Services/Server/ServerConnection.swift` |
+| 668 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerApprovalContracts.swift` |
+| 667 | `OrbitDockNative/OrbitDock/Services/Server/API/SessionsClient.swift` |
+| 638 | `OrbitDockNative/OrbitDock/Services/Server/ServerSessionAPI.swift` |
+| 557 | `OrbitDockNative/OrbitDock/Services/Server/ServerEndpointStore.swift` |
+| 555 | `OrbitDockNative/OrbitDock/Services/Server/ServerRuntimeRegistry.swift` |
+| 439 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerCapabilitiesContracts.swift` |
+| 432 | `OrbitDockNative/OrbitDock/Services/Server/Protocol/ServerTypedPayloads.swift` |
+
+Fresh classification read:
+
+- `leave alone`
+  - The session core spine is real now: `state.rs`, `session.rs`, `session_actor.rs`, `writer.rs`, `session_accounting_writes.rs`.
+  - The HTTP sessions surface is mostly in the right place.
+  - The native transport split is mostly aligned with the REST bootstrap + WS follow-up contract.
+- `optional polish`
+  - `session_writes.rs`, `session_queries/projection.rs`, `router.rs`, `http/mod.rs`, `capabilities/runtime.rs`, `admin/setup.rs`, `admin/install_service.rs`, `protocol/types/session.rs`, and a few still-large but coherent connector/protocol modules.
+- `delete or drift-fix candidates`
+  - `protocol/src/provider_normalization/shared.rs` looks unused outside its own export path and should be verified for removal.
+  - `server/src/runtime/session_command_persistence.rs` preserves a parallel persistence translation lane.
+  - `server/src/transport/http/sessions_summary.rs` and `server/src/transport/websocket/server_info.rs` are tiny wrappers/shims worth collapsing.
+  - `cli/src/commands/session/http.rs` still uses the stale fork route (`/api/sessions/{id}/fork`) while the router exposes `/api/sessions/{id}/lifecycle/fork`.
+  - Native likely has two dead/duplicate areas worth verifying:
+    - `ClientToServerMessage.init(from:)`
+    - `ConversationClient.fetchSessionInstructions(...)`
+- `redesign candidates`
+  - Runtime authority seams: `session_reads/startup_recovery.rs`, `session_runtime_helpers.rs`, `session_takeover.rs`, `session_resume.rs`, `session_queries/detail.rs`, hook materialization paths.
+  - Protocol typing seams: `conversation_contracts/tool_payloads.rs`, `types/approvals.rs`, `domain_events/approvals.rs`, `types/session.rs`.
+  - Transport convergence seams: CLI live session mutation path plus WS mutation handlers (`messaging.rs`, `session_crud.rs`, `approvals.rs`).
+  - Native parity seams: `ServerSessionContracts.swift`, `ServerConversationContracts.swift`, `ServerToClientMessage+Decoding.swift`.
+
+Best next implementation threads after the catch-all refactor:
+
+1. Low-risk delete and drift fixes.
+2. HTTP versus WebSocket mutation convergence.
+3. Runtime recovery/materialization authority convergence.
+4. Protocol and native contract narrowing.
+
 ## Baseline Refactor Pressure Read
 
 The section below is the original pre-Phase-1 hotspot read. Keep it for comparison against the refreshed production-only numbers above.

@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 23 landed / catch-all refactor complete`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 23 extracted the post-response mission/session side-effect block out of `codex_session.rs`, replacing the boolean `has_mission_side_effects` with an explicit `DynamicToolPostResponseEffects` outcome shape in `codex_session_dynamic_tools.rs`. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml` and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. `codex_session.rs` is now down to 767 lines, `session_runtime_helpers.rs` is 699, `session.rs` is 639, `app/mod.rs` is 651, `persistence/mod.rs` is 616, `session_command_handler.rs` is 589, and `github/client.rs` is 522. At this point the repo no longer has broad accidental mega catch-all files in the main server/API refactor set. The remaining larger files are accepted authority/facade spines or explicitly bounded future redesign targets, not undefined cleanup debt.`
+- Current phase: `Phase 24 reevaluation landed / next phase pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, the Phase 13 dead rollout-path audit landed through `246502e6`, the Phase 14 final safe breakup wave landed through `aed1073e` and `2c059880`, the Phase 15 pure contract/mapping breakup wave landed through `67a93372`, `b3a9a2fc`, and `9b9b99fd`, the Phase 16 domain/config/persistence recut landed through `a936d75d` and `36f8489b`, the Phase 17 domain-state and usage-accounting wave landed through `1f24ef19` and `37114bb3`, the Phase 18 operational hotspot wave landed through `6c4f1934`, `417c90dd`, `c2812dd6`, and `2ec0c67b`, the Phase 20 final safe spine-polish wave landed through `3fbcaaaf`, `ee9ab2d7`, and `94a90b76`, the Phase 22 transcript-sync redesign slice landed through `3f53f556`, and the Phase 23 Codex dynamic-tool outcome redesign slice landed through `f763dbe7`. Phase 24 is a fresh post-refactor audit rather than another implementation wave. It re-ran the macro counts from the current tree, launched new read-only lane evaluations for connectors/protocol, runtime/persistence, transport/CLI/admin, and the native mirror surface, and recut the remaining work into `leave alone`, `optional polish`, `delete candidate`, and `redesign candidate`. The broad accidental catch-all cleanup is complete. The remaining debt is now concentrated in contract drift, duplicate authority seams, and a few old compatibility/mutation paths, not in undefined giant files.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1970,3 +1970,110 @@ Tasks:
 - `codex_session.rs` now keeps connector event-loop routing, diff tracking, dynamic-tool execution, and connector response submission, while `codex_session_dynamic_tools.rs` owns the explicit post-response side-effect application path.
 - The mission/session side-effect seam is no longer represented as a vague boolean. It now has an explicit outcome shape, which makes the remaining file shape much more honest.
 - After this slice, the remaining larger files in the server/API refactor set read as accepted spines or clearly bounded future redesign candidates, not as accidental catch-alls.
+
+## Phase 24: Fresh Eyes Reevaluation
+
+Objective: pause implementation and re-audit the current server/API state from the current tree so the next phase is driven by actual remaining debt, not momentum from the catch-all breakup work.
+
+Fresh snapshot:
+
+- `orbitdock-server` now has 668 tracked files from `rg --files`.
+- Rust source under `orbitdock-server/crates` now has 597 `.rs` files.
+- Production-only Rust under `orbitdock-server/crates` now has 94,734 lines across 468 non-test `.rs` files.
+- Production-only Rust under `orbitdock-server/crates/server/src` now has 63,840 lines across 332 non-test `.rs` files.
+- Native `Services/Server` now has 14,571 Swift lines across 64 files.
+
+Execution rules:
+
+- Treat the plan and fresh audit as source of truth for what is still debt versus what is now an accepted spine.
+- Prefer read-only lane evaluation before proposing another broad implementation wave.
+- Separate file size from architectural debt.
+- Call out contract drift and duplicate authority explicitly, even when the remaining files are not large.
+
+Parallel workers:
+
+| Worker | Model | Ownership | Mission |
+| --- | --- | --- | --- |
+| Worker A | `gpt-5.4-mini` | `connector-core`, `connector-codex`, `connector-claude`, `protocol` read-only | Reclassify remaining connector/protocol debt after the catch-all breakup wave. |
+| Worker B | `gpt-5.4-mini` | `server/src/{runtime,infrastructure/persistence,domain/sessions,connectors}` read-only | Reclassify accepted spines versus remaining duplicate-authority or recovery/materialization debt. |
+| Worker C | `gpt-5.4-mini` | `cli` plus `server/src/{transport,admin,app,infrastructure/github}` read-only | Reclassify API/transport/CLI drift, especially HTTP versus WebSocket mutation ownership. |
+| Worker D | `gpt-5.4-mini` | `OrbitDockNative/OrbitDock/Services/Server` plus protocol parity pressure read-only | Reclassify the native contract mirror and WS parity surface. |
+
+Tasks:
+
+- [x] Re-run macro counts from the current tree.
+- [x] Launch fresh read-only lane evaluations.
+- [x] Reclassify the remaining server/API surface into `leave alone`, `optional polish`, `delete candidate`, and `redesign candidate`.
+- [x] Record the next recommended phase shape instead of continuing ad hoc cleanup.
+
+### Phase 24 execution note
+
+- The broad catch-all refactor really did land. The remaining debt is not “there are still giant random files everywhere.” It is now concentrated in a smaller set of seams:
+  - protocol typing/parity escape hatches
+  - runtime recovery/materialization duplicate-authority paths
+  - old WebSocket mutation lanes that still compete with HTTP
+  - native contract mirror sprawl and WS parity drift
+- Accepted spines:
+  - `server/src/domain/sessions/state.rs`
+  - `server/src/domain/sessions/session.rs`
+  - `server/src/infrastructure/persistence/writer.rs`
+  - `server/src/infrastructure/persistence/session_accounting_writes.rs`
+  - `server/src/runtime/session_actor.rs`
+  - `server/src/runtime/session_command_handler.rs`
+  - `server/src/infrastructure/github/client.rs`
+  - `server/src/app/mod.rs`
+- Optional polish:
+  - `server/src/infrastructure/persistence/session_writes.rs`
+  - `server/src/runtime/session_queries/projection.rs`
+  - `server/src/runtime/session_registry/ownership.rs`
+  - `server/src/transport/http/router.rs`
+  - `server/src/transport/http/mod.rs`
+  - `server/src/transport/http/capabilities/runtime.rs`
+  - `server/src/admin/setup.rs`
+  - `server/src/admin/install_service.rs`
+  - `protocol/src/conversation_contracts/rows.rs`
+  - `protocol/src/types/session.rs`
+  - `connector-claude/src/stdout.rs`
+- Delete candidates or immediate drift fixes:
+  - `protocol/src/provider_normalization/shared.rs` looks unused outside its own module export and should be verified for removal.
+  - `server/src/runtime/session_command_persistence.rs` preserves a parallel `PersistOp -> PersistCommand` translation lane beside the transition path.
+  - `server/src/transport/http/sessions_summary.rs` is a trivial wrapper candidate.
+  - `server/src/transport/websocket/server_info.rs` is a trivial re-export shim candidate.
+  - `cli/src/commands/session/http.rs` still posts fork to `/api/sessions/{id}/fork` while the router now exposes `/api/sessions/{id}/lifecycle/fork`; that is real drift, not hypothetical debt.
+  - Native likely has two dead/duplicate areas worth verifying:
+    - `ClientToServerMessage.init(from:)`
+    - `ConversationClient.fetchSessionInstructions(...)`
+- Redesign candidates:
+  - `server/src/infrastructure/persistence/session_reads/startup_recovery.rs`
+  - `server/src/runtime/session_runtime_helpers.rs`
+  - `server/src/runtime/session_takeover.rs`
+  - `server/src/runtime/session_resume.rs`
+  - `server/src/runtime/session_queries/detail.rs`
+  - `server/src/connectors/codex_hooks/codex_hook_session.rs`
+  - `server/src/connectors/claude_hooks/session_materialization.rs`
+  - `protocol/src/conversation_contracts/tool_payloads.rs`
+  - `protocol/src/types/approvals.rs` plus `protocol/src/domain_events/approvals.rs`
+  - `connector-codex/src/app_server/dynamic_tool_mapping.rs`
+  - `connector-codex/src/app_server/item_mapping.rs`
+  - `connector-claude/src/rows.rs`
+  - `cli/src/commands/session/live.rs`
+  - `server/src/transport/websocket/handlers/{messaging.rs,session_crud.rs,approvals.rs}`
+  - native mirror seams:
+    - `ServerSessionContracts.swift`
+    - `ServerConversationContracts.swift`
+    - `ServerToClientMessage+Decoding.swift`
+
+### Phase 24 conclusion
+
+The next phase should not be “more random file shrinking.” The next honest implementation options are:
+
+1. `Phase 25A`: low-risk delete and drift fixes
+   - remove or verify dead shims/helpers
+   - fix known stale route/client drift
+   - clean obvious duplicate wrappers
+2. `Phase 25B`: transport contract convergence
+   - collapse CLI and WS mutation paths onto the HTTP-authoritative write surface
+3. `Phase 25C`: runtime authority convergence
+   - tackle startup recovery, takeover/resume/materialization, and duplicate persistence translation
+4. `Phase 25D`: protocol/native contract convergence
+   - narrow the session mirror, reduce approval/tool-payload duplication, and tighten WS parity
