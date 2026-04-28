@@ -8,8 +8,8 @@ Execution branch: `refactor/server-api-plan-execution`
 
 Execution status:
 
-- Current phase: `Phase 12 landed / Phase 13 regroup pending`
-- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, and the Phase 12 remaining-hotspot implementation wave is now landed too. Phase 12 commits `ddea7ac5`, `bbed6aca`, `bf20dbf9`, `f7e1ddcc`, and `516d829e` split the Codex rollout parser helper clusters, the connector-core row transition cluster, the runtime row/history helpers, the protocol approval/policy core, and the tiny Codex hook metadata tail cleanup. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-core --lib row_ --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo test -p orbitdock-server session_row_history --lib --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= cargo check -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-server --lib --manifest-path orbitdock-server/Cargo.toml -- --test-threads=1`. The remaining live hotspots are now narrower and better classified: `connector-codex/src/rollout_parser.rs` is down to 1,505 lines plus sibling helper modules and the next risky seam is still `parse_event_msg`; `connector-core/src/transition.rs` is down to 1,573 lines with `transition_rows.rs` carved out and the next clear seams are status/lifecycle and metadata clusters; `protocol/src/types.rs` is down to 1,458 lines with `types/approval_policy.rs` split out; `server/src/runtime/session_runtime_helpers.rs` is down to 787 lines with `session_row_history.rs` extracted; `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; and `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
+- Current phase: `Phase 13 landed / Phase 14 regroup pending`
+- Current phase detail: `Phase 3 deletion slices 3A through 3Z are complete and validated, Phase 4 regroup is complete, Phase 5 evaluation packets were integrated, the full Phase 10 implementation wave landed through `ff10701c`, the Phase 12 remaining-hotspot implementation wave landed through `516d829e`, and the Phase 13 dead rollout-path audit is now landed too. Phase 13 commit `246502e6` removed the orphaned Codex rollout parser and server jsonl tailer stacks, deleted the rollout-only Codex normalizer path and its test coverage, updated the remaining Codex session/lib comments to match the live thread-based resume path, and tightened the now-test-only timeline helpers behind `#[cfg(test)]`. Validation passed with `cargo fmt --all --manifest-path orbitdock-server/Cargo.toml`, `env RUSTC_WRAPPER= make rust-check`, `env RUSTC_WRAPPER= cargo test -p orbitdock-connector-codex --lib --manifest-path orbitdock-server/Cargo.toml`, and `env RUSTC_WRAPPER= cargo test -p orbitdock-protocol --lib --manifest-path orbitdock-server/Cargo.toml`. The remaining live hotspots are now narrower and better classified: `connector-core/src/transition.rs` is down to 1,573 lines with `transition_rows.rs` carved out and the next clear seams are status/lifecycle and metadata clusters; `protocol/src/types.rs` is down to 1,458 lines with `types/approval_policy.rs` split out; `server/src/runtime/session_runtime_helpers.rs` is down to 787 lines with `session_row_history.rs` extracted; `protocol/src/conversation_contracts/tool_display.rs` remains a 1,617-line active parity cluster; and `server/src/connectors/codex_session.rs` remains an 862-line redesign-first seam. The parked redesign seams remain unchanged: Claude shadow ownership/replay ordering, startup/write-side control_mode semantics, single-writer conversation persistence, `session_runtime_helpers.rs`, and `codex_session.rs`.`
 - Parent branch point: `c2da0f13`
 - Wave 1 launched: yes
 - Wave 2 launched: yes
@@ -1437,3 +1437,39 @@ Tasks:
 - `516d829e` `🗑️ Tighten unused Codex hook metadata params`
 - The rollout parser lane is no longer the immediate blocker for the rest of the server tree, but its high-risk `parse_event_msg` core still needs a later, more surgical recut.
 - The Codex ownership/startup seam remains parked. Phase 12 intentionally did not open `codex_session.rs` structural work.
+
+## Phase 13: Dead Rollout Path Audit
+
+Objective: verify and remove the orphaned Codex rollout parser/watcher stack if it is no longer on any live server or connector path.
+
+Delete-first targets:
+
+- `orbitdock-server/crates/connector-codex/src/rollout_parser.rs`
+- `orbitdock-server/crates/connector-codex/src/rollout_parser_content.rs`
+- `orbitdock-server/crates/connector-codex/src/rollout_parser_state.rs`
+- `orbitdock-server/crates/connector-codex/src/rollout_parser_subagents.rs`
+- `orbitdock-server/crates/connector-codex/src/rollout_parser_tests.rs`
+- `orbitdock-server/crates/server/src/connectors/jsonl_tailer.rs`
+- `orbitdock-server/crates/server/src/connectors/jsonl_tailer_tests.rs`
+- `orbitdock-server/crates/protocol/src/provider_normalization/codex.rs` rollout-only normalizer tail
+- `orbitdock-server/crates/protocol/src/provider_normalization/codex_tests.rs` rollout-only test coverage
+
+Execution rules:
+
+- Prove the parser and tailer are unreferenced before deleting them.
+- Preserve still-live hook normalization semantics unless they are directly tied to the dead rollout path.
+- Keep rollout naming that still encodes active passive-session behavior out of scope for this slice.
+
+Tasks:
+
+- [x] Remove the dead rollout parser module and its helper/test files if no live callers remain.
+- [x] Remove the dead `jsonl_tailer` stack if it is test-only and unwired.
+- [x] Remove rollout-only normalization code/tests that become unreachable after the parser deletion.
+- [x] Re-run connector/protocol/server validation after the delete lands.
+
+### Phase 13 execution note
+
+- `246502e6` `🗑️ Remove the dead Codex rollout parser path`
+- The rollout parser, its helper modules, its tests, and the dead `jsonl_tailer` stack are gone.
+- The rollout-only Codex normalizer path is gone too; hook normalization semantics remain intact.
+- The rollout naming that still represents active passive-session behavior was intentionally left alone.
