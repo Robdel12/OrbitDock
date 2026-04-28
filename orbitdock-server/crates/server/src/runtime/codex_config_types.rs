@@ -10,11 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CodexConfigPreferencesResponse {
-  pub default_config_source: CodexConfigSource,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct CodexResolvedSettings {
   pub config_source: CodexConfigSource,
   pub config_mode: CodexConfigMode,
@@ -202,20 +197,6 @@ pub struct CodexConfigDocumentsResponse {
   pub projects: Vec<CodexConfigDocument>,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub warnings: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CodexConfigValueWriteRequest {
-  pub cwd: String,
-  #[serde(default)]
-  pub key_path: String,
-  pub value: Value,
-  #[serde(default)]
-  pub merge_strategy: Option<CodexConfigMergeStrategy>,
-  #[serde(default)]
-  pub file_path: Option<String>,
-  #[serde(default)]
-  pub expected_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

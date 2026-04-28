@@ -9,7 +9,7 @@ mod takeover;
 
 pub use codex_config::{
   batch_write_codex_config, get_codex_config_catalog, get_codex_config_documents,
-  get_codex_preferences, inspect_codex_config, update_codex_preferences, write_codex_config_value,
+  inspect_codex_config,
 };
 pub use create::create_session;
 pub use fork::{fork_session, fork_session_to_existing_worktree, fork_session_to_worktree};

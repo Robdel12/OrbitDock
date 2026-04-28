@@ -7,7 +7,7 @@ use axum::{
 use orbitdock_protocol::{MissionsSnapshot, Provider};
 use tracing::info;
 
-use crate::transport::http::errors::{bad_request, not_found};
+use crate::transport::http::errors::{bad_request, internal, not_found};
 use crate::{
   infrastructure::persistence::{
     load_mission_by_id, load_mission_issues, load_missions_with_counts, PersistCommand,
@@ -79,7 +79,7 @@ pub async fn create_mission(
     Some("MISSION.md".to_string())
   };
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionCreate {
       id: id.clone(),
@@ -92,8 +92,15 @@ pub async fn create_mission(
       mission_file_path: mission_file_path.clone(),
       tracker_api_key: None,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&id);
 
   info!(
     component = "mission_control",
@@ -174,7 +181,7 @@ pub async fn update_mission(
     .await?
     .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionUpdate {
       id: mission_id.clone(),
@@ -187,8 +194,15 @@ pub async fn update_mission(
       parse_error: None,
       mission_file_path: req.mission_file_path,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&mission_id);
 
   let mid2 = mission_id.clone();
   let persisted = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
@@ -214,13 +228,20 @@ pub async fn delete_mission(
   State(registry): State<Arc<SessionRegistry>>,
   Path(mission_id): Path<String>,
 ) -> ApiResult<MissionsListResponse> {
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionDelete {
       id: mission_id.clone(),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&mission_id);
 
   let orchestrator_running = registry.is_orchestrator_running();
   let rows = db_read(&registry, load_missions_with_counts).await?;

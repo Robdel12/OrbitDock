@@ -16,10 +16,9 @@ pub(crate) use common::{
 };
 pub use crud::{create_mission, delete_mission, get_mission, list_missions, update_mission};
 pub use defaults::{get_mission_defaults, update_mission_defaults};
-pub use files::{get_default_template, scaffold_mission_file, update_mission_settings};
+pub use files::{scaffold_mission_file, update_mission_settings};
 pub use issue_reports::{
-  list_mission_worktrees, report_issue_blocked, report_issue_completed, set_issue_pr_url,
-  transition_mission_issue,
+  list_mission_worktrees, report_issue_completed, set_issue_pr_url, transition_mission_issue,
 };
 pub use issues::{list_mission_issues, retry_mission_issue};
 pub use orchestrator::{

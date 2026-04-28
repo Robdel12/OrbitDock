@@ -301,6 +301,9 @@ pub enum PersistCommand {
   /// Upsert a key-value config entry
   SetConfig { key: String, value: String },
 
+  /// Delete a key-value config entry.
+  DeleteConfig { key: String },
+
   /// Persist a new worktree row
   WorktreeCreate {
     id: String,
@@ -443,6 +446,7 @@ impl PersistCommand {
       PersistCommand::SetIntegrationMode { .. } => "SetIntegrationMode",
       PersistCommand::EnvironmentUpdate { .. } => "EnvironmentUpdate",
       PersistCommand::SetConfig { .. } => "SetConfig",
+      PersistCommand::DeleteConfig { .. } => "DeleteConfig",
       PersistCommand::WorktreeCreate { .. } => "WorktreeCreate",
       PersistCommand::WorktreeUpdateStatus { .. } => "WorktreeUpdateStatus",
       PersistCommand::MissionCreate { .. } => "MissionCreate",

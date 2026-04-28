@@ -1,11 +1,11 @@
 use codex_app_server_protocol::{
-  ConfigBatchWriteParams, ConfigEdit, ConfigReadParams, ConfigReadResponse, ConfigValueWriteParams,
-  ConfigWriteResponse, OverriddenMetadata, WriteStatus,
+  ConfigBatchWriteParams, ConfigEdit, ConfigReadParams, ConfigReadResponse, ConfigWriteResponse,
+  OverriddenMetadata, WriteStatus,
 };
 
 use super::codex_config_types::{
   CodexConfigBatchWriteRequest, CodexConfigMergeStrategy, CodexConfigOverriddenMetadata,
-  CodexConfigValueWriteRequest, CodexConfigWriteResponseData, CodexInspectorOrigin,
+  CodexConfigWriteResponseData, CodexInspectorOrigin,
 };
 
 pub(crate) async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, String> {
@@ -19,29 +19,6 @@ pub(crate) async fn read_codex_config(cwd: &str) -> Result<ConfigReadResponse, S
     })
     .await
     .map_err(|error| error.to_string())
-}
-
-pub async fn codex_config_write_value(
-  request: CodexConfigValueWriteRequest,
-) -> Result<CodexConfigWriteResponseData, String> {
-  let app_server = orbitdock_connector_codex::app_server::shared_app_server_for_cwd(&request.cwd)
-    .await
-    .map_err(|error| error.to_string())?;
-  let response: ConfigWriteResponse = app_server
-    .config_value_write(ConfigValueWriteParams {
-      key_path: request.key_path,
-      value: request.value,
-      merge_strategy: request
-        .merge_strategy
-        .unwrap_or(CodexConfigMergeStrategy::Replace)
-        .into(),
-      file_path: request.file_path,
-      expected_version: request.expected_version,
-    })
-    .await
-    .map_err(|error| error.to_string())?;
-
-  Ok(write_response(response))
 }
 
 pub async fn codex_config_batch_write(

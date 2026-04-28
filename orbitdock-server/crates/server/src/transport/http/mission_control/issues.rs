@@ -7,14 +7,19 @@ use axum::{
 use rusqlite::params;
 use tracing::info;
 
-use crate::transport::http::errors::not_found;
 use crate::{
-  infrastructure::persistence::{load_mission_by_id, load_mission_issues},
+  infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand},
   runtime::session_registry::SessionRegistry,
-  transport::http::ApiResult,
+  transport::http::{
+    errors::{internal, not_found},
+    ApiResult,
+  },
 };
 
-use super::{build_detail_response, common::issue_row_to_item, db_read, MissionDetailResponse};
+use super::{
+  build_detail_response, common::issue_row_to_item, db_read, flush_persistence,
+  MissionDetailResponse,
+};
 
 pub async fn list_mission_issues(
   State(registry): State<Arc<SessionRegistry>>,
@@ -71,31 +76,29 @@ pub async fn retry_mission_issue(
     }
   }
 
-  let db_path = registry.db_path().clone();
-  let mid2 = mission_id.clone();
-  let iid2 = issue_id.clone();
-  let _ = tokio::task::spawn_blocking(move || {
-    let conn = rusqlite::Connection::open(&db_path).ok()?;
-    use crate::infrastructure::persistence::mission_control::{
-      update_mission_issue_state_sync, MissionIssueStateUpdate,
-    };
-    update_mission_issue_state_sync(
-      &conn,
-      &mid2,
-      &iid2,
-      &MissionIssueStateUpdate {
-        orchestration_state: "queued",
-        session_id: None,
-        workspace_id: None,
-        attempt: Some(0),
-        last_error: Some(None),
-        started_at: Some(None),
-        completed_at: Some(None),
-      },
-    )
-    .ok()
-  })
-  .await;
+  registry
+    .persist()
+    .send(PersistCommand::MissionIssueUpdateState {
+      mission_id: mission_id.clone(),
+      issue_id: issue_id.clone(),
+      orchestration_state: "queued".to_string(),
+      session_id: None,
+      workspace_id: None,
+      attempt: Some(0),
+      last_error: Some(None),
+      retry_due_at: Some(None),
+      started_at: Some(None),
+      completed_at: Some(None),
+    })
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&mission_id);
 
   info!(
     component = "mission_control",

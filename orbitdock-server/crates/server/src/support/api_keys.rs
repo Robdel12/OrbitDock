@@ -12,6 +12,7 @@ pub fn resolve_linear_api_key() -> Option<String> {
   }
 
   crate::infrastructure::persistence::load_config_value("linear_api_key")
+    .filter(|key| !key.is_empty())
 }
 
 /// Resolve the GitHub token from env var or config table.
@@ -23,6 +24,7 @@ pub fn resolve_github_api_key() -> Option<String> {
   }
 
   crate::infrastructure::persistence::load_config_value("github_api_key")
+    .filter(|key| !key.is_empty())
 }
 
 /// Resolve the API key for a given tracker kind (global only).
@@ -85,7 +87,10 @@ pub fn tracker_key_source_for_mission(
     "github" => "github_api_key",
     _ => return None,
   };
-  if crate::infrastructure::persistence::load_config_value(config_key).is_some() {
+  if crate::infrastructure::persistence::load_config_value(config_key)
+    .map(|key| !key.is_empty())
+    .unwrap_or(false)
+  {
     return Some("global");
   }
 

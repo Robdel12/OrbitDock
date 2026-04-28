@@ -391,7 +391,7 @@ impl From<&PersistCommand> for Option<SyncCommand> {
           repository_root: repository_root.clone(),
           is_worktree: *is_worktree,
         },
-        PersistCommand::SetConfig { .. } => return None,
+        PersistCommand::SetConfig { .. } | PersistCommand::DeleteConfig { .. } => return None,
         PersistCommand::WorktreeCreate {
           id,
           repo_root,

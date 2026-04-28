@@ -14,7 +14,7 @@ use crate::{
   infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand},
   runtime::session_registry::SessionRegistry,
   transport::http::{
-    errors::{bad_request, not_found},
+    errors::{bad_request, internal, not_found},
     ApiResult,
   },
 };
@@ -37,14 +37,20 @@ pub async fn set_issue_pr_url(
   Path((mission_id, issue_id)): Path<(String, String)>,
   Json(body): Json<SetPrUrlRequest>,
 ) -> ApiResult<MissionDetailResponse> {
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionIssueSetPrUrl {
       mission_id: mission_id.clone(),
       issue_id: issue_id.clone(),
       pr_url: body.pr_url.clone(),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
 
   registry.publish_mission_invalidation(&mission_id);
@@ -122,73 +128,57 @@ pub async fn transition_mission_issue(
     }
   }
 
-  // Build the state update based on target
   let now = chrono::Utc::now().to_rfc3339();
   let reason = body.reason.clone();
-  let db_path = registry.db_path().clone();
-  let mid2 = mission_id.clone();
-  let iid2 = issue_id.clone();
   let target_str = target.as_db_str().to_string();
 
-  let _ = tokio::task::spawn_blocking(move || {
-    let conn = rusqlite::Connection::open(&db_path).ok()?;
-    use crate::infrastructure::persistence::mission_control::{
-      update_mission_issue_state_sync, MissionIssueStateUpdate,
-    };
+  let (attempt, last_error, retry_due_at, started_at, completed_at) = match target {
+    OrchestrationState::Queued => (Some(0), Some(None), Some(None), Some(None), Some(None)),
+    OrchestrationState::Completed => (None, Some(None), None, None, Some(Some(now.clone()))),
+    OrchestrationState::Failed => (
+      None,
+      Some(Some(
+        reason.unwrap_or_else(|| "Manually stopped".to_string()),
+      )),
+      None,
+      None,
+      Some(Some(now.clone())),
+    ),
+    OrchestrationState::Provisioning => (None, Some(None), None, None, Some(None)),
+    OrchestrationState::Blocked => (
+      None,
+      Some(Some(
+        reason.unwrap_or_else(|| "Manually blocked".to_string()),
+      )),
+      None,
+      None,
+      Some(Some(now.clone())),
+    ),
+    _ => unreachable!("invalid admin target should be rejected before persistence"),
+  };
 
-    let update = match target {
-      OrchestrationState::Queued => MissionIssueStateUpdate {
-        orchestration_state: &target_str,
-        session_id: None,
-        workspace_id: None,
-        attempt: Some(0),
-        last_error: Some(None),
-        started_at: Some(None),
-        completed_at: Some(None),
-      },
-      OrchestrationState::Completed => MissionIssueStateUpdate {
-        orchestration_state: &target_str,
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(None),
-        started_at: None,
-        completed_at: Some(Some(&now)),
-      },
-      OrchestrationState::Failed => MissionIssueStateUpdate {
-        orchestration_state: &target_str,
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(Some(reason.as_deref().unwrap_or("Manually stopped"))),
-        started_at: None,
-        completed_at: Some(Some(&now)),
-      },
-      OrchestrationState::Provisioning => MissionIssueStateUpdate {
-        orchestration_state: &target_str,
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(None),
-        started_at: None,
-        completed_at: Some(None),
-      },
-      OrchestrationState::Blocked => MissionIssueStateUpdate {
-        orchestration_state: &target_str,
-        session_id: None,
-        workspace_id: None,
-        attempt: None,
-        last_error: Some(Some(reason.as_deref().unwrap_or("Manually blocked"))),
-        started_at: None,
-        completed_at: Some(Some(&now)),
-      },
-      // claimed, running, retry_queued — not valid admin targets
-      _ => return None,
-    };
-
-    update_mission_issue_state_sync(&conn, &mid2, &iid2, &update).ok()
-  })
-  .await;
+  registry
+    .persist()
+    .send(PersistCommand::MissionIssueUpdateState {
+      mission_id: mission_id.clone(),
+      issue_id: issue_id.clone(),
+      orchestration_state: target_str,
+      session_id: None,
+      workspace_id: None,
+      attempt,
+      last_error,
+      retry_due_at,
+      started_at,
+      completed_at,
+    })
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
 
   info!(
       component = "mission_control",
@@ -301,59 +291,8 @@ pub struct TransitionRequest {
 }
 
 #[derive(Deserialize)]
-pub struct ReportBlockedRequest {
-  pub reason: String,
-}
-
-#[derive(Deserialize)]
 pub struct ReportCompletedRequest {
   pub tracker_state: Option<String>,
-}
-
-/// POST /api/missions/:mission_id/issues/:issue_id/blocked
-///
-/// Called by mission tools (MCP server or dynamic tool handler) when the
-/// agent signals it cannot continue.
-pub async fn report_issue_blocked(
-  State(registry): State<Arc<SessionRegistry>>,
-  Path((mission_id, issue_id)): Path<(String, String)>,
-  Json(body): Json<ReportBlockedRequest>,
-) -> ApiResult<MissionDetailResponse> {
-  let mid = mission_id.clone();
-  let iid = issue_id.clone();
-  let reason = body.reason.clone();
-  let now = chrono::Utc::now().to_rfc3339();
-
-  // Update orchestration state to blocked
-  let _ = registry
-    .persist()
-    .send(PersistCommand::MissionIssueUpdateState {
-      mission_id: mid.clone(),
-      issue_id: iid.clone(),
-      orchestration_state: "blocked".to_string(),
-      session_id: None,
-      workspace_id: None,
-      attempt: None,
-      last_error: Some(Some(reason.clone())),
-      retry_due_at: None,
-      started_at: None,
-      completed_at: Some(Some(now)),
-    })
-    .await;
-  flush_persistence(&registry).await?;
-
-  registry.publish_mission_invalidation(&mid);
-
-  info!(
-      component = "mission_control",
-      event = "issue.blocked",
-      mission_id = %mid,
-      issue_id = %iid,
-      reason = %reason,
-      "Agent reported issue blocked"
-  );
-
-  Ok(Json(load_detail_response(&registry, &mid, None).await?))
 }
 
 /// POST /api/missions/:mission_id/issues/:issue_id/complete
@@ -409,7 +348,7 @@ pub async fn report_issue_completed(
     .flatten()
   };
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionIssueUpdateState {
       mission_id: mid.clone(),
@@ -423,7 +362,13 @@ pub async fn report_issue_completed(
       started_at: None,
       completed_at: Some(Some(now)),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
 
   // End the agent session now that its issue is done

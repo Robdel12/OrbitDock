@@ -8,14 +8,16 @@ use orbitdock_protocol::Provider;
 use rusqlite::{params, Connection};
 
 use crate::{
-  infrastructure::persistence::{flush_batch_for_test, PersistCommand},
+  infrastructure::persistence::{flush_batch_for_test, load_config_value, PersistCommand},
   transport::http::test_support::new_persist_test_state,
 };
 
 use super::{
-  create_mission, delete_mission, get_mission, list_missions, slugify_mission_name, update_mission,
+  create_mission, delete_linear_key, delete_mission, get_mission, get_tracker_keys, list_missions,
+  set_linear_key, slugify_mission_name, update_mission, update_mission_defaults,
   CreateMissionRequest, UpdateMissionRequest,
 };
+use super::{defaults::UpdateMissionDefaultsRequest, tracker_keys::SetLinearKeyRequest};
 
 fn make_git_repo_root() -> PathBuf {
   let repo_root = std::env::temp_dir().join(format!(
@@ -210,4 +212,83 @@ async fn create_mission_rejects_invalid_provider_without_persisting() {
     )
     .expect("count missions for repo root");
   assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn delete_linear_key_removes_global_config_and_updates_status() {
+  let (state, persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  crate::infrastructure::crypto::ensure_key();
+  let _writer = spawn_persist_consumer(persist_rx, db_path.clone());
+  let env_key_present = std::env::var("LINEAR_API_KEY")
+    .ok()
+    .map(|value| !value.trim().is_empty())
+    .unwrap_or(false);
+
+  let Json(saved) = set_linear_key(
+    State(state.clone()),
+    Json(SetLinearKeyRequest {
+      key: "lin_test_key".to_string(),
+    }),
+  )
+  .await
+  .expect("set linear key should succeed");
+  assert!(saved.configured);
+  assert_eq!(
+    load_config_value("linear_api_key").as_deref(),
+    Some("lin_test_key")
+  );
+
+  let Json(status) = get_tracker_keys().await;
+  assert!(status.linear.configured);
+  assert_eq!(status.linear.source.as_deref(), Some("settings"));
+
+  let Json(deleted) = delete_linear_key(State(state.clone()))
+    .await
+    .expect("delete linear key should succeed");
+  assert!(!deleted.configured);
+  assert!(load_config_value("linear_api_key").is_none());
+
+  let Json(status) = get_tracker_keys().await;
+  if env_key_present {
+    assert!(status.linear.configured);
+    assert_eq!(status.linear.source.as_deref(), Some("env"));
+  } else {
+    assert!(!status.linear.configured);
+    assert_eq!(status.linear.source, None);
+  }
+}
+
+#[tokio::test]
+async fn clearing_secondary_mission_default_returns_authoritative_state() {
+  let (state, persist_rx, db_path, _guard) = new_persist_test_state(true).await;
+  crate::infrastructure::crypto::ensure_key();
+  let _writer = spawn_persist_consumer(persist_rx, db_path.clone());
+
+  let Json(saved) = update_mission_defaults(
+    State(state.clone()),
+    Json(UpdateMissionDefaultsRequest {
+      provider_strategy: Some("dual".to_string()),
+      primary_provider: Some("claude".to_string()),
+      secondary_provider: Some(Some("codex".to_string())),
+    }),
+  )
+  .await
+  .expect("set mission defaults should succeed");
+  assert_eq!(saved.secondary_provider.as_deref(), Some("codex"));
+
+  let Json(cleared) = update_mission_defaults(
+    State(state.clone()),
+    Json(UpdateMissionDefaultsRequest {
+      provider_strategy: None,
+      primary_provider: None,
+      secondary_provider: Some(Some(String::new())),
+    }),
+  )
+  .await
+  .expect("clear mission secondary default should succeed");
+
+  assert_eq!(cleared.provider_strategy, "dual");
+  assert_eq!(cleared.primary_provider, "claude");
+  assert_eq!(cleared.secondary_provider, None);
+  assert!(load_config_value("mission_default_secondary").is_none());
 }

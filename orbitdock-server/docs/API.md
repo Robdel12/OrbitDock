@@ -971,15 +971,11 @@ Returns Codex config profiles, providers, effective values, and warnings for a c
 
 Returns raw user/project Codex config documents and warnings.
 
-### `POST /api/codex/config/value`
-
-Writes one Codex config value.
-
 ### `POST /api/codex/config/batch-write`
 
-Writes multiple Codex config values atomically.
+Writes Codex config values atomically.
 
-Both write routes return a write result that includes:
+Returns a write result that includes:
 
 - `status`
 - `version`
@@ -996,14 +992,6 @@ Cancels Codex login.
 ### `POST /api/codex/logout`
 
 Logs out of Codex.
-
-### `GET /api/server/codex-preferences`
-
-Returns server-level Codex preferences.
-
-### `PUT /api/server/codex-preferences`
-
-Updates server-level Codex preferences and returns the same shape.
 
 ## Filesystem, sync, and worktrees
 
@@ -1143,27 +1131,11 @@ Marks an issue completed and returns `MissionDetailResponse`.
 
 Stores a PR URL and returns `MissionDetailResponse`.
 
-### `POST /api/missions/{mission_id}/issues/{issue_id}/blocked`
-
-Marks an issue blocked and returns `MissionDetailResponse`.
-
 ### Mission setup and settings
 
 ### `POST /api/missions/{mission_id}/scaffold`
 
 Creates a default `MISSION.md` and returns `MissionDetailResponse`.
-
-### `POST /api/missions/{mission_id}/migrate-workflow`
-
-Migrates `WORKFLOW.md` to `MISSION.md` and returns `MissionDetailResponse`.
-
-### `GET /api/missions/{mission_id}/default-template`
-
-Returns:
-
-```json
-{"template":"..."}
-```
 
 ### `PUT /api/missions/{mission_id}/settings`
 

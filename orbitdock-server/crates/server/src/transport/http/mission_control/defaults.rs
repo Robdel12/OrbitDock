@@ -4,9 +4,12 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  infrastructure::persistence::PersistCommand, runtime::session_registry::SessionRegistry,
-  transport::http::ApiResult,
+  infrastructure::persistence::PersistCommand,
+  runtime::session_registry::SessionRegistry,
+  transport::http::{errors::internal, ApiResult},
 };
+
+use super::flush_persistence;
 
 #[derive(Serialize, Deserialize)]
 pub struct MissionDefaultsResponse {
@@ -25,18 +28,23 @@ pub struct UpdateMissionDefaultsRequest {
 
 /// GET /api/server/mission-defaults
 pub async fn get_mission_defaults() -> Json<MissionDefaultsResponse> {
+  Json(current_mission_defaults())
+}
+
+fn current_mission_defaults() -> MissionDefaultsResponse {
   let strategy = crate::infrastructure::persistence::load_config_value("mission_default_strategy")
     .unwrap_or_else(|| "single".to_string());
   let primary = crate::infrastructure::persistence::load_config_value("mission_default_primary")
     .unwrap_or_else(|| "claude".to_string());
   let secondary =
-    crate::infrastructure::persistence::load_config_value("mission_default_secondary");
+    crate::infrastructure::persistence::load_config_value("mission_default_secondary")
+      .filter(|value| !value.is_empty());
 
-  Json(MissionDefaultsResponse {
+  MissionDefaultsResponse {
     provider_strategy: strategy,
     primary_provider: primary,
     secondary_provider: secondary,
-  })
+  }
 }
 
 /// PUT /api/server/mission-defaults
@@ -45,50 +53,53 @@ pub async fn update_mission_defaults(
   Json(req): Json<UpdateMissionDefaultsRequest>,
 ) -> ApiResult<MissionDefaultsResponse> {
   if let Some(v) = &req.provider_strategy {
-    let _ = registry
+    registry
       .persist()
       .send(PersistCommand::SetConfig {
         key: "mission_default_strategy".into(),
         value: v.clone(),
       })
-      .await;
+      .await
+      .map_err(|_| {
+        internal(
+          "persistence_unavailable",
+          "Persistence writer is unavailable",
+        )
+      })?;
   }
   if let Some(v) = &req.primary_provider {
-    let _ = registry
+    registry
       .persist()
       .send(PersistCommand::SetConfig {
         key: "mission_default_primary".into(),
         value: v.clone(),
       })
-      .await;
+      .await
+      .map_err(|_| {
+        internal(
+          "persistence_unavailable",
+          "Persistence writer is unavailable",
+        )
+      })?;
   }
   if let Some(v) = &req.secondary_provider {
-    let _ = registry
-      .persist()
-      .send(PersistCommand::SetConfig {
+    let command = match v {
+      Some(value) if !value.is_empty() => PersistCommand::SetConfig {
         key: "mission_default_secondary".into(),
-        value: v.clone().unwrap_or_default(),
-      })
-      .await;
+        value: value.clone(),
+      },
+      _ => PersistCommand::DeleteConfig {
+        key: "mission_default_secondary".into(),
+      },
+    };
+    registry.persist().send(command).await.map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   }
+  flush_persistence(&registry).await?;
 
-  // Return current state
-  let strategy = req
-    .provider_strategy
-    .or_else(|| crate::infrastructure::persistence::load_config_value("mission_default_strategy"))
-    .unwrap_or_else(|| "single".to_string());
-  let primary = req
-    .primary_provider
-    .or_else(|| crate::infrastructure::persistence::load_config_value("mission_default_primary"))
-    .unwrap_or_else(|| "claude".to_string());
-  let secondary = match req.secondary_provider {
-    Some(v) => v,
-    None => crate::infrastructure::persistence::load_config_value("mission_default_secondary"),
-  };
-
-  Ok(Json(MissionDefaultsResponse {
-    provider_strategy: strategy,
-    primary_provider: primary,
-    secondary_provider: secondary,
-  }))
+  Ok(Json(current_mission_defaults()))
 }

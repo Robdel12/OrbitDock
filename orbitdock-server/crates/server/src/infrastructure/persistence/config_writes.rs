@@ -14,3 +14,8 @@ pub(super) fn persist_set_config(
   )?;
   Ok(())
 }
+
+pub(super) fn persist_delete_config(conn: &Connection, key: String) -> Result<(), rusqlite::Error> {
+  conn.execute("DELETE FROM config WHERE key = ?1", params![key])?;
+  Ok(())
+}

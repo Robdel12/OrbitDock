@@ -255,10 +255,14 @@ fn session_support_routes() -> Router<Arc<SessionRegistry>> {
       "/api/sessions/{session_id}/mcp/clear-auth",
       post(super::mcp_clear_auth),
     )
+    // App-server/Claude parity endpoint. Keep this server capability, but wire
+    // a first-class UI before treating it as part of the core user surface.
     .route(
       "/api/sessions/{session_id}/mcp/servers",
       post(super::mcp_set_servers),
     )
+    // App-server/Claude parity endpoint. Currently server-tested but waiting
+    // on a settings UI owner.
     .route(
       "/api/sessions/{session_id}/flags",
       post(super::apply_flag_settings),
@@ -267,6 +271,8 @@ fn session_support_routes() -> Router<Arc<SessionRegistry>> {
       "/api/sessions/{session_id}/instructions",
       get(super::get_session_instructions),
     )
+    // Permission rule management has server and client plumbing; keep until
+    // the permission popover/settings UI is wired or this can be removed.
     .route(
       "/api/sessions/{session_id}/permissions/rules",
       get(super::get_permission_rules)
@@ -350,20 +356,12 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
       get(super::get_codex_config_documents),
     )
     .route(
-      "/api/codex/config/value",
-      post(super::write_codex_config_value),
-    )
-    .route(
       "/api/codex/config/batch-write",
       post(super::batch_write_codex_config),
     )
     .route("/api/codex/login/start", post(super::codex_login_start))
     .route("/api/codex/login/cancel", post(super::codex_login_cancel))
     .route("/api/codex/logout", post(super::codex_logout))
-    .route(
-      "/api/server/codex-preferences",
-      get(super::get_codex_preferences).put(super::update_codex_preferences),
-    )
 }
 
 fn filesystem_routes() -> Router<Arc<SessionRegistry>> {
@@ -412,10 +410,6 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
       post(super::transition_mission_issue),
     )
     .route(
-      "/api/missions/{mission_id}/issues/{issue_id}/blocked",
-      post(super::report_issue_blocked),
-    )
-    .route(
       "/api/missions/{mission_id}/issues/{issue_id}/complete",
       post(super::report_issue_completed),
     )
@@ -434,10 +428,6 @@ fn mission_routes() -> Router<Arc<SessionRegistry>> {
     .route(
       "/api/missions/{mission_id}/settings",
       put(super::update_mission_settings),
-    )
-    .route(
-      "/api/missions/{mission_id}/default-template",
-      get(super::get_default_template),
     )
     .route(
       "/api/missions/{mission_id}/start-orchestrator",

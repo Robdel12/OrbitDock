@@ -1,21 +1,12 @@
-use std::sync::Arc;
-
-use axum::{
-  extract::{Query, State},
-  http::StatusCode,
-  Json,
-};
+use axum::{extract::Query, http::StatusCode, Json};
 use serde::Deserialize;
 
 use super::super::errors::{unprocessable, ApiErrorResponse};
 use crate::runtime::codex_config::{
-  codex_config_batch_write, codex_config_catalog, codex_config_documents, codex_config_write_value,
-  codex_preferences_response, resolve_codex_settings, CodexConfigBatchWriteRequest,
-  CodexConfigCatalogResponse, CodexConfigDocumentsResponse, CodexConfigInspectorResponse,
-  CodexConfigPreferencesResponse, CodexConfigSelection, CodexConfigValueWriteRequest,
-  CodexConfigWriteResponseData,
+  codex_config_batch_write, codex_config_catalog, codex_config_documents, resolve_codex_settings,
+  CodexConfigBatchWriteRequest, CodexConfigCatalogResponse, CodexConfigDocumentsResponse,
+  CodexConfigInspectorResponse, CodexConfigSelection, CodexConfigWriteResponseData,
 };
-use crate::runtime::session_registry::SessionRegistry;
 use orbitdock_protocol::CodexSessionOverrides;
 use orbitdock_protocol::{
   CodexApprovalPolicy, CodexConfigMode, CodexConfigSource, CodexSandboxPolicy,
@@ -53,11 +44,6 @@ pub struct InspectCodexConfigRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateCodexPreferencesRequest {
-  pub default_config_source: CodexConfigSource,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct CodexConfigCatalogQuery {
   pub cwd: Option<String>,
 }
@@ -65,30 +51,6 @@ pub struct CodexConfigCatalogQuery {
 #[derive(Debug, Deserialize)]
 pub struct CodexConfigDocumentsQuery {
   pub cwd: String,
-}
-
-pub async fn get_codex_preferences() -> Json<CodexConfigPreferencesResponse> {
-  Json(codex_preferences_response())
-}
-
-pub async fn update_codex_preferences(
-  State(registry): State<Arc<SessionRegistry>>,
-  Json(body): Json<UpdateCodexPreferencesRequest>,
-) -> Result<Json<CodexConfigPreferencesResponse>, (StatusCode, Json<ApiErrorResponse>)> {
-  let value = match body.default_config_source {
-    CodexConfigSource::Orbitdock => "orbitdock",
-    CodexConfigSource::User => "user",
-  };
-  let _ = registry
-    .persist()
-    .send(
-      crate::infrastructure::persistence::PersistCommand::SetConfig {
-        key: "codex_default_config_source".to_string(),
-        value: value.to_string(),
-      },
-    )
-    .await;
-  Ok(Json(codex_preferences_response()))
 }
 
 pub async fn inspect_codex_config(
@@ -145,15 +107,6 @@ pub async fn get_codex_config_documents(
   let response = codex_config_documents(&query.cwd)
     .await
     .map_err(|error| unprocessable("invalid_codex_config", error))?;
-  Ok(Json(response))
-}
-
-pub async fn write_codex_config_value(
-  Json(body): Json<CodexConfigValueWriteRequest>,
-) -> Result<Json<CodexConfigWriteResponseData>, (StatusCode, Json<ApiErrorResponse>)> {
-  let response = codex_config_write_value(body)
-    .await
-    .map_err(|error| unprocessable("invalid_codex_config_write", error))?;
   Ok(Json(response))
 }
 

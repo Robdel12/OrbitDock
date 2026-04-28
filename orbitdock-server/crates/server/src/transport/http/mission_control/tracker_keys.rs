@@ -11,7 +11,7 @@ use crate::{
   infrastructure::persistence::{load_mission_by_id, PersistCommand},
   runtime::session_registry::SessionRegistry,
   transport::http::{
-    errors::{bad_request, not_found},
+    errors::{bad_request, internal, not_found},
     ApiResult,
   },
 };
@@ -40,19 +40,31 @@ pub async fn set_linear_key(
   State(registry): State<Arc<SessionRegistry>>,
   Json(body): Json<SetLinearKeyRequest>,
 ) -> ApiResult<LinearKeyStatusResponse> {
+  let key = body.key.trim().to_string();
+  if key.is_empty() {
+    return Err(bad_request("invalid_key", "Linear API key cannot be empty"));
+  }
+
   info!(
     component = "mission_control",
     event = "api.linear_key.set",
     "Linear API key set via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::SetConfig {
       key: "linear_api_key".into(),
-      value: body.key,
+      value: key,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
 
   Ok(Json(LinearKeyStatusResponse { configured: true }))
 }
@@ -67,13 +79,19 @@ pub async fn delete_linear_key(
     "Linear API key deleted via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
-    .send(PersistCommand::SetConfig {
+    .send(PersistCommand::DeleteConfig {
       key: "linear_api_key".into(),
-      value: String::new(),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
 
   Ok(Json(LinearKeyStatusResponse { configured: false }))
 }
@@ -100,19 +118,31 @@ pub async fn set_github_key(
   State(registry): State<Arc<SessionRegistry>>,
   Json(body): Json<SetGitHubKeyRequest>,
 ) -> ApiResult<GitHubKeyStatusResponse> {
+  let key = body.key.trim().to_string();
+  if key.is_empty() {
+    return Err(bad_request("invalid_key", "GitHub token cannot be empty"));
+  }
+
   info!(
     component = "mission_control",
     event = "api.github_key.set",
     "GitHub token set via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::SetConfig {
       key: "github_api_key".into(),
-      value: body.key,
+      value: key,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
 
   Ok(Json(GitHubKeyStatusResponse { configured: true }))
 }
@@ -127,13 +157,19 @@ pub async fn delete_github_key(
     "GitHub token deleted via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
-    .send(PersistCommand::SetConfig {
+    .send(PersistCommand::DeleteConfig {
       key: "github_api_key".into(),
-      value: String::new(),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
+  flush_persistence(&registry).await?;
 
   Ok(Json(GitHubKeyStatusResponse { configured: false }))
 }
@@ -186,13 +222,19 @@ pub async fn set_mission_tracker_key(
       "Mission-scoped tracker key set via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionSetTrackerKey {
       mission_id: mission_id.clone(),
       key: Some(body.key),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
 
   // Notify mission detail + list surfaces to refresh via HTTP.
@@ -221,13 +263,19 @@ pub async fn delete_mission_tracker_key(
       "Mission-scoped tracker key deleted via REST"
   );
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionSetTrackerKey {
       mission_id: mission_id.clone(),
       key: None,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
 
   // Notify mission detail + list surfaces to refresh via HTTP.
@@ -283,13 +331,19 @@ pub async fn adopt_global_tracker_key(
       "Adopted global tracker key into mission scope"
   );
 
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionSetTrackerKey {
       mission_id: mission_id.clone(),
       key: Some(global_key),
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
 
   // Notify mission detail + list surfaces to refresh via HTTP.

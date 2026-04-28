@@ -4,13 +4,11 @@ use axum::{
   extract::{Path, State},
   Json,
 };
-use serde::Serialize;
 use tracing::info;
 
 use crate::domain::mission_control::config::{
   generate_scaffold, parse_mission_file, MissionConfig, MissionConfigUpdate,
 };
-use crate::domain::mission_control::template::default_mission_template;
 use crate::infrastructure::persistence::{load_mission_by_id, load_mission_issues, PersistCommand};
 use crate::runtime::session_registry::SessionRegistry;
 
@@ -19,31 +17,6 @@ use super::{
   build_detail_response, db_read, flush_persistence, MissionDetailResponse,
   MissionSettingsResponse, UpdateMissionSettingsRequest,
 };
-
-#[derive(Serialize)]
-pub struct DefaultTemplateResponse {
-  pub template: String,
-}
-
-/// GET /api/missions/:id/default-template
-pub async fn get_default_template(
-  State(registry): State<Arc<SessionRegistry>>,
-  Path(mission_id): Path<String>,
-) -> ApiResult<DefaultTemplateResponse> {
-  let mid = mission_id.clone();
-  let mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid))
-    .await?
-    .ok_or_else(|| not_found("not_found", format!("Mission {mission_id} not found")))?;
-
-  let full_template = default_mission_template(&mission.provider, &mission.tracker_kind);
-  let template_body = parse_mission_file(&full_template)
-    .map(|def| def.prompt_template)
-    .unwrap_or_default();
-
-  Ok(Json(DefaultTemplateResponse {
-    template: template_body,
-  }))
-}
 
 /// POST /api/missions/:id/scaffold
 ///
@@ -92,7 +65,7 @@ pub async fn scaffold_mission_file(
   );
 
   let config_json = serde_json::to_string(&config).unwrap_or_default();
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionUpdate {
       id: mission_id.clone(),
@@ -105,8 +78,15 @@ pub async fn scaffold_mission_file(
       parse_error: Some(None),
       mission_file_path: None,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&mission_id);
 
   let mid2 = mission_id.clone();
   let persisted_mission = db_read(&registry, move |conn| load_mission_by_id(conn, &mid2))
@@ -218,7 +198,7 @@ pub async fn update_mission_settings(
     })?;
 
   let config_json = serde_json::to_string(&config).unwrap_or_default();
-  let _ = registry
+  registry
     .persist()
     .send(PersistCommand::MissionUpdate {
       id: mission_id.clone(),
@@ -231,8 +211,15 @@ pub async fn update_mission_settings(
       parse_error: Some(None),
       mission_file_path: None,
     })
-    .await;
+    .await
+    .map_err(|_| {
+      internal(
+        "persistence_unavailable",
+        "Persistence writer is unavailable",
+      )
+    })?;
   flush_persistence(&registry).await?;
+  registry.publish_mission_invalidation(&mission_id);
 
   info!(
     component = "mission_control",

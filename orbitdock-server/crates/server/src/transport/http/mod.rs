@@ -52,12 +52,11 @@ pub use files::{
 pub use mission_control::{
   adopt_global_tracker_key, check_github_key, check_linear_key, create_mission, delete_github_key,
   delete_linear_key, delete_mission, delete_mission_tracker_key, dispatch_mission_issue,
-  get_default_template, get_mission, get_mission_defaults, get_mission_tracker_key,
-  get_tracker_keys, list_mission_issues, list_mission_worktrees, list_missions,
-  report_issue_blocked, report_issue_completed, retry_mission_issue, scaffold_mission_file,
-  set_github_key, set_issue_pr_url, set_linear_key, set_mission_tracker_key,
-  start_mission_orchestrator_endpoint, transition_mission_issue, trigger_mission_poll,
-  update_mission, update_mission_defaults, update_mission_settings,
+  get_mission, get_mission_defaults, get_mission_tracker_key, get_tracker_keys,
+  list_mission_issues, list_mission_worktrees, list_missions, report_issue_completed,
+  retry_mission_issue, scaffold_mission_file, set_github_key, set_issue_pr_url, set_linear_key,
+  set_mission_tracker_key, start_mission_orchestrator_endpoint, transition_mission_issue,
+  trigger_mission_poll, update_mission, update_mission_defaults, update_mission_settings,
 };
 pub use permissions::{add_permission_rule, get_permission_rules, remove_permission_rule};
 pub use review_comments::{
@@ -83,9 +82,8 @@ pub use session_actions::{
 pub use session_lifecycle::{
   batch_write_codex_config, create_session, end_session, fork_session,
   fork_session_to_existing_worktree, fork_session_to_worktree, get_codex_config_catalog,
-  get_codex_config_documents, get_codex_preferences, inspect_codex_config, rename_session,
-  resume_session, set_summary, takeover_session, update_codex_preferences, update_session_config,
-  write_codex_config_value,
+  get_codex_config_documents, inspect_codex_config, rename_session, resume_session, set_summary,
+  takeover_session, update_session_config,
 };
 pub use sessions::{
   get_active_sessions_snapshot, get_archived_sessions_snapshot, get_conversation_history,

@@ -147,7 +147,7 @@ Common `codexErrorInfo` values:
 - `skills/list` - list skills for one or more cwd values
 - `app/list` - list available apps (connectors)
 - `config/read` - fetch the effective configuration
-- `config/value/write` - write a single configuration key/value
+- `config/value/write` - upstream Codex app-server method for writing a single configuration key/value; OrbitDock intentionally exposes configuration writes through the higher-level server config endpoints instead
 
 ## Authentication
 

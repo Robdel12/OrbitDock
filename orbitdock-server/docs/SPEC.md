@@ -488,9 +488,7 @@ Issue states: `queued`, `claimed`, `running`, `retry_queued`, `completed`, `fail
 
 ```
 PUT /api/missions/{id}/settings   — partial merge with MISSION.md config
-GET /api/missions/{id}/default-template — get default prompt template
 POST /api/missions/{id}/scaffold  — write default MISSION.md to repo
-POST /api/missions/{id}/migrate-workflow — convert WORKFLOW.md to MISSION.md
 ```
 
 Settings cover: provider strategy, per-provider agent config (Claude and Codex), trigger/polling, orchestration limits, and prompt template.

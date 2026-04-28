@@ -471,6 +471,7 @@ fn execute_command_by_family(
     PersistCommand::SetConfig { key, value } => {
       config_writes::persist_set_config(conn, key, value)?
     }
+    PersistCommand::DeleteConfig { key } => config_writes::persist_delete_config(conn, key)?,
     PersistCommand::WorktreeCreate {
       id,
       repo_root,
