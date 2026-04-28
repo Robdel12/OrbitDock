@@ -663,7 +663,6 @@ struct ServerConversationApprovalRow: Codable {
   let title: String
   let subtitle: String?
   let summary: String?
-  let request: AnyCodable
   let renderHints: ServerConversationRenderHints
 
   enum CodingKeys: String, CodingKey {
@@ -671,7 +670,6 @@ struct ServerConversationApprovalRow: Codable {
     case title
     case subtitle
     case summary
-    case request
     case renderHints = "render_hints"
   }
 }

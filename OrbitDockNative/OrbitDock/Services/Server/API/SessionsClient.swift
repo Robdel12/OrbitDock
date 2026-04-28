@@ -380,22 +380,18 @@ struct SessionsClient: Sendable {
 
   struct CreateSessionResponse: Decodable {
     let sessionId: String
-    let session: ServerSessionSummary
 
     enum CodingKeys: String, CodingKey {
       case sessionId = "session_id"
-      case session
     }
   }
 
   struct ResumeSessionResponse: Decodable {
     let sessionId: String
-    let session: ServerSessionSummary
     let sessionDetailSnapshot: ServerSessionDetailSnapshotPayload?
 
     enum CodingKeys: String, CodingKey {
       case sessionId = "session_id"
-      case session
       case sessionDetailSnapshot = "session_detail_snapshot"
     }
   }
@@ -475,12 +471,10 @@ struct SessionsClient: Sendable {
   struct ForkResponse: Decodable {
     let sourceSessionId: String
     let newSessionId: String
-    let session: ServerSessionSummary
 
     enum CodingKeys: String, CodingKey {
       case sourceSessionId = "source_session_id"
       case newSessionId = "new_session_id"
-      case session
     }
   }
 
@@ -492,13 +486,11 @@ struct SessionsClient: Sendable {
   struct ForkToWorktreeResponse: Decodable {
     let sourceSessionId: String
     let newSessionId: String
-    let session: ServerSessionSummary
     let worktree: ServerWorktreeSummary
 
     enum CodingKeys: String, CodingKey {
       case sourceSessionId = "source_session_id"
       case newSessionId = "new_session_id"
-      case session
       case worktree
     }
   }

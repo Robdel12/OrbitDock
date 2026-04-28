@@ -8,7 +8,6 @@ pub mod approvals;
 pub mod render_hints;
 pub mod rows;
 pub mod tool_display;
-pub mod tool_payloads;
 pub mod workers;
 
 pub use activity_groups::{ActivityGroupKind, ActivityGroupRow, ActivityGroupRowSummary};
@@ -24,11 +23,11 @@ pub use rows::{
   ShellTerminalSnapshot, SystemRow, TaskRow, TaskRowKind, TaskRowStatus, ThinkingRow, ToolRow,
   ToolRowSummary, TurnStatus, UserRow,
 };
+pub use rows::{ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract};
 pub use tool_display::{
   classify_tool_name, compute_diff_display, compute_expanded_output, compute_input_display,
   compute_tool_display, detect_language, extract_compact_result_text, extract_expanded_result_text,
   extract_start_line, DiffLine, DiffLineKind, ToolDiffPreview, ToolDisplay, ToolDisplayInput,
   ToolTodoItem,
 };
-pub use tool_payloads::{ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract};
 pub use workers::WorkerRow;

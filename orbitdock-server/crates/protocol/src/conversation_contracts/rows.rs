@@ -6,11 +6,8 @@ use crate::conversation_contracts::render_hints::RenderHints;
 use crate::conversation_contracts::tool_display::{
   compute_tool_display, extract_compact_result_text, ToolDisplay, ToolDisplayInput,
 };
-use crate::conversation_contracts::tool_payloads::{
-  ToolInvocationPayloadContract, ToolPreview, ToolResultPayloadContract,
-};
 use crate::conversation_contracts::workers::WorkerRow;
-use crate::domain_events::{ToolFamily, ToolKind, ToolStatus};
+use crate::domain_events::{ToolFamily, ToolKind, ToolPreviewPayload, ToolStatus};
 use crate::{ImageInput, Provider};
 
 #[path = "rows_shell.rs"]
@@ -23,6 +20,10 @@ pub use rows_shell::{
   ShellExecutionPayload, ShellPreview, ShellPreviewKind, ShellTerminalSnapshot,
 };
 pub use rows_transport::{SHELL_TRANSPORT_PREVIEW_CHAR_LIMIT, SHELL_TRANSPORT_PREVIEW_LINE_LIMIT};
+
+pub type ToolInvocationPayloadContract = serde_json::Value;
+pub type ToolResultPayloadContract = serde_json::Value;
+pub type ToolPreview = ToolPreviewPayload;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
