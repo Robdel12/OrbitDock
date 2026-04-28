@@ -1,9 +1,8 @@
 //! Session management
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::conversation_contracts::{
@@ -13,16 +12,13 @@ use orbitdock_protocol::{
   ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexApprovalPolicy, CodexConfigMode,
   CodexConfigSource, CodexIntegrationMode, CodexSandboxPolicy, CodexSessionOverrides,
   DashboardDiffPreview, Provider, SessionControlMode, SessionLifecycleState, SessionState,
-  SessionStatus, SessionSummary, SessionSurface, StateChanges, TokenUsage, TokenUsageSnapshotKind,
-  TurnDiff, WorkStatus,
+  SessionStatus, SessionSummary, StateChanges, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
+  WorkStatus,
 };
 
 #[cfg(test)]
 use super::approval_state::PendingApprovalMutation;
-use super::conversation_state::{
-  is_actively_streaming_message_row_summary, is_message_row_summary,
-  streaming_message_row_summary_content_len, ConversationState,
-};
+use super::conversation_state::ConversationState;
 use super::facets::{
   SessionConfig, SessionDisplay, SessionEnvironment, SessionIdentity, SessionTimestamps,
 };
@@ -31,17 +27,12 @@ use super::state::SessionCoreState;
 use crate::domain::sessions::conversation::ConversationBootstrap;
 use crate::domain::sessions::conversation::ConversationPage;
 use crate::domain::sessions::transition::TransitionState;
-use crate::runtime::session_broadcasts::invalidated_surfaces;
-use crate::support::snapshot_compaction::sanitize_server_message_for_transport;
-use orbitdock_protocol::ServerMessage;
 #[cfg(test)]
-use orbitdock_protocol::SubagentInfo;
+use orbitdock_protocol::{ServerMessage, SubagentInfo};
 use tokio::sync::broadcast;
 
-fn is_session_ended(msg: &ServerMessage) -> bool {
-  matches!(msg, ServerMessage::SessionEnded { .. })
-}
-
+use self::session_broadcast::broadcast_capacity;
+use self::session_streaming::StreamingRowEmitState;
 #[cfg(test)]
 pub use super::support::control_mode_from_parts;
 pub(crate) use super::support::{accepts_user_input_from_parts, steerable_from_parts};
@@ -123,19 +114,6 @@ pub struct SessionSnapshot {
   pub newest_synced_row_id: Option<String>,
 }
 
-const EVENT_LOG_CAPACITY: usize = 1000;
-const DEFAULT_BROADCAST_CAPACITY: usize = 512;
-const STREAMING_ROW_BROADCAST_THROTTLE: Duration = Duration::from_millis(250);
-const STREAMING_ROW_FORCE_EMIT_CONTENT_STEP: usize = 24;
-const STREAMING_ROW_MIN_INITIAL_EMIT_CHARS: usize = 8;
-
-fn broadcast_capacity() -> usize {
-  std::env::var("ORBITDOCK_BROADCAST_CAPACITY")
-    .ok()
-    .and_then(|v| v.parse().ok())
-    .unwrap_or(DEFAULT_BROADCAST_CAPACITY)
-}
-
 /// Handle to a running session
 pub struct SessionHandle {
   state: SessionCoreState,
@@ -189,12 +167,6 @@ pub struct SessionRestoreData {
   pub terminal_app: Option<String>,
   pub approval_version: u64,
   pub unread_count: u64,
-}
-
-#[derive(Debug, Clone)]
-struct StreamingRowEmitState {
-  last_emit_at: Instant,
-  last_emitted_content_len: usize,
 }
 
 impl SessionHandle {
@@ -575,55 +547,6 @@ impl SessionHandle {
     self.refresh_snapshot();
   }
 
-  pub fn should_emit_streaming_row_update(&mut self, upserted: &[RowEntrySummary]) -> bool {
-    if upserted.len() != 1 {
-      for entry in upserted {
-        if !is_actively_streaming_message_row_summary(entry) {
-          self.streaming_row_emit_at.remove(entry.id());
-        }
-      }
-      return true;
-    }
-
-    let entry = &upserted[0];
-    if !is_message_row_summary(entry) {
-      self.streaming_row_emit_at.remove(entry.id());
-      return true;
-    }
-    if !is_actively_streaming_message_row_summary(entry) {
-      self.streaming_row_emit_at.remove(entry.id());
-      return true;
-    }
-
-    let content_len = streaming_message_row_summary_content_len(entry).unwrap_or(0);
-    let now = Instant::now();
-    match self.streaming_row_emit_at.get_mut(entry.id()) {
-      Some(state) => {
-        let force_emit_for_growth =
-          content_len >= state.last_emitted_content_len + STREAMING_ROW_FORCE_EMIT_CONTENT_STEP;
-        if !force_emit_for_growth
-          && now.duration_since(state.last_emit_at) < STREAMING_ROW_BROADCAST_THROTTLE
-        {
-          false
-        } else {
-          state.last_emit_at = now;
-          state.last_emitted_content_len = content_len;
-          true
-        }
-      }
-      None => {
-        self.streaming_row_emit_at.insert(
-          entry.id().to_string(),
-          StreamingRowEmitState {
-            last_emit_at: now,
-            last_emitted_content_len: 0,
-          },
-        );
-        content_len >= STREAMING_ROW_MIN_INITIAL_EMIT_CHARS
-      }
-    }
-  }
-
   /// Get the current approval version.
   pub fn approval_version(&self) -> u64 {
     self.state.approval_version()
@@ -687,140 +610,9 @@ impl SessionHandle {
     self.snapshot_handle.store(Arc::new(self.to_snapshot()));
   }
 
-  /// Emit active-session and archive invalidations from the current snapshot.
-  /// Use after `refresh_snapshot()` in code paths that change session state
-  /// without going through `broadcast()` (e.g. transition effects that only
-  /// produce Persist ops with no Emit).
-  pub fn emit_dashboard_update(&self) {
-    if let (
-      Some(ref list_tx),
-      Some(ref sessions_summary_revision),
-      Some(ref dashboard_revision),
-      Some(ref library_revision),
-    ) = (
-      &self.list_tx,
-      &self.sessions_summary_revision,
-      &self.dashboard_revision,
-      &self.library_revision,
-    ) {
-      let sessions_summary_revision = sessions_summary_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
-        revision: sessions_summary_revision,
-      });
-      let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
-        revision: library_revision,
-      });
-      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::ActiveSessionsInvalidated { revision });
-    }
-  }
-
   /// Get the ArcSwap handle for lock-free reads
   pub fn snapshot_arc(&self) -> Arc<ArcSwap<SessionSnapshot>> {
     self.snapshot_handle.clone()
-  }
-
-  /// Broadcast a message to all subscribers
-  pub fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
-    self.revision += 1;
-    let rev = self.revision;
-    let msg = sanitize_server_message_for_transport(msg);
-
-    self.push_event_log_message(&msg, rev);
-    let _ = self.broadcast_tx.send(msg.clone());
-    let session_id = self.state.id().to_string();
-    for surface in invalidated_surfaces(&msg) {
-      let invalidation = ServerMessage::SessionSurfaceInvalidated {
-        session_id: session_id.clone(),
-        surface: *surface,
-        revision: rev,
-      };
-      self.push_event_log_message(&invalidation, rev);
-      let _ = self.broadcast_tx.send(invalidation);
-    }
-    self.refresh_snapshot();
-
-    if is_session_ended(&msg) {
-      self.emit_dashboard_removed();
-    } else {
-      self.emit_dashboard_update();
-    }
-  }
-
-  pub fn broadcast_surface_invalidations(&mut self, surfaces: &[SessionSurface]) {
-    if surfaces.is_empty() {
-      return;
-    }
-
-    self.revision += 1;
-    let rev = self.revision;
-    let session_id = self.state.id().to_string();
-
-    for surface in surfaces {
-      let invalidation = ServerMessage::SessionSurfaceInvalidated {
-        session_id: session_id.clone(),
-        surface: *surface,
-        revision: rev,
-      };
-      self.push_event_log_message(&invalidation, rev);
-      let _ = self.broadcast_tx.send(invalidation);
-    }
-
-    self.refresh_snapshot();
-    self.emit_dashboard_update();
-  }
-
-  fn push_event_log_message(&mut self, msg: &ServerMessage, revision: u64) {
-    if let Ok(json) = serialize_with_revision(msg, revision) {
-      self.event_log.push_back((revision, json));
-      if self.event_log.len() > EVENT_LOG_CAPACITY {
-        self.event_log.pop_front();
-      }
-    }
-  }
-
-  fn emit_dashboard_removed(&self) {
-    if let (
-      Some(ref list_tx),
-      Some(ref sessions_summary_revision),
-      Some(ref dashboard_revision),
-      Some(ref library_revision),
-    ) = (
-      &self.list_tx,
-      &self.sessions_summary_revision,
-      &self.dashboard_revision,
-      &self.library_revision,
-    ) {
-      let sessions_summary_revision = sessions_summary_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::SessionsSummaryInvalidated {
-        revision: sessions_summary_revision,
-      });
-      let library_revision = library_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::ArchivedSessionsInvalidated {
-        revision: library_revision,
-      });
-      let revision = dashboard_revision.fetch_add(1, Ordering::Relaxed) + 1;
-      let _ = list_tx.send(ServerMessage::ActiveSessionsInvalidated { revision });
-    }
-  }
-
-  /// Replay events since a given revision.
-  /// Returns `None` if the gap is too large (caller should send a retained snapshot fallback).
-  pub fn replay_since(&self, since_revision: u64) -> Option<Vec<String>> {
-    let Some(oldest) = self.event_log.front().map(|(rev, _)| *rev) else {
-      return (since_revision == self.revision).then(Vec::new);
-    };
-    if oldest > since_revision + 1 {
-      return None; // Gap too large, need a retained snapshot fallback.
-    }
-    let events: Vec<String> = self
-      .event_log
-      .iter()
-      .filter(|(rev, _)| *rev > since_revision)
-      .map(|(_, json)| json.clone())
-      .collect();
-    Some(events)
   }
 
   // -- Transition bridge (temporary until Phase 4 actor model) ---------------
@@ -837,17 +629,10 @@ impl SessionHandle {
   }
 }
 
-/// Serialize a ServerMessage with a revision field injected at the top level
-fn serialize_with_revision(
-  msg: &orbitdock_protocol::ServerMessage,
-  revision: u64,
-) -> Result<String, serde_json::Error> {
-  let mut val = serde_json::to_value(msg)?;
-  if let Some(obj) = val.as_object_mut() {
-    obj.insert("revision".to_string(), serde_json::json!(revision));
-  }
-  serde_json::to_string(&val)
-}
+#[path = "session_broadcast.rs"]
+mod session_broadcast;
+#[path = "session_streaming.rs"]
+mod session_streaming;
 
 #[cfg(test)]
 #[path = "session_tests.rs"]
