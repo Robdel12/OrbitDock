@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -72,9 +73,23 @@ impl SessionRegistry {
   pub async fn list_recent_projects(&self) -> Vec<RecentProject> {
     let removed_worktree_paths =
       crate::infrastructure::persistence::load_removed_worktree_paths(&self.db_path);
-    let sessions = self.sessions.iter().map(|entry| {
+    let persisted_projects = crate::infrastructure::persistence::load_recent_projects_from_sessions(
+      &self.db_path,
+      &removed_worktree_paths,
+    );
+    if !persisted_projects.is_empty() {
+      return persisted_projects;
+    }
+
+    let sessions = self.sessions.iter().filter_map(|entry| {
       let snap = entry.value().snapshot();
-      (snap.project_path.clone(), snap.last_activity_at.clone())
+      if snap.mission_id.is_some() {
+        return None;
+      }
+      if snap.is_worktree && !Path::new(&snap.project_path).exists() {
+        return None;
+      }
+      Some((snap.project_path.clone(), snap.last_activity_at.clone()))
     });
     collect_recent_projects(sessions, &removed_worktree_paths)
   }

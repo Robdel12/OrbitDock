@@ -188,6 +188,7 @@ import SwiftUI
     func resetEndpointScopedState() {
       selectedPath = ""
       recentProjects = []
+      expandedRepoPaths = []
       applyBrowseProjection(ProjectPickerPlanner.resetBrowseProjection())
       loadRecentProjects()
     }

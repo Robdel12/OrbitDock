@@ -3,6 +3,18 @@ import SwiftUI
 extension RemoteProjectPicker {
   var recentProjectsView: some View {
     VStack(alignment: .leading, spacing: Spacing.md) {
+      HStack(alignment: .firstTextBaseline, spacing: Spacing.sm) {
+        Label("Recent projects", systemImage: "clock.arrow.circlepath")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+
+        Text("from session history")
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
+
+        Spacer()
+      }
+
       if isLoadingRecent {
         HStack {
           Spacer()
@@ -19,7 +31,7 @@ extension RemoteProjectPicker {
           Text("No recent projects")
             .font(.system(size: TypeScale.body))
             .foregroundStyle(Color.textTertiary)
-          Text("Start a session to see projects here")
+          Text("Launch once from Browse or Manual and it will stick here")
             .font(.system(size: TypeScale.caption))
             .foregroundStyle(Color.textQuaternary)
         }
@@ -27,7 +39,7 @@ extension RemoteProjectPicker {
         .padding(.vertical, Spacing.xl)
       } else {
         ScrollView {
-          LazyVStack(spacing: Spacing.xs) {
+          LazyVStack(spacing: Spacing.xxs) {
             ForEach(groupedRecentProjects) { group in
               groupedRecentProjectSection(group)
             }
@@ -39,19 +51,28 @@ extension RemoteProjectPicker {
   }
 
   func groupedRecentProjectSection(_ group: GroupedRecentProject) -> some View {
-    VStack(spacing: Spacing.sm) {
+    let isExpanded = isRecentGroupExpanded(group)
+
+    return VStack(spacing: Spacing.xxs) {
       if let project = group.repoProject {
         repoProjectRow(
           project: project,
+          repoPath: group.repoPath,
           worktreeCount: group.worktrees.count,
-          totalSessionCount: group.totalSessionCount
+          totalSessionCount: group.totalSessionCount,
+          isExpanded: isExpanded
         )
       } else {
-        syntheticRepoRow(group)
+        syntheticRepoRow(group, isExpanded: isExpanded)
       }
 
-      ForEach(group.worktrees) { worktree in
-        worktreeProjectRow(worktree)
+      if isExpanded {
+        VStack(spacing: Spacing.xxs) {
+          ForEach(group.worktrees) { worktree in
+            worktreeProjectRow(worktree)
+          }
+        }
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
     .padding(.vertical, 1)
@@ -59,17 +80,26 @@ extension RemoteProjectPicker {
 
   func repoProjectRow(
     project: ServerRecentProject,
+    repoPath: String,
     worktreeCount: Int,
-    totalSessionCount: UInt32
+    totalSessionCount: UInt32,
+    isExpanded: Bool
   ) -> some View {
     projectSelectionRow(
       iconName: "folder.fill",
       iconFont: .system(size: 14),
       title: URL(fileURLWithPath: project.path).lastPathComponent,
       detail: ProjectPickerPlanner.displayPath(project.path),
-      badges: projectBadges(worktreeCount: worktreeCount, sessionCount: totalSessionCount),
+      accentBadge: worktreeCount > 0 ? ProjectPickerPlanner.worktreeCountLabel(worktreeCount) : nil,
+      trailingText: ProjectPickerPlanner.sessionCountLabel(totalSessionCount),
       selectionPath: project.path,
       leadingPadding: Spacing.md,
+      isWorktree: false,
+      disclosureExpanded: worktreeCount > 0 ? isExpanded : nil,
+      onToggleDisclosure: worktreeCount > 0
+        ? {
+          toggleRecentGroup(repoPath)
+        } : nil,
       previewTitle: URL(fileURLWithPath: project.path).lastPathComponent,
       previewPath: project.path,
       onSelect: {
@@ -80,18 +110,21 @@ extension RemoteProjectPicker {
     )
   }
 
-  func syntheticRepoRow(_ group: GroupedRecentProject) -> some View {
+  func syntheticRepoRow(_ group: GroupedRecentProject, isExpanded: Bool) -> some View {
     projectSelectionRow(
       iconName: "folder.fill",
       iconFont: .system(size: 14),
       title: URL(fileURLWithPath: group.repoPath).lastPathComponent,
       detail: ProjectPickerPlanner.displayPath(group.repoPath),
-      badges: [
-        "\(group.worktrees.count) worktree\(group.worktrees.count == 1 ? "" : "s")",
-        ProjectPickerPlanner.sessionCountLabel(group.totalSessionCount),
-      ],
+      accentBadge: ProjectPickerPlanner.worktreeCountLabel(group.worktrees.count),
+      trailingText: ProjectPickerPlanner.sessionCountLabel(group.totalSessionCount),
       selectionPath: group.repoPath,
       leadingPadding: Spacing.md,
+      isWorktree: false,
+      disclosureExpanded: isExpanded,
+      onToggleDisclosure: {
+        toggleRecentGroup(group.repoPath)
+      },
       previewTitle: URL(fileURLWithPath: group.repoPath).lastPathComponent,
       previewPath: group.repoPath,
       onSelect: {
@@ -108,26 +141,22 @@ extension RemoteProjectPicker {
       iconFont: .system(size: 13, weight: .semibold),
       title: worktree.branchPath,
       detail: ProjectPickerPlanner.worktreeRelativePath(worktree),
-      badges: ["worktree", ProjectPickerPlanner.sessionCountLabel(worktree.project.sessionCount)],
+      accentBadge: "worktree",
+      trailingText: ProjectPickerPlanner.sessionCountLabel(worktree.project.sessionCount),
       selectionPath: worktree.project.path,
       leadingPadding: Spacing.xl + Spacing.md,
+      isWorktree: true,
+      disclosureExpanded: nil,
+      onToggleDisclosure: nil,
       previewTitle: worktree.branchPath,
       previewPath: worktree.project.path,
       onSelect: {
         selectedPath = worktree.project.path
         selectedPathIsGit = true
+        syncExpandedRepoPaths(for: worktree.project.path)
         Platform.services.playHaptic(.selection)
       }
     )
-  }
-
-  private func projectBadges(worktreeCount: Int, sessionCount: UInt32) -> [String] {
-    var badges: [String] = []
-    if worktreeCount > 0 {
-      badges.append("\(worktreeCount) worktree\(worktreeCount == 1 ? "" : "s")")
-    }
-    badges.append(ProjectPickerPlanner.sessionCountLabel(sessionCount))
-    return badges
   }
 
   private func projectSelectionRow(
@@ -135,43 +164,44 @@ extension RemoteProjectPicker {
     iconFont: Font,
     title: String,
     detail: String,
-    badges: [String],
+    accentBadge: String?,
+    trailingText: String?,
     selectionPath: String,
     leadingPadding: CGFloat,
+    isWorktree: Bool,
+    disclosureExpanded: Bool?,
+    onToggleDisclosure: (() -> Void)?,
     previewTitle: String,
     previewPath: String,
     onSelect: @escaping () -> Void
   ) -> some View {
-    Button(action: onSelect) {
-      HStack(alignment: .top, spacing: Spacing.md) {
-        Image(systemName: iconName)
-          .font(iconFont)
-          .foregroundStyle(Color.accent)
-          .frame(width: 20)
+    let isSelected = selectedPath == selectionPath
 
-        VStack(alignment: .leading, spacing: Spacing.xxs) {
-          Text(title)
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.textPrimary)
+    return HStack(spacing: Spacing.sm) {
+      Button(action: onSelect) {
+        HStack(alignment: .center, spacing: Spacing.md) {
+          Image(systemName: iconName)
+            .font(iconFont)
+            .foregroundStyle(Color.accent)
+            .frame(width: isWorktree ? 18 : 20)
 
-          Text(detail)
-            .font(.system(size: TypeScale.caption, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(2)
-            .truncationMode(.middle)
-        }
+          VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Text(title)
+              .font(.system(size: isWorktree ? TypeScale.body : TypeScale.subhead, weight: isWorktree ? .medium : .semibold))
+              .foregroundStyle(Color.textPrimary)
 
-        Spacer()
+            Text(detail)
+              .font(.system(size: isWorktree ? TypeScale.meta : TypeScale.caption, design: .monospaced))
+              .foregroundStyle(isWorktree ? Color.textQuaternary : Color.textTertiary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
 
-        VStack(alignment: .trailing, spacing: Spacing.xs) {
-          ForEach(Array(badges.enumerated()), id: \.offset) { index, badge in
-            if index == badges.count - 1, badges.count > 1 {
-              Text(badge)
-                .font(.system(size: TypeScale.caption))
-                .foregroundStyle(Color.textQuaternary)
-                .multilineTextAlignment(.trailing)
-            } else {
-              Text(badge)
+          Spacer()
+
+          HStack(spacing: Spacing.sm) {
+            if let accentBadge {
+              Text(accentBadge)
                 .font(.system(size: TypeScale.micro, weight: .semibold))
                 .foregroundStyle(Color.accent)
                 .padding(.horizontal, Spacing.sm_)
@@ -179,21 +209,48 @@ extension RemoteProjectPicker {
                 .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
                 .fixedSize(horizontal: true, vertical: false)
             }
+
+            if let trailingText {
+              Text(trailingText)
+                .font(.system(size: TypeScale.caption, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+                .fixedSize(horizontal: true, vertical: false)
+            }
           }
         }
+        .padding(.leading, leadingPadding)
+        .padding(.trailing, Spacing.md)
+        .padding(.vertical, isWorktree ? Spacing.sm_ : Spacing.md_)
+        .frame(minHeight: isWorktree ? 44 : 50, alignment: .leading)
+        .background(
+          isSelected
+            ? Color.accent.opacity(OpacityTier.light)
+            : Color.backgroundSecondary.opacity(isWorktree ? OpacityTier.tint : OpacityTier.subtle),
+          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
-      .padding(.leading, leadingPadding)
-      .padding(.trailing, Spacing.md)
-      .padding(.vertical, Spacing.md)
-      .background(
-        selectedPath == selectionPath
-          ? Color.accent.opacity(OpacityTier.light)
-          : Color.backgroundSecondary.opacity(OpacityTier.subtle),
-        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-      )
-      .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+      .buttonStyle(.plain)
+
+      if let disclosureExpanded, let onToggleDisclosure {
+        Button {
+          withAnimation(Motion.standard) {
+            onToggleDisclosure()
+          }
+          Platform.services.playHaptic(.selection)
+        } label: {
+          Image(systemName: disclosureExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: TypeScale.meta, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+            .frame(width: 36, height: 36)
+            .background(Color.backgroundSecondary.opacity(OpacityTier.subtle), in: RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .buttonStyle(.plain)
+      }
     }
-    .buttonStyle(.plain)
+    .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.isButton)
     .contextMenu {
       Button("Show Full Path") {
         pathPreview = PathPreviewItem(title: previewTitle, path: previewPath)
@@ -202,6 +259,26 @@ extension RemoteProjectPicker {
         Platform.services.copyToClipboard(previewPath)
       }
     }
+  }
+
+  private func isRecentGroupExpanded(_ group: GroupedRecentProject) -> Bool {
+    expandedRepoPaths.contains(group.repoPath)
+  }
+
+  private func toggleRecentGroup(_ repoPath: String) {
+    if expandedRepoPaths.contains(repoPath) {
+      expandedRepoPaths.remove(repoPath)
+    } else {
+      expandedRepoPaths.insert(repoPath)
+    }
+  }
+
+  func syncExpandedRepoPaths(for selectionPath: String) {
+    expandedRepoPaths = ProjectPickerPlanner.syncedExpandedRepoPaths(
+      currentExpandedRepoPaths: expandedRepoPaths,
+      groupedProjects: groupedRecentProjects,
+      selectionPath: selectionPath
+    )
   }
 
   var directoryBrowserView: some View {

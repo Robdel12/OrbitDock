@@ -56,8 +56,93 @@ struct ProjectPickerPlannerTests {
     )
 
     #expect(ProjectPickerPlanner.worktreeRelativePath(worktree) == "printer/.orbitdock-worktrees/branch-a")
+    #expect(ProjectPickerPlanner.worktreeCountLabel(1) == "1 worktree")
+    #expect(ProjectPickerPlanner.worktreeCountLabel(3) == "3 worktrees")
     #expect(ProjectPickerPlanner.sessionCountLabel(1) == "1 session")
     #expect(ProjectPickerPlanner.sessionCountLabel(2) == "2 sessions")
+  }
+
+  @Test func syncedExpandedRepoPathsKeepsOnlyValidExpandedGroupsAndOpensSelectedWorktreeRepo() {
+    let groups = [
+      GroupedRecentProject(
+        repoPath: "/Users/robert/Developer/printer",
+        repoProject: ServerRecentProject(
+          path: "/Users/robert/Developer/printer",
+          sessionCount: 5,
+          lastActive: "2026-03-10T03:00:00Z"
+        ),
+        worktrees: [
+          ProjectPickerRecentWorktreeProject(
+            project: ServerRecentProject(
+              path: "/Users/robert/Developer/printer/.orbitdock-worktrees/branch-a",
+              sessionCount: 1,
+              lastActive: "2026-03-10T02:00:00Z"
+            ),
+            repoPath: "/Users/robert/Developer/printer",
+            branchPath: "branch-a"
+          )
+        ],
+        totalSessionCount: 6,
+        lastActive: "2026-03-10T03:00:00Z"
+      ),
+      GroupedRecentProject(
+        repoPath: "/Users/robert/Developer/router",
+        repoProject: ServerRecentProject(
+          path: "/Users/robert/Developer/router",
+          sessionCount: 2,
+          lastActive: "2026-03-09T03:00:00Z"
+        ),
+        worktrees: [],
+        totalSessionCount: 2,
+        lastActive: "2026-03-09T03:00:00Z"
+      ),
+    ]
+
+    let synced = ProjectPickerPlanner.syncedExpandedRepoPaths(
+      currentExpandedRepoPaths: [
+        "/Users/robert/Developer/printer",
+        "/Users/robert/Developer/router",
+        "/Users/robert/Developer/ghost",
+      ],
+      groupedProjects: groups,
+      selectionPath: "/Users/robert/Developer/printer/.orbitdock-worktrees/branch-a"
+    )
+
+    #expect(synced == ["/Users/robert/Developer/printer"])
+  }
+
+  @Test func syncedExpandedRepoPathsDoesNotForceExpandWhenSelectionIsNotAWorktree() {
+    let groups = [
+      GroupedRecentProject(
+        repoPath: "/Users/robert/Developer/printer",
+        repoProject: ServerRecentProject(
+          path: "/Users/robert/Developer/printer",
+          sessionCount: 5,
+          lastActive: "2026-03-10T03:00:00Z"
+        ),
+        worktrees: [
+          ProjectPickerRecentWorktreeProject(
+            project: ServerRecentProject(
+              path: "/Users/robert/Developer/printer/.orbitdock-worktrees/branch-a",
+              sessionCount: 1,
+              lastActive: "2026-03-10T02:00:00Z"
+            ),
+            repoPath: "/Users/robert/Developer/printer",
+            branchPath: "branch-a"
+          )
+        ],
+        totalSessionCount: 6,
+        lastActive: "2026-03-10T03:00:00Z"
+      ),
+    ]
+
+    let synced = ProjectPickerPlanner.syncedExpandedRepoPaths(
+      currentExpandedRepoPaths: [],
+      groupedProjects: groups,
+      selectionPath: "/Users/robert/Developer/printer"
+    )
+
+    #expect(synced.isEmpty)
   }
 
   @Test func browseResponsePushesHistoryOnlyForNestedBrowseRequests() {

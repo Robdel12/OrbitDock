@@ -214,6 +214,7 @@ struct NewSessionSheet: View {
       refreshScopedCodexModelsIfNeeded()
     }
     .onChange(of: model.provider) { _, _ in
+      NewSessionPreferences.setPreferredProvider(model.provider)
       applyLifecyclePlan(NewSessionLifecyclePlanner.providerChanged(current: lifecycleState))
       presentation.activePresetName = nil
       refreshCodexConfigCatalogIfNeeded()

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -68,6 +69,8 @@ pub struct WorktreeRemovedResponse {
   pub ok: bool,
 }
 
+const STALE_WORKTREE_IDLE_DAYS: i64 = 14;
+
 pub async fn list_worktrees(
   Query(query): Query<WorktreesQuery>,
   State(state): State<Arc<SessionRegistry>>,
@@ -100,53 +103,11 @@ pub async fn list_worktrees(
         Err(_) => Vec::new(),
       }
     } else {
-      let mut summaries = Vec::with_capacity(db_rows.len());
-      for row in db_rows {
-        let disk_present =
-          crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
-        summaries.push(WorktreeSummary {
-          id: row.id,
-          repo_root: row.repo_root,
-          worktree_path: row.worktree_path,
-          branch: row.branch,
-          base_branch: row.base_branch,
-          status: WorktreeStatus::from_str_opt(&row.status).unwrap_or(WorktreeStatus::Active),
-          active_session_count: 0,
-          total_session_count: 0,
-          created_at: String::new(),
-          last_session_ended_at: None,
-          disk_present,
-          auto_prune: true,
-          custom_name: None,
-          created_by: WorktreeOrigin::User,
-        });
-      }
-      summaries
+      tracked_worktree_summaries(state.db_path().clone(), db_rows, Some(root.as_str())).await
     }
   } else {
     let db_rows = crate::infrastructure::persistence::load_all_worktrees(state.db_path());
-    let mut summaries = Vec::with_capacity(db_rows.len());
-    for row in db_rows {
-      let disk_present =
-        crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
-      summaries.push(WorktreeSummary {
-        id: row.id,
-        repo_root: row.repo_root,
-        worktree_path: row.worktree_path,
-        branch: row.branch,
-        base_branch: row.base_branch,
-        status: WorktreeStatus::from_str_opt(&row.status).unwrap_or(WorktreeStatus::Active),
-        active_session_count: 0,
-        total_session_count: 0,
-        created_at: String::new(),
-        last_session_ended_at: None,
-        disk_present,
-        auto_prune: true,
-        custom_name: None,
-        created_by: WorktreeOrigin::User,
-      });
-    }
-    summaries
+    tracked_worktree_summaries(state.db_path().clone(), db_rows, None).await
   };
 
   Ok(Json(WorktreesListResponse {
@@ -247,7 +208,9 @@ pub async fn remove_worktree(
       )
     })?;
 
-  if !query.archive_only {
+  let disk_present = crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
+
+  if !query.archive_only && disk_present {
     if let Err(error) =
       crate::domain::git::repo::remove_worktree(&row.repo_root, &row.worktree_path, query.force)
         .await
@@ -279,6 +242,17 @@ pub async fn remove_worktree(
           "git worktree remove failed in force mode, continuing"
       );
     }
+  }
+
+  if !query.archive_only && !disk_present {
+    warn!(
+      component = "worktree",
+      event = "worktree.remove.missing_path",
+      worktree_id = %worktree_id,
+      repo_root = %row.repo_root,
+      worktree_path = %row.worktree_path,
+      "Worktree path is already missing on disk; skipping git worktree remove"
+    );
   }
 
   if !query.archive_only && query.delete_branch {
@@ -334,4 +308,165 @@ pub async fn remove_worktree(
     deleted: true,
     ok: true,
   }))
+}
+
+async fn tracked_worktree_summaries(
+  db_path: PathBuf,
+  rows: Vec<crate::infrastructure::persistence::WorktreeRow>,
+  repo_root: Option<&str>,
+) -> Vec<WorktreeSummary> {
+  let session_stats =
+    crate::infrastructure::persistence::load_worktree_session_stats(&db_path, repo_root);
+  let mut summaries = Vec::with_capacity(rows.len());
+
+  for row in rows {
+    let disk_present = crate::domain::git::repo::worktree_exists_on_disk(&row.worktree_path).await;
+    let stats = session_stats.get(&row.id).cloned().unwrap_or_default();
+    let last_session_ended_at = latest_timestamp(
+      row.last_session_ended_at.clone(),
+      stats.last_session_ended_at.clone(),
+    );
+    let status = derive_worktree_status(
+      &row.status,
+      disk_present,
+      stats.active_session_count,
+      last_session_ended_at.as_deref(),
+      row.auto_prune,
+      chrono::Utc::now(),
+    );
+
+    summaries.push(WorktreeSummary {
+      id: row.id,
+      repo_root: row.repo_root,
+      worktree_path: row.worktree_path,
+      branch: row.branch,
+      base_branch: row.base_branch,
+      status,
+      active_session_count: stats.active_session_count,
+      total_session_count: stats.total_session_count,
+      created_at: row.created_at,
+      last_session_ended_at,
+      disk_present,
+      auto_prune: row.auto_prune,
+      custom_name: row.custom_name,
+      created_by: row
+        .created_by
+        .as_deref()
+        .and_then(WorktreeOrigin::from_str_opt)
+        .unwrap_or(WorktreeOrigin::User),
+    });
+  }
+
+  summaries
+}
+
+fn derive_worktree_status(
+  persisted_status: &str,
+  disk_present: bool,
+  active_session_count: u32,
+  last_session_ended_at: Option<&str>,
+  auto_prune: bool,
+  now: chrono::DateTime<chrono::Utc>,
+) -> WorktreeStatus {
+  let persisted = WorktreeStatus::from_str_opt(persisted_status).unwrap_or(WorktreeStatus::Active);
+  if persisted == WorktreeStatus::Removed || persisted == WorktreeStatus::Removing {
+    return persisted;
+  }
+  if active_session_count > 0 {
+    return WorktreeStatus::Active;
+  }
+  if !disk_present {
+    return WorktreeStatus::Orphaned;
+  }
+  if auto_prune && is_stale_worktree(last_session_ended_at, now) {
+    return WorktreeStatus::Stale;
+  }
+  WorktreeStatus::Active
+}
+
+fn is_stale_worktree(
+  last_session_ended_at: Option<&str>,
+  now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+  let Some(timestamp) = last_session_ended_at else {
+    return false;
+  };
+  let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(timestamp) else {
+    return false;
+  };
+  parsed.with_timezone(&chrono::Utc) <= now - chrono::Duration::days(STALE_WORKTREE_IDLE_DAYS)
+}
+
+fn latest_timestamp(left: Option<String>, right: Option<String>) -> Option<String> {
+  match (left, right) {
+    (Some(left), Some(right)) => {
+      let left_parsed = chrono::DateTime::parse_from_rfc3339(&left).ok();
+      let right_parsed = chrono::DateTime::parse_from_rfc3339(&right).ok();
+      match (left_parsed, right_parsed) {
+        (Some(left_dt), Some(right_dt)) => {
+          if right_dt > left_dt {
+            Some(right)
+          } else {
+            Some(left)
+          }
+        }
+        (Some(_), None) => Some(left),
+        (None, Some(_)) => Some(right),
+        (None, None) => Some(if right > left { right } else { left }),
+      }
+    }
+    (Some(left), None) => Some(left),
+    (None, Some(right)) => Some(right),
+    (None, None) => None,
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn derive_worktree_status_marks_missing_disk_as_orphaned() {
+    let status = derive_worktree_status(
+      "active",
+      false,
+      0,
+      Some("2026-04-01T00:00:00Z"),
+      true,
+      chrono::DateTime::parse_from_rfc3339("2026-04-28T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc),
+    );
+    assert_eq!(status, WorktreeStatus::Orphaned);
+  }
+
+  #[test]
+  fn derive_worktree_status_marks_idle_worktrees_as_stale() {
+    let status = derive_worktree_status(
+      "active",
+      true,
+      0,
+      Some("2026-04-01T00:00:00Z"),
+      true,
+      chrono::DateTime::parse_from_rfc3339("2026-04-28T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc),
+    );
+    assert_eq!(status, WorktreeStatus::Stale);
+  }
+
+  #[test]
+  fn derive_worktree_status_keeps_active_sessions_active() {
+    let status = derive_worktree_status(
+      "active",
+      true,
+      1,
+      Some("2026-04-01T00:00:00Z"),
+      true,
+      chrono::DateTime::parse_from_rfc3339("2026-04-28T00:00:00Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc),
+    );
+    assert_eq!(status, WorktreeStatus::Active);
+  }
 }

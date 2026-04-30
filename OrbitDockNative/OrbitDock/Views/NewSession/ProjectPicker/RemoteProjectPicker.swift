@@ -34,6 +34,7 @@ struct RemoteProjectPicker: View {
   @State var recentProjectsRequestId = UUID()
   @State var browseRequestId = UUID()
   @State var pathPreview: PathPreviewItem?
+  @State var expandedRepoPaths: Set<String> = []
 
   @MainActor
   init(
@@ -74,7 +75,14 @@ struct RemoteProjectPicker: View {
       tabContentCard
     }
     .onAppear {
+      syncExpandedRepoPaths(for: selectedPath)
       loadRecentProjects()
+    }
+    .onChange(of: selectedPath) { _, newValue in
+      syncExpandedRepoPaths(for: newValue)
+    }
+    .onChange(of: groupedRecentProjects) { _, _ in
+      syncExpandedRepoPaths(for: selectedPath)
     }
     .onChange(of: endpointId) { _, _ in
       resetEndpointScopedState()

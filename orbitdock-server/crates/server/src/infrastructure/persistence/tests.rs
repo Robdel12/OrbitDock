@@ -149,6 +149,22 @@ fn setup_test_db() -> (
            snapshot_kind TEXT
          );
 
+         CREATE TABLE IF NOT EXISTS worktrees (
+           id TEXT PRIMARY KEY,
+           repo_root TEXT NOT NULL,
+           worktree_path TEXT NOT NULL UNIQUE,
+           branch TEXT NOT NULL,
+           base_branch TEXT,
+           status TEXT NOT NULL DEFAULT 'active',
+           created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+           last_session_ended_at TEXT,
+           last_health_check_at TEXT,
+           disk_present INTEGER NOT NULL DEFAULT 1,
+           auto_prune INTEGER NOT NULL DEFAULT 1,
+           custom_name TEXT,
+           created_by TEXT
+         );
+
          INSERT INTO sessions (id, project_path, provider) VALUES ('test-session', '/tmp/test', 'codex');",
     )
     .unwrap();
@@ -221,6 +237,47 @@ fn session_lifecycle_state(conn: &Connection, session_id: &str) -> String {
       |row| row.get(0),
     )
     .unwrap()
+}
+
+#[test]
+fn session_end_updates_linked_worktree_last_session_ended_at() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+  conn
+    .execute(
+      "INSERT INTO worktrees (id, repo_root, worktree_path, branch, created_by)
+       VALUES ('wt-1', '/tmp/repo', '/tmp/repo/.orbitdock-worktrees/feature-a', 'feature-a', 'user')",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "UPDATE sessions
+          SET project_path = '/tmp/repo/.orbitdock-worktrees/feature-a',
+              worktree_id = 'wt-1',
+              is_worktree = 1
+        WHERE id = 'test-session'",
+      [],
+    )
+    .unwrap();
+
+  super::writer::flush_batch_for_test(
+    &db_path,
+    vec![PersistCommand::SessionEnd {
+      id: "test-session".into(),
+      reason: "completed".into(),
+    }],
+  )
+  .unwrap();
+
+  let last_session_ended_at: Option<String> = conn
+    .query_row(
+      "SELECT last_session_ended_at FROM worktrees WHERE id = 'wt-1'",
+      [],
+      |row| row.get(0),
+    )
+    .unwrap();
+
+  assert!(last_session_ended_at.is_some());
 }
 
 fn session_control_mode(conn: &Connection, session_id: &str) -> String {

@@ -69,9 +69,29 @@ enum ProjectPickerPlanner {
     "\(count) session\(count == 1 ? "" : "s")"
   }
 
+  nonisolated static func worktreeCountLabel(_ count: Int) -> String {
+    "\(count) worktree\(count == 1 ? "" : "s")"
+  }
+
   nonisolated static func worktreeRelativePath(_ worktree: ProjectPickerRecentWorktreeProject) -> String {
     let repoName = URL(fileURLWithPath: worktree.repoPath).lastPathComponent
     return "\(repoName)/.orbitdock-worktrees/\(worktree.branchPath)"
+  }
+
+  nonisolated static func syncedExpandedRepoPaths(
+    currentExpandedRepoPaths: Set<String>,
+    groupedProjects: [GroupedRecentProject],
+    selectionPath: String
+  ) -> Set<String> {
+    let validRepoPaths = Set(groupedProjects.filter { !$0.worktrees.isEmpty }.map(\.repoPath))
+    var syncedRepoPaths = currentExpandedRepoPaths.intersection(validRepoPaths)
+
+    guard let parsed = parseOrbitDockWorktreePath(selectionPath),
+          validRepoPaths.contains(parsed.repoPath)
+    else { return syncedRepoPaths }
+
+    syncedRepoPaths.insert(parsed.repoPath)
+    return syncedRepoPaths
   }
 
   nonisolated static func groupedRecentProjects(from projects: [ServerRecentProject]) -> [GroupedRecentProject] {

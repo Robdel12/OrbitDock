@@ -307,6 +307,21 @@ pub(super) fn persist_session_end(
     "UPDATE sessions SET status = 'ended', work_status = 'ended', lifecycle_state = 'ended', ended_at = ?1, end_reason = ?2, last_activity_at = ?1 WHERE id = ?3",
     params![now, reason, id],
   )?;
+  conn.execute(
+    "UPDATE worktrees
+        SET last_session_ended_at = ?1
+      WHERE id IN (
+        SELECT w.id
+          FROM sessions s
+          JOIN worktrees w ON (
+            (COALESCE(s.worktree_id, '') != '' AND w.id = s.worktree_id)
+            OR
+            (COALESCE(s.worktree_id, '') = '' AND w.worktree_path = s.project_path)
+          )
+         WHERE s.id = ?2
+      )",
+    params![now, id],
+  )?;
   Ok(())
 }
 

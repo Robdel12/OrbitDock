@@ -185,6 +185,7 @@ extension RemoteProjectPicker {
   func resetEndpointScopedState() {
     selectedPath = ""
     recentProjects = []
+    expandedRepoPaths = []
     applyBrowseProjection(ProjectPickerPlanner.resetBrowseProjection())
     manualPathText = ""
     loadRecentProjects()

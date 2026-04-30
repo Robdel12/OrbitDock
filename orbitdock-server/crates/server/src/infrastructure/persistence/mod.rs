@@ -15,6 +15,7 @@ mod connector_writes;
 mod messages;
 pub(crate) mod mission_control;
 mod mission_writes;
+mod recent_projects;
 mod review_comments;
 mod review_writes;
 mod row_turn_codecs;
@@ -56,6 +57,7 @@ pub(crate) use mission_control::{
   load_mission_by_id, load_mission_cleanup_candidates, load_mission_issues,
   load_mission_tracker_key, load_missions_with_counts, MissionIssueRow, MissionRow,
 };
+pub(crate) use recent_projects::load_recent_projects_from_sessions;
 pub(crate) use review_comments::{list_review_comments, load_review_comment_by_id};
 pub(crate) use row_turn_codecs::{extract_row_content, row_type_str, turn_status_str};
 pub(crate) use session_reads::{
@@ -94,7 +96,8 @@ pub(crate) use workspaces::{
   WorkspaceRecordInsert, WorkspaceRecordUpdate,
 };
 pub(crate) use worktrees::{
-  load_all_worktrees, load_removed_worktree_paths, load_worktree_by_id, load_worktrees_by_repo,
+  load_all_worktrees, load_removed_worktree_paths, load_worktree_by_id,
+  load_worktree_session_stats, load_worktrees_by_repo, WorktreeRow,
 };
 #[cfg(test)]
 pub(crate) use writer::flush_batch_for_test;

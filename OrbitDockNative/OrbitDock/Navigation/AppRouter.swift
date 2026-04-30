@@ -129,7 +129,7 @@ final class AppRouter {
 
   var showQuickSwitcher = false
   var showNewSessionSheet = false
-  var newSessionProvider: SessionProvider = .claude
+  var newSessionProvider: SessionProvider = NewSessionPreferences.preferredProvider
   var newSessionContinuation: SessionContinuation?
   var route: AppRoute {
     switch workspaceSelection {
@@ -249,11 +249,13 @@ final class AppRouter {
   }
 
   func openNewSessionSheet() {
+    newSessionProvider = NewSessionPreferences.preferredProvider
     newSessionContinuation = nil
     showNewSessionSheet = true
   }
 
   func openNewSession(provider: SessionProvider, continuation: SessionContinuation? = nil) {
+    NewSessionPreferences.setPreferredProvider(provider)
     newSessionProvider = provider
     newSessionContinuation = continuation
     showNewSessionSheet = true
