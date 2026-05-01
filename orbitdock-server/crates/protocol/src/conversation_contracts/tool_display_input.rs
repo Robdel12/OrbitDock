@@ -212,6 +212,7 @@ pub fn compute_input_display(kind: ToolKind, input: Option<&serde_json::Value>) 
       .map(String::from),
     ToolKind::ViewImage => input
       .get("file_path")
+      .or_else(|| input.get("path"))
       .and_then(|value| value.as_str())
       .or_else(|| {
         input

@@ -235,6 +235,17 @@ fn dynamic_tool_display_is_not_classified_as_mcp() {
 }
 
 #[test]
+fn view_image_input_display_reads_path_payloads() {
+  let invocation = serde_json::json!({
+    "path": "/tmp/pitboard-now-board_8243f01796e5.png"
+  });
+
+  let input = compute_input_display(ToolKind::ViewImage, Some(&invocation)).unwrap();
+
+  assert_eq!(input, "/tmp/pitboard-now-board_8243f01796e5.png");
+}
+
+#[test]
 fn plan_family_write_uses_plan_tool_card_semantics() {
   let invocation = serde_json::json!({
     "raw_input": {

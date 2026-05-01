@@ -69,7 +69,7 @@ fn tool_result_output(tool: &ToolRow) -> Option<&str> {
 }
 
 fn collect_image_paths(value: &serde_json::Value, paths: &mut Vec<String>) {
-  for key in ["file_path", "saved_path"] {
+  for key in ["file_path", "path", "saved_path"] {
     if let Some(path) = value.get(key).and_then(serde_json::Value::as_str) {
       push_unique_path(paths, path);
     }
@@ -234,6 +234,47 @@ mod tests {
     let images = image_inputs_for_tool("session-1", &tool);
 
     assert!(images.is_empty());
+  }
+
+  #[test]
+  fn view_image_row_content_exposes_path_as_attachment_ref() {
+    ensure_server_test_data_dir();
+    let temp = tempfile::tempdir().expect("tempdir");
+    let image_path = temp.path().join("view-image.png");
+    fs::write(&image_path, b"view-image-bytes").expect("write test image");
+    let image_path = image_path.to_string_lossy().to_string();
+
+    let tool = ToolRow {
+      id: "view-1".to_string(),
+      provider: Provider::Codex,
+      family: ToolFamily::Image,
+      kind: ToolKind::ViewImage,
+      status: ToolStatus::Completed,
+      title: image_path.clone(),
+      subtitle: None,
+      summary: None,
+      preview: None,
+      started_at: None,
+      ended_at: None,
+      duration_ms: None,
+      grouping_key: None,
+      invocation: json!({
+          "path": image_path,
+      }),
+      result: None,
+      render_hints: RenderHints::default(),
+      tool_display: None,
+      shell_execution: None,
+    };
+
+    let images = image_inputs_for_tool("session-1", &tool);
+
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].input_type, "attachment");
+    assert!(images[0].value.starts_with("orbitdock-image-"));
+    assert_eq!(images[0].mime_type.as_deref(), Some("image/png"));
+    assert_eq!(images[0].byte_count, Some(16));
+    assert_eq!(images[0].display_name.as_deref(), Some("view-image.png"));
   }
 
   fn image_generation_tool(invocation: Value, result: Option<Value>) -> ToolRow {
