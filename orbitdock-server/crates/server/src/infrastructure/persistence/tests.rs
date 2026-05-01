@@ -1180,10 +1180,10 @@ fn startup_restore_sorts_mixed_timestamp_formats_by_actual_recency() {
     .execute(
       "INSERT INTO sessions (
             id, provider, status, work_status, lifecycle_state, control_mode,
-            project_path, codex_integration_mode, started_at, last_activity_at, last_progress_at
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
          ) VALUES (
             'iso-recent', 'codex', 'active', 'waiting', 'open', 'direct',
-            '/tmp/test', 'direct', '2026-05-01T14:00:00Z', '2026-05-01T14:10:34Z', '2026-05-01T14:10:34Z'
+            '/tmp/test', 'direct', 'thread-iso-recent', '2026-05-01T14:00:00Z', '2026-05-01T14:10:34Z', '2026-05-01T14:10:34Z'
          )",
       [],
     )
@@ -1192,10 +1192,10 @@ fn startup_restore_sorts_mixed_timestamp_formats_by_actual_recency() {
     .execute(
       "INSERT INTO sessions (
             id, provider, status, work_status, lifecycle_state, control_mode,
-            project_path, codex_integration_mode, started_at, last_activity_at, last_progress_at
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
          ) VALUES (
             'unix-stale', 'codex', 'active', 'waiting', 'open', 'direct',
-            '/tmp/test', 'direct', '2026-04-16T20:34:39Z', '1776438552Z', '1776438552Z'
+            '/tmp/test', 'direct', 'thread-unix-stale', '2026-04-16T20:34:39Z', '1776438552Z', '1776438552Z'
          )",
       [],
     )
