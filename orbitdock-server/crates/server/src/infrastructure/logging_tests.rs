@@ -65,10 +65,15 @@ fn resolve_filter_directives_adds_trace_safe_suppression_by_default() {
   assert!(resolved.contains("codex_otel.log_only=warn"));
   assert!(resolved.contains("codex_client::custom_ca=warn"));
   assert!(resolved.contains("codex_api::endpoint::responses_websocket=warn"));
+  assert!(resolved.contains("codex_models_manager::cache=warn"));
+  assert!(resolved.contains("codex_models_manager::manager=warn"));
   assert!(resolved.contains("codex_core::config=warn"));
   assert!(resolved.contains("codex_core::models_manager=warn"));
   assert!(resolved.contains("connector_codex::config=warn"));
   assert!(resolved.contains("codex_core::features=error"));
+  assert!(resolved.contains("codex_protocol::openai_models=error"));
+  assert!(resolved.contains("codex_core_plugins::manifest=error"));
+  assert!(resolved.contains("codex_rmcp_client::stdio_server_launcher=warn"));
   assert!(resolved.contains("feedback_tags=warn"));
   assert!(resolved.contains("rmcp::transport::worker=off"));
 }
@@ -82,10 +87,15 @@ fn resolve_filter_directives_adds_trace_safe_suppression_to_custom_filter() {
   assert!(resolved.contains("codex_otel.log_only=warn"));
   assert!(resolved.contains("codex_client::custom_ca=warn"));
   assert!(resolved.contains("codex_api::endpoint::responses_websocket=warn"));
+  assert!(resolved.contains("codex_models_manager::cache=warn"));
+  assert!(resolved.contains("codex_models_manager::manager=warn"));
   assert!(resolved.contains("codex_core::config=warn"));
   assert!(resolved.contains("codex_core::models_manager=warn"));
   assert!(resolved.contains("connector_codex::config=warn"));
   assert!(resolved.contains("codex_core::features=error"));
+  assert!(resolved.contains("codex_protocol::openai_models=error"));
+  assert!(resolved.contains("codex_core_plugins::manifest=error"));
+  assert!(resolved.contains("codex_rmcp_client::stdio_server_launcher=warn"));
   assert!(resolved.contains("feedback_tags=warn"));
   assert!(resolved.contains("rmcp::transport::worker=off"));
 }

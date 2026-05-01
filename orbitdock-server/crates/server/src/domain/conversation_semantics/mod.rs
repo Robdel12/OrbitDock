@@ -3,7 +3,7 @@ mod shared;
 
 use orbitdock_protocol::conversation_contracts::{ConversationRow, MessageRowContent};
 use orbitdock_protocol::Provider;
-use tracing::warn;
+use tracing::debug;
 
 /// Server-owned semantic upgrading for provider message rows.
 ///
@@ -40,7 +40,7 @@ fn log_unhandled_wrapper(
     return;
   }
 
-  warn!(
+  debug!(
       event = "conversation_semantics.unhandled_wrapper",
       component = "conversation_semantics",
       ?provider,

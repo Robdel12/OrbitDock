@@ -10,7 +10,7 @@ use base64::Engine;
 use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 
@@ -55,7 +55,7 @@ pub(crate) async fn handle(
       tool_id,
       session_id,
     } => {
-      info!(
+      debug!(
         component = "tool_pty",
         event = "tool_pty.subscribe.requested",
         connection_id = conn_id,
@@ -192,7 +192,7 @@ pub(crate) async fn handle(
     }
 
     ClientMessage::UnsubscribeToolPty { tool_id } => {
-      info!(
+      debug!(
         component = "tool_pty",
         event = "tool_pty.unsubscribe.requested",
         connection_id = conn_id,

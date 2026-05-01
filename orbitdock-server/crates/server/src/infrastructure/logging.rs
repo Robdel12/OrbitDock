@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{SecondsFormat, Utc};
@@ -6,6 +7,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use tokio::sync::mpsc;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
+use tracing_appender::rolling::{Builder as RollingFileAppenderBuilder, Rotation};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::{Context, SubscriberExt};
@@ -19,6 +21,8 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("codex_otel.log_only", "warn"),
   ("codex_client::custom_ca", "warn"),
   ("codex_api::endpoint::responses_websocket", "warn"),
+  ("codex_models_manager::cache", "warn"),
+  ("codex_models_manager::manager", "warn"),
   ("codex_core::models_manager::cache", "warn"),
   ("codex_core::models_manager::manager", "warn"),
   ("codex_core::skills::manager", "warn"),
@@ -33,6 +37,9 @@ const QUIET_TARGET_DIRECTIVES: &[(&str, &str)] = &[
   ("orbitdock_server::runtime::control_deck", "warn"),
   ("orbitdock_server::runtime::dashboard", "warn"),
   ("codex_core::features", "error"),
+  ("codex_protocol::openai_models", "error"),
+  ("codex_core_plugins::manifest", "error"),
+  ("codex_rmcp_client::stdio_server_launcher", "warn"),
   ("feedback_tags", "warn"),
   ("rmcp::service", "warn"),
   ("rmcp::transport::worker", "off"),
@@ -78,11 +85,9 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
   let log_path = log_dir.join("server.log");
 
   if std::env::var("ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START").as_deref() == Ok("1") {
-    let _ = std::fs::OpenOptions::new()
-      .create(true)
-      .write(true)
-      .truncate(true)
-      .open(&log_path)?;
+    clear_server_logs_on_start(&log_dir)?;
+  } else {
+    archive_legacy_server_log_if_present(&log_dir, &log_path)?;
   }
 
   let resolved_filter = resolve_filter_directives(
@@ -93,7 +98,10 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
   let filter = EnvFilter::try_new(&resolved_filter)
     .unwrap_or_else(|_| EnvFilter::new(apply_quiet_target_directives(DEFAULT_FILTER)));
 
-  let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
+  let file_appender = RollingFileAppenderBuilder::new()
+    .rotation(Rotation::HOURLY)
+    .filename_prefix("server.log")
+    .build(&log_dir)?;
   let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
   let format = std::env::var("ORBITDOCK_SERVER_LOG_FORMAT").unwrap_or_else(|_| "json".into());
 
@@ -166,6 +174,43 @@ pub fn init_logging(options: &ServerLoggingOptions) -> anyhow::Result<LoggingHan
     guard,
     _stderr_guard: stderr_guard,
   })
+}
+
+fn clear_server_logs_on_start(log_dir: &Path) -> anyhow::Result<()> {
+  let entries = match std::fs::read_dir(log_dir) {
+    Ok(entries) => entries,
+    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+    Err(error) => return Err(error.into()),
+  };
+
+  for entry in entries {
+    let entry = entry?;
+    let path = entry.path();
+    if !path.is_file() {
+      continue;
+    }
+
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    if file_name == "server.log" || file_name.starts_with("server.log.") {
+      std::fs::remove_file(path)?;
+    }
+  }
+
+  Ok(())
+}
+
+fn archive_legacy_server_log_if_present(log_dir: &Path, log_path: &Path) -> anyhow::Result<()> {
+  if !log_path.is_file() {
+    return Ok(());
+  }
+
+  let archive_name = format!(
+    "server.log.legacy-{}",
+    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true).replace(':', "-")
+  );
+  let archive_path = log_dir.join(archive_name);
+  std::fs::rename(log_path, archive_path)?;
+  Ok(())
 }
 
 fn resolve_filter_directives(raw_filter: Option<String>) -> String {

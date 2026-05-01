@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::broadcast;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// Maximum size of the replay buffer per tool session.
 /// Late-joining clients receive this buffer on attach.
@@ -110,7 +110,7 @@ impl ToolPtyService {
     tool_id: String,
     session_id: String,
   ) -> broadcast::Receiver<ToolPtyEvent> {
-    info!(
+    debug!(
       component = "tool_pty",
       event = "tool_pty.created",
       tool_id = %tool_id,
@@ -179,7 +179,7 @@ impl ToolPtyService {
     if let Some(mut session) = self.sessions.get_mut(tool_id) {
       session.status = ToolPtyStatus::Exited { exit_code };
       let _ = session.event_tx.send(ToolPtyEvent::Exited { exit_code });
-      info!(
+      debug!(
         component = "tool_pty",
         event = "tool_pty.exited",
         tool_id = %tool_id,

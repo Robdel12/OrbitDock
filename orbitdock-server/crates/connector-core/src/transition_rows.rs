@@ -164,7 +164,7 @@ pub(super) fn handle_row_updated(
     }
     *existing = entry.clone();
   } else {
-    tracing::warn!(
+    tracing::debug!(
         component = "transition",
         event = "transition.row_updated_missing_row",
         session_id = %sid,

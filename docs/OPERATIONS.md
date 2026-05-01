@@ -228,7 +228,7 @@ cp ~/backups/orbitdock-20240115.db ~/.orbitdock/orbitdock.db
 
 ### First Places To Look
 
-- `~/.orbitdock/logs/server.log` for Rust server behavior
+- `~/.orbitdock/logs/server.log.*` for Rust server behavior
 - `~/.orbitdock/logs/codex.log` for Codex integration behavior
 - `~/.orbitdock/orbitdock.db` when you need to inspect persisted state directly
 
@@ -236,15 +236,17 @@ cp ~/backups/orbitdock-20240115.db ~/.orbitdock/orbitdock.db
 
 The Rust server writes structured JSON logs to disk. Interactive dev runs also mirror them into the dev console by default.
 
+Server logs rotate hourly, keep about 48 hours of history, and rotated files are capped to roughly 64 MB total.
+
 Basic commands:
 
 ```bash
-tail -f ~/.orbitdock/logs/server.log | jq .
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.component == "websocket")'
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.event == "session.resume.connector_failed")'
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.session_id == "your-session-id")'
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.request_id == "your-request-id")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq .
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.level == "ERROR")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.component == "websocket")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.event == "session.resume.connector_failed")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.session_id == "your-session-id")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.request_id == "your-request-id")'
 ```
 
 Useful log controls:

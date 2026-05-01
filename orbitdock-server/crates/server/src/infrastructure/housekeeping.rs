@@ -7,7 +7,11 @@ use rusqlite::{params, Connection};
 use tracing::{info, warn};
 
 /// Maximum age for rotated log files before they get deleted.
-const LOG_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60); // 7 days
+const LOG_MAX_AGE: Duration = Duration::from_secs(2 * 24 * 60 * 60); // 2 days
+
+/// Total bytes retained for rotated `server.log.*` files before oldest logs
+/// are deleted, even if they are still within the age window.
+const ROTATED_SERVER_LOG_MAX_BYTES: u64 = 64 * 1024 * 1024; // 64 MB
 
 /// Maximum age for root-level `.log` files (cli.log, hooks.log, etc.)
 /// These are written by external processes and never rotated, so we truncate
@@ -45,6 +49,8 @@ fn prune_old_logs(log_dir: &Path) {
   };
 
   let cutoff = SystemTime::now() - LOG_MAX_AGE;
+  let mut retained_logs = Vec::new();
+  let mut removed_for_age = 0u64;
 
   for entry in entries.filter_map(Result::ok) {
     let path = entry.path();
@@ -52,22 +58,62 @@ fn prune_old_logs(log_dir: &Path) {
       continue;
     }
 
-    // Only prune rotated files (e.g. server.log.2026-03-21) — skip the
-    // active log which has no date suffix.
     let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if file_name == "server.log" {
+    if !is_rotated_server_log(file_name) {
       continue;
     }
 
-    let modified = match entry.metadata().and_then(|m| m.modified()) {
-      Ok(t) => t,
+    let metadata = match entry.metadata() {
+      Ok(metadata) => metadata,
+      Err(_) => continue,
+    };
+
+    let modified = match metadata.modified() {
+      Ok(modified) => modified,
       Err(_) => continue,
     };
 
     if modified < cutoff {
-      let _ = std::fs::remove_file(&path);
+      if std::fs::remove_file(&path).is_ok() {
+        removed_for_age += 1;
+      }
+      continue;
+    }
+
+    retained_logs.push((path, modified, metadata.len()));
+  }
+
+  let mut total_bytes: u64 = retained_logs.iter().map(|(_, _, len)| *len).sum();
+  retained_logs.sort_by_key(|(_, modified, _)| *modified);
+
+  let mut removed_for_size = 0u64;
+  for (path, _, len) in retained_logs {
+    if total_bytes <= ROTATED_SERVER_LOG_MAX_BYTES {
+      break;
+    }
+
+    if std::fs::remove_file(&path).is_ok() {
+      total_bytes = total_bytes.saturating_sub(len);
+      removed_for_size += 1;
     }
   }
+
+  if removed_for_age > 0 || removed_for_size > 0 {
+    info!(
+      component = "housekeeping",
+      event = "housekeeping.rotated_server_logs_pruned",
+      removed_for_age,
+      removed_for_size,
+      retained_bytes = total_bytes,
+      max_bytes = ROTATED_SERVER_LOG_MAX_BYTES,
+      max_age_hours = LOG_MAX_AGE.as_secs() / 3600,
+      "Pruned rotated server logs"
+    );
+  }
+}
+
+fn is_rotated_server_log(file_name: &str) -> bool {
+  file_name.starts_with("server.log.")
 }
 
 /// Truncate root-level `.log` files that are too old or too large.

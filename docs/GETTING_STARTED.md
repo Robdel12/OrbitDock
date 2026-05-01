@@ -189,7 +189,7 @@ Common paths:
 - database: `<data_dir>/orbitdock.db`
 - auth config: `<data_dir>/hook-forward.json`
 - encryption key: `<data_dir>/encryption.key`
-- server log: `<data_dir>/logs/server.log`
+- server log: `<data_dir>/logs/server.log.*`
 - codex log: `<data_dir>/logs/codex.log`
 - managed sync outbox: `sync_outbox` rows in `<data_dir>/orbitdock.db`
 - codex rollout watcher state: `<data_dir>/codex-rollout-state.json`
@@ -280,8 +280,8 @@ tail -f ~/.orbitdock/logs/codex.log | jq .
 tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error")'
 
 # Server logs (structured JSON)
-tail -f ~/.orbitdock/logs/server.log | jq .
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq .
+tail -f "$(ls -t ~/.orbitdock/logs/server.log.* | head -n 1)" | jq 'select(.level == "ERROR")'
 
 # Database
 sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions LIMIT 5;"
