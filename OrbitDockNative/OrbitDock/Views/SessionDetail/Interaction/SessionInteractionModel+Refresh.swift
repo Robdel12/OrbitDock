@@ -68,6 +68,7 @@ extension SessionInteractionModel {
     )
     lastError = nil
     rebuildPresentation()
+    processPendingFollowUpTurnIfPossible()
     logSessionStateIfChanged(source: "applyDetail(\(source))")
     if propagateToBindingOwner {
       detailSnapshotSink?(payload)
@@ -128,7 +129,11 @@ extension SessionInteractionModel {
     hasAttemptedSkillLoad = false
     isLoading = false
     isResuming = false
+    isSendingPendingFollowUp = false
     lastError = nil
+    pendingFollowUpTurn = nil
+    pendingFollowUpTask?.cancel()
+    pendingFollowUpTask = nil
     lastLoggedSessionSignature = nil
   }
 

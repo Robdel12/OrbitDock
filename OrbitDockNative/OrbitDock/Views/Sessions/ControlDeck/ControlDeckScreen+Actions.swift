@@ -1,6 +1,22 @@
 import SwiftUI
 
 extension ControlDeckScreen {
+  private func uploadedImageIDs(for draft: ControlDeckDraft) async throws -> [String: String] {
+    var imageIds = composer.uploadedImageIds
+    for image in draft.attachments.images where imageIds[image.localId] == nil {
+      let attachmentId = try await interaction.uploadImage(
+        data: image.uploadData,
+        mimeType: image.uploadMimeType,
+        displayName: image.displayName,
+        pixelWidth: image.pixelWidth,
+        pixelHeight: image.pixelHeight
+      )
+      imageIds[image.localId] = attachmentId
+    }
+    composer.uploadedImageIds = imageIds
+    return imageIds
+  }
+
   func handleTextChange(_ text: String) {
     let shouldLoadSkills = composer.handleTextChange(
       text,
@@ -98,21 +114,9 @@ extension ControlDeckScreen {
       defer { composer.isSubmitting = false }
 
       do {
-        var imageIds = composer.uploadedImageIds
-        if submissionAction != .submitShellCommand {
-          for image in currentDraft.attachments.images where imageIds[image.localId] == nil {
-            let attachmentId = try await interaction.uploadImage(
-              data: image.uploadData,
-              mimeType: image.uploadMimeType,
-              displayName: image.displayName,
-              pixelWidth: image.pixelWidth,
-              pixelHeight: image.pixelHeight
-            )
-            imageIds[image.localId] = attachmentId
-          }
-        }
-
-        composer.uploadedImageIds = imageIds
+        let imageIds = submissionAction == .submitShellCommand
+          ? composer.uploadedImageIds
+          : try await uploadedImageIDs(for: currentDraft)
 
         if submissionAction == .submitShellCommand {
           try await interaction.submitShellCommand(draft: currentDraft)
@@ -137,6 +141,38 @@ extension ControlDeckScreen {
         ])
       }
     }
+  }
+
+  func interruptDraftIfNeeded() {
+    guard !composer.isSubmitting else { return }
+
+    if currentMode == .steer, composer.draft.hasContent, !isShellMode {
+      composer.isSubmitting = true
+      let currentDraft = composer.draft
+
+      Task {
+        defer { composer.isSubmitting = false }
+
+        do {
+          let imageIds = try await uploadedImageIDs(for: currentDraft)
+          try await interaction.interruptAndSendQueuedDraft(
+            draft: currentDraft,
+            uploadedImageIds: imageIds
+          )
+          interaction.lastError = nil
+          composer.clearDraft(for: sessionId)
+        } catch {
+          let message = error.localizedDescription
+          interaction.lastError = message
+          netLog(.error, cat: .store, "ControlDeck interrupt+send failed", sid: sessionId, data: [
+            "error": message,
+          ])
+        }
+      }
+      return
+    }
+
+    Task { await interaction.interruptSession() }
   }
 
   func toggleShellMode() {

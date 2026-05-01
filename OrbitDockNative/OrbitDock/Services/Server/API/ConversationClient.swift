@@ -38,6 +38,7 @@ struct ConversationClient: Sendable {
     let content: String
     var images: [ServerImageInput] = []
     var mentions: [ServerMentionInput] = []
+    var expectedTurnId: String?
   }
 
   struct SessionShellCommandRequest: Encodable {

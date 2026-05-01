@@ -69,6 +69,7 @@ enum ControlDeckSnapshotMapper {
       steerable: session.steerable,
       canInterrupt: session.canInterrupt ?? false,
       connectorAttached: session.connectorAttached ?? false,
+      currentTurnId: session.currentTurnId,
       projectPath: session.projectPath,
       currentCwd: session.currentCwd,
       gitBranch: session.gitBranch,

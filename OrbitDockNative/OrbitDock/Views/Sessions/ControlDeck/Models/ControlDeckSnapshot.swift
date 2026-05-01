@@ -49,6 +49,7 @@ struct ControlDeckSessionState: Sendable {
   let canInterrupt: Bool
   /// True when a connector process is attached and can receive actions.
   let connectorAttached: Bool
+  let currentTurnId: String?
   let projectPath: String
   let currentCwd: String?
   let gitBranch: String?

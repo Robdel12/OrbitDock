@@ -110,6 +110,7 @@ extension ControlDeckScreen {
       presentation: interaction.presentation,
       pendingApproval: interaction.pendingApproval,
       errorMessage: interaction.lastError,
+      pendingMessage: interaction.pendingFollowUpMessage,
       chromeStyle: chromeStyle,
       onTextChange: handleTextChange,
       onKeyCommand: handleKeyCommand,
@@ -147,7 +148,7 @@ extension ControlDeckScreen {
       onSandboxPolicyAction: handleSandboxPolicyAction,
       isDictating: isDictationActive,
       onDictation: dictationAction,
-      onInterrupt: { Task { await interaction.interruptSession() } },
+      onInterrupt: interruptAction,
       onTurnControlAction: handleTurnControlAction
     )
     .background(
@@ -223,6 +224,11 @@ extension ControlDeckScreen {
       RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
         .strokeBorder(Color.panelBorder, lineWidth: 1)
     )
+  }
+
+  var interruptAction: (() -> Void)? {
+    guard interaction.presentation?.canInterrupt == true else { return nil }
+    return { interruptDraftIfNeeded() }
   }
 }
 

@@ -1,6 +1,140 @@
 import Foundation
 
 extension SessionInteractionModel {
+  private func steerPayload(
+    draft: ControlDeckDraft,
+    uploadedImageIds: [String: String]
+  ) -> ControlDeckSubmitEncoder.SendPayload {
+    ControlDeckSubmitEncoder.SendPayload(
+      content: draft.trimmedText,
+      model: draft.modelOverride,
+      effort: draft.effortOverride,
+      skills: [],
+      images: ControlDeckSubmitEncoder.encodeSteerImages(
+        draft.attachments,
+        uploadedImageIds: uploadedImageIds
+      ),
+      mentions: ControlDeckSubmitEncoder.encodeSteerMentions(draft.attachments)
+    )
+  }
+
+  private func queuedFollowUpPayload(
+    draft: ControlDeckDraft,
+    uploadedImageIds: [String: String],
+    session: ServerSessionContext
+  ) async throws -> ControlDeckSubmitEncoder.SendPayload {
+    let availableSkills = try await resolveSkillsForSubmit(
+      draft: draft,
+      session: session
+    )
+    var payload = steerPayload(
+      draft: draft,
+      uploadedImageIds: uploadedImageIds
+    )
+    payload.skills = ControlDeckSkillResolver.resolveSkillRefs(
+      content: draft.text,
+      selectedSkillPaths: draft.selectedSkillPaths,
+      availableSkills: availableSkills
+    )
+    return payload
+  }
+
+  private func submitPreparedTurn(
+    _ payload: ControlDeckSubmitEncoder.SendPayload,
+    session: ServerSessionContext
+  ) async throws {
+    let result = try await session.api.sendMessage(
+      content: payload.content,
+      model: payload.model,
+      effort: payload.effort,
+      skills: payload.skills,
+      images: payload.images,
+      mentions: payload.mentions
+    )
+    conversationRowSink?(result.row)
+    if let snapshot = result.sessionDetailSnapshot {
+      acceptAuthoritativeDetailSnapshot(
+        snapshot,
+        source: "send_message_response"
+      )
+    }
+  }
+
+  private func mergedPendingPayload(
+    existing: ControlDeckSubmitEncoder.SendPayload,
+    next: ControlDeckSubmitEncoder.SendPayload
+  ) -> ControlDeckSubmitEncoder.SendPayload {
+    let combinedContent = [existing.content, next.content]
+      .filter { !$0.isEmpty }
+      .joined(separator: "\n\n")
+
+    return ControlDeckSubmitEncoder.SendPayload(
+      content: combinedContent,
+      model: next.model ?? existing.model,
+      effort: next.effort ?? existing.effort,
+      skills: mergeSkills(existing.skills, next.skills),
+      images: existing.images + next.images,
+      mentions: existing.mentions + next.mentions
+    )
+  }
+
+  private func mergeSkills(
+    _ existing: [ServerSkillInput],
+    _ next: [ServerSkillInput]
+  ) -> [ServerSkillInput] {
+    var merged = existing
+    var seenPaths = Set(existing.map(\.path))
+    for skill in next where !seenPaths.contains(skill.path) {
+      merged.append(skill)
+      seenPaths.insert(skill.path)
+    }
+    return merged
+  }
+
+  private func queuePendingFollowUpTurn(
+    payload: ControlDeckSubmitEncoder.SendPayload,
+    strategy: PendingFollowUpTurn.Strategy
+  ) {
+    if let existing = pendingFollowUpTurn {
+      pendingFollowUpTurn = PendingFollowUpTurn(
+        payload: mergedPendingPayload(existing: existing.payload, next: payload),
+        strategy: existing.strategy == .afterInterrupt ? .afterInterrupt : strategy
+      )
+    } else {
+      pendingFollowUpTurn = PendingFollowUpTurn(payload: payload, strategy: strategy)
+    }
+  }
+
+  func processPendingFollowUpTurnIfPossible() {
+    guard pendingFollowUpTask == nil else { return }
+    guard !isSendingPendingFollowUp else { return }
+    guard let pendingFollowUpTurn, let binding = currentBindingContext else { return }
+    guard acceptsUserInput, lifecycle == .open else { return }
+    guard pendingApproval == nil else { return }
+
+    let payload = pendingFollowUpTurn.payload
+    isSendingPendingFollowUp = true
+    pendingFollowUpTask = Task { @MainActor [weak self] in
+      guard let self else { return }
+      defer {
+        if self.isCurrent(binding) {
+          self.isSendingPendingFollowUp = false
+          self.pendingFollowUpTask = nil
+        }
+      }
+
+      do {
+        try await self.submitPreparedTurn(payload, session: binding.session)
+        guard self.isCurrent(binding) else { return }
+        self.pendingFollowUpTurn = nil
+        self.lastError = nil
+      } catch {
+        guard self.isCurrent(binding) else { return }
+        self.lastError = error.localizedDescription
+      }
+    }
+  }
+
   func submitShellCommand(draft: ControlDeckDraft) async throws {
     guard let session = currentSession else { return }
     if draft.attachments.hasItems {
@@ -43,21 +177,7 @@ extension SessionInteractionModel {
       uploadedImageIds: uploadedImageIds,
       availableSkills: availableSkills
     )
-    let result = try await session.api.sendMessage(
-      content: request.content,
-      model: request.model,
-      effort: request.effort,
-      skills: request.skills,
-      images: request.images,
-      mentions: request.mentions
-    )
-    conversationRowSink?(result.row)
-    if let snapshot = result.sessionDetailSnapshot {
-      acceptAuthoritativeDetailSnapshot(
-        snapshot,
-        source: "send_message_response"
-      )
-    }
+    try await submitPreparedTurn(request, session: session)
   }
 
   func steerTurn(
@@ -65,21 +185,53 @@ extension SessionInteractionModel {
     uploadedImageIds: [String: String]
   ) async throws {
     guard currentSessionId != nil, let session = currentSession else { return }
-    let result = try await session.api.steerTurn(
-      content: draft.trimmedText,
-      images: ControlDeckSubmitEncoder.encodeSteerImages(
-        draft.attachments,
-        uploadedImageIds: uploadedImageIds
-      ),
-      mentions: ControlDeckSubmitEncoder.encodeSteerMentions(draft.attachments)
-    )
-    conversationRowSink?(result.row)
-    if let snapshot = result.sessionDetailSnapshot {
-      acceptAuthoritativeDetailSnapshot(
-        snapshot,
-        source: "steer_turn_response"
+    let payload = steerPayload(draft: draft, uploadedImageIds: uploadedImageIds)
+    do {
+      let result = try await session.api.steerTurn(
+        content: payload.content,
+        images: payload.images,
+        mentions: payload.mentions,
+        expectedTurnId: currentTurnId
       )
+      conversationRowSink?(result.row)
+      if let snapshot = result.sessionDetailSnapshot {
+        acceptAuthoritativeDetailSnapshot(
+          snapshot,
+          source: "steer_turn_response"
+        )
+      }
+    } catch let error as ServerRequestError {
+      if error.apiErrorCode == "not_steerable" || error.apiErrorCode == "active_turn_mismatch" {
+        let queuedPayload = try await queuedFollowUpPayload(
+          draft: draft,
+          uploadedImageIds: uploadedImageIds,
+          session: session
+        )
+        queuePendingFollowUpTurn(payload: queuedPayload, strategy: .whenCurrentTurnEnds)
+        lastError = nil
+        processPendingFollowUpTurnIfPossible()
+        return
+      }
+      throw error
     }
+  }
+
+  func interruptAndSendQueuedDraft(
+    draft: ControlDeckDraft,
+    uploadedImageIds: [String: String]
+  ) async throws {
+    guard let session = currentSession else { return }
+    let availableSkills = try await resolveSkillsForSubmit(
+      draft: draft,
+      session: session
+    )
+    let payload = ControlDeckSubmitEncoder.encode(
+      draft: draft,
+      uploadedImageIds: uploadedImageIds,
+      availableSkills: availableSkills
+    )
+    queuePendingFollowUpTurn(payload: payload, strategy: .afterInterrupt)
+    await interruptSession()
   }
 
   func interruptSession() async {

@@ -18,6 +18,7 @@ struct ControlDeckView: View {
   let presentation: ControlDeckPresentation?
   let pendingApproval: ControlDeckApproval?
   let errorMessage: String?
+  let pendingMessage: String?
   var chromeStyle: ControlDeckChromeStyle = .standalone
 
   // Compose callbacks
@@ -213,6 +214,15 @@ struct ControlDeckView: View {
           .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.statusPermission)
           .textSelection(.enabled)
+          .lineLimit(2)
+          .padding(.horizontal, horizontalContentPadding)
+          .padding(.top, Spacing.xs)
+      }
+
+      if let pendingMessage, !pendingMessage.isEmpty {
+        Text(pendingMessage)
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.feedbackWarning)
           .lineLimit(2)
           .padding(.horizontal, horizontalContentPadding)
           .padding(.top, Spacing.xs)

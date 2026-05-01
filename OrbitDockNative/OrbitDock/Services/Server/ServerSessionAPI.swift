@@ -195,11 +195,13 @@ final class ServerSessionAPI {
   func steerTurn(
     content: String,
     images: [ServerImageInput] = [],
-    mentions: [ServerMentionInput] = []
+    mentions: [ServerMentionInput] = [],
+    expectedTurnId: String? = nil
   ) async throws -> ConversationMutationResult {
     var request = ConversationClient.SteerTurnRequest(content: content)
     request.images = images
     request.mentions = mentions
+    request.expectedTurnId = expectedTurnId
     let response = try await clients.conversation.steerTurn(sessionId, request: request)
     let detailSnapshot = adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
     transport.emitConversationRows(.init(upserted: [response.row], removedIds: []))

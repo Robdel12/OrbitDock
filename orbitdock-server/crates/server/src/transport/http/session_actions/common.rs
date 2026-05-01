@@ -64,6 +64,8 @@ pub struct SteerTurnRequest {
   pub images: Vec<ImageInput>,
   #[serde(default)]
   pub mentions: Vec<MentionInput>,
+  #[serde(default)]
+  pub expected_turn_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

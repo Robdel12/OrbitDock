@@ -117,6 +117,7 @@ pub async fn post_steer_turn(
     body.content,
     body.images,
     body.mentions,
+    body.expected_turn_id,
     message_id,
   )
   .await

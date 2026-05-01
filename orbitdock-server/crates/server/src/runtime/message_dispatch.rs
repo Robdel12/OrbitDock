@@ -38,6 +38,9 @@ pub(crate) enum DispatchMessageError {
   SessionNotFound,
   ConnectorUnavailable,
   NotSteerable,
+  ActiveTurnMismatch {
+    actual_turn_id: Option<String>,
+  },
 }
 
 pub(crate) struct AnswerQuestionResult {
@@ -215,6 +218,7 @@ pub(crate) async fn dispatch_steer_turn(
   content: String,
   images: Vec<ImageInput>,
   mentions: Vec<MentionInput>,
+  expected_turn_id: Option<String>,
   message_id: String,
 ) -> Result<orbitdock_protocol::conversation_contracts::ConversationRowEntry, DispatchMessageError>
 {
@@ -229,6 +233,17 @@ pub(crate) async fn dispatch_steer_turn(
   }
 
   let snapshot = actor.snapshot();
+  let retained = actor
+    .retained_state()
+    .await
+    .map_err(|_| DispatchMessageError::ConnectorUnavailable)?;
+  if let Some(expected_turn_id) = normalize_non_empty(expected_turn_id) {
+    let actual_turn_id = retained.current_turn_id.clone();
+    if actual_turn_id.as_deref() != Some(expected_turn_id.as_str()) {
+      return Err(DispatchMessageError::ActiveTurnMismatch { actual_turn_id });
+    }
+  }
+
   if snapshot.status != SessionStatus::Active
     || snapshot.control_mode != SessionControlMode::Direct
     || snapshot.lifecycle_state != SessionLifecycleState::Open

@@ -88,11 +88,58 @@ async fn steer_rejects_idle_sessions_without_creating_a_fallback_row() {
     "this should be a new turn".to_string(),
     vec![],
     vec![],
+    None,
     "steer-1".to_string(),
   )
   .await;
 
   assert!(matches!(result, Err(DispatchMessageError::NotSteerable)));
+  assert!(action_rx.try_recv().is_err());
+
+  let actor = state.get_session(session_id).expect("session actor");
+  let retained_state = actor.retained_state().await.expect("retained state");
+  assert_eq!(retained_state.total_row_count, 0);
+}
+
+#[tokio::test]
+async fn steer_rejects_stale_expected_turn_ids_without_creating_a_row() {
+  let state = new_test_session_registry(true);
+  let session_id = "session-stale-steer";
+  let mut handle = SessionHandle::new(
+    session_id.to_string(),
+    Provider::Codex,
+    "/tmp/orbitdock-test".to_string(),
+  );
+  handle.apply_changes(&StateChanges {
+    status: Some(SessionStatus::Active),
+    work_status: Some(WorkStatus::Working),
+    lifecycle_state: Some(SessionLifecycleState::Open),
+    codex_integration_mode: Some(Some(CodexIntegrationMode::Direct)),
+    steerable: Some(true),
+    current_turn_id: Some(Some("turn-current".to_string())),
+    ..Default::default()
+  });
+  state.add_session(handle);
+
+  let (action_tx, mut action_rx) = mpsc::channel(1);
+  state.set_codex_action_tx(session_id, action_tx);
+
+  let result = dispatch_steer_turn(
+    &state,
+    session_id.to_string(),
+    "stale steer".to_string(),
+    vec![],
+    vec![],
+    Some("turn-old".to_string()),
+    "steer-stale".to_string(),
+  )
+  .await;
+
+  assert!(matches!(
+    result,
+    Err(DispatchMessageError::ActiveTurnMismatch { actual_turn_id })
+      if actual_turn_id.as_deref() == Some("turn-current")
+  ));
   assert!(action_rx.try_recv().is_err());
 
   let actor = state.get_session(session_id).expect("session actor");

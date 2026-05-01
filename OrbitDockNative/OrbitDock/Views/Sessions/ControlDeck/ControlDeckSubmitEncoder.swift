@@ -1,11 +1,11 @@
 import Foundation
 
 enum ControlDeckSubmitEncoder {
-  struct SendPayload {
+  struct SendPayload: Sendable {
     let content: String
     let model: String?
     let effort: String?
-    let skills: [ServerSkillInput]
+    var skills: [ServerSkillInput]
     let images: [ServerImageInput]
     let mentions: [ServerMentionInput]
   }
