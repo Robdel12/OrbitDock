@@ -6,7 +6,7 @@ description: >-
   spacing (4pt grid), typography scale, corner radii, elevation/shadow/glow,
   opacity tiers, motion presets, icon sizing, component patterns, interaction
   patterns, cross-platform layout rules, and accessibility standards. Use when
-  creating or modifying any OrbitDock UI in SwiftUI, UIKit, AppKit, or web so
+  creating or modifying any OrbitDock UI in SwiftUI, UIKit, or AppKit so
   changes stay visually consistent and token-driven.
 ---
 
@@ -88,7 +88,7 @@ Never use SwiftUI `.foregroundStyle(.tertiary)` or `.quaternary` on OrbitDock da
 
 ## Rules That Prevent Bugs
 
-1. No ad-hoc colors. Every color comes from `Theme.swift` or `tokens.css`.
+1. No ad-hoc colors. Every color comes from `Theme.swift`.
 2. No ad-hoc spacing. Use tokenized spacing values only.
 3. No ad-hoc radii. Use tokenized corner radii only.
 4. No ad-hoc animations. Use motion presets only.
@@ -159,7 +159,7 @@ HStack(spacing: Spacing.md) {
 
 - Text tiers must maintain the documented contrast on dark backgrounds
 - Every status color needs a non-color signal, usually an icon
-- Respect reduced motion on native and web
+- Respect reduced motion on native platforms
 - Decorative elements should be hidden from accessibility APIs
 - Do not make hover the only way to discover or perform an action
 - Prefer safe truncation and bottom-pinned actions on iPhone shared views

@@ -185,7 +185,6 @@ High-signal commits:
 - `✨ Support Codex v0.122 tool surfaces`
 - `💄 Redesign control-deck model picker`
 - dashboard, library, mission control, and review follow-up fixes
-- site/marketing additions for new OrbitDock pages
 
 What happened:
 

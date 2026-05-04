@@ -149,7 +149,6 @@ struct ServerPluginInterface: Codable {
   let developerName: String?
   let category: String?
   let capabilities: [String]
-  let websiteURL: String?
   let privacyPolicyURL: String?
   let termsOfServiceURL: String?
   let defaultPrompt: [String]?
@@ -168,7 +167,6 @@ struct ServerPluginInterface: Codable {
     case developerName = "developer_name"
     case category
     case capabilities
-    case websiteURL = "website_url"
     case privacyPolicyURL = "privacy_policy_url"
     case termsOfServiceURL = "terms_of_service_url"
     case defaultPrompt = "default_prompt"

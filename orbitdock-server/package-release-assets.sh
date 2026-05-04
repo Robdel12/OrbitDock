@@ -172,8 +172,6 @@ build_linux_target_docker() {
   docker_platform="$(docker_platform_for_rust_target "$rust_target")"
   repo_root="$(cd .. && pwd)"
 
-  # RustEmbed requires orbitdock-web/dist to exist at compile time
-  mkdir -p "$repo_root/orbitdock-web/dist"
   cache_mode="${ORBITDOCK_LINUX_DOCKER_CACHE_MODE:-local}"
   cache_root="${ORBITDOCK_LINUX_DOCKER_CACHE_ROOT:-$repo_root/.cache/docker-buildx/orbitdock-server}"
 

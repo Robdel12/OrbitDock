@@ -4,7 +4,7 @@
 
 OrbitDock is **mission control for AI-assisted product development**.
 
-The problem: when you're building multiple products with AI agents, your work scatters across terminal windows, browser tabs, and session windows. Context is lost between sessions. You can't see what agents are doing, what needs attention, or where you left off.
+The problem: when you're building multiple products with AI agents, your work scatters across terminal windows, app windows, and session windows. Context is lost between sessions. You can't see what agents are doing, what needs attention, or where you left off.
 
 OrbitDock brings it together. It shows you all your AI agents in one place — Claude Code and Codex tracked from a unified dashboard. You can monitor their work in real-time, steer them mid-task, review what they changed, and preserve context across sessions.
 

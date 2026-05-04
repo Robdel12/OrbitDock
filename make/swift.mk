@@ -74,9 +74,9 @@ clean:
 	@$(MAKE) xcode-cache-dirs
 	$(XCODEBUILD_MACOS) clean
 
-fmt: swift-fmt rust-fmt web-fmt
+fmt: swift-fmt rust-fmt
 
-lint: swift-lint rust-lint web-lint
+lint: swift-lint rust-lint
 
 swift-fmt:
 	swiftformat OrbitDockNative

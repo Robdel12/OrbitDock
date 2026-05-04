@@ -8,13 +8,11 @@
 
 OrbitDock is an **agent orchestration platform** for AI-assisted product development. It provides a unified dashboard to run, review, and manage Claude Code and Codex CLI sessions — no matter where they're running.
 
-The system has three parts:
+The system has two parts:
 
 1. **Rust Server** (`orbitdock-server/`): A standalone binary that runs agent sessions, serves an HTTP API and WebSocket for realtime updates, and stores durable business state in SQLite.
 
 2. **Native Client Apps** (`OrbitDockNative/`): macOS and iOS/iPadOS applications built with Swift/SwiftUI. They connect to any OrbitDock server via HTTP + WebSocket.
-
-3. **Web App** (`orbitdock-web/`): A future web frontend for the same agent orchestration features.
 
 ---
 
@@ -219,10 +217,6 @@ Native apps built with Swift/SwiftUI. Not an Electron wrapper.
 - Review diffs and approve tool calls from the couch
 - Connect to any server (local, remote, cloud)
 
-### OrbitDock Web App
-
-Future web frontend for the same agent orchestration features. Currently in development.
-
 ### OrbitDock CLI
 
 Command-line interface for server management:
@@ -425,7 +419,6 @@ OrbitDock is:
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — Project shape, commands, testing, and day-to-day workflow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Client and server architecture guardrails
 - [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
-- [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — Testing principles and hard lines
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — Deployment, persistence, debugging, and troubleshooting
 - [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract and surface model
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference

@@ -11,7 +11,7 @@ OrbitDock has two architectural halves:
 
 ## Part 1: Native Client Architecture
 
-The Swift app should feel like a native macOS and iOS app, not a web app port with a pile of global state.
+The Swift app should feel like a native macOS and iOS app, with state ownership that matches native surfaces.
 
 That means:
 
@@ -401,7 +401,7 @@ If you're touching the Swift app:
 - use HTTP for authority and WS for follow-up
 - keep `ServerSessionContext` narrow
 - keep `ServerSessionAPI` and `ServerSessionTransport` narrow
-- write SwiftUI the native way, not the web-app way
+- write SwiftUI the native way
 
 If you're touching the server:
 

@@ -291,29 +291,6 @@ enum TypeScale {
 }
 ```
 
-### 3.2 Web CSS Type Scale
-
-```css
---type-mini: 9px;
---type-micro: 10px;
---type-caption: 11px;
---type-meta: 12px;
---type-body: 13px;
---type-code: 13px;
---type-subhead: 14px;
---type-reading: 15px;
---type-title: 17px;
---type-large: 20px;
---type-headline: 24px;
-```
-
-### 3.3 Font Stacks
-
-```css
---font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
---font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
-```
-
 ### 3.4 Line Heights
 
 ```swift
@@ -325,16 +302,6 @@ enum LineHeight {
   static let heading: CGFloat = 28
 }
 ```
-
-### 3.5 Letter Spacing
-
-```css
---letter-spacing-tight: -0.02em;
---letter-spacing-wide: 0.05em;
---letter-spacing-label: 0.06em;
-```
-
----
 
 ## 4. Spacing System
 
@@ -382,8 +349,6 @@ enum Radius {
   static let xl: CGFloat = 14
 }
 ```
-
-Web adds `--radius-bubble: 16px` for message bubbles.
 
 Always use continuous corners in SwiftUI.
 
@@ -449,18 +414,6 @@ enum Shadow {
 }
 ```
 
-### 8.2 Shadow Tokens (Web)
-
-```css
---shadow-sm: 0 1px 3px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.15);
---shadow-md: 0 4px 16px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2);
---shadow-lg: 0 12px 40px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.25);
---shadow-dialog: 0 20px 60px rgba(0,0,0,0.5), var(--glow-accent);
---shadow-composer: 0 -4px 16px rgba(0,0,0,0.20);
-```
-
----
-
 ## 9. Motion System
 
 ```swift
@@ -473,14 +426,6 @@ enum Motion {
   static let fade = Animation.easeOut(duration: 0.25)
 }
 ```
-
-```css
---transition-fast: 0.1s ease;
---transition-normal: 0.2s ease;
---transition-slow: 0.3s ease;
-```
-
----
 
 ## 10. Component Recipes
 
@@ -501,20 +446,6 @@ HStack(spacing: Spacing.gap) {
 .background(color.opacity(OpacityTier.light), in: Capsule())
 ```
 
-```css
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 3px var(--space-sm);
-  border-radius: 999px;
-  font-size: var(--type-micro);
-  font-weight: var(--font-weight-semibold);
-  background: color-mix(in srgb, var(--badge-color) 15%, transparent);
-  color: var(--badge-color);
-}
-```
-
 ### 10.2 Card
 
 ```swift
@@ -528,49 +459,7 @@ content
   )
 ```
 
-```css
-.card {
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-surface-border);
-  box-shadow: var(--shadow-sm);
-  padding: var(--space-md);
-}
-```
-
-### 10.3 Button Variants
-
-```css
-.button-primary {
-  background: var(--color-accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-md);
-  padding: var(--space-xs) var(--space-md);
-  font-weight: var(--font-weight-medium);
-}
-.button-primary:hover { background: var(--color-accent-glow); }
-
-.button-secondary {
-  background: var(--color-surface-elevated);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-surface-border);
-}
-
-.button-ghost {
-  background: transparent;
-  color: var(--color-accent);
-  border: none;
-}
-.button-ghost:hover { background: var(--color-surface-hover); }
-
-.button-danger {
-  background: color-mix(in srgb, var(--color-feedback-negative) 12%, transparent);
-  color: var(--color-feedback-negative);
-}
-```
-
-### 10.4 Permission Banner
+### 10.3 Permission Banner
 
 ```swift
 HStack(spacing: Spacing.md) {
@@ -651,38 +540,18 @@ enum DashboardLayoutMode {
 }
 ```
 
-### 11.2 Breakpoints (Web)
+### 11.2 Platform-Specific Rules
 
-```css
---bp-mobile: 480px;
---bp-tablet: 768px;
---bp-desktop: 1024px;
-```
-
-### 11.3 Z-Index Layers (Web)
-
-```css
---z-sidebar-backdrop: 40;
---z-popover: 50;
---z-sidebar: 50;
---z-dropdown: 100;
---z-modal: 200;
---z-toast: 500;
---z-offline: 2000;
-```
-
-### 11.4 Platform-Specific Rules
-
-| Feature | macOS | iPad | iPhone | Web |
-|---------|-------|------|--------|-----|
-| Hover states | Yes | No | No | Yes |
-| Keyboard shortcuts | Full | Some | Minimal | Full |
-| Sidebar | Always visible | Toggle | Sheet | Toggle and responsive |
-| Density | High | Medium | Low | Responsive |
-| Min touch target | 28pt | 44pt | 44pt | 44px |
-| Fixed widths | Allowed | Guarded | Never | Responsive |
-| Sheets | System | Detents | Detents and drag | Modal |
-| Bottom actions | Toolbar | Flexible | `safeAreaInset` | Sticky footer |
+| Feature | macOS | iPad | iPhone |
+|---------|-------|------|--------|
+| Hover states | Yes | No | No |
+| Keyboard shortcuts | Full | Some | Minimal |
+| Sidebar | Always visible | Toggle | Sheet |
+| Density | High | Medium | Low |
+| Min touch target | 28pt | 44pt | 44pt |
+| Fixed widths | Allowed | Guarded | Never |
+| Sheets | System | Detents | Detents and drag |
+| Bottom actions | Toolbar | Flexible | `safeAreaInset` |
 
 ---
 
@@ -711,26 +580,9 @@ if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
 }
 ```
 
-```css
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-```
-
 ### 12.4 Focus Indicators
 
-```css
-:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-:focus:not(:focus-visible) {
-  outline: none;
-}
-```
+Use system focus rings, enhanced with accent color where needed.
 
 ---
 
@@ -740,37 +592,5 @@ if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
 |------|------|----------|
 | `Theme.swift` | `OrbitDockNative/OrbitDock/Theme.swift` | Colors, spacing, type, radii, opacity, edge bars, shared component styling |
 | `DesignTokens.swift` | `OrbitDockNative/OrbitDock/DesignTokens.swift` | Icon scale, line height, shadow tokens, motion |
-| `tokens.css` | `orbitdock-web/src/styles/tokens.css` | CSS custom properties |
-| `global.css` | `orbitdock-web/src/styles/global.css` | Base styles, scrollbar, selection, focus rings, reduced motion |
 
 ---
-
-## 14. Gradients
-
-```css
---gradient-surface: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
---gradient-accent-subtle: linear-gradient(135deg, rgba(84,174,229,0.05) 0%, rgba(84,174,229,0) 100%);
-```
-
-Use gradients sparingly. They should add subtle dimensionality, not become the primary visual element.
-
----
-
-## 15. Scrollbar Styling (Web)
-
-```css
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.40); }
-```
-
----
-
-## 16. Selection Color
-
-```css
-::selection { background: rgba(84, 174, 229, 0.3); }
-```
-
-Use accent at 30% opacity for text selection highlighting.

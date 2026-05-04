@@ -100,10 +100,10 @@ rust-ci: rust-fmt-check rust-lint rust-test
 rust-build:
 	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE)
 
-rust-build-release: web-build
+rust-build-release:
 	$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release
 
-rust-build-darwin: web-build
+rust-build-darwin:
 	@if [[ "$(RUST_HOST_TARGET)" == "aarch64-apple-darwin" ]]; then \
 		$(RUST_CARGO) build -p $(RUST_BIN_PACKAGE) --release; \
 	else \
@@ -159,40 +159,40 @@ rust-lint:
 	$(RUST_CARGO) clippy --workspace --all-targets -- -D warnings
 
 rust-run:
-	$(call run_rust_start,$(RUST_CARGO),--bind $(RUST_RUN_BIND))
+	$(call run_rust_start,$(RUST_CARGO_NO_WRAPPER),--bind $(RUST_RUN_BIND))
 
 rust-run-lan:
-	$(call run_rust_start,$(RUST_CARGO),--bind $(RUST_RUN_LAN_BIND))
+	$(call run_rust_start,$(RUST_CARGO_NO_WRAPPER),--bind $(RUST_RUN_LAN_BIND))
 
 rust-run-debug:
-	$(call run_rust_start,cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo,)
+	$(call run_rust_start,cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_NO_WRAPPER) ORBITDOCK_SERVER_LOG_FILTER=debug cargo,)
 
 rust-generate-token:
 	$(RUST_CARGO) run -p $(RUST_BIN_PACKAGE) -- generate-token
 
 cli:
-	$(RUST_ENV) "$(RUST_TARGET_DIR)/debug/orbitdock" $(ARGS)
+	$(RUST_ENV_NO_WRAPPER) "$(RUST_TARGET_DIR)/debug/orbitdock" $(ARGS)
 
-rust-release-darwin: web-build
+rust-release-darwin:
 	$(call package_release,darwin,)
 
-rust-release-linux: web-build
+rust-release-linux:
 	$(call package_release,linux,)
 
 rust-release-linux-all: rust-release-linux-x86_64 rust-release-linux-aarch64
 
-rust-release-linux-x86_64: web-build
+rust-release-linux-x86_64:
 	$(call package_release,linux-x86_64,)
 
-rust-release-linux-aarch64: web-build
+rust-release-linux-aarch64:
 	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=$(LINUX_AARCH64_PROFILE_PRESET) ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=$(LINUX_AARCH64_DOCKER_JOBS))
 
 rust-release-linux-smoke: rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64
 
-rust-release-linux-smoke-x86_64: web-build
+rust-release-linux-smoke-x86_64:
 	$(call package_release,linux-x86_64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
 
-rust-release-linux-smoke-aarch64: web-build
+rust-release-linux-smoke-aarch64:
 	$(call package_release,linux-aarch64,ORBITDOCK_LINUX_PROFILE_PRESET=smoke)
 
 rust-release-linux-test:

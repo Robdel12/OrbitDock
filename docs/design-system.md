@@ -34,7 +34,6 @@ The *visual identity* is consistent everywhere. The *interaction patterns* respe
 - macOS gets hover states, keyboard shortcuts, pointer precision, compact information density
 - iPad gets comfortable touch targets, split views, and spatial layouts
 - iPhone gets single-column flows, bottom actions, sheets with detents
-- Web gets responsive layouts, keyboard navigation, and scrollbar styling
 
 Same colors, same tokens, same hierarchy. Different ergonomics.
 
@@ -66,7 +65,7 @@ On a dark canvas, light carries meaning:
 
 ## Color System
 
-All colors are defined once in `Theme.swift` (native) and `tokens.css` (web). No ad-hoc hex values anywhere.
+All colors are defined once in `Theme.swift`. No ad-hoc hex values anywhere.
 
 ### Brand
 
@@ -342,7 +341,6 @@ A card has tight internal spacing (`sm`-`md`) but generous external margins (`lg
 | `ml` | 8pt | Buttons, input fields |
 | `lg` | 10pt | Large cards, panels |
 | `xl` | 14pt | Extra large components |
-| `bubble` | 16pt | Message bubbles (web only) |
 
 **Always use continuous corners** (`.continuous` in SwiftUI) — they're more optically pleasing than circular arcs and match Apple's design language.
 
@@ -407,7 +405,7 @@ Use these tokens instead of ad-hoc opacity values. They create consistent intera
 
 1. **Motion serves function, not decoration.** Every animation communicates spatial relationship, state change, or causality.
 2. **Fast by default.** Most transitions use `snappy` or `standard`. Use `gentle` only for large content shifts.
-3. **Respect reduced motion.** All animations are wrapped in `@media (prefers-reduced-motion: reduce)` on web and checked with `UIAccessibility.isReduceMotionEnabled` on native.
+3. **Respect reduced motion.** All animations check `UIAccessibility.isReduceMotionEnabled` on native.
 4. **No timeouts or artificial delays.** Content appears as soon as it's ready. Loading states use skeleton shimmer, not spinners with minimum display times.
 
 ---
@@ -427,10 +425,6 @@ All icons use SF Symbols for native platforms. Seven size tiers:
 | `xl` | 12pt | Status indicators, banners |
 | `xxl` | 14pt | Empty states, dialogs |
 | `hero` | 16pt | Onboarding, hero moments |
-
-### Web Icons
-
-Web uses a matching icon set (Lucide or equivalent) at the same size tiers, converted to pixel values.
 
 ### Icon Weight
 
@@ -600,7 +594,6 @@ Status colors are chosen to be distinguishable by people with common color visio
 ### Reduced Motion
 
 All animations respect the system preference:
-- Web: `@media (prefers-reduced-motion: reduce)` collapses all transitions
 - Native: `UIAccessibility.isReduceMotionEnabled` / `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion`
 
 ### Dynamic Type
@@ -616,7 +609,6 @@ Native apps support Dynamic Type scaling. The TypeScale values are base sizes �
 
 ### Focus Indicators
 
-- Web: `2px solid accent` outline with `2px` offset on `:focus-visible`
 - Native: System default focus rings, enhanced with accent color where needed
 
 ---
@@ -683,30 +675,12 @@ Opacity:  tint, subtle, light, medium, strong, vivid
 Motion:   snappy, standard, gentle, bouncy, hover, fade
 ```
 
-### CSS Variable Pattern
-
-```css
---color-{category}-{modifier}: value;
---space-{size}: value;
---type-{name}: value;
---radius-{size}: value;
---shadow-{size}: value;
---glow-{name}: value;
---transition-{speed}: value;
---font-{family}: value;
---line-height-{name}: value;
-```
-
----
-
 ## Implementation Files
 
 | File | Platform | Contents |
 |------|----------|----------|
 | `Theme.swift` | Native | All Color extensions, Spacing, TypeScale, Radius, OpacityTier, EdgeBar, SessionDisplayStatus, component views |
 | `DesignTokens.swift` | Native | IconScale, LineHeight, ShadowToken, Shadow, Motion |
-| `tokens.css` | Web | All CSS custom properties — colors, spacing, type, radius, shadows, transitions, z-index |
-| `global.css` | Web | Base styles, scrollbar styling, selection color, focus rings, reduced motion |
 | `typography.md` | Docs | Full typography reference with examples |
 | `ARCHITECTURE.md` | Docs | Client ownership and cross-layer guardrails that pair with the design system |
 | `FEATURES.md` | Docs | Product surfaces and workflows the design system needs to support |

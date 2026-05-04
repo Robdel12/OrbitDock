@@ -54,7 +54,7 @@ once. Sessions from every endpoint merge into one dashboard so nothing slips thr
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                   macOS / iOS / Web app                       │
+│                      macOS / iOS app                          │
 │             (connects to all servers at once)                 │
 └──────────┬───────────────────┬───────────────────┬───────────┘
            │                   │                   │

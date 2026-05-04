@@ -10,8 +10,6 @@
     "test:ci": "./scripts/test-ui.sh --vizzly ci",
     "test:quiet": "./scripts/test-ui.sh --quiet",
     "vizzly": "vizzly",
-    "vizzly:tdd": "vizzly tdd start",
-    "site:build": "node site/build.js",
-    "site:dev": "node site/build.js --serve"
+    "vizzly:tdd": "vizzly tdd start"
   }
 }

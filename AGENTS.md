@@ -10,7 +10,6 @@ If you're making code changes, these are the docs that matter most:
 
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — project setup, build commands, testing, and day-to-day workflow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — client patterns, server state architecture, and guardrails
-- [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles: what to test where, mocking rules, hard lines
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — server deployment, persistence, debugging, and troubleshooting
 
 ## Short Version
@@ -67,7 +66,6 @@ Hooks are passive reporters — they observe and report, nothing more.
 
 - [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) — setup, build commands, testing, key patterns
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — client patterns, server state architecture, and guardrails
-- [docs/web-testing-strategy.md](docs/web-testing-strategy.md) — orbitdock-web testing principles and hard lines
 - [docs/OPERATIONS.md](docs/OPERATIONS.md) — deployment, database, debugging, and troubleshooting
 - [docs/data-flow.md](docs/data-flow.md) — REST/WS data contract and surface model
 - [docs/design-system.md](docs/design-system.md) — unified design system (Cosmic Harbor) and typography
