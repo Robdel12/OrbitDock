@@ -58,7 +58,6 @@ CLAUDE_SDK_DOCS_DIR ?= orbitdock-server/docs
 CLAUDE_SDK_VERSION ?= 0.2.62
 CLAUDE_SDK_PACKAGE ?= @anthropic-ai/claude-agent-sdk
 CLAUDE_SDK_VERSION_FILE ?= $(CLAUDE_SDK_DOCS_DIR)/claude-agent-sdk-version.json
-WEB_APP_DIR ?= orbitdock-web
 
 XCODEBUILD_ARGS = -derivedDataPath "$(abspath $(XCODE_DERIVED_DATA_DIR))" -packageCachePath "$(abspath $(XCODE_PACKAGE_CACHE_DIR))" -clonedSourcePackagesDirPath "$(abspath $(XCODE_SOURCE_PACKAGES_DIR))"
 XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_DIR))" SWIFTPM_MODULECACHE_OVERRIDE="$(abspath $(XCODE_SWIFTPM_MODULECACHE_DIR))"
@@ -164,7 +163,6 @@ endef
 include make/swift.mk
 include make/rust.mk
 include make/claude-sdk.mk
-include make/web.mk
 
 .PHONY: help
 

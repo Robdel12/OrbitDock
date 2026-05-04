@@ -52,7 +52,6 @@ pub struct ServerRunOptions {
   pub tls_cert: Option<PathBuf>,
   pub tls_key: Option<PathBuf>,
   pub logging: ServerLoggingOptions,
-  pub serve_web: bool,
   pub managed_sync: Option<ManagedSyncRunOptions>,
   pub workspace_provider_override: Option<WorkspaceProviderKind>,
 }
@@ -314,12 +313,6 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     app = app.layer(cors_layer);
   }
   let app = app.with_state(state);
-
-  let app = if options.serve_web && crate::transport::web_assets::has_web_assets() {
-    app.fallback(crate::transport::web_assets::web_asset_handler)
-  } else {
-    app
-  };
 
   let use_tls = options.tls_cert.is_some() && options.tls_key.is_some();
 
