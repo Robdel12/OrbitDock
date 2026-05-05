@@ -49,7 +49,7 @@ pub struct CodexAppServer {
 
 #[derive(Clone)]
 pub(crate) struct AppServerSessionRoute {
-  output_tx: mpsc::Sender<ConnectorOutput>,
+  forward_tx: mpsc::UnboundedSender<ConnectorOutput>,
   active_turn_id: Arc<Mutex<Option<String>>>,
   pending_requests: Arc<Mutex<HashMap<String, RequestId>>>,
   state: Arc<AppServerEventState>,

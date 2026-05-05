@@ -30,7 +30,6 @@ use crate::infrastructure::shell::ShellService;
 use crate::infrastructure::terminal::TerminalService;
 use crate::infrastructure::tool_pty::ToolPtyService;
 use crate::runtime::session_actor::SessionActorHandle;
-use crate::support::ai_naming::NamingGuard;
 use orbitdock_connector_codex::auth::CodexAuthService;
 
 use self::connection_state::ConnectionState;
@@ -118,9 +117,6 @@ pub struct SessionRegistry {
 
   /// Global Codex account auth coordinator (not session-specific)
   codex_auth: Arc<CodexAuthService>,
-
-  /// Dedup guard for AI session naming
-  naming_guard: Arc<NamingGuard>,
 
   /// Pending Claude sessions awaiting first actionable hook before materialization.
   /// Keyed by Claude SDK session_id from SessionStart.
@@ -212,7 +208,6 @@ impl SessionRegistry {
       db_path,
       read_pool,
       codex_auth,
-      naming_guard: Arc::new(NamingGuard::new()),
       pending_claude_sessions: DashMap::new(),
       pending_codex_sessions: DashMap::new(),
       claude_runtime_owners: DashMap::new(),
@@ -398,10 +393,6 @@ impl SessionRegistry {
 
   pub fn codex_auth(&self) -> Arc<CodexAuthService> {
     self.codex_auth.clone()
-  }
-
-  pub fn naming_guard(&self) -> &Arc<NamingGuard> {
-    &self.naming_guard
   }
 
   pub fn shell_service(&self) -> Arc<ShellService> {

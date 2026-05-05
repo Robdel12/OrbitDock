@@ -1,4 +1,6 @@
-use super::{convert_app_server_type, convert_optional};
+use super::{convert_app_server_type, convert_optional, convert_sandbox_policy};
+use codex_app_server_protocol::{NetworkAccess, SandboxPolicy as AppServerSandboxPolicy};
+use codex_protocol::protocol::SandboxPolicy;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +48,20 @@ fn convert_optional_keeps_none_and_converts_some() {
     Some(BridgeSample {
       name: "bridge".to_string(),
       count: 7,
+    })
+  );
+}
+
+#[test]
+fn convert_sandbox_policy_uses_app_server_shape() {
+  let converted = convert_sandbox_policy(Some(SandboxPolicy::ExternalSandbox {
+    network_access: codex_protocol::protocol::NetworkAccess::Restricted,
+  }));
+
+  assert_eq!(
+    converted,
+    Some(AppServerSandboxPolicy::ExternalSandbox {
+      network_access: NetworkAccess::Restricted,
     })
   );
 }

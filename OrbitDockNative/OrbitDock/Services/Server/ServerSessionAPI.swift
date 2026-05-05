@@ -311,8 +311,9 @@ final class ServerSessionAPI {
 
   func setSummary(_ summary: String) async throws -> ServerSessionDetailSnapshotPayload? {
     let response = try await clients.sessions.setSummary(sessionId, summary: summary)
+    let acceptedSummary = response.sessionDetailSnapshot?.session.summary ?? summary
     updateLocalNamingState { state in
-      state.summary = LocalConversationNamingPlanner.cleanOptionalText(summary)
+      state.summary = LocalConversationNamingPlanner.cleanOptionalText(acceptedSummary)
     }
     return adoptMutationDetailSnapshot(response.sessionDetailSnapshot)
   }

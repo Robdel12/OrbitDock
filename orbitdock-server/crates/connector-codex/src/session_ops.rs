@@ -6,8 +6,8 @@ use codex_app_server_protocol::{
   CollaborationModeListResponse, CollaborationModeMask as AppServerCollaborationModeMask,
   McpAuthStatus as AppServerMcpAuthStatus, McpServerOauthLoginResponse, McpServerStatus,
   PluginInstallParams, PluginInstallResponse, PluginListResponse, PluginUninstallParams,
-  PluginUninstallResponse, RequestId, SandboxPolicy as AppServerSandboxPolicy, TurnStartParams,
-  TurnSteerParams, UserInput as AppServerUserInput,
+  PluginUninstallResponse, RequestId, TurnStartParams, TurnSteerParams,
+  UserInput as AppServerUserInput,
 };
 use codex_protocol::config_types::{CollaborationMode, ModeKind, Settings};
 use codex_protocol::openai_models::ReasoningEffort;
@@ -15,8 +15,9 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use tracing::warn;
 
 use super::config::{
-  convert_app_server_type, convert_optional, parse_approvals_reviewer, parse_personality,
-  parse_service_tier_override, preferred_reasoning_summary, reasoning_summary_for_model,
+  convert_app_server_type, convert_optional, convert_sandbox_policy, parse_approvals_reviewer,
+  parse_personality, parse_service_tier_override, preferred_reasoning_summary,
+  reasoning_summary_for_model,
 };
 use super::policy_bridge::{parse_approval_policy_with_details, parse_sandbox_policy_with_details};
 use super::{
@@ -685,8 +686,7 @@ impl CodexConnector {
     pending.cwd = (!override_cwd.is_empty()).then(|| PathBuf::from(override_cwd.as_str()));
     pending.approval_policy = convert_optional(policy, "approval policy")?;
     pending.approvals_reviewer = convert_optional(approvals_reviewer, "approvals reviewer")?;
-    pending.sandbox_policy =
-      convert_optional::<_, AppServerSandboxPolicy>(sandbox, "sandbox policy")?;
+    pending.sandbox_policy = convert_sandbox_policy(sandbox);
     pending.model = model.map(ToString::to_string);
     pending.service_tier =
       convert_optional(parse_service_tier_override(service_tier), "service tier")?;

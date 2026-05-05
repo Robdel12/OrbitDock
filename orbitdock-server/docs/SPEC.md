@@ -633,8 +633,6 @@ If the server cannot replay from the requested revision, the client should refet
 ### 7.2 Provider Setup
 
 **OpenAI/Codex:**
-- `GET /api/server/openai-key` — check if configured
-- `POST /api/server/openai-key` — set key
 - `GET /api/codex/account` — check auth status
 - `POST /api/codex/login/start` — start browser login flow
 

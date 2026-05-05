@@ -208,7 +208,7 @@ This section is the quick mental model for the server. If you're trying to decid
 │  │  GET /api/sessions → Session summaries (REST bootstrap)  │  │
 │  │  GET /api/sessions/{session_id} → Full session state      │  │
 │  │  GET /api/approvals, DELETE /api/approvals/{approval_id}  │  │
-│  │  GET /api/server/openai-key, /api/usage/*, /api/models/* │  │
+│  │  GET /api/usage/*, /api/models/*, /api/codex/account     │  │
 │  │  GET /api/codex/account, /api/fs/*, /api/sessions/*/...  │  │
 │  │  GET /health  → Health check                             │  │
 │  └────────────────────────┬────────────────────────────────┘  │

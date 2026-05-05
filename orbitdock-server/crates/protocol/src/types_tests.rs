@@ -28,7 +28,33 @@ fn display_title_falls_back_to_prompt_when_summary_matches_project() {
     "/Users/robert/OrbitDock",
   );
 
-  assert_eq!(title, "Add a calmer dashboard shell");
+  assert_eq!(title, "Add a Calmer Dashboard Shell");
+}
+
+#[test]
+fn display_title_derives_cleaner_prompt_fallback() {
+  let title = SessionSummary::display_title_from_parts(
+    None,
+    None,
+    Some("Can you help me fix the session naming fallback? The restore behavior feels wrong."),
+    Some("OrbitDock"),
+    "/Users/robert/OrbitDock",
+  );
+
+  assert_eq!(title, "Fix the Session Naming Fallback");
+}
+
+#[test]
+fn display_title_strips_skill_prefixes_before_prompt_fallback() {
+  let title = SessionSummary::display_title_from_parts(
+    None,
+    None,
+    Some("/goal Can you work through the docs for ../vizzly and ../viz"),
+    Some("OrbitDock"),
+    "/Users/robert/OrbitDock",
+  );
+
+  assert_eq!(title, "Work Through the Docs for ../vizzly and ../viz");
 }
 
 #[test]

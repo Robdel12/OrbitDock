@@ -4,11 +4,10 @@ use crate::runtime::session_registry::CachedUpdateStatus;
 use crate::transport::http::test_support::new_persist_test_state;
 
 use super::{
-  check_open_ai_key, get_server_meta, get_workspace_provider, get_workspace_provider_config_value,
-  set_client_primary_claim, set_open_ai_key, set_server_role, set_workspace_provider,
+  get_server_meta, get_workspace_provider, get_workspace_provider_config_value,
+  set_client_primary_claim, set_server_role, set_workspace_provider,
   set_workspace_provider_config_value, test_workspace_provider, SetClientPrimaryClaimRequest,
-  SetOpenAiKeyRequest, SetServerRoleRequest, SetWorkspaceProviderConfigValueRequest,
-  SetWorkspaceProviderRequest,
+  SetServerRoleRequest, SetWorkspaceProviderConfigValueRequest, SetWorkspaceProviderRequest,
 };
 
 struct EnvVarGuard {
@@ -241,35 +240,6 @@ async fn server_meta_endpoint_reflects_runtime_state() {
     .capabilities
     .contains(&orbitdock_protocol::CAPABILITY_SESSION_DETAIL_SURFACE_V1.to_string()));
   assert_eq!(meta.capabilities.len(), 5);
-}
-
-#[tokio::test]
-async fn openai_key_endpoint_reads_env_and_persists_updates() {
-  let _env_guard = EnvVarGuard::set("OPENAI_API_KEY", "env-openai-key");
-  let (state, mut persist_rx, _db_path, _guard) = new_persist_test_state(true).await;
-
-  let Json(initial) = check_open_ai_key().await;
-  assert!(initial.configured);
-
-  let Json(updated) = set_open_ai_key(
-    State(state),
-    Json(SetOpenAiKeyRequest {
-      key: "persisted-openai-key".to_string(),
-    }),
-  )
-  .await
-  .expect("set openai key should succeed");
-
-  assert!(updated.configured);
-  let command = persist_rx
-    .recv()
-    .await
-    .expect("openai key update should enqueue persistence");
-  assert!(matches!(
-    command,
-    crate::infrastructure::persistence::PersistCommand::SetConfig { ref key, ref value }
-      if key == "openai_api_key" && value == "persisted-openai-key"
-  ));
 }
 
 #[tokio::test]

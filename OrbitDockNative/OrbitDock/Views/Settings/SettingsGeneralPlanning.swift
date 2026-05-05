@@ -1,20 +1,11 @@
 import Foundation
 
-enum SettingsOpenAiKeyStatus: Equatable {
-  case checking
-  case configured
-  case notConfigured
-}
-
-struct SettingsOpenAiNamingPresentation: Equatable {
-  let statusIcon: String?
+struct SettingsLocalNamingPresentation: Equatable {
+  let title: String
+  let description: String
+  let iconName: String
   let statusText: String
-  let statusTone: SettingsSectionTone
-  let showsProgress: Bool
-  let showsEncryptedBadge: Bool
-  let introCopy: String
-  let showsStoredKey: Bool
-  let showsSavedMessage: Bool
+  let showsOnDeviceBadge: Bool
 }
 
 struct SettingsDictationPresentation: Equatable {
@@ -31,48 +22,25 @@ enum SettingsSectionTone: Equatable {
 }
 
 enum SettingsGeneralPlanning {
-  static func openAiNamingPresentation(
-    status: SettingsOpenAiKeyStatus,
-    isReplacingKey: Bool,
-    keySaved: Bool
-  ) -> SettingsOpenAiNamingPresentation {
-    let introCopy = isReplacingKey
-      ? "Enter a new key to replace the existing one."
-      : "OpenAI API key for auto-naming sessions from first prompts."
-
-    switch status {
-      case .checking:
-        return SettingsOpenAiNamingPresentation(
-          statusIcon: nil,
-          statusText: "Checking...",
-          statusTone: .neutral,
-          showsProgress: true,
-          showsEncryptedBadge: false,
-          introCopy: introCopy,
-          showsStoredKey: false,
-          showsSavedMessage: false
+  static func localNamingPresentation(
+    availability: LocalNamingAvailability
+  ) -> SettingsLocalNamingPresentation {
+    switch availability {
+      case .available:
+        SettingsLocalNamingPresentation(
+          title: "Apple Foundation Models",
+          description: "OrbitDock names new sessions on-device from the first real prompt. Restored sessions keep their saved title state, and anything without a generated title falls back to the prompt until you rename it.",
+          iconName: "apple.logo",
+          statusText: "On-device naming available",
+          showsOnDeviceBadge: true
         )
-      case .configured:
-        return SettingsOpenAiNamingPresentation(
-          statusIcon: "checkmark.circle.fill",
-          statusText: "API key configured",
-          statusTone: .positive,
-          showsProgress: false,
-          showsEncryptedBadge: true,
-          introCopy: introCopy,
-          showsStoredKey: !isReplacingKey,
-          showsSavedMessage: keySaved
-        )
-      case .notConfigured:
-        return SettingsOpenAiNamingPresentation(
-          statusIcon: "exclamationmark.circle.fill",
-          statusText: "No API key set",
-          statusTone: .warning,
-          showsProgress: false,
-          showsEncryptedBadge: false,
-          introCopy: introCopy,
-          showsStoredKey: false,
-          showsSavedMessage: keySaved
+      case .unavailable:
+        SettingsLocalNamingPresentation(
+          title: "Foundation Models unavailable",
+          description: "Automatic session naming requires Apple's Foundation Models on macOS 26 or iOS 26. When unavailable, OrbitDock simply keeps the saved title or shows the first prompt until you rename the session yourself.",
+          iconName: "xmark.circle.fill",
+          statusText: "Using saved titles and prompt fallback",
+          showsOnDeviceBadge: false
         )
     }
   }

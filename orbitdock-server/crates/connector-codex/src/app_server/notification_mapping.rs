@@ -435,10 +435,16 @@ fn runtime_warning_notice_copy(message: &str) -> (String, Option<String>, Notice
 
 fn is_suppressed_runtime_warning(message: &str) -> bool {
   is_thread_start_skills_trimmed_warning(message)
+    || is_codex_transport_fallback_warning(message)
     || (message.starts_with("Model metadata for `")
       && message.contains("Defaulting to fallback metadata"))
     || (message.starts_with("Under-development features enabled:")
       && message.contains("codex_hooks"))
+}
+
+fn is_codex_transport_fallback_warning(message: &str) -> bool {
+  message.starts_with("Falling back from WebSockets to HTTPS transport.")
+    && message.contains("stream disconnected before completion")
 }
 
 fn stable_hash(value: &str) -> u64 {

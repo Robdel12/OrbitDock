@@ -64,6 +64,7 @@ pub(crate) async fn send_continuation_message(
       model: None,
       effort: None,
       images: vec![],
+      mentions: vec![],
     })
     .await
     .is_ok()

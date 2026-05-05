@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{extract::DefaultBodyLimit, routing::get, Router};
-use orbitdock_protocol::{SessionStatus, WorkspaceProviderKind};
+use orbitdock_protocol::WorkspaceProviderKind;
 use tokio::sync::{mpsc, watch};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -251,25 +251,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     Ok(_) | Err(_) => {}
   }
 
-  {
-    let summaries = state.get_session_summaries();
-    for summary in &summaries {
-      if summary.status == SessionStatus::Active
-        && summary.summary.is_none()
-        && summary.first_prompt.is_some()
-      {
-        if let Some(actor) = state.get_session(&summary.id) {
-          if state.naming_guard().try_claim(&summary.id) {
-            crate::support::ai_naming::spawn_naming_task(
-              summary.id.clone(),
-              summary.first_prompt.clone().unwrap(),
-              actor,
-            );
-          }
-        }
-      }
-    }
-  }
+  // Restored sessions keep whatever naming state they already have in storage.
+  // AI naming should only happen on live prompt intake, not retroactively at boot.
 
   let expiry_state = state.clone();
   tokio::spawn(async move {
@@ -300,9 +283,8 @@ pub async fn run_server(options: ServerRunOptions) -> anyhow::Result<()> {
     // already exist in the router at the time `.layer()` is called.
     .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES));
 
-  let auth_state = crate::infrastructure::auth::AuthState {
-    static_token: auth_token.clone(),
-  };
+  let auth_state = crate::infrastructure::auth::AuthState::new(auth_token.clone(), has_db_tokens);
+  auth_state.spawn_db_token_refresh();
   app = app.layer(axum::middleware::from_fn_with_state(
     auth_state,
     crate::infrastructure::auth::auth_middleware,

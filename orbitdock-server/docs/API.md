@@ -773,18 +773,6 @@ Both routes return:
 
 Returns the server meta payload used by the app shell.
 
-### `GET /api/server/openai-key`
-
-Returns:
-
-```json
-{"configured": true}
-```
-
-### `POST /api/server/openai-key`
-
-Stores the OpenAI key and returns the same `configured` shape.
-
 ### `GET /api/server/workspace-provider`
 
 Returns the active workspace provider:

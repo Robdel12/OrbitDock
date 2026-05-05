@@ -181,6 +181,28 @@ pub(super) fn handle_thread_name_updated(
   effects: &mut Vec<Effect>,
   name: String,
 ) {
+  let has_existing_identity = state
+    .first_prompt
+    .as_deref()
+    .map(str::trim)
+    .is_some_and(|value| !value.is_empty())
+    || state
+      .summary
+      .as_deref()
+      .map(str::trim)
+      .is_some_and(|value| !value.is_empty())
+    || state
+      .custom_name
+      .as_deref()
+      .map(str::trim)
+      .is_some_and(|value| !value.is_empty())
+    || state.total_row_count > 0
+    || state.turn_count > 0;
+
+  if has_existing_identity {
+    return;
+  }
+
   state.custom_name = Some(name.clone());
   state.last_activity_at = Some(now.to_string());
 
@@ -368,20 +390,33 @@ pub(super) fn handle_summary_updated(
   effects: &mut Vec<Effect>,
   summary: String,
 ) {
-  if state.summary.as_ref() != Some(&summary) {
-    state.summary = Some(summary.clone());
-    effects.push(Effect::Persist(Box::new(PersistOp::SetSummary {
-      session_id: sid.to_string(),
-      summary: summary.clone(),
-    })));
-    effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
-      session_id: sid.to_string(),
-      changes: Box::new(StateChanges {
-        summary: Some(Some(summary)),
-        ..Default::default()
-      }),
-    })));
+  let summary = summary.trim();
+  if summary.is_empty() {
+    return;
   }
+
+  if state
+    .summary
+    .as_deref()
+    .map(str::trim)
+    .is_some_and(|value| !value.is_empty())
+  {
+    return;
+  }
+
+  let summary = summary.to_string();
+  state.summary = Some(summary.clone());
+  effects.push(Effect::Persist(Box::new(PersistOp::SetSummary {
+    session_id: sid.to_string(),
+    summary: summary.clone(),
+  })));
+  effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+    session_id: sid.to_string(),
+    changes: Box::new(StateChanges {
+      summary: Some(Some(summary)),
+      ..Default::default()
+    }),
+  })));
 }
 
 pub(super) fn handle_effort_updated(

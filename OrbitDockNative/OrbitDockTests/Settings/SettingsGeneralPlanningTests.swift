@@ -3,30 +3,22 @@ import Testing
 
 @MainActor
 struct SettingsGeneralPlanningTests {
-  @Test func configuredNamingPresentationShowsEncryptedStoredKey() {
-    let presentation = SettingsGeneralPlanning.openAiNamingPresentation(
-      status: .configured,
-      isReplacingKey: false,
-      keySaved: false
-    )
+  @Test func availableLocalNamingPresentationShowsOnDeviceStatus() {
+    let presentation = SettingsGeneralPlanning.localNamingPresentation(availability: .available)
 
-    #expect(presentation.statusText == "API key configured")
-    #expect(presentation.statusTone == .positive)
-    #expect(presentation.showsEncryptedBadge)
-    #expect(presentation.showsStoredKey)
-    #expect(!presentation.showsProgress)
+    #expect(presentation.title == "Apple Foundation Models")
+    #expect(presentation.iconName == "apple.logo")
+    #expect(presentation.statusText == "On-device naming available")
+    #expect(presentation.showsOnDeviceBadge)
   }
 
-  @Test func replacingNamingPresentationUsesEditingCopy() {
-    let presentation = SettingsGeneralPlanning.openAiNamingPresentation(
-      status: .configured,
-      isReplacingKey: true,
-      keySaved: true
-    )
+  @Test func unavailableLocalNamingPresentationUsesFallbackCopy() {
+    let presentation = SettingsGeneralPlanning.localNamingPresentation(availability: .unavailable)
 
-    #expect(presentation.introCopy == "Enter a new key to replace the existing one.")
-    #expect(!presentation.showsStoredKey)
-    #expect(presentation.showsSavedMessage)
+    #expect(presentation.title == "Foundation Models unavailable")
+    #expect(presentation.iconName == "xmark.circle.fill")
+    #expect(presentation.statusText == "Using saved titles and prompt fallback")
+    #expect(!presentation.showsOnDeviceBadge)
   }
 
   @Test func unavailableDictationPresentationUsesFallbackCopy() {

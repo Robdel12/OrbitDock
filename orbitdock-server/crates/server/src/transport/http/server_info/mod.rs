@@ -1,26 +1,14 @@
 use orbitdock_protocol::WorkspaceProviderKind;
 use serde::{Deserialize, Serialize};
 
-mod openai;
 mod server_state;
 mod workspace_provider;
 
-pub use openai::{check_open_ai_key, set_open_ai_key};
 pub use server_state::{get_server_meta, set_client_primary_claim, set_server_role};
 pub use workspace_provider::{
   get_workspace_provider, get_workspace_provider_config_value, set_workspace_provider,
   set_workspace_provider_config_value, test_workspace_provider,
 };
-
-#[derive(Debug, Serialize)]
-pub struct OpenAiKeyStatusResponse {
-  pub configured: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetOpenAiKeyRequest {
-  pub key: String,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SetServerRoleRequest {

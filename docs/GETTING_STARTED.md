@@ -23,7 +23,7 @@ make rust-run
 
 `orbitdock init` creates the data directory, runs migrations, and provisions the local auth token used by hook forwarding and app setup.
 
-Interactive `make rust-run`, `make rust-run-lan`, and `make rust-run-debug` open an in-process dev console by default when attached to a TTY. Set `ORBITDOCK_DEV_CONSOLE=0` if you want the plain terminal experience.
+Interactive `make rust-run`, `make rust-run-lan`, and `make rust-run-debug` use plain logs by default. Set `ORBITDOCK_DEV_CONSOLE=1` when you want the in-process dev console.
 
 For LAN testing, use `make rust-run-lan`. The server will bind to all interfaces; local clients should connect to `http://127.0.0.1:4000`.
 

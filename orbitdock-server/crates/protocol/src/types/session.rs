@@ -228,6 +228,9 @@ impl SessionSummary {
         project_name_clean.as_deref(),
         project_leaf_clean.as_deref(),
       ) {
+        if let Some(derived_title) = derive_prompt_display_title(first_prompt) {
+          return derived_title;
+        }
         return first_prompt.clone();
       }
     }
@@ -296,6 +299,179 @@ fn clean_display_text(value: &str) -> String {
   }
 
   stripped.trim().to_string()
+}
+
+fn derive_prompt_display_title(value: &str) -> Option<String> {
+  let normalized = collapse_whitespace(value);
+  if normalized.is_empty() {
+    return None;
+  }
+
+  let mut candidate = strip_skill_invocation_prefix(&normalized);
+  candidate = strip_leading_prompt_filler(&candidate);
+  candidate = first_prompt_clause(&candidate).trim().to_string();
+  candidate = trim_weak_trailing_words(&candidate);
+
+  if candidate.is_empty() {
+    return None;
+  }
+
+  let titled = title_case_prompt_phrase(&candidate);
+  let capped = truncate_display_title(&titled, 48);
+  if capped.is_empty() {
+    None
+  } else {
+    Some(capped)
+  }
+}
+
+fn collapse_whitespace(value: &str) -> String {
+  value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn strip_skill_invocation_prefix(value: &str) -> String {
+  let mut candidate = value.trim().to_string();
+
+  loop {
+    let trimmed = candidate.trim_start();
+    let Some(rest) = trimmed.strip_prefix('/') else {
+      break;
+    };
+    let command_len = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    if command_len == rest.len() {
+      return String::new();
+    }
+    candidate = rest[command_len..].trim_start().to_string();
+  }
+
+  let lower = candidate.to_ascii_lowercase();
+  if lower.starts_with("using /") {
+    if let Some(idx) = lower.find(" can you ") {
+      return candidate[(idx + " can you ".len())..].trim().to_string();
+    }
+  }
+
+  candidate
+}
+
+fn strip_leading_prompt_filler(value: &str) -> String {
+  let prefixes = [
+    "can you help me ",
+    "could you help me ",
+    "would you help me ",
+    "can you ",
+    "could you ",
+    "would you ",
+    "can we ",
+    "help me ",
+    "please ",
+    "i need you to ",
+    "i need to ",
+    "i want to ",
+    "let's ",
+    "lets ",
+  ];
+
+  let mut candidate = value.trim().to_string();
+  loop {
+    let lower = candidate.to_ascii_lowercase();
+    let mut stripped = false;
+    for prefix in prefixes {
+      if lower.starts_with(prefix) {
+        candidate = candidate[prefix.len()..].trim_start().to_string();
+        stripped = true;
+        break;
+      }
+    }
+    if !stripped {
+      break;
+    }
+  }
+
+  candidate
+}
+
+fn first_prompt_clause(value: &str) -> String {
+  let mut cutoff = value.len();
+
+  for marker in ["\n", "? ", "! ", ".", "?", "!"] {
+    if let Some(idx) = value.find(marker) {
+      let marker_is_period = marker == ".";
+      let is_sentence_period = marker_is_period
+        && value
+          .get(idx + 1..)
+          .and_then(|rest| rest.chars().next())
+          .is_some_and(char::is_whitespace);
+
+      if !marker_is_period || is_sentence_period {
+        cutoff = cutoff.min(idx);
+      }
+    }
+  }
+
+  value[..cutoff].trim().to_string()
+}
+
+fn trim_weak_trailing_words(value: &str) -> String {
+  let weak_words = ["this", "that", "it", "here", "there", "please", "thanks"];
+  let mut words = value.split_whitespace().collect::<Vec<_>>();
+  while let Some(last) = words.last() {
+    let normalized = last
+      .trim_matches(|ch: char| !ch.is_alphanumeric())
+      .to_ascii_lowercase();
+    if weak_words.contains(&normalized.as_str()) {
+      words.pop();
+    } else {
+      break;
+    }
+  }
+  words.join(" ")
+}
+
+fn title_case_prompt_phrase(value: &str) -> String {
+  let minor_words = [
+    "a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with",
+  ];
+
+  value
+    .split_whitespace()
+    .enumerate()
+    .map(|(idx, word)| {
+      if word.chars().any(|ch| "/._-".contains(ch)) || word.chars().any(|ch| ch.is_uppercase()) {
+        return word.to_string();
+      }
+
+      let lower = word.to_ascii_lowercase();
+      if idx > 0 && minor_words.contains(&lower.as_str()) {
+        return lower;
+      }
+
+      capitalize_ascii_word(&lower)
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn capitalize_ascii_word(value: &str) -> String {
+  let mut chars = value.chars();
+  match chars.next() {
+    Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+    None => String::new(),
+  }
+}
+
+fn truncate_display_title(value: &str, max_chars: usize) -> String {
+  let char_count = value.chars().count();
+  if char_count <= max_chars {
+    return value.to_string();
+  }
+
+  let mut truncated = value.chars().take(max_chars).collect::<String>();
+  while truncated.ends_with(' ') {
+    truncated.pop();
+  }
+  truncated.push('…');
+  truncated
 }
 
 fn matches_project_label(

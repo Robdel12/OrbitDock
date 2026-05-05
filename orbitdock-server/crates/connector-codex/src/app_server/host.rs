@@ -123,8 +123,18 @@ impl AppServerSessionRoute {
     active_turn_id: Arc<Mutex<Option<String>>>,
     pending_requests: Arc<Mutex<HashMap<String, codex_app_server_protocol::RequestId>>>,
   ) -> Self {
+    let (forward_tx, mut forward_rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+      while let Some(output) = forward_rx.recv().await {
+        if output_tx.send(output).await.is_err() {
+          tracing::debug!("Typed codex app-server output channel closed");
+          return;
+        }
+      }
+    });
+
     Self {
-      output_tx,
+      forward_tx,
       active_turn_id,
       pending_requests,
       state: Arc::new(AppServerEventState {
@@ -160,7 +170,7 @@ async fn handle_app_server_event(
         return;
       };
       let outputs = map_notification(notification, &route).await;
-      send_outputs(&route.output_tx, outputs).await;
+      send_outputs(&route, outputs).await;
     }
     InProcessServerEvent::ServerRequest(request) => {
       let request_id = request.id().clone();
@@ -194,7 +204,7 @@ async fn handle_app_server_event(
         return;
       };
       let outputs = map_server_request(request, &route).await;
-      send_outputs(&route.output_tx, outputs).await;
+      send_outputs(&route, outputs).await;
     }
   }
 }

@@ -42,17 +42,20 @@ pub(crate) async fn handle_claude_session_end(
       return;
     }
 
-    if let Some(transcript_path) = &existing.snapshot().transcript_path {
-      if let Some(summary) =
-        crate::infrastructure::persistence::extract_summary_from_transcript_path(transcript_path)
-          .await
-      {
-        let _ = persist_tx
-          .send(PersistCommand::SetSummary {
-            session_id: session_id.clone(),
-            summary,
-          })
-          .await;
+    let snapshot = existing.snapshot();
+    if snapshot.summary.is_none() {
+      if let Some(transcript_path) = &snapshot.transcript_path {
+        if let Some(summary) =
+          crate::infrastructure::persistence::extract_summary_from_transcript_path(transcript_path)
+            .await
+        {
+          let _ = persist_tx
+            .send(PersistCommand::SetSummary {
+              session_id: session_id.clone(),
+              summary,
+            })
+            .await;
+        }
       }
     }
   }

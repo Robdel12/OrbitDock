@@ -823,6 +823,83 @@ fn row_updated_preserves_dynamic_tool_invocation_when_update_is_placeholder() {
 }
 
 #[test]
+fn summary_updated_sets_summary_once() {
+  let state = test_state();
+
+  let (new_state, effects) = transition(
+    state,
+    Input::SummaryUpdated("First Useful Title".to_string()),
+    NOW,
+  );
+
+  assert_eq!(new_state.summary.as_deref(), Some("First Useful Title"));
+  assert_eq!(effects.len(), 2);
+  assert!(matches!(
+      effects[0],
+      Effect::Persist(ref op)
+          if matches!(op.as_ref(), PersistOp::SetSummary { summary, .. } if summary == "First Useful Title")
+  ));
+  assert!(matches!(
+      effects[1],
+      Effect::Emit(ref message)
+          if matches!(message.as_ref(), ServerMessage::SessionDelta { changes, .. }
+              if changes.summary.as_ref().and_then(|value| value.as_deref()) == Some("First Useful Title"))
+  ));
+}
+
+#[test]
+fn summary_updated_does_not_rename_existing_summary() {
+  let mut state = test_state();
+  state.summary = Some("Original Title".to_string());
+
+  let (new_state, effects) = transition(
+    state,
+    Input::SummaryUpdated("Replacement Title".to_string()),
+    NOW,
+  );
+
+  assert_eq!(new_state.summary.as_deref(), Some("Original Title"));
+  assert!(effects.is_empty());
+}
+
+#[test]
+fn thread_name_updated_is_ignored_after_first_prompt() {
+  let mut state = test_state();
+  state.first_prompt = Some("Fix session title churn".to_string());
+
+  let (new_state, effects) = transition(
+    state,
+    Input::ThreadNameUpdated("Great Work".to_string()),
+    NOW,
+  );
+
+  assert_eq!(new_state.custom_name, None);
+  assert_eq!(
+    new_state.first_prompt.as_deref(),
+    Some("Fix session title churn")
+  );
+  assert!(effects.is_empty());
+}
+
+#[test]
+fn thread_name_updated_is_ignored_for_resumed_session_history() {
+  let mut state = test_state();
+  state.total_row_count = 3;
+  state.turn_count = 1;
+
+  let (new_state, effects) = transition(
+    state,
+    Input::ThreadNameUpdated("I Think We Can Slash SpotterNetwork".to_string()),
+    NOW,
+  );
+
+  assert_eq!(new_state.custom_name, None);
+  assert_eq!(new_state.total_row_count, 3);
+  assert_eq!(new_state.turn_count, 1);
+  assert!(effects.is_empty());
+}
+
+#[test]
 fn user_row_dedup_skips_echo() {
   let mut state = test_state();
   state.rows.push(test_user_row("do something"));

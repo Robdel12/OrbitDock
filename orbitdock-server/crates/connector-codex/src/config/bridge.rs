@@ -1,3 +1,5 @@
+use codex_app_server_protocol::SandboxPolicy as AppServerSandboxPolicy;
+use codex_protocol::protocol::SandboxPolicy;
 use orbitdock_connector_core::ConnectorError;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -28,6 +30,12 @@ where
   value
     .map(|inner| convert_app_server_type(inner, label))
     .transpose()
+}
+
+pub(crate) fn convert_sandbox_policy(
+  value: Option<SandboxPolicy>,
+) -> Option<AppServerSandboxPolicy> {
+  value.map(AppServerSandboxPolicy::from)
 }
 
 #[cfg(test)]

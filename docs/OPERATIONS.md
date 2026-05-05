@@ -234,7 +234,7 @@ cp ~/backups/orbitdock-20240115.db ~/.orbitdock/orbitdock.db
 
 ### Rust Server Logs
 
-The Rust server writes structured JSON logs to disk. Interactive dev runs also mirror them into the dev console by default.
+The Rust server writes structured JSON logs to disk. Interactive dev runs can also mirror them into the dev console when `ORBITDOCK_DEV_CONSOLE=1` is set.
 
 Server logs rotate hourly, keep about 48 hours of history, and rotated files are capped to roughly 64 MB total.
 
@@ -261,7 +261,7 @@ Environment variables:
 - `ORBITDOCK_SERVER_LOG_FILTER`
 - `ORBITDOCK_SERVER_LOG_FORMAT=json|pretty`
 - `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1`
-- `ORBITDOCK_DEV_CONSOLE=0`
+- `ORBITDOCK_DEV_CONSOLE=1`
 
 Stable fields worth filtering on:
 

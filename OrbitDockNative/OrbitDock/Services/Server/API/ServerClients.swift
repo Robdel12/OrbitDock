@@ -10,7 +10,6 @@ final class ServerClients: Sendable {
   let sessionsSummary: SessionsSummaryClient
   let serverRole: ServerRoleClient
   let updates: ServerUpdateClient
-  let config: ConfigClient
   let filesystem: FilesystemClient
   let skills: SkillsClient
   let capabilities: CapabilitiesClient
@@ -59,7 +58,6 @@ final class ServerClients: Sendable {
       baseURL: baseURL,
       authToken: requestBuilder.authToken
     )
-    self.config = ConfigClient(http: http)
     self.filesystem = FilesystemClient(http: http)
     self.skills = SkillsClient(http: http, requestBuilder: requestBuilder)
     self.capabilities = CapabilitiesClient(http: http, requestBuilder: requestBuilder)

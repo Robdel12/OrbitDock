@@ -7,7 +7,7 @@ use super::item_mapping::{
   CollabAgentToolCallArgs, DynamicToolCallArgs,
 };
 use super::notification_mapping::{map_notification, map_token_usage, map_warning};
-use super::{AppServerEventState, AppServerSessionRoute};
+use super::AppServerSessionRoute;
 use codex_app_server_protocol::{
   CollabAgentState, CollabAgentStatus, CollabAgentTool, CollabAgentToolCallStatus,
   CommandExecutionOutputDeltaNotification, CommandExecutionStatus,
@@ -106,6 +106,16 @@ fn startup_skills_trimmed_warning_stays_out_of_timeline() {
 fn skills_context_budget_warning_stays_out_of_timeline() {
   let outputs = map_warning(
     "Warning: Exceeded skills context budget of 2%. Loaded skill descriptions were truncated by an average of 84 characters per skill."
+      .to_string(),
+  );
+
+  assert!(outputs.is_empty());
+}
+
+#[test]
+fn codex_transport_fallback_warning_stays_out_of_timeline() {
+  let outputs = map_warning(
+    "Falling back from WebSockets to HTTPS transport. stream disconnected before completion: websocket closed by server before response.completed"
       .to_string(),
   );
 
@@ -460,13 +470,9 @@ async fn review_mode_items_surface_review_text() {
 
 fn test_route() -> AppServerSessionRoute {
   let (output_tx, _) = mpsc::channel(1);
-  AppServerSessionRoute {
+  AppServerSessionRoute::new(
     output_tx,
-    active_turn_id: Arc::new(Mutex::new(None)),
-    pending_requests: Arc::new(Mutex::new(HashMap::new())),
-    state: Arc::new(AppServerEventState {
-      delta_buffers: Arc::new(Mutex::new(HashMap::new())),
-      streaming_message: Arc::new(Mutex::new(None)),
-    }),
-  }
+    Arc::new(Mutex::new(None)),
+    Arc::new(Mutex::new(HashMap::new())),
+  )
 }

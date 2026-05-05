@@ -306,10 +306,6 @@ fn server_routes() -> Router<Arc<SessionRegistry>> {
   Router::new()
     .route("/api/server/meta", get(super::get_server_meta))
     .route(
-      "/api/server/openai-key",
-      get(super::check_open_ai_key).post(super::set_open_ai_key),
-    )
-    .route(
       "/api/server/workspace-provider",
       get(super::get_workspace_provider).put(super::set_workspace_provider),
     )

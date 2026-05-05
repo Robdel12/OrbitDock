@@ -71,11 +71,11 @@ impl SessionRegistry {
   }
 
   pub async fn list_recent_projects(&self) -> Vec<RecentProject> {
-    let removed_worktree_paths =
-      crate::infrastructure::persistence::load_removed_worktree_paths(&self.db_path);
+    let hidden_project_paths =
+      crate::infrastructure::persistence::load_hidden_recent_project_paths(&self.db_path);
     let persisted_projects = crate::infrastructure::persistence::load_recent_projects_from_sessions(
       &self.db_path,
-      &removed_worktree_paths,
+      &hidden_project_paths,
     );
     if !persisted_projects.is_empty() {
       return persisted_projects;
@@ -91,6 +91,6 @@ impl SessionRegistry {
       }
       Some((snap.project_path.clone(), snap.last_activity_at.clone()))
     });
-    collect_recent_projects(sessions, &removed_worktree_paths)
+    collect_recent_projects(sessions, &hidden_project_paths)
   }
 }

@@ -42,6 +42,7 @@ pub(crate) async fn send_initial_prompt(
             model,
             effort,
             images: vec![],
+            mentions: vec![],
           })
           .await;
       }

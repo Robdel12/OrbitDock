@@ -1,6 +1,7 @@
 use codex_app_server_protocol::{ServerNotification, ServerRequest};
 use orbitdock_connector_core::ConnectorOutput;
-use tokio::sync::mpsc;
+
+use super::AppServerSessionRoute;
 
 pub(super) fn notification_thread_id(notification: &ServerNotification) -> Option<String> {
   Some(match notification {
@@ -52,11 +53,11 @@ pub(super) fn request_thread_id(request: &ServerRequest) -> Option<String> {
 }
 
 pub(super) async fn send_outputs(
-  output_tx: &mpsc::Sender<ConnectorOutput>,
+  route: &AppServerSessionRoute,
   outputs: Vec<ConnectorOutput>,
 ) {
   for output in outputs {
-    if output_tx.send(output).await.is_err() {
+    if route.forward_tx.send(output).is_err() {
       tracing::debug!("Typed codex app-server output channel closed");
       return;
     }
