@@ -60,6 +60,38 @@ fn write_content_payload_still_produces_addition_preview() {
 }
 
 #[test]
+fn diff_preview_prefers_first_added_block_for_collapsed_file_change_cards() {
+  let input_json = serde_json::json!({
+      "path": "/tmp/example.swift",
+      "diff": "--- /tmp/example.swift\n+++ /tmp/example.swift\n@@ -1,3 +1,4 @@\n-import OldView from './old-view';\n+import NewView from './new-view';\n+import PreviewStrip from './preview-strip';\n let keep = true\n let done = true"
+  });
+  let display = compute_tool_display(ToolDisplayInput {
+    kind: ToolKind::Edit,
+    family: ToolFamily::FileChange,
+    status: ToolStatus::Completed,
+    title: "Edit",
+    subtitle: None,
+    summary: None,
+    duration_ms: None,
+    invocation_input: Some(&input_json),
+    result_output: None,
+  });
+
+  let preview = display
+    .diff_preview
+    .expect("Edit payload should produce a collapsed diff preview");
+  assert_eq!(preview.snippet_prefix, "+");
+  assert!(preview.is_addition);
+  assert_eq!(
+    preview.preview_lines,
+    vec![
+      "import NewView from './new-view';",
+      "import PreviewStrip from './preview-strip';"
+    ]
+  );
+}
+
+#[test]
 fn compact_result_text_prefers_summary_then_output() {
   let summary_result = serde_json::json!({
       "summary": "3 files updated",

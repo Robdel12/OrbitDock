@@ -119,6 +119,13 @@ Provider-agnostic shell details live on `ToolRow.shell_execution` / `ToolRowSumm
 
 Timeline transport summaries keep this payload light: `aggregated_output` and `terminal_snapshot` are omitted from WS/HTTP timeline rows, `live_output_preview` is bounded, and full output is fetched through row content (`GET /api/sessions/{session_id}/rows/{row_id}/content`). Persisted rows may still contain the heavy fields.
 
+For file-change tools, the timeline contract is intentionally split:
+
+- `tool_display.diff_preview` is the authoritative collapsed preview for edit/write cards
+- `row content.diff_display` is expanded-only structured diff data
+
+Clients should not synthesize collapsed file-change previews from fetched row content or full diff hunks.
+
 ```json
 {
   "command": "git -C /repo status --short",

@@ -34,6 +34,10 @@ pub(crate) fn sanitize_server_message_for_transport(mut msg: ServerMessage) -> S
 /// Sanitize a pre-serialized replay event JSON string for transport.
 pub(crate) fn sanitize_replay_event_for_transport(event_json: &str) -> Option<String> {
   let mut value: serde_json::Value = serde_json::from_str(event_json).ok()?;
+  if sanitize_replay_event_value_for_transport(&mut value) {
+    return serde_json::to_string(&value).ok();
+  }
+
   let revision = value
     .as_object()
     .and_then(|object| object.get("revision").cloned());
@@ -52,6 +56,94 @@ pub(crate) fn sanitize_replay_event_for_transport(event_json: &str) -> Option<St
   }
 
   serde_json::to_string(&sanitized_value).ok()
+}
+
+fn sanitize_replay_event_value_for_transport(value: &mut serde_json::Value) -> bool {
+  let Some(kind) = value
+    .as_object()
+    .and_then(|object| object.get("type"))
+    .and_then(serde_json::Value::as_str)
+  else {
+    return false;
+  };
+
+  if kind != "conversation_rows_changed" {
+    return false;
+  }
+
+  let Some(upserted) = value
+    .as_object_mut()
+    .and_then(|object| object.get_mut("upserted"))
+    .and_then(serde_json::Value::as_array_mut)
+  else {
+    return true;
+  };
+
+  for entry in upserted {
+    sanitize_row_entry_summary_value(entry);
+  }
+
+  true
+}
+
+fn sanitize_row_entry_summary_value(entry: &mut serde_json::Value) {
+  let Some(row) = entry
+    .as_object_mut()
+    .and_then(|object| object.get_mut("row"))
+  else {
+    return;
+  };
+
+  sanitize_conversation_row_summary_value(row);
+}
+
+fn sanitize_conversation_row_summary_value(row: &mut serde_json::Value) {
+  let Some(row_type) = row
+    .as_object()
+    .and_then(|object| object.get("row_type"))
+    .and_then(serde_json::Value::as_str)
+  else {
+    return;
+  };
+
+  match row_type {
+    "tool" => sanitize_tool_row_value(row),
+    "activity_group" => {
+      if let Some(children) = row
+        .as_object_mut()
+        .and_then(|object| object.get_mut("children"))
+        .and_then(serde_json::Value::as_array_mut)
+      {
+        for child in children {
+          sanitize_tool_row_value(child);
+        }
+      }
+    }
+    _ => {}
+  }
+}
+
+fn sanitize_tool_row_value(tool: &mut serde_json::Value) {
+  let Some(shell_execution_value) = tool
+    .as_object_mut()
+    .and_then(|object| object.get_mut("shell_execution"))
+    .cloned()
+  else {
+    return;
+  };
+
+  let Ok(shell_execution) = serde_json::from_value::<
+    orbitdock_protocol::conversation_contracts::ShellExecutionPayload,
+  >(shell_execution_value) else {
+    return;
+  };
+
+  let sanitized = shell_execution.into_transport_summary();
+  if let (Some(object), Ok(sanitized_value)) =
+    (tool.as_object_mut(), serde_json::to_value(sanitized))
+  {
+    object.insert("shell_execution".to_string(), sanitized_value);
+  }
 }
 
 /// Check if any replay event exceeds the transport frame limit.

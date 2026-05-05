@@ -1657,8 +1657,9 @@ struct ToolCardView: View {
   @ViewBuilder
   private var fileChangeDiffContent: some View {
     let diffLines = fetchedContent?.diffDisplay ?? display?.diffDisplay ?? []
-    let previewLines = display?.diffPreview?.previewLines ?? []
-    let totalChanges = (display?.diffPreview?.additions ?? 0) + (display?.diffPreview?.deletions ?? 0)
+    let preview = display?.diffPreview
+    let previewLines = preview?.previewLines ?? []
+    let totalChanges = (preview?.additions ?? 0) + (preview?.deletions ?? 0)
 
     if isExpanded {
       // Full expanded diff — same style, just scrollable
@@ -1673,15 +1674,19 @@ struct ToolCardView: View {
           expandedBody(content)
         }
       }
-    } else if !diffLines.isEmpty {
-      // Show inline diff from fetched content
-      inlineDiffView(lines: diffLines, showFull: false)
     } else if !previewLines.isEmpty {
-      // Show preview lines with expand option
-      inlinePreviewDiff(lines: previewLines, totalChanges: Int(totalChanges))
-    } else if let snippet = display?.diffPreview?.snippetText, !snippet.isEmpty {
+      // Prefer the plain top-of-edit preview over synthesized diff hunks.
+      inlinePreviewDiff(
+        preview: preview,
+        lines: previewLines,
+        totalChanges: Int(totalChanges)
+      )
+    } else if let snippet = preview?.snippetText, !snippet.isEmpty {
       // Minimal snippet preview
-      singleLineDiffPreview(snippet: snippet, isAddition: display?.diffPreview?.isAddition ?? true)
+      singleLineDiffPreview(snippet: snippet, isAddition: preview?.isAddition ?? true)
+    } else if !diffLines.isEmpty {
+      // Last resort when no compact preview is available.
+      inlineDiffView(lines: diffLines, showFull: false)
     } else if isLoadingContent {
       loadingState
     }
@@ -1821,47 +1826,32 @@ struct ToolCardView: View {
   }
 
   /// Preview diff from previewLines when full diff content is not available.
-  private func inlinePreviewDiff(lines: [String], totalChanges: Int) -> some View {
-    let isAddition = display?.diffPreview?.isAddition ?? true
+  private func inlinePreviewDiff(
+    preview: ServerToolDiffPreview?,
+    lines: [String],
+    totalChanges: Int
+  ) -> some View {
+    let isAddition = preview?.isAddition ?? true
     let maxPreviewLines = isCompactLayout ? 6 : 8
+    let visibleLines = Array(lines.prefix(maxPreviewLines))
+    let prefix = preview?.snippetPrefix ?? (isAddition ? "+" : "-")
 
     return VStack(alignment: .leading, spacing: 0) {
-      // Show context line header if available
-      if let contextLine = display?.diffPreview?.contextLine, !contextLine.isEmpty {
-        HStack(spacing: Spacing.xs) {
-          Text("@")
-            .font(.system(size: TypeScale.mini, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.accent.opacity(0.6))
-          Text(contextLine)
-            .font(.system(size: TypeScale.mini, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(1)
-        }
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, Spacing.xs)
-        .background(Color.accent.opacity(0.05))
-      }
-
-      ForEach(Array(lines.prefix(maxPreviewLines).enumerated()), id: \.offset) { _, line in
-        HStack(alignment: .top, spacing: 0) {
-          Text(isAddition ? "+" : "-")
-            .font(.system(size: TypeScale.code, weight: .bold, design: .monospaced))
-            .foregroundStyle(isAddition ? Color.diffAddedAccent : Color.diffRemovedAccent)
-            .frame(width: 14, alignment: .leading)
-
-          Text(line)
-            .font(.system(size: TypeScale.code, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
-            .lineLimit(1)
-        }
+      ForEach(Array(visibleLines.enumerated()), id: \.offset) { index, line in
+        previewCodeLine(
+          line,
+          prefix: index == 0 ? prefix : nil,
+          tint: isAddition ? Color.diffAddedAccent : Color.diffRemovedAccent
+        )
         .padding(.horizontal, Spacing.sm)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isAddition ? Color.diffAddedBg : Color.diffRemovedBg)
+        .background(index == 0 ? (isAddition ? Color.diffAddedBg : Color.diffRemovedBg) : Color.clear)
       }
 
-      if lines.count > maxPreviewLines || totalChanges > maxPreviewLines {
-        expandPrompt(remaining: max(totalChanges - maxPreviewLines, lines.count - maxPreviewLines))
+      let remaining = max(totalChanges - visibleLines.count, lines.count - visibleLines.count)
+      if remaining > 0 {
+        expandPrompt(remaining: remaining)
       }
     }
   }
@@ -2221,10 +2211,6 @@ struct ToolCardView: View {
     // Diff preview for edit/write
     if let preview = display?.diffPreview {
       diffPreviewStrip(preview)
-    } else if let preview = fetchedContentDiffPreview {
-      diffPreviewStrip(preview)
-    } else if let preview = fallbackFileChangePreview {
-      diffPreviewStrip(preview)
     }
 
     if toolType == "read", let preview = display?.outputPreview, !preview.isEmpty {
@@ -2315,55 +2301,6 @@ struct ToolCardView: View {
         bottomPad: Spacing.sm_
       )
     }
-  }
-
-  private var fallbackFileChangePreview: ServerToolDiffPreview? {
-    guard isFileChangeCard else { return nil }
-
-    if case let .diff(additions, deletions, snippet)? = toolRow.preview {
-      let trimmed = snippet.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmed.isEmpty else { return nil }
-      let isAddition = additions > 0 || deletions == 0
-      return ServerToolDiffPreview(
-        contextLine: compactResultSummary,
-        snippetText: trimmed,
-        previewLines: trimmed
-          .components(separatedBy: .newlines)
-          .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-          .filter { !$0.isEmpty },
-        snippetPrefix: isAddition ? "+" : "-",
-        isAddition: isAddition,
-        additions: additions,
-        deletions: deletions
-      )
-    }
-
-    return nil
-  }
-
-  private var fetchedContentDiffPreview: ServerToolDiffPreview? {
-    guard isFileChangeCard, let diffLines = fetchedContent?.diffDisplay, !diffLines.isEmpty else { return nil }
-
-    let additions = diffLines.filter { $0.type == .addition }.count
-    let deletions = diffLines.filter { $0.type == .deletion }.count
-
-    guard let firstChanged = diffLines.first(where: { $0.type != .context }) else { return nil }
-
-    let isAddition = firstChanged.type == .addition
-    let prefix = isAddition ? "+" : "-"
-
-    return ServerToolDiffPreview(
-      contextLine: compactResultSummary,
-      snippetText: firstChanged.content,
-      previewLines: diffLines
-        .filter { $0.type != .context }
-        .prefix(4)
-        .map(\.content),
-      snippetPrefix: prefix,
-      isAddition: isAddition,
-      additions: UInt32(additions),
-      deletions: UInt32(deletions)
-    )
   }
 
   private func fileChangePreview(_ preview: ServerToolDiffPreview) -> some View {

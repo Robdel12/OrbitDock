@@ -61,7 +61,8 @@ pub struct ToolDisplay {
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub language: Option<String>,
 
-  /// Diff preview for edit/write tools.
+  /// Compact collapsed preview for edit/write tools.
+  /// This is the authoritative summary shown in timeline cards.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub diff_preview: Option<ToolDiffPreview>,
 
@@ -100,6 +101,7 @@ pub struct ToolDisplay {
   pub output_display: Option<String>,
 
   /// Structured diff for edit/write tools — expanded view renders this line-by-line.
+  /// Clients should not use this for collapsed timeline previews.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub diff_display: Option<Vec<DiffLine>>,
 

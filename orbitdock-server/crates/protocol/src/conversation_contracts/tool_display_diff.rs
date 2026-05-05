@@ -3,6 +3,9 @@ use crate::domain_events::ToolKind;
 use super::tool_display_shared::{joined_preview_text, preview_lines_from_text, truncate};
 use super::{DiffLine, DiffLineKind, ToolDiffPreview};
 
+const DIFF_PREVIEW_MAX_LINES: usize = 4;
+const DIFF_PREVIEW_MAX_CHARS: usize = 120;
+
 pub(super) fn compute_diff_preview(
   kind: ToolKind,
   input: Option<&serde_json::Value>,
@@ -25,9 +28,9 @@ pub(super) fn compute_diff_preview(
       let deletions = old.lines().count() as u32;
       let is_addition = deletions == 0 || additions >= deletions;
       let preview_lines = if is_addition {
-        preview_lines_from_text(new, 4, 120)
+        preview_lines_from_text(new, DIFF_PREVIEW_MAX_LINES, DIFF_PREVIEW_MAX_CHARS)
       } else {
-        preview_lines_from_text(old, 4, 120)
+        preview_lines_from_text(old, DIFF_PREVIEW_MAX_LINES, DIFF_PREVIEW_MAX_CHARS)
       };
       let snippet = if is_addition {
         new.lines().next().unwrap_or("")
@@ -48,7 +51,8 @@ pub(super) fn compute_diff_preview(
     _ => {
       if let Some(content) = input.get("content").and_then(|value| value.as_str()) {
         let lines = content.lines().count() as u32;
-        let preview_lines = preview_lines_from_text(content, 4, 120);
+        let preview_lines =
+          preview_lines_from_text(content, DIFF_PREVIEW_MAX_LINES, DIFF_PREVIEW_MAX_CHARS);
         let first_line = content.lines().next().unwrap_or("");
         return Some(ToolDiffPreview {
           context_line: None,
@@ -71,34 +75,17 @@ pub(super) fn compute_diff_preview(
         return None;
       }
 
-      let mut additions = 0;
-      let mut deletions = 0;
-      let mut first_changed: Option<(&str, bool)> = None;
-      let mut preview_lines = Vec::new();
-      for line in &parsed {
-        match line.kind {
-          DiffLineKind::Addition => {
-            additions += 1;
-            if first_changed.is_none() {
-              first_changed = Some((&line.content, true));
-            }
-            if preview_lines.len() < 4 {
-              preview_lines.push(truncate(&line.content, 120));
-            }
-          }
-          DiffLineKind::Deletion => {
-            deletions += 1;
-            if first_changed.is_none() {
-              first_changed = Some((&line.content, false));
-            }
-            if preview_lines.len() < 4 {
-              preview_lines.push(truncate(&line.content, 120));
-            }
-          }
-          DiffLineKind::Context => {}
-        }
-      }
-      let (snippet, is_addition) = first_changed.unwrap_or(("", true));
+      let additions = parsed
+        .iter()
+        .filter(|line| line.kind == DiffLineKind::Addition)
+        .count() as u32;
+      let deletions = parsed
+        .iter()
+        .filter(|line| line.kind == DiffLineKind::Deletion)
+        .count() as u32;
+      let is_addition = additions > 0 || deletions == 0;
+      let preview_lines = preview_lines_from_diff_lines(&parsed, is_addition);
+      let snippet = preview_lines.first().map(String::as_str).unwrap_or("");
       let prefix = if is_addition { "+" } else { "-" };
       Some(ToolDiffPreview {
         context_line: None,
@@ -111,6 +98,39 @@ pub(super) fn compute_diff_preview(
       })
     }
   }
+}
+
+fn preview_lines_from_diff_lines(lines: &[DiffLine], prefer_additions: bool) -> Vec<String> {
+  let preferred_kind = if prefer_additions {
+    DiffLineKind::Addition
+  } else {
+    DiffLineKind::Deletion
+  };
+
+  let mut preview_lines = consecutive_preview_lines(lines, preferred_kind);
+  if preview_lines.is_empty() {
+    let fallback_kind = if prefer_additions {
+      DiffLineKind::Deletion
+    } else {
+      DiffLineKind::Addition
+    };
+    preview_lines = consecutive_preview_lines(lines, fallback_kind);
+  }
+  preview_lines
+}
+
+fn consecutive_preview_lines(lines: &[DiffLine], kind: DiffLineKind) -> Vec<String> {
+  let Some(start_index) = lines.iter().position(|line| line.kind == kind) else {
+    return Vec::new();
+  };
+
+  lines[start_index..]
+    .iter()
+    .take_while(|line| line.kind == kind)
+    .map(|line| truncate(&line.content, DIFF_PREVIEW_MAX_CHARS))
+    .filter(|line| !line.trim().is_empty())
+    .take(DIFF_PREVIEW_MAX_LINES)
+    .collect()
 }
 
 pub fn compute_expanded_output(kind: ToolKind, result_output: Option<&str>) -> Option<String> {
