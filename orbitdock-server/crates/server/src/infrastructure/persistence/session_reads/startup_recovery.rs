@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
 
+use crate::support::session_time::parse_unix_z;
+
 use super::super::chrono_now;
 use super::super::messages::load_messages_from_db;
 use super::super::transcripts::load_messages_from_transcript;
@@ -13,6 +15,16 @@ use super::hydration::{build_restored_session, load_restored_session_supplement}
 use super::projections::{ActiveSessionRow, RestoredSessionParts};
 use super::RestoredSession;
 use orbitdock_protocol::SessionControlMode;
+
+fn parse_timestamp_to_unix(value: Option<&str>) -> Option<u64> {
+  let raw = value?;
+  if let Some(unix) = parse_unix_z(Some(raw)) {
+    return Some(unix);
+  }
+  chrono::DateTime::parse_from_rfc3339(raw)
+    .ok()
+    .map(|parsed| parsed.timestamp().max(0) as u64)
+}
 
 #[cfg(test)]
 pub async fn load_session_lifecycle_state(
@@ -237,13 +249,8 @@ async fn load_sessions_for_startup_with_db_path(
                  LEFT JOIN usage_session_state uss ON uss.session_id = s.id
                  WHERE (s.status = 'active')
                     OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
-                 ORDER BY
-                   COALESCE(
-                     CAST(REPLACE(s.last_progress_at, 'Z', '') AS INTEGER),
-                     CAST(REPLACE(s.last_activity_at, 'Z', '') AS INTEGER),
-                     0
-                   ) DESC,
-                   COALESCE(CAST(REPLACE(s.last_activity_at, 'Z', '') AS INTEGER), 0) DESC",
+                 ORDER BY CASE s.status WHEN 'active' THEN 0 ELSE 1 END,
+                          COALESCE(s.last_progress_at, s.last_activity_at, s.started_at, '') DESC",
     )?;
 
     let session_rows: Vec<ActiveSessionRow> = stmt
@@ -375,6 +382,20 @@ async fn load_sessions_for_startup_with_db_path(
         allow_bypass_permissions: supplement.allow_bypass_permissions,
       }));
     }
+
+    sessions.sort_by(|left, right| {
+      let left_progress = parse_timestamp_to_unix(left.last_progress_at.as_deref());
+      let right_progress = parse_timestamp_to_unix(right.last_progress_at.as_deref());
+      let left_activity = parse_timestamp_to_unix(left.last_activity_at.as_deref());
+      let right_activity = parse_timestamp_to_unix(right.last_activity_at.as_deref());
+      let left_started = parse_timestamp_to_unix(left.started_at.as_deref());
+      let right_started = parse_timestamp_to_unix(right.started_at.as_deref());
+
+      right_progress
+        .cmp(&left_progress)
+        .then_with(|| right_activity.cmp(&left_activity))
+        .then_with(|| right_started.cmp(&left_started))
+    });
 
     Ok(sessions)
   })

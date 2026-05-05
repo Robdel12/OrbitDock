@@ -39,7 +39,7 @@ jobs:
           workspaces: "orbitdock-server -> ../.cache/rust/target"
           # Include workflow + Makefile in the key so cache busts on CI
           # or build-config changes, not just dependency changes.
-          shared-key: "rust-ci"
+          shared-key: "rust-ci-v2"
           cache-on-failure: true
 
       - name: rust fmt check

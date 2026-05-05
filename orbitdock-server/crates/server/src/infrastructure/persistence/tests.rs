@@ -1173,6 +1173,112 @@ fn startup_restore_only_ends_stale_passive_codex_sessions() {
 }
 
 #[test]
+fn startup_restore_sorts_mixed_timestamp_formats_by_actual_recency() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
+         ) VALUES (
+            'iso-recent', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-iso-recent', '2026-05-01T14:00:00Z', '2026-05-01T14:10:34Z', '2026-05-01T14:10:34Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
+         ) VALUES (
+            'unix-stale', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-unix-stale', '2026-04-16T20:34:39Z', '1776438552Z', '1776438552Z'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path))
+    .unwrap();
+
+  let iso_index = restored
+    .iter()
+    .position(|session| session.id == "iso-recent")
+    .expect("iso session should be restored");
+  let unix_index = restored
+    .iter()
+    .position(|session| session.id == "unix-stale")
+    .expect("unix session should be restored");
+
+  assert!(
+    iso_index < unix_index,
+    "RFC3339 timestamps should sort ahead of older unix-with-Z timestamps"
+  );
+}
+
+#[test]
+fn startup_restore_uses_started_at_as_final_tiebreaker() {
+  let (conn, db_path, _dir, _guard) = setup_test_db();
+
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
+         ) VALUES (
+            'newer-start', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-newer-start', '2026-05-01T14:11:00Z', '2026-05-01T14:10:34Z', '2026-05-01T14:10:34Z'
+         )",
+      [],
+    )
+    .unwrap();
+  conn
+    .execute(
+      "INSERT INTO sessions (
+            id, provider, status, work_status, lifecycle_state, control_mode,
+            project_path, codex_integration_mode, codex_thread_id, started_at, last_activity_at, last_progress_at
+         ) VALUES (
+            'older-start', 'codex', 'active', 'waiting', 'open', 'direct',
+            '/tmp/test', 'direct', 'thread-older-start', '2026-05-01T14:09:00Z', '2026-05-01T14:10:34Z', '2026-05-01T14:10:34Z'
+         )",
+      [],
+    )
+    .unwrap();
+  drop(conn);
+
+  let runtime = tokio::runtime::Builder::new_current_thread()
+    .enable_all()
+    .build()
+    .unwrap();
+  let restored = runtime
+    .block_on(super::session_reads::load_sessions_for_startup_from_db_path(db_path))
+    .unwrap();
+
+  let newer_index = restored
+    .iter()
+    .position(|session| session.id == "newer-start")
+    .expect("newer-start session should be restored");
+  let older_index = restored
+    .iter()
+    .position(|session| session.id == "older-start")
+    .expect("older-start session should be restored");
+
+  assert!(
+    newer_index < older_index,
+    "started_at should break ties after progress and activity timestamps"
+  );
+}
+
+#[test]
 fn startup_restore_marks_open_direct_sessions_as_resumable() {
   let (conn, db_path, _dir, _guard) = setup_test_db();
 
