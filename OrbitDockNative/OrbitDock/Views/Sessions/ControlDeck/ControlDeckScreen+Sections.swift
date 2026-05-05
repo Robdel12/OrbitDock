@@ -90,7 +90,8 @@ extension ControlDeckScreen {
   }
 
   var currentSuggestions: [ControlDeckCompletionSuggestion] {
-    composer.currentSuggestions(
+    _ = interaction.projectFileIndexVersion
+    return composer.currentSuggestions(
       availableSkills: interaction.skills,
       projectPath: interaction.projectPath,
       projectFileIndex: interaction.projectFileIndex

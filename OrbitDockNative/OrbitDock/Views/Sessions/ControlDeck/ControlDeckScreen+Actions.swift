@@ -26,6 +26,10 @@ extension ControlDeckScreen {
     if shouldLoadSkills {
       Task { await interaction.loadSkills() }
     }
+
+    if case .mention = composer.completionState.mode {
+      Task { await interaction.loadProjectFileIndexForAutocompleteIfNeeded() }
+    }
   }
 
   func handleKeyCommand(_ command: ControlDeckTextAreaKeyCommand) -> Bool {

@@ -38,9 +38,7 @@ pub(crate) enum DispatchMessageError {
   SessionNotFound,
   ConnectorUnavailable,
   NotSteerable,
-  ActiveTurnMismatch {
-    actual_turn_id: Option<String>,
-  },
+  ActiveTurnMismatch { actual_turn_id: Option<String> },
 }
 
 pub(crate) struct AnswerQuestionResult {
@@ -166,10 +164,6 @@ pub(crate) async fn dispatch_send_message(
         event: crate::domain::sessions::transition::Input::FirstPromptCaptured(prompt.clone()),
       })
       .await;
-
-    if state.naming_guard().try_claim(&session_id) {
-      crate::support::ai_naming::spawn_naming_task(session_id.clone(), prompt, actor.clone());
-    }
   } else {
     // Subsequent messages: just increment prompt_count
     let _ = state

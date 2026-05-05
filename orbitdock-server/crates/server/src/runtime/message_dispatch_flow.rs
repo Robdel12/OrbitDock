@@ -77,6 +77,7 @@ pub(super) async fn send_user_message_to_connector(
         model: action_model,
         effort: connector_effort,
         images: connector_images,
+        mentions,
       })
       .await
       .is_ok()
@@ -140,6 +141,7 @@ pub(super) async fn send_steer_turn_to_connector(
         content,
         message_id,
         images: connector_images,
+        mentions,
       })
       .await
       .is_ok()

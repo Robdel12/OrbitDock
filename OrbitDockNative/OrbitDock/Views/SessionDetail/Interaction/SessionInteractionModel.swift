@@ -23,6 +23,7 @@ final class SessionInteractionModel {
   var presentation: ControlDeckPresentation?
   var skills: [ControlDeckSkill] = []
   var controls: ServerSessionControlsPayload?
+  var projectFileIndexVersion = 0
   var isLoadingSkills = false
   var hasAttemptedSkillLoad = false
   var isLoading = false

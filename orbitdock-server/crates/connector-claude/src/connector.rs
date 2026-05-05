@@ -1,4 +1,6 @@
 use std::collections::{HashMap, VecDeque};
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -50,9 +52,11 @@ pub struct ClaudeConnector {
   claude_session_id: Arc<Mutex<Option<String>>>,
   pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
   pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+  cwd: PathBuf,
 }
 
 const CLAUDE_STDERR_TAIL_LINES: usize = 5;
+const FILE_MENTION_MAX_BYTES: usize = 64 * 1024;
 
 impl ClaudeConnector {
   /// Spawn a new `claude` CLI subprocess.
@@ -224,6 +228,7 @@ impl ClaudeConnector {
       claude_session_id,
       pending_controls,
       pending_approvals,
+      cwd: PathBuf::from(config.cwd),
     };
 
     match connector.send_initialize().await {
@@ -260,10 +265,9 @@ impl ClaudeConnector {
     _model: Option<&str>,
     _effort: Option<&str>,
     images: &[orbitdock_protocol::ImageInput],
+    mentions: &[orbitdock_protocol::MentionInput],
   ) -> Result<(), ConnectorError> {
-    let mut content_blocks = vec![UserContentBlock::Text {
-      text: content.to_string(),
-    }];
+    let mut content_blocks = build_user_content_blocks(content, images, mentions, &self.cwd);
 
     for image in images {
       match transform_image(image) {
@@ -627,6 +631,121 @@ impl ClaudeConnector {
       }
     }
   }
+}
+
+pub(crate) fn build_user_content_blocks(
+  content: &str,
+  images: &[orbitdock_protocol::ImageInput],
+  mentions: &[orbitdock_protocol::MentionInput],
+  cwd: &Path,
+) -> Vec<UserContentBlock> {
+  let mut content_blocks = Vec::new();
+
+  if !content.is_empty() {
+    content_blocks.push(UserContentBlock::Text {
+      text: content.to_string(),
+    });
+  }
+
+  if let Some(mention_context) = render_mention_context(mentions, cwd) {
+    content_blocks.push(UserContentBlock::Text {
+      text: mention_context,
+    });
+  }
+
+  if content_blocks.is_empty() && images.is_empty() {
+    content_blocks.push(UserContentBlock::Text {
+      text: String::new(),
+    });
+  }
+
+  content_blocks
+}
+
+fn render_mention_context(
+  mentions: &[orbitdock_protocol::MentionInput],
+  cwd: &Path,
+) -> Option<String> {
+  let sections = mentions
+    .iter()
+    .filter_map(|mention| render_single_mention(mention, cwd))
+    .collect::<Vec<_>>();
+
+  if sections.is_empty() {
+    None
+  } else {
+    Some(format!(
+      "Attached file context:\n\n{}",
+      sections.join("\n\n")
+    ))
+  }
+}
+
+fn render_single_mention(mention: &orbitdock_protocol::MentionInput, cwd: &Path) -> Option<String> {
+  let resolved_path = if Path::new(&mention.path).is_absolute() {
+    PathBuf::from(&mention.path)
+  } else {
+    cwd.join(&mention.path)
+  };
+  let display_path = relative_display_path(&resolved_path, cwd);
+
+  let bytes = match fs::read(&resolved_path) {
+    Ok(bytes) => bytes,
+    Err(error) => {
+      warn!(
+        event = "claude.file_mention.read_failed",
+        path = %resolved_path.display(),
+        error = %error,
+        "Failed to read file mention for Claude prompt context"
+      );
+      return Some(format!(
+        "<attached_file path=\"{}\">\n[unavailable: {}]\n</attached_file>",
+        escape_tag_attribute(&display_path),
+        error
+      ));
+    }
+  };
+
+  if bytes.contains(&0) {
+    return Some(format!(
+      "<attached_file path=\"{}\">\n[binary file omitted]\n</attached_file>",
+      escape_tag_attribute(&display_path)
+    ));
+  }
+
+  let truncated = bytes.len() > FILE_MENTION_MAX_BYTES;
+  let visible = if truncated {
+    &bytes[..FILE_MENTION_MAX_BYTES]
+  } else {
+    &bytes[..]
+  };
+  let mut body = String::from_utf8_lossy(visible).into_owned();
+  if truncated {
+    body.push_str("\n[truncated]");
+  }
+
+  Some(format!(
+    "<attached_file path=\"{}\">\n{}\n</attached_file>",
+    escape_tag_attribute(&display_path),
+    body
+  ))
+}
+
+fn relative_display_path(path: &Path, cwd: &Path) -> String {
+  path
+    .strip_prefix(cwd)
+    .unwrap_or(path)
+    .display()
+    .to_string()
+    .replace('\\', "/")
+}
+
+fn escape_tag_attribute(value: &str) -> String {
+  value
+    .replace('&', "&amp;")
+    .replace('"', "&quot;")
+    .replace('<', "&lt;")
+    .replace('>', "&gt;")
 }
 
 /// Resolve the claude binary path.

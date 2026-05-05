@@ -87,6 +87,7 @@ pub enum ClaudeAction {
     model: Option<String>,
     effort: Option<String>,
     images: Vec<orbitdock_protocol::ImageInput>,
+    mentions: Vec<orbitdock_protocol::MentionInput>,
   },
   Interrupt,
   ApproveTool {
@@ -112,6 +113,7 @@ pub enum ClaudeAction {
     content: String,
     message_id: String,
     images: Vec<orbitdock_protocol::ImageInput>,
+    mentions: Vec<orbitdock_protocol::MentionInput>,
   },
   RewindFiles {
     user_message_id: String,
@@ -153,12 +155,14 @@ impl std::fmt::Debug for ClaudeAction {
         model,
         effort,
         images,
+        mentions,
       } => f
         .debug_struct("SendMessage")
         .field("content_len", &content.len())
         .field("model", model)
         .field("effort", effort)
         .field("images_count", &images.len())
+        .field("mentions_count", &mentions.len())
         .finish(),
       Self::Interrupt => write!(f, "Interrupt"),
       Self::ApproveTool {
@@ -193,11 +197,13 @@ impl std::fmt::Debug for ClaudeAction {
         content,
         message_id,
         images,
+        mentions,
       } => f
         .debug_struct("SteerTurn")
         .field("content_len", &content.len())
         .field("message_id", message_id)
         .field("images_count", &images.len())
+        .field("mentions_count", &mentions.len())
         .finish(),
       Self::RewindFiles { user_message_id } => f
         .debug_struct("RewindFiles")
@@ -268,9 +274,16 @@ impl ClaudeSession {
         model,
         effort,
         images,
+        mentions,
       } => {
         connector
-          .send_message(&content, model.as_deref(), effort.as_deref(), &images)
+          .send_message(
+            &content,
+            model.as_deref(),
+            effort.as_deref(),
+            &images,
+            &mentions,
+          )
           .await?;
       }
       ClaudeAction::Interrupt => {
@@ -290,11 +303,15 @@ impl ClaudeSession {
       }
       ClaudeAction::Compact => {
         // Send /compact as a user message — the CLI handles it as a slash command.
-        connector.send_message("/compact", None, None, &[]).await?;
+        connector
+          .send_message("/compact", None, None, &[], &[])
+          .await?;
       }
       ClaudeAction::Undo => {
         // Send /undo as a slash command
-        connector.send_message("/undo", None, None, &[]).await?;
+        connector
+          .send_message("/undo", None, None, &[], &[])
+          .await?;
       }
       ClaudeAction::SetModel { model } => {
         connector.set_model(&model).await?;
@@ -306,13 +323,16 @@ impl ClaudeSession {
         connector.set_permission_mode(&mode).await?;
       }
       ClaudeAction::SteerTurn {
-        content, images, ..
+        content,
+        images,
+        mentions,
+        ..
       } => {
         // Write directly to stdin — CLI queues mid-turn messages naturally.
         // No interrupt needed: the SDK's streamInput just enqueues user
         // messages and the CLI processes them when the current turn yields.
         connector
-          .send_message(&content, None, None, &images)
+          .send_message(&content, None, None, &images, &mentions)
           .await?;
       }
       ClaudeAction::RewindFiles { user_message_id } => {

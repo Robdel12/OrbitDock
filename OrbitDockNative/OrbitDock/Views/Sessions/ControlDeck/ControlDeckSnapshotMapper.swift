@@ -84,7 +84,7 @@ enum ControlDeckSnapshotMapper {
     let selectedCodexModel = selectedCodexModelOption(for: session, codexModels: codexModels)
     return ControlDeckCapabilities(
       supportsSkills: session.provider == .codex,
-      supportsMentions: session.provider == .codex,
+      supportsMentions: true,
       supportsImages: true,
       supportsSteer: session.steerable,
       allowPerTurnModelOverride: true,

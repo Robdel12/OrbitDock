@@ -63,6 +63,9 @@ extension SessionInteractionModel {
     do {
       skills = try await fetchEnabledSkills(session: session)
     } catch {
+      // Connector-backed skill discovery can briefly 503 while a direct Codex
+      // session is still resuming. Let the next autocomplete attempt retry.
+      hasAttemptedSkillLoad = false
       netLog(.debug, cat: .store, "Skills load failed (non-critical)", sid: sessionId, data: [
         "error": String(describing: error),
       ])

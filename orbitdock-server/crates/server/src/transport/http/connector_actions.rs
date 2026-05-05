@@ -52,13 +52,18 @@ pub(crate) fn messaging_dispatch_error_response(
         session_id
       ),
     ),
-    crate::runtime::message_dispatch::DispatchMessageError::ActiveTurnMismatch { actual_turn_id } => {
+    crate::runtime::message_dispatch::DispatchMessageError::ActiveTurnMismatch {
+      actual_turn_id,
+    } => {
       let detail = actual_turn_id
         .map(|turn_id| format!("expected active turn changed to {}", turn_id))
         .unwrap_or_else(|| "there is no longer an active turn".to_string());
       conflict(
         "active_turn_mismatch",
-        format!("Session {} steer precondition failed: {}", session_id, detail),
+        format!(
+          "Session {} steer precondition failed: {}",
+          session_id, detail
+        ),
       )
     }
   }

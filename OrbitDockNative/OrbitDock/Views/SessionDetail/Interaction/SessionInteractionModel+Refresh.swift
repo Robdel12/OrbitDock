@@ -268,6 +268,15 @@ extension SessionInteractionModel {
     guard let projectPath, !projectPath.isEmpty else { return }
     guard isCurrent(binding) else { return }
     await binding.session.projectFileIndex.loadIfNeeded(projectPath)
+    guard isCurrent(binding) else { return }
+    projectFileIndexVersion &+= 1
+  }
+
+  func loadProjectFileIndexForAutocompleteIfNeeded() async {
+    guard let binding = currentBindingContext else { return }
+    guard let projectPath = snapshot?.state.projectPath, !projectPath.isEmpty else { return }
+    guard !binding.session.projectFileIndex.isReady(for: projectPath) else { return }
+    await loadProjectFileIndexIfNeeded(for: projectPath, binding: binding)
   }
 
   func rebuildPresentation() {

@@ -222,11 +222,6 @@ pub fn start_event_loop(
                                   })
                                   .await;
 
-                              crate::support::ai_naming::spawn_naming_task(
-                                  session_id.clone(),
-                                  prompt,
-                                  actor_for_naming.clone(),
-                              );
                           }
                       }
 
@@ -324,7 +319,7 @@ pub fn start_event_loop(
                                   &mut session_handle,
                                   &persist,
                               ).await;
-                              match session.connector.send_message("/undo", None, None, &[]).await {
+                              match session.connector.send_message("/undo", None, None, &[], &[]).await {
                                   Ok(()) => {
                                       dispatch_connector_event(
                                           &session_id,
@@ -343,8 +338,8 @@ pub fn start_event_loop(
                                   }
                               }
                           }
-                          ClaudeAction::SteerTurn { content, message_id, images } => {
-                              match session.connector.send_message(content, None, None, images).await {
+                          ClaudeAction::SteerTurn { content, message_id, images, mentions } => {
+                              match session.connector.send_message(content, None, None, images, mentions).await {
                                   Ok(()) => {
                                       handle_session_command(
                                           SessionCommand::UpdateSteerOutcome {

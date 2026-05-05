@@ -1,10 +1,13 @@
 use std::collections::HashMap;
+use std::fs;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
+use super::connector::build_user_content_blocks;
 use super::images::{parse_data_uri_base64, transform_image};
 use super::protocol::{ImageSource, UserContentBlock};
 use super::stdout::{
@@ -56,6 +59,36 @@ fn transform_image_keeps_http_url_as_url_source() {
     } => assert_eq!(url, "https://example.com/image.png"),
     other => panic!("expected url image source, got {:?}", other),
   }
+}
+
+#[test]
+fn build_user_content_blocks_inlines_file_mentions_for_claude() {
+  let root = std::env::temp_dir().join(format!("orbitdock-claude-mentions-{}", Uuid::new_v4()));
+  let src = root.join("src");
+  fs::create_dir_all(&src).expect("create source dir");
+  fs::write(src.join("main.rs"), "fn main() {}\n").expect("write source file");
+
+  let mentions = vec![orbitdock_protocol::MentionInput {
+    name: "main.rs".to_string(),
+    path: src.join("main.rs").display().to_string(),
+  }];
+  let blocks = build_user_content_blocks("Please review this file", &[], &mentions, &root);
+
+  assert_eq!(blocks.len(), 2);
+  match &blocks[0] {
+    UserContentBlock::Text { text } => assert_eq!(text, "Please review this file"),
+    other => panic!("expected user text block, got {:?}", other),
+  }
+  match &blocks[1] {
+    UserContentBlock::Text { text } => {
+      assert!(text.contains("Attached file context:"));
+      assert!(text.contains("src/main.rs"));
+      assert!(text.contains("fn main() {}"));
+    }
+    other => panic!("expected mention context block, got {:?}", other),
+  }
+
+  let _ = fs::remove_dir_all(&root);
 }
 
 #[tokio::test]

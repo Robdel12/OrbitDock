@@ -3,6 +3,16 @@ import Testing
 
 @MainActor
 struct ControlDeckAutocompletePlannerTests {
+  @Test func completionModeActivatesForBareMentionPrefix() {
+    let mode = ControlDeckAutocompletePlanner.completionMode(for: "Check @")
+    #expect(mode == .mention(query: ""))
+  }
+
+  @Test func completionModeActivatesForMentionQuery() {
+    let mode = ControlDeckAutocompletePlanner.completionMode(for: "Check @mai")
+    #expect(mode == .mention(query: "mai"))
+  }
+
   @Test func completionModeActivatesForBareSkillPrefix() {
     let mode = ControlDeckAutocompletePlanner.completionMode(for: "$")
     #expect(mode == .skill(query: ""))

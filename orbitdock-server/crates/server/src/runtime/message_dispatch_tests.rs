@@ -1,8 +1,9 @@
 use tokio::sync::mpsc;
 
+use orbitdock_connector_claude::session::ClaudeAction;
 use orbitdock_protocol::{
-  CodexConfigMode, CodexIntegrationMode, Provider, SessionLifecycleState, SessionStatus,
-  StateChanges, WorkStatus,
+  ClaudeIntegrationMode, CodexConfigMode, CodexIntegrationMode, MentionInput, Provider,
+  SessionLifecycleState, SessionStatus, StateChanges, WorkStatus,
 };
 
 use crate::domain::sessions::session::SessionHandle;
@@ -159,6 +160,57 @@ async fn stop_active_turn_reports_connector_unavailable_when_session_exists_with
 
   let result = dispatch_stop_active_turn(&state, session_id).await;
   assert_eq!(result, Err("connector_unavailable"));
+}
+
+#[tokio::test]
+async fn claude_send_message_forwards_mentions_to_connector() {
+  let state = new_test_session_registry(true);
+  let session_id = "session-claude-mentions";
+  let mut handle = SessionHandle::new(
+    session_id.to_string(),
+    Provider::Claude,
+    "/tmp/orbitdock-test".to_string(),
+  );
+  handle.apply_changes(&StateChanges {
+    status: Some(SessionStatus::Active),
+    work_status: Some(WorkStatus::Waiting),
+    lifecycle_state: Some(SessionLifecycleState::Open),
+    claude_integration_mode: Some(Some(ClaudeIntegrationMode::Direct)),
+    ..Default::default()
+  });
+  state.add_session(handle);
+
+  let (action_tx, mut action_rx) = mpsc::channel(1);
+  state.set_claude_action_tx(session_id, action_tx);
+  let mention = MentionInput {
+    name: "main.rs".to_string(),
+    path: "/tmp/orbitdock-test/src/main.rs".to_string(),
+  };
+
+  let result = dispatch_send_message(
+    &state,
+    DispatchSendMessage {
+      session_id: session_id.to_string(),
+      content: "please inspect this".to_string(),
+      model: None,
+      effort: None,
+      skills: vec![],
+      images: vec![],
+      mentions: vec![mention.clone()],
+      message_id: "message-claude-1".to_string(),
+    },
+  )
+  .await;
+
+  assert!(result.is_ok());
+  match action_rx.recv().await.expect("claude action") {
+    ClaudeAction::SendMessage { mentions, .. } => {
+      assert_eq!(mentions.len(), 1);
+      assert_eq!(mentions[0].name, mention.name);
+      assert_eq!(mentions[0].path, mention.path);
+    }
+    other => panic!("expected ClaudeAction::SendMessage, got {:?}", other),
+  }
 }
 
 #[tokio::test]

@@ -184,6 +184,7 @@ struct ControlDeckPresentationBuilderTests {
         steerable: steerable,
         canInterrupt: canInterrupt,
         connectorAttached: connectorAttached,
+        currentTurnId: nil,
         projectPath: "/tmp/project",
         currentCwd: "/tmp/project",
         gitBranch: "main",
