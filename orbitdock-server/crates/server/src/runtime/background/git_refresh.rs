@@ -1,10 +1,11 @@
 //! Periodic git info refresh for active subscribed sessions.
 //!
-//! Every second, iterates all sessions in the registry. For each session
+//! Periodically iterates all sessions in the registry. For each session
 //! that is Active and has at least one WebSocket subscriber, resolves
 //! git info from the session's cwd and broadcasts a SessionDelta only
 //! if the branch or SHA has actually changed.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,7 +16,7 @@ use crate::domain::git::repo::{resolve_git_info, GitInfo};
 use crate::runtime::session_commands::SessionCommand;
 use crate::runtime::session_registry::SessionRegistry;
 
-const REFRESH_INTERVAL: Duration = Duration::from_secs(1);
+const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GitRefreshCandidate {
@@ -27,6 +28,7 @@ struct GitRefreshCandidate {
 
 pub async fn start_git_refresh_loop(state: Arc<SessionRegistry>) {
   let mut interval = tokio::time::interval(REFRESH_INTERVAL);
+  interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
   loop {
     interval.tick().await;
     refresh_subscribed_sessions(&state).await;
@@ -57,6 +59,7 @@ async fn refresh_subscribed_sessions(state: &SessionRegistry) {
     return;
   }
 
+  let mut info_by_cwd: HashMap<String, Option<GitInfo>> = HashMap::new();
   for (actor, candidate) in candidates {
     let GitRefreshCandidate {
       session_id,
@@ -64,7 +67,14 @@ async fn refresh_subscribed_sessions(state: &SessionRegistry) {
       old_branch,
       old_sha,
     } = candidate;
-    let info = resolve_git_info(&cwd).await;
+    let info = match info_by_cwd.get(&cwd) {
+      Some(info) => info.clone(),
+      None => {
+        let info = resolve_git_info(&cwd).await;
+        info_by_cwd.insert(cwd.clone(), info.clone());
+        info
+      }
+    };
     if let Some(info) = info.as_ref() {
       if let Some(changes) = plan_git_refresh_delta(old_branch.as_deref(), old_sha.as_deref(), info)
       {

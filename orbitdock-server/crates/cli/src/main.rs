@@ -2,16 +2,56 @@ use clap::Parser;
 use orbitdock_cli::cli::{BinaryCli as Cli, BinaryCommand as Command};
 use std::io::IsTerminal;
 
-// Match Codex arg0's worker stack for embedded app-server resume/start futures.
-const TOKIO_WORKER_STACK_SIZE: usize = 16 * 1024 * 1024;
+// Keep enough stack for embedded Codex app-server resume/start futures without
+// making every runtime worker reserve the larger 16 MiB debug-era footprint.
+const DEFAULT_TOKIO_WORKER_STACK_SIZE: usize = 8 * 1024 * 1024;
+const DEFAULT_TOKIO_WORKER_THREAD_CAP: usize = 4;
+const STACK_BYTES_PER_MIB: usize = 1024 * 1024;
 
 fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+  let worker_stack_size = tokio_worker_stack_size()?;
+  let worker_threads = tokio_worker_threads()?;
+
   Ok(
     tokio::runtime::Builder::new_multi_thread()
       .enable_all()
-      .thread_stack_size(TOKIO_WORKER_STACK_SIZE)
+      .worker_threads(worker_threads)
+      .thread_stack_size(worker_stack_size)
       .build()?,
   )
+}
+
+fn tokio_worker_stack_size() -> anyhow::Result<usize> {
+  match parse_positive_usize_env("ORBITDOCK_TOKIO_WORKER_STACK_MB")? {
+    Some(mib) => Ok(mib * STACK_BYTES_PER_MIB),
+    None => Ok(DEFAULT_TOKIO_WORKER_STACK_SIZE),
+  }
+}
+
+fn tokio_worker_threads() -> anyhow::Result<usize> {
+  if let Some(configured) = parse_positive_usize_env("ORBITDOCK_TOKIO_WORKER_THREADS")? {
+    return Ok(configured);
+  }
+
+  Ok(
+    std::thread::available_parallelism()
+      .map(|parallelism| parallelism.get().min(DEFAULT_TOKIO_WORKER_THREAD_CAP))
+      .unwrap_or(DEFAULT_TOKIO_WORKER_THREAD_CAP),
+  )
+}
+
+fn parse_positive_usize_env(name: &str) -> anyhow::Result<Option<usize>> {
+  let Some(raw_value) = std::env::var_os(name) else {
+    return Ok(None);
+  };
+  let value = raw_value.to_string_lossy();
+  let parsed = value
+    .parse::<usize>()
+    .map_err(|_| anyhow::anyhow!("{name} must be a positive integer, got {value:?}"))?;
+  if parsed == 0 {
+    anyhow::bail!("{name} must be greater than zero");
+  }
+  Ok(Some(parsed))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -273,4 +313,59 @@ fn main() -> anyhow::Result<()> {
   }
 
   runtime.block_on(orbitdock_server::run_server(run_options))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::sync::Mutex;
+
+  static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+  fn with_env_var<T>(name: &str, value: Option<&str>, test: impl FnOnce() -> T) -> T {
+    let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
+    let previous = std::env::var_os(name);
+
+    match value {
+      Some(value) => std::env::set_var(name, value),
+      None => std::env::remove_var(name),
+    }
+
+    let result = test();
+
+    match previous {
+      Some(previous) => std::env::set_var(name, previous),
+      None => std::env::remove_var(name),
+    }
+
+    result
+  }
+
+  #[test]
+  fn worker_stack_defaults_to_eight_mib() {
+    with_env_var("ORBITDOCK_TOKIO_WORKER_STACK_MB", None, || {
+      assert_eq!(tokio_worker_stack_size().unwrap(), 8 * STACK_BYTES_PER_MIB);
+    });
+  }
+
+  #[test]
+  fn worker_stack_can_be_overridden_by_env() {
+    with_env_var("ORBITDOCK_TOKIO_WORKER_STACK_MB", Some("16"), || {
+      assert_eq!(tokio_worker_stack_size().unwrap(), 16 * STACK_BYTES_PER_MIB);
+    });
+  }
+
+  #[test]
+  fn worker_threads_can_be_overridden_by_env() {
+    with_env_var("ORBITDOCK_TOKIO_WORKER_THREADS", Some("2"), || {
+      assert_eq!(tokio_worker_threads().unwrap(), 2);
+    });
+  }
+
+  #[test]
+  fn worker_threads_reject_zero() {
+    with_env_var("ORBITDOCK_TOKIO_WORKER_THREADS", Some("0"), || {
+      assert!(tokio_worker_threads().is_err());
+    });
+  }
 }

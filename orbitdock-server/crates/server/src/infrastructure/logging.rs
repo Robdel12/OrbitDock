@@ -7,8 +7,8 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use tokio::sync::mpsc;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
-use tracing_appender::rolling::{Builder as RollingFileAppenderBuilder, Rotation};
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{Builder as RollingFileAppenderBuilder, Rotation};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
@@ -190,7 +190,10 @@ fn clear_server_logs_on_start(log_dir: &Path) -> anyhow::Result<()> {
       continue;
     }
 
-    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("");
+    let file_name = path
+      .file_name()
+      .and_then(|name| name.to_str())
+      .unwrap_or("");
     if file_name == "server.log" || file_name.starts_with("server.log.") {
       std::fs::remove_file(path)?;
     }
@@ -206,7 +209,9 @@ fn archive_legacy_server_log_if_present(log_dir: &Path, log_path: &Path) -> anyh
 
   let archive_name = format!(
     "server.log.legacy-{}",
-    Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true).replace(':', "-")
+    Utc::now()
+      .to_rfc3339_opts(SecondsFormat::Secs, true)
+      .replace(':', "-")
   );
   let archive_path = log_dir.join(archive_name);
   std::fs::rename(log_path, archive_path)?;

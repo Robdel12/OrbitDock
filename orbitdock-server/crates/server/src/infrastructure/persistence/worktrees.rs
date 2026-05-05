@@ -163,12 +163,16 @@ where
     .unwrap_or_default()
 }
 
-pub fn load_removed_worktree_paths(db_path: &PathBuf) -> HashSet<String> {
+pub fn load_hidden_recent_project_paths(db_path: &PathBuf) -> HashSet<String> {
   let Some(conn) = open_readonly_conn(db_path) else {
     return HashSet::new();
   };
-  let mut stmt = match conn.prepare("SELECT worktree_path FROM worktrees WHERE status = 'removed'")
-  {
+  let mut stmt = match conn.prepare(
+    "SELECT worktree_path
+       FROM worktrees
+      WHERE status = 'removed'
+         OR COALESCE(created_by, '') = 'agent'",
+  ) {
     Ok(statement) => statement,
     Err(_) => return HashSet::new(),
   };

@@ -72,19 +72,22 @@ XCODEBUILD_IOS = $(call xcodebuild_cmd,$(XCODE_IOS_SCHEME),$(XCODE_IOS_DESTINATI
 XCODEBUILD_IOS_UNIT_TEST = $(call xcodebuild_cmd,$(XCODE_IOS_SCHEME),$(XCODE_IOS_TEST_DESTINATION),CODE_SIGNING_ALLOWED=NO)
 
 RUST_ENV_BASE = PATH="$(RUST_PATH)" SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
+RUST_ENV_NO_WRAPPER = env RUSTC_WRAPPER= CARGO_BUILD_RUSTC_WRAPPER= $(RUST_ENV_BASE)
 
 ifeq ($(RUST_SCCACHE),on)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER=sccache CARGO_BUILD_RUSTC_WRAPPER=sccache
 else ifeq ($(RUST_SCCACHE),off)
-RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
+RUST_ENV = $(RUST_ENV_NO_WRAPPER)
 else ifeq ($(strip $(SCCACHE_READY)),1)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER="$(SCCACHE_BIN)" CARGO_BUILD_RUSTC_WRAPPER="$(SCCACHE_BIN)"
 else
-RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
+RUST_ENV = $(RUST_ENV_NO_WRAPPER)
 endif
 
 RUST_WORKSPACE_PREFIX = cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV)
+RUST_WORKSPACE_PREFIX_NO_WRAPPER = cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_NO_WRAPPER)
 RUST_CARGO = $(RUST_WORKSPACE_PREFIX) cargo
+RUST_CARGO_NO_WRAPPER = $(RUST_WORKSPACE_PREFIX_NO_WRAPPER) cargo
 
 define run_xcode_logged
 @$(MAKE) xcode-cache-dirs
@@ -154,7 +157,7 @@ endef
 
 define run_rust_start
 	@args=(); \
-	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-1}" != "0" ]]; then \
+	if [[ -t 1 && -t 2 && "$${ORBITDOCK_DEV_CONSOLE:-0}" != "0" ]]; then \
 		args+=(--dev-console); \
 	fi; \
 	$(1) run -p $(RUST_BIN_PACKAGE) -- start $(2) "$${args[@]}"
@@ -199,6 +202,7 @@ help:
 	@echo "make rust-run   Run orbitdock locally (127.0.0.1:4000 by default)"
 	@echo "make rust-run-lan Run on LAN without auth (trusted network/dev only)"
 	@echo "make rust-run-debug Run orbitdock with debug logs"
+	@echo "ORBITDOCK_DEV_CONSOLE=1 make rust-run Enable the interactive dev console"
 	@echo "make rust-generate-token Issue a secure auth token (stored hashed in DB)"
 	@echo "make cli ARGS='...'    Run the debug orbitdock binary with arbitrary args"
 	@echo ""

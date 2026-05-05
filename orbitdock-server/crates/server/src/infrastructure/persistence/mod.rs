@@ -96,7 +96,7 @@ pub(crate) use workspaces::{
   WorkspaceRecordInsert, WorkspaceRecordUpdate,
 };
 pub(crate) use worktrees::{
-  load_all_worktrees, load_removed_worktree_paths, load_worktree_by_id,
+  load_all_worktrees, load_hidden_recent_project_paths, load_worktree_by_id,
   load_worktree_session_stats, load_worktrees_by_repo, WorktreeRow,
 };
 #[cfg(test)]

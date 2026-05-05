@@ -9,7 +9,7 @@ mod provider_defaults;
 #[path = "runtime_defaults.rs"]
 mod runtime_defaults;
 
-pub(crate) use bridge::{convert_app_server_type, convert_optional};
+pub(crate) use bridge::{convert_app_server_type, convert_optional, convert_sandbox_policy};
 pub(crate) use constructor::ResumeConnectorWithToolsConfig;
 pub use discovery::{discover_models, discover_models_for_context};
 #[cfg(test)]

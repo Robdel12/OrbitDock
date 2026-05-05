@@ -417,7 +417,10 @@ pub(super) fn persist_set_summary(
   summary: String,
 ) -> Result<(), rusqlite::Error> {
   conn.execute(
-    "UPDATE sessions SET summary = ?, last_activity_at = ? WHERE id = ?",
+    "UPDATE sessions
+         SET summary = ?, last_activity_at = ?
+         WHERE id = ?
+           AND (summary IS NULL OR trim(summary) = '')",
     params![summary, super::chrono_now(), session_id],
   )?;
   Ok(())

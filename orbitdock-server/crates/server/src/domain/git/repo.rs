@@ -57,17 +57,26 @@ pub async fn resolve_origin_url(path: &str) -> Option<String> {
 
 /// Resolve full git context for a path, or `None` if not inside a git repo.
 pub async fn resolve_git_info(path: &str) -> Option<GitInfo> {
-  let (toplevel, common_dir, branch, sha) = tokio::join!(
-    run_git(&["rev-parse", "--show-toplevel"], path),
-    run_git(&["rev-parse", "--git-common-dir"], path),
+  let (lines, branch) = tokio::join!(
+    run_git_lines(
+      &[
+        "rev-parse",
+        "--show-toplevel",
+        "--git-common-dir",
+        "--short=12",
+        "HEAD",
+      ],
+      path,
+    ),
     run_git(&["rev-parse", "--abbrev-ref", "HEAD"], path),
-    run_git(&["rev-parse", "--short=12", "HEAD"], path),
   );
+  let lines = lines?;
 
-  let toplevel = toplevel?;
-  let common_dir = common_dir?;
+  let mut lines = lines.into_iter();
+  let toplevel = lines.next()?;
+  let common_dir = lines.next()?;
+  let sha = lines.next().unwrap_or_default();
   let branch = branch.unwrap_or_else(|| "HEAD".to_string());
-  let sha = sha.unwrap_or_default();
 
   let common_dir_root = classify_common_dir(&toplevel, &common_dir);
   let is_worktree = common_dir_root != toplevel;
@@ -352,6 +361,35 @@ async fn run_git(args: &[&str], cwd: &str) -> Option<String> {
     None
   } else {
     Some(text.to_string())
+  }
+}
+
+async fn run_git_lines(args: &[&str], cwd: &str) -> Option<Vec<String>> {
+  let output = Command::new("/usr/bin/git")
+    .args(args)
+    .current_dir(cwd)
+    .stdin(Stdio::null())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null())
+    .output()
+    .await
+    .ok()?;
+
+  if !output.status.success() {
+    return None;
+  }
+
+  let text = String::from_utf8(output.stdout).ok()?;
+  let lines = text
+    .lines()
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+  if lines.is_empty() {
+    None
+  } else {
+    Some(lines)
   }
 }
 

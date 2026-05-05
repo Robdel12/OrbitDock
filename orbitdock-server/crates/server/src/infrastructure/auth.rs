@@ -1,9 +1,13 @@
 //! Optional auth token middleware.
 //!
 //! Authenticated requests should include `Authorization: Bearer <token>`.
-//! As a fallback (for browser WebSocket connections that cannot set headers),
-//! the `?token=<token>` query parameter is also accepted.
 //! The `/health` endpoint remains unauthenticated for simple liveness probes.
+
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc,
+};
+use std::time::Duration;
 
 use axum::{
   body::Body,
@@ -17,30 +21,87 @@ use tracing::warn;
 use crate::infrastructure::auth_tokens;
 
 const MAX_BEARER_TOKEN_LEN: usize = 1024;
+const DB_TOKEN_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Debug)]
 pub struct AuthState {
   pub static_token: Option<String>,
+  pub database_tokens_enabled: Arc<AtomicBool>,
 }
 
 impl AuthState {
+  pub fn new(static_token: Option<String>, has_active_db_tokens: bool) -> Self {
+    Self {
+      static_token,
+      database_tokens_enabled: Arc::new(AtomicBool::new(has_active_db_tokens)),
+    }
+  }
+
   fn requires_auth(&self) -> Result<bool, StatusCode> {
     if self.static_token.is_some() {
       return Ok(true);
     }
 
+    if self.database_tokens_enabled.load(Ordering::Relaxed) {
+      return Ok(true);
+    }
+
     match auth_tokens::active_token_count() {
-      Ok(count) => Ok(count > 0),
-      Err(e) => {
+      Ok(count) => {
+        let enabled = count > 0;
+        self
+          .database_tokens_enabled
+          .store(enabled, Ordering::Relaxed);
+        Ok(enabled)
+      }
+      Err(error) => {
         warn!(
             component = "auth",
             event = "auth.token_count_error",
-            error = %e,
+            error = %error,
             "Failed to determine whether database-backed auth is enabled"
         );
         Err(StatusCode::INTERNAL_SERVER_ERROR)
       }
     }
+  }
+
+  pub fn spawn_db_token_refresh(&self) {
+    if self.static_token.is_some() {
+      return;
+    }
+
+    let database_tokens_enabled = Arc::clone(&self.database_tokens_enabled);
+    tokio::spawn(async move {
+      let mut interval = tokio::time::interval(DB_TOKEN_REFRESH_INTERVAL);
+      interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+      loop {
+        interval.tick().await;
+        let count = tokio::task::spawn_blocking(auth_tokens::active_token_count).await;
+        match count {
+          Ok(Ok(count)) => {
+            database_tokens_enabled.store(count > 0, Ordering::Relaxed);
+          }
+          Ok(Err(error)) => {
+            warn!(
+                component = "auth",
+                event = "auth.token_count_error",
+                error = %error,
+                "Failed to refresh database-backed auth state"
+            );
+          }
+          Err(error) => {
+            warn!(
+                component = "auth",
+                event = "auth.token_count_task_join_error",
+                error = %error,
+                "Database-backed auth refresh task failed"
+            );
+          }
+        }
+      }
+    });
   }
 }
 
@@ -89,25 +150,12 @@ pub async fn auth_middleware(
   Err(StatusCode::UNAUTHORIZED)
 }
 
-/// Extract token from Authorization header first, then fall back to `?token=` query param.
-/// The query-param fallback exists because browser WebSocket API cannot set custom headers.
+/// Extract token from the Authorization header.
 fn extract_token(req: &Request<Body>) -> Option<&str> {
-  // Prefer Authorization header
   if let Some(header) = req.headers().get("authorization") {
     if let Ok(value) = header.to_str() {
       if let Some(token) = value.strip_prefix("Bearer ") {
         if token.len() <= MAX_BEARER_TOKEN_LEN {
-          return Some(token);
-        }
-      }
-    }
-  }
-
-  // Fall back to ?token= query parameter (for WebSocket upgrade requests)
-  if let Some(query) = req.uri().query() {
-    for pair in query.split('&') {
-      if let Some(token) = pair.strip_prefix("token=") {
-        if !token.is_empty() && token.len() <= MAX_BEARER_TOKEN_LEN {
           return Some(token);
         }
       }
@@ -126,4 +174,27 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     diff |= (lhs ^ rhs) as usize;
   }
   diff == 0
+}
+
+#[cfg(test)]
+mod tests {
+  use super::AuthState;
+
+  #[test]
+  fn auth_required_when_static_token_is_configured() {
+    let auth = AuthState::new(Some("secret".to_string()), false);
+    assert_eq!(auth.requires_auth(), Ok(true));
+  }
+
+  #[test]
+  fn auth_required_when_database_tokens_are_enabled() {
+    let auth = AuthState::new(None, true);
+    assert_eq!(auth.requires_auth(), Ok(true));
+  }
+
+  #[test]
+  fn auth_not_required_without_static_or_database_tokens() {
+    let auth = AuthState::new(None, false);
+    assert_eq!(auth.requires_auth(), Ok(false));
+  }
 }

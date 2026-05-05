@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, Stdout};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use crossterm::event::{Event as CrosstermEvent, EventStream, KeyEventKind};
@@ -16,10 +16,13 @@ use ratatui::Terminal;
 #[cfg(unix)]
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::mpsc;
+use tokio::time::MissedTickBehavior;
 
 use orbitdock_server::{ServerRunOptions, StderrLogMode};
 
 use super::{draw, handle_key_event, ConsoleAction, DevConsoleState};
+
+const REDRAW_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Try to set up the TUI terminal. This is separated from `run_server_with_dev_console`
 /// so callers can distinguish "TUI setup failed" (safe to fall back to plain logs)
@@ -40,6 +43,9 @@ pub async fn run_server_with_dev_console(
 
   let mut input = EventStream::new();
   let mut state = DevConsoleState::new(bind_addr);
+  let mut needs_redraw = false;
+  let mut redraw_interval = tokio::time::interval(REDRAW_INTERVAL);
+  redraw_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
   #[cfg(unix)]
   let mut job_control = JobControlSignals::new()?;
   let mut terminal_suspend_state = TerminalSuspendState::default();
@@ -47,9 +53,9 @@ pub async fn run_server_with_dev_console(
   let server_future = orbitdock_server::run_server(options);
   tokio::pin!(server_future);
 
-  loop {
-    terminal.draw(|frame| draw(frame, &mut state))?;
+  terminal.draw(|frame| draw(frame, &mut state))?;
 
+  loop {
     #[cfg(unix)]
     tokio::select! {
         server_result = &mut server_future => {
@@ -58,6 +64,7 @@ pub async fn run_server_with_dev_console(
         maybe_event = rx.recv() => {
             if let Some(event) = maybe_event {
                 state.push_event(event);
+                needs_redraw = true;
             } else {
                 break;
             }
@@ -81,11 +88,20 @@ pub async fn run_server_with_dev_console(
                             });
                         }
                     }
+                    needs_redraw = true;
                 }
-                Some(CrosstermEvent::Resize(_, _)) => {}
-                Some(_) => {}
+                Some(CrosstermEvent::Resize(_, _)) => {
+                    needs_redraw = true;
+                }
+                Some(_) => {
+                    needs_redraw = true;
+                }
                 None => break,
             }
+        }
+        _ = redraw_interval.tick(), if needs_redraw => {
+            terminal.draw(|frame| draw(frame, &mut state))?;
+            needs_redraw = false;
         }
         _ = job_control.sigtstp.recv() => {
             suspend_for_job_control_signal(
@@ -111,6 +127,7 @@ pub async fn run_server_with_dev_console(
         _ = job_control.sigcont.recv(), if terminal_suspend_state.is_suspended() => {
             terminal.resume()?;
             terminal_suspend_state.mark_resumed();
+            needs_redraw = true;
         }
     }
 
@@ -122,6 +139,7 @@ pub async fn run_server_with_dev_console(
         maybe_event = rx.recv() => {
             if let Some(event) = maybe_event {
                 state.push_event(event);
+                needs_redraw = true;
             } else {
                 break;
             }
@@ -145,11 +163,20 @@ pub async fn run_server_with_dev_console(
                             });
                         }
                     }
+                    needs_redraw = true;
                 }
-                Some(CrosstermEvent::Resize(_, _)) => {}
-                Some(_) => {}
+                Some(CrosstermEvent::Resize(_, _)) => {
+                    needs_redraw = true;
+                }
+                Some(_) => {
+                    needs_redraw = true;
+                }
                 None => break,
             }
+        }
+        _ = redraw_interval.tick(), if needs_redraw => {
+            terminal.draw(|frame| draw(frame, &mut state))?;
+            needs_redraw = false;
         }
     }
   }

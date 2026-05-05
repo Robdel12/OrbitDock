@@ -21,7 +21,7 @@ fn extract_url_handles_no_url() {
 #[test]
 fn extract_url_ignores_cloudflare_terms_links() {
   let line =
-    "2024-01-15T12:00:00Z INF If you'd like to learn more, visit https://www.cloudflare.com/website-terms/ for details";
+    "2024-01-15T12:00:00Z INF If you'd like to learn more, visit https://www.cloudflare.com/terms/ for details";
   assert_eq!(extract_url(line), None);
 }
 

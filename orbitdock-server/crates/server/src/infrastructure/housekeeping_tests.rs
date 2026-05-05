@@ -41,8 +41,16 @@ fn prune_old_logs_caps_total_rotated_size() {
 
   let oldest = log_dir.join("server.log.2026-03-27-10");
   let newest = log_dir.join("server.log.2026-03-27-11");
-  fs::write(&oldest, vec![b'a'; (ROTATED_SERVER_LOG_MAX_BYTES / 2 + 1024) as usize]).unwrap();
-  fs::write(&newest, vec![b'b'; (ROTATED_SERVER_LOG_MAX_BYTES / 2 + 1024) as usize]).unwrap();
+  fs::write(
+    &oldest,
+    vec![b'a'; (ROTATED_SERVER_LOG_MAX_BYTES / 2 + 1024) as usize],
+  )
+  .unwrap();
+  fs::write(
+    &newest,
+    vec![b'b'; (ROTATED_SERVER_LOG_MAX_BYTES / 2 + 1024) as usize],
+  )
+  .unwrap();
 
   set_mtime(&oldest, SystemTime::now() - Duration::from_secs(120));
   set_mtime(&newest, SystemTime::now() - Duration::from_secs(60));

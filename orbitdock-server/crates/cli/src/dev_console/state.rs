@@ -200,9 +200,9 @@ impl DevConsoleState {
       let receives_event =
         pane.category == primary || (pane.category == Category::Errors && event.level == "ERROR");
       if receives_event && pane.follow_tail && self.event_matches_filters(&event) {
-        let visible = self.filtered_rows(pane.category);
-        if !visible.is_empty() {
-          self.panes[pane_index].selected = visible.len().saturating_sub(1);
+        let visible_count = self.filtered_row_count(pane.category);
+        if visible_count > 0 {
+          self.panes[pane_index].selected = visible_count.saturating_sub(1);
         }
       }
     }
@@ -235,6 +235,16 @@ impl DevConsoleState {
       .collect()
   }
 
+  pub(crate) fn filtered_row_count(&self, category: Category) -> usize {
+    self
+      .events_by_category
+      .get(&category)
+      .into_iter()
+      .flat_map(|rows| rows.iter())
+      .filter(|row| self.event_matches_filters(&row.event))
+      .count()
+  }
+
   pub(crate) fn event_matches_filters(&self, event: &ServerLogEvent) -> bool {
     self.level_filter.matches(&event.level)
       && self
@@ -245,25 +255,31 @@ impl DevConsoleState {
 
   pub(crate) fn selected_event(&self) -> Option<Arc<ServerLogEvent>> {
     let pane = self.panes[self.focus];
-    let rows = self.filtered_rows(pane.category);
-    rows.get(pane.selected).cloned()
+    self
+      .events_by_category
+      .get(&pane.category)
+      .into_iter()
+      .flat_map(|rows| rows.iter())
+      .filter(|row| self.event_matches_filters(&row.event))
+      .nth(pane.selected)
+      .map(|row| Arc::clone(&row.event))
   }
 
   pub(crate) fn clamp_selection(&mut self, pane_index: usize) {
-    let rows = self.filtered_rows(self.panes[pane_index].category);
-    if rows.is_empty() {
+    let row_count = self.filtered_row_count(self.panes[pane_index].category);
+    if row_count == 0 {
       self.panes[pane_index].selected = 0;
       self.panes[pane_index].follow_tail = true;
       return;
     }
 
     if self.panes[pane_index].follow_tail {
-      self.panes[pane_index].selected = rows.len().saturating_sub(1);
+      self.panes[pane_index].selected = row_count.saturating_sub(1);
       return;
     }
 
-    if self.panes[pane_index].selected >= rows.len() {
-      self.panes[pane_index].selected = rows.len().saturating_sub(1);
+    if self.panes[pane_index].selected >= row_count {
+      self.panes[pane_index].selected = row_count.saturating_sub(1);
     }
   }
 }

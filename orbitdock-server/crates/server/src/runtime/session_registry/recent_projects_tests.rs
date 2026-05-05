@@ -9,21 +9,25 @@ use crate::domain::sessions::session::SessionHandle;
 
 use crate::runtime::session_registry::SessionRegistry;
 
-fn registry_with_worktree_rows(rows: &[(&str, &str)]) -> (TempDir, SessionRegistry) {
+fn registry_with_worktree_rows(rows: &[(&str, &str, Option<&str>)]) -> (TempDir, SessionRegistry) {
   let temp_dir = tempfile::tempdir().expect("temp dir");
   let db_path = temp_dir.path().join("orbitdock.sqlite");
   let conn = Connection::open(&db_path).expect("open sqlite db");
   conn
     .execute(
-      "CREATE TABLE worktrees (worktree_path TEXT NOT NULL, status TEXT NOT NULL)",
+      "CREATE TABLE worktrees (
+        worktree_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_by TEXT
+      )",
       [],
     )
     .expect("create worktrees table");
-  for (worktree_path, status) in rows {
+  for (worktree_path, status, created_by) in rows {
     conn
       .execute(
-        "INSERT INTO worktrees (worktree_path, status) VALUES (?1, ?2)",
-        [worktree_path, status],
+        "INSERT INTO worktrees (worktree_path, status, created_by) VALUES (?1, ?2, ?3)",
+        rusqlite::params![worktree_path, status, created_by],
       )
       .expect("insert worktree row");
   }
@@ -40,7 +44,7 @@ fn registry_with_worktree_rows(rows: &[(&str, &str)]) -> (TempDir, SessionRegist
 }
 
 fn registry_with_persisted_sessions(
-  worktree_rows: &[(&str, &str)],
+  worktree_rows: &[(&str, &str, Option<&str>)],
   session_rows: &[(&str, &str, &str, Option<&str>)],
 ) -> (TempDir, SessionRegistry) {
   let (temp_dir, registry) = registry_with_worktree_rows(worktree_rows);
@@ -73,7 +77,7 @@ fn registry_with_persisted_sessions(
 #[tokio::test]
 async fn list_recent_projects_hides_removed_worktree_paths() {
   let (_temp_dir, registry) =
-    registry_with_worktree_rows(&[("/repo/.orbitdock-worktrees/feature-a", "removed")]);
+    registry_with_worktree_rows(&[("/repo/.orbitdock-worktrees/feature-a", "removed", None)]);
 
   for (session_id, path, last_activity_at) in [
     (
@@ -131,7 +135,7 @@ async fn list_recent_projects_aggregates_counts_and_latest_activity_for_visible_
 #[tokio::test]
 async fn list_recent_projects_uses_persisted_session_history() {
   let (_temp_dir, registry) = registry_with_persisted_sessions(
-    &[("/repo/.orbitdock-worktrees/removed", "removed")],
+    &[("/repo/.orbitdock-worktrees/removed", "removed", None)],
     &[
       (
         "old-active-cache",
@@ -244,6 +248,72 @@ async fn list_recent_projects_hides_missing_worktree_paths_from_in_memory_fallba
   worktree_session.set_worktree_info(Some(repo_path_str.clone()), true, Some("wt-1".to_string()));
   worktree_session.refresh_snapshot();
   registry.add_session(worktree_session);
+
+  let mut repo_session = SessionHandle::new(
+    "repo-session".to_string(),
+    Provider::Codex,
+    repo_path_str.clone(),
+  );
+  repo_session.set_last_activity_at(Some("2026-03-08T11:00:00Z".to_string()));
+  repo_session.refresh_snapshot();
+  registry.add_session(repo_session);
+
+  let projects: Vec<RecentProject> = registry.list_recent_projects().await;
+
+  assert_eq!(projects.len(), 1);
+  assert_eq!(projects[0].path, repo_path_str);
+}
+
+#[tokio::test]
+async fn list_recent_projects_hides_agent_worktree_paths_from_persisted_history() {
+  let temp_dir = tempfile::tempdir().expect("temp dir");
+  let repo_path = temp_dir.path().join("repo");
+  fs::create_dir_all(&repo_path).expect("create repo dir");
+  let repo_path_str = repo_path.to_string_lossy().to_string();
+  let mission_workspace_path = temp_dir.path().join("symphony-workspaces/VIZ-250");
+  fs::create_dir_all(&mission_workspace_path).expect("create mission workspace dir");
+  let mission_workspace_path_str = mission_workspace_path.to_string_lossy().to_string();
+
+  let (_temp_dir, registry) = registry_with_persisted_sessions(
+    &[(&mission_workspace_path_str, "active", Some("agent"))],
+    &[
+      ("repo-session", &repo_path_str, "2026-03-08T09:00:00Z", None),
+      (
+        "mission-session",
+        &mission_workspace_path_str,
+        "2026-03-08T12:00:00Z",
+        None,
+      ),
+    ],
+  );
+
+  let projects: Vec<RecentProject> = registry.list_recent_projects().await;
+
+  assert_eq!(projects.len(), 1);
+  assert_eq!(projects[0].path, repo_path_str);
+}
+
+#[tokio::test]
+async fn list_recent_projects_hides_agent_worktree_paths_from_in_memory_fallback() {
+  let temp_dir = tempfile::tempdir().expect("temp dir");
+  let repo_path = temp_dir.path().join("repo");
+  fs::create_dir_all(&repo_path).expect("create repo dir");
+  let repo_path_str = repo_path.to_string_lossy().to_string();
+  let mission_workspace_path = temp_dir.path().join("symphony-workspaces/VIZ-250");
+  fs::create_dir_all(&mission_workspace_path).expect("create mission workspace dir");
+  let mission_workspace_path_str = mission_workspace_path.to_string_lossy().to_string();
+
+  let (_registry_dir, registry) =
+    registry_with_worktree_rows(&[(&mission_workspace_path_str, "active", Some("agent"))]);
+
+  let mut mission_session = SessionHandle::new(
+    "mission-session".to_string(),
+    Provider::Codex,
+    mission_workspace_path_str,
+  );
+  mission_session.set_last_activity_at(Some("2026-03-08T12:00:00Z".to_string()));
+  mission_session.refresh_snapshot();
+  registry.add_session(mission_session);
 
   let mut repo_session = SessionHandle::new(
     "repo-session".to_string(),

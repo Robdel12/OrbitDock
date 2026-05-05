@@ -268,7 +268,7 @@ fn start_named_tunnel(cloudflared: &str, port: u16, name: &str) -> anyhow::Resul
 pub(crate) fn extract_url(line: &str) -> Option<String> {
   // Find HTTPS URLs in the line.
   // This is intentionally strict: Cloudflared logs can include unrelated
-  // Cloudflare links (like website terms), and we only want the tunnel URL.
+  // Cloudflare links, and we only want the tunnel URL.
   for word in line.split_whitespace() {
     let candidate = word
       .trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-');
