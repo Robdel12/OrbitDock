@@ -52,10 +52,7 @@ pub(super) fn request_thread_id(request: &ServerRequest) -> Option<String> {
   })
 }
 
-pub(super) async fn send_outputs(
-  route: &AppServerSessionRoute,
-  outputs: Vec<ConnectorOutput>,
-) {
+pub(super) async fn send_outputs(route: &AppServerSessionRoute, outputs: Vec<ConnectorOutput>) {
   for output in outputs {
     if route.forward_tx.send(output).is_err() {
       tracing::debug!("Typed codex app-server output channel closed");

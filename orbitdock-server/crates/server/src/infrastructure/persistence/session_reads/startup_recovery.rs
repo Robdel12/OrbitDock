@@ -386,14 +386,15 @@ async fn load_sessions_for_startup_with_db_path(
     sessions.sort_by(|left, right| {
       let left_progress = parse_timestamp_to_unix(left.last_progress_at.as_deref());
       let right_progress = parse_timestamp_to_unix(right.last_progress_at.as_deref());
-      let left_activity = parse_timestamp_to_unix(left.last_activity_at.as_deref())
-        .or_else(|| parse_timestamp_to_unix(left.started_at.as_deref()));
-      let right_activity = parse_timestamp_to_unix(right.last_activity_at.as_deref())
-        .or_else(|| parse_timestamp_to_unix(right.started_at.as_deref()));
+      let left_activity = parse_timestamp_to_unix(left.last_activity_at.as_deref());
+      let right_activity = parse_timestamp_to_unix(right.last_activity_at.as_deref());
+      let left_started = parse_timestamp_to_unix(left.started_at.as_deref());
+      let right_started = parse_timestamp_to_unix(right.started_at.as_deref());
 
       right_progress
         .cmp(&left_progress)
         .then_with(|| right_activity.cmp(&left_activity))
+        .then_with(|| right_started.cmp(&left_started))
     });
 
     Ok(sessions)
